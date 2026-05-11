@@ -15,14 +15,14 @@ export async function GET(request: Request) {
 
   // User denied or Jobber returned an error
   if (error || !code || !state) {
-    return NextResponse.redirect(`${APP_URL}/dashboard?error=jobber_denied`)
+    return NextResponse.redirect(`${APP_URL}/routing?error=jobber_denied`)
   }
 
   // Verify CSRF state
   const cookieStore = await cookies()
   const storedState = cookieStore.get('jobber_oauth_state')?.value
   if (!storedState || storedState !== state) {
-    return NextResponse.redirect(`${APP_URL}/dashboard?error=invalid_state`)
+    return NextResponse.redirect(`${APP_URL}/routing?error=invalid_state`)
   }
 
   // Verify user is logged in
@@ -48,7 +48,7 @@ export async function GET(request: Request) {
   if (!tokenRes.ok) {
     const body = await tokenRes.text()
     console.error('Jobber token exchange failed:', tokenRes.status, body)
-    return NextResponse.redirect(`${APP_URL}/dashboard?error=token_exchange_failed`)
+    return NextResponse.redirect(`${APP_URL}/routing?error=token_exchange_failed`)
   }
 
   const tokens = await tokenRes.json()
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
   // Jobber sometimes returns 200 with an error body
   if (!tokens.access_token) {
     console.error('Jobber token exchange — no access_token in response:', JSON.stringify(tokens))
-    return NextResponse.redirect(`${APP_URL}/dashboard?error=token_exchange_failed`)
+    return NextResponse.redirect(`${APP_URL}/routing?error=token_exchange_failed`)
   }
 
   // expires_in defaults to 3600 (1 hr) if Jobber omits it
@@ -79,11 +79,11 @@ export async function GET(request: Request) {
 
   if (dbError) {
     console.error('Failed to store Jobber tokens:', dbError)
-    return NextResponse.redirect(`${APP_URL}/dashboard?error=db_error`)
+    return NextResponse.redirect(`${APP_URL}/routing?error=db_error`)
   }
 
   // Clear CSRF cookie
   cookieStore.delete('jobber_oauth_state')
 
-  return NextResponse.redirect(`${APP_URL}/dashboard?jobber=connected`)
+  return NextResponse.redirect(`${APP_URL}/routing?jobber=connected`)
 }

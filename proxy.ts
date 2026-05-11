@@ -25,23 +25,70 @@ export async function proxy(request: NextRequest) {
 
   const { data: { user } } = await supabase.auth.getUser()
 
-  // Protect /dashboard and all routes under it
-  if (!user && request.nextUrl.pathname.startsWith('/dashboard')) {
+  const { pathname } = request.nextUrl
+  const protectedPaths = ['/dashboard', '/routing', '/lawn', '/responder', '/settings', '/call-log', '/admin', '/timesheet']
+  const isProtected = protectedPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
+
+  const isHeroesEmail = user?.email?.endsWith('@heroeslawntx.com') ?? false
+
+  // Boot any authenticated user whose email isn't @heroeslawntx.com
+  if (user && !isHeroesEmail) {
+    const url = request.nextUrl.clone()
+    url.pathname = '/api/auth/signout'
+    url.searchParams.set('reason', 'unauthorized')
+    return NextResponse.redirect(url)
+  }
+
+  // Redirect unauthenticated users to login
+  if (!user && isProtected) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
     return NextResponse.redirect(url)
   }
 
   // Redirect logged-in users away from login
-  if (user && request.nextUrl.pathname === '/login') {
+  if (user && pathname === '/login') {
     const url = request.nextUrl.clone()
     url.pathname = '/dashboard'
     return NextResponse.redirect(url)
+  }
+
+  // Permission checks for authenticated users on tool + admin routes
+  if (user && isProtected) {
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('role, can_access_routing, can_access_lawn, can_access_call_log, can_access_responder, can_access_timesheet')
+      .eq('id', user.id)
+      .single()
+
+    if (profile) {
+      const permissionMap: Record<string, keyof typeof profile> = {
+        '/routing': 'can_access_routing',
+        '/lawn': 'can_access_lawn',
+        '/call-log': 'can_access_call_log',
+        '/responder': 'can_access_responder',
+        '/timesheet': 'can_access_timesheet',
+      }
+
+      for (const [route, permKey] of Object.entries(permissionMap)) {
+        if ((pathname === route || pathname.startsWith(route + '/')) && !profile[permKey]) {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
+      if ((pathname === '/admin' || pathname.startsWith('/admin/')) && profile.role !== 'admin') {
+        const url = request.nextUrl.clone()
+        url.pathname = '/dashboard'
+        return NextResponse.redirect(url)
+      }
+    }
   }
 
   return supabaseResponse
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/login'],
+  matcher: ['/dashboard/:path*', '/routing/:path*', '/lawn/:path*', '/responder/:path*', '/settings/:path*', '/call-log/:path*', '/admin/:path*', '/timesheet/:path*', '/timesheet', '/login'],
 }

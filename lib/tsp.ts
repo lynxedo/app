@@ -15,8 +15,29 @@ export function haversineKm(a: LatLng, b: LatLng): number {
   return 2 * R * Math.asin(Math.sqrt(x))
 }
 
-function tourDist(pts: LatLng[], order: number[], depot: LatLng): number {
+/**
+ * Tour cost — uses durationMatrix (seconds) when provided, haversine otherwise.
+ * Index 0 in the matrix = depot; indices 1..n = stops in their original validStops order.
+ */
+function tourCost(
+  pts: LatLng[],
+  order: number[],
+  depot: LatLng,
+  matrix?: number[][]
+): number {
   if (order.length === 0) return 0
+
+  if (matrix) {
+    // Matrix indices: 0 = depot, 1..n = stops (order[i] + 1 because depot is index 0)
+    let cost = matrix[0][order[0] + 1]
+    for (let i = 0; i < order.length - 1; i++) {
+      cost += matrix[order[i] + 1][order[i + 1] + 1]
+    }
+    cost += matrix[order[order.length - 1] + 1][0]
+    return cost
+  }
+
+  // Fallback: haversine
   let d = haversineKm(depot, pts[order[0]])
   for (let i = 0; i < order.length - 1; i++) {
     d += haversineKm(pts[order[i]], pts[order[i + 1]])
@@ -27,17 +48,24 @@ function tourDist(pts: LatLng[], order: number[], depot: LatLng): number {
 
 /**
  * 2-opt TSP solver. Pure TS, no dependencies.
- * @param stops  Array of lat/lng coordinates for each stop.
- * @param depot  Starting/ending depot coordinates.
+ * @param stops   Array of lat/lng coordinates for each stop.
+ * @param depot   Starting/ending depot coordinates.
+ * @param matrix  Optional NxN duration matrix in seconds (index 0 = depot).
+ *                When provided, tour cost is measured in seconds of road travel
+ *                rather than straight-line km. This finds a better real-world order.
  * @returns Optimized index order into `stops`.
  */
-export function twoOptTSP(stops: LatLng[], depot: LatLng): number[] {
+export function twoOptTSP(
+  stops: LatLng[],
+  depot: LatLng,
+  matrix?: number[][]
+): number[] {
   const n = stops.length
   if (n === 0) return []
   if (n <= 2) return stops.map((_, i) => i)
 
   let order = stops.map((_, i) => i)
-  let best = tourDist(stops, order, depot)
+  let best = tourCost(stops, order, depot, matrix)
   let improved = true
 
   while (improved) {
@@ -49,7 +77,7 @@ export function twoOptTSP(stops: LatLng[], depot: LatLng): number[] {
           ...order.slice(i, j + 1).reverse(),
           ...order.slice(j + 1),
         ]
-        const d = tourDist(stops, candidate, depot)
+        const d = tourCost(stops, candidate, depot, matrix)
         if (d < best - 1e-10) {
           order = candidate
           best = d

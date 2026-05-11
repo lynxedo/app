@@ -2,17 +2,86 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { geocodeAddress } from '@/lib/geocode'
 import { haversineKm, twoOptTSP } from '@/lib/tsp'
+import type { DurationRulesConfig } from '@/app/api/settings/types'
+import { DEFAULT_DURATION_RULES } from '@/app/api/settings/types'
 
-// Depot: 27313 Dobbin Huffsmith Rd, Magnolia TX 77354
-const DEPOT = { lat: 30.2018, lng: -95.6972 }
-
-const AVG_SPEED_KMH = 40.23   // ~25 mph suburban average
-const SERVICE_TIME_MIN = 30    // default service time per stop
+const FALLBACK_DEPOT = { lat: 30.2018, lng: -95.6972 }
+const FALLBACK_SERVICE_MIN = 30
+const FALLBACK_DRIVE_MPH = 25
+const KM_PER_MILE = 1.60934
 
 interface OptimizeRequest {
   addresses: string[]
-  startHour?: number  // decimal 24-hr, e.g. 8.5 = 8:30 AM, defaults to 8
-  date?: string       // YYYY-MM-DD — if provided, legs include startAtISO/endAtISO
+  jobTitles?: string[]           // parallel to addresses
+  visitLineItems?: string[][]    // parallel to addresses — line item names per stop
+  visitTypes?: string[]          // parallel to addresses — 'visit' | 'assessment'
+  startHour?: number
+  date?: string
+  lockedFirstIdx?: number
+  lockedLastIdx?: number
+  durationMethod?: string        // override from main screen dropdown
+}
+
+// ── Duration calculation ─────────────────────────────────────────────────────
+
+function parseLawnSizeK(jobTitle: string): number | null {
+  const m = jobTitle.match(/(\d+(?:\.\d+)?)\s*[Kk](?:\s|$)/)
+  return m ? parseFloat(m[1]) : null
+}
+
+/**
+ * Compute on-site duration for a single stop.
+ * Returns { minutes, usedFallback, reason }
+ */
+function computeDuration(
+  lineItemNames: string[],
+  jobTitle: string,
+  isAssessment: boolean,
+  method: string,
+  rules: DurationRulesConfig,
+  fallbackMin: number,
+): { minutes: number; usedFallback: boolean } {
+
+  // Assessments always use fixed duration regardless of method
+  if (isAssessment) {
+    return { minutes: Math.max(rules.minMinutes, rules.assessmentMinutes), usedFallback: false }
+  }
+
+  if (method === 'default') {
+    return { minutes: Math.max(rules.minMinutes, fallbackMin), usedFallback: false }
+  }
+
+  if (method === 'formula') {
+    // Sum minutes for all matching line items (case-insensitive exact match)
+    let total = 0
+    let anyMatched = false
+    for (const code of rules.codes) {
+      if (!code.lineItemName) continue
+      const matched = lineItemNames.some(
+        li => li.trim().toLowerCase() === code.lineItemName.trim().toLowerCase()
+      )
+      if (matched) { total += code.minutes; anyMatched = true }
+    }
+
+    // Add lawn size if enabled
+    if (rules.useLawnSize) {
+      const lawnK = parseLawnSizeK(jobTitle)
+      if (lawnK !== null) total += lawnK
+    }
+
+    // Add padding
+    total += rules.padMinutes
+
+    // If nothing matched at all, fall back to default
+    if (!anyMatched && lineItemNames.length > 0) {
+      return { minutes: Math.max(rules.minMinutes, fallbackMin), usedFallback: true }
+    }
+
+    return { minutes: Math.max(rules.minMinutes, total), usedFallback: false }
+  }
+
+  // Fallthrough — unknown method
+  return { minutes: Math.max(rules.minMinutes, fallbackMin), usedFallback: true }
 }
 
 function fmtTime(totalMinutes: number): string {
@@ -29,68 +98,156 @@ function toISOLocal(date: string, totalMinutes: number): string {
   return `${date}T${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:00`
 }
 
+async function fetchDurationMatrix(
+  points: Array<{ lat: number; lng: number }>,
+  token: string
+): Promise<number[][] | null> {
+  try {
+    const coordStr = points.map(p => `${p.lng},${p.lat}`).join(';')
+    const url = `https://api.mapbox.com/directions-matrix/v1/mapbox/driving/${coordStr}?sources=all&destinations=all&access_token=${token}`
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    if (!res.ok) return null
+    const data = await res.json() as { code: string; durations: number[][] }
+    return data.code === 'Ok' ? data.durations : null
+  } catch { return null }
+}
+
 export async function POST(req: NextRequest) {
-  // Auth check
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { addresses, startHour = 8, date }: OptimizeRequest = await req.json()
-  if (!addresses || addresses.length === 0) {
+  const {
+    addresses, jobTitles, visitLineItems, visitTypes,
+    startHour = 8, date, lockedFirstIdx, lockedLastIdx,
+    durationMethod: methodOverride,
+  }: OptimizeRequest = await req.json()
+
+  if (!addresses || addresses.length === 0)
     return NextResponse.json({ error: 'No addresses provided' }, { status: 400 })
+
+  // Load user settings
+  const { data: settings } = await supabase
+    .from('user_settings')
+    .select('depot_lat, depot_lng, default_service_minutes, default_drive_mph, duration_method, duration_rules')
+    .eq('user_id', user.id)
+    .maybeSingle()
+
+  const depot = (settings?.depot_lat != null && settings?.depot_lng != null)
+    ? { lat: settings.depot_lat as number, lng: settings.depot_lng as number }
+    : FALLBACK_DEPOT
+  const serviceMin = settings?.default_service_minutes ?? FALLBACK_SERVICE_MIN
+  const mph = settings?.default_drive_mph ?? FALLBACK_DRIVE_MPH
+  const avgSpeedKmh = mph * KM_PER_MILE
+
+  // Duration method: client override takes priority, then saved setting
+  const method = methodOverride ?? (settings?.duration_method as string) ?? 'default'
+  const rules: DurationRulesConfig = {
+    ...DEFAULT_DURATION_RULES,
+    ...((settings?.duration_rules as Partial<DurationRulesConfig>) ?? {}),
   }
 
   // Geocode all addresses in parallel
   const coords = await Promise.all(addresses.map(a => geocodeAddress(a)))
-
-  // Track which failed
-  const geocodeFailed: number[] = coords
-    .map((c, i) => (c === null ? i : -1))
-    .filter(i => i !== -1)
-
-  // Build valid stops list with original index
+  const geocodeFailed = coords.map((c, i) => c === null ? i : -1).filter(i => i !== -1)
   const validStops: { originalIndex: number; coord: { lat: number; lng: number } }[] = []
-  coords.forEach((c, i) => {
-    if (c !== null) validStops.push({ originalIndex: i, coord: c })
-  })
-
-  if (validStops.length === 0) {
+  coords.forEach((c, i) => { if (c !== null) validStops.push({ originalIndex: i, coord: c }) })
+  if (validStops.length === 0)
     return NextResponse.json({ error: 'No addresses could be geocoded' }, { status: 422 })
+
+  // Matrix API
+  const allPoints = [depot, ...validStops.map(s => s.coord)]
+  const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
+  let durationMatrix: number[][] | null = null
+  if (mapboxToken && allPoints.length <= 25)
+    durationMatrix = await fetchDurationMatrix(allPoints, mapboxToken)
+  const usingMatrix = durationMatrix !== null
+
+  // Locked stops
+  let lockedFirstValidIdx: number | null = null
+  let lockedLastValidIdx: number | null = null
+  if (lockedFirstIdx != null && lockedFirstIdx >= 0) {
+    const fi = validStops.findIndex(s => s.originalIndex === lockedFirstIdx)
+    if (fi !== -1) lockedFirstValidIdx = fi
+  }
+  if (lockedLastIdx != null && lockedLastIdx >= 0) {
+    const li = validStops.findIndex(s => s.originalIndex === lockedLastIdx)
+    if (li !== -1 && li !== lockedFirstValidIdx) lockedLastValidIdx = li
   }
 
-  // Run 2-opt TSP on geocoded coords
-  const localOrder = twoOptTSP(validStops.map(s => s.coord), DEPOT)
+  const poolValidIndices = validStops.map((_, i) => i)
+    .filter(i => i !== lockedFirstValidIdx && i !== lockedLastValidIdx)
+  const poolStops = poolValidIndices.map(i => validStops[i])
 
-  // Map back to original visit indices
-  const order: number[] = localOrder.map(li => validStops[li].originalIndex)
+  let poolMatrix: number[][] | null = null
+  if (durationMatrix && poolStops.length > 0) {
+    const matIdxs = [0, ...poolValidIndices.map(i => i + 1)]
+    poolMatrix = matIdxs.map(ri => matIdxs.map(ci => durationMatrix![ri][ci]))
+  }
+
+  const poolLocalOrder = poolStops.length > 1
+    ? twoOptTSP(poolStops.map(s => s.coord), depot, poolMatrix ?? undefined)
+    : poolStops.map((_, i) => i)
+
+  const localOrder: number[] = []
+  if (lockedFirstValidIdx !== null) localOrder.push(lockedFirstValidIdx)
+  localOrder.push(...poolLocalOrder.map(pi => poolValidIndices[pi]))
+  if (lockedLastValidIdx !== null) localOrder.push(lockedLastValidIdx)
+
+  const order = localOrder.map(li => validStops[li].originalIndex)
   const orderedCoords = localOrder.map(li => validStops[li].coord)
 
-  // Build per-leg drive times and ETAs
+  // Build legs
   interface Leg {
-    distanceKm: number
-    driveMinutes: number
-    arrivalTime: string
-    startAtISO: string | null  // local ISO "YYYY-MM-DDTHH:MM:SS" (America/Chicago)
-    endAtISO: string | null    // startAt + SERVICE_TIME_MIN
+    distanceKm: number; driveMinutes: number; onSiteMinutes: number
+    arrivalTime: string; startAtISO: string | null; endAtISO: string | null
+    usedFallback: boolean
   }
   const legs: Leg[] = []
   let elapsedMin = startHour * 60
-  let prev = DEPOT
+  let prevMatrixIdx = 0
+  let prev = depot
 
-  for (const coord of orderedCoords) {
-    const distKm = haversineKm(prev, coord)
-    const driveMin = (distKm / AVG_SPEED_KMH) * 60
+  for (let i = 0; i < orderedCoords.length; i++) {
+    const coord = orderedCoords[i]
+    const currMatrixIdx = localOrder[i] + 1
+    let driveMin: number, distKm: number
+
+    if (usingMatrix && durationMatrix) {
+      driveMin = Math.round(durationMatrix[prevMatrixIdx][currMatrixIdx] / 60)
+      distKm = Math.round(haversineKm(prev, coord) * 10) / 10
+    } else {
+      distKm = Math.round(haversineKm(prev, coord) * 10) / 10
+      driveMin = Math.round((distKm / avgSpeedKmh) * 60)
+    }
     elapsedMin += driveMin
+
+    const originalIdx = order[i]
+    const title = jobTitles?.[originalIdx] ?? ''
+    const lineItems = visitLineItems?.[originalIdx] ?? []
+    const isAssessment = visitTypes?.[originalIdx] === 'assessment'
+
+    const { minutes: onSiteMin, usedFallback } = computeDuration(
+      lineItems, title, isAssessment, method, rules, serviceMin
+    )
+
     legs.push({
-      distanceKm: Math.round(distKm * 10) / 10,
-      driveMinutes: Math.round(driveMin),
+      distanceKm: distKm, driveMinutes: driveMin, onSiteMinutes: onSiteMin,
       arrivalTime: fmtTime(elapsedMin),
       startAtISO: date ? toISOLocal(date, elapsedMin) : null,
-      endAtISO: date ? toISOLocal(date, elapsedMin + SERVICE_TIME_MIN) : null,
+      endAtISO: date ? toISOLocal(date, elapsedMin + onSiteMin) : null,
+      usedFallback,
     })
-    elapsedMin += SERVICE_TIME_MIN
+    elapsedMin += onSiteMin
     prev = coord
+    prevMatrixIdx = currMatrixIdx
   }
 
-  return NextResponse.json({ order, legs, geocodeFailed })
+  return NextResponse.json({
+    order, legs, geocodeFailed, coords: orderedCoords, depotCoord: depot,
+    usingMatrix, durationMatrix,
+    matrixIndices: localOrder.map(li => li + 1),
+    avgSpeedKmh,
+    method,
+  })
 }
