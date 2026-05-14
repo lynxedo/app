@@ -4,7 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import { Readable } from 'stream'
 
-const RECORDINGS_DIR = 'H:\\Shared drives\\Management\\Call Recordings'
+const RECORDINGS_DIR = '/data/call-recordings'
 
 export async function GET(request: Request) {
   const supabase = await createClient()

@@ -1,17 +1,15 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-const SETTINGS_ID = '00000000-0000-0000-0000-000000000001'
-
 export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // No ID filter needed — RLS scopes this to the user's company automatically
   const { data, error } = await supabase
     .from('responder_settings')
     .select('*')
-    .eq('id', SETTINGS_ID)
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -37,10 +35,10 @@ export async function POST(req: NextRequest) {
     if (key in body) update[key] = body[key]
   }
 
+  // No ID filter needed — RLS scopes this to the user's company automatically
   const { data, error } = await supabase
     .from('responder_settings')
     .update(update)
-    .eq('id', SETTINGS_ID)
     .select()
     .single()
 

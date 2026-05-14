@@ -18,17 +18,8 @@ interface CallLog {
   call_subject: string | null
   customer_summary: string | null
   action_items: string[] | null
-  overall_grade: string | null
-  headline: string | null
-  must_listen: boolean
-  must_listen_reason: string | null
   avg_confidence: number | null
-  red_flags: string[] | null
-  never_dos: string[] | null
-  top_wins: string[] | null
-  top_improvements: string[] | null
   transcript_text: string | null
-  coaching_json: Record<string, unknown> | null
 }
 
 function formatDuration(seconds: number | null) {
@@ -59,15 +50,6 @@ function directionLabel(dir: string) {
   return { label: dir || '?', color: 'text-gray-400 bg-gray-800' }
 }
 
-function gradeColor(grade: string | null) {
-  if (!grade) return 'text-gray-500'
-  const g = grade.toUpperCase()
-  if (g === 'A' || g === 'A+') return 'text-green-400'
-  if (g === 'B') return 'text-blue-400'
-  if (g === 'C') return 'text-yellow-400'
-  if (g === 'D' || g === 'F') return 'text-red-400'
-  return 'text-gray-400'
-}
 
 function SettingsIcon() {
   return (
@@ -89,18 +71,12 @@ function CallRow({ call, selected, onClick }: { call: CallLog; selected: boolean
         <span className="text-sm font-medium text-white truncate">
           {call.customer_name || formatPhone(call.phone)}
         </span>
-        {call.overall_grade && (
-          <span className={`text-xs font-bold shrink-0 ${gradeColor(call.overall_grade)}`}>
-            {call.overall_grade}
-          </span>
-        )}
       </div>
       <div className="flex items-center gap-2 text-xs text-gray-500">
         <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${dir.color}`}>{dir.label}</span>
         <span>{formatPhone(call.phone)}</span>
         <span>·</span>
         <span>{formatDuration(call.duration_seconds)}</span>
-        {call.must_listen && <span className="text-yellow-400">★</span>}
       </div>
       <div className="text-xs text-gray-600 mt-0.5">
         {formatDateTime(call.call_datetime)}
@@ -127,11 +103,6 @@ function CallDetail({ call }: { call: CallLog }) {
               <div className="text-sm text-gray-400">{formatPhone(call.phone)}</div>
             )}
           </div>
-          {call.overall_grade && (
-            <span className={`text-3xl font-extrabold ${gradeColor(call.overall_grade)}`}>
-              {call.overall_grade}
-            </span>
-          )}
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
           <span className={`px-2 py-0.5 rounded text-xs font-medium ${dir.color}`}>{dir.label}</span>
@@ -155,22 +126,10 @@ function CallDetail({ call }: { call: CallLog }) {
         />
       </div>
 
-      {/* Must-listen banner */}
-      {call.must_listen && (
-        <div className="bg-yellow-900/30 border border-yellow-700 rounded-xl px-4 py-3 text-sm text-yellow-300">
-          <span className="font-semibold">★ Must Listen</span>
-          {call.must_listen_reason && ` — ${call.must_listen_reason}`}
-        </div>
-      )}
-
       {/* AI Summary */}
-      {(call.headline || call.customer_summary || call.call_type) && (
+      {(call.customer_summary || call.call_type) && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">AI Summary</div>
-
-          {call.headline && (
-            <p className="text-sm text-white font-medium">{call.headline}</p>
-          )}
 
           <div className="flex flex-wrap gap-2">
             {call.call_type && (
@@ -201,64 +160,6 @@ function CallDetail({ call }: { call: CallLog }) {
         </div>
       )}
 
-      {/* Coaching detail */}
-      {(call.top_wins?.length || call.top_improvements?.length || call.red_flags?.length || call.never_dos?.length) ? (
-        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-3">
-          <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Coaching Feedback</div>
-
-          {call.top_wins && call.top_wins.length > 0 && (
-            <div>
-              <div className="text-xs font-semibold text-green-500 mb-1">Wins</div>
-              <ul className="space-y-1">
-                {call.top_wins.map((w, i) => (
-                  <li key={i} className="text-sm text-gray-300 flex gap-2">
-                    <span className="text-green-500 shrink-0">✓</span><span>{w}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {call.top_improvements && call.top_improvements.length > 0 && (
-            <div>
-              <div className="text-xs font-semibold text-yellow-500 mb-1">Improvements</div>
-              <ul className="space-y-1">
-                {call.top_improvements.map((w, i) => (
-                  <li key={i} className="text-sm text-gray-300 flex gap-2">
-                    <span className="text-yellow-500 shrink-0">△</span><span>{w}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {call.red_flags && call.red_flags.length > 0 && (
-            <div>
-              <div className="text-xs font-semibold text-red-400 mb-1">Red Flags</div>
-              <ul className="space-y-1">
-                {call.red_flags.map((w, i) => (
-                  <li key={i} className="text-sm text-gray-300 flex gap-2">
-                    <span className="text-red-400 shrink-0">⚑</span><span>{w}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-
-          {call.never_dos && call.never_dos.length > 0 && (
-            <div>
-              <div className="text-xs font-semibold text-red-600 mb-1">Never-Dos Triggered</div>
-              <ul className="space-y-1">
-                {call.never_dos.map((w, i) => (
-                  <li key={i} className="text-sm text-gray-300 flex gap-2">
-                    <span className="text-red-600 shrink-0">✗</span><span>{w}</span>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      ) : null}
 
       {/* Transcript */}
       {call.transcript_text && (
@@ -298,9 +199,10 @@ export default function CallLogPage() {
   const [dateTo, setDateTo] = useState('')
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
+  const [keyword, setKeyword] = useState('')
 
   const fetchCalls = useCallback(async (params: {
-    dateFrom: string; dateTo: string; phone: string; name: string
+    dateFrom: string; dateTo: string; phone: string; name: string; keyword: string
   }) => {
     setLoading(true)
     setError('')
@@ -310,6 +212,7 @@ export default function CallLogPage() {
       if (params.dateTo) qs.set('date_to', params.dateTo)
       if (params.phone) qs.set('phone', params.phone)
       if (params.name) qs.set('name', params.name)
+      if (params.keyword) qs.set('keyword', params.keyword)
       qs.set('limit', '100')
 
       const res = await fetch(`/api/calls/list?${qs}`)
@@ -326,11 +229,11 @@ export default function CallLogPage() {
 
   // Load recent calls on mount
   useEffect(() => {
-    fetchCalls({ dateFrom: '', dateTo: '', phone: '', name: '' })
+    fetchCalls({ dateFrom: '', dateTo: '', phone: '', name: '', keyword: '' })
   }, [fetchCalls])
 
   function handleSearch() {
-    fetchCalls({ dateFrom, dateTo, phone, name })
+    fetchCalls({ dateFrom, dateTo, phone, name, keyword })
   }
 
   function handleClear() {
@@ -338,10 +241,11 @@ export default function CallLogPage() {
     setDateTo('')
     setPhone('')
     setName('')
-    fetchCalls({ dateFrom: '', dateTo: '', phone: '', name: '' })
+    setKeyword('')
+    fetchCalls({ dateFrom: '', dateTo: '', phone: '', name: '', keyword: '' })
   }
 
-  const hasFilters = dateFrom || dateTo || phone || name
+  const hasFilters = dateFrom || dateTo || phone || name || keyword
 
   return (
     <div className="h-screen flex flex-col bg-gray-950 text-white overflow-hidden">
@@ -406,6 +310,17 @@ export default function CallLogPage() {
               onKeyDown={e => e.key === 'Enter' && handleSearch()}
               placeholder="Customer or rep"
               className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm placeholder-gray-600 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors w-44"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500">Keyword</label>
+            <input
+              type="text"
+              value={keyword}
+              onChange={e => setKeyword(e.target.value)}
+              onKeyDown={e => e.key === 'Enter' && handleSearch()}
+              placeholder="e.g. aeration"
+              className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm placeholder-gray-600 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors w-36"
             />
           </div>
           <button

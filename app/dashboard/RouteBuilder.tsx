@@ -145,6 +145,9 @@ export default function RouteBuilder() {
   const [durationMethod, setDurationMethod] = useState<string>('default')
   const [fallbackStops, setFallbackStops] = useState<string[]>([])
 
+  // Map preview shown on the optimize screen after optimization completes
+  const [previewMapUrl, setPreviewMapUrl] = useState<string | null>(null)
+
   // Send to Jobber state
   const [reassignUserId, setReassignUserId] = useState<string>('__keep__')
   const [sending, setSending] = useState(false)
@@ -191,6 +194,7 @@ export default function RouteBuilder() {
     setLockedFirstId(null)
     setLockedLastId(null)
     setFallbackStops([])
+    setPreviewMapUrl(null)
     try {
       const res = await fetch(`/api/visits?date=${date}&userId=${encodeURIComponent(selectedUserId)}`)
       const data = await res.json()
@@ -272,6 +276,24 @@ export default function RouteBuilder() {
         matrixIndex: data.matrixIndices?.[newPos] ?? newPos + 1,
       }))
       setOptimizedVisits(reordered)
+
+      // Build static map preview URL (same map as the route sheet)
+      const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
+      if (mapboxToken && data.depotCoord && reordered.length > 0) {
+        const dep = data.depotCoord
+        const waypoints = [dep, ...reordered.map(v => ({ lat: v.lat, lng: v.lng }))]
+        const polyline = encodePolyline5(waypoints)
+        const pathOverlay = `path-3+1f77b4-0.85(${encodeURIComponent(polyline)})`
+        const depotMarker = `pin-s-d+16a34a(${dep.lng.toFixed(6)},${dep.lat.toFixed(6)})`
+        const stopMarkers = reordered.map((v, i) => {
+          const label = i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9))
+          return `pin-s-${label}+c0392b(${v.lng.toFixed(6)},${v.lat.toFixed(6)})`
+        })
+        const overlays = [pathOverlay, depotMarker, ...stopMarkers].join(',')
+        setPreviewMapUrl(
+          `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${overlays}/auto/800x380@2x?padding=50&access_token=${mapboxToken}`
+        )
+      }
     } catch (e) {
       setOptimizeError(e instanceof Error ? e.message : 'Optimization failed')
     } finally {
@@ -838,7 +860,7 @@ ${mapScripts}
               )}
               {optimizedVisits && !sendResults && (
                 <button
-                  onClick={() => { setOptimizedVisits(null); setGeocodeFailed([]); setUsingMatrix(null); setDurationMatrix(null); setIsManualOrder(false) }}
+                  onClick={() => { setOptimizedVisits(null); setGeocodeFailed([]); setUsingMatrix(null); setDurationMatrix(null); setIsManualOrder(false); setPreviewMapUrl(null) }}
                   className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs font-medium transition-colors"
                 >
                   Reset Order
@@ -961,6 +983,21 @@ ${mapScripts}
               })}
             </ul>
           )}
+        </div>
+      )}
+
+      {/* Route Map Preview */}
+      {optimizedVisits && previewMapUrl && (
+        <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+          <div className="px-6 py-3 border-b border-gray-800 flex items-center justify-between">
+            <h3 className="font-semibold text-sm">Route Preview</h3>
+            <span className="text-xs text-gray-500">Same map that appears on the route sheet</span>
+          </div>
+          <img
+            src={previewMapUrl}
+            alt="Optimized route map preview"
+            className="w-full block"
+          />
         </div>
       )}
 

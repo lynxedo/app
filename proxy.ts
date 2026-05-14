@@ -29,16 +29,6 @@ export async function proxy(request: NextRequest) {
   const protectedPaths = ['/dashboard', '/routing', '/lawn', '/responder', '/settings', '/call-log', '/admin', '/timesheet']
   const isProtected = protectedPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
 
-  const isHeroesEmail = user?.email?.endsWith('@heroeslawntx.com') ?? false
-
-  // Boot any authenticated user whose email isn't @heroeslawntx.com
-  if (user && !isHeroesEmail) {
-    const url = request.nextUrl.clone()
-    url.pathname = '/api/auth/signout'
-    url.searchParams.set('reason', 'unauthorized')
-    return NextResponse.redirect(url)
-  }
-
   // Redirect unauthenticated users to login
   if (!user && isProtected) {
     const url = request.nextUrl.clone()
@@ -46,22 +36,32 @@ export async function proxy(request: NextRequest) {
     return NextResponse.redirect(url)
   }
 
-  // Redirect logged-in users away from login
-  if (user && pathname === '/login') {
-    const url = request.nextUrl.clone()
-    url.pathname = '/dashboard'
-    return NextResponse.redirect(url)
-  }
-
-  // Permission checks for authenticated users on tool + admin routes
-  if (user && isProtected) {
+  if (user) {
+    // Single fetch: profile + company — used for domain check and permission enforcement
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('role, can_access_routing, can_access_lawn, can_access_call_log, can_access_responder, can_access_timesheet')
+      .select('role, company_id, can_access_routing, can_access_lawn, can_access_call_log, can_access_responder, can_access_timesheet, companies(google_domain)')
       .eq('id', user.id)
       .single()
 
-    if (profile) {
+    // Domain check: verify the user's email matches their company's registered Google Workspace domain
+    const googleDomain = (profile?.companies as unknown as { google_domain: string | null } | null)?.google_domain
+    if (!googleDomain || !user.email?.endsWith('@' + googleDomain)) {
+      const url = request.nextUrl.clone()
+      url.pathname = '/api/auth/signout'
+      url.searchParams.set('reason', 'unauthorized')
+      return NextResponse.redirect(url)
+    }
+
+    // Redirect logged-in users away from login
+    if (pathname === '/login') {
+      const url = request.nextUrl.clone()
+      url.pathname = '/dashboard'
+      return NextResponse.redirect(url)
+    }
+
+    // Permission checks for authenticated users on tool + admin routes
+    if (isProtected && profile) {
       const permissionMap: Record<string, keyof typeof profile> = {
         '/routing': 'can_access_routing',
         '/lawn': 'can_access_lawn',

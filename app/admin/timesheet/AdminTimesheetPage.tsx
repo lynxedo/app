@@ -45,6 +45,8 @@ type TimePunch = {
   note: string | null
   edit_reason: string | null
   original_punched_at: string | null
+  lat: number | null
+  lng: number | null
 }
 
 type OpenPunch = {
@@ -114,6 +116,38 @@ function weekSummary(entries: TimeEntry[]) {
   return { total: Math.round(total * 100) / 100, regular: Math.round(regular * 100) / 100, ot: Math.round(ot * 100) / 100 }
 }
 
+function exportPayPeriodCSV(employees: Employee[], entries: TimeEntry[], weekStart: Date) {
+  const end = new Date(weekStart)
+  end.setDate(weekStart.getDate() + 6)
+  const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const rows: string[][] = [
+    ['Employee', 'Department', '$/hr', 'Regular Hours', 'OT Hours', 'Total Hours', 'Est. Wages'],
+  ]
+  for (const emp of employees) {
+    const s = weekSummary(entries.filter(e => e.employee_id === emp.id))
+    const estPay = emp.hourly_rate
+      ? (s.regular * emp.hourly_rate + s.ot * emp.hourly_rate * 1.5).toFixed(2)
+      : ''
+    rows.push([
+      `${emp.first_name} ${emp.last_name}`,
+      emp.department,
+      emp.hourly_rate ? String(emp.hourly_rate) : '',
+      s.regular.toFixed(2),
+      s.ot.toFixed(2),
+      s.total.toFixed(2),
+      estPay,
+    ])
+  }
+  const csv = rows.map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `timesheet-${fmt(weekStart).replace(/[, ]+/g, '-')}-to-${fmt(end).replace(/[, ]+/g, '-')}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
 // ── main component ────────────────────────────────────────────────────────────
 
 export default function AdminTimesheetPage() {
@@ -124,7 +158,9 @@ export default function AdminTimesheetPage() {
   const [loading, setLoading] = useState(true)
   const [clockingId, setClockingId] = useState<string | null>(null)
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null)
+  const [editWeekStart, setEditWeekStart] = useState(() => getWeekStart())
   const [editPunches, setEditPunches] = useState<TimePunch[]>([])
+  const [editPunchesLoading, setEditPunchesLoading] = useState(false)
   const [editingPunch, setEditingPunch] = useState<{ id: string; time: string; reason: string } | null>(null)
   const [addingPunch, setAddingPunch] = useState<{ type: 'in' | 'out'; datetime: string; note: string } | null>(null)
   const [now, setNow] = useState(Date.now())
@@ -180,33 +216,53 @@ export default function AdminTimesheetPage() {
     loadData()
   }
 
-  async function openEditPunches(employee: Employee) {
-    setEditEmployee(employee)
+  async function loadEditPunches(employee: Employee, ws: Date) {
+    setEditPunchesLoading(true)
+    const we = new Date(ws)
+    we.setDate(ws.getDate() + 6)
     const res = await fetch(
-      `/api/timesheet/admin/punches?employee_id=${employee.id}&start=${toDateStr(weekStart)}&end=${toDateStr(weekEnd)}`
+      `/api/timesheet/admin/punches?employee_id=${employee.id}&start=${toDateStr(ws)}&end=${toDateStr(we)}`
     )
     const data = await res.json()
     setEditPunches(data.punches ?? [])
     setEditingPunch(null)
     setAddingPunch(null)
+    setEditPunchesLoading(false)
+  }
+
+  async function openEditPunches(employee: Employee) {
+    const ws = getWeekStart()
+    setEditEmployee(employee)
+    setEditWeekStart(ws)
+    loadEditPunches(employee, ws)
+  }
+
+  function navigateEditWeek(delta: number) {
+    if (!editEmployee) return
+    setEditWeekStart(prev => {
+      const next = new Date(prev)
+      next.setDate(prev.getDate() + delta * 7)
+      loadEditPunches(editEmployee, next)
+      return next
+    })
   }
 
   async function savePunchEdit() {
-    if (!editingPunch) return
+    if (!editingPunch || !editEmployee) return
     await fetch(`/api/timesheet/admin/punch/${editingPunch.id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ punched_at: editingPunch.time, edit_reason: editingPunch.reason }),
     })
     setEditingPunch(null)
-    if (editEmployee) openEditPunches(editEmployee)
+    loadEditPunches(editEmployee, editWeekStart)
     loadData()
   }
 
   async function deletePunch(id: string) {
     if (!confirm('Delete this punch? This cannot be undone.')) return
     await fetch(`/api/timesheet/admin/punches?id=${id}`, { method: 'DELETE' })
-    if (editEmployee) openEditPunches(editEmployee)
+    if (editEmployee) loadEditPunches(editEmployee, editWeekStart)
     loadData()
   }
 
@@ -223,7 +279,7 @@ export default function AdminTimesheetPage() {
       }),
     })
     setAddingPunch(null)
-    openEditPunches(editEmployee)
+    loadEditPunches(editEmployee, editWeekStart)
     loadData()
   }
 
@@ -476,13 +532,21 @@ export default function AdminTimesheetPage() {
                 <h2 className="font-semibold">Pay Period Summary</h2>
                 <p className="text-xs text-gray-500 mt-0.5">{formatWeekRange(weekStart)}</p>
               </div>
-              <button
-                disabled
-                title="Gusto OAuth required — coming in Phase 2"
-                className="bg-blue-600/40 text-blue-400 text-sm font-medium px-4 py-2 rounded-lg cursor-not-allowed border border-blue-500/25"
-              >
-                Send to Gusto ↗
-              </button>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => exportPayPeriodCSV(employees, entries, weekStart)}
+                  className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  ↓ Export CSV
+                </button>
+                <button
+                  disabled
+                  title="Gusto OAuth required — coming in Phase 2"
+                  className="bg-blue-600/40 text-blue-400 text-sm font-medium px-4 py-2 rounded-lg cursor-not-allowed border border-blue-500/25"
+                >
+                  Send to Gusto ↗
+                </button>
+              </div>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -494,6 +558,7 @@ export default function AdminTimesheetPage() {
                     <th className="text-right px-4 py-3">OT</th>
                     <th className="text-right px-4 py-3">Total</th>
                     <th className="text-right px-4 py-3">Est. Wages</th>
+                    <th className="text-center px-4 py-3">GPS</th>
                     <th className="text-center px-4 py-3">Gusto</th>
                   </tr>
                 </thead>
@@ -520,6 +585,15 @@ export default function AdminTimesheetPage() {
                         <td className="text-right px-4 py-3 tabular-nums font-medium">{summary.total.toFixed(2)}h</td>
                         <td className="text-right px-4 py-3 tabular-nums">
                           {estPay !== null ? `$${estPay.toFixed(2)}` : <span className="text-gray-600">—</span>}
+                        </td>
+                        <td className="text-center px-4 py-3">
+                          <button
+                            onClick={() => openEditPunches(emp)}
+                            className="text-xs text-gray-500 hover:text-blue-400 transition-colors"
+                            title="View punch locations"
+                          >
+                            📍
+                          </button>
                         </td>
                         <td className="text-center px-4 py-3">
                           {emp.pay_type === 'hourly'
@@ -550,6 +624,7 @@ export default function AdminTimesheetPage() {
                           <td className={`text-right px-4 py-3 tabular-nums ${totOT > 0 ? 'text-amber-400' : ''}`}>{totOT.toFixed(2)}h</td>
                           <td className="text-right px-4 py-3 tabular-nums">{totHrs.toFixed(2)}h</td>
                           <td className="text-right px-4 py-3 tabular-nums">${totPay.toFixed(2)}</td>
+                          <td />
                           <td />
                         </>
                       )
@@ -926,16 +1001,28 @@ export default function AdminTimesheetPage() {
       {editEmployee && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setEditEmployee(null) }}>
           <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
-            <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between shrink-0">
-              <div>
+            <div className="px-5 py-4 border-b border-gray-800 shrink-0">
+              <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold">Punches — {editEmployee.first_name} {editEmployee.last_name}</h3>
-                <p className="text-xs text-gray-500 mt-0.5">{formatWeekRange(weekStart)}</p>
+                <button onClick={() => setEditEmployee(null)} className="text-gray-500 hover:text-white transition-colors text-xl leading-none">×</button>
               </div>
-              <button onClick={() => setEditEmployee(null)} className="text-gray-500 hover:text-white transition-colors text-xl leading-none">×</button>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => navigateEditWeek(-1)}
+                  className="w-7 h-7 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors text-sm"
+                >‹</button>
+                <span className="flex-1 text-center text-xs text-gray-400">{formatWeekRange(editWeekStart)}</span>
+                <button
+                  onClick={() => navigateEditWeek(1)}
+                  disabled={toDateStr(editWeekStart) >= toDateStr(getWeekStart())}
+                  className="w-7 h-7 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
+                >›</button>
+              </div>
             </div>
 
             <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
-              {editPunches.length === 0 && <p className="text-sm text-gray-500">No punches this week.</p>}
+              {editPunchesLoading && <p className="text-sm text-gray-500">Loading…</p>}
+              {!editPunchesLoading && editPunches.length === 0 && <p className="text-sm text-gray-500">No punches this week.</p>}
 
               {editPunches.map(punch => (
                 <div key={punch.id} className="flex items-center gap-3 group">
@@ -970,6 +1057,15 @@ export default function AdminTimesheetPage() {
                         </span>
                         {punch.edit_reason && (
                           <span className="text-xs text-amber-500/70 ml-2" title={`Edited: ${punch.edit_reason}`}>✎</span>
+                        )}
+                        {punch.lat && punch.lng && (
+                          <a
+                            href={`https://maps.google.com/?q=${punch.lat},${punch.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs ml-2"
+                            title={`${punch.lat.toFixed(5)}, ${punch.lng.toFixed(5)} — open in Maps`}
+                          >📍</a>
                         )}
                       </span>
                       <button
@@ -1020,7 +1116,12 @@ export default function AdminTimesheetPage() {
                 </div>
               ) : (
                 <button
-                  onClick={() => setAddingPunch({ type: 'in', datetime: new Date().toISOString(), note: '' })}
+                  onClick={() => {
+                    const isCurrentEditWeek = toDateStr(editWeekStart) === toDateStr(getWeekStart())
+                    const defaultDt = isCurrentEditWeek ? new Date() : new Date(editWeekStart)
+                    defaultDt.setHours(8, 0, 0, 0)
+                    setAddingPunch({ type: 'in', datetime: defaultDt.toISOString(), note: '' })
+                  }}
                   className="w-full border border-dashed border-gray-700 hover:border-gray-600 rounded-lg py-2 text-sm text-gray-500 hover:text-gray-400 transition-colors"
                 >
                   + Add Punch

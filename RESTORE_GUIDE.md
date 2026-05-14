@@ -1,5 +1,5 @@
 # Lynxedo Platform — Windows Machine Restore Guide
-**Last Updated:** May 11, 2026 (Session 23)
+**Last Updated:** May 12, 2026 (Session 26)
 **Use this when:** The Windows machine is replaced, reset, or a fresh Windows install is needed.
 **Who does this:** Claude Code handles all technical steps. Cowork handles browser/dashboard steps.
 
@@ -105,11 +105,14 @@ The Python app is on Google Drive. Need to set up a Python virtual environment l
 
 ```
 1. Create the venv in AppData (NOT on Google Drive — avoids file lock issues):
-   python -m venv %LOCALAPPDATA%\lawn-size-tool\venv
+   IMPORTANT: Run these from your own PowerShell (Start menu → PowerShell), NOT from a
+   Claude Code session. Claude's sandbox virtualizes AppData and the venv won't be visible
+   to the bat file if created from inside Claude.
 
-2. Activate and install requirements:
-   %LOCALAPPDATA%\lawn-size-tool\venv\Scripts\activate
-   pip install -r "H:\Shared drives\Claude\Projects\Lawn Size\requirements.txt"
+   python -m venv C:\Users\simps\AppData\Local\lawn-size-tool\venv
+
+2. Install requirements (do NOT use activate — call pip directly):
+   & "C:\Users\simps\AppData\Local\lawn-size-tool\venv\Scripts\pip.exe" install -r "H:\Shared drives\Claude\Projects\Lawn Size\requirements.txt"
 
 3. Verify .env file exists at:
    H:\Shared drives\Claude\Projects\Lawn Size\.env
@@ -234,15 +237,20 @@ Set up the Startup folder so everything auto-starts on login.
 All tables are cloud-hosted in Supabase — no restore action needed, they survive hardware failure.
 This section is for reference if schema needs to be recreated from scratch.
 
-**Timesheet tables** (added Session 22):
-- `employees` — employee roster. Key columns: `id`, `gusto_uuid` (nullable), `user_id` (nullable FK → auth.users), `first_name`, `last_name`, `preferred_name`, `email`, `phone`, `job_title`, `department`, `pay_type`, `flsa_status`, `hourly_rate`, `is_active`, `gusto_synced_at`.
-- `time_punches` — individual clock events. Columns: `employee_id`, `punch_type` (in/out), `punched_at`, `note`, `edit_reason`, `original_punched_at`, `lat`, `lng`.
-- `time_entries` — computed daily totals. UNIQUE on `(employee_id, date)`. Columns: `clock_in`, `clock_out`, `total_hours`, `regular_hours`, `overtime_hours`.
-- `timesheet_settings` — singleton row (`id = 00000000-0000-0000-0000-000000000003`). GPS toggle, OT thresholds, pay period config.
+**Multi-tenancy foundation** (added Session 25):
+- `companies` — one row per subscriber. Heroes Lawn Care UUID: `00000000-0000-0000-0000-000000000002`, google_domain: `heroeslawntx.com`. All tables have a `company_id` FK → companies. RLS enforces isolation via `get_my_company_id()` function. No restore action needed — cloud-hosted.
 
-**`user_profiles`** also has `can_access_timesheet boolean` column (added Session 22).
+**Timesheet tables** (added Session 22):
+- `employees` — employee roster. Key columns: `id`, `company_id`, `gusto_uuid` (nullable), `user_id` (nullable FK → auth.users), `first_name`, `last_name`, `preferred_name`, `email`, `phone`, `job_title`, `department`, `pay_type`, `flsa_status`, `hourly_rate`, `is_active`, `gusto_synced_at`.
+- `time_punches` — individual clock events. Columns: `company_id`, `employee_id`, `punch_type` (in/out), `punched_at`, `note`, `edit_reason`, `original_punched_at`, `lat`, `lng`.
+- `time_entries` — computed daily totals. UNIQUE on `(employee_id, date)`. Columns: `company_id`, `clock_in`, `clock_out`, `total_hours`, `regular_hours`, `overtime_hours`.
+- `timesheet_settings` — one row per company (UNIQUE on company_id). API queries by RLS — no hardcoded UUID needed. GPS toggle, OT thresholds, pay period config.
+
+**`user_profiles`** has `can_access_timesheet boolean` (Session 22) and `company_id uuid` FK → companies (Session 25).
 
 **Google OAuth** (added Session 23): After restore, verify Supabase → Authentication → Providers → Google has the Client ID and Secret entered. Get them from Google Cloud Console → APIs & Services → Credentials → the OAuth 2.0 Client named "Lynxedo" (Client ID: `212487396039-ome21bo47tkmnm5ojl1gdssgaou45cc4.apps.googleusercontent.com`). Audience must be "Internal". Authorized redirect URI must be `https://nhvwdulyzolevoeayjum.supabase.co/auth/v1/callback`. No code changes needed — this is purely a Supabase + Google Cloud Console configuration.
+
+**Call Log coaching fields** (Session 24): Coaching feedback (grades, wins, improvements, red flags, must-listen) is intentionally NOT shown in the website Call Log UI — data lives in Supabase and is available to the spreadsheet only. The `app/call-log/page.tsx` and `app/api/calls/list/route.ts` files deliberately exclude those columns. Do not restore them to the UI.
 
 ---
 

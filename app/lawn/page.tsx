@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useEffect, useCallback } from 'react'
 import Link from 'next/link'
 
 type Confidence = 'HIGH' | 'MEDIUM' | 'FLAG'
@@ -28,6 +28,8 @@ interface EstimateResult {
   runtime_ms: number
   mode: string
 }
+
+const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
 
 function fmt(n: number | null | undefined) {
   if (!n || n <= 0) return '—'
@@ -153,6 +155,91 @@ function Details({ result }: { result: EstimateResult }) {
   )
 }
 
+function AddressInput({
+  value,
+  onChange,
+  onSubmit,
+  disabled,
+}: {
+  value: string
+  onChange: (v: string) => void
+  onSubmit: () => void
+  disabled: boolean
+}) {
+  const [suggestions, setSuggestions] = useState<{ place_name: string }[]>([])
+  const [showSuggestions, setShowSuggestions] = useState(false)
+  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
+
+  const fetchSuggestions = useCallback(async (query: string) => {
+    if (query.length < 4) { setSuggestions([]); return }
+    try {
+      const url = `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(query)}.json?access_token=${MAPBOX_TOKEN}&autocomplete=true&country=US&types=address&limit=5`
+      const res = await fetch(url)
+      const data = await res.json()
+      setSuggestions(data.features ?? [])
+    } catch {
+      setSuggestions([])
+    }
+  }, [])
+
+  function handleChange(v: string) {
+    onChange(v)
+    setShowSuggestions(true)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => fetchSuggestions(v), 300)
+  }
+
+  function pickSuggestion(place: string) {
+    onChange(place)
+    setSuggestions([])
+    setShowSuggestions(false)
+    setTimeout(onSubmit, 0)
+  }
+
+  useEffect(() => {
+    function handler(e: MouseEvent) {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setShowSuggestions(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [])
+
+  return (
+    <div ref={containerRef} className="relative flex-1 min-w-0">
+      <input
+        type="text"
+        value={value}
+        onChange={e => handleChange(e.target.value)}
+        onKeyDown={e => {
+          if (e.key === 'Enter' && !disabled) { setShowSuggestions(false); onSubmit() }
+          if (e.key === 'Escape') setShowSuggestions(false)
+        }}
+        onFocus={() => suggestions.length > 0 && setShowSuggestions(true)}
+        placeholder="e.g. 221 Galloway Ct, The Woodlands TX 77382"
+        className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors"
+      />
+      {showSuggestions && suggestions.length > 0 && (
+        <ul className="absolute z-50 top-full left-0 right-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg overflow-hidden shadow-xl">
+          {suggestions.map((s, i) => (
+            <li key={i}>
+              <button
+                type="button"
+                onMouseDown={() => pickSuggestion(s.place_name)}
+                className="w-full text-left px-4 py-2.5 text-sm text-gray-200 hover:bg-gray-700 transition-colors truncate"
+              >
+                {s.place_name}
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  )
+}
+
 export default function LawnPage() {
   const [address, setAddress] = useState('')
   const [loading, setLoading] = useState(false)
@@ -191,7 +278,6 @@ export default function LawnPage() {
 
       if (quick.confidence === 'HIGH') return
 
-      // Not HIGH — auto-run advanced
       setAdvLoading(true)
       const adv = await fetchEstimate(addr, 'advanced')
       setAdvResult(adv)
@@ -233,13 +319,11 @@ export default function LawnPage() {
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
           <label className="block text-sm font-medium text-gray-300 mb-3">Property Address</label>
           <div className="flex gap-3">
-            <input
-              type="text"
+            <AddressInput
               value={address}
-              onChange={e => setAddress(e.target.value)}
-              onKeyDown={e => { if (e.key === 'Enter' && !loading) run() }}
-              placeholder="e.g. 221 Galloway Ct, The Woodlands TX 77382"
-              className="flex-1 min-w-0 bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-green-500 focus:ring-1 focus:ring-green-500 transition-colors"
+              onChange={setAddress}
+              onSubmit={run}
+              disabled={loading}
             />
             <button
               onClick={loading ? undefined : run}
@@ -264,7 +348,7 @@ export default function LawnPage() {
           </div>
         )}
 
-        {/* Quick result — HIGH confidence (single result) */}
+        {/* Quick result — HIGH confidence */}
         {quickResult && quickResult.confidence === 'HIGH' && !loading && (
           <>
             <ResultCard result={quickResult} />
@@ -275,7 +359,7 @@ export default function LawnPage() {
           </>
         )}
 
-        {/* Quick result — not HIGH (show quick + advanced in progress or done) */}
+        {/* Quick result — not HIGH */}
         {quickResult && quickResult.confidence !== 'HIGH' && !loading && (
           <>
             <div className="grid grid-cols-2 gap-3">

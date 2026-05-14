@@ -155,49 +155,93 @@ export async function POST(req: NextRequest) {
   if (validStops.length === 0)
     return NextResponse.json({ error: 'No addresses could be geocoded' }, { status: 422 })
 
-  // Matrix API
-  const allPoints = [depot, ...validStops.map(s => s.coord)]
+  // ── Group same-address visits so they're never split by the optimizer ────
+  // Two visits to the same address become one TSP node; they appear consecutively
+  // in the final route with 0 drive time between them.
+  const normalizeAddr = (s: string) => s.toLowerCase().replace(/\s+/g, ' ').trim()
+
+  interface AddressGroup {
+    coord: { lat: number; lng: number }
+    vsIndices: number[]  // indices into validStops[]
+  }
+
+  const groupMap = new Map<string, AddressGroup>()
+  for (let i = 0; i < validStops.length; i++) {
+    const key = normalizeAddr(addresses[validStops[i].originalIndex])
+    if (!groupMap.has(key)) {
+      groupMap.set(key, { coord: validStops[i].coord, vsIndices: [i] })
+    } else {
+      groupMap.get(key)!.vsIndices.push(i)
+    }
+  }
+  const uniqueGroups = Array.from(groupMap.values())
+
+  // Matrix API — one point per unique address (not per visit)
+  const allPoints = [depot, ...uniqueGroups.map(g => g.coord)]
   const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
   let durationMatrix: number[][] | null = null
   if (mapboxToken && allPoints.length <= 25)
     durationMatrix = await fetchDurationMatrix(allPoints, mapboxToken)
   const usingMatrix = durationMatrix !== null
 
-  // Locked stops
-  let lockedFirstValidIdx: number | null = null
-  let lockedLastValidIdx: number | null = null
+  // Locked stops — resolve to group indices
+  // (durationMatrix index: 0=depot, gi+1=uniqueGroups[gi])
+  let lockedFirstGroupIdx: number | null = null
+  let lockedLastGroupIdx: number | null = null
   if (lockedFirstIdx != null && lockedFirstIdx >= 0) {
-    const fi = validStops.findIndex(s => s.originalIndex === lockedFirstIdx)
-    if (fi !== -1) lockedFirstValidIdx = fi
+    const gi = uniqueGroups.findIndex(g =>
+      g.vsIndices.some(vi => validStops[vi].originalIndex === lockedFirstIdx)
+    )
+    if (gi !== -1) lockedFirstGroupIdx = gi
   }
   if (lockedLastIdx != null && lockedLastIdx >= 0) {
-    const li = validStops.findIndex(s => s.originalIndex === lockedLastIdx)
-    if (li !== -1 && li !== lockedFirstValidIdx) lockedLastValidIdx = li
+    const gi = uniqueGroups.findIndex(g =>
+      g.vsIndices.some(vi => validStops[vi].originalIndex === lockedLastIdx)
+    )
+    if (gi !== -1 && gi !== lockedFirstGroupIdx) lockedLastGroupIdx = gi
   }
 
-  const poolValidIndices = validStops.map((_, i) => i)
-    .filter(i => i !== lockedFirstValidIdx && i !== lockedLastValidIdx)
-  const poolStops = poolValidIndices.map(i => validStops[i])
+  const poolGroupIndices = uniqueGroups.map((_, i) => i)
+    .filter(i => i !== lockedFirstGroupIdx && i !== lockedLastGroupIdx)
+  const poolGroups = poolGroupIndices.map(i => uniqueGroups[i])
 
   let poolMatrix: number[][] | null = null
-  if (durationMatrix && poolStops.length > 0) {
-    const matIdxs = [0, ...poolValidIndices.map(i => i + 1)]
+  if (durationMatrix && poolGroups.length > 0) {
+    const matIdxs = [0, ...poolGroupIndices.map(i => i + 1)]
     poolMatrix = matIdxs.map(ri => matIdxs.map(ci => durationMatrix![ri][ci]))
   }
 
-  const poolLocalOrder = poolStops.length > 1
-    ? twoOptTSP(poolStops.map(s => s.coord), depot, poolMatrix ?? undefined)
-    : poolStops.map((_, i) => i)
+  const poolLocalGroupOrder = poolGroups.length > 1
+    ? twoOptTSP(poolGroups.map(g => g.coord), depot, poolMatrix ?? undefined)
+    : poolGroups.map((_, i) => i)
 
-  const localOrder: number[] = []
-  if (lockedFirstValidIdx !== null) localOrder.push(lockedFirstValidIdx)
-  localOrder.push(...poolLocalOrder.map(pi => poolValidIndices[pi]))
-  if (lockedLastValidIdx !== null) localOrder.push(lockedLastValidIdx)
+  const localGroupOrder: number[] = []
+  if (lockedFirstGroupIdx !== null) localGroupOrder.push(lockedFirstGroupIdx)
+  localGroupOrder.push(...poolLocalGroupOrder.map(pi => poolGroupIndices[pi]))
+  if (lockedLastGroupIdx !== null) localGroupOrder.push(lockedLastGroupIdx)
 
-  const order = localOrder.map(li => validStops[li].originalIndex)
-  const orderedCoords = localOrder.map(li => validStops[li].coord)
+  // Expand groups → individual stops in visit order
+  // stopGroupMatIdx[i]: matrix index for stop i's group (gi+1); same for all group members
+  // stopWithinGroup[i]: 0 = first visit at this address, 1 = second, etc.
+  const order: number[] = []
+  const orderedCoords: { lat: number; lng: number }[] = []
+  const stopGroupMatIdx: number[] = []
+  const stopWithinGroup: number[] = []
+
+  for (const gi of localGroupOrder) {
+    const group = uniqueGroups[gi]
+    const matIdx = gi + 1
+    for (let wi = 0; wi < group.vsIndices.length; wi++) {
+      order.push(validStops[group.vsIndices[wi]].originalIndex)
+      orderedCoords.push(group.coord)
+      stopGroupMatIdx.push(matIdx)
+      stopWithinGroup.push(wi)
+    }
+  }
 
   // Build legs
+  // wi === 0: first visit at an address — normal drive time from previous location
+  // wi  > 0: subsequent visit at same address — 0 drive, 0 distance
   interface Leg {
     distanceKm: number; driveMinutes: number; onSiteMinutes: number
     arrivalTime: string; startAtISO: string | null; endAtISO: string | null
@@ -205,21 +249,30 @@ export async function POST(req: NextRequest) {
   }
   const legs: Leg[] = []
   let elapsedMin = startHour * 60
-  let prevMatrixIdx = 0
-  let prev = depot
+  let prevGroupMatIdx = 0  // 0 = depot
+  let prevCoord = depot
 
   for (let i = 0; i < orderedCoords.length; i++) {
     const coord = orderedCoords[i]
-    const currMatrixIdx = localOrder[i] + 1
-    let driveMin: number, distKm: number
+    const currMatIdx = stopGroupMatIdx[i]
+    const wi = stopWithinGroup[i]
 
-    if (usingMatrix && durationMatrix) {
-      driveMin = Math.round(durationMatrix[prevMatrixIdx][currMatrixIdx] / 60)
-      distKm = Math.round(haversineKm(prev, coord) * 10) / 10
-    } else {
-      distKm = Math.round(haversineKm(prev, coord) * 10) / 10
-      driveMin = Math.round((distKm / avgSpeedKmh) * 60)
+    let driveMin = 0
+    let distKm = 0
+
+    if (wi === 0) {
+      // Moving to a new address
+      distKm = Math.round(haversineKm(prevCoord, coord) * 10) / 10
+      if (usingMatrix && durationMatrix) {
+        driveMin = Math.round(durationMatrix[prevGroupMatIdx][currMatIdx] / 60)
+      } else {
+        driveMin = Math.round((distKm / avgSpeedKmh) * 60)
+      }
+      prevGroupMatIdx = currMatIdx
+      prevCoord = coord
     }
+    // wi > 0: same address — driveMin and distKm stay 0
+
     elapsedMin += driveMin
 
     const originalIdx = order[i]
@@ -239,14 +292,12 @@ export async function POST(req: NextRequest) {
       usedFallback,
     })
     elapsedMin += onSiteMin
-    prev = coord
-    prevMatrixIdx = currMatrixIdx
   }
 
   return NextResponse.json({
     order, legs, geocodeFailed, coords: orderedCoords, depotCoord: depot,
     usingMatrix, durationMatrix,
-    matrixIndices: localOrder.map(li => li + 1),
+    matrixIndices: stopGroupMatIdx,  // per-stop; same-address stops share a matrix index → 0 drive on recalculate
     avgSpeedKmh,
     method,
   })

@@ -80,6 +80,7 @@ export default function TimesheetPage({
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [loading, setLoading] = useState(true)
   const [clocking, setClocking] = useState(false)
+  const [gpsStatus, setGpsStatus] = useState<'idle' | 'requesting' | 'warning'>('idle')
   const [note, setNote] = useState('')
   const [showNote, setShowNote] = useState(false)
   const [weekTotal, setWeekTotal] = useState(0)
@@ -128,40 +129,47 @@ export default function TimesheetPage({
 
   useEffect(() => { loadData() }, [loadData])
 
-  async function handleClock() {
-    if (!employee || !isCurrentWeek) return
-    setClocking(true)
+  async function submitPunch(lat: number | null, lng: number | null) {
+    if (!employee) return
     const action = clockedIn ? 'out' : 'in'
     const clockOutTime = action === 'out' ? new Date().toISOString() : null
     const clockOutHours = action === 'out' ? elapsed / 3600000 : 0
-
-    let lat: number | null = null
-    let lng: number | null = null
-    try {
-      const settings = await fetch('/api/timesheet/settings').then(r => r.json())
-      if (settings?.settings?.gps_enabled) {
-        const pos = await new Promise<GeolocationPosition>((res, rej) =>
-          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 5000 })
-        )
-        lat = pos.coords.latitude
-        lng = pos.coords.longitude
-      }
-    } catch {
-      // GPS optional — continue without it
-    }
-
+    setClocking(true)
+    setGpsStatus('idle')
     await fetch('/api/timesheet/punch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ employee_id: employee.id, action, note: note || null, lat, lng }),
     })
-
     setNote('')
     setShowNote(false)
     setClocking(false)
     if (clockOutTime) setLastOut({ time: clockOutTime, hours: clockOutHours })
     else setLastOut(null)
     loadData()
+  }
+
+  async function handleClock() {
+    if (!employee || !isCurrentWeek) return
+    const action = clockedIn ? 'out' : 'in'
+
+    // Clock-out: no GPS needed
+    if (action === 'out') {
+      await submitPunch(null, null)
+      return
+    }
+
+    // Clock-in: request GPS first
+    setGpsStatus('requesting')
+    try {
+      const pos = await new Promise<GeolocationPosition>((res, rej) =>
+        navigator.geolocation.getCurrentPosition(res, rej, { timeout: 8000 })
+      )
+      await submitPunch(pos.coords.latitude, pos.coords.longitude)
+    } catch {
+      // GPS denied or unavailable — show warning, don't submit yet
+      setGpsStatus('warning')
+    }
   }
 
   const elapsed = since ? now - new Date(since).getTime() : 0
@@ -239,7 +247,7 @@ export default function TimesheetPage({
                 </div>
 
                 {/* Note field */}
-                {showNote && (
+                {showNote && gpsStatus !== 'warning' && (
                   <textarea
                     value={note}
                     onChange={e => setNote(e.target.value)}
@@ -249,25 +257,60 @@ export default function TimesheetPage({
                   />
                 )}
 
-                {/* Clock button */}
-                <button
-                  onClick={handleClock}
-                  disabled={clocking}
-                  className={`w-full py-5 rounded-2xl text-lg font-bold transition-all disabled:opacity-50 ${
-                    clockedIn
-                      ? 'bg-red-500 hover:bg-red-400 active:bg-red-600 text-white shadow-lg shadow-red-500/25'
-                      : 'bg-green-500 hover:bg-green-400 active:bg-green-600 text-white shadow-lg shadow-green-500/25'
-                  }`}
-                >
-                  {clocking ? '…' : clockedIn ? 'Clock Out' : 'Clock In'}
-                </button>
+                {/* GPS warning state */}
+                {gpsStatus === 'warning' ? (
+                  <div className="w-full rounded-2xl border-2 border-red-500/60 bg-red-500/10 p-5 space-y-4">
+                    <div className="text-center space-y-1">
+                      <div className="text-2xl">📵</div>
+                      <div className="font-bold text-red-400 text-base">Location Access Denied</div>
+                      <div className="text-sm text-red-300/80 leading-snug">
+                        Your clock-in will have <span className="font-semibold">no GPS record</span>.<br />
+                        Your manager will be able to see this.
+                      </div>
+                    </div>
+                    <button
+                      onClick={handleClock}
+                      className="w-full py-3 rounded-xl bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium transition-colors"
+                    >
+                      🔄 Try Again
+                    </button>
+                    <button
+                      onClick={() => submitPunch(null, null)}
+                      disabled={clocking}
+                      className="w-full py-3 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
+                    >
+                      {clocking ? '…' : 'Clock In Without Location'}
+                    </button>
+                    <button
+                      onClick={() => setGpsStatus('idle')}
+                      className="w-full text-xs text-gray-600 hover:text-gray-400 transition-colors pt-1"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {/* Clock button */}
+                    <button
+                      onClick={handleClock}
+                      disabled={clocking || gpsStatus === 'requesting'}
+                      className={`w-full py-5 rounded-2xl text-lg font-bold transition-all disabled:opacity-70 ${
+                        clockedIn
+                          ? 'bg-red-500 hover:bg-red-400 active:bg-red-600 text-white shadow-lg shadow-red-500/25'
+                          : 'bg-green-500 hover:bg-green-400 active:bg-green-600 text-white shadow-lg shadow-green-500/25'
+                      }`}
+                    >
+                      {clocking ? '…' : gpsStatus === 'requesting' ? '📍 Getting location…' : clockedIn ? 'Clock Out' : 'Clock In'}
+                    </button>
 
-                <button
-                  onClick={() => setShowNote(v => !v)}
-                  className="mt-2 text-xs text-gray-600 hover:text-gray-400 transition-colors"
-                >
-                  {showNote ? 'Hide note' : '+ Add note'}
-                </button>
+                    <button
+                      onClick={() => setShowNote(v => !v)}
+                      className="mt-2 text-xs text-gray-600 hover:text-gray-400 transition-colors"
+                    >
+                      {showNote ? 'Hide note' : '+ Add note'}
+                    </button>
+                  </>
+                )}
               </>
             )}
 
