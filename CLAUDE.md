@@ -30,6 +30,12 @@ Next.js 16 uses `proxy.ts` with export named `proxy`. Don't rename.
 ### Never run `npm install` from this Google Drive folder
 Google Drive file locks will break it. Packages are installed on the VPS via `npm ci` during the GitHub Actions deploy.
 
+### Jobber refresh writes use the admin client
+`lib/jobber.ts` writes rotated tokens via `createAdminClient()` (service role), NOT the user-session client. RLS on `jobber_tokens` doesn't allow user-session UPDATE, and refresh-token rotation is ON for the Lynxedo Jobber app — every refresh returns a new refresh_token and immediately invalidates the old one. If the save fails silently (which is what RLS-blocked writes do), the next refresh 401s and the user has to disconnect/reconnect. Don't switch this back to the user-session client.
+
+### Call-log times: display the naive datetime, don't TZ-convert
+Supabase `call_datetime` is stored as naive Texas-local time labeled `+00:00`. `formatDateTime` in `app/call-log/page.tsx` parses the date/time parts directly and formats — it does NOT pass them through `new Date()`, which would let the browser convert from "UTC" to local and produce times 5 hours off. See timezone section in MASTER_REFERENCE.md.
+
 ---
 
 ## Key Locations
