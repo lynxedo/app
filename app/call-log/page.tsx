@@ -29,10 +29,17 @@ function formatDuration(seconds: number | null) {
   return `${m}:${String(s).padStart(2, '0')}`
 }
 
+// call_datetime is stored in Supabase as Texas local time labeled with +00:00.
+// Parse the naive parts and format directly — don't let the browser TZ-convert.
 function formatDateTime(iso: string) {
-  const d = new Date(iso)
-  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
-    ' ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+  const m = iso.match(/^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})/)
+  if (!m) return iso
+  const [, year, month, day, hour, minute] = m
+  const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec']
+  const h = parseInt(hour, 10)
+  const period = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 || 12
+  return `${months[parseInt(month) - 1]} ${parseInt(day)}, ${year} ${h12}:${minute} ${period}`
 }
 
 function formatPhone(phone: string) {
