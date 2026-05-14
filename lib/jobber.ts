@@ -5,6 +5,7 @@
  */
 
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const JOBBER_CLIENT_ID = process.env.JOBBER_CLIENT_ID!
 const JOBBER_CLIENT_SECRET = process.env.JOBBER_CLIENT_SECRET!
@@ -59,17 +60,28 @@ async function refreshJobberToken(
   const tokens = await res.json()
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
 
-  const supabase = await createClient()
-  await supabase
+  // Use admin client (service role) for the write. Refresh is a system
+  // operation — it must not depend on the user-session RLS policy allowing
+  // UPDATE on jobber_tokens. With rotation ON, every successful refresh
+  // returns a NEW refresh_token and the old one is invalidated immediately
+  // by Jobber, so this save MUST land or the next refresh will 401.
+  const admin = createAdminClient()
+  const { error: writeErr } = await admin
     .from('jobber_tokens')
     .update({
       access_token: tokens.access_token,
-      // Jobber may or may not return a new refresh_token — keep old one if not
       refresh_token: tokens.refresh_token ?? refreshToken,
       expires_at: expiresAt,
       updated_at: new Date().toISOString(),
     })
     .eq('user_id', userId)
+
+  if (writeErr) {
+    console.error('Jobber refresh: failed to save rotated tokens:', writeErr)
+    // Don't return the access_token — it would work once but the next
+    // refresh would fail because the new refresh_token wasn't saved.
+    return null
+  }
 
   return tokens.access_token
 }
