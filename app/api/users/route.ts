@@ -10,7 +10,6 @@ const USERS_QUERY = `
         name {
           full
         }
-        status
       }
     }
   }
@@ -19,7 +18,7 @@ const USERS_QUERY = `
 interface JobberUsersResponse {
   data: {
     users: {
-      nodes: Array<{ id: string; name: { full: string }; status: string }>
+      nodes: Array<{ id: string; name: { full: string } }>
     }
   }
   errors?: Array<{ message: string }>
@@ -40,7 +39,6 @@ export async function GET() {
     }
 
     const users = result.data.users.nodes
-      .filter(u => u.status === 'ACTIVE')
       .map(u => ({
         id: u.id,
         name: u.name.full,
