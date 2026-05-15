@@ -38,6 +38,8 @@ type TrackerSettings = {
   base_program_sold_options: string[]
   auxiliary_services_options: string[]
   status_stage_rules: { status: string; stage: string }[]
+  stage_colors?: Record<string, string>
+  status_colors?: Record<string, string>
 }
 
 type CurrentUser = { email: string; name: string; isAdmin: boolean }
@@ -53,6 +55,18 @@ const PIPELINE_GROUPS = [
   { key: 'saves', label: 'Saves' },
 ]
 
+const DEFAULT_STAGE_COLORS: Record<string, string> = {
+  current: '#3b82f6',
+  appointment_set: '#8b5cf6',
+  follow_up_long_term: '#d97706',
+  closed_won: '#16a34a',
+  upsells: '#0d9488',
+  closed_lost: '#dc2626',
+  closed_other: '#4b5563',
+  saves: '#ea580c',
+}
+
+// kept for notes panel badge
 const GROUP_BADGE: Record<string, string> = {
   current: 'bg-blue-500/15 text-blue-400 border-blue-500/30',
   appointment_set: 'bg-purple-500/15 text-purple-400 border-purple-500/30',
@@ -75,6 +89,14 @@ function fmtCurrency(v: number | null): string {
   return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
 }
 
+function formatPhone(v: string | null): string {
+  if (!v) return ''
+  const digits = v.replace(/\D/g, '').slice(0, 10)
+  if (digits.length < 4) return digits
+  if (digits.length < 7) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
+  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+}
+
 // ────────────────────────────────────────────────
 // Inline text cell
 // ────────────────────────────────────────────────
@@ -84,12 +106,14 @@ function EditCell({
   placeholder = '—',
   onSave,
   type = 'text',
+  lightMode = false,
 }: {
   value: string | null
   displayValue?: string
   placeholder?: string
   onSave: (v: string | null) => void
   type?: string
+  lightMode?: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [local, setLocal] = useState(value ?? '')
@@ -115,7 +139,11 @@ function EditCell({
           if (e.key === 'Enter') save()
           if (e.key === 'Escape') { setLocal(value ?? ''); setEditing(false) }
         }}
-        className="w-full bg-gray-800 border border-indigo-500 rounded px-2 py-0.5 text-sm text-white focus:outline-none"
+        className={`w-full border rounded px-2 py-0.5 text-sm focus:outline-none ${
+          lightMode
+            ? 'bg-gray-100 border-indigo-400 text-gray-900'
+            : 'bg-gray-800 border-indigo-500 text-white'
+        }`}
       />
     )
   }
@@ -123,10 +151,12 @@ function EditCell({
   return (
     <span
       onClick={() => { setLocal(value ?? ''); setEditing(true) }}
-      className="block w-full cursor-text hover:text-indigo-300 transition-colors truncate"
+      className={`block w-full cursor-text transition-colors truncate ${
+        lightMode ? 'hover:text-indigo-600' : 'hover:text-indigo-300'
+      }`}
       title={value ?? ''}
     >
-      {(displayValue ?? value) || <span className="text-gray-600">{placeholder}</span>}
+      {(displayValue ?? value) || <span className={lightMode ? 'text-gray-400' : 'text-gray-600'}>{placeholder}</span>}
     </span>
   )
 }
@@ -138,20 +168,90 @@ function SelectCell({
   value,
   options,
   onSave,
+  lightMode = false,
 }: {
   value: string | null
   options: string[]
   onSave: (v: string | null) => void
+  lightMode?: boolean
 }) {
   return (
     <select
       value={value ?? ''}
       onChange={e => onSave(e.target.value || null)}
-      className="w-full bg-transparent text-sm text-white focus:outline-none cursor-pointer hover:text-indigo-300 transition-colors"
+      className={`w-full bg-transparent text-sm focus:outline-none cursor-pointer transition-colors ${
+        lightMode ? 'text-gray-700 hover:text-indigo-600' : 'text-white hover:text-indigo-300'
+      }`}
     >
       <option value="">—</option>
       {options.map(o => <option key={o} value={o}>{o}</option>)}
     </select>
+  )
+}
+
+// ────────────────────────────────────────────────
+// Status cell — colored badge when color assigned
+// ────────────────────────────────────────────────
+function StatusCell({
+  value,
+  options,
+  statusColors,
+  lightMode,
+  onSave,
+}: {
+  value: string | null
+  options: string[]
+  statusColors: Record<string, string>
+  lightMode: boolean
+  onSave: (v: string | null) => void
+}) {
+  const [editing, setEditing] = useState(false)
+  const ref = useRef<HTMLSelectElement>(null)
+  const color = value && statusColors[value] ? statusColors[value] : null
+
+  useEffect(() => { if (editing) ref.current?.focus() }, [editing])
+
+  if (editing) {
+    return (
+      <select
+        ref={ref}
+        value={value ?? ''}
+        onChange={e => { onSave(e.target.value || null); setEditing(false) }}
+        onBlur={() => setEditing(false)}
+        className={`w-full text-sm focus:outline-none cursor-pointer ${
+          lightMode ? 'bg-white text-gray-900' : 'bg-gray-900 text-white'
+        }`}
+        autoFocus
+      >
+        <option value="">—</option>
+        {options.map(o => <option key={o} value={o}>{o}</option>)}
+      </select>
+    )
+  }
+
+  if (color) {
+    return (
+      <span
+        onClick={() => setEditing(true)}
+        style={{ backgroundColor: color + '25', color, borderColor: color + '60' }}
+        className="inline-block px-2 py-0.5 rounded text-xs font-medium border cursor-pointer hover:opacity-80 transition-opacity truncate max-w-full"
+        title={value ?? ''}
+      >
+        {value || <span className="opacity-50">—</span>}
+      </span>
+    )
+  }
+
+  return (
+    <span
+      onClick={() => setEditing(true)}
+      className={`block w-full cursor-text truncate transition-colors ${
+        lightMode ? 'text-gray-700 hover:text-indigo-600' : 'text-white hover:text-indigo-300'
+      }`}
+      title={value ?? ''}
+    >
+      {value || <span className={lightMode ? 'text-gray-400' : 'text-gray-600'}>—</span>}
+    </span>
   )
 }
 
@@ -162,10 +262,12 @@ function MultiSelectCell({
   values,
   options,
   onSave,
+  lightMode = false,
 }: {
   values: string[] | null
   options: string[]
   onSave: (v: string[]) => void
+  lightMode?: boolean
 }) {
   const [open, setOpen] = useState(false)
   const ref = useRef<HTMLDivElement>(null)
@@ -190,24 +292,30 @@ function MultiSelectCell({
     <div ref={ref} className="relative">
       <button
         onClick={() => setOpen(o => !o)}
-        className="text-left text-sm w-full truncate hover:text-indigo-300 transition-colors"
+        className={`text-left text-sm w-full truncate transition-colors ${
+          lightMode ? 'text-gray-700 hover:text-indigo-600' : 'hover:text-indigo-300'
+        }`}
         title={selected.join(', ')}
       >
         {selected.length === 0
-          ? <span className="text-gray-600">—</span>
+          ? <span className={lightMode ? 'text-gray-400' : 'text-gray-600'}>—</span>
           : selected.join(', ')}
       </button>
       {open && (
-        <div className="absolute z-50 top-full left-0 mt-1 bg-gray-800 border border-gray-700 rounded-lg shadow-xl min-w-52 max-h-64 overflow-y-auto">
+        <div className={`absolute z-50 top-full left-0 mt-1 border rounded-lg shadow-xl min-w-52 max-h-64 overflow-y-auto ${
+          lightMode ? 'bg-white border-gray-200' : 'bg-gray-800 border-gray-700'
+        }`}>
           {options.map(opt => (
-            <label key={opt} className="flex items-center gap-2 px-3 py-1.5 hover:bg-gray-700 cursor-pointer">
+            <label key={opt} className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer ${
+              lightMode ? 'hover:bg-gray-50' : 'hover:bg-gray-700'
+            }`}>
               <input
                 type="checkbox"
                 checked={selected.includes(opt)}
                 onChange={() => toggle(opt)}
                 className="rounded accent-indigo-500"
               />
-              <span className="text-sm text-white">{opt}</span>
+              <span className={`text-sm ${lightMode ? 'text-gray-900' : 'text-white'}`}>{opt}</span>
             </label>
           ))}
         </div>
@@ -227,6 +335,8 @@ function LeadRow({
   onUpdate,
   onOpenNotes,
   onEdit,
+  lightMode,
+  statusColors,
 }: {
   lead: Lead
   opts: TrackerSettings
@@ -235,12 +345,18 @@ function LeadRow({
   onUpdate: (id: string, field: string, value: unknown) => void
   onOpenNotes: (id: string) => void
   onEdit: (id: string) => void
+  lightMode: boolean
+  statusColors: Record<string, string>
 }) {
   const noteText = lead.latest_note?.note ?? null
   const truncatedNote = noteText && noteText.length > 60 ? noteText.slice(0, 60) + '…' : noteText
 
+  const rowCls = checked
+    ? lightMode ? 'bg-indigo-50' : 'bg-indigo-950/30'
+    : lightMode ? 'hover:bg-gray-50 group' : 'hover:bg-gray-900/40 group'
+
   return (
-    <tr className={`hover:bg-gray-900/40 group ${checked ? 'bg-indigo-950/30' : ''}`}>
+    <tr className={rowCls}>
       <td className="px-3 py-2 text-center" onClick={e => e.stopPropagation()}>
         <input
           type="checkbox"
@@ -251,38 +367,52 @@ function LeadRow({
       </td>
       <td className="px-3 py-2 text-sm">
         <div className="flex gap-1">
-          <EditCell value={lead.first_name} placeholder="First" onSave={v => onUpdate(lead.id, 'first_name', v)} />
-          <EditCell value={lead.last_name} placeholder="Last" onSave={v => onUpdate(lead.id, 'last_name', v)} />
+          <EditCell value={lead.first_name} placeholder="First" lightMode={lightMode} onSave={v => onUpdate(lead.id, 'first_name', v)} />
+          <EditCell value={lead.last_name} placeholder="Last" lightMode={lightMode} onSave={v => onUpdate(lead.id, 'last_name', v)} />
         </div>
       </td>
       <td className="px-3 py-2 text-sm">
-        <EditCell value={lead.phone} onSave={v => onUpdate(lead.id, 'phone', v)} />
+        <EditCell
+          value={lead.phone}
+          displayValue={formatPhone(lead.phone) || undefined}
+          lightMode={lightMode}
+          onSave={v => onUpdate(lead.id, 'phone', v ? formatPhone(v) : null)}
+        />
       </td>
       <td className="px-3 py-2 text-sm w-36">
         <select
           value={lead.stage ?? ''}
           onChange={e => onUpdate(lead.id, 'stage', e.target.value || null)}
-          className="w-full bg-transparent text-sm text-white focus:outline-none cursor-pointer hover:text-indigo-300 transition-colors"
+          className={`w-full bg-transparent text-sm focus:outline-none cursor-pointer transition-colors ${
+            lightMode ? 'text-gray-700 hover:text-indigo-600' : 'text-white hover:text-indigo-300'
+          }`}
         >
           {PIPELINE_GROUPS.map(g => <option key={g.key} value={g.key}>{g.label}</option>)}
         </select>
       </td>
       <td className="px-3 py-2 text-sm max-w-[160px]">
-        <MultiSelectCell values={lead.service} options={opts.service_options} onSave={v => onUpdate(lead.id, 'service', v)} />
+        <MultiSelectCell values={lead.service} options={opts.service_options} lightMode={lightMode} onSave={v => onUpdate(lead.id, 'service', v)} />
       </td>
       <td className="px-3 py-2 text-sm">
-        <SelectCell value={lead.status} options={opts.status_options} onSave={v => onUpdate(lead.id, 'status', v)} />
+        <StatusCell
+          value={lead.status}
+          options={opts.status_options}
+          statusColors={statusColors}
+          lightMode={lightMode}
+          onSave={v => onUpdate(lead.id, 'status', v)}
+        />
       </td>
       <td className="px-3 py-2 text-sm">
-        <SelectCell value={lead.lead_source} options={opts.lead_source_options} onSave={v => onUpdate(lead.id, 'lead_source', v)} />
+        <SelectCell value={lead.lead_source} options={opts.lead_source_options} lightMode={lightMode} onSave={v => onUpdate(lead.id, 'lead_source', v)} />
       </td>
       <td className="px-3 py-2 text-sm">
-        <SelectCell value={lead.salesperson} options={opts.salesperson_options} onSave={v => onUpdate(lead.id, 'salesperson', v)} />
+        <SelectCell value={lead.salesperson} options={opts.salesperson_options} lightMode={lightMode} onSave={v => onUpdate(lead.id, 'salesperson', v)} />
       </td>
       <td className="px-3 py-2 text-sm">
         <SelectCell
           value={lead.base_program_sold}
           options={opts.base_program_sold_options}
+          lightMode={lightMode}
           onSave={v => onUpdate(lead.id, 'base_program_sold', v)}
         />
       </td>
@@ -290,12 +420,15 @@ function LeadRow({
         <MultiSelectCell
           values={lead.auxiliary_services}
           options={opts.auxiliary_services_options}
+          lightMode={lightMode}
           onSave={v => onUpdate(lead.id, 'auxiliary_services', v)}
         />
       </td>
       <td className="px-3 py-2 text-sm">
         <EditCell
           value={lead.annual_value != null ? String(lead.annual_value) : null}
+          displayValue={fmtCurrency(lead.annual_value) || undefined}
+          lightMode={lightMode}
           onSave={v => onUpdate(lead.id, 'annual_value', v ? parseFloat(v) : null)}
         />
       </td>
@@ -304,20 +437,23 @@ function LeadRow({
           value={lead.lead_creation_date}
           displayValue={fmtDate(lead.lead_creation_date) || undefined}
           type="date"
+          lightMode={lightMode}
           onSave={v => onUpdate(lead.id, 'lead_creation_date', v)}
         />
       </td>
       <td className="px-3 py-2 text-sm max-w-[200px]">
         {truncatedNote ? (
           <span
-            className="text-gray-400 hover:text-indigo-300 cursor-pointer transition-colors truncate block"
+            className={`cursor-pointer transition-colors truncate block ${
+              lightMode ? 'text-gray-500 hover:text-indigo-600' : 'text-gray-400 hover:text-indigo-300'
+            }`}
             title={noteText ?? ''}
             onClick={() => onOpenNotes(lead.id)}
           >
             {truncatedNote}
           </span>
         ) : (
-          <span className="text-gray-700 text-xs italic">no notes</span>
+          <span className={`text-xs italic ${lightMode ? 'text-gray-400' : 'text-gray-700'}`}>no notes</span>
         )}
       </td>
       <td className="px-3 py-2 text-center whitespace-nowrap">
@@ -367,6 +503,8 @@ function GroupSection({
   onUpdate,
   onOpenNotes,
   onEdit,
+  stageColor,
+  lightMode,
 }: {
   group: { key: string; label: string; leads: Lead[] }
   collapsed: boolean
@@ -378,28 +516,34 @@ function GroupSection({
   onUpdate: (id: string, field: string, value: unknown) => void
   onOpenNotes: (id: string) => void
   onEdit: (id: string) => void
+  stageColor: string
+  lightMode: boolean
 }) {
   return (
-    <div>
+    <div className="rounded-lg overflow-hidden shadow-sm">
+      {/* Full-width colored stage header */}
       <div
         onClick={onToggle}
-        className="flex items-center gap-3 px-4 py-2 bg-gray-900/60 border-y border-gray-800 cursor-pointer hover:bg-gray-900/80 transition-colors"
+        className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:opacity-90 transition-opacity"
+        style={{ backgroundColor: stageColor }}
       >
         <div onClick={e => e.stopPropagation()}>
           <GroupCheckbox leads={group.leads} selectedIds={selectedIds} onToggleGroupAll={onToggleGroupAll} />
         </div>
-        <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${GROUP_BADGE[group.key] ?? 'bg-gray-500/15 text-gray-400 border-gray-500/30'}`}>
-          {group.label}
-        </span>
-        <span className="text-gray-600 text-xs">{group.leads.length} lead{group.leads.length !== 1 ? 's' : ''}</span>
-        <span className="text-gray-600 ml-auto text-xs">{collapsed ? '▸' : '▾'}</span>
+        <span className="text-sm font-semibold text-white">{group.label}</span>
+        <span className="text-white/70 text-xs">{group.leads.length} lead{group.leads.length !== 1 ? 's' : ''}</span>
+        <span className="text-white/70 ml-auto text-xs">{collapsed ? '▸' : '▾'}</span>
       </div>
 
       {!collapsed && (
-        <div className="overflow-x-auto">
+        <div className={`overflow-x-auto ${lightMode ? 'bg-white' : ''}`}>
           <table className="w-full min-w-[1400px]">
             <thead>
-              <tr className="text-left text-xs text-gray-500 border-b border-gray-800/50">
+              <tr className={`text-left text-xs border-b ${
+                lightMode
+                  ? 'text-gray-500 border-gray-200'
+                  : 'text-gray-500 border-gray-800/50'
+              }`}>
                 <th className="px-3 py-1.5 w-8"></th>
                 <th className="px-3 py-1.5 font-medium w-44">Name</th>
                 <th className="px-3 py-1.5 font-medium w-32">Phone</th>
@@ -416,7 +560,7 @@ function GroupSection({
                 <th className="px-3 py-1.5 w-14"></th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-gray-800/40">
+            <tbody className={`divide-y ${lightMode ? 'divide-gray-100' : 'divide-gray-800/40'}`}>
               {group.leads.map(lead => (
                 <LeadRow
                   key={lead.id}
@@ -427,11 +571,15 @@ function GroupSection({
                   onUpdate={onUpdate}
                   onOpenNotes={onOpenNotes}
                   onEdit={onEdit}
+                  lightMode={lightMode}
+                  statusColors={opts.status_colors ?? {}}
                 />
               ))}
               {group.leads.length === 0 && (
                 <tr>
-                  <td colSpan={14} className="px-4 py-4 text-gray-700 text-sm italic">No leads in this group.</td>
+                  <td colSpan={14} className={`px-4 py-4 text-sm italic ${lightMode ? 'text-gray-400' : 'text-gray-700'}`}>
+                    No leads in this stage.
+                  </td>
                 </tr>
               )}
             </tbody>
@@ -500,7 +648,6 @@ function NotesPanel({
 
   return (
     <div className="w-96 border-l border-gray-800 flex flex-col bg-gray-950 shrink-0">
-      {/* Header */}
       <div className="flex items-start justify-between px-5 py-4 border-b border-gray-800">
         <div>
           <div className="font-semibold text-white">{leadName}</div>
@@ -511,7 +658,6 @@ function NotesPanel({
         <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors text-lg leading-none mt-0.5">✕</button>
       </div>
 
-      {/* Notes thread */}
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
         {loading && <p className="text-gray-600 text-sm">Loading…</p>}
         {!loading && notes.length === 0 && (
@@ -525,7 +671,6 @@ function NotesPanel({
         ))}
       </div>
 
-      {/* Add note */}
       <div className="px-5 py-4 border-t border-gray-800 space-y-2">
         <textarea
           value={newNote}
@@ -566,7 +711,7 @@ function EditLeadDrawer({
   const [form, setForm] = useState({
     first_name: lead.first_name ?? '',
     last_name: lead.last_name ?? '',
-    phone: lead.phone ?? '',
+    phone: formatPhone(lead.phone),
     email: lead.email ?? '',
     service_address: lead.service_address ?? '',
     service: lead.service ?? [] as string[],
@@ -659,8 +804,13 @@ function EditLeadDrawer({
 
         <div>
           <label className="block text-xs text-gray-400 mb-1">Phone</label>
-          <input value={form.phone} onChange={e => set('phone', e.target.value)} type="tel"
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+          <input
+            value={form.phone}
+            onChange={e => set('phone', e.target.value)}
+            onBlur={e => set('phone', formatPhone(e.target.value))}
+            type="tel"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+          />
         </div>
 
         <div>
@@ -893,8 +1043,13 @@ function NewLeadForm({
 
         <div>
           <label className="block text-xs text-gray-400 mb-1">Phone</label>
-          <input value={form.phone} onChange={e => set('phone', e.target.value)} type="tel"
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+          <input
+            value={form.phone}
+            onChange={e => set('phone', e.target.value)}
+            onBlur={e => set('phone', formatPhone(e.target.value))}
+            type="tel"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500"
+          />
         </div>
 
         <div>
@@ -1035,6 +1190,18 @@ export default function TrackerPage({
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
   const [bulkStage, setBulkStage] = useState('')
   const [bulkWorking, setBulkWorking] = useState(false)
+  const [lightMode, setLightMode] = useState(false)
+
+  useEffect(() => {
+    const stored = localStorage.getItem('tracker-light-mode')
+    if (stored === '1') setLightMode(true)
+  }, [])
+
+  function toggleLightMode() {
+    const next = !lightMode
+    setLightMode(next)
+    localStorage.setItem('tracker-light-mode', next ? '1' : '0')
+  }
 
   const opts: TrackerSettings = settings ?? {
     status_options: [],
@@ -1219,7 +1386,7 @@ export default function TrackerPage({
             onChange={e => setStageFilter(e.target.value)}
             className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
           >
-            <option value="">All Groups</option>
+            <option value="">All Stages</option>
             {PIPELINE_GROUPS.map(g => <option key={g.key} value={g.key}>{g.label}</option>)}
           </select>
           <select
@@ -1241,6 +1408,13 @@ export default function TrackerPage({
           <span className="text-xs text-gray-600 px-1">{totalLeads} lead{totalLeads !== 1 ? 's' : ''}</span>
           <div className="flex-1" />
           <button
+            onClick={toggleLightMode}
+            className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+            title="Toggle light/dark table"
+          >
+            {lightMode ? 'Dark Table' : 'Light Table'}
+          </button>
+          <button
             onClick={handleExport}
             className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
           >
@@ -1258,21 +1432,25 @@ export default function TrackerPage({
         {loading ? (
           <div className="flex items-center justify-center py-20 text-gray-600 text-sm">Loading leads…</div>
         ) : (
-          groupedLeads.map(group => (
-            <GroupSection
-              key={group.key}
-              group={group}
-              collapsed={collapsedGroups.has(group.key)}
-              onToggle={() => toggleGroup(group.key)}
-              opts={opts}
-              selectedIds={selectedIds}
-              onToggleSelect={toggleSelect}
-              onToggleGroupAll={toggleGroupAll}
-              onUpdate={updateLead}
-              onOpenNotes={id => { setNotesLeadId(id); setEditLeadId(null); setNewLeadOpen(false) }}
-              onEdit={id => { setEditLeadId(id); setNotesLeadId(null); setNewLeadOpen(false) }}
-            />
-          ))
+          <div className="space-y-3 p-3">
+            {groupedLeads.map(group => (
+              <GroupSection
+                key={group.key}
+                group={group}
+                collapsed={collapsedGroups.has(group.key)}
+                onToggle={() => toggleGroup(group.key)}
+                opts={opts}
+                selectedIds={selectedIds}
+                onToggleSelect={toggleSelect}
+                onToggleGroupAll={toggleGroupAll}
+                onUpdate={updateLead}
+                onOpenNotes={id => { setNotesLeadId(id); setEditLeadId(null); setNewLeadOpen(false) }}
+                onEdit={id => { setEditLeadId(id); setNotesLeadId(null); setNewLeadOpen(false) }}
+                stageColor={opts.stage_colors?.[group.key] ?? DEFAULT_STAGE_COLORS[group.key]}
+                lightMode={lightMode}
+              />
+            ))}
+          </div>
         )}
       </div>
 

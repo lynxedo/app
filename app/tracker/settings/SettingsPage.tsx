@@ -12,6 +12,8 @@ type TrackerSettings = {
   base_program_sold_options: string[]
   auxiliary_services_options: string[]
   status_stage_rules: StatusStageRule[]
+  stage_colors?: Record<string, string>
+  status_colors?: Record<string, string>
 }
 
 const PIPELINE_GROUPS = [
@@ -25,7 +27,18 @@ const PIPELINE_GROUPS = [
   { key: 'saves', label: 'Saves' },
 ]
 
-const LIST_LABELS: { key: keyof Omit<TrackerSettings, 'status_stage_rules'>; label: string }[] = [
+const DEFAULT_STAGE_COLORS: Record<string, string> = {
+  current: '#3b82f6',
+  appointment_set: '#8b5cf6',
+  follow_up_long_term: '#d97706',
+  closed_won: '#16a34a',
+  upsells: '#0d9488',
+  closed_lost: '#dc2626',
+  closed_other: '#4b5563',
+  saves: '#ea580c',
+}
+
+const LIST_LABELS: { key: keyof Omit<TrackerSettings, 'status_stage_rules' | 'stage_colors' | 'status_colors'>; label: string }[] = [
   { key: 'status_options', label: 'Status' },
   { key: 'service_options', label: 'Service' },
   { key: 'lead_source_options', label: 'Lead Source' },
@@ -120,6 +133,135 @@ function ListEditor({
   )
 }
 
+function StageColorEditor({
+  colors,
+  onChange,
+}: {
+  colors: Record<string, string>
+  onChange: (colors: Record<string, string>) => void
+}) {
+  function setColor(key: string, value: string) {
+    onChange({ ...colors, [key]: value })
+  }
+
+  function resetColor(key: string) {
+    const next = { ...colors }
+    delete next[key]
+    onChange(next)
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+      <h3 className="font-semibold text-white mb-1">Stage Colors</h3>
+      <p className="text-xs text-gray-500 mb-4">Set the color for each pipeline stage header bar.</p>
+      <div className="space-y-2">
+        {PIPELINE_GROUPS.map(({ key, label }) => {
+          const current = colors[key] ?? DEFAULT_STAGE_COLORS[key] ?? '#6b7280'
+          const isCustom = !!colors[key]
+          return (
+            <div key={key} className="flex items-center gap-3">
+              <div
+                className="w-5 h-5 rounded-md flex-shrink-0 border border-white/10"
+                style={{ backgroundColor: current }}
+              />
+              <span className="flex-1 text-sm text-gray-300">{label}</span>
+              <input
+                type="color"
+                value={current}
+                onChange={e => setColor(key, e.target.value)}
+                className="w-8 h-7 rounded cursor-pointer bg-transparent border border-gray-700 p-0.5"
+                title="Pick color"
+              />
+              {isCustom && (
+                <button
+                  onClick={() => resetColor(key)}
+                  className="text-xs text-gray-600 hover:text-gray-400 transition-colors whitespace-nowrap"
+                  title="Reset to default"
+                >
+                  Reset
+                </button>
+              )}
+              {!isCustom && <span className="text-xs text-gray-700 w-9">default</span>}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
+function StatusColorEditor({
+  statusOptions,
+  colors,
+  onChange,
+}: {
+  statusOptions: string[]
+  colors: Record<string, string>
+  onChange: (colors: Record<string, string>) => void
+}) {
+  function setColor(status: string, value: string) {
+    onChange({ ...colors, [status]: value })
+  }
+
+  function clearColor(status: string) {
+    const next = { ...colors }
+    delete next[status]
+    onChange(next)
+  }
+
+  if (statusOptions.length === 0) {
+    return (
+      <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+        <h3 className="font-semibold text-white mb-1">Status Colors</h3>
+        <p className="text-xs text-gray-500">Add status options above to assign colors.</p>
+      </div>
+    )
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+      <h3 className="font-semibold text-white mb-1">Status Colors</h3>
+      <p className="text-xs text-gray-500 mb-4">Assign a color chip to each status value in the tracker.</p>
+      <div className="space-y-2">
+        {statusOptions.map(status => {
+          const color = colors[status]
+          return (
+            <div key={status} className="flex items-center gap-3">
+              {color ? (
+                <div
+                  className="w-5 h-5 rounded-md flex-shrink-0 border border-white/10"
+                  style={{ backgroundColor: color }}
+                />
+              ) : (
+                <div className="w-5 h-5 rounded-md flex-shrink-0 border border-gray-700 bg-gray-800" />
+              )}
+              <span className="flex-1 text-sm text-gray-300">{status}</span>
+              <input
+                type="color"
+                value={color ?? '#6b7280'}
+                onChange={e => setColor(status, e.target.value)}
+                className="w-8 h-7 rounded cursor-pointer bg-transparent border border-gray-700 p-0.5"
+                title="Pick color"
+              />
+              {color ? (
+                <button
+                  onClick={() => clearColor(status)}
+                  className="text-xs text-gray-600 hover:text-gray-400 transition-colors whitespace-nowrap"
+                  title="Remove color"
+                >
+                  Clear
+                </button>
+              ) : (
+                <span className="text-xs text-gray-700 w-9">none</span>
+              )}
+            </div>
+          )
+        })}
+      </div>
+    </div>
+  )
+}
+
 function RulesEditor({
   rules,
   statusOptions,
@@ -208,6 +350,8 @@ export default function SettingsPage({
     base_program_sold_options: [],
     auxiliary_services_options: [],
     status_stage_rules: [],
+    stage_colors: {},
+    status_colors: {},
   }
 
   const [settings, setSettings] = useState<TrackerSettings>(initialSettings ?? defaults)
@@ -215,13 +359,23 @@ export default function SettingsPage({
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
 
-  function updateList(key: keyof Omit<TrackerSettings, 'status_stage_rules'>, items: string[]) {
+  function updateList(key: keyof Omit<TrackerSettings, 'status_stage_rules' | 'stage_colors' | 'status_colors'>, items: string[]) {
     setSettings(prev => ({ ...prev, [key]: items }))
     setSaved(false)
   }
 
   function updateRules(rules: StatusStageRule[]) {
     setSettings(prev => ({ ...prev, status_stage_rules: rules }))
+    setSaved(false)
+  }
+
+  function updateStageColors(colors: Record<string, string>) {
+    setSettings(prev => ({ ...prev, stage_colors: colors }))
+    setSaved(false)
+  }
+
+  function updateStatusColors(colors: Record<string, string>) {
+    setSettings(prev => ({ ...prev, status_colors: colors }))
     setSaved(false)
   }
 
@@ -277,6 +431,15 @@ export default function SettingsPage({
           rules={settings.status_stage_rules ?? []}
           statusOptions={settings.status_options}
           onChange={updateRules}
+        />
+        <StageColorEditor
+          colors={settings.stage_colors ?? {}}
+          onChange={updateStageColors}
+        />
+        <StatusColorEditor
+          statusOptions={settings.status_options}
+          colors={settings.status_colors ?? {}}
+          onChange={updateStatusColors}
         />
       </div>
 
