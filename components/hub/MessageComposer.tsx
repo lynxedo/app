@@ -236,6 +236,8 @@ export default function MessageComposer({
           onChange={handleInput}
           onKeyDown={handleKeyDown}
           onPaste={handlePaste}
+          onDrop={handleDrop}
+          onDragOver={e => e.preventDefault()}
           placeholder={placeholder ?? 'Message…'}
           rows={1}
           disabled={sending}
