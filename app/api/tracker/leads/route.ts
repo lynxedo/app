@@ -35,15 +35,14 @@ export async function GET(request: Request) {
   const leadIds = leads.map(l => l.id)
   const { data: notes } = await supabase
     .from('lead_notes')
-    .select('lead_id, note, created_at')
+    .select('lead_id, note, created_by, created_at')
     .in('lead_id', leadIds)
     .order('created_at', { ascending: false })
 
-  // Map: lead_id → latest note text
-  const latestNoteMap = new Map<string, string>()
+  const latestNoteMap = new Map<string, { note: string; created_by: string; created_at: string }>()
   for (const n of notes ?? []) {
     if (!latestNoteMap.has(n.lead_id)) {
-      latestNoteMap.set(n.lead_id, n.note)
+      latestNoteMap.set(n.lead_id, { note: n.note, created_by: n.created_by, created_at: n.created_at })
     }
   }
 
@@ -84,5 +83,5 @@ export async function POST(request: Request) {
     })
   }
 
-  return NextResponse.json({ lead })
+  return NextResponse.json(lead)
 }

@@ -221,11 +221,13 @@ function LeadRow({
   opts,
   onUpdate,
   onOpenNotes,
+  onEdit,
 }: {
   lead: Lead
   opts: TrackerSettings
   onUpdate: (id: string, field: string, value: unknown) => void
   onOpenNotes: (id: string) => void
+  onEdit: (id: string) => void
 }) {
   const noteText = lead.latest_note?.note ?? null
   const truncatedNote = noteText && noteText.length > 60 ? noteText.slice(0, 60) + '…' : noteText
@@ -302,7 +304,14 @@ function LeadRow({
           <span className="text-gray-700 text-xs italic">no notes</span>
         )}
       </td>
-      <td className="px-3 py-2 text-center">
+      <td className="px-3 py-2 text-center whitespace-nowrap">
+        <button
+          onClick={() => onEdit(lead.id)}
+          title="Edit lead"
+          className="text-gray-600 hover:text-indigo-400 transition-colors text-sm leading-none mr-2"
+        >
+          ✎
+        </button>
         <button
           onClick={() => onOpenNotes(lead.id)}
           title="Notes"
@@ -325,6 +334,7 @@ function GroupSection({
   opts,
   onUpdate,
   onOpenNotes,
+  onEdit,
 }: {
   group: { key: string; label: string; leads: Lead[] }
   collapsed: boolean
@@ -332,6 +342,7 @@ function GroupSection({
   opts: TrackerSettings
   onUpdate: (id: string, field: string, value: unknown) => void
   onOpenNotes: (id: string) => void
+  onEdit: (id: string) => void
 }) {
   return (
     <div>
@@ -371,6 +382,7 @@ function GroupSection({
                   opts={opts}
                   onUpdate={onUpdate}
                   onOpenNotes={onOpenNotes}
+                  onEdit={onEdit}
                 />
               ))}
               {group.leads.length === 0 && (
@@ -487,6 +499,259 @@ function NotesPanel({
           {saving ? 'Saving…' : 'Add Note'}
         </button>
       </div>
+    </div>
+  )
+}
+
+// ────────────────────────────────────────────────
+// Edit Lead drawer
+// ────────────────────────────────────────────────
+function EditLeadDrawer({
+  lead,
+  opts,
+  onClose,
+  onUpdated,
+  onDeleted,
+}: {
+  lead: Lead
+  opts: TrackerSettings
+  onClose: () => void
+  onUpdated: (lead: Lead) => void
+  onDeleted: (id: string) => void
+}) {
+  const [form, setForm] = useState({
+    first_name: lead.first_name ?? '',
+    last_name: lead.last_name ?? '',
+    phone: lead.phone ?? '',
+    email: lead.email ?? '',
+    service_address: lead.service_address ?? '',
+    service: lead.service ?? [] as string[],
+    lead_source: lead.lead_source ?? '',
+    status: lead.status ?? '',
+    stage: lead.stage ?? 'current',
+    salesperson: lead.salesperson ?? '',
+    annual_value: lead.annual_value != null ? String(lead.annual_value) : '',
+    base_program_sold: lead.base_program_sold ?? '',
+    auxiliary_services: lead.auxiliary_services ?? [] as string[],
+    sold_date: lead.sold_date ?? '',
+  })
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const [confirmDelete, setConfirmDelete] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+
+  function set(field: string, value: unknown) {
+    setForm(prev => ({ ...prev, [field]: value }))
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault()
+    setSaving(true)
+    setError('')
+
+    const body = {
+      ...form,
+      annual_value: form.annual_value ? parseFloat(form.annual_value) : null,
+      service: form.service.length ? form.service : null,
+      auxiliary_services: form.auxiliary_services.length ? form.auxiliary_services : null,
+      lead_source: form.lead_source || null,
+      base_program_sold: form.base_program_sold || null,
+      status: form.status || null,
+      salesperson: form.salesperson || null,
+      sold_date: form.sold_date || null,
+    }
+
+    const res = await fetch(`/api/tracker/leads/${lead.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+
+    if (res.ok) {
+      const updated = await res.json()
+      onUpdated({ ...lead, ...updated })
+    } else {
+      const data = await res.json()
+      setError(data.error ?? 'Failed to save')
+    }
+    setSaving(false)
+  }
+
+  async function handleDelete() {
+    setDeleting(true)
+    const res = await fetch(`/api/tracker/leads/${lead.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      onDeleted(lead.id)
+    } else {
+      const data = await res.json()
+      setError(data.error ?? 'Failed to delete')
+      setDeleting(false)
+      setConfirmDelete(false)
+    }
+  }
+
+  const leadName = [lead.first_name, lead.last_name].filter(Boolean).join(' ') || 'Unnamed Lead'
+
+  return (
+    <div className="w-96 border-l border-gray-800 flex flex-col bg-gray-950 shrink-0 overflow-y-auto">
+      <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+        <h3 className="font-semibold text-white truncate pr-2">{leadName}</h3>
+        <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors text-lg leading-none shrink-0">✕</button>
+      </div>
+
+      <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4 flex-1">
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">First Name</label>
+            <input value={form.first_name} onChange={e => set('first_name', e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Last Name</label>
+            <input value={form.last_name} onChange={e => set('last_name', e.target.value)}
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Phone</label>
+          <input value={form.phone} onChange={e => set('phone', e.target.value)} type="tel"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Email</label>
+          <input value={form.email} onChange={e => set('email', e.target.value)} type="email"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Service Address</label>
+          <input value={form.service_address} onChange={e => set('service_address', e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Pipeline Group</label>
+          <select value={form.stage} onChange={e => set('stage', e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+            {PIPELINE_GROUPS.map(g => <option key={g.key} value={g.key}>{g.label}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Status</label>
+          <select value={form.status} onChange={e => set('status', e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+            <option value="">—</option>
+            {opts.status_options.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-2">Service</label>
+          <div className="space-y-1 max-h-40 overflow-y-auto">
+            {opts.service_options.map(s => (
+              <label key={s} className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={form.service.includes(s)}
+                  onChange={() => set('service', form.service.includes(s) ? form.service.filter(x => x !== s) : [...form.service, s])}
+                  className="rounded accent-indigo-500" />
+                <span className="text-sm text-gray-300">{s}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Lead Source</label>
+          <select value={form.lead_source} onChange={e => set('lead_source', e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+            <option value="">—</option>
+            {opts.lead_source_options.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Salesperson</label>
+          <select value={form.salesperson} onChange={e => set('salesperson', e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+            <option value="">—</option>
+            {opts.salesperson_options.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Annual Value ($)</label>
+          <input value={form.annual_value} onChange={e => set('annual_value', e.target.value)}
+            type="number" min="0" step="0.01"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Sold Date</label>
+          <input value={form.sold_date} onChange={e => set('sold_date', e.target.value)} type="date"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500" />
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1">Base Program Sold</label>
+          <select value={form.base_program_sold} onChange={e => set('base_program_sold', e.target.value)}
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
+            <option value="">—</option>
+            {opts.base_program_sold_options.map(s => <option key={s} value={s}>{s}</option>)}
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-2">Auxiliary Services</label>
+          <div className="space-y-1">
+            {opts.auxiliary_services_options.map(s => (
+              <label key={s} className="flex items-center gap-2 cursor-pointer">
+                <input type="checkbox" checked={form.auxiliary_services.includes(s)}
+                  onChange={() => set('auxiliary_services', form.auxiliary_services.includes(s) ? form.auxiliary_services.filter(x => x !== s) : [...form.auxiliary_services, s])}
+                  className="rounded accent-indigo-500" />
+                <span className="text-sm text-gray-300">{s}</span>
+              </label>
+            ))}
+          </div>
+        </div>
+
+        {error && <p className="text-red-400 text-sm">{error}</p>}
+
+        <div className="flex gap-3 pt-2">
+          <button type="button" onClick={onClose}
+            className="flex-1 bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium py-2.5 rounded-lg transition-colors">
+            Cancel
+          </button>
+          <button type="submit" disabled={saving}
+            className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors">
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+
+        <div className="border-t border-gray-800 pt-4 pb-6">
+          {!confirmDelete ? (
+            <button type="button" onClick={() => setConfirmDelete(true)}
+              className="w-full text-red-500 hover:text-red-400 text-sm font-medium py-2 rounded-lg border border-red-900/50 hover:border-red-700 transition-colors">
+              Delete Lead
+            </button>
+          ) : (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400 text-center">Delete this lead permanently?</p>
+              <div className="flex gap-2">
+                <button type="button" onClick={() => setConfirmDelete(false)}
+                  className="flex-1 bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium py-2 rounded-lg transition-colors">
+                  Cancel
+                </button>
+                <button type="button" onClick={handleDelete} disabled={deleting}
+                  className="flex-1 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-medium py-2 rounded-lg transition-colors">
+                  {deleting ? 'Deleting…' : 'Confirm Delete'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      </form>
     </div>
   )
 }
@@ -722,6 +987,7 @@ export default function TrackerPage({
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [notesLeadId, setNotesLeadId] = useState<string | null>(null)
   const [newLeadOpen, setNewLeadOpen] = useState(false)
+  const [editLeadId, setEditLeadId] = useState<string | null>(null)
 
   const opts: TrackerSettings = settings ?? {
     status_options: [],
@@ -775,6 +1041,7 @@ export default function TrackerPage({
   }))
 
   const notesLead = notesLeadId ? leads.find(l => l.id === notesLeadId) ?? null : null
+  const editLead = editLeadId ? leads.find(l => l.id === editLeadId) ?? null : null
   const totalLeads = leads.length
 
   return (
@@ -817,7 +1084,7 @@ export default function TrackerPage({
           <span className="text-xs text-gray-600 px-1">{totalLeads} lead{totalLeads !== 1 ? 's' : ''}</span>
           <div className="flex-1" />
           <button
-            onClick={() => setNewLeadOpen(true)}
+            onClick={() => { setNewLeadOpen(true); setNotesLeadId(null); setEditLeadId(null) }}
             className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
           >
             + New Lead
@@ -836,13 +1103,14 @@ export default function TrackerPage({
               onToggle={() => toggleGroup(group.key)}
               opts={opts}
               onUpdate={updateLead}
-              onOpenNotes={setNotesLeadId}
+              onOpenNotes={id => { setNotesLeadId(id); setEditLeadId(null); setNewLeadOpen(false) }}
+              onEdit={id => { setEditLeadId(id); setNotesLeadId(null); setNewLeadOpen(false) }}
             />
           ))
         )}
       </div>
 
-      {/* Notes panel */}
+      {/* Right panel — mutually exclusive */}
       {notesLeadId && (
         <NotesPanel
           lead={notesLead}
@@ -856,8 +1124,23 @@ export default function TrackerPage({
         />
       )}
 
-      {/* New Lead form */}
-      {newLeadOpen && !notesLeadId && (
+      {editLeadId && editLead && !notesLeadId && (
+        <EditLeadDrawer
+          lead={editLead}
+          opts={opts}
+          onClose={() => setEditLeadId(null)}
+          onUpdated={updated => {
+            setLeads(prev => prev.map(l => l.id === updated.id ? { ...l, ...updated } : l))
+            setEditLeadId(null)
+          }}
+          onDeleted={id => {
+            setLeads(prev => prev.filter(l => l.id !== id))
+            setEditLeadId(null)
+          }}
+        />
+      )}
+
+      {newLeadOpen && !notesLeadId && !editLeadId && (
         <NewLeadForm
           opts={opts}
           currentUser={currentUser}

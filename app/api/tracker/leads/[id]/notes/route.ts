@@ -54,5 +54,5 @@ export async function POST(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ note: data })
+  return NextResponse.json(data)
 }
