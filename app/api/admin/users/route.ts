@@ -19,11 +19,14 @@ export async function GET() {
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const admin = createAdminClient()
-  const { data: { users }, error } = await admin.auth.admin.listUsers()
+  const { data: listData, error } = await admin.auth.admin.listUsers()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   const { data: profiles } = await admin.from('user_profiles').select('*')
   const profileMap = new Map(profiles?.map(p => [p.id, p]) ?? [])
+
+  // Filter to users that have a user_profiles row (excludes bot/system accounts)
+  const users = (listData?.users ?? []).filter(u => profileMap.has(u.id))
 
   return NextResponse.json({
     users: users.map(u => ({

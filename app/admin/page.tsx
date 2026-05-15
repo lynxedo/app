@@ -18,17 +18,22 @@ export default async function AdminPage() {
   if (profile?.role !== 'admin') redirect('/dashboard')
 
   const admin = createAdminClient()
-  const { data: { users } } = await admin.auth.admin.listUsers()
+  const { data: listData, error: listError } = await admin.auth.admin.listUsers()
   const { data: profiles } = await admin.from('user_profiles').select('*')
 
   const profileMap = new Map(profiles?.map(p => [p.id, p]) ?? [])
-  const usersWithProfiles = users.map(u => ({
-    id: u.id,
-    email: u.email ?? '',
-    created_at: u.created_at,
-    last_sign_in_at: u.last_sign_in_at ?? null,
-    profile: profileMap.get(u.id) ?? null,
-  }))
+  const allUsers = listData?.users ?? []
+
+  // Exclude bot/system accounts (no user_profiles row) from the admin UI
+  const usersWithProfiles = allUsers
+    .filter(u => profileMap.has(u.id))
+    .map(u => ({
+      id: u.id,
+      email: u.email ?? '',
+      created_at: u.created_at,
+      last_sign_in_at: u.last_sign_in_at ?? null,
+      profile: profileMap.get(u.id) ?? null,
+    }))
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
