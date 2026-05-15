@@ -178,7 +178,7 @@ export default function RouteBuilder() {
         return `pin-s-${label}+${color}(${v.lng.toFixed(6)},${v.lat.toFixed(6)})`
       })
       const overlays = [pathOverlay, depotMarker, ...stopMarkers].join(',')
-      return `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${overlays}/auto/800x500@2x?padding=60&access_token=${token}`
+      return `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${overlays}/auto/900x700@2x?padding=60&access_token=${token}`
     }
 
     // Pre-optimization: pins only, colored by selection/sent state
@@ -193,7 +193,7 @@ export default function RouteBuilder() {
       pins.push(`pin-s-${label}+${color}(${coord.lng.toFixed(6)},${coord.lat.toFixed(6)})`)
     })
     if (pins.length === 0) return null
-    return `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${pins.join(',')}/auto/800x500@2x?padding=60&access_token=${token}`
+    return `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${pins.join(',')}/auto/900x700@2x?padding=60&access_token=${token}`
   }, [visits, visitCoords, selectedIds, sentIds, optimizedVisits, depotCoord])
 
   // Load settings on mount (get saved duration_method default)
@@ -875,8 +875,8 @@ ${mapScripts}
       {displayVisits !== null && (
         <div className="flex flex-col lg:flex-row gap-4 items-start">
 
-          {/* ── LEFT: Map panel (sticky on large screens) ── */}
-          <div className="w-full lg:w-2/5 lg:sticky lg:top-6">
+          {/* ── RIGHT: Map panel (sticky on large screens) ── */}
+          <div className="w-full lg:w-1/2 lg:sticky lg:top-6 lg:order-last">
             <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
                 <h3 className="font-semibold text-sm">
@@ -921,8 +921,8 @@ ${mapScripts}
             </div>
           </div>
 
-          {/* ── RIGHT: Visit list ── */}
-          <div className="w-full lg:w-3/5">
+          {/* ── LEFT: Visit list ── */}
+          <div className="w-full lg:w-1/2">
             <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -950,6 +950,18 @@ ${mapScripts}
                     <span className="text-xs text-gray-400">
                       {[lockedFirstId && '📌 1st', lockedLastId && '📌 Last'].filter(Boolean).join(' · ')}
                     </span>
+                  )}
+                  {visits && !optimizedVisits && visits.length > 0 && (
+                    <button
+                      onClick={() => {
+                        const unsent = visits.filter(v => !sentIds.has(v.id)).map(v => v.id)
+                        const allSelected = unsent.every(id => selectedIds.has(id))
+                        setSelectedIds(allSelected ? new Set() : new Set(unsent))
+                      }}
+                      className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs font-medium transition-colors"
+                    >
+                      {visits.filter(v => !sentIds.has(v.id)).every(v => selectedIds.has(v.id)) ? 'Deselect All' : 'Select All'}
+                    </button>
                   )}
                   {visits && selectedCount > 1 && !optimizedVisits && (
                     <button
