@@ -449,8 +449,21 @@ export default function RouteBuilder() {
     const dateFormatted = new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     })
-    const totalDriveMin = optimizedVisits.reduce((s, v) => s + v.driveMinutes, 0)
-    const totalMiles = (optimizedVisits.reduce((s, v) => s + v.distanceKm, 0) / 1.609).toFixed(1)
+    // Return-to-depot leg
+    let sheetReturnMin = 0
+    let sheetReturnKm = 0
+    if (depotCoord && optimizedVisits.length > 0) {
+      const last = optimizedVisits[optimizedVisits.length - 1]
+      if (durationMatrix) {
+        sheetReturnMin = Math.round(durationMatrix[last.matrixIndex][0] / 60)
+        sheetReturnKm = Math.round(haversineKm({ lat: last.lat, lng: last.lng }, depotCoord) * 10) / 10
+      } else {
+        sheetReturnKm = Math.round(haversineKm({ lat: last.lat, lng: last.lng }, depotCoord) * 10) / 10
+        sheetReturnMin = Math.round((sheetReturnKm / avgSpeedKmh) * 60)
+      }
+    }
+    const totalDriveMin = optimizedVisits.reduce((s, v) => s + v.driveMinutes, 0) + sheetReturnMin
+    const totalMiles = ((optimizedVisits.reduce((s, v) => s + v.distanceKm, 0) + sheetReturnKm) / 1.609).toFixed(1)
     const totalRevenue = optimizedVisits.reduce((s, v) => s + v.totalPrice, 0)
     const driveHours = Math.floor(totalDriveMin / 60)
     const driveRemMin = totalDriveMin % 60
@@ -546,13 +559,21 @@ export default function RouteBuilder() {
     })() : ''
 
     // Page 1: summary stop list
+    const returnRow = sheetReturnMin > 0
+      ? `<tr>
+          <td class="sl-num"><span class="sl-circle" style="background:#374151;font-size:14px">↩</span></td>
+          <td class="sl-name" style="color:#6b7280">Return to depot</td>
+          <td class="sl-addr" style="color:#9ca3af">${(sheetReturnKm / 1.609).toFixed(1)} mi</td>
+          <td class="sl-eta" style="color:#6b7280">${sheetReturnMin} min</td>
+        </tr>`
+      : ''
     const summaryRows = optimizedVisits.map(v => `
       <tr>
         <td class="sl-num"><span class="sl-circle">${v.stopNumber}</span></td>
         <td class="sl-name">${v.clientName}</td>
         <td class="sl-addr">${v.addressString}</td>
         <td class="sl-eta">${v.eta ?? ''}</td>
-      </tr>`).join('')
+      </tr>`).join('') + returnRow
 
     // Pages 2+: detailed stop cards
     const cardHtml = optimizedVisits.map(v => {
@@ -770,6 +791,21 @@ ${mapScripts}
   const skippedVisits = (visits && optimizedVisits)
     ? visits.filter(v => !selectedIds.has(v.id) && !sentIds.has(v.id))
     : []
+
+  // Return-to-depot leg (last stop → depot) — shown in list and added to totals
+  let returnDriveMin = 0
+  let returnDistKm = 0
+  if (optimizedVisits && optimizedVisits.length > 0 && depotCoord) {
+    const last = optimizedVisits[optimizedVisits.length - 1]
+    if (durationMatrix) {
+      returnDriveMin = Math.round(durationMatrix[last.matrixIndex][0] / 60)
+      returnDistKm = Math.round(haversineKm({ lat: last.lat, lng: last.lng }, depotCoord) * 10) / 10
+    } else {
+      returnDistKm = Math.round(haversineKm({ lat: last.lat, lng: last.lng }, depotCoord) * 10) / 10
+      returnDriveMin = Math.round((returnDistKm / avgSpeedKmh) * 60)
+    }
+  }
+
   const sendResultMap = new Map(sendResults?.map(r => [r.visitId, r]) ?? [])
   const sendSuccessCount = sendResults?.filter(r => r.success).length ?? 0
   const sendAllOk = sendResults !== null && sendResults.every(r => r.success)
@@ -1147,6 +1183,17 @@ ${mapScripts}
                     )
                   })}
                 </ul>
+              )}
+
+              {/* Return to depot row */}
+              {optimizedVisits && optimizedVisits.length > 0 && depotCoord && returnDriveMin > 0 && (
+                <div className="px-6 py-3 flex gap-3 items-center border-t border-gray-800 bg-gray-950/40">
+                  <span className="text-gray-600 w-8 shrink-0 text-right text-base">↩</span>
+                  <div className="flex-1">
+                    <p className="text-sm font-medium text-gray-500">Return to depot</p>
+                  </div>
+                  <span className="text-xs text-gray-600">{returnDriveMin} min &nbsp;·&nbsp; {(returnDistKm / 1.609).toFixed(1)} mi</span>
+                </div>
               )}
 
               {/* Skipped stops — deselected before optimize, shown dimmed at bottom */}
