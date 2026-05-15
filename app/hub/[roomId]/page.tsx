@@ -1,7 +1,6 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import MessageFeed from '@/components/hub/MessageFeed'
-import MessageComposer from '@/components/hub/MessageComposer'
+import RoomView from '@/components/hub/RoomView'
 
 export default async function RoomPage({
   params,
@@ -14,7 +13,6 @@ export default async function RoomPage({
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Load the room
   const { data: room } = await supabase
     .from('rooms')
     .select('id, name, description, is_private')
@@ -23,19 +21,19 @@ export default async function RoomPage({
 
   if (!room) notFound()
 
-  // Load the current user's hub profile
   const { data: hubUser } = await supabase
     .from('hub_users')
     .select('id, display_name, avatar_url')
     .eq('id', user.id)
     .single()
 
-  // Load initial messages (most recent 50, oldest first for display)
   const { data: messages } = await supabase
     .from('messages')
     .select(`
-      id, content, created_at, edited_at,
-      sender:hub_users!sender_id (id, display_name, avatar_url, is_bot)
+      id, content, created_at, edited_at, parent_id, room_id, conversation_id,
+      sender:hub_users!sender_id (id, display_name, avatar_url, is_bot),
+      reactions (message_id, user_id, emoji),
+      files (id, filename, mime_type, size_bytes, storage_path)
     `)
     .eq('room_id', roomId)
     .is('parent_id', null)
@@ -43,11 +41,16 @@ export default async function RoomPage({
     .order('created_at', { ascending: false })
     .limit(50)
 
-  const initialMessages = (messages ?? []).reverse()
+  const { data: hubUsers } = await supabase
+    .from('hub_users')
+    .select('id, display_name, avatar_url, is_bot')
+    .order('display_name')
+
+  const initialMessages = ((messages ?? []) as unknown[]).reverse()
+  const displayName = hubUser?.display_name ?? user.email?.split('@')[0] ?? 'You'
 
   return (
     <div className="flex flex-col h-full">
-      {/* Room header */}
       <header className="flex-none border-b border-gray-800 px-5 py-3 flex items-center gap-3">
         <span className="text-gray-400 text-lg">#</span>
         <div>
@@ -61,17 +64,13 @@ export default async function RoomPage({
         )}
       </header>
 
-      {/* Message feed — grows to fill remaining space */}
-      <MessageFeed
+      <RoomView
         roomId={roomId}
-        initialMessages={initialMessages}
+        initialMessages={initialMessages as never}
         currentUserId={user.id}
-      />
-
-      {/* Composer pinned to bottom */}
-      <MessageComposer
-        roomId={roomId}
-        senderDisplayName={hubUser?.display_name ?? user.email?.split('@')[0] ?? 'You'}
+        hubUsers={(hubUsers ?? []) as never}
+        senderDisplayName={room.name}
+        composerPlaceholder={`Message #${room.name}`}
       />
     </div>
   )
