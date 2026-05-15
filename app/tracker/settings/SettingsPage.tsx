@@ -154,7 +154,7 @@ export default function SettingsPage({
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-semibold text-white">Tracker Settings</h2>
-          <p className="text-sm text-gray-400 mt-0.5">Manage dropdown options for the lead tracker. Changes apply to all users.</p>
+          <p className="text-sm text-gray-400 mt-0.5">Manage dropdown options for the tracker. Changes apply to all users.</p>
         </div>
         <div className="flex items-center gap-3">
           {saved && <span className="text-green-400 text-sm">Saved ✓</span>}

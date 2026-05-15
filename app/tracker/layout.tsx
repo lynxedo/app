@@ -27,7 +27,7 @@ export default async function TrackerLayout({ children }: { children: React.Reac
             Lynxedo
           </Link>
           <span className="text-gray-600">/</span>
-          <span className="font-medium text-white">Lead Tracker</span>
+          <span className="font-medium text-white">Tracker</span>
         </div>
         <span className="text-sm text-gray-500">{user.email}</span>
       </header>
