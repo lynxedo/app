@@ -20,6 +20,7 @@ export default async function AdminPage() {
   const admin = createAdminClient()
   const { data: rows } = await admin.rpc('get_admin_users')
 
+
   const usersWithProfiles = (rows ?? []).map((r: {
     id: string; email: string; created_at: string; last_sign_in_at: string | null;
     role: string; can_access_routing: boolean; can_access_lawn: boolean;
