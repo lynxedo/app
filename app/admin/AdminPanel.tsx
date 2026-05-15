@@ -10,6 +10,7 @@ type UserProfile = {
   can_access_call_log: boolean
   can_access_responder: boolean
   can_access_timesheet: boolean
+  can_access_books: boolean
 }
 
 type User = {
@@ -26,6 +27,7 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_access_call_log', label: 'Call Log' },
   { key: 'can_access_responder', label: 'Responder' },
   { key: 'can_access_timesheet', label: 'Timesheet' },
+  { key: 'can_access_books', label: 'Financial Dashboard' },
 ]
 
 export default function AdminPanel({
@@ -103,7 +105,7 @@ export default function AdminPanel({
           </button>
         </form>
         {inviteStatus === 'success' && (
-          <p className="text-green-400 text-sm mt-3">Invite sent. New users start with access to all tools — adjust below after they accept.</p>
+          <p className="text-green-400 text-sm mt-3">Invite sent. New users start with all tools off — enable access below after they accept.</p>
         )}
         {inviteStatus === 'error' && (
           <p className="text-red-400 text-sm mt-3">{inviteError}</p>

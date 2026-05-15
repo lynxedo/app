@@ -10,7 +10,7 @@ export default async function DashboardPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_access_routing, can_access_lawn, can_access_call_log, can_access_responder, can_access_timesheet')
+    .select('role, can_access_routing, can_access_lawn, can_access_call_log, can_access_responder, can_access_timesheet, can_access_books')
     .eq('id', user.id)
     .single()
 
@@ -128,6 +128,23 @@ export default async function DashboardPage() {
                 Auto-texts missed calls, handles replies with AI, and routes leads to the right person.
               </div>
               <div className="mt-5 text-orange-400 text-sm font-medium group-hover:text-orange-300 transition-colors">Open →</div>
+            </Link>
+          )}
+
+          {profile?.can_access_books && (
+            <Link
+              href="/books"
+              className="group bg-gray-900 border border-gray-800 hover:border-emerald-500 rounded-2xl p-6 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-emerald-500/10 block"
+            >
+              <div className="flex items-start justify-between mb-4">
+                <span className="text-3xl">📊</span>
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-500/15 text-green-400 border border-green-500/25">Live</span>
+              </div>
+              <div className="font-bold text-lg mb-1">Financial Dashboard</div>
+              <div className="text-gray-400 text-sm leading-relaxed">
+                Live P&amp;L, revenue trends, cost breakdown, and overhead from QuickBooks.
+              </div>
+              <div className="mt-5 text-emerald-400 text-sm font-medium group-hover:text-emerald-300 transition-colors">Open →</div>
             </Link>
           )}
 
