@@ -46,7 +46,7 @@ export default async function RoutingPage({ searchParams }: Props) {
         </div>
       </header>
 
-      <main className="max-w-3xl mx-auto px-6 py-10">
+      <main className="max-w-7xl mx-auto px-6 py-10">
         {justConnected && (
           <div className="mb-6 bg-green-900/40 border border-green-700 text-green-300 rounded-lg px-4 py-3 text-sm">
             Jobber connected successfully ✓
