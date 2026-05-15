@@ -18,25 +18,31 @@ export default async function AdminPage() {
   if (profile?.role !== 'admin') redirect('/dashboard')
 
   const admin = createAdminClient()
-  const { data: listData, error: listError } = await admin.auth.admin.listUsers()
-  const { data: profiles, error: profilesError } = await admin.from('user_profiles').select('*')
+  const { data: rows } = await admin.rpc('get_admin_users')
 
-  console.log('[admin] listUsers error:', listError, 'count:', listData?.users?.length)
-  console.log('[admin] profiles error:', profilesError, 'count:', profiles?.length)
-
-  const profileMap = new Map(profiles?.map(p => [p.id, p]) ?? [])
-  const allUsers = listData?.users ?? []
-
-  // Exclude bot/system accounts (no user_profiles row) from the admin UI
-  const usersWithProfiles = allUsers
-    .filter(u => profileMap.has(u.id))
-    .map(u => ({
-      id: u.id,
-      email: u.email ?? '',
-      created_at: u.created_at,
-      last_sign_in_at: u.last_sign_in_at ?? null,
-      profile: profileMap.get(u.id) ?? null,
-    }))
+  const usersWithProfiles = (rows ?? []).map((r: {
+    id: string; email: string; created_at: string; last_sign_in_at: string | null;
+    role: string; can_access_routing: boolean; can_access_lawn: boolean;
+    can_access_call_log: boolean; can_access_responder: boolean; can_access_timesheet: boolean;
+    can_access_books: boolean; can_access_tracker: boolean; can_access_hub: boolean;
+  }) => ({
+    id: r.id,
+    email: r.email ?? '',
+    created_at: r.created_at,
+    last_sign_in_at: r.last_sign_in_at ?? null,
+    profile: {
+      id: r.id,
+      role: r.role,
+      can_access_routing: r.can_access_routing,
+      can_access_lawn: r.can_access_lawn,
+      can_access_call_log: r.can_access_call_log,
+      can_access_responder: r.can_access_responder,
+      can_access_timesheet: r.can_access_timesheet,
+      can_access_books: r.can_access_books,
+      can_access_tracker: r.can_access_tracker,
+      can_access_hub: r.can_access_hub,
+    },
+  }))
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
