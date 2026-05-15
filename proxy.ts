@@ -26,7 +26,7 @@ export async function proxy(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
-  const protectedPaths = ['/dashboard', '/routing', '/lawn', '/responder', '/settings', '/call-log', '/admin', '/timesheet', '/books', '/tracker']
+  const protectedPaths = ['/dashboard', '/routing', '/lawn', '/responder', '/settings', '/call-log', '/admin', '/timesheet', '/books', '/tracker', '/hub']
   const isProtected = protectedPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
 
   // Redirect unauthenticated users to login
@@ -40,7 +40,7 @@ export async function proxy(request: NextRequest) {
     // Single fetch: profile + company — used for domain check and permission enforcement
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('role, company_id, can_access_routing, can_access_lawn, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, companies(google_domain)')
+      .select('role, company_id, can_access_routing, can_access_lawn, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, companies(google_domain)')
       .eq('id', user.id)
       .single()
 
@@ -69,6 +69,7 @@ export async function proxy(request: NextRequest) {
         '/responder': 'can_access_responder',
         '/timesheet': 'can_access_timesheet',
         '/tracker': 'can_access_tracker',
+        '/hub': 'can_access_hub',
       }
 
       for (const [route, permKey] of Object.entries(permissionMap)) {
@@ -91,5 +92,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/routing/:path*', '/lawn/:path*', '/responder/:path*', '/settings/:path*', '/call-log/:path*', '/admin/:path*', '/timesheet/:path*', '/timesheet', '/books/:path*', '/books', '/tracker/:path*', '/tracker', '/login'],
+  matcher: ['/dashboard/:path*', '/routing/:path*', '/lawn/:path*', '/responder/:path*', '/settings/:path*', '/call-log/:path*', '/admin/:path*', '/timesheet/:path*', '/timesheet', '/books/:path*', '/books', '/tracker/:path*', '/tracker', '/hub/:path*', '/hub', '/login'],
 }

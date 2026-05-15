@@ -12,6 +12,7 @@ type UserProfile = {
   can_access_timesheet: boolean
   can_access_books: boolean
   can_access_tracker: boolean
+  can_access_hub: boolean
 }
 
 type User = {
@@ -30,6 +31,7 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_access_timesheet', label: 'Timesheet' },
   { key: 'can_access_books', label: 'Financial Dashboard' },
   { key: 'can_access_tracker', label: 'Lead Tracker' },
+  { key: 'can_access_hub', label: 'Hub' },
 ]
 
 export default function AdminPanel({
