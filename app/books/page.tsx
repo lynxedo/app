@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import type { PLData } from '@/app/api/qbo/pl/route'
+import { loadPLData } from '@/lib/qbo-pl'
+import type { PLData } from '@/lib/qbo-pl'
 import YTDStrip from '@/components/books/YTDStrip'
 import MonthlyPLChart from '@/components/books/MonthlyPLChart'
 import MonthCards from '@/components/books/MonthCards'
@@ -23,13 +24,7 @@ async function isQBOConnected(): Promise<boolean> {
 
 async function fetchPLData(): Promise<PLData | null> {
   try {
-    const appUrl = process.env.NEXT_PUBLIC_APP_URL!
-    const res = await fetch(`${appUrl}/api/qbo/pl`, {
-      headers: { Cookie: '' }, // server-to-server; PIN cookie check skipped here — data fetch is internal
-      cache: 'no-store',
-    })
-    if (!res.ok) return null
-    return res.json()
+    return await loadPLData()
   } catch {
     return null
   }
