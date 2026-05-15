@@ -15,7 +15,8 @@ type Message = {
   content: string
   created_at: string
   edited_at: string | null
-  sender: Sender | null
+  // Supabase infers FK joins as arrays; we normalise to Sender | null at render time
+  sender: Sender | Sender[] | null
 }
 
 function formatTime(iso: string) {
@@ -32,6 +33,11 @@ function formatDate(iso: string) {
   if (d.toDateString() === today.toDateString()) return 'Today'
   if (d.toDateString() === yesterday.toDateString()) return 'Yesterday'
   return d.toLocaleDateString('en-US', { weekday: 'long', month: 'long', day: 'numeric' })
+}
+
+function normSender(raw: Sender | Sender[] | null): Sender | null {
+  if (!raw) return null
+  return Array.isArray(raw) ? (raw[0] ?? null) : raw
 }
 
 function Avatar({ sender }: { sender: Sender | null }) {
@@ -169,13 +175,15 @@ export default function MessageFeed({
 
           {/* Messages */}
           {group.messages.map((msg, idx) => {
+            const sender = normSender(msg.sender)
             const prevMsg = group.messages[idx - 1]
+            const prevSender = normSender(prevMsg?.sender ?? null)
             const isContinuation =
               prevMsg &&
-              prevMsg.sender?.id === msg.sender?.id &&
+              prevSender?.id === sender?.id &&
               new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 5 * 60 * 1000
 
-            const isOwn = msg.sender?.id === currentUserId
+            const isOwn = sender?.id === currentUserId
             const isEditing = editingId === msg.id
 
             return (
@@ -186,7 +194,7 @@ export default function MessageFeed({
                 {/* Avatar or spacer */}
                 <div className="flex-none w-8 mt-0.5">
                   {!isContinuation ? (
-                    <Avatar sender={msg.sender} />
+                    <Avatar sender={sender} />
                   ) : null}
                 </div>
 
@@ -194,8 +202,8 @@ export default function MessageFeed({
                   {!isContinuation && (
                     <div className="flex items-baseline gap-2 mb-0.5">
                       <span className="font-semibold text-sm text-white">
-                        {msg.sender?.display_name ?? 'Unknown'}
-                        {msg.sender?.is_bot && (
+                        {sender?.display_name ?? 'Unknown'}
+                        {sender?.is_bot && (
                           <span className="ml-1.5 text-xs bg-[#2E7EB8]/30 text-[#2E7EB8] px-1.5 py-0.5 rounded font-normal">Bot</span>
                         )}
                       </span>
