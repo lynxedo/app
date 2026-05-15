@@ -767,6 +767,9 @@ ${mapScripts}
   }
 
   const displayVisits = optimizedVisits ?? visits
+  const skippedVisits = (visits && optimizedVisits)
+    ? visits.filter(v => !selectedIds.has(v.id) && !sentIds.has(v.id))
+    : []
   const sendResultMap = new Map(sendResults?.map(r => [r.visitId, r]) ?? [])
   const sendSuccessCount = sendResults?.filter(r => r.success).length ?? 0
   const sendAllOk = sendResults !== null && sendResults.every(r => r.success)
@@ -876,7 +879,7 @@ ${mapScripts}
         <div className="flex flex-col lg:flex-row gap-4 items-start">
 
           {/* ── RIGHT: Map panel (sticky on large screens) ── */}
-          <div className="w-full lg:w-1/2 lg:sticky lg:top-6 lg:order-last">
+          <div className="w-full lg:w-3/5 lg:sticky lg:top-6 lg:order-last">
             <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
                 <h3 className="font-semibold text-sm">
@@ -922,7 +925,7 @@ ${mapScripts}
           </div>
 
           {/* ── LEFT: Visit list ── */}
-          <div className="w-full lg:w-1/2">
+          <div className="w-full lg:w-2/5">
             <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
               <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
                 <div className="flex items-center gap-3">
@@ -1144,6 +1147,33 @@ ${mapScripts}
                     )
                   })}
                 </ul>
+              )}
+
+              {/* Skipped stops — deselected before optimize, shown dimmed at bottom */}
+              {skippedVisits.length > 0 && (
+                <>
+                  <div className="px-6 py-2 border-t border-gray-800 bg-gray-950/60 flex items-center gap-2">
+                    <span className="text-xs text-gray-600 font-medium uppercase tracking-wider">
+                      Not on this route — {skippedVisits.length} stop{skippedVisits.length !== 1 ? 's' : ''}
+                    </span>
+                  </div>
+                  <ul className="divide-y divide-gray-800/50">
+                    {skippedVisits.map(v => (
+                      <li key={v.id} className="px-6 py-3 flex gap-3 items-start opacity-40">
+                        <span className="text-gray-700 w-8 shrink-0 text-right mt-0.5 text-lg">—</span>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-medium text-gray-400 truncate">{v.clientName}</p>
+                          {v.jobTitle && <p className="text-sm text-orange-400/60 truncate">{v.jobTitle}</p>}
+                          <p className="text-sm text-gray-500 truncate">{v.addressString}</p>
+                          {v.services && <p className="text-xs text-gray-600 mt-0.5 truncate">{v.services}</p>}
+                        </div>
+                        {v.totalPrice > 0 && (
+                          <span className="text-sm text-gray-600 shrink-0">${v.totalPrice.toFixed(2)}</span>
+                        )}
+                      </li>
+                    ))}
+                  </ul>
+                </>
               )}
             </div>
           </div>
