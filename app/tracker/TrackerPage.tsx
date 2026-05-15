@@ -37,6 +37,7 @@ type TrackerSettings = {
   salesperson_options: string[]
   base_program_sold_options: string[]
   auxiliary_services_options: string[]
+  status_stage_rules: { status: string; stage: string }[]
 }
 
 type CurrentUser = { email: string; name: string; isAdmin: boolean }
@@ -79,11 +80,13 @@ function fmtCurrency(v: number | null): string {
 // ────────────────────────────────────────────────
 function EditCell({
   value,
+  displayValue,
   placeholder = '—',
   onSave,
   type = 'text',
 }: {
   value: string | null
+  displayValue?: string
   placeholder?: string
   onSave: (v: string | null) => void
   type?: string
@@ -123,7 +126,7 @@ function EditCell({
       className="block w-full cursor-text hover:text-indigo-300 transition-colors truncate"
       title={value ?? ''}
     >
-      {value || <span className="text-gray-600">{placeholder}</span>}
+      {displayValue ?? value || <span className="text-gray-600">{placeholder}</span>}
     </span>
   )
 }
@@ -277,12 +280,33 @@ function LeadRow({
         <SelectCell value={lead.salesperson} options={opts.salesperson_options} onSave={v => onUpdate(lead.id, 'salesperson', v)} />
       </td>
       <td className="px-3 py-2 text-sm">
+        <SelectCell
+          value={lead.base_program_sold}
+          options={opts.base_program_sold_options}
+          onSave={v => onUpdate(lead.id, 'base_program_sold', v)}
+        />
+      </td>
+      <td className="px-3 py-2 text-sm max-w-[160px]">
+        <MultiSelectCell
+          values={lead.auxiliary_services}
+          options={opts.auxiliary_services_options}
+          onSave={v => onUpdate(lead.id, 'auxiliary_services', v)}
+        />
+      </td>
+      <td className="px-3 py-2 text-sm">
         <EditCell
           value={lead.annual_value != null ? String(lead.annual_value) : null}
           onSave={v => onUpdate(lead.id, 'annual_value', v ? parseFloat(v) : null)}
         />
       </td>
-      <td className="px-3 py-2 text-sm text-gray-400">{fmtDate(lead.lead_creation_date)}</td>
+      <td className="px-3 py-2 text-sm">
+        <EditCell
+          value={lead.lead_creation_date}
+          displayValue={fmtDate(lead.lead_creation_date) || undefined}
+          type="date"
+          onSave={v => onUpdate(lead.id, 'lead_creation_date', v)}
+        />
+      </td>
       <td className="px-3 py-2 text-sm max-w-[200px]">
         {truncatedNote ? (
           <span
@@ -373,7 +397,7 @@ function GroupSection({
 
       {!collapsed && (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[1100px]">
+          <table className="w-full min-w-[1400px]">
             <thead>
               <tr className="text-left text-xs text-gray-500 border-b border-gray-800/50">
                 <th className="px-3 py-1.5 w-8"></th>
@@ -384,6 +408,8 @@ function GroupSection({
                 <th className="px-3 py-1.5 font-medium w-32">Status</th>
                 <th className="px-3 py-1.5 font-medium w-32">Lead Source</th>
                 <th className="px-3 py-1.5 font-medium w-28">Salesperson</th>
+                <th className="px-3 py-1.5 font-medium w-36">Base Program</th>
+                <th className="px-3 py-1.5 font-medium w-40">Aux Services</th>
                 <th className="px-3 py-1.5 font-medium w-24">Ann. Value</th>
                 <th className="px-3 py-1.5 font-medium w-24">Created</th>
                 <th className="px-3 py-1.5 font-medium">Latest Note</th>
@@ -405,7 +431,7 @@ function GroupSection({
               ))}
               {group.leads.length === 0 && (
                 <tr>
-                  <td colSpan={12} className="px-4 py-4 text-gray-700 text-sm italic">No leads in this group.</td>
+                  <td colSpan={14} className="px-4 py-4 text-gray-700 text-sm italic">No leads in this group.</td>
                 </tr>
               )}
             </tbody>
@@ -1017,6 +1043,7 @@ export default function TrackerPage({
     salesperson_options: [],
     base_program_sold_options: [],
     auxiliary_services_options: [],
+    status_stage_rules: [],
   }
 
   const fetchLeads = useCallback(async () => {
@@ -1037,10 +1064,15 @@ export default function TrackerPage({
   }, [fetchLeads])
 
   async function updateLead(id: string, field: string, value: unknown) {
+    const patchBody: Record<string, unknown> = { [field]: value }
+    if (field === 'status' && typeof value === 'string') {
+      const rule = (opts.status_stage_rules ?? []).find(r => r.status === value)
+      if (rule) patchBody.stage = rule.stage
+    }
     const res = await fetch(`/api/tracker/leads/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ [field]: value }),
+      body: JSON.stringify(patchBody),
     })
     if (res.ok) {
       const updated = await res.json()
@@ -1072,6 +1104,42 @@ export default function TrackerPage({
       else ids.forEach(id => next.add(id))
       return next
     })
+  }
+
+  function handleExport() {
+    const headers = [
+      'First Name', 'Last Name', 'Phone', 'Email', 'Service Address',
+      'Stage', 'Status', 'Service', 'Lead Source', 'Salesperson',
+      'Base Program Sold', 'Auxiliary Services', 'Annual Value',
+      'Created Date', 'Sold Date',
+    ]
+    const rows = leads.map(l => [
+      l.first_name ?? '',
+      l.last_name ?? '',
+      l.phone ?? '',
+      l.email ?? '',
+      l.service_address ?? '',
+      PIPELINE_GROUPS.find(g => g.key === l.stage)?.label ?? l.stage ?? '',
+      l.status ?? '',
+      (l.service ?? []).join('; '),
+      l.lead_source ?? '',
+      l.salesperson ?? '',
+      l.base_program_sold ?? '',
+      (l.auxiliary_services ?? []).join('; '),
+      l.annual_value != null ? String(l.annual_value) : '',
+      l.lead_creation_date ?? '',
+      l.sold_date ?? '',
+    ])
+    const csv = [headers, ...rows]
+      .map(r => r.map(cell => `"${String(cell).replace(/"/g, '""')}"`).join(','))
+      .join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `leads-${new Date().toISOString().split('T')[0]}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
   }
 
   async function handleBulkMove() {
@@ -1172,6 +1240,12 @@ export default function TrackerPage({
           </select>
           <span className="text-xs text-gray-600 px-1">{totalLeads} lead{totalLeads !== 1 ? 's' : ''}</span>
           <div className="flex-1" />
+          <button
+            onClick={handleExport}
+            className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+          >
+            Export CSV
+          </button>
           <button
             onClick={() => { setNewLeadOpen(true); setNotesLeadId(null); setEditLeadId(null) }}
             className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"

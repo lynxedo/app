@@ -2,6 +2,8 @@
 
 import { useState } from 'react'
 
+type StatusStageRule = { status: string; stage: string }
+
 type TrackerSettings = {
   status_options: string[]
   service_options: string[]
@@ -9,9 +11,21 @@ type TrackerSettings = {
   salesperson_options: string[]
   base_program_sold_options: string[]
   auxiliary_services_options: string[]
+  status_stage_rules: StatusStageRule[]
 }
 
-const LIST_LABELS: { key: keyof TrackerSettings; label: string }[] = [
+const PIPELINE_GROUPS = [
+  { key: 'current', label: 'Leads — Current' },
+  { key: 'appointment_set', label: 'Appointment Set' },
+  { key: 'follow_up_long_term', label: 'Follow Up — Long Term' },
+  { key: 'closed_won', label: 'Closed Won' },
+  { key: 'upsells', label: 'Upsells' },
+  { key: 'closed_lost', label: 'Closed Lost' },
+  { key: 'closed_other', label: 'Closed Other' },
+  { key: 'saves', label: 'Saves' },
+]
+
+const LIST_LABELS: { key: keyof Omit<TrackerSettings, 'status_stage_rules'>; label: string }[] = [
   { key: 'status_options', label: 'Status' },
   { key: 'service_options', label: 'Service' },
   { key: 'lead_source_options', label: 'Lead Source' },
@@ -106,6 +120,81 @@ function ListEditor({
   )
 }
 
+function RulesEditor({
+  rules,
+  statusOptions,
+  onChange,
+}: {
+  rules: StatusStageRule[]
+  statusOptions: string[]
+  onChange: (rules: StatusStageRule[]) => void
+}) {
+  const MAX = 6
+
+  function add() {
+    if (rules.length >= MAX) return
+    onChange([...rules, { status: '', stage: '' }])
+  }
+
+  function update(i: number, field: keyof StatusStageRule, value: string) {
+    const next = [...rules]
+    next[i] = { ...next[i], [field]: value }
+    onChange(next)
+  }
+
+  function remove(i: number) {
+    onChange(rules.filter((_, idx) => idx !== i))
+  }
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+      <h3 className="font-semibold text-white mb-1">Auto-Move Rules</h3>
+      <p className="text-xs text-gray-500 mb-4">
+        When a lead&apos;s status changes to the value below, it automatically moves to the specified stage.
+      </p>
+      <div className="space-y-3 mb-4">
+        {rules.map((rule, i) => (
+          <div key={i} className="flex items-center gap-2">
+            <span className="text-xs text-gray-500 w-10 shrink-0">When</span>
+            <select
+              value={rule.status}
+              onChange={e => update(i, 'status', e.target.value)}
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="">— status —</option>
+              {statusOptions.map(s => <option key={s} value={s}>{s}</option>)}
+            </select>
+            <span className="text-xs text-gray-500 shrink-0">→ move to</span>
+            <select
+              value={rule.stage}
+              onChange={e => update(i, 'stage', e.target.value)}
+              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              <option value="">— stage —</option>
+              {PIPELINE_GROUPS.map(g => <option key={g.key} value={g.key}>{g.label}</option>)}
+            </select>
+            <button
+              onClick={() => remove(i)}
+              className="text-gray-700 hover:text-red-400 transition-colors text-sm px-1"
+              title="Remove rule"
+            >✕</button>
+          </div>
+        ))}
+        {rules.length === 0 && (
+          <p className="text-gray-600 text-sm italic">No rules yet.</p>
+        )}
+      </div>
+      {rules.length < MAX ? (
+        <button onClick={add} className="text-indigo-400 hover:text-indigo-300 text-sm transition-colors">
+          + Add rule
+        </button>
+      ) : (
+        <p className="text-xs text-gray-600">Maximum {MAX} rules configured.</p>
+      )}
+    </div>
+  )
+}
+
 export default function SettingsPage({
   initialSettings,
 }: {
@@ -118,6 +207,7 @@ export default function SettingsPage({
     salesperson_options: [],
     base_program_sold_options: [],
     auxiliary_services_options: [],
+    status_stage_rules: [],
   }
 
   const [settings, setSettings] = useState<TrackerSettings>(initialSettings ?? defaults)
@@ -125,8 +215,13 @@ export default function SettingsPage({
   const [saved, setSaved] = useState(false)
   const [error, setError] = useState('')
 
-  function updateList(key: keyof TrackerSettings, items: string[]) {
+  function updateList(key: keyof Omit<TrackerSettings, 'status_stage_rules'>, items: string[]) {
     setSettings(prev => ({ ...prev, [key]: items }))
+    setSaved(false)
+  }
+
+  function updateRules(rules: StatusStageRule[]) {
+    setSettings(prev => ({ ...prev, status_stage_rules: rules }))
     setSaved(false)
   }
 
@@ -178,6 +273,11 @@ export default function SettingsPage({
             onChange={items => updateList(key, items)}
           />
         ))}
+        <RulesEditor
+          rules={settings.status_stage_rules ?? []}
+          statusOptions={settings.status_options}
+          onChange={updateRules}
+        />
       </div>
 
       <div className="mt-6 flex justify-end">
