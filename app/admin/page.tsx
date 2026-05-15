@@ -19,7 +19,10 @@ export default async function AdminPage() {
 
   const admin = createAdminClient()
   const { data: listData, error: listError } = await admin.auth.admin.listUsers()
-  const { data: profiles } = await admin.from('user_profiles').select('*')
+  const { data: profiles, error: profilesError } = await admin.from('user_profiles').select('*')
+
+  console.log('[admin] listUsers error:', listError, 'count:', listData?.users?.length)
+  console.log('[admin] profiles error:', profilesError, 'count:', profiles?.length)
 
   const profileMap = new Map(profiles?.map(p => [p.id, p]) ?? [])
   const allUsers = listData?.users ?? []
