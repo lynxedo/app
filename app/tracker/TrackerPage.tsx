@@ -126,7 +126,7 @@ function EditCell({
       className="block w-full cursor-text hover:text-indigo-300 transition-colors truncate"
       title={value ?? ''}
     >
-      {displayValue ?? value || <span className="text-gray-600">{placeholder}</span>}
+      {(displayValue ?? value) || <span className="text-gray-600">{placeholder}</span>}
     </span>
   )
 }
