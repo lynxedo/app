@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 
 interface JobberUser {
   id: string
@@ -119,6 +119,15 @@ export default function RouteBuilder() {
   const [visitsLoading, setVisitsLoading] = useState(false)
   const [visitsError, setVisitsError] = useState<string | null>(null)
 
+  // Per-visit geocoded coords (parallel array to visits[])
+  const [visitCoords, setVisitCoords] = useState<Array<{ lat: number; lng: number } | null>>([])
+  const [coordsLoading, setCoordsLoading] = useState(false)
+
+  // Which stop IDs are checked (default: all on load)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  // Which stop IDs have been successfully sent to Jobber (stay greyed in the list)
+  const [sentIds, setSentIds] = useState<Set<string>>(new Set())
+
   const [optimizedVisits, setOptimizedVisits] = useState<OptimizedVisit[] | null>(null)
   const [optimizing, setOptimizing] = useState(false)
   const [optimizeError, setOptimizeError] = useState<string | null>(null)
@@ -145,14 +154,47 @@ export default function RouteBuilder() {
   const [durationMethod, setDurationMethod] = useState<string>('default')
   const [fallbackStops, setFallbackStops] = useState<string[]>([])
 
-  // Map preview shown on the optimize screen after optimization completes
-  const [previewMapUrl, setPreviewMapUrl] = useState<string | null>(null)
-
   // Send to Jobber state
   const [reassignUserId, setReassignUserId] = useState<string>('__keep__')
   const [sending, setSending] = useState(false)
   const [sendResults, setSendResults] = useState<SendResult[] | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
+
+  // ── Computed map URL ──────────────────────────────────────────────────────
+  const pinMapUrl = useMemo(() => {
+    if (!visits || visits.length === 0) return null
+    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
+    if (!token) return null
+
+    if (optimizedVisits && depotCoord && optimizedVisits.length > 0) {
+      // Post-optimization: route line + numbered pins
+      const waypoints = [depotCoord, ...optimizedVisits.map(v => ({ lat: v.lat, lng: v.lng }))]
+      const polyline = encodePolyline5(waypoints)
+      const pathOverlay = `path-3+1f77b4-0.85(${encodeURIComponent(polyline)})`
+      const depotMarker = `pin-s-d+16a34a(${depotCoord.lng.toFixed(6)},${depotCoord.lat.toFixed(6)})`
+      const stopMarkers = optimizedVisits.map((v, i) => {
+        const label = i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9))
+        const color = sentIds.has(v.id) ? '888888' : 'c0392b'
+        return `pin-s-${label}+${color}(${v.lng.toFixed(6)},${v.lat.toFixed(6)})`
+      })
+      const overlays = [pathOverlay, depotMarker, ...stopMarkers].join(',')
+      return `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${overlays}/auto/800x500@2x?padding=60&access_token=${token}`
+    }
+
+    // Pre-optimization: pins only, colored by selection/sent state
+    const pins: string[] = []
+    visits.forEach((v, i) => {
+      const coord = visitCoords[i]
+      if (!coord) return
+      const isSent = sentIds.has(v.id)
+      const isSelected = selectedIds.has(v.id)
+      const color = isSent ? '888888' : isSelected ? 'e47200' : '555555'
+      const label = i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9))
+      pins.push(`pin-s-${label}+${color}(${coord.lng.toFixed(6)},${coord.lat.toFixed(6)})`)
+    })
+    if (pins.length === 0) return null
+    return `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${pins.join(',')}/auto/800x500@2x?padding=60&access_token=${token}`
+  }, [visits, visitCoords, selectedIds, sentIds, optimizedVisits, depotCoord])
 
   // Load settings on mount (get saved duration_method default)
   useEffect(() => {
@@ -179,6 +221,31 @@ export default function RouteBuilder() {
       .finally(() => setUsersLoading(false))
   }, [])
 
+  async function geocodeVisits(loadedVisits: Visit[]) {
+    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
+    if (!token || loadedVisits.length === 0) {
+      setVisitCoords(loadedVisits.map(() => null))
+      return
+    }
+    setCoordsLoading(true)
+    const coords = await Promise.all(loadedVisits.map(async v => {
+      try {
+        const encoded = encodeURIComponent(v.addressString)
+        const res = await fetch(
+          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${token}&limit=1&country=US`,
+          { signal: AbortSignal.timeout(6000) }
+        )
+        const data = await res.json()
+        const center = data.features?.[0]?.center
+        return center ? { lng: center[0] as number, lat: center[1] as number } : null
+      } catch {
+        return null
+      }
+    }))
+    setVisitCoords(coords)
+    setCoordsLoading(false)
+  }
+
   async function loadVisits() {
     if (!selectedUserId) return
     setVisitsLoading(true)
@@ -194,12 +261,16 @@ export default function RouteBuilder() {
     setLockedFirstId(null)
     setLockedLastId(null)
     setFallbackStops([])
-    setPreviewMapUrl(null)
+    setVisitCoords([])
+    setSelectedIds(new Set())
+    setSentIds(new Set())
     try {
       const res = await fetch(`/api/visits?date=${date}&userId=${encodeURIComponent(selectedUserId)}`)
       const data = await res.json()
       if (data.error) { setVisitsError(data.error); return }
       setVisits(data.visits)
+      setSelectedIds(new Set((data.visits as Visit[]).map(v => v.id)))
+      geocodeVisits(data.visits)  // async — updates visitCoords as pins load
     } catch (e) {
       setVisitsError(e instanceof Error ? e.message : 'Unknown error')
     } finally {
@@ -208,15 +279,17 @@ export default function RouteBuilder() {
   }
 
   async function optimizeRoute() {
-    if (!visits || visits.length === 0) return
+    // Only optimize the selected (checked) visits
+    const selectedVisits = (visits ?? []).filter(v => selectedIds.has(v.id))
+    if (selectedVisits.length === 0) return
     setOptimizing(true)
     setOptimizeError(null)
     setGeocodeFailed([])
     setSendResults(null)
     setSendError(null)
     try {
-      const addresses = visits.map(v => v.addressString)
-      const jobTitles = visits.map(v => v.jobTitle)
+      const addresses = selectedVisits.map(v => v.addressString)
+      const jobTitles = selectedVisits.map(v => v.jobTitle)
       const [hh, mm] = startTime.split(':').map(Number)
       const startHour = hh + mm / 60
 
@@ -228,10 +301,10 @@ export default function RouteBuilder() {
           jobTitles,
           startHour,
           date,
-          lockedFirstIdx: lockedFirstId ? visits.findIndex(v => v.id === lockedFirstId) : undefined,
-          lockedLastIdx: lockedLastId ? visits.findIndex(v => v.id === lockedLastId) : undefined,
-          visitLineItems: visits.map(v => v.lineItemNames ?? []),
-          visitTypes: visits.map(v => v.type ?? 'visit'),
+          lockedFirstIdx: lockedFirstId ? selectedVisits.findIndex(v => v.id === lockedFirstId) : undefined,
+          lockedLastIdx: lockedLastId ? selectedVisits.findIndex(v => v.id === lockedLastId) : undefined,
+          visitLineItems: selectedVisits.map(v => v.lineItemNames ?? []),
+          visitTypes: selectedVisits.map(v => v.type ?? 'visit'),
           durationMethod,
         }),
       })
@@ -258,12 +331,12 @@ export default function RouteBuilder() {
 
       // Capture stops that fell back to default duration
       const fbStops = (data.legs ?? [])
-        .map((leg: Leg, i: number) => leg.usedFallback ? visits[data.order[i]]?.clientName : null)
+        .map((leg: Leg, i: number) => leg.usedFallback ? selectedVisits[data.order[i]]?.clientName : null)
         .filter((n: string | null): n is string => !!n)
       setFallbackStops(fbStops)
 
       const reordered: OptimizedVisit[] = data.order.map((originalIdx, newPos) => ({
-        ...visits[originalIdx],
+        ...selectedVisits[originalIdx],
         stopNumber: newPos + 1,
         eta: data.legs[newPos].arrivalTime,
         driveMinutes: data.legs[newPos].driveMinutes,
@@ -276,24 +349,6 @@ export default function RouteBuilder() {
         matrixIndex: data.matrixIndices?.[newPos] ?? newPos + 1,
       }))
       setOptimizedVisits(reordered)
-
-      // Build static map preview URL (same map as the route sheet)
-      const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
-      if (mapboxToken && data.depotCoord && reordered.length > 0) {
-        const dep = data.depotCoord
-        const waypoints = [dep, ...reordered.map(v => ({ lat: v.lat, lng: v.lng }))]
-        const polyline = encodePolyline5(waypoints)
-        const pathOverlay = `path-3+1f77b4-0.85(${encodeURIComponent(polyline)})`
-        const depotMarker = `pin-s-d+16a34a(${dep.lng.toFixed(6)},${dep.lat.toFixed(6)})`
-        const stopMarkers = reordered.map((v, i) => {
-          const label = i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9))
-          return `pin-s-${label}+c0392b(${v.lng.toFixed(6)},${v.lat.toFixed(6)})`
-        })
-        const overlays = [pathOverlay, depotMarker, ...stopMarkers].join(',')
-        setPreviewMapUrl(
-          `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${overlays}/auto/800x380@2x?padding=50&access_token=${mapboxToken}`
-        )
-      }
     } catch (e) {
       setOptimizeError(e instanceof Error ? e.message : 'Optimization failed')
     } finally {
@@ -329,6 +384,19 @@ export default function RouteBuilder() {
       const data: { results: SendResult[]; allOk: boolean; error?: string } = await res.json()
       if (data.error) { setSendError(data.error); return }
       setSendResults(data.results)
+
+      // Mark successfully sent stops; remove them from selection
+      if (data.results) {
+        const newlySentIds = new Set(data.results.filter(r => r.success).map(r => r.visitId))
+        if (newlySentIds.size > 0) {
+          setSentIds(prev => new Set([...prev, ...newlySentIds]))
+          setSelectedIds(prev => {
+            const next = new Set(prev)
+            newlySentIds.forEach(id => next.delete(id))
+            return next
+          })
+        }
+      }
     } catch (e) {
       setSendError(e instanceof Error ? e.message : 'Failed to send to Jobber')
     } finally {
@@ -439,10 +507,6 @@ export default function RouteBuilder() {
       const stops = optimizedVisits.map(v => [v.lng, v.lat])
       // Use road geometry if available, otherwise fall back to straight waypoints
       const routeCoords = roadCoords ? JSON.stringify(roadCoords) : JSON.stringify([depot, ...stops])
-      const stopsJson = JSON.stringify(stops)
-      const stopLabels = JSON.stringify(optimizedVisits.map((_, i) =>
-        i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9))
-      ))
       const lngs = [depot[0], ...stops.map((s: number[]) => s[0])]
       const lats = [depot[1], ...stops.map((s: number[]) => s[1])]
       const bbox = JSON.stringify([
@@ -706,6 +770,7 @@ ${mapScripts}
   const sendResultMap = new Map(sendResults?.map(r => [r.visitId, r]) ?? [])
   const sendSuccessCount = sendResults?.filter(r => r.success).length ?? 0
   const sendAllOk = sendResults !== null && sendResults.every(r => r.success)
+  const selectedCount = visits ? (visits.filter(v => selectedIds.has(v.id) && !sentIds.has(v.id))).length : 0
 
   return (
     <div className="space-y-6">
@@ -797,7 +862,7 @@ ${mapScripts}
       {geocodeFailed.length > 0 && visits && (
         <div className="bg-yellow-900/40 border border-yellow-700 text-yellow-300 rounded-lg px-4 py-3 text-sm">
           Could not geocode {geocodeFailed.length} address{geocodeFailed.length !== 1 ? 'es' : ''}
-          {' '}({geocodeFailed.map(i => visits[i]?.clientName).join(', ')}) — those stops were excluded from optimization.
+          {' '}({geocodeFailed.map(i => (optimizedVisits ?? visits ?? [])[i]?.clientName).join(', ')}) — those stops were excluded from optimization.
         </div>
       )}
       {fallbackStops.length > 0 && (
@@ -806,198 +871,270 @@ ${mapScripts}
         </div>
       )}
 
-      {/* Visit list */}
+      {/* Main content: map LEFT + visit list RIGHT */}
       {displayVisits !== null && (
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
-          <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
-            <div className="flex items-center gap-3">
-              <h3 className="font-semibold">
-                {displayVisits.length === 0
-                  ? 'No visits found'
-                  : `${displayVisits.length} stop${displayVisits.length !== 1 ? 's' : ''}`}
-              </h3>
-              {optimizedVisits && (
-                <span className="text-xs bg-green-900/50 text-green-400 border border-green-800 px-2 py-0.5 rounded-full">
-                  Optimized
-                </span>
-              )}
-            </div>
-            <div className="flex items-center gap-3">
-              {displayVisits.length > 0 && (
+        <div className="flex flex-col lg:flex-row gap-4 items-start">
+
+          {/* ── LEFT: Map panel (sticky on large screens) ── */}
+          <div className="w-full lg:w-2/5 lg:sticky lg:top-6">
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+              <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
+                <h3 className="font-semibold text-sm">
+                  {optimizedVisits ? 'Route Preview' : 'Stop Locations'}
+                </h3>
                 <span className="text-xs text-gray-500">
-                  ${displayVisits.reduce((s, v) => s + v.totalPrice, 0).toFixed(2)} total
+                  {coordsLoading && !optimizedVisits ? 'Locating pins…' : ''}
+                  {optimizedVisits ? 'Same map that prints on route sheet' : ''}
                 </span>
+              </div>
+              {pinMapUrl ? (
+                <img
+                  src={pinMapUrl}
+                  alt="Route map preview"
+                  className="w-full block"
+                />
+              ) : (
+                <div className="px-4 py-12 text-gray-600 text-sm text-center">
+                  {!process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+                    ? 'Map unavailable — configure Mapbox token'
+                    : visitCoords.length > 0 && visitCoords.every(c => c === null)
+                    ? 'Could not locate addresses on map'
+                    : 'Locating stops…'}
+                </div>
               )}
-              {visits && !optimizedVisits && (lockedFirstId || lockedLastId) && (
-                <span className="text-xs text-gray-400">
-                  {[lockedFirstId && '📌 1st', lockedLastId && '📌 Last'].filter(Boolean).join(' · ')}
-                </span>
-              )}
-              {visits && visits.length > 1 && !optimizedVisits && (
-                <button
-                  onClick={optimizeRoute}
-                  disabled={optimizing}
-                  className="px-4 py-1.5 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-xs font-medium transition-colors"
-                >
-                  {optimizing ? 'Optimizing…' : '⚡ Optimize Route'}
-                </button>
-              )}
-              {optimizedVisits && usingMatrix !== null && (
-                <span
-                  title={usingMatrix ? 'Drive times use real road routes (Mapbox Matrix API)' : 'Drive times use straight-line distance — Matrix API unavailable'}
-                  className={`text-xs px-2 py-1 rounded-full font-medium ${usingMatrix ? 'bg-green-900 text-green-300' : 'bg-gray-700 text-gray-400'}`}
-                >
-                  {usingMatrix ? '🗺 Road times' : '📐 Straight-line'}
-                </span>
-              )}
-              {optimizedVisits && isManualOrder && (
-                <button
-                  onClick={recalculateETAs}
-                  className="px-4 py-1.5 bg-orange-500 hover:bg-orange-400 text-white rounded-lg text-xs font-medium transition-colors animate-pulse"
-                >
-                  ⚡ Recalculate
-                </button>
-              )}
-              {optimizedVisits && !sendResults && (
-                <button
-                  onClick={() => { setOptimizedVisits(null); setGeocodeFailed([]); setUsingMatrix(null); setDurationMatrix(null); setIsManualOrder(false); setPreviewMapUrl(null) }}
-                  className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs font-medium transition-colors"
-                >
-                  Reset Order
-                </button>
-              )}
-              {optimizedVisits && optimizedVisits.length > 0 && (
-                <button
-                  onClick={printRouteSheet}
-                  className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs font-medium transition-colors"
-                >
-                  📄 Route Sheet
-                </button>
+              {/* Legend — show before optimization when we have at least some coords */}
+              {visits && !optimizedVisits && visitCoords.some(c => c !== null) && (
+                <div className="px-4 py-2 border-t border-gray-800 flex items-center gap-4 text-xs text-gray-500">
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block w-3 h-3 rounded-full bg-orange-500"></span> Selected
+                  </span>
+                  <span className="flex items-center gap-1.5">
+                    <span className="inline-block w-3 h-3 rounded-full bg-gray-600"></span> Skipped
+                  </span>
+                  {sentIds.size > 0 && (
+                    <span className="flex items-center gap-1.5">
+                      <span className="inline-block w-3 h-3 rounded-full bg-gray-500"></span> Sent
+                    </span>
+                  )}
+                </div>
               )}
             </div>
           </div>
 
-          {displayVisits.length === 0 ? (
-            <p className="px-6 py-8 text-gray-500 text-sm text-center">
-              No visits scheduled for this tech on this date.
-            </p>
-          ) : (
-            <ul className="divide-y divide-gray-800">
-              {displayVisits.map((v, idx) => {
-                const optimized = v as OptimizedVisit
-                const hasEta = 'eta' in v && optimized.eta
-                const result = sendResultMap.get(v.id)
-                const isDragging = draggingIdx === idx
-                const isDragTarget = dragOverIdx === idx && draggingIdx !== idx
-                return (
-                  <li
-                    key={v.id}
-                    draggable={!!optimizedVisits}
-                    onDragStart={optimizedVisits ? () => setDraggingIdx(idx) : undefined}
-                    onDragOver={optimizedVisits ? (e) => { e.preventDefault(); setDragOverIdx(idx) } : undefined}
-                    onDrop={optimizedVisits ? (e) => {
-                      e.preventDefault()
-                      if (draggingIdx === null || draggingIdx === idx) { setDragOverIdx(null); return }
-                      const newList = [...optimizedVisits]
-                      const [moved] = newList.splice(draggingIdx, 1)
-                      newList.splice(idx, 0, moved)
-                      setOptimizedVisits(newList.map((s, i) => ({ ...s, stopNumber: i + 1 })))
-                      setIsManualOrder(true)
-                      setDraggingIdx(null)
-                      setDragOverIdx(null)
-                    } : undefined}
-                    onDragEnd={optimizedVisits ? () => { setDraggingIdx(null); setDragOverIdx(null) } : undefined}
-                    className={[
-                      'px-6 py-4 flex gap-4 items-start transition-opacity',
-                      isDragging ? 'opacity-30' : 'opacity-100',
-                      isDragTarget ? 'border-t-2 border-orange-500' : '',
-                      optimizedVisits ? 'cursor-grab active:cursor-grabbing' : '',
-                    ].join(' ')}
-                  >
-                    {optimizedVisits && (
-                      <span className="text-gray-600 shrink-0 mt-1 select-none text-lg leading-none" title="Drag to reorder">⠿</span>
-                    )}
-                    <span className="text-2xl font-bold text-gray-600 w-8 shrink-0 text-right mt-0.5">
-                      {v.stopNumber}
+          {/* ── RIGHT: Visit list ── */}
+          <div className="w-full lg:w-3/5">
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
+              <div className="px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <h3 className="font-semibold">
+                    {displayVisits.length === 0
+                      ? 'No visits found'
+                      : `${displayVisits.length} stop${displayVisits.length !== 1 ? 's' : ''}`}
+                  </h3>
+                  {optimizedVisits && (
+                    <span className="text-xs bg-green-900/50 text-green-400 border border-green-800 px-2 py-0.5 rounded-full">
+                      Optimized
                     </span>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <p className="font-medium text-white truncate">{v.clientName}</p>
-                        {v.type === 'assessment' && (
-                          <span className="shrink-0 text-xs bg-blue-900/50 text-blue-300 border border-blue-700 px-1.5 py-0.5 rounded">
-                            📋 Assessment
-                          </span>
-                        )}
-                      </div>
-                      {v.jobTitle && (
-                        <p className="text-sm text-orange-300 truncate">{v.jobTitle}</p>
-                      )}
-                      <p className="text-sm text-gray-400 truncate">{v.addressString}</p>
-                      {v.services && (
-                        <p className="text-xs text-gray-500 mt-0.5 truncate">{v.services}</p>
-                      )}
-                      {hasEta && (
-                        <p className="text-xs text-orange-400 mt-1">
-                          ⏱ {optimized.driveMinutes} min drive · {optimized.onSiteMinutes} min on-site · arrive ~{optimized.eta}
-                        </p>
-                      )}
-                      {result && !result.success && (
-                        <p className="text-xs text-red-400 mt-1">✗ {result.error}</p>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2 shrink-0">
-                      {v.totalPrice > 0 && (
-                        <span className="text-sm text-gray-400">${v.totalPrice.toFixed(2)}</span>
-                      )}
-                      {result?.success && <span className="text-green-400 text-sm">✓</span>}
-                      {result && !result.success && <span className="text-red-400 text-sm">✗</span>}
-                      {visits && !optimizedVisits && (
-                        <>
-                          <button
-                            onClick={() => setLockedFirstId(lockedFirstId === v.id ? null : v.id)}
-                            title="Pin as first stop"
-                            className={`text-xs px-2 py-0.5 rounded font-medium transition-colors ${
-                              lockedFirstId === v.id
-                                ? 'bg-green-600 text-white'
-                                : 'bg-gray-700 text-gray-400 hover:text-gray-200'
-                            }`}
-                          >
-                            1st
-                          </button>
-                          <button
-                            onClick={() => setLockedLastId(lockedLastId === v.id ? null : v.id)}
-                            title="Pin as last stop"
-                            className={`text-xs px-2 py-0.5 rounded font-medium transition-colors ${
-                              lockedLastId === v.id
-                                ? 'bg-orange-600 text-white'
-                                : 'bg-gray-700 text-gray-400 hover:text-gray-200'
-                            }`}
-                          >
-                            Last
-                          </button>
-                        </>
-                      )}
-                    </div>
-                  </li>
-                )
-              })}
-            </ul>
-          )}
-        </div>
-      )}
+                  )}
+                  {visits && !optimizedVisits && selectedCount > 0 && selectedCount < (visits.length - sentIds.size) && (
+                    <span className="text-xs text-gray-500">{selectedCount} selected</span>
+                  )}
+                </div>
+                <div className="flex items-center gap-3">
+                  {displayVisits.length > 0 && (
+                    <span className="text-xs text-gray-500">
+                      ${displayVisits.reduce((s, v) => s + v.totalPrice, 0).toFixed(2)} total
+                    </span>
+                  )}
+                  {visits && !optimizedVisits && (lockedFirstId || lockedLastId) && (
+                    <span className="text-xs text-gray-400">
+                      {[lockedFirstId && '📌 1st', lockedLastId && '📌 Last'].filter(Boolean).join(' · ')}
+                    </span>
+                  )}
+                  {visits && selectedCount > 1 && !optimizedVisits && (
+                    <button
+                      onClick={optimizeRoute}
+                      disabled={optimizing}
+                      className="px-4 py-1.5 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-xs font-medium transition-colors"
+                    >
+                      {optimizing ? 'Optimizing…' : `⚡ Optimize ${selectedCount}`}
+                    </button>
+                  )}
+                  {optimizedVisits && usingMatrix !== null && (
+                    <span
+                      title={usingMatrix ? 'Drive times use real road routes (Mapbox Matrix API)' : 'Drive times use straight-line distance — Matrix API unavailable'}
+                      className={`text-xs px-2 py-1 rounded-full font-medium ${usingMatrix ? 'bg-green-900 text-green-300' : 'bg-gray-700 text-gray-400'}`}
+                    >
+                      {usingMatrix ? '🗺 Road times' : '📐 Straight-line'}
+                    </span>
+                  )}
+                  {optimizedVisits && isManualOrder && (
+                    <button
+                      onClick={recalculateETAs}
+                      className="px-4 py-1.5 bg-orange-500 hover:bg-orange-400 text-white rounded-lg text-xs font-medium transition-colors animate-pulse"
+                    >
+                      ⚡ Recalculate
+                    </button>
+                  )}
+                  {optimizedVisits && (
+                    <button
+                      onClick={() => {
+                        setOptimizedVisits(null)
+                        setGeocodeFailed([])
+                        setUsingMatrix(null)
+                        setDurationMatrix(null)
+                        setIsManualOrder(false)
+                        setSendResults(null)
+                        setSendError(null)
+                      }}
+                      className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs font-medium transition-colors"
+                    >
+                      Reset Order
+                    </button>
+                  )}
+                  {optimizedVisits && optimizedVisits.length > 0 && (
+                    <button
+                      onClick={printRouteSheet}
+                      className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs font-medium transition-colors"
+                    >
+                      📄 Route Sheet
+                    </button>
+                  )}
+                </div>
+              </div>
 
-      {/* Route Map Preview */}
-      {optimizedVisits && previewMapUrl && (
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
-          <div className="px-6 py-3 border-b border-gray-800 flex items-center justify-between">
-            <h3 className="font-semibold text-sm">Route Preview</h3>
-            <span className="text-xs text-gray-500">Same map that appears on the route sheet</span>
+              {displayVisits.length === 0 ? (
+                <p className="px-6 py-8 text-gray-500 text-sm text-center">
+                  No visits scheduled for this tech on this date.
+                </p>
+              ) : (
+                <ul className="divide-y divide-gray-800">
+                  {displayVisits.map((v, idx) => {
+                    const optimized = v as OptimizedVisit
+                    const hasEta = 'eta' in v && optimized.eta
+                    const result = sendResultMap.get(v.id)
+                    const isDragging = draggingIdx === idx
+                    const isDragTarget = dragOverIdx === idx && draggingIdx !== idx
+                    const isSent = sentIds.has(v.id)
+                    const isChecked = selectedIds.has(v.id) && !isSent
+                    return (
+                      <li
+                        key={v.id}
+                        draggable={!!optimizedVisits}
+                        onDragStart={optimizedVisits ? () => setDraggingIdx(idx) : undefined}
+                        onDragOver={optimizedVisits ? (e) => { e.preventDefault(); setDragOverIdx(idx) } : undefined}
+                        onDrop={optimizedVisits ? (e) => {
+                          e.preventDefault()
+                          if (draggingIdx === null || draggingIdx === idx) { setDragOverIdx(null); return }
+                          const newList = [...optimizedVisits]
+                          const [moved] = newList.splice(draggingIdx, 1)
+                          newList.splice(idx, 0, moved)
+                          setOptimizedVisits(newList.map((s, i) => ({ ...s, stopNumber: i + 1 })))
+                          setIsManualOrder(true)
+                          setDraggingIdx(null)
+                          setDragOverIdx(null)
+                        } : undefined}
+                        onDragEnd={optimizedVisits ? () => { setDraggingIdx(null); setDragOverIdx(null) } : undefined}
+                        className={[
+                          'px-6 py-4 flex gap-3 items-start transition-opacity',
+                          isDragging ? 'opacity-30' : isSent ? 'opacity-40' : 'opacity-100',
+                          isDragTarget ? 'border-t-2 border-orange-500' : '',
+                          optimizedVisits ? 'cursor-grab active:cursor-grabbing' : '',
+                        ].join(' ')}
+                      >
+                        {/* Checkbox — shown before optimization only */}
+                        {!optimizedVisits && (
+                          <input
+                            type="checkbox"
+                            checked={isChecked}
+                            disabled={isSent}
+                            onChange={e => {
+                              setSelectedIds(prev => {
+                                const next = new Set(prev)
+                                if (e.target.checked) next.add(v.id)
+                                else next.delete(v.id)
+                                return next
+                              })
+                            }}
+                            className="mt-1.5 w-4 h-4 shrink-0 rounded border-gray-600 accent-orange-500 cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                          />
+                        )}
+                        {optimizedVisits && (
+                          <span className="text-gray-600 shrink-0 mt-1 select-none text-lg leading-none" title="Drag to reorder">⠿</span>
+                        )}
+                        <span className="text-2xl font-bold text-gray-600 w-8 shrink-0 text-right mt-0.5">
+                          {v.stopNumber}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <p className={`font-medium truncate ${isSent ? 'text-gray-500 line-through' : 'text-white'}`}>{v.clientName}</p>
+                            {v.type === 'assessment' && (
+                              <span className="shrink-0 text-xs bg-blue-900/50 text-blue-300 border border-blue-700 px-1.5 py-0.5 rounded">
+                                📋 Assessment
+                              </span>
+                            )}
+                            {isSent && (
+                              <span className="shrink-0 text-xs bg-green-900/30 text-green-600 border border-green-900 px-1.5 py-0.5 rounded">
+                                ✓ Sent
+                              </span>
+                            )}
+                          </div>
+                          {v.jobTitle && (
+                            <p className="text-sm text-orange-300 truncate">{v.jobTitle}</p>
+                          )}
+                          <p className="text-sm text-gray-400 truncate">{v.addressString}</p>
+                          {v.services && (
+                            <p className="text-xs text-gray-500 mt-0.5 truncate">{v.services}</p>
+                          )}
+                          {hasEta && (
+                            <p className="text-xs text-orange-400 mt-1">
+                              ⏱ {optimized.driveMinutes} min drive · {optimized.onSiteMinutes} min on-site · arrive ~{optimized.eta}
+                            </p>
+                          )}
+                          {result && !result.success && (
+                            <p className="text-xs text-red-400 mt-1">✗ {result.error}</p>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2 shrink-0">
+                          {v.totalPrice > 0 && (
+                            <span className="text-sm text-gray-400">${v.totalPrice.toFixed(2)}</span>
+                          )}
+                          {result?.success && <span className="text-green-400 text-sm">✓</span>}
+                          {result && !result.success && <span className="text-red-400 text-sm">✗</span>}
+                          {visits && !optimizedVisits && !isSent && (
+                            <>
+                              <button
+                                onClick={() => setLockedFirstId(lockedFirstId === v.id ? null : v.id)}
+                                title="Pin as first stop"
+                                className={`text-xs px-2 py-0.5 rounded font-medium transition-colors ${
+                                  lockedFirstId === v.id
+                                    ? 'bg-green-600 text-white'
+                                    : 'bg-gray-700 text-gray-400 hover:text-gray-200'
+                                }`}
+                              >
+                                1st
+                              </button>
+                              <button
+                                onClick={() => setLockedLastId(lockedLastId === v.id ? null : v.id)}
+                                title="Pin as last stop"
+                                className={`text-xs px-2 py-0.5 rounded font-medium transition-colors ${
+                                  lockedLastId === v.id
+                                    ? 'bg-orange-600 text-white'
+                                    : 'bg-gray-700 text-gray-400 hover:text-gray-200'
+                                }`}
+                              >
+                                Last
+                              </button>
+                            </>
+                          )}
+                        </div>
+                      </li>
+                    )
+                  })}
+                </ul>
+              )}
+            </div>
           </div>
-          <img
-            src={previewMapUrl}
-            alt="Optimized route map preview"
-            className="w-full block"
-          />
         </div>
       )}
 
@@ -1011,7 +1148,7 @@ ${mapScripts}
 
           {sendAllOk && (
             <div className="mb-4 bg-green-900/40 border border-green-700 text-green-300 rounded-lg px-4 py-3 text-sm">
-              ✓ {sendSuccessCount}/{sendResults!.length} visits updated in Jobber
+              ✓ {sendSuccessCount}/{sendResults!.length} visits updated in Jobber — click Reset Order to select your next batch
             </div>
           )}
           {sendResults && !sendAllOk && (
@@ -1031,7 +1168,7 @@ ${mapScripts}
               <select
                 value={reassignUserId}
                 onChange={e => setReassignUserId(e.target.value)}
-                disabled={sending || sendAllOk}
+                disabled={sending}
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500 disabled:opacity-50"
               >
                 <option value="__keep__">Keep current assignment</option>
@@ -1043,10 +1180,10 @@ ${mapScripts}
 
             <button
               onClick={sendToJobber}
-              disabled={sending || sendAllOk}
+              disabled={sending}
               className="px-6 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
             >
-              {sending ? 'Sending…' : sendAllOk ? '✓ Sent' : sendResults ? 'Retry Failed' : 'Send to Jobber →'}
+              {sending ? 'Sending…' : sendResults ? 'Retry Failed' : 'Send to Jobber →'}
             </button>
           </div>
         </div>
