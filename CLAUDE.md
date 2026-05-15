@@ -51,6 +51,45 @@ Supabase `call_datetime` is stored as naive Texas-local time labeled `+00:00`. `
 
 ---
 
+## New Computer Setup (so Claude can push and deploy)
+
+Before Claude can push to GitHub on a new Mac, do this once:
+
+### 1. Install the SSH key
+The private key is saved in Ben's 1Password as **"Lynxedo VPS SSH Key"**.
+
+Copy the private key contents, then run in Terminal:
+```bash
+mkdir -p ~/.ssh && chmod 700 ~/.ssh
+# Paste the key into this file:
+nano ~/.ssh/id_ed25519
+# Save with Ctrl+O, Enter, Ctrl+X
+chmod 600 ~/.ssh/id_ed25519
+ssh-keyscan -t ed25519 github.com >> ~/.ssh/known_hosts
+```
+
+### 2. Verify it works
+```bash
+ssh -T git@github.com
+# Should say: Hi lynxedo! You've successfully authenticated...
+```
+
+### 3. Make sure the git remote uses SSH (not HTTPS)
+```bash
+cd "/Users/bensimpson/ben@heroeslawntx.com - Google Drive/My Drive/Lynxedo/Website"
+git remote set-url origin git@github.com:lynxedo/app.git
+```
+
+That's it — Claude can now push from this machine any time.
+
+**Public key** (already registered on GitHub as "Lynxedo Mac Deploy Key"):
+```
+ssh-ed25519 AAAAC3NzaC1lZDI1NTE5AAAAIA1yXacjZ34qfHJVGJ1dMUyi7SjHA7nmiWTKmXZ5x073 ben@lynxedo-vps
+```
+If it's a brand-new machine, add this public key to GitHub at github.com/settings/keys.
+
+---
+
 ## If the VPS Needs to Be Rebuilt
 
 See `Google Drive > My Drive > Lynxedo > Reference > VPS_RESTORE_GUIDE.md`.

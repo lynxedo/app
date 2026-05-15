@@ -26,7 +26,7 @@ export async function proxy(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
-  const protectedPaths = ['/dashboard', '/routing', '/lawn', '/responder', '/settings', '/call-log', '/admin', '/timesheet']
+  const protectedPaths = ['/dashboard', '/routing', '/lawn', '/responder', '/settings', '/call-log', '/admin', '/timesheet', '/books']
   const isProtected = protectedPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
 
   // Redirect unauthenticated users to login
@@ -90,5 +90,5 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/routing/:path*', '/lawn/:path*', '/responder/:path*', '/settings/:path*', '/call-log/:path*', '/admin/:path*', '/timesheet/:path*', '/timesheet', '/login'],
+  matcher: ['/dashboard/:path*', '/routing/:path*', '/lawn/:path*', '/responder/:path*', '/settings/:path*', '/call-log/:path*', '/admin/:path*', '/timesheet/:path*', '/timesheet', '/books/:path*', '/books', '/login'],
 }

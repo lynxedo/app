@@ -356,10 +356,15 @@ export default function HelpPage() {
           </Section>
         </div>
 
-        <p className="text-center text-gray-600 text-xs pb-4">
-          Need more help? Contact us at{' '}
-          <a href="mailto:support@lynxedo.com" className="text-orange-400 hover:text-orange-300">support@lynxedo.com</a>
-        </p>
+        <div className="flex flex-col items-center gap-3 py-4">
+          <p className="text-gray-500 text-sm">Can&apos;t find what you&apos;re looking for?</p>
+          <a
+            href="mailto:support@lynxedo.com?subject=Lynxedo%20Support%20Request"
+            className="inline-block bg-orange-600 hover:bg-orange-500 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors text-sm"
+          >
+            Contact Support
+          </a>
+        </div>
       </main>
     </div>
   )
