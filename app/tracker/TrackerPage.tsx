@@ -219,12 +219,16 @@ function MultiSelectCell({
 function LeadRow({
   lead,
   opts,
+  checked,
+  onToggle,
   onUpdate,
   onOpenNotes,
   onEdit,
 }: {
   lead: Lead
   opts: TrackerSettings
+  checked: boolean
+  onToggle: () => void
   onUpdate: (id: string, field: string, value: unknown) => void
   onOpenNotes: (id: string) => void
   onEdit: (id: string) => void
@@ -233,54 +237,44 @@ function LeadRow({
   const truncatedNote = noteText && noteText.length > 60 ? noteText.slice(0, 60) + '…' : noteText
 
   return (
-    <tr className="hover:bg-gray-900/40 group">
+    <tr className={`hover:bg-gray-900/40 group ${checked ? 'bg-indigo-950/30' : ''}`}>
+      <td className="px-3 py-2 text-center" onClick={e => e.stopPropagation()}>
+        <input
+          type="checkbox"
+          checked={checked}
+          onChange={onToggle}
+          className="rounded accent-indigo-500 cursor-pointer"
+        />
+      </td>
       <td className="px-3 py-2 text-sm">
         <div className="flex gap-1">
-          <EditCell
-            value={lead.first_name}
-            placeholder="First"
-            onSave={v => onUpdate(lead.id, 'first_name', v)}
-          />
-          <EditCell
-            value={lead.last_name}
-            placeholder="Last"
-            onSave={v => onUpdate(lead.id, 'last_name', v)}
-          />
+          <EditCell value={lead.first_name} placeholder="First" onSave={v => onUpdate(lead.id, 'first_name', v)} />
+          <EditCell value={lead.last_name} placeholder="Last" onSave={v => onUpdate(lead.id, 'last_name', v)} />
         </div>
       </td>
       <td className="px-3 py-2 text-sm">
-        <EditCell
-          value={lead.phone}
-          onSave={v => onUpdate(lead.id, 'phone', v)}
-        />
+        <EditCell value={lead.phone} onSave={v => onUpdate(lead.id, 'phone', v)} />
+      </td>
+      <td className="px-3 py-2 text-sm w-36">
+        <select
+          value={lead.stage ?? ''}
+          onChange={e => onUpdate(lead.id, 'stage', e.target.value || null)}
+          className="w-full bg-transparent text-sm text-white focus:outline-none cursor-pointer hover:text-indigo-300 transition-colors"
+        >
+          {PIPELINE_GROUPS.map(g => <option key={g.key} value={g.key}>{g.label}</option>)}
+        </select>
       </td>
       <td className="px-3 py-2 text-sm max-w-[160px]">
-        <MultiSelectCell
-          values={lead.service}
-          options={opts.service_options}
-          onSave={v => onUpdate(lead.id, 'service', v)}
-        />
+        <MultiSelectCell values={lead.service} options={opts.service_options} onSave={v => onUpdate(lead.id, 'service', v)} />
       </td>
       <td className="px-3 py-2 text-sm">
-        <SelectCell
-          value={lead.status}
-          options={opts.status_options}
-          onSave={v => onUpdate(lead.id, 'status', v)}
-        />
+        <SelectCell value={lead.status} options={opts.status_options} onSave={v => onUpdate(lead.id, 'status', v)} />
       </td>
       <td className="px-3 py-2 text-sm">
-        <SelectCell
-          value={lead.lead_source}
-          options={opts.lead_source_options}
-          onSave={v => onUpdate(lead.id, 'lead_source', v)}
-        />
+        <SelectCell value={lead.lead_source} options={opts.lead_source_options} onSave={v => onUpdate(lead.id, 'lead_source', v)} />
       </td>
       <td className="px-3 py-2 text-sm">
-        <SelectCell
-          value={lead.salesperson}
-          options={opts.salesperson_options}
-          onSave={v => onUpdate(lead.id, 'salesperson', v)}
-        />
+        <SelectCell value={lead.salesperson} options={opts.salesperson_options} onSave={v => onUpdate(lead.id, 'salesperson', v)} />
       </td>
       <td className="px-3 py-2 text-sm">
         <EditCell
@@ -288,9 +282,7 @@ function LeadRow({
           onSave={v => onUpdate(lead.id, 'annual_value', v ? parseFloat(v) : null)}
         />
       </td>
-      <td className="px-3 py-2 text-sm text-gray-400">
-        {fmtDate(lead.lead_creation_date)}
-      </td>
+      <td className="px-3 py-2 text-sm text-gray-400">{fmtDate(lead.lead_creation_date)}</td>
       <td className="px-3 py-2 text-sm max-w-[200px]">
         {truncatedNote ? (
           <span
@@ -305,20 +297,8 @@ function LeadRow({
         )}
       </td>
       <td className="px-3 py-2 text-center whitespace-nowrap">
-        <button
-          onClick={() => onEdit(lead.id)}
-          title="Edit lead"
-          className="text-gray-600 hover:text-indigo-400 transition-colors text-sm leading-none mr-2"
-        >
-          ✎
-        </button>
-        <button
-          onClick={() => onOpenNotes(lead.id)}
-          title="Notes"
-          className="text-gray-600 hover:text-indigo-400 transition-colors text-base leading-none"
-        >
-          💬
-        </button>
+        <button onClick={() => onEdit(lead.id)} title="Edit lead" className="text-gray-600 hover:text-indigo-400 transition-colors text-sm leading-none mr-2">✎</button>
+        <button onClick={() => onOpenNotes(lead.id)} title="Notes" className="text-gray-600 hover:text-indigo-400 transition-colors text-base leading-none">💬</button>
       </td>
     </tr>
   )
@@ -327,11 +307,39 @@ function LeadRow({
 // ────────────────────────────────────────────────
 // Group section
 // ────────────────────────────────────────────────
+function GroupCheckbox({ leads, selectedIds, onToggleGroupAll }: {
+  leads: Lead[]
+  selectedIds: Set<string>
+  onToggleGroupAll: (ids: string[]) => void
+}) {
+  const ref = useRef<HTMLInputElement>(null)
+  const checkedCount = leads.filter(l => selectedIds.has(l.id)).length
+  const allChecked = leads.length > 0 && checkedCount === leads.length
+  const indeterminate = checkedCount > 0 && checkedCount < leads.length
+
+  useEffect(() => {
+    if (ref.current) ref.current.indeterminate = indeterminate
+  }, [indeterminate])
+
+  return (
+    <input
+      ref={ref}
+      type="checkbox"
+      checked={allChecked}
+      onChange={() => onToggleGroupAll(leads.map(l => l.id))}
+      className="rounded accent-indigo-500 cursor-pointer"
+    />
+  )
+}
+
 function GroupSection({
   group,
   collapsed,
   onToggle,
   opts,
+  selectedIds,
+  onToggleSelect,
+  onToggleGroupAll,
   onUpdate,
   onOpenNotes,
   onEdit,
@@ -340,6 +348,9 @@ function GroupSection({
   collapsed: boolean
   onToggle: () => void
   opts: TrackerSettings
+  selectedIds: Set<string>
+  onToggleSelect: (id: string) => void
+  onToggleGroupAll: (ids: string[]) => void
   onUpdate: (id: string, field: string, value: unknown) => void
   onOpenNotes: (id: string) => void
   onEdit: (id: string) => void
@@ -350,6 +361,9 @@ function GroupSection({
         onClick={onToggle}
         className="flex items-center gap-3 px-4 py-2 bg-gray-900/60 border-y border-gray-800 cursor-pointer hover:bg-gray-900/80 transition-colors"
       >
+        <div onClick={e => e.stopPropagation()}>
+          <GroupCheckbox leads={group.leads} selectedIds={selectedIds} onToggleGroupAll={onToggleGroupAll} />
+        </div>
         <span className={`text-xs font-semibold px-2.5 py-0.5 rounded-full border ${GROUP_BADGE[group.key] ?? 'bg-gray-500/15 text-gray-400 border-gray-500/30'}`}>
           {group.label}
         </span>
@@ -359,19 +373,21 @@ function GroupSection({
 
       {!collapsed && (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px]">
+          <table className="w-full min-w-[1100px]">
             <thead>
               <tr className="text-left text-xs text-gray-500 border-b border-gray-800/50">
+                <th className="px-3 py-1.5 w-8"></th>
                 <th className="px-3 py-1.5 font-medium w-44">Name</th>
-                <th className="px-3 py-1.5 font-medium w-36">Phone</th>
+                <th className="px-3 py-1.5 font-medium w-32">Phone</th>
+                <th className="px-3 py-1.5 font-medium w-36">Stage</th>
                 <th className="px-3 py-1.5 font-medium w-40">Service</th>
-                <th className="px-3 py-1.5 font-medium w-36">Status</th>
-                <th className="px-3 py-1.5 font-medium w-36">Lead Source</th>
+                <th className="px-3 py-1.5 font-medium w-32">Status</th>
+                <th className="px-3 py-1.5 font-medium w-32">Lead Source</th>
                 <th className="px-3 py-1.5 font-medium w-28">Salesperson</th>
                 <th className="px-3 py-1.5 font-medium w-24">Ann. Value</th>
                 <th className="px-3 py-1.5 font-medium w-24">Created</th>
                 <th className="px-3 py-1.5 font-medium">Latest Note</th>
-                <th className="px-3 py-1.5 w-10"></th>
+                <th className="px-3 py-1.5 w-14"></th>
               </tr>
             </thead>
             <tbody className="divide-y divide-gray-800/40">
@@ -380,6 +396,8 @@ function GroupSection({
                   key={lead.id}
                   lead={lead}
                   opts={opts}
+                  checked={selectedIds.has(lead.id)}
+                  onToggle={() => onToggleSelect(lead.id)}
                   onUpdate={onUpdate}
                   onOpenNotes={onOpenNotes}
                   onEdit={onEdit}
@@ -387,7 +405,7 @@ function GroupSection({
               ))}
               {group.leads.length === 0 && (
                 <tr>
-                  <td colSpan={10} className="px-4 py-4 text-gray-700 text-sm italic">No leads in this group.</td>
+                  <td colSpan={12} className="px-4 py-4 text-gray-700 text-sm italic">No leads in this group.</td>
                 </tr>
               )}
             </tbody>
@@ -632,7 +650,7 @@ function EditLeadDrawer({
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Pipeline Group</label>
+          <label className="block text-xs text-gray-400 mb-1">Stage</label>
           <select value={form.stage} onChange={e => set('stage', e.target.value)}
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
             {PIPELINE_GROUPS.map(g => <option key={g.key} value={g.key}>{g.label}</option>)}
@@ -866,7 +884,7 @@ function NewLeadForm({
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Pipeline Group</label>
+          <label className="block text-xs text-gray-400 mb-1">Stage</label>
           <select value={form.stage} onChange={e => set('stage', e.target.value)}
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-indigo-500">
             {PIPELINE_GROUPS.map(g => <option key={g.key} value={g.key}>{g.label}</option>)}
@@ -988,6 +1006,9 @@ export default function TrackerPage({
   const [notesLeadId, setNotesLeadId] = useState<string | null>(null)
   const [newLeadOpen, setNewLeadOpen] = useState(false)
   const [editLeadId, setEditLeadId] = useState<string | null>(null)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkStage, setBulkStage] = useState('')
+  const [bulkWorking, setBulkWorking] = useState(false)
 
   const opts: TrackerSettings = settings ?? {
     status_options: [],
@@ -1033,6 +1054,74 @@ export default function TrackerPage({
       if (next.has(key)) next.delete(key); else next.add(key)
       return next
     })
+  }
+
+  function toggleSelect(id: string) {
+    setSelectedIds(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  function toggleGroupAll(ids: string[]) {
+    setSelectedIds(prev => {
+      const allSelected = ids.every(id => prev.has(id))
+      const next = new Set(prev)
+      if (allSelected) ids.forEach(id => next.delete(id))
+      else ids.forEach(id => next.add(id))
+      return next
+    })
+  }
+
+  async function handleBulkMove() {
+    if (!bulkStage || selectedIds.size === 0) return
+    setBulkWorking(true)
+    await Promise.all([...selectedIds].map(id =>
+      fetch(`/api/tracker/leads/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ stage: bulkStage }),
+      })
+    ))
+    setLeads(prev => prev.map(l => selectedIds.has(l.id) ? { ...l, stage: bulkStage } : l))
+    setSelectedIds(new Set())
+    setBulkStage('')
+    setBulkWorking(false)
+  }
+
+  async function handleBulkDelete() {
+    if (selectedIds.size === 0) return
+    setBulkWorking(true)
+    await Promise.all([...selectedIds].map(id =>
+      fetch(`/api/tracker/leads/${id}`, { method: 'DELETE' })
+    ))
+    setLeads(prev => prev.filter(l => !selectedIds.has(l.id)))
+    setSelectedIds(new Set())
+    setBulkWorking(false)
+  }
+
+  async function handleBulkDuplicate() {
+    if (selectedIds.size === 0) return
+    setBulkWorking(true)
+    const today = new Date().toISOString().split('T')[0]
+    const dupes = await Promise.all(
+      leads
+        .filter(l => selectedIds.has(l.id))
+        .map(l => {
+          const { id, latest_note, ...fields } = l
+          void id; void latest_note
+          return fetch('/api/tracker/leads', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ ...fields, lead_creation_date: today }),
+          }).then(r => r.ok ? r.json() : null)
+        })
+    )
+    const created = dupes.filter(Boolean) as Lead[]
+    setLeads(prev => [...created.map(l => ({ ...l, latest_note: null })), ...prev])
+    setSelectedIds(new Set())
+    setBulkWorking(false)
   }
 
   const groupedLeads = PIPELINE_GROUPS.map(g => ({
@@ -1102,6 +1191,9 @@ export default function TrackerPage({
               collapsed={collapsedGroups.has(group.key)}
               onToggle={() => toggleGroup(group.key)}
               opts={opts}
+              selectedIds={selectedIds}
+              onToggleSelect={toggleSelect}
+              onToggleGroupAll={toggleGroupAll}
               onUpdate={updateLead}
               onOpenNotes={id => { setNotesLeadId(id); setEditLeadId(null); setNewLeadOpen(false) }}
               onEdit={id => { setEditLeadId(id); setNotesLeadId(null); setNewLeadOpen(false) }}
@@ -1150,6 +1242,50 @@ export default function TrackerPage({
             setNewLeadOpen(false)
           }}
         />
+      )}
+
+      {/* Bulk action bar */}
+      {selectedIds.size > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 bg-gray-800 border border-gray-700 rounded-2xl shadow-2xl px-5 py-3 whitespace-nowrap">
+          <span className="text-sm text-gray-300 font-medium">{selectedIds.size} selected</span>
+          <div className="w-px h-5 bg-gray-700" />
+          <select
+            value={bulkStage}
+            onChange={e => setBulkStage(e.target.value)}
+            className="bg-gray-700 border border-gray-600 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+          >
+            <option value="">Move to stage…</option>
+            {PIPELINE_GROUPS.map(g => <option key={g.key} value={g.key}>{g.label}</option>)}
+          </select>
+          <button
+            onClick={handleBulkMove}
+            disabled={!bulkStage || bulkWorking}
+            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Move
+          </button>
+          <div className="w-px h-5 bg-gray-700" />
+          <button
+            onClick={handleBulkDuplicate}
+            disabled={bulkWorking}
+            className="bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Duplicate
+          </button>
+          <button
+            onClick={handleBulkDelete}
+            disabled={bulkWorking}
+            className="bg-red-900/60 hover:bg-red-800 disabled:opacity-40 text-red-300 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
+          >
+            Delete
+          </button>
+          <button
+            onClick={() => setSelectedIds(new Set())}
+            className="text-gray-500 hover:text-white transition-colors text-lg leading-none ml-1"
+          >
+            ✕
+          </button>
+        </div>
       )}
     </div>
   )
