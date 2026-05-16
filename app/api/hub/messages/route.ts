@@ -37,7 +37,8 @@ export async function POST(request: Request) {
   const body = await request.json()
   const { room_id, conversation_id, parent_id, content, files } = body
 
-  if (!content?.trim()) return NextResponse.json({ error: 'content required' }, { status: 400 })
+  const hasFiles = Array.isArray(files) && files.length > 0
+  if (!content?.trim() && !hasFiles) return NextResponse.json({ error: 'content or files required' }, { status: 400 })
   if (!room_id && !conversation_id) return NextResponse.json({ error: 'room_id or conversation_id required' }, { status: 400 })
 
   const { data: profile } = await supabase
@@ -55,7 +56,7 @@ export async function POST(request: Request) {
       conversation_id: conversation_id ?? null,
       parent_id: parent_id ?? null,
       sender_id: user.id,
-      content: content.trim(),
+      content: content.trim() || '',
     })
     .select('id, content, created_at')
     .single()
