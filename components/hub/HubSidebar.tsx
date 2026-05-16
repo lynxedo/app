@@ -4,6 +4,8 @@ import Link from 'next/link'
 import { useEffect, useState, useCallback } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import type { HubUser } from './MessageFeed'
+import StatusPicker from './StatusPicker'
+import NotifPrefsModal from './NotifPrefsModal'
 
 type Room = { id: string; name: string; is_private: boolean }
 
@@ -24,16 +26,21 @@ export default function HubSidebar({
   userEmail,
   currentUserId,
   hubUsers,
+  currentUserStatus,
+  currentUserDisplayName,
 }: {
   rooms: Room[]
   userEmail: string
   currentUserId: string
   hubUsers: HubUser[]
+  currentUserStatus?: string | null
+  currentUserDisplayName?: string
 }) {
   const pathname = usePathname()
   const router = useRouter()
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [showNewPM, setShowNewPM] = useState(false)
+  const [showNotifPrefs, setShowNotifPrefs] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
 
@@ -69,6 +76,7 @@ export default function HubSidebar({
   }
 
   const otherUsers = hubUsers.filter(u => u.id !== currentUserId && !u.is_bot)
+  const displayName = currentUserDisplayName ?? userEmail.split('@')[0]
 
   return (
     <>
@@ -76,7 +84,6 @@ export default function HubSidebar({
         {/* Workspace header */}
         <div className="px-4 py-3 border-b border-white/10">
           <div className="font-bold text-white text-sm tracking-wide">Heroes Lawn Care</div>
-          <div className="text-xs text-white/50 mt-0.5 truncate">{userEmail}</div>
         </div>
 
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
@@ -134,13 +141,31 @@ export default function HubSidebar({
           </div>
         </nav>
 
-        {/* Dashboard back link */}
-        <div className="flex-none border-t border-white/10 px-4 py-3">
-          <Link href="/dashboard" className="text-xs text-white/40 hover:text-white/70 transition-colors">
-            ← Dashboard
-          </Link>
+        {/* Footer: user status + dashboard link */}
+        <div className="flex-none border-t border-white/10">
+          <StatusPicker
+            currentStatus={currentUserStatus ?? null}
+            displayName={displayName}
+            userEmail={userEmail}
+          />
+          <div className="px-4 pb-3 flex items-center justify-between">
+            <Link href="/dashboard" className="text-xs text-white/40 hover:text-white/70 transition-colors">
+              ← Dashboard
+            </Link>
+            <button
+              onClick={() => setShowNotifPrefs(true)}
+              className="text-white/30 hover:text-white/60 transition-colors"
+              title="Notification preferences"
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+              </svg>
+            </button>
+          </div>
         </div>
       </aside>
+
+      {showNotifPrefs && <NotifPrefsModal onClose={() => setShowNotifPrefs(false)} />}
 
       {/* New DM modal */}
       {showNewPM && (

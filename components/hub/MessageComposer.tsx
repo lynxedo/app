@@ -40,6 +40,13 @@ export default function MessageComposer({
       ).slice(0, 6)
     : []
 
+  // Detect DND users currently mentioned in the full message content
+  const mentionedDndUsers = hubUsers.filter(u => {
+    if (u.status !== 'dnd') return false
+    const firstName = u.display_name.split(' ')[0].toLowerCase()
+    return content.includes(`@${firstName}`) || content.includes(`@${u.display_name.split(' ')[0]}`)
+  })
+
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value
     const cursor = e.target.selectionStart ?? val.length
@@ -49,7 +56,6 @@ export default function MessageComposer({
     el.style.height = 'auto'
     el.style.height = Math.min(el.scrollHeight, 144) + 'px'
 
-    // Detect @mention
     const beforeCursor = val.slice(0, cursor)
     const match = beforeCursor.match(/@(\w*)$/)
     if (match) {
@@ -192,6 +198,17 @@ export default function MessageComposer({
         </div>
       )}
 
+      {/* DND warning — shown when you @mention someone with DND on */}
+      {mentionedDndUsers.length > 0 && (
+        <div className="mb-2 px-3 py-2 bg-yellow-900/30 border border-yellow-700/40 rounded-lg flex items-center gap-2 text-xs text-yellow-300">
+          <span>🔴</span>
+          <span>
+            {mentionedDndUsers.map(u => u.display_name.split(' ')[0]).join(', ')}
+            {mentionedDndUsers.length === 1 ? ' has' : ' have'} Do Not Disturb on — they may not be notified.
+          </span>
+        </div>
+      )}
+
       {/* Mention autocomplete */}
       {mentionQuery !== null && filteredUsers.length > 0 && (
         <div
@@ -206,10 +223,21 @@ export default function MessageComposer({
                 i === mentionIndex ? 'bg-[#2E7EB8]/20 text-white' : 'text-gray-300 hover:bg-gray-700'
               }`}
             >
-              <div className="w-6 h-6 rounded-full bg-gray-600 flex items-center justify-center text-xs font-bold flex-none">
-                {user.display_name.slice(0, 1).toUpperCase()}
+              <div className="relative flex-none">
+                <div className="w-6 h-6 rounded-full bg-gray-600 flex items-center justify-center text-xs font-bold">
+                  {user.display_name.slice(0, 1).toUpperCase()}
+                </div>
+                {user.status === 'dnd' && (
+                  <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-red-500 ring-1 ring-gray-800" title="Do Not Disturb" />
+                )}
+                {user.status === 'busy' && (
+                  <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-yellow-400 ring-1 ring-gray-800" title="Busy" />
+                )}
               </div>
               <span>{user.display_name}</span>
+              {user.status === 'dnd' && (
+                <span className="ml-auto text-xs text-red-400">DND</span>
+              )}
             </button>
           ))}
         </div>
@@ -217,7 +245,6 @@ export default function MessageComposer({
 
       {/* Composer box */}
       <div className="flex items-end gap-3 bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 focus-within:border-[#2E7EB8] transition-colors">
-        {/* Attach button */}
         <button
           type="button"
           onClick={() => fileInputRef.current?.click()}

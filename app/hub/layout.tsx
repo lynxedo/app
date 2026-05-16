@@ -8,16 +8,10 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const [roomsResult, hubUsersResult] = await Promise.all([
-    supabase
-      .from('rooms')
-      .select('id, name, is_private')
-      .is('archived_at', null)
-      .order('name'),
-    supabase
-      .from('hub_users')
-      .select('id, display_name, avatar_url, is_bot')
-      .order('display_name'),
+  const [roomsResult, hubUsersResult, meResult] = await Promise.all([
+    supabase.from('rooms').select('id, name, is_private').is('archived_at', null).order('name'),
+    supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
+    supabase.from('hub_users').select('display_name, status').eq('id', user.id).single(),
   ])
 
   return (
@@ -27,6 +21,8 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         userEmail={user.email ?? ''}
         currentUserId={user.id}
         hubUsers={(hubUsersResult.data ?? []) as never}
+        currentUserStatus={meResult.data?.status ?? null}
+        currentUserDisplayName={meResult.data?.display_name ?? undefined}
       />
       <div className="flex-1 flex flex-col min-w-0">
         {children}

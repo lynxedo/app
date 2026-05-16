@@ -3,11 +3,19 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import EmojiPicker from './EmojiPicker'
+import ForwardModal, { type ForwardTarget } from './ForwardModal'
 
-export type HubUser = { id: string; display_name: string; avatar_url: string | null; is_bot?: boolean }
+export type HubUser = { id: string; display_name: string; avatar_url: string | null; is_bot?: boolean; status?: string | null }
 export type RxItem = { user_id: string; emoji: string }
 export type FileItem = { id: string; filename: string; mime_type: string; size_bytes: number; storage_path: string }
 export type Sender = HubUser
+export type ForwardedOriginal = {
+  id: string
+  content: string
+  room_id: string | null
+  conversation_id: string | null
+  sender: { display_name: string } | null
+}
 export type HubMessage = {
   id: string
   content: string
@@ -16,6 +24,8 @@ export type HubMessage = {
   parent_id: string | null
   room_id?: string | null
   conversation_id?: string | null
+  forwarded_from?: string | null
+  forwarded_original?: ForwardedOriginal | null
   sender: Sender | Sender[] | null
   reactions?: RxItem[]
   files?: FileItem[]
@@ -93,6 +103,22 @@ function FileAttachment({ file }: { file: FileItem }) {
   )
 }
 
+function ForwardedBanner({ original, rooms }: { original: ForwardedOriginal; rooms?: { id: string; name: string }[] }) {
+  const roomName = rooms?.find(r => r.id === original.room_id)?.name
+  const source = roomName ? `#${roomName}` : original.conversation_id ? 'a DM' : 'another conversation'
+  const senderName = original.sender?.display_name ?? 'Unknown'
+  return (
+    <div className="mt-1 mb-1.5 border-l-2 border-gray-600 pl-3 rounded-r-lg bg-gray-800/40 py-1.5 pr-3">
+      <div className="text-xs text-gray-500 mb-0.5">
+        ↗ Forwarded from {source} · {senderName}
+      </div>
+      <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap break-words line-clamp-4">
+        {original.content || <span className="italic text-gray-500">Attachment</span>}
+      </p>
+    </div>
+  )
+}
+
 export default function MessageFeed({
   roomId,
   conversationId,
@@ -101,6 +127,7 @@ export default function MessageFeed({
   hubUsers,
   onOpenThread,
   openThreadMsgId,
+  rooms,
 }: {
   roomId?: string
   conversationId?: string
@@ -109,11 +136,13 @@ export default function MessageFeed({
   hubUsers: HubUser[]
   onOpenThread?: (msg: HubMessage) => void
   openThreadMsgId?: string | null
+  rooms?: { id: string; name: string }[]
 }) {
   const [messages, setMessages] = useState<HubMessage[]>(initialMessages)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
   const [pickerMsgId, setPickerMsgId] = useState<string | null>(null)
+  const [forwardingMsg, setForwardingMsg] = useState<HubMessage | null>(null)
   const [rxMap, setRxMap] = useState<Record<string, RxItem[]>>(() => {
     const map: Record<string, RxItem[]> = {}
     for (const m of initialMessages) map[m.id] = normReactions(m.reactions)
@@ -141,7 +170,6 @@ export default function MessageFeed({
       .channel(`feed:${roomId ?? conversationId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter }, async (payload) => {
         if (payload.new.parent_id) {
-          // Thread reply — increment parent's reply count
           setReplyCounts(prev => ({
             ...prev,
             [payload.new.parent_id]: (prev[payload.new.parent_id] ?? 0) + 1,
@@ -150,7 +178,7 @@ export default function MessageFeed({
         }
         const { data } = await supabase
           .from('messages')
-          .select(`id, content, created_at, edited_at, parent_id, room_id, conversation_id,
+          .select(`id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
             sender:hub_users!sender_id (id, display_name, avatar_url, is_bot),
             reactions (message_id, user_id, emoji),
             files (id, filename, mime_type, size_bytes, storage_path)`)
@@ -158,6 +186,17 @@ export default function MessageFeed({
           .single()
         if (data) {
           const msg = data as unknown as HubMessage
+          if (msg.forwarded_from) {
+            const { data: orig } = await supabase
+              .from('messages')
+              .select('id, content, room_id, conversation_id, sender:hub_users!sender_id (display_name)')
+              .eq('id', msg.forwarded_from)
+              .single()
+            if (orig) {
+              const o = orig as { id: string; content: string; room_id: string | null; conversation_id: string | null; sender: { display_name: string } | { display_name: string }[] | null }
+              msg.forwarded_original = { ...o, sender: Array.isArray(o.sender) ? o.sender[0] : o.sender }
+            }
+          }
           setMessages(prev => [...prev, msg])
           setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
         }
@@ -175,7 +214,7 @@ export default function MessageFeed({
     return () => { supabase.removeChannel(channel) }
   }, [roomId, conversationId])
 
-  // Realtime: reactions (no filter — filter client-side)
+  // Realtime: reactions
   useEffect(() => {
     const channel = supabase
       .channel(`reactions:${roomId ?? conversationId}`)
@@ -203,7 +242,6 @@ export default function MessageFeed({
   const toggleReaction = useCallback(async (msgId: string, emoji: string) => {
     const current = rxMap[msgId] ?? []
     const mine = current.find(r => r.user_id === currentUserId && r.emoji === emoji)
-    // Optimistic update
     setRxMap(prev => ({
       ...prev,
       [msgId]: mine
@@ -233,7 +271,23 @@ export default function MessageFeed({
     await fetch(`/api/hub/messages/${msgId}`, { method: 'DELETE' })
   }, [])
 
-  // Group by date
+  const handleForward = useCallback(async (target: ForwardTarget, comment: string) => {
+    if (!forwardingMsg) return
+    const body: Record<string, unknown> = {
+      forwarded_from: forwardingMsg.id,
+      content: comment,
+    }
+    if (target.type === 'room') body.room_id = target.id
+    else body.conversation_id = target.id
+    await fetch('/api/hub/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    setForwardingMsg(null)
+  }, [forwardingMsg])
+
+  // Group messages by date
   const groups: { date: string; messages: HubMessage[] }[] = []
   for (const msg of messages) {
     const date = formatDate(msg.created_at)
@@ -243,175 +297,197 @@ export default function MessageFeed({
   }
 
   return (
-    <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
-      {groups.map(group => (
-        <div key={group.date}>
-          <div className="flex items-center gap-3 my-4">
-            <div className="flex-1 h-px bg-gray-800" />
-            <span className="text-xs text-gray-500 font-medium">{group.date}</span>
-            <div className="flex-1 h-px bg-gray-800" />
-          </div>
+    <>
+      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
+        {groups.map(group => (
+          <div key={group.date}>
+            <div className="flex items-center gap-3 my-4">
+              <div className="flex-1 h-px bg-gray-800" />
+              <span className="text-xs text-gray-500 font-medium">{group.date}</span>
+              <div className="flex-1 h-px bg-gray-800" />
+            </div>
 
-          {group.messages.map((msg, idx) => {
-            const sender = normSender(msg.sender)
-            const prevMsg = group.messages[idx - 1]
-            const prevSender = normSender(prevMsg?.sender ?? null)
-            const isContinuation = prevMsg && prevSender?.id === sender?.id &&
-              new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 5 * 60 * 1000
-            const isOwn = sender?.id === currentUserId
-            const isEditing = editingId === msg.id
-            const isThreadOpen = openThreadMsgId === msg.id
-            const reactions = rxMap[msg.id] ?? []
-            const files = normFiles(msg.files)
+            {group.messages.map((msg, idx) => {
+              const sender = normSender(msg.sender)
+              const prevMsg = group.messages[idx - 1]
+              const prevSender = normSender(prevMsg?.sender ?? null)
+              const isContinuation = prevMsg && prevSender?.id === sender?.id &&
+                new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 5 * 60 * 1000
+              const isOwn = sender?.id === currentUserId
+              const isEditing = editingId === msg.id
+              const isThreadOpen = openThreadMsgId === msg.id
+              const reactions = rxMap[msg.id] ?? []
+              const files = normFiles(msg.files)
 
-            // Group reactions by emoji
-            const rxGroups: Record<string, string[]> = {}
-            for (const r of reactions) {
-              if (!rxGroups[r.emoji]) rxGroups[r.emoji] = []
-              rxGroups[r.emoji].push(r.user_id)
-            }
+              const rxGroups: Record<string, string[]> = {}
+              for (const r of reactions) {
+                if (!rxGroups[r.emoji]) rxGroups[r.emoji] = []
+                rxGroups[r.emoji].push(r.user_id)
+              }
 
-            return (
-              <div
-                key={msg.id}
-                className={`group flex items-start gap-3 px-1 py-0.5 rounded hover:bg-gray-900/50 transition-colors ${isThreadOpen ? 'bg-[#2E7EB8]/5 border-l-2 border-[#2E7EB8]' : ''}`}
-              >
-                <div className="flex-none w-8 mt-0.5">
-                  {!isContinuation ? <Avatar sender={sender} /> : null}
-                </div>
+              return (
+                <div
+                  key={msg.id}
+                  className={`group flex items-start gap-3 px-1 py-0.5 rounded hover:bg-gray-900/50 transition-colors ${isThreadOpen ? 'bg-[#2E7EB8]/5 border-l-2 border-[#2E7EB8]' : ''}`}
+                >
+                  <div className="flex-none w-8 mt-0.5">
+                    {!isContinuation ? <Avatar sender={sender} /> : null}
+                  </div>
 
-                <div className="flex-1 min-w-0">
-                  {!isContinuation && (
-                    <div className="flex items-baseline gap-2 mb-0.5">
-                      <span className="font-semibold text-sm text-white">
-                        {sender?.display_name ?? 'Unknown'}
-                        {sender?.is_bot && (
-                          <span className="ml-1.5 text-xs bg-[#2E7EB8]/30 text-[#2E7EB8] px-1.5 py-0.5 rounded font-normal">Bot</span>
-                        )}
-                      </span>
-                      <span className="text-xs text-gray-500">{formatTime(msg.created_at)}</span>
-                    </div>
-                  )}
+                  <div className="flex-1 min-w-0">
+                    {!isContinuation && (
+                      <div className="flex items-baseline gap-2 mb-0.5">
+                        <span className="font-semibold text-sm text-white">
+                          {sender?.display_name ?? 'Unknown'}
+                          {sender?.is_bot && (
+                            <span className="ml-1.5 text-xs bg-[#2E7EB8]/30 text-[#2E7EB8] px-1.5 py-0.5 rounded font-normal">Bot</span>
+                          )}
+                        </span>
+                        <span className="text-xs text-gray-500">{formatTime(msg.created_at)}</span>
+                      </div>
+                    )}
 
-                  {isEditing ? (
-                    <div className="flex gap-2">
-                      <input
-                        autoFocus
-                        value={editContent}
-                        onChange={e => setEditContent(e.target.value)}
-                        onKeyDown={e => {
-                          if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(msg.id) }
-                          if (e.key === 'Escape') setEditingId(null)
-                        }}
-                        className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
-                      />
-                      <button onClick={() => saveEdit(msg.id)} className="text-xs text-[#2E7EB8] hover:text-blue-300 px-2">Save</button>
-                      <button onClick={() => setEditingId(null)} className="text-xs text-gray-500 hover:text-gray-300 px-2">Cancel</button>
-                    </div>
-                  ) : (
-                    <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
-                      {renderContent(msg.content, hubUsers)}
-                      {msg.edited_at && <span className="ml-1.5 text-xs text-gray-600">(edited)</span>}
-                    </p>
-                  )}
+                    {/* Forwarded message banner */}
+                    {msg.forwarded_original && (
+                      <ForwardedBanner original={msg.forwarded_original} rooms={rooms} />
+                    )}
 
-                  {/* File attachments */}
-                  {files.length > 0 && (
-                    <div className="flex flex-wrap gap-2 mt-0.5">
-                      {files.map(f => <FileAttachment key={f.id} file={f} />)}
-                    </div>
-                  )}
-
-                  {/* Reactions */}
-                  {Object.keys(rxGroups).length > 0 && (
-                    <div className="flex flex-wrap gap-1 mt-1.5">
-                      {Object.entries(rxGroups).map(([emoji, userIds]) => (
-                        <button
-                          key={emoji}
-                          onClick={() => toggleReaction(msg.id, emoji)}
-                          className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
-                            userIds.includes(currentUserId)
-                              ? 'bg-[#2E7EB8]/20 border-[#2E7EB8]/50 text-[#2E7EB8]'
-                              : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
-                          }`}
-                        >
-                          <span>{emoji}</span>
-                          <span>{userIds.length}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-
-                  {/* Reply count */}
-                  {(replyCounts[msg.id] ?? 0) > 0 && onOpenThread && (
-                    <button
-                      onClick={() => onOpenThread(msg)}
-                      className="mt-1 text-xs text-[#6FB3E8] hover:underline"
-                    >
-                      {replyCounts[msg.id]} {replyCounts[msg.id] === 1 ? 'reply' : 'replies'}
-                    </button>
-                  )}
-                </div>
-
-                {/* Hover actions */}
-                {!isEditing && (
-                  <div className="flex-none opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5 relative">
-                    {/* Emoji react */}
-                    <div className="relative">
-                      <button
-                        onClick={() => setPickerMsgId(pickerMsgId === msg.id ? null : msg.id)}
-                        className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800 text-sm"
-                        title="Add reaction"
-                      >
-                        😊
-                      </button>
-                      {pickerMsgId === msg.id && (
-                        <EmojiPicker
-                          onSelect={emoji => toggleReaction(msg.id, emoji)}
-                          onClose={() => setPickerMsgId(null)}
+                    {isEditing ? (
+                      <div className="flex gap-2">
+                        <input
+                          autoFocus
+                          value={editContent}
+                          onChange={e => setEditContent(e.target.value)}
+                          onKeyDown={e => {
+                            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(msg.id) }
+                            if (e.key === 'Escape') setEditingId(null)
+                          }}
+                          className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
                         />
-                      )}
-                    </div>
+                        <button onClick={() => saveEdit(msg.id)} className="text-xs text-[#2E7EB8] hover:text-blue-300 px-2">Save</button>
+                        <button onClick={() => setEditingId(null)} className="text-xs text-gray-500 hover:text-gray-300 px-2">Cancel</button>
+                      </div>
+                    ) : (
+                      msg.content && (
+                        <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
+                          {renderContent(msg.content, hubUsers)}
+                          {msg.edited_at && <span className="ml-1.5 text-xs text-gray-600">(edited)</span>}
+                        </p>
+                      )
+                    )}
 
-                    {/* Reply in thread */}
-                    {onOpenThread && (
+                    {/* File attachments */}
+                    {files.length > 0 && (
+                      <div className="flex flex-wrap gap-2 mt-0.5">
+                        {files.map(f => <FileAttachment key={f.id} file={f} />)}
+                      </div>
+                    )}
+
+                    {/* Reactions */}
+                    {Object.keys(rxGroups).length > 0 && (
+                      <div className="flex flex-wrap gap-1 mt-1.5">
+                        {Object.entries(rxGroups).map(([emoji, userIds]) => (
+                          <button
+                            key={emoji}
+                            onClick={() => toggleReaction(msg.id, emoji)}
+                            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                              userIds.includes(currentUserId)
+                                ? 'bg-[#2E7EB8]/20 border-[#2E7EB8]/50 text-[#2E7EB8]'
+                                : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
+                            }`}
+                          >
+                            <span>{emoji}</span>
+                            <span>{userIds.length}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Reply count */}
+                    {(replyCounts[msg.id] ?? 0) > 0 && onOpenThread && (
                       <button
                         onClick={() => onOpenThread(msg)}
-                        className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
-                        title="Reply in thread"
+                        className="mt-1 text-xs text-[#6FB3E8] hover:underline"
                       >
-                        💬
+                        {replyCounts[msg.id]} {replyCounts[msg.id] === 1 ? 'reply' : 'replies'}
                       </button>
                     )}
-
-                    {/* Edit / Delete (own messages) */}
-                    {isOwn && (
-                      <>
-                        <button
-                          onClick={() => { setEditingId(msg.id); setEditContent(msg.content) }}
-                          className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
-                          title="Edit"
-                        >
-                          ✏️
-                        </button>
-                        <button
-                          onClick={() => deleteMessage(msg.id)}
-                          className="text-xs text-gray-500 hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-gray-800"
-                          title="Delete"
-                        >
-                          🗑️
-                        </button>
-                      </>
-                    )}
                   </div>
-                )}
-              </div>
-            )
-          })}
-        </div>
-      ))}
 
-      <div ref={bottomRef} />
-    </div>
+                  {/* Hover actions */}
+                  {!isEditing && (
+                    <div className="flex-none opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5 relative">
+                      <div className="relative">
+                        <button
+                          onClick={() => setPickerMsgId(pickerMsgId === msg.id ? null : msg.id)}
+                          className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800 text-sm"
+                          title="Add reaction"
+                        >
+                          😊
+                        </button>
+                        {pickerMsgId === msg.id && (
+                          <EmojiPicker
+                            onSelect={emoji => toggleReaction(msg.id, emoji)}
+                            onClose={() => setPickerMsgId(null)}
+                          />
+                        )}
+                      </div>
+
+                      <button
+                        onClick={() => setForwardingMsg(msg)}
+                        className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
+                        title="Forward message"
+                      >
+                        ↗
+                      </button>
+
+                      {onOpenThread && (
+                        <button
+                          onClick={() => onOpenThread(msg)}
+                          className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
+                          title="Reply in thread"
+                        >
+                          💬
+                        </button>
+                      )}
+
+                      {isOwn && (
+                        <>
+                          <button
+                            onClick={() => { setEditingId(msg.id); setEditContent(msg.content) }}
+                            className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
+                            title="Edit"
+                          >
+                            ✏️
+                          </button>
+                          <button
+                            onClick={() => deleteMessage(msg.id)}
+                            className="text-xs text-gray-500 hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-gray-800"
+                            title="Delete"
+                          >
+                            🗑️
+                          </button>
+                        </>
+                      )}
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+        ))}
+
+        <div ref={bottomRef} />
+      </div>
+
+      {forwardingMsg && (
+        <ForwardModal
+          currentUserId={currentUserId}
+          messagePreview={forwardingMsg.content}
+          onClose={() => setForwardingMsg(null)}
+          onForward={handleForward}
+        />
+      )}
+    </>
   )
 }

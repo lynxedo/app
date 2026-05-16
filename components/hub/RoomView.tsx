@@ -5,6 +5,8 @@ import MessageFeed, { type HubMessage, type HubUser } from './MessageFeed'
 import MessageComposer from './MessageComposer'
 import ThreadPanel from './ThreadPanel'
 
+type RoomRef = { id: string; name: string }
+
 export default function RoomView({
   roomId,
   conversationId,
@@ -13,6 +15,7 @@ export default function RoomView({
   hubUsers,
   senderDisplayName,
   composerPlaceholder,
+  rooms,
 }: {
   roomId?: string
   conversationId?: string
@@ -21,12 +24,12 @@ export default function RoomView({
   hubUsers: HubUser[]
   senderDisplayName: string
   composerPlaceholder?: string
+  rooms?: RoomRef[]
 }) {
   const [openThreadMsg, setOpenThreadMsg] = useState<HubMessage | null>(null)
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      {/* Main: feed + composer */}
       <div className="flex flex-col flex-1 min-w-0">
         <MessageFeed
           roomId={roomId}
@@ -36,6 +39,7 @@ export default function RoomView({
           hubUsers={hubUsers}
           onOpenThread={setOpenThreadMsg}
           openThreadMsgId={openThreadMsg?.id ?? null}
+          rooms={rooms}
         />
         <MessageComposer
           roomId={roomId}
@@ -45,7 +49,6 @@ export default function RoomView({
         />
       </div>
 
-      {/* Thread panel — slides in from right */}
       {openThreadMsg && (
         <ThreadPanel
           parentMessage={openThreadMsg}
