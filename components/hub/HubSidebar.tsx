@@ -28,6 +28,7 @@ export default function HubSidebar({
   hubUsers,
   currentUserStatus,
   currentUserDisplayName,
+  isAdmin,
 }: {
   rooms: Room[]
   userEmail: string
@@ -35,14 +36,24 @@ export default function HubSidebar({
   hubUsers: HubUser[]
   currentUserStatus?: string | null
   currentUserDisplayName?: string
+  isAdmin?: boolean
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const [sidebarRooms, setSidebarRooms] = useState<Room[]>(rooms)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [showNewPM, setShowNewPM] = useState(false)
   const [showNotifPrefs, setShowNotifPrefs] = useState(false)
+  const [showNewRoom, setShowNewRoom] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
+  const [allowMemberCreate, setAllowMemberCreate] = useState(true)
+
+  // New room form state
+  const [newRoomName, setNewRoomName] = useState('')
+  const [newRoomDesc, setNewRoomDesc] = useState('')
+  const [newRoomPrivate, setNewRoomPrivate] = useState(false)
+  const [creatingRoom, setCreatingRoom] = useState(false)
 
   const loadConversations = useCallback(() => {
     fetch('/api/hub/conversations')
@@ -52,6 +63,16 @@ export default function HubSidebar({
   }, [])
 
   useEffect(() => { loadConversations() }, [loadConversations])
+
+  // Load hub settings to know if this member can create rooms
+  useEffect(() => {
+    fetch('/api/hub/settings')
+      .then(r => r.json())
+      .then(d => setAllowMemberCreate(d.allow_member_room_creation ?? true))
+      .catch(() => {})
+  }, [])
+
+  const canCreateRoom = isAdmin || allowMemberCreate
 
   async function createConversation() {
     if (selectedIds.length === 0 || creating) return
@@ -68,6 +89,25 @@ export default function HubSidebar({
     if (data.id) {
       loadConversations()
       router.push(`/hub/pm/${data.id}`)
+    }
+  }
+
+  async function createRoom() {
+    if (!newRoomName.trim() || creatingRoom) return
+    setCreatingRoom(true)
+    const res = await fetch('/api/hub/rooms', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newRoomName.trim(), description: newRoomDesc.trim() || null, is_private: newRoomPrivate }),
+    })
+    const data = await res.json()
+    setCreatingRoom(false)
+    if (res.ok) {
+      const newRoom = { id: data.id, name: data.name, is_private: data.is_private }
+      setSidebarRooms(prev => [...prev, newRoom].sort((a, b) => a.name.localeCompare(b.name)))
+      setShowNewRoom(false)
+      setNewRoomName(''); setNewRoomDesc(''); setNewRoomPrivate(false)
+      router.push(`/hub/${data.id}`)
     }
   }
 
@@ -89,8 +129,19 @@ export default function HubSidebar({
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
           {/* Rooms */}
           <div>
-            <div className="text-xs font-semibold text-white/40 uppercase tracking-wider px-2 mb-1">Rooms</div>
-            {rooms.map(room => {
+            <div className="flex items-center justify-between px-2 mb-1">
+              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Rooms</span>
+              {canCreateRoom && (
+                <button
+                  onClick={() => { setShowNewRoom(true); setNewRoomName(''); setNewRoomDesc(''); setNewRoomPrivate(false) }}
+                  className="text-white/40 hover:text-white/70 transition-colors text-lg leading-none"
+                  title="New room"
+                >
+                  +
+                </button>
+              )}
+            </div>
+            {sidebarRooms.map(room => {
               const isActive = pathname === `/hub/${room.id}`
               return (
                 <Link
@@ -152,20 +203,86 @@ export default function HubSidebar({
             <Link href="/dashboard" className="text-xs text-white/40 hover:text-white/70 transition-colors">
               ← Dashboard
             </Link>
-            <button
-              onClick={() => setShowNotifPrefs(true)}
-              className="text-white/30 hover:text-white/60 transition-colors"
-              title="Notification preferences"
-            >
-              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-              </svg>
-            </button>
+            <div className="flex items-center gap-2">
+              {isAdmin && (
+                <Link
+                  href="/admin/hub"
+                  className="text-white/30 hover:text-white/60 transition-colors"
+                  title="Hub admin"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                  </svg>
+                </Link>
+              )}
+              <button
+                onClick={() => setShowNotifPrefs(true)}
+                className="text-white/30 hover:text-white/60 transition-colors"
+                title="Notification preferences"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+              </button>
+            </div>
           </div>
         </div>
       </aside>
 
       {showNotifPrefs && <NotifPrefsModal onClose={() => setShowNotifPrefs(false)} />}
+
+      {/* New Room modal */}
+      {showNewRoom && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+              <h2 className="font-semibold text-white">New Room</h2>
+              <button onClick={() => setShowNewRoom(false)} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <input
+                autoFocus
+                value={newRoomName}
+                onChange={e => setNewRoomName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && createRoom()}
+                placeholder="Room name"
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+              />
+              <input
+                value={newRoomDesc}
+                onChange={e => setNewRoomDesc(e.target.value)}
+                placeholder="Description (optional)"
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+              />
+              <label className="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer select-none">
+                <div
+                  onClick={() => setNewRoomPrivate(v => !v)}
+                  className={`w-9 h-5 rounded-full transition-colors relative flex-none cursor-pointer ${newRoomPrivate ? 'bg-[#2E7EB8]' : 'bg-gray-700'}`}
+                >
+                  <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${newRoomPrivate ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </div>
+                Private room
+              </label>
+            </div>
+            <div className="px-5 py-4 border-t border-gray-800 flex gap-3">
+              <button
+                onClick={() => setShowNewRoom(false)}
+                className="flex-1 py-2 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white hover:border-gray-600 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={createRoom}
+                disabled={!newRoomName.trim() || creatingRoom}
+                className="flex-1 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+              >
+                {creatingRoom ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* New DM modal */}
       {showNewPM && (

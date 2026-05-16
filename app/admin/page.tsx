@@ -69,6 +69,14 @@ export default async function AdminPage() {
             <span className="font-medium">Timesheet Admin</span>
             <span className="text-gray-600 group-hover:text-yellow-500 ml-2 transition-colors">→</span>
           </Link>
+          <Link
+            href="/admin/hub"
+            className="bg-gray-900 border border-gray-800 hover:border-[#2E7EB8]/50 rounded-xl px-4 py-3 text-sm transition-colors group"
+          >
+            <span className="mr-2">💬</span>
+            <span className="font-medium">Hub Admin</span>
+            <span className="text-gray-600 group-hover:text-[#2E7EB8] ml-2 transition-colors">→</span>
+          </Link>
         </div>
         <AdminPanel currentUserId={user.id} initialUsers={usersWithProfiles} />
       </main>

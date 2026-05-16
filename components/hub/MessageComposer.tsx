@@ -29,9 +29,14 @@ export default function MessageComposer({
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionStart, setMentionStart] = useState(-1)
   const [mentionIndex, setMentionIndex] = useState(0)
+
+  // Scheduled send
+  const [scheduledAt, setScheduledAt] = useState<string>('') // ISO datetime-local string
+  const [showScheduler, setShowScheduler] = useState(false)
+  const schedulerRef = useRef<HTMLDivElement>(null)
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const mentionListRef = useRef<HTMLDivElement>(null)
 
   const filteredUsers = mentionQuery !== null
     ? hubUsers.filter(u =>
@@ -40,12 +45,23 @@ export default function MessageComposer({
       ).slice(0, 6)
     : []
 
-  // Detect DND users currently mentioned in the full message content
   const mentionedDndUsers = hubUsers.filter(u => {
     if (u.status !== 'dnd') return false
     const firstName = u.display_name.split(' ')[0].toLowerCase()
     return content.includes(`@${firstName}`) || content.includes(`@${u.display_name.split(' ')[0]}`)
   })
+
+  // Close scheduler on outside click
+  useEffect(() => {
+    if (!showScheduler) return
+    function handler(e: MouseEvent) {
+      if (schedulerRef.current && !schedulerRef.current.contains(e.target as Node)) {
+        setShowScheduler(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showScheduler])
 
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value
@@ -139,7 +155,7 @@ export default function MessageComposer({
     })
   }
 
-  async function send() {
+  const send = useCallback(async () => {
     const trimmed = content.trim()
     if ((!trimmed && pendingFiles.length === 0) || sending) return
     setSending(true)
@@ -148,20 +164,41 @@ export default function MessageComposer({
     setPendingFiles([])
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
 
-    await fetch('/api/hub/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        room_id: roomId ?? null,
-        conversation_id: conversationId ?? null,
-        content: trimmed || ' ',
-        files: files.length > 0 ? files : undefined,
-      }),
-    })
+    if (scheduledAt) {
+      // Scheduled send
+      await fetch('/api/hub/scheduled-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: roomId ?? null,
+          conversation_id: conversationId ?? null,
+          content: trimmed || ' ',
+          files: files.length > 0 ? files : undefined,
+          send_at: new Date(scheduledAt).toISOString(),
+        }),
+      })
+      setScheduledAt('')
+      setShowScheduler(false)
+    } else {
+      // Immediate send
+      await fetch('/api/hub/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: roomId ?? null,
+          conversation_id: conversationId ?? null,
+          content: trimmed || ' ',
+          files: files.length > 0 ? files : undefined,
+        }),
+      })
+    }
 
     setSending(false)
     textareaRef.current?.focus()
-  }
+  }, [content, pendingFiles, sending, scheduledAt, roomId, conversationId])
+
+  // Min datetime for scheduler — 1 minute from now
+  const minDateTime = new Date(Date.now() + 60000).toISOString().slice(0, 16)
 
   return (
     <div
@@ -198,7 +235,17 @@ export default function MessageComposer({
         </div>
       )}
 
-      {/* DND warning — shown when you @mention someone with DND on */}
+      {/* Scheduled send indicator */}
+      {scheduledAt && (
+        <div className="mb-2 px-3 py-2 bg-[#2E7EB8]/10 border border-[#2E7EB8]/30 rounded-lg flex items-center justify-between text-xs text-[#2E7EB8]">
+          <span>
+            🕐 Scheduled for {new Date(scheduledAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}
+          </span>
+          <button onClick={() => { setScheduledAt(''); setShowScheduler(false) }} className="text-[#2E7EB8]/60 hover:text-[#2E7EB8] ml-2">✕</button>
+        </div>
+      )}
+
+      {/* DND warning */}
       {mentionedDndUsers.length > 0 && (
         <div className="mb-2 px-3 py-2 bg-yellow-900/30 border border-yellow-700/40 rounded-lg flex items-center gap-2 text-xs text-yellow-300">
           <span>🔴</span>
@@ -211,10 +258,7 @@ export default function MessageComposer({
 
       {/* Mention autocomplete */}
       {mentionQuery !== null && filteredUsers.length > 0 && (
-        <div
-          ref={mentionListRef}
-          className="mb-2 bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-xl"
-        >
+        <div className="mb-2 bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-xl">
           {filteredUsers.map((user, i) => (
             <button
               key={user.id}
@@ -271,15 +315,58 @@ export default function MessageComposer({
           className="flex-1 bg-transparent text-sm text-white placeholder-gray-500 resize-none outline-none leading-relaxed min-h-[24px] max-h-36"
         />
 
+        {/* Schedule button */}
+        <div className="relative flex-none pb-0.5" ref={schedulerRef}>
+          <button
+            type="button"
+            onClick={() => setShowScheduler(v => !v)}
+            className={`transition-colors ${scheduledAt ? 'text-[#2E7EB8]' : 'text-gray-500 hover:text-gray-300'}`}
+            title="Schedule send"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          </button>
+
+          {showScheduler && (
+            <div className="absolute bottom-full right-0 mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-3 z-50 w-64">
+              <p className="text-xs text-gray-400 mb-2 font-medium">Schedule for later</p>
+              <input
+                type="datetime-local"
+                min={minDateTime}
+                value={scheduledAt}
+                onChange={e => setScheduledAt(e.target.value)}
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+              />
+              {scheduledAt && (
+                <button
+                  onClick={() => { setScheduledAt(''); setShowScheduler(false) }}
+                  className="mt-2 w-full text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                >
+                  Clear schedule
+                </button>
+              )}
+            </div>
+          )}
+        </div>
+
         <button
           onClick={send}
           disabled={(!content.trim() && pendingFiles.length === 0) || sending}
-          className="flex-none w-8 h-8 rounded-lg bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors"
-          title="Send (Enter)"
+          className={`flex-none w-8 h-8 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors ${
+            scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-[#2E7EB8] hover:bg-[#2470a8]'
+          }`}
+          title={scheduledAt ? 'Schedule message' : 'Send (Enter)'}
         >
-          <svg className="w-4 h-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-            <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-          </svg>
+          {scheduledAt ? (
+            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+          ) : (
+            <svg className="w-4 h-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+              <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+            </svg>
+          )}
         </button>
       </div>
 
