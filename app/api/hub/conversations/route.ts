@@ -105,8 +105,11 @@ export async function POST(request: Request) {
     }
   }
 
-  // Create new conversation
-  const { data: conv, error } = await supabase
+  // Create new conversation — use admin client so the post-insert SELECT
+  // isn't blocked by the conversations_select RLS (which requires membership
+  // that doesn't exist yet at insert time).
+  const adminForInsert = createAdminClient()
+  const { data: conv, error } = await adminForInsert
     .from('conversations')
     .insert({ company_id: profile.company_id })
     .select('id')
@@ -114,7 +117,7 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  await supabase
+  await adminForInsert
     .from('conversation_members')
     .insert(allParticipants.map(uid => ({ conversation_id: conv.id, user_id: uid })))
 

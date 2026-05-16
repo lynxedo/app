@@ -19,6 +19,7 @@ export type HubMessage = {
   sender: Sender | Sender[] | null
   reactions?: RxItem[]
   files?: FileItem[]
+  reply_count?: number
 }
 
 function formatTime(iso: string) {
@@ -118,6 +119,11 @@ export default function MessageFeed({
     for (const m of initialMessages) map[m.id] = normReactions(m.reactions)
     return map
   })
+  const [replyCounts, setReplyCounts] = useState<Record<string, number>>(() => {
+    const map: Record<string, number> = {}
+    for (const m of initialMessages) map[m.id] = m.reply_count ?? 0
+    return map
+  })
   const bottomRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
 
@@ -134,7 +140,14 @@ export default function MessageFeed({
     const channel = supabase
       .channel(`feed:${roomId ?? conversationId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter }, async (payload) => {
-        if (payload.new.parent_id) return // thread reply — handled by ThreadPanel
+        if (payload.new.parent_id) {
+          // Thread reply — increment parent's reply count
+          setReplyCounts(prev => ({
+            ...prev,
+            [payload.new.parent_id]: (prev[payload.new.parent_id] ?? 0) + 1,
+          }))
+          return
+        }
         const { data } = await supabase
           .from('messages')
           .select(`id, content, created_at, edited_at, parent_id, room_id, conversation_id,
@@ -327,6 +340,16 @@ export default function MessageFeed({
                         </button>
                       ))}
                     </div>
+                  )}
+
+                  {/* Reply count */}
+                  {(replyCounts[msg.id] ?? 0) > 0 && onOpenThread && (
+                    <button
+                      onClick={() => onOpenThread(msg)}
+                      className="mt-1 text-xs text-[#6FB3E8] hover:underline"
+                    >
+                      {replyCounts[msg.id]} {replyCounts[msg.id] === 1 ? 'reply' : 'replies'}
+                    </button>
                   )}
                 </div>
 

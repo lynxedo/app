@@ -62,7 +62,20 @@ export default async function PMPage({
     .select('id, display_name, avatar_url, is_bot')
     .order('display_name')
 
-  const initialMessages = ((messages ?? []) as unknown[]).reverse()
+  const rawMessages = ((messages ?? []) as unknown[]).reverse()
+
+  const parentIds = rawMessages.map((m) => (m as { id: string }).id)
+  const { data: replyRows } = parentIds.length
+    ? await supabase.from('messages').select('parent_id').in('parent_id', parentIds).is('deleted_at', null)
+    : { data: [] }
+  const replyCounts: Record<string, number> = {}
+  for (const r of (replyRows ?? []) as { parent_id: string }[]) {
+    replyCounts[r.parent_id] = (replyCounts[r.parent_id] ?? 0) + 1
+  }
+  const initialMessages = rawMessages.map((m) => ({
+    ...(m as object),
+    reply_count: replyCounts[(m as { id: string }).id] ?? 0,
+  }))
 
   return (
     <div className="flex flex-col h-full">
