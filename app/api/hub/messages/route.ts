@@ -1,8 +1,8 @@
 import { NextResponse } from 'next/server'
-import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
+import { askClaude } from '@/lib/hub-claude'
 
 const MESSAGE_SELECT = `
   id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
@@ -178,7 +178,7 @@ async function handleClaudeReply({
   // Fetch last 20 room messages for context (excluding the just-sent message)
   const { data: recentMessages } = await admin
     .from('messages')
-    .select('content, created_at, sender:hub_users!sender_id (display_name, is_bot)')
+    .select('content, sender:hub_users!sender_id (display_name)')
     .eq('room_id', roomId)
     .is('parent_id', null)
     .is('deleted_at', null)
@@ -186,18 +186,15 @@ async function handleClaudeReply({
     .order('created_at', { ascending: false })
     .limit(20)
 
-  // Format chat history (oldest first, trimmed)
-  type MsgRow = { content: string; created_at: string; sender: { display_name: string; is_bot: boolean } | { display_name: string; is_bot: boolean }[] | null }
+  type MsgRow = { content: string; sender: { display_name: string } | { display_name: string }[] | null }
   const history = ((recentMessages ?? []) as MsgRow[])
     .reverse()
     .map(m => {
       const sender = Array.isArray(m.sender) ? m.sender[0] : m.sender
-      const name = sender?.display_name ?? 'Unknown'
-      return `[${name}]: ${m.content}`
+      return `[${sender?.display_name ?? 'Unknown'}]: ${m.content}`
     })
     .join('\n')
 
-  // Get the triggering user's display name
   const { data: senderUser } = await admin
     .from('hub_users')
     .select('display_name')
@@ -205,57 +202,22 @@ async function handleClaudeReply({
     .single()
   const senderName = senderUser?.display_name ?? 'Someone'
 
-  const systemWithContext = history
-    ? `${CLAUDE_SYSTEM_PROMPT}\n\nRecent conversation context:\n${history}`
+  const systemPrompt = history
+    ? `${CLAUDE_SYSTEM_PROMPT}\n\nRecent conversation:\n${history}`
     : CLAUDE_SYSTEM_PROMPT
 
-  const userMessage = `[${senderName}]: ${triggeringContent}`
-
   let claudeText = ''
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
-
   try {
-    // Attempt with Heroes105 MCP server
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    const response = await (anthropic.beta.messages as any).create({
-      model: 'claude-sonnet-4-6',
-      max_tokens: 1024,
-      system: systemWithContext,
-      messages: [{ role: 'user', content: userMessage }],
-      mcp_servers: [{
-        type: 'url',
-        url: 'https://mcp.lynxedo.com',
-        name: 'heroes105',
-      }],
-      betas: ['mcp-client-2025-04-04'],
+    claudeText = await askClaude({
+      systemPrompt,
+      userMessage: `[${senderName}]: ${triggeringContent}`,
     })
-    const mcpContent = (response.content ?? []) as Array<{ type: string; text?: string }>
-    claudeText = mcpContent
-      .filter(b => b.type === 'text')
-      .map(b => b.text ?? '')
-      .join('')
   } catch {
-    // Fallback: text-only response
-    try {
-      const response = await anthropic.messages.create({
-        model: 'claude-sonnet-4-6',
-        max_tokens: 1024,
-        system: systemWithContext,
-        messages: [{ role: 'user', content: userMessage }],
-      })
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      claudeText = ((response.content ?? []) as any[])
-        .filter((b: any) => b.type === 'text')
-        .map((b: any) => String(b.text ?? ''))
-        .join('')
-    } catch {
-      claudeText = "Sorry, I couldn't process that request right now."
-    }
+    claudeText = "Sorry, I couldn't process that request right now."
   }
 
   if (!claudeText.trim()) return
 
-  // Post Claude's reply as a thread reply on the triggering message
   await admin.from('messages').insert({
     company_id: companyId,
     room_id: roomId,
