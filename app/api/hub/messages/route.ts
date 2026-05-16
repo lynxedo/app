@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
+import Anthropic from '@anthropic-ai/sdk'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 
 const MESSAGE_SELECT = `
@@ -8,6 +10,14 @@ const MESSAGE_SELECT = `
   reactions (message_id, user_id, emoji),
   files (id, filename, mime_type, size_bytes, storage_path)
 `
+
+const CLAUDE_BOT_ID = '00000000-0000-0000-0001-000000000001'
+
+const CLAUDE_SYSTEM_PROMPT = `You are the Heroes Lawn Care team assistant, built into the company's internal messaging app (Hub).
+Heroes Lawn Care is a lawn care and landscaping company in the Houston/Cypress, TX area.
+You have access to Jobber (the company's scheduling and CRM system) and Captivated (their SMS messaging platform) via integrated tools.
+Help the team with scheduling questions, client lookups, job status, job notes, customer communications, and general team questions.
+Be concise and practical. Address the team member's question directly. Use plain text — no markdown headers.`
 
 export async function GET(request: Request) {
   const supabase = await createClient()
@@ -135,5 +145,120 @@ export async function POST(request: Request) {
     }
   }
 
+  // @Claude handler — only in rooms (not DMs or thread replies)
+  if (room_id && !parent_id && hasContent && content.toLowerCase().includes('@claude')) {
+    // Fire and forget — don't block the response
+    handleClaudeReply({
+      roomId: room_id,
+      parentMessageId: msg.id,
+      companyId: profile.company_id,
+      triggeringContent: content.trim(),
+      userId: user.id,
+    }).catch(() => null)
+  }
+
   return NextResponse.json(msg, { status: 201 })
+}
+
+async function handleClaudeReply({
+  roomId,
+  parentMessageId,
+  companyId,
+  triggeringContent,
+  userId,
+}: {
+  roomId: string
+  parentMessageId: string
+  companyId: string
+  triggeringContent: string
+  userId: string
+}) {
+  const admin = createAdminClient()
+
+  // Fetch last 20 room messages for context (excluding the just-sent message)
+  const { data: recentMessages } = await admin
+    .from('messages')
+    .select('content, created_at, sender:hub_users!sender_id (display_name, is_bot)')
+    .eq('room_id', roomId)
+    .is('parent_id', null)
+    .is('deleted_at', null)
+    .neq('id', parentMessageId)
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  // Format chat history (oldest first, trimmed)
+  type MsgRow = { content: string; created_at: string; sender: { display_name: string; is_bot: boolean } | { display_name: string; is_bot: boolean }[] | null }
+  const history = ((recentMessages ?? []) as MsgRow[])
+    .reverse()
+    .map(m => {
+      const sender = Array.isArray(m.sender) ? m.sender[0] : m.sender
+      const name = sender?.display_name ?? 'Unknown'
+      return `[${name}]: ${m.content}`
+    })
+    .join('\n')
+
+  // Get the triggering user's display name
+  const { data: senderUser } = await admin
+    .from('hub_users')
+    .select('display_name')
+    .eq('id', userId)
+    .single()
+  const senderName = senderUser?.display_name ?? 'Someone'
+
+  const systemWithContext = history
+    ? `${CLAUDE_SYSTEM_PROMPT}\n\nRecent conversation context:\n${history}`
+    : CLAUDE_SYSTEM_PROMPT
+
+  const userMessage = `[${senderName}]: ${triggeringContent}`
+
+  let claudeText = ''
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+
+  try {
+    // Attempt with Heroes105 MCP server
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const response = await (anthropic.beta.messages as any).create({
+      model: 'claude-sonnet-4-6',
+      max_tokens: 1024,
+      system: systemWithContext,
+      messages: [{ role: 'user', content: userMessage }],
+      mcp_servers: [{
+        type: 'url',
+        url: 'https://mcp.lynxedo.com',
+        name: 'heroes105',
+      }],
+      betas: ['mcp-client-2025-04-04'],
+    })
+    claudeText = (response.content ?? [])
+      .filter((b: { type: string }) => b.type === 'text')
+      .map((b: { text: string }) => b.text)
+      .join('')
+  } catch {
+    // Fallback: text-only response
+    try {
+      const response = await anthropic.messages.create({
+        model: 'claude-sonnet-4-6',
+        max_tokens: 1024,
+        system: systemWithContext,
+        messages: [{ role: 'user', content: userMessage }],
+      })
+      claudeText = (response.content ?? [])
+        .filter((b: { type: string }) => b.type === 'text')
+        .map((b: { text: string }) => b.text)
+        .join('')
+    } catch {
+      claudeText = "Sorry, I couldn't process that request right now."
+    }
+  }
+
+  if (!claudeText.trim()) return
+
+  // Post Claude's reply as a thread reply on the triggering message
+  await admin.from('messages').insert({
+    company_id: companyId,
+    room_id: roomId,
+    parent_id: parentMessageId,
+    sender_id: CLAUDE_BOT_ID,
+    content: claudeText.trim(),
+  })
 }
