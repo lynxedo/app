@@ -145,12 +145,13 @@ export async function POST(request: Request) {
     }
   }
 
-  // @Claude handler — only in rooms (not DMs or thread replies)
-  if (room_id && !parent_id && hasContent && content.toLowerCase().includes('@claude')) {
-    // Fire and forget — don't block the response
+  // @Claude handler — rooms only (not DMs), top-level and thread replies both supported
+  if (room_id && hasContent && content.toLowerCase().includes('@claude')) {
     handleClaudeReply({
       roomId: room_id,
-      parentMessageId: msg.id,
+      // Thread reply: reply to the parent. Top-level: reply to this message.
+      parentMessageId: parent_id ?? msg.id,
+      threadId: parent_id ?? null,
       companyId: profile.company_id,
       triggeringContent: content.trim(),
       userId: user.id,
@@ -163,37 +164,70 @@ export async function POST(request: Request) {
 async function handleClaudeReply({
   roomId,
   parentMessageId,
+  threadId,
   companyId,
   triggeringContent,
   userId,
 }: {
   roomId: string
   parentMessageId: string
+  threadId: string | null
   companyId: string
   triggeringContent: string
   userId: string
 }) {
   const admin = createAdminClient()
 
-  // Fetch last 20 room messages for context (excluding the just-sent message)
-  const { data: recentMessages } = await admin
-    .from('messages')
-    .select('content, sender:hub_users!sender_id (display_name)')
-    .eq('room_id', roomId)
-    .is('parent_id', null)
-    .is('deleted_at', null)
-    .neq('id', parentMessageId)
-    .order('created_at', { ascending: false })
-    .limit(20)
-
   type MsgRow = { content: string; sender: { display_name: string } | { display_name: string }[] | null }
-  const history = ((recentMessages ?? []) as MsgRow[])
-    .reverse()
-    .map(m => {
-      const sender = Array.isArray(m.sender) ? m.sender[0] : m.sender
-      return `[${sender?.display_name ?? 'Unknown'}]: ${m.content}`
-    })
-    .join('\n')
+
+  let history = ''
+
+  if (threadId) {
+    // In a thread — fetch all thread messages as context (the parent + all replies)
+    const { data: parentMsg } = await admin
+      .from('messages')
+      .select('content, sender:hub_users!sender_id (display_name)')
+      .eq('id', threadId)
+      .single()
+
+    const { data: threadMessages } = await admin
+      .from('messages')
+      .select('content, sender:hub_users!sender_id (display_name)')
+      .eq('parent_id', threadId)
+      .is('deleted_at', null)
+      .neq('id', parentMessageId)
+      .order('created_at', { ascending: true })
+
+    const allThreadMsgs: MsgRow[] = []
+    if (parentMsg) allThreadMsgs.push(parentMsg as MsgRow)
+    if (threadMessages) allThreadMsgs.push(...(threadMessages as MsgRow[]))
+
+    history = allThreadMsgs
+      .map(m => {
+        const sender = Array.isArray(m.sender) ? m.sender[0] : m.sender
+        return `[${sender?.display_name ?? 'Unknown'}]: ${m.content}`
+      })
+      .join('\n')
+  } else {
+    // Top-level message — fetch last 20 room messages as context
+    const { data: recentMessages } = await admin
+      .from('messages')
+      .select('content, sender:hub_users!sender_id (display_name)')
+      .eq('room_id', roomId)
+      .is('parent_id', null)
+      .is('deleted_at', null)
+      .neq('id', parentMessageId)
+      .order('created_at', { ascending: false })
+      .limit(20)
+
+    history = ((recentMessages ?? []) as MsgRow[])
+      .reverse()
+      .map(m => {
+        const sender = Array.isArray(m.sender) ? m.sender[0] : m.sender
+        return `[${sender?.display_name ?? 'Unknown'}]: ${m.content}`
+      })
+      .join('\n')
+  }
 
   const { data: senderUser } = await admin
     .from('hub_users')
@@ -203,7 +237,7 @@ async function handleClaudeReply({
   const senderName = senderUser?.display_name ?? 'Someone'
 
   const systemPrompt = history
-    ? `${CLAUDE_SYSTEM_PROMPT}\n\nRecent conversation:\n${history}`
+    ? `${CLAUDE_SYSTEM_PROMPT}\n\nConversation so far:\n${history}`
     : CLAUDE_SYSTEM_PROMPT
 
   let claudeText = ''
