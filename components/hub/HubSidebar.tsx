@@ -190,6 +190,38 @@ export default function HubSidebar({
               )
             })}
           </div>
+
+          {/* Pages */}
+          <div>
+            <div className="px-2 mb-1">
+              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Pages</span>
+            </div>
+            <Link
+              href="/hub/pages/company-news"
+              className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm transition-colors ${
+                pathname === '/hub/pages/company-news' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <span className="text-xs">📰</span>
+              <span className="truncate">Company News</span>
+            </Link>
+          </div>
+
+          {/* Files */}
+          <div>
+            <div className="px-2 mb-1">
+              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Files</span>
+            </div>
+            <Link
+              href="/hub/files"
+              className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm transition-colors ${
+                pathname === '/hub/files' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <span className="text-xs">📁</span>
+              <span className="truncate">Files</span>
+            </Link>
+          </div>
         </nav>
 
         {/* Footer: user status + dashboard link */}
