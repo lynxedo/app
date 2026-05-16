@@ -156,6 +156,23 @@ export async function POST(request: Request) {
       triggeringContent: content.trim(),
       userId: user.id,
     }).catch(() => null)
+  } else if (room_id && parent_id && hasContent) {
+    // Thread reply without @claude — auto-continue if Claude is already in this thread
+    const { count } = await supabase
+      .from('messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('parent_id', parent_id)
+      .eq('sender_id', CLAUDE_BOT_ID)
+    if ((count ?? 0) > 0) {
+      handleClaudeReply({
+        roomId: room_id,
+        parentMessageId: parent_id,
+        threadId: parent_id,
+        companyId: profile.company_id,
+        triggeringContent: content.trim(),
+        userId: user.id,
+      }).catch(() => null)
+    }
   }
 
   return NextResponse.json(msg, { status: 201 })
