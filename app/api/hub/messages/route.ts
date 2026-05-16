@@ -229,9 +229,10 @@ async function handleClaudeReply({
       }],
       betas: ['mcp-client-2025-04-04'],
     })
-    claudeText = (response.content ?? [])
-      .filter((b: { type: string }) => b.type === 'text')
-      .map((b: { text: string }) => b.text)
+    const mcpContent = (response.content ?? []) as Array<{ type: string; text?: string }>
+    claudeText = mcpContent
+      .filter(b => b.type === 'text')
+      .map(b => b.text ?? '')
       .join('')
   } catch {
     // Fallback: text-only response
@@ -242,9 +243,10 @@ async function handleClaudeReply({
         system: systemWithContext,
         messages: [{ role: 'user', content: userMessage }],
       })
-      claudeText = (response.content ?? [])
-        .filter((b: { type: string }) => b.type === 'text')
-        .map((b: { text: string }) => b.text)
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      claudeText = ((response.content ?? []) as any[])
+        .filter((b: any) => b.type === 'text')
+        .map((b: any) => String(b.text ?? ''))
         .join('')
     } catch {
       claudeText = "Sorry, I couldn't process that request right now."
