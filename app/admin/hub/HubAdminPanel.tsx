@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
 type Room = { id: string; name: string; description: string | null; is_private: boolean; archived_at: string | null; claude_enabled: boolean }
-type HubUser = { id: string; display_name: string }
+type HubUser = { id: string; display_name: string; claude_allowed?: boolean }
 type Announcement = { id: string; content: string; created_at: string; expires_at: string } | null
 type ApiKey = {
   id: string
@@ -120,6 +120,17 @@ export default function HubAdminPanel({
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ claude_enabled: enabled }),
+    })
+  }
+
+  const [hubUsersList, setHubUsersList] = useState<HubUser[]>(hubUsers)
+
+  async function toggleClaudeAllowed(userId: string, allowed: boolean) {
+    setHubUsersList(prev => prev.map(u => u.id === userId ? { ...u, claude_allowed: allowed } : u))
+    await fetch(`/api/hub/users/${userId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ claude_allowed: allowed }),
     })
   }
 
@@ -463,6 +474,35 @@ export default function HubAdminPanel({
                 </div>
               </div>
             )}
+          </div>
+
+          {/* Claude Access per user */}
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+            <h2 className="font-semibold text-white mb-1">Claude Access — Per User</h2>
+            <p className="text-xs text-gray-500 mb-4">Controls who can use @Claude in rooms and DMs. Room must also have Claude enabled.</p>
+            <div className="space-y-2">
+              {hubUsersList.map(u => (
+                <div key={u.id} className="flex items-center justify-between bg-gray-800 rounded-xl px-4 py-2.5">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-7 h-7 rounded-full bg-gray-600 flex items-center justify-center text-xs font-bold text-white flex-none">
+                      {u.display_name.slice(0, 1).toUpperCase()}
+                    </div>
+                    <span className="text-sm text-white">{u.display_name}</span>
+                  </div>
+                  <button
+                    onClick={() => toggleClaudeAllowed(u.id, !u.claude_allowed)}
+                    className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ${
+                      u.claude_allowed
+                        ? 'bg-[#2E7EB8]/20 text-[#6FB3E8] hover:bg-[#2E7EB8]/30'
+                        : 'bg-gray-700 text-gray-500 hover:bg-gray-600 hover:text-gray-300'
+                    }`}
+                  >
+                    <span>✦</span>
+                    <span>{u.claude_allowed ? 'Allowed' : 'Blocked'}</span>
+                  </button>
+                </div>
+              ))}
+            </div>
           </div>
         </div>
       )}

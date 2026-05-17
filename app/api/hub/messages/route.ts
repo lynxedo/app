@@ -145,19 +145,25 @@ export async function POST(request: Request) {
     }
   }
 
-  // Check if Claude is enabled for this room (skip if not)
+  // Check per-room and per-user Claude gates — both must pass
+  const adminClient = createAdminClient()
   let roomClaudeEnabled = false
-  if (room_id) {
-    const { data: roomRow } = await supabase
-      .from('rooms')
-      .select('claude_enabled')
-      .eq('id', room_id)
-      .single()
-    roomClaudeEnabled = roomRow?.claude_enabled ?? false
+  let userClaudeAllowed = false
+  {
+    const [roomRow, senderRow] = await Promise.all([
+      room_id
+        ? adminClient.from('rooms').select('claude_enabled').eq('id', room_id).single()
+        : Promise.resolve({ data: null }),
+      adminClient.from('hub_users').select('claude_allowed').eq('id', user.id).single(),
+    ])
+    roomClaudeEnabled = (roomRow.data as { claude_enabled: boolean } | null)?.claude_enabled ?? false
+    userClaudeAllowed = (senderRow.data as { claude_allowed: boolean } | null)?.claude_allowed ?? false
   }
+  // For DMs: no room gate — only check the user gate
+  const canUseClaude = userClaudeAllowed
 
   // @Claude handler — rooms only, top-level and thread replies both supported
-  if (room_id && roomClaudeEnabled && hasContent && content.toLowerCase().includes('@claude')) {
+  if (room_id && roomClaudeEnabled && canUseClaude && hasContent && content.toLowerCase().includes('@claude')) {
     handleClaudeReply({
       roomId: room_id,
       parentMessageId: parent_id ?? msg.id,
@@ -166,7 +172,7 @@ export async function POST(request: Request) {
       triggeringContent: content.trim(),
       userId: user.id,
     }).catch(() => null)
-  } else if (room_id && roomClaudeEnabled && parent_id && hasContent) {
+  } else if (room_id && roomClaudeEnabled && canUseClaude && parent_id && hasContent) {
     // Thread reply without @claude — auto-continue if Claude is already in this thread
     const { count } = await supabase
       .from('messages')
@@ -185,8 +191,8 @@ export async function POST(request: Request) {
     }
   }
 
-  // @Claude in DMs — trigger if @claude mentioned, or if Claude has already replied in this conversation
-  if (conversation_id && hasContent && !parent_id) {
+  // @Claude in DMs — user must be allowed; no room gate for DMs
+  if (conversation_id && canUseClaude && hasContent && !parent_id) {
     const mentionsClaude = content.toLowerCase().includes('@claude')
     if (mentionsClaude) {
       handleClaudeReplyDM({
