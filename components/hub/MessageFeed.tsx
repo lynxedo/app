@@ -145,6 +145,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   const [editContent, setEditContent] = useState('')
   const [pickerMsgId, setPickerMsgId] = useState<string | null>(null)
   const [forwardingMsg, setForwardingMsg] = useState<HubMessage | null>(null)
+  const [tappedMsgId, setTappedMsgId] = useState<string | null>(null)
   const [rxMap, setRxMap] = useState<Record<string, RxItem[]>>(() => {
     const map: Record<string, RxItem[]> = {}
     for (const m of initialMessages) map[m.id] = normReactions(m.reactions)
@@ -343,10 +344,13 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                 rxGroups[r.emoji].push(r.user_id)
               }
 
+              const isActionsVisible = tappedMsgId === msg.id
+
               return (
                 <div
                   key={msg.id}
                   className={`group flex items-start gap-3 px-1 py-0.5 rounded hover:bg-gray-900/50 transition-colors ${isThreadOpen ? 'bg-[#2E7EB8]/5 border-l-2 border-[#2E7EB8]' : ''}`}
+                  onClick={() => !isEditing && setTappedMsgId(prev => prev === msg.id ? null : msg.id)}
                 >
                   <div className="flex-none w-8 mt-0.5">
                     {!isContinuation ? <Avatar sender={sender} /> : null}
@@ -432,9 +436,12 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                     )}
                   </div>
 
-                  {/* Hover actions */}
+                  {/* Hover / tap actions */}
                   {!isEditing && (
-                    <div className="flex-none opacity-0 group-hover:opacity-100 transition-opacity flex gap-0.5 relative">
+                    <div
+                      className={`flex-none transition-opacity flex gap-0.5 relative ${isActionsVisible ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                      onClick={e => e.stopPropagation()}
+                    >
                       <div className="relative">
                         <button
                           onClick={() => setPickerMsgId(pickerMsgId === msg.id ? null : msg.id)}
@@ -472,7 +479,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                       {isOwn && (
                         <>
                           <button
-                            onClick={() => { setEditingId(msg.id); setEditContent(msg.content) }}
+                            onClick={() => { setEditingId(msg.id); setEditContent(msg.content); setTappedMsgId(null) }}
                             className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
                             title="Edit"
                           >
