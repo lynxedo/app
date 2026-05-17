@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import HubSidebar from './HubSidebar'
 import AnnouncementTicker from './AnnouncementTicker'
+import { HubTextSizeContext } from './HubTextSizeContext'
 import type { HubUser } from './MessageFeed'
 
 type Room = { id: string; name: string; is_private: boolean }
@@ -35,7 +36,8 @@ export default function HubShell({
   const [textSize, setTextSize] = useState(initialTextSize ?? 'default')
 
   return (
-    <div className={`hub-text-${textSize} flex h-[100dvh] md:h-[calc(100dvh-3rem)] bg-gray-950 text-white overflow-hidden`}>
+    <HubTextSizeContext.Provider value={textSize}>
+    <div className="flex h-[100dvh] md:h-[calc(100dvh-3rem)] bg-gray-950 text-white overflow-hidden">
       {/* Mobile sidebar overlay backdrop */}
       {sidebarOpen && (
         <div
@@ -84,5 +86,6 @@ export default function HubShell({
         {children}
       </div>
     </div>
+    </HubTextSizeContext.Provider>
   )
 }

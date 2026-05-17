@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHand
 import { createClient } from '@/lib/supabase/client'
 import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
+import { useHubTextSize } from './HubTextSizeContext'
 
 export type MessageFeedHandle = { addMessage: (msg: HubMessage) => void }
 
@@ -140,6 +141,9 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   openThreadMsgId,
   rooms,
 }, ref) {
+  const textSize = useHubTextSize()
+  const msgFontSize = textSize === 'small' ? '0.8125rem' : textSize === 'large' ? '1rem' : undefined
+
   const [messages, setMessages] = useState<HubMessage[]>(initialMessages)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
@@ -391,7 +395,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                       </div>
                     ) : (
                       msg.content && (
-                        <p className="hub-message-text text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
+                        <p className="hub-message-text text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words" style={msgFontSize ? { fontSize: msgFontSize } : undefined}>
                           {renderContent(msg.content, hubUsers)}
                           {msg.edited_at && <span className="ml-1.5 text-xs text-gray-600">(edited)</span>}
                         </p>

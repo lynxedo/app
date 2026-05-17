@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { HubMessage, HubUser, Sender } from './MessageFeed'
+import { useHubTextSize } from './HubTextSizeContext'
 
 function normSender(raw: Sender | Sender[] | null): Sender | null {
   if (!raw) return null
@@ -42,6 +43,9 @@ export default function ThreadPanel({
   hubUsers: HubUser[]
   onClose: () => void
 }) {
+  const textSize = useHubTextSize()
+  const msgFontSize = textSize === 'small' ? '0.8125rem' : textSize === 'large' ? '1rem' : undefined
+
   const [replies, setReplies] = useState<Reply[]>([])
   const [replyContent, setReplyContent] = useState('')
   const [sending, setSending] = useState(false)
@@ -176,7 +180,7 @@ export default function ThreadPanel({
                   <span className="font-semibold text-xs text-white">{sender?.display_name ?? 'Unknown'}</span>
                   <span className="text-xs text-gray-600">{formatTime(reply.created_at)}</span>
                 </div>
-                <p className="hub-message-text text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
+                <p className="hub-message-text text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words" style={msgFontSize ? { fontSize: msgFontSize } : undefined}>
                   {reply.content}
                   {reply.edited_at && <span className="ml-1 text-xs text-gray-600">(edited)</span>}
                 </p>
