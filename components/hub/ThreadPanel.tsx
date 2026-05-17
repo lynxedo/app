@@ -53,7 +53,7 @@ export default function ThreadPanel({
     window.addEventListener('hub-text-size-change', handler)
     return () => window.removeEventListener('hub-text-size-change', handler)
   }, [])
-  const msgFontSize = textSize === 'small' ? '0.8125rem' : textSize === 'large' ? '1rem' : undefined
+  const msgFontSize = textSize === 'small' ? '0.75rem' : textSize === 'large' ? '1.25rem' : undefined
 
   const [replies, setReplies] = useState<Reply[]>([])
   const [replyContent, setReplyContent] = useState('')
