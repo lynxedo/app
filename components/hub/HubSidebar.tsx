@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import type { HubUser } from './MessageFeed'
 import StatusPicker from './StatusPicker'
 import NotifPrefsModal from './NotifPrefsModal'
+import ClientsSidebar from './ClientsSidebar'
 
 type Room = { id: string; name: string; is_private: boolean }
 
@@ -42,6 +43,7 @@ export default function HubSidebar({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const isClientsView = pathname.startsWith('/hub/clients')
   const [sidebarRooms, setSidebarRooms] = useState<Room[]>(rooms)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [showNewPM, setShowNewPM] = useState(false)
@@ -136,6 +138,33 @@ export default function HubSidebar({
             </button>
           )}
         </div>
+
+        {/* Teams / Clients switcher */}
+        <div className="flex-none px-3 py-2 border-b border-white/10">
+          <div className="flex bg-white/10 rounded-lg p-0.5 gap-0.5">
+            <Link
+              href="/hub"
+              className={`flex-1 text-center text-xs font-medium py-1.5 rounded-md transition-colors ${
+                !isClientsView ? 'bg-[#2E7EB8] text-white' : 'text-white/60 hover:text-white'
+              }`}
+            >
+              Teams
+            </Link>
+            <Link
+              href="/hub/clients"
+              className={`flex-1 text-center text-xs font-medium py-1.5 rounded-md transition-colors ${
+                isClientsView ? 'bg-[#2E7EB8] text-white' : 'text-white/60 hover:text-white'
+              }`}
+            >
+              Clients
+            </Link>
+          </div>
+        </div>
+
+        {/* Clients sidebar content */}
+        {isClientsView ? (
+          <ClientsSidebar onClose={onClose} />
+        ) : (
 
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
           {/* Rooms */}
@@ -238,6 +267,7 @@ export default function HubSidebar({
             </Link>
           </div>
         </nav>
+        )} {/* end teams-only block */}
 
         {/* Footer: user status + dashboard link */}
         <div className="flex-none border-t border-white/10">
