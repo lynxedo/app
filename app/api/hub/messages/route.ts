@@ -145,18 +145,28 @@ export async function POST(request: Request) {
     }
   }
 
-  // @Claude handler — rooms only (not DMs), top-level and thread replies both supported
-  if (room_id && hasContent && content.toLowerCase().includes('@claude')) {
+  // Check if Claude is enabled for this room (skip if not)
+  let roomClaudeEnabled = false
+  if (room_id) {
+    const { data: roomRow } = await supabase
+      .from('rooms')
+      .select('claude_enabled')
+      .eq('id', room_id)
+      .single()
+    roomClaudeEnabled = roomRow?.claude_enabled ?? false
+  }
+
+  // @Claude handler — rooms only, top-level and thread replies both supported
+  if (room_id && roomClaudeEnabled && hasContent && content.toLowerCase().includes('@claude')) {
     handleClaudeReply({
       roomId: room_id,
-      // Thread reply: reply to the parent. Top-level: reply to this message.
       parentMessageId: parent_id ?? msg.id,
       threadId: parent_id ?? null,
       companyId: profile.company_id,
       triggeringContent: content.trim(),
       userId: user.id,
     }).catch(() => null)
-  } else if (room_id && parent_id && hasContent) {
+  } else if (room_id && roomClaudeEnabled && parent_id && hasContent) {
     // Thread reply without @claude — auto-continue if Claude is already in this thread
     const { count } = await supabase
       .from('messages')
@@ -175,7 +185,99 @@ export async function POST(request: Request) {
     }
   }
 
+  // @Claude in DMs — trigger if @claude mentioned, or if Claude has already replied in this conversation
+  if (conversation_id && hasContent && !parent_id) {
+    const mentionsClaude = content.toLowerCase().includes('@claude')
+    if (mentionsClaude) {
+      handleClaudeReplyDM({
+        conversationId: conversation_id,
+        companyId: profile.company_id,
+        triggeringContent: content.trim(),
+        userId: user.id,
+      }).catch(() => null)
+    } else {
+      // Auto-continue: check if Claude has already posted in this DM
+      const { count } = await supabase
+        .from('messages')
+        .select('id', { count: 'exact', head: true })
+        .eq('conversation_id', conversation_id)
+        .eq('sender_id', CLAUDE_BOT_ID)
+        .is('parent_id', null)
+      if ((count ?? 0) > 0) {
+        handleClaudeReplyDM({
+          conversationId: conversation_id,
+          companyId: profile.company_id,
+          triggeringContent: content.trim(),
+          userId: user.id,
+        }).catch(() => null)
+      }
+    }
+  }
+
   return NextResponse.json(msg, { status: 201 })
+}
+
+async function handleClaudeReplyDM({
+  conversationId,
+  companyId,
+  triggeringContent,
+  userId,
+}: {
+  conversationId: string
+  companyId: string
+  triggeringContent: string
+  userId: string
+}) {
+  const admin = createAdminClient()
+
+  type MsgRow = { content: string; sender: { display_name: string } | { display_name: string }[] | null }
+
+  const { data: recentMessages } = await admin
+    .from('messages')
+    .select('content, sender:hub_users!sender_id (display_name)')
+    .eq('conversation_id', conversationId)
+    .is('parent_id', null)
+    .is('deleted_at', null)
+    .order('created_at', { ascending: false })
+    .limit(20)
+
+  const history = ((recentMessages ?? []) as MsgRow[])
+    .reverse()
+    .map(m => {
+      const sender = Array.isArray(m.sender) ? m.sender[0] : m.sender
+      return `[${sender?.display_name ?? 'Unknown'}]: ${m.content}`
+    })
+    .join('\n')
+
+  const { data: senderUser } = await admin
+    .from('hub_users')
+    .select('display_name')
+    .eq('id', userId)
+    .single()
+  const senderName = senderUser?.display_name ?? 'Someone'
+
+  const systemPrompt = history
+    ? `${CLAUDE_SYSTEM_PROMPT}\n\nConversation so far:\n${history}`
+    : CLAUDE_SYSTEM_PROMPT
+
+  let claudeText = ''
+  try {
+    claudeText = await askClaude({
+      systemPrompt,
+      userMessage: `[${senderName}]: ${triggeringContent}`,
+    })
+  } catch {
+    claudeText = "Sorry, I couldn't process that request right now."
+  }
+
+  if (!claudeText.trim()) return
+
+  await admin.from('messages').insert({
+    company_id: companyId,
+    conversation_id: conversationId,
+    sender_id: CLAUDE_BOT_ID,
+    content: claudeText.trim(),
+  })
 }
 
 async function handleClaudeReply({

@@ -1,7 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
-import type { HubUser } from './MessageFeed'
+import type { HubMessage, HubUser } from './MessageFeed'
 
 type PendingFile = {
   storage_path: string
@@ -14,13 +14,17 @@ type PendingFile = {
 export default function MessageComposer({
   roomId,
   conversationId,
+  currentUserId,
   hubUsers,
   placeholder,
+  onSent,
 }: {
   roomId?: string
   conversationId?: string
+  currentUserId?: string
   hubUsers: HubUser[]
   placeholder?: string
+  onSent?: (msg: HubMessage) => void
 }) {
   const [content, setContent] = useState('')
   const [sending, setSending] = useState(false)
@@ -181,7 +185,7 @@ export default function MessageComposer({
       setShowScheduler(false)
     } else {
       // Immediate send
-      await fetch('/api/hub/messages', {
+      const res = await fetch('/api/hub/messages', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -191,11 +195,28 @@ export default function MessageComposer({
           files: files.length > 0 ? files : undefined,
         }),
       })
+      // Optimistic UI: show message immediately before realtime fires
+      if (res.ok && onSent && currentUserId) {
+        const data = await res.json()
+        const sender = hubUsers.find(u => u.id === currentUserId) ?? { id: currentUserId, display_name: 'You', avatar_url: null }
+        onSent({
+          id: data.id,
+          content: data.content ?? trimmed,
+          created_at: data.created_at ?? new Date().toISOString(),
+          edited_at: null,
+          parent_id: null,
+          room_id: roomId ?? null,
+          conversation_id: conversationId ?? null,
+          sender,
+          reactions: [],
+          files: [],
+        })
+      }
     }
 
     setSending(false)
     textareaRef.current?.focus()
-  }, [content, pendingFiles, sending, scheduledAt, roomId, conversationId])
+  }, [content, pendingFiles, sending, scheduledAt, roomId, conversationId, onSent, currentUserId, hubUsers])
 
   // Min datetime for scheduler — 1 minute from now
   const minDateTime = new Date(Date.now() + 60000).toISOString().slice(0, 16)

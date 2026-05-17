@@ -1,0 +1,80 @@
+'use client'
+
+import { useState } from 'react'
+import HubSidebar from './HubSidebar'
+import AnnouncementTicker from './AnnouncementTicker'
+import type { HubUser } from './MessageFeed'
+
+type Room = { id: string; name: string; is_private: boolean }
+
+export default function HubShell({
+  rooms,
+  userEmail,
+  currentUserId,
+  hubUsers,
+  currentUserStatus,
+  currentUserDisplayName,
+  isAdmin,
+  children,
+}: {
+  rooms: Room[]
+  userEmail: string
+  currentUserId: string
+  hubUsers: HubUser[]
+  currentUserStatus?: string | null
+  currentUserDisplayName?: string
+  isAdmin?: boolean
+  children: React.ReactNode
+}) {
+  const [sidebarOpen, setSidebarOpen] = useState(false)
+
+  return (
+    <div className="flex h-[100dvh] bg-gray-950 text-white overflow-hidden">
+      {/* Mobile sidebar overlay backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar — always visible on md+, drawer on mobile */}
+      <div className={`
+        fixed inset-y-0 left-0 z-50 md:relative md:z-auto
+        transform transition-transform duration-200 ease-in-out
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+      `}>
+        <HubSidebar
+          rooms={rooms}
+          userEmail={userEmail}
+          currentUserId={currentUserId}
+          hubUsers={hubUsers}
+          currentUserStatus={currentUserStatus}
+          currentUserDisplayName={currentUserDisplayName}
+          isAdmin={isAdmin}
+          onClose={() => setSidebarOpen(false)}
+        />
+      </div>
+
+      {/* Main content */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+        {/* Mobile top bar with hamburger */}
+        <div className="flex-none flex items-center gap-3 px-4 py-2.5 border-b border-gray-800 md:hidden">
+          <button
+            onClick={() => setSidebarOpen(true)}
+            className="text-gray-400 hover:text-white transition-colors p-1 -ml-1 rounded hover:bg-gray-800"
+            aria-label="Open sidebar"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
+          </button>
+          <span className="text-sm font-semibold text-white">Heroes Lawn Care</span>
+        </div>
+
+        <AnnouncementTicker currentUserId={currentUserId} />
+        {children}
+      </div>
+    </div>
+  )
+}

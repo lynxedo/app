@@ -21,6 +21,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (typeof body.description === 'string') updates.description = body.description.trim() || null
   if (body.archive === true) updates.archived_at = new Date().toISOString()
   if (body.archive === false) updates.archived_at = null
+  if (typeof body.claude_enabled === 'boolean') updates.claude_enabled = body.claude_enabled
 
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'No changes' }, { status: 400 })

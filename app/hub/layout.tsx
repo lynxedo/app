@@ -1,7 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import HubSidebar from '@/components/hub/HubSidebar'
-import AnnouncementTicker from '@/components/hub/AnnouncementTicker'
+import HubShell from '@/components/hub/HubShell'
 import PushInit from '@/components/hub/PushInit'
 
 export default async function HubLayout({ children }: { children: React.ReactNode }) {
@@ -19,8 +18,8 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const isAdmin = profileResult.data?.role === 'admin'
 
   return (
-    <div className="flex h-screen bg-gray-950 text-white overflow-hidden">
-      <HubSidebar
+    <>
+      <HubShell
         rooms={roomsResult.data ?? []}
         userEmail={user.email ?? ''}
         currentUserId={user.id}
@@ -28,12 +27,10 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         currentUserStatus={meResult.data?.status ?? null}
         currentUserDisplayName={meResult.data?.display_name ?? undefined}
         isAdmin={isAdmin}
-      />
-      <div className="flex-1 flex flex-col min-w-0">
-        <AnnouncementTicker currentUserId={user.id} />
+      >
         {children}
-      </div>
+      </HubShell>
       <PushInit />
-    </div>
+    </>
   )
 }

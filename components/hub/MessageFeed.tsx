@@ -1,9 +1,11 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
+
+export type MessageFeedHandle = { addMessage: (msg: HubMessage) => void }
 
 export type HubUser = { id: string; display_name: string; avatar_url: string | null; is_bot?: boolean; status?: string | null }
 export type RxItem = { user_id: string; emoji: string }
@@ -119,16 +121,7 @@ function ForwardedBanner({ original, rooms }: { original: ForwardedOriginal; roo
   )
 }
 
-export default function MessageFeed({
-  roomId,
-  conversationId,
-  initialMessages,
-  currentUserId,
-  hubUsers,
-  onOpenThread,
-  openThreadMsgId,
-  rooms,
-}: {
+const MessageFeed = forwardRef<MessageFeedHandle, {
   roomId?: string
   conversationId?: string
   initialMessages: HubMessage[]
@@ -137,7 +130,16 @@ export default function MessageFeed({
   onOpenThread?: (msg: HubMessage) => void
   openThreadMsgId?: string | null
   rooms?: { id: string; name: string }[]
-}) {
+}>(function MessageFeed({
+  roomId,
+  conversationId,
+  initialMessages,
+  currentUserId,
+  hubUsers,
+  onOpenThread,
+  openThreadMsgId,
+  rooms,
+}, ref) {
   const [messages, setMessages] = useState<HubMessage[]>(initialMessages)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
@@ -155,6 +157,17 @@ export default function MessageFeed({
   })
   const bottomRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
+
+  useImperativeHandle(ref, () => ({
+    addMessage(msg: HubMessage) {
+      setMessages(prev => {
+        const idx = prev.findIndex(m => m.id === msg.id)
+        if (idx >= 0) { const next = [...prev]; next[idx] = msg; return next }
+        return [...prev, msg]
+      })
+      setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
+    },
+  }))
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -197,7 +210,12 @@ export default function MessageFeed({
               msg.forwarded_original = { ...o, sender: Array.isArray(o.sender) ? o.sender[0] : o.sender }
             }
           }
-          setMessages(prev => [...prev, msg])
+          // Replace optimistic message (if present) with full server version including files
+          setMessages(prev => {
+            const idx = prev.findIndex(m => m.id === msg.id)
+            if (idx >= 0) { const next = [...prev]; next[idx] = msg; return next }
+            return [...prev, msg]
+          })
           setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
         }
       })
@@ -490,4 +508,6 @@ export default function MessageFeed({
       )}
     </>
   )
-}
+})
+
+export default MessageFeed

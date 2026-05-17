@@ -104,7 +104,7 @@ export default function ThreadPanel({
   const parentSender = normSender(parentMessage.sender)
 
   return (
-    <div className="w-80 flex-none border-l border-gray-800 flex flex-col bg-gray-950">
+    <div className="w-full flex-1 border-l border-gray-800 flex flex-col bg-gray-950">
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 flex-none">
         <span className="font-semibold text-sm text-white">Thread</span>

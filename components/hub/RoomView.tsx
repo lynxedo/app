@@ -1,7 +1,7 @@
 'use client'
 
-import { useState } from 'react'
-import MessageFeed, { type HubMessage, type HubUser } from './MessageFeed'
+import { useRef, useState } from 'react'
+import MessageFeed, { type HubMessage, type HubUser, type MessageFeedHandle } from './MessageFeed'
 import MessageComposer from './MessageComposer'
 import ThreadPanel from './ThreadPanel'
 
@@ -27,11 +27,14 @@ export default function RoomView({
   rooms?: RoomRef[]
 }) {
   const [openThreadMsg, setOpenThreadMsg] = useState<HubMessage | null>(null)
+  const feedRef = useRef<MessageFeedHandle>(null)
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      <div className="flex flex-col flex-1 min-w-0">
+      {/* Feed + composer — hidden on mobile when thread is open */}
+      <div className={`flex flex-col flex-1 min-w-0 ${openThreadMsg ? 'hidden md:flex' : 'flex'}`}>
         <MessageFeed
+          ref={feedRef}
           roomId={roomId}
           conversationId={conversationId}
           initialMessages={initialMessages}
@@ -44,18 +47,23 @@ export default function RoomView({
         <MessageComposer
           roomId={roomId}
           conversationId={conversationId}
+          currentUserId={currentUserId}
           hubUsers={hubUsers}
           placeholder={composerPlaceholder ?? `Message ${roomId ? '#' : ''}${senderDisplayName}`}
+          onSent={msg => feedRef.current?.addMessage(msg)}
         />
       </div>
 
       {openThreadMsg && (
-        <ThreadPanel
-          parentMessage={openThreadMsg}
-          currentUserId={currentUserId}
-          hubUsers={hubUsers}
-          onClose={() => setOpenThreadMsg(null)}
-        />
+        /* On mobile, thread takes full width. On md+, it's a 320px side panel. */
+        <div className="flex flex-1 md:flex-none md:w-80">
+          <ThreadPanel
+            parentMessage={openThreadMsg}
+            currentUserId={currentUserId}
+            hubUsers={hubUsers}
+            onClose={() => setOpenThreadMsg(null)}
+          />
+        </div>
       )}
     </div>
   )

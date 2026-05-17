@@ -19,7 +19,7 @@ export default async function AdminHubPage() {
   const admin = createAdminClient()
 
   const [roomsResult, hubUsersResult, settingsResult, announcementResult] = await Promise.all([
-    admin.from('rooms').select('id, name, description, is_private, archived_at').order('name'),
+    admin.from('rooms').select('id, name, description, is_private, archived_at, claude_enabled').order('name'),
     supabase.from('hub_users').select('id, display_name').order('display_name'),
     supabase.from('hub_settings').select('allow_member_room_creation').eq('company_id', profile.company_id!).maybeSingle(),
     supabase

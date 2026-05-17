@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 
-type Room = { id: string; name: string; description: string | null; is_private: boolean; archived_at: string | null }
+type Room = { id: string; name: string; description: string | null; is_private: boolean; archived_at: string | null; claude_enabled: boolean }
 type HubUser = { id: string; display_name: string }
 type Announcement = { id: string; content: string; created_at: string; expires_at: string } | null
 type ApiKey = {
@@ -112,6 +112,15 @@ export default function HubAdminPanel({
     if (res.ok) {
       setRooms(prev => prev.map(r => r.id === id ? { ...r, archived_at: archive ? new Date().toISOString() : null } : r))
     }
+  }
+
+  async function toggleClaudeEnabled(id: string, enabled: boolean) {
+    setRooms(prev => prev.map(r => r.id === id ? { ...r, claude_enabled: enabled } : r))
+    await fetch(`/api/hub/rooms/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ claude_enabled: enabled }),
+    })
   }
 
   async function loadMembers(roomId: string) {
@@ -322,6 +331,19 @@ export default function HubAdminPanel({
                       </>
                     ) : (
                       <>
+                        {/* Claude enabled toggle */}
+                        <button
+                          onClick={() => toggleClaudeEnabled(room.id, !room.claude_enabled)}
+                          title={room.claude_enabled ? 'Claude ON — click to disable' : 'Claude OFF — click to enable'}
+                          className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
+                            room.claude_enabled
+                              ? 'bg-[#2E7EB8]/20 text-[#6FB3E8] hover:bg-[#2E7EB8]/30'
+                              : 'text-gray-600 hover:text-gray-400 hover:bg-gray-800'
+                          }`}
+                        >
+                          <span>✦</span>
+                          <span>{room.claude_enabled ? 'Claude ON' : 'Claude OFF'}</span>
+                        </button>
                         <button
                           onClick={() => { setRenamingId(room.id); setRenameVal(room.name) }}
                           className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-800 transition-colors"

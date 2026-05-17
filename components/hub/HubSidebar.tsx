@@ -29,6 +29,7 @@ export default function HubSidebar({
   currentUserStatus,
   currentUserDisplayName,
   isAdmin,
+  onClose,
 }: {
   rooms: Room[]
   userEmail: string
@@ -37,6 +38,7 @@ export default function HubSidebar({
   currentUserStatus?: string | null
   currentUserDisplayName?: string
   isAdmin?: boolean
+  onClose?: () => void
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -120,10 +122,19 @@ export default function HubSidebar({
 
   return (
     <>
-      <aside className="w-60 flex-none bg-[#1A3D5C] flex flex-col h-full">
+      <aside className="w-60 flex-none bg-[#1A3D5C] flex flex-col h-full h-[100dvh]">
         {/* Workspace header */}
-        <div className="px-4 py-3 border-b border-white/10">
+        <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
           <div className="font-bold text-white text-sm tracking-wide">Heroes Lawn Care</div>
+          {onClose && (
+            <button
+              onClick={onClose}
+              className="md:hidden text-white/40 hover:text-white/70 transition-colors p-1 rounded"
+              aria-label="Close sidebar"
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
@@ -147,7 +158,8 @@ export default function HubSidebar({
                 <Link
                   key={room.id}
                   href={`/hub/${room.id}`}
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm transition-colors ${
+                  onClick={() => onClose?.()}
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
                     isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                   }`}
                 >
@@ -180,7 +192,8 @@ export default function HubSidebar({
                 <Link
                   key={conv.id}
                   href={`/hub/pm/${conv.id}`}
-                  className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm transition-colors ${
+                  onClick={() => onClose?.()}
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
                     isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                   }`}
                 >
@@ -198,7 +211,8 @@ export default function HubSidebar({
             </div>
             <Link
               href="/hub/pages/company-news"
-              className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm transition-colors ${
+              onClick={() => onClose?.()}
+              className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
                 pathname === '/hub/pages/company-news' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
               }`}
             >
@@ -214,7 +228,8 @@ export default function HubSidebar({
             </div>
             <Link
               href="/hub/files"
-              className={`flex items-center gap-1.5 px-2 py-1 rounded text-sm transition-colors ${
+              onClick={() => onClose?.()}
+              className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
                 pathname === '/hub/files' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
               }`}
             >
