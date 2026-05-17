@@ -62,20 +62,27 @@ export async function POST(
     return NextResponse.json({ error: 'Failed to save message' }, { status: 500 })
   }
 
-  // Format phone for Captivated: needs E.164 (+1XXXXXXXXXX) or 10-digit
+  // Format phone for Captivated — normalizePhone in MCP accepts any US format
   const rawPhone = contact.phone.replace(/\D/g, '')
-  const captivatedPhone = rawPhone.length === 10 ? `+1${rawPhone}` : `+${rawPhone}`
+  const captivatedPhone = rawPhone.length === 10 ? rawPhone : rawPhone
+
+  // Split name into first/last for Captivated contact tagging
+  const nameParts = contact.name.trim().split(/\s+/)
+  const firstName = nameParts[0] ?? ''
+  const lastName = nameParts.slice(1).join(' ') || undefined
 
   let captivatedSent = false
   let finalStatus = 'failed'
 
   try {
     const result = await callHeroesTool('send_text', {
-      phone: captivatedPhone,
+      to: captivatedPhone,        // MCP tool uses 'to', not 'phone'
       message: message.trim(),
+      first_name: firstName,
+      ...(lastName ? { last_name: lastName } : {}),
     })
-    // callHeroesTool returns a string; any non-error result means success
-    captivatedSent = !result.toLowerCase().includes('error')
+    // Success starts with ✅, failure starts with ❌
+    captivatedSent = result.startsWith('✅')
     finalStatus = captivatedSent ? 'sent' : 'failed'
   } catch {
     finalStatus = 'failed'
