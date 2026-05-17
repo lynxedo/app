@@ -2,6 +2,8 @@ import { cookies } from 'next/headers'
 import { jwtVerify } from 'jose'
 import FinancialPinGate from '@/components/books/FinancialPinGate'
 
+export const metadata = { title: 'Books' }
+
 function getSecret() {
   return new TextEncoder().encode(process.env.COOKIE_SECRET!)
 }

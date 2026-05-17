@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import HubAdminPanel from './HubAdminPanel'
 
+export const metadata = { title: 'Hub Admin' }
+
 export default async function AdminHubPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -35,10 +37,14 @@ export default async function AdminHubPage() {
     <div className="min-h-screen bg-gray-950 text-white">
       <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link href="/admin" className="text-gray-400 hover:text-white text-sm transition-colors">
-            ← Admin
+          <Link href="/hub" className="text-gray-400 hover:text-white text-sm transition-colors">
+            ← Hub
           </Link>
-          <span className="text-gray-600">|</span>
+          <span className="text-gray-600">·</span>
+          <Link href="/admin" className="text-gray-400 hover:text-white text-sm transition-colors">
+            Admin
+          </Link>
+          <span className="text-gray-600">·</span>
           <span className="text-xl font-bold tracking-tight">Hub Admin</span>
         </div>
       </header>

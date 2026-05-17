@@ -4,6 +4,8 @@ import { createClient } from '@/lib/supabase/server'
 import { isJobberConnected } from '@/lib/jobber'
 import SettingsForm from './SettingsForm'
 
+export const metadata = { title: 'Settings' }
+
 const DEFAULTS = {
   display_name: null as string | null,
   depot_address: null as string | null,

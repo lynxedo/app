@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import Link from 'next/link'
 import TrackerNav from './TrackerNav'
 
+export const metadata = { title: 'Tracker' }
+
 export default async function TrackerLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

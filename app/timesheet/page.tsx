@@ -2,6 +2,8 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import TimesheetPage from './TimesheetPage'
 
+export const metadata = { title: 'Timesheet' }
+
 export default async function Timesheet() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()

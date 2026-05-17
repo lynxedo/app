@@ -76,7 +76,12 @@ export default function ThreadPanel({
           .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot)')
           .eq('id', payload.new.id)
           .single()
-        if (data) setReplies(prev => [...prev, data as unknown as Reply])
+        if (data) setReplies(prev => {
+          // Deduplicate: remove any temp optimistic entry, then add the real one if not already present
+          const withoutTemp = prev.filter(r => !r.id.startsWith('temp-'))
+          if (withoutTemp.some(r => r.id === (data as unknown as Reply).id)) return withoutTemp
+          return [...withoutTemp, data as unknown as Reply]
+        })
       })
       .subscribe()
 
@@ -88,6 +93,17 @@ export default function ThreadPanel({
     if (!trimmed || sending) return
     setSending(true)
     setReplyContent('')
+
+    const currentUser = hubUsers.find(u => u.id === currentUserId) ?? null
+    const tempId = `temp-${Date.now()}`
+    setReplies(prev => [...prev, {
+      id: tempId,
+      content: trimmed,
+      created_at: new Date().toISOString(),
+      edited_at: null,
+      sender: currentUser,
+    }])
+
     await fetch('/api/hub/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -98,6 +114,16 @@ export default function ThreadPanel({
         content: trimmed,
       }),
     })
+
+    // Refetch all replies to replace the optimistic entry with the real one
+    const { data: refreshed } = await supabase
+      .from('messages')
+      .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot)')
+      .eq('parent_id', parentMessage.id)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+    if (refreshed) setReplies(refreshed as unknown as Reply[])
+
     setSending(false)
   }
 

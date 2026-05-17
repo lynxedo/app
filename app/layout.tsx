@@ -13,8 +13,11 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Lynxedo — Route Optimization",
-  description: "Route optimization for field service teams",
+  title: {
+    template: '%s | Lynxedo',
+    default: 'Lynxedo',
+  },
+  description: "Field service operations for Heroes Lawn Care",
 };
 
 export default function RootLayout({

@@ -5,6 +5,8 @@ import { isJobberConnected } from '@/lib/jobber'
 import LogoutButton from '@/app/dashboard/LogoutButton'
 import RouteBuilder from '@/app/dashboard/RouteBuilder'
 
+export const metadata = { title: 'Routing' }
+
 interface Props {
   searchParams: Promise<{ jobber?: string; error?: string }>
 }
