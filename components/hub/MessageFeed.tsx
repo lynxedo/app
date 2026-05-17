@@ -4,7 +4,6 @@ import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHand
 import { createClient } from '@/lib/supabase/client'
 import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
-import { useHubTextSize } from './HubTextSizeContext'
 
 export type MessageFeedHandle = { addMessage: (msg: HubMessage) => void }
 
@@ -141,7 +140,18 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   openThreadMsgId,
   rooms,
 }, ref) {
-  const textSize = useHubTextSize()
+  const [textSize, setTextSize] = useState<string>(() =>
+    typeof window !== 'undefined' ? (localStorage.getItem('hub-text-size') ?? 'default') : 'default'
+  )
+  useEffect(() => {
+    const handler = (e: Event) => {
+      const next = (e as CustomEvent<string>).detail
+      setTextSize(next)
+      localStorage.setItem('hub-text-size', next)
+    }
+    window.addEventListener('hub-text-size-change', handler)
+    return () => window.removeEventListener('hub-text-size-change', handler)
+  }, [])
   const msgFontSize = textSize === 'small' ? '0.8125rem' : textSize === 'large' ? '1rem' : undefined
 
   const [messages, setMessages] = useState<HubMessage[]>(initialMessages)

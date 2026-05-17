@@ -291,6 +291,7 @@ export default function HubSidebar({
                     onClick={() => {
                       const next = textSize === 'large' ? 'default' : 'small'
                       onTextSizeChange(next)
+                      window.dispatchEvent(new CustomEvent('hub-text-size-change', { detail: next }))
                       onClose?.()
                       fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_text_size: next }) })
                     }}
@@ -303,6 +304,7 @@ export default function HubSidebar({
                     onClick={() => {
                       const next = textSize === 'small' ? 'default' : 'large'
                       onTextSizeChange(next)
+                      window.dispatchEvent(new CustomEvent('hub-text-size-change', { detail: next }))
                       onClose?.()
                       fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_text_size: next }) })
                     }}

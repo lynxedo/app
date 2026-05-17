@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import HubSidebar from './HubSidebar'
 import AnnouncementTicker from './AnnouncementTicker'
 import { HubTextSizeContext } from './HubTextSizeContext'
@@ -34,6 +34,14 @@ export default function HubShell({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [textSize, setTextSize] = useState(initialTextSize ?? 'default')
+
+  // Sync server-fetched preference to localStorage so MessageFeed can read it
+  useEffect(() => {
+    const size = initialTextSize ?? 'default'
+    localStorage.setItem('hub-text-size', size)
+    // Also fire the event so a mounted MessageFeed picks it up immediately
+    window.dispatchEvent(new CustomEvent('hub-text-size-change', { detail: size }))
+  }, [initialTextSize])
 
   return (
     <HubTextSizeContext.Provider value={textSize}>
