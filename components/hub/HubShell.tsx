@@ -6,6 +6,7 @@ import AnnouncementTicker from './AnnouncementTicker'
 import type { HubUser } from './MessageFeed'
 
 type Room = { id: string; name: string; is_private: boolean }
+type InitialAnnouncement = { id: string; content: string; expires_at: string; reactions: Array<{ announcement_id: string; user_id: string; emoji: string }> } | null
 
 export default function HubShell({
   rooms,
@@ -15,6 +16,7 @@ export default function HubShell({
   currentUserStatus,
   currentUserDisplayName,
   isAdmin,
+  initialAnnouncement,
   children,
 }: {
   rooms: Room[]
@@ -24,6 +26,7 @@ export default function HubShell({
   currentUserStatus?: string | null
   currentUserDisplayName?: string
   isAdmin?: boolean
+  initialAnnouncement?: InitialAnnouncement
   children: React.ReactNode
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -72,7 +75,7 @@ export default function HubShell({
           <span className="text-sm font-semibold text-white">Heroes Lawn Care</span>
         </div>
 
-        <AnnouncementTicker currentUserId={currentUserId} />
+        <AnnouncementTicker currentUserId={currentUserId} initialAnnouncement={initialAnnouncement ?? null} />
         {children}
       </div>
     </div>

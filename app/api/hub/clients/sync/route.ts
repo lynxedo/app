@@ -3,6 +3,21 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { callHeroesTool } from '@/lib/hub-claude'
 
+function parseJobberClients(text: string): Array<{ id: string; name: string; phone?: string; email?: string }> {
+  const clients: Array<{ id: string; name: string; phone?: string; email?: string }> = []
+  const blocks = text.split(/\n(?=\d+\. )/)
+  for (const block of blocks) {
+    const nameMatch = block.match(/^\d+\.\s+(.+)/)
+    if (!nameMatch) continue
+    const name = nameMatch[1].trim()
+    const id = block.match(/Client ID\s*:\s*(.+)/)?.[1]?.trim() ?? ''
+    const email = block.match(/Email\s*:\s*(.+)/)?.[1]?.trim()
+    const phone = block.match(/Phone\s*:\s*(.+)/)?.[1]?.trim()
+    if (name) clients.push({ id, name, phone, email })
+  }
+  return clients
+}
+
 // Admin-only: search Jobber for clients and upsert into hub_contacts
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -21,29 +36,26 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({}))
   const searchTerm = (body.search ?? '').trim()
 
-  // Call Jobber via MCP to get clients
+  // Call Jobber via MCP — search_term: '' returns all clients, limit: 500 gets them in one shot
   let rawResult = ''
   try {
-    rawResult = await callHeroesTool('search_clients', { searchTerm, first: 50 })
+    rawResult = await callHeroesTool('search_clients', { search_term: searchTerm, limit: 500 })
   } catch (e) {
     return NextResponse.json({ error: `MCP call failed: ${e instanceof Error ? e.message : String(e)}` }, { status: 502 })
   }
 
-  // MCP returns text — parse JSON if possible, otherwise return raw
-  let clients: Array<{ id: string; name: string; phone?: string; email?: string }> = []
-  try {
-    const parsed = JSON.parse(rawResult)
-    // search_clients returns { clients: [...] } or array directly
-    clients = Array.isArray(parsed) ? parsed : (parsed.clients ?? parsed.nodes ?? [])
-  } catch {
-    return NextResponse.json({ error: 'Could not parse Jobber response', raw: rawResult }, { status: 502 })
+  // MCP returns formatted text — parse it with regex
+  const clients = parseJobberClients(rawResult)
+
+  if (clients.length === 0) {
+    return NextResponse.json({ synced: 0, skipped: 0, total: 0, message: 'No clients found in Jobber response', raw: rawResult.slice(0, 500) })
   }
 
   // Filter clients that have a phone number
   const withPhone = clients.filter(c => c.phone)
 
   if (withPhone.length === 0) {
-    return NextResponse.json({ synced: 0, skipped: clients.length, message: 'No clients with phone numbers found' })
+    return NextResponse.json({ synced: 0, skipped: clients.length, total: clients.length, message: 'No clients with phone numbers found' })
   }
 
   const admin = createAdminClient()

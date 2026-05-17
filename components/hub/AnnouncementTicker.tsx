@@ -24,13 +24,27 @@ function groupReactions(reactions: Reaction[], currentUserId: string) {
   return counts
 }
 
-export default function AnnouncementTicker({ currentUserId }: { currentUserId: string }) {
-  const [announcement, setAnnouncement] = useState<Announcement | null>(null)
+export default function AnnouncementTicker({
+  currentUserId,
+  initialAnnouncement,
+}: {
+  currentUserId: string
+  initialAnnouncement?: Announcement | null
+}) {
+  const [announcement, setAnnouncement] = useState<Announcement | null>(initialAnnouncement ?? null)
   const [dismissed, setDismissed] = useState(false)
   const [showPicker, setShowPicker] = useState(false)
-  const [reactions, setReactions] = useState<Reaction[]>([])
+  const [reactions, setReactions] = useState<Reaction[]>(initialAnnouncement?.reactions ?? [])
   const pickerRef = useRef<HTMLDivElement>(null)
 
+  // Check localStorage dismissal whenever the active announcement changes
+  useEffect(() => {
+    if (!announcement) return
+    const key = `dismissed_announcement_${announcement.id}`
+    setDismissed(localStorage.getItem(key) === '1')
+  }, [announcement?.id])
+
+  // Refresh from API on mount (picks up any changes since SSR)
   useEffect(() => {
     fetch('/api/hub/announcements')
       .then(r => r.json())
@@ -38,8 +52,8 @@ export default function AnnouncementTicker({ currentUserId }: { currentUserId: s
         if (d.announcement) {
           setAnnouncement(d.announcement)
           setReactions(d.announcement.reactions ?? [])
-          const key = `dismissed_announcement_${d.announcement.id}`
-          setDismissed(localStorage.getItem(key) === '1')
+        } else {
+          setAnnouncement(null)
         }
       })
       .catch(() => {})
