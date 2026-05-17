@@ -152,7 +152,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     window.addEventListener('hub-text-size-change', handler)
     return () => window.removeEventListener('hub-text-size-change', handler)
   }, [])
-  const msgFontSize = textSize === 'small' ? '0.75rem' : textSize === 'large' ? '1.25rem' : undefined
+  const msgFontSize = textSize === 'small' ? '0.75rem' : textSize === 'large' ? '1.125rem' : undefined
 
   const [messages, setMessages] = useState<HubMessage[]>(initialMessages)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -331,7 +331,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-1">
+      <div className="flex-1 overflow-y-auto px-2 md:px-4 py-3 space-y-1">
         {groups.map(group => (
           <div key={group.date}>
             <div className="flex items-center gap-3 my-4">
@@ -363,7 +363,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
               return (
                 <div
                   key={msg.id}
-                  className={`group flex items-start gap-3 px-1 py-0.5 rounded hover:bg-gray-900/50 transition-colors ${isThreadOpen ? 'bg-[#2E7EB8]/5 border-l-2 border-[#2E7EB8]' : ''}`}
+                  className={`group flex items-start gap-2 md:gap-3 px-1 py-0.5 rounded hover:bg-gray-900/50 transition-colors ${isThreadOpen ? 'bg-[#2E7EB8]/5 border-l-2 border-[#2E7EB8]' : ''}`}
                   onClick={() => !isEditing && setTappedMsgId(prev => prev === msg.id ? null : msg.id)}
                 >
                   <div className="flex-none w-8 mt-0.5">
