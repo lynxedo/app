@@ -1,7 +1,6 @@
 // Shell caching — cache static assets on install, serve from cache when offline
-const CACHE_NAME = 'hub-shell-v1'
+const CACHE_NAME = 'hub-shell-v2'
 const SHELL_ASSETS = [
-  '/hub',
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
@@ -26,25 +25,29 @@ self.addEventListener('activate', event => {
 
 self.addEventListener('fetch', event => {
   const { request } = event
-  // Only intercept same-origin GET requests
   if (request.method !== 'GET' || !request.url.startsWith(self.location.origin)) return
-  // Never cache API calls, Supabase, or realtime traffic
   const url = new URL(request.url)
   if (url.pathname.startsWith('/api/') || url.hostname.includes('supabase')) return
 
+  // Navigation requests (page loads): always go to network so auth redirects work correctly.
+  // Only fall back to cache if the network is completely unavailable.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request).catch(() => caches.match(request))
+    )
+    return
+  }
+
+  // Static assets: cache-first, populate cache on first fetch
   event.respondWith(
     caches.match(request).then(cached => {
       if (cached) return cached
       return fetch(request).then(response => {
-        // Cache successful static asset responses
         if (response.ok && (url.pathname.startsWith('/_next/static/') || url.pathname.startsWith('/icons/'))) {
           const clone = response.clone()
           caches.open(CACHE_NAME).then(cache => cache.put(request, clone))
         }
         return response
-      }).catch(() => {
-        // Offline fallback: return cached /hub shell for navigation requests
-        if (request.mode === 'navigate') return caches.match('/hub')
       })
     })
   )

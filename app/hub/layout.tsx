@@ -10,7 +10,7 @@ export const metadata: Metadata = {
   appleWebApp: {
     capable: true,
     title: 'Hub',
-    statusBarStyle: 'black-translucent',
+    statusBarStyle: 'black',
   },
   icons: { apple: '/icons/apple-touch-icon.png' },
 }

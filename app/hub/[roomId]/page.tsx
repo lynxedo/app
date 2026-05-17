@@ -75,7 +75,7 @@ export default async function RoomPage({
   const displayName = hubUserResult.data?.display_name ?? user.email?.split('@')[0] ?? 'You'
 
   return (
-    <div className="flex flex-col h-full">
+    <div className="flex flex-col flex-1 min-h-0">
       <header className="flex-none border-b border-gray-800 px-5 py-3 flex items-center gap-3">
         <span className="text-gray-400 text-lg">{room.is_private ? '🔒' : '#'}</span>
         <div className="flex-1 min-w-0">
