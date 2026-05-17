@@ -286,43 +286,21 @@ export default function HubSidebar({
             </Link>
             <div className="flex items-center gap-2">
               {onTextSizeChange && (
-                <div className="flex items-center gap-1">
-                  <button
-                    onClick={() => {
-                      const next = textSize === 'large' ? 'default' : 'small'
-                      onTextSizeChange(next)
-                      window.dispatchEvent(new CustomEvent('hub-text-size-change', { detail: next }))
-                      onClose?.()
-                      fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_text_size: next }) })
-                    }}
-                    title="Smaller text"
-                    disabled={textSize === 'small'}
-                    className="text-white/30 hover:text-white/60 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-xs font-bold px-1.5 py-1 rounded hover:bg-white/10"
-                  >
-                    A−
-                  </button>
-                  <div className="flex items-center gap-0.5 px-1">
-                    {(['small', 'default', 'large'] as const).map(s => (
-                      <div
-                        key={s}
-                        className={`w-1 h-1 rounded-full transition-colors ${(textSize ?? 'default') === s ? 'bg-white/70' : 'bg-white/20'}`}
-                      />
-                    ))}
-                  </div>
-                  <button
-                    onClick={() => {
-                      const next = textSize === 'small' ? 'default' : 'large'
-                      onTextSizeChange(next)
-                      window.dispatchEvent(new CustomEvent('hub-text-size-change', { detail: next }))
-                      onClose?.()
-                      fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_text_size: next }) })
-                    }}
-                    title="Larger text"
-                    disabled={textSize === 'large'}
-                    className="text-white/30 hover:text-white/60 disabled:opacity-20 disabled:cursor-not-allowed transition-colors text-sm font-bold px-1.5 py-1 rounded hover:bg-white/10"
-                  >
-                    A+
-                  </button>
+                <div className="flex items-center gap-0.5">
+                  {([['small', 'S'], ['default', 'M'], ['large', 'L']] as const).map(([size, label]) => (
+                    <button
+                      key={size}
+                      onClick={() => {
+                        onTextSizeChange(size)
+                        window.dispatchEvent(new CustomEvent('hub-text-size-change', { detail: size }))
+                        onClose?.()
+                        fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_text_size: size }) })
+                      }}
+                      className={`px-2 py-1 rounded text-xs font-semibold transition-colors ${(textSize ?? 'default') === size ? 'bg-white/15 text-white' : 'text-white/30 hover:text-white/60 hover:bg-white/10'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
                 </div>
               )}
               {isAdmin && (

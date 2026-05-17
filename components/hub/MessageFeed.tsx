@@ -363,10 +363,10 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
               return (
                 <div
                   key={msg.id}
-                  className={`group flex items-start gap-2 md:gap-3 px-1 py-0.5 rounded hover:bg-gray-900/50 transition-colors ${isThreadOpen ? 'bg-[#2E7EB8]/5 border-l-2 border-[#2E7EB8]' : ''}`}
+                  className={`group flex items-start gap-2 py-0.5 rounded hover:bg-gray-900/50 transition-colors ${isThreadOpen ? 'bg-[#2E7EB8]/5 border-l-2 border-[#2E7EB8]' : ''}`}
                   onClick={() => !isEditing && setTappedMsgId(prev => prev === msg.id ? null : msg.id)}
                 >
-                  <div className="flex-none w-8 mt-0.5">
+                  <div className="flex-none w-7 md:w-8 mt-0.5">
                     {!isContinuation ? <Avatar sender={sender} /> : null}
                   </div>
 
