@@ -128,7 +128,7 @@ export default function HubSidebar({
 
   return (
     <>
-      <aside className="w-60 flex-none bg-[#1A3D5C] flex flex-col h-full h-[100dvh]">
+      <aside className="w-60 flex-none bg-[#1A3D5C] flex flex-col h-full h-[100dvh] pb-16 md:pb-0">
         {/* Workspace header */}
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
           <div className="font-bold text-white text-sm tracking-wide">Heroes Lawn Care</div>
@@ -291,10 +291,11 @@ export default function HubSidebar({
                     onClick={() => {
                       const next = textSize === 'large' ? 'default' : 'small'
                       onTextSizeChange(next)
+                      onClose?.()
                       fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_text_size: next }) })
                     }}
                     title="Smaller text"
-                    className="text-white/30 hover:text-white/60 transition-colors text-xs font-bold px-1 py-0.5 rounded hover:bg-white/10"
+                    className="text-white/30 hover:text-white/60 transition-colors text-xs font-bold px-2 py-1 rounded hover:bg-white/10"
                   >
                     A−
                   </button>
@@ -302,10 +303,11 @@ export default function HubSidebar({
                     onClick={() => {
                       const next = textSize === 'small' ? 'default' : 'large'
                       onTextSizeChange(next)
+                      onClose?.()
                       fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_text_size: next }) })
                     }}
                     title="Larger text"
-                    className="text-white/30 hover:text-white/60 transition-colors text-sm font-bold px-1 py-0.5 rounded hover:bg-white/10"
+                    className="text-white/30 hover:text-white/60 transition-colors text-sm font-bold px-2 py-1 rounded hover:bg-white/10"
                   >
                     A+
                   </button>
