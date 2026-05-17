@@ -17,6 +17,7 @@ export default function HubShell({
   currentUserDisplayName,
   isAdmin,
   initialAnnouncement,
+  initialTextSize,
   children,
 }: {
   rooms: Room[]
@@ -27,12 +28,14 @@ export default function HubShell({
   currentUserDisplayName?: string
   isAdmin?: boolean
   initialAnnouncement?: InitialAnnouncement
+  initialTextSize?: string
   children: React.ReactNode
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [textSize, setTextSize] = useState(initialTextSize ?? 'default')
 
   return (
-    <div className="flex h-[100dvh] bg-gray-950 text-white overflow-hidden">
+    <div className={`hub-text-${textSize} flex h-[100dvh] md:h-[calc(100dvh-3rem)] bg-gray-950 text-white overflow-hidden`}>
       {/* Mobile sidebar overlay backdrop */}
       {sidebarOpen && (
         <div
@@ -56,11 +59,13 @@ export default function HubShell({
           currentUserDisplayName={currentUserDisplayName}
           isAdmin={isAdmin}
           onClose={() => setSidebarOpen(false)}
+          textSize={textSize}
+          onTextSizeChange={setTextSize}
         />
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden pb-16 md:pb-0">
         {/* Mobile top bar with hamburger */}
         <div className="flex-none flex items-center gap-3 px-4 py-2.5 border-b border-gray-800 md:hidden">
           <button

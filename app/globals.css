@@ -33,3 +33,13 @@ body {
 .animate-marquee {
   animation: marquee 30s linear infinite;
 }
+
+.hub-text-small .hub-message-text {
+  font-size: 0.8125rem;
+  line-height: 1.4;
+}
+
+.hub-text-large .hub-message-text {
+  font-size: 1rem;
+  line-height: 1.6;
+}

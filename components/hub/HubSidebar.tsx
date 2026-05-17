@@ -31,6 +31,8 @@ export default function HubSidebar({
   currentUserDisplayName,
   isAdmin,
   onClose,
+  textSize,
+  onTextSizeChange,
 }: {
   rooms: Room[]
   userEmail: string
@@ -40,6 +42,8 @@ export default function HubSidebar({
   currentUserDisplayName?: string
   isAdmin?: boolean
   onClose?: () => void
+  textSize?: string
+  onTextSizeChange?: (size: string) => void
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -281,6 +285,32 @@ export default function HubSidebar({
               ← Dashboard
             </Link>
             <div className="flex items-center gap-2">
+              {onTextSizeChange && (
+                <div className="flex items-center gap-0.5">
+                  <button
+                    onClick={() => {
+                      const next = textSize === 'large' ? 'default' : 'small'
+                      onTextSizeChange(next)
+                      fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_text_size: next }) })
+                    }}
+                    title="Smaller text"
+                    className="text-white/30 hover:text-white/60 transition-colors text-xs font-bold px-1 py-0.5 rounded hover:bg-white/10"
+                  >
+                    A−
+                  </button>
+                  <button
+                    onClick={() => {
+                      const next = textSize === 'small' ? 'default' : 'large'
+                      onTextSizeChange(next)
+                      fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_text_size: next }) })
+                    }}
+                    title="Larger text"
+                    className="text-white/30 hover:text-white/60 transition-colors text-sm font-bold px-1 py-0.5 rounded hover:bg-white/10"
+                  >
+                    A+
+                  </button>
+                </div>
+              )}
               {isAdmin && (
                 <Link
                   href="/admin/hub"

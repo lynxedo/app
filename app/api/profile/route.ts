@@ -14,7 +14,7 @@ export async function GET() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('phone')
+    .select('phone, hub_text_size')
     .eq('id', user.id)
     .single()
 
@@ -23,6 +23,7 @@ export async function GET() {
     display_name: hubUser?.display_name ?? null,
     avatar_url: hubUser?.avatar_url ?? null,
     phone: profile?.phone ?? null,
+    hub_text_size: profile?.hub_text_size ?? 'default',
   })
 }
 
@@ -31,7 +32,7 @@ export async function PUT(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { display_name, phone } = await request.json()
+  const { display_name, phone, hub_text_size } = await request.json()
 
   if (display_name !== undefined) {
     const { error } = await supabase
@@ -41,10 +42,14 @@ export async function PUT(request: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  if (phone !== undefined) {
+  const profileUpdates: Record<string, string | null> = {}
+  if (phone !== undefined) profileUpdates.phone = phone || null
+  if (hub_text_size !== undefined) profileUpdates.hub_text_size = hub_text_size
+
+  if (Object.keys(profileUpdates).length > 0) {
     const { error } = await supabase
       .from('user_profiles')
-      .update({ phone: phone || null })
+      .update(profileUpdates)
       .eq('id', user.id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
