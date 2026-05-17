@@ -266,6 +266,14 @@ async function handleClaudeReplyDM({
     ? `${CLAUDE_SYSTEM_PROMPT}\n\nConversation so far:\n${history}`
     : CLAUDE_SYSTEM_PROMPT
 
+  // Instant acknowledgment so users know Claude is working
+  await admin.from('messages').insert({
+    company_id: companyId,
+    conversation_id: conversationId,
+    sender_id: CLAUDE_BOT_ID,
+    content: 'On it! Please stand by…',
+  })
+
   let claudeText = ''
   try {
     claudeText = await askClaude({
@@ -364,6 +372,15 @@ async function handleClaudeReply({
   const systemPrompt = history
     ? `${CLAUDE_SYSTEM_PROMPT}\n\nConversation so far:\n${history}`
     : CLAUDE_SYSTEM_PROMPT
+
+  // Instant acknowledgment so users know Claude is working
+  await admin.from('messages').insert({
+    company_id: companyId,
+    room_id: roomId,
+    parent_id: parentMessageId,
+    sender_id: CLAUDE_BOT_ID,
+    content: 'On it! Please stand by…',
+  })
 
   let claudeText = ''
   try {
