@@ -1,7 +1,9 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useRouter } from 'next/navigation'
+import ReactCrop, { type Crop, centerCrop, makeAspectCrop } from 'react-image-crop'
+import 'react-image-crop/dist/ReactCrop.css'
 import { createClient } from '@/lib/supabase/client'
 import type { DurationRulesConfig, DurationRule } from '@/app/api/settings/types'
 import { DEFAULT_DURATION_RULES } from '@/app/api/settings/types'
@@ -17,9 +19,17 @@ interface Settings {
   duration_rules: DurationRulesConfig
 }
 
+interface HubProfile {
+  display_name: string | null
+  avatar_url: string | null
+  phone: string | null
+}
+
 interface Props {
   email: string
+  userId: string
   initial: Settings
+  hubProfile: HubProfile
   jobberConnected: boolean
 }
 
@@ -33,10 +43,72 @@ const METHOD_OPTIONS = [
   { value: 'historical',   label: 'Historical Average (last 3)',   desc: 'Average of last 3 timed visits — coming soon', disabled: true },
 ]
 
-export default function SettingsForm({ email, initial, jobberConnected }: Props) {
-  const router = useRouter()
-  const [activeTab, setActiveTab] = useState<Tab>('routing')
+function getInitials(name: string | null, email: string): string {
+  if (name) {
+    const parts = name.trim().split(/\s+/)
+    if (parts.length >= 2) return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+    return parts[0][0].toUpperCase()
+  }
+  return email[0].toUpperCase()
+}
 
+function centerAspectCrop(width: number, height: number) {
+  return centerCrop(
+    makeAspectCrop({ unit: '%', width: 90 }, 1, width, height),
+    width,
+    height,
+  )
+}
+
+async function getCroppedBlob(
+  image: HTMLImageElement,
+  crop: Crop,
+  mimeType: string,
+): Promise<Blob> {
+  const canvas = document.createElement('canvas')
+  const scaleX = image.naturalWidth / image.width
+  const scaleY = image.naturalHeight / image.height
+  const size = 400
+  canvas.width = size
+  canvas.height = size
+  const ctx = canvas.getContext('2d')!
+  ctx.drawImage(
+    image,
+    crop.x * scaleX,
+    crop.y * scaleY,
+    crop.width * scaleX,
+    crop.height * scaleY,
+    0, 0, size, size,
+  )
+  return new Promise((resolve, reject) => {
+    canvas.toBlob(blob => blob ? resolve(blob) : reject(new Error('Canvas empty')), mimeType, 0.92)
+  })
+}
+
+export default function SettingsForm({ email, userId, initial, hubProfile, jobberConnected }: Props) {
+  const router = useRouter()
+  const [activeTab, setActiveTab] = useState<Tab>('profile')
+
+  // ── Hub profile state ─────────────────────────────────────────────────────
+  const [hubName, setHubName] = useState(hubProfile.display_name ?? '')
+  const [phone, setPhone] = useState(hubProfile.phone ?? '')
+  const [hasAvatar, setHasAvatar] = useState(
+    !!hubProfile.avatar_url && !hubProfile.avatar_url.startsWith('http')
+  )
+  const [avatarBust, setAvatarBust] = useState(Date.now())
+  const [hubSave, setHubSave] = useState<SaveState>('idle')
+  const [hubErr, setHubErr] = useState<string | null>(null)
+
+  // Avatar crop state
+  const [cropSrc, setCropSrc] = useState<string | null>(null)
+  const [cropMime, setCropMime] = useState('image/jpeg')
+  const [crop, setCrop] = useState<Crop>()
+  const [uploading, setUploading] = useState(false)
+  const [uploadErr, setUploadErr] = useState<string | null>(null)
+  const imgRef = useRef<HTMLImageElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // ── Routing / settings state ──────────────────────────────────────────────
   const [profileName, setProfileName] = useState(initial.display_name ?? '')
   const [profileSave, setProfileSave] = useState<SaveState>('idle')
   const [profileErr, setProfileErr] = useState<string | null>(null)
@@ -55,7 +127,6 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
   const [connected, setConnected] = useState(jobberConnected)
   const [disconnecting, setDisconnecting] = useState(false)
 
-  // Duration Rules state
   const [durationMethod, setDurationMethod] = useState(initial.duration_method)
   const [rules, setRules] = useState<DurationRulesConfig>({ ...DEFAULT_DURATION_RULES, ...(initial.duration_rules ?? {}) })
   const [durationSave, setDurationSave] = useState<SaveState>('idle')
@@ -63,7 +134,76 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
   const [loadingLineItems, setLoadingLineItems] = useState(false)
   const [lineItemsErr, setLineItemsErr] = useState<string | null>(null)
 
-  // ── Generic save helper ───────────────────────────────────────────────────
+  // ── Hub profile save ──────────────────────────────────────────────────────
+  const saveHubProfile = async () => {
+    setHubSave('saving')
+    setHubErr(null)
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          display_name: hubName || null,
+          phone: phone || null,
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        setHubErr(d.error ?? 'Save failed')
+        setHubSave('error')
+        return
+      }
+      setHubSave('saved')
+      setTimeout(() => setHubSave('idle'), 2000)
+    } catch (e) {
+      setHubErr(e instanceof Error ? e.message : 'Network error')
+      setHubSave('error')
+    }
+  }
+
+  // ── Avatar file pick ──────────────────────────────────────────────────────
+  const onFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setCropMime(file.type || 'image/jpeg')
+    setUploadErr(null)
+    const reader = new FileReader()
+    reader.onload = () => setCropSrc(reader.result as string)
+    reader.readAsDataURL(file)
+    e.target.value = ''
+  }
+
+  const onImageLoad = useCallback((e: React.SyntheticEvent<HTMLImageElement>) => {
+    const { width, height } = e.currentTarget
+    setCrop(centerAspectCrop(width, height))
+  }, [])
+
+  const uploadCrop = async () => {
+    if (!crop || !imgRef.current) return
+    setUploading(true)
+    setUploadErr(null)
+    try {
+      const blob = await getCroppedBlob(imgRef.current, crop, cropMime)
+      const ext = cropMime === 'image/jpeg' ? 'jpg' : cropMime.split('/')[1]
+      const form = new FormData()
+      form.append('file', blob, `avatar.${ext}`)
+      const res = await fetch('/api/profile/avatar', { method: 'POST', body: form })
+      if (!res.ok) {
+        const d = await res.json()
+        setUploadErr(d.error ?? 'Upload failed')
+        return
+      }
+      setCropSrc(null)
+      setHasAvatar(true)
+      setAvatarBust(Date.now())
+    } catch (e) {
+      setUploadErr(e instanceof Error ? e.message : 'Upload failed')
+    } finally {
+      setUploading(false)
+    }
+  }
+
+  // ── Routing settings helpers ──────────────────────────────────────────────
   async function patchSettings(
     body: Partial<Settings & { duration_method: string; duration_rules: DurationRulesConfig }>,
     setSave: (s: SaveState) => void,
@@ -89,14 +229,12 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
     }
   }
 
-  // ── Handlers ─────────────────────────────────────────────────────────────
   const saveProfile = () => patchSettings({ display_name: profileName || null }, setProfileSave, setProfileErr)
   const saveRouting = () => patchSettings({ default_service_minutes: serviceMin, default_drive_mph: driveMph }, setRoutingSave, setRoutingErr)
-  const saveDepot   = async () => {
+  const saveDepot = async () => {
     const s = await patchSettings({ depot_address: depotAddr || null }, setDepotSave, setDepotErr)
     if (s) { setDepotLat(s.depot_lat); setDepotLng(s.depot_lng) }
   }
-
   const saveDuration = () =>
     patchSettings({ duration_method: durationMethod, duration_rules: rules }, setDurationSave, setDurationErr)
 
@@ -107,7 +245,6 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
       const res = await fetch('/api/jobber/line-items')
       const data = await res.json()
       if (!res.ok || data.error) { setLineItemsErr(data.error ?? 'Failed to load'); return }
-      // Cache them in rules — will be saved when user clicks Save
       setRules(r => ({ ...r, cachedLineItems: data.lineItems as string[] }))
     } catch (e) {
       setLineItemsErr(e instanceof Error ? e.message : 'Network error')
@@ -123,12 +260,10 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
       return { ...r, codes }
     })
   }
-
   const addCode = () => {
     if (rules.codes.length >= 15) return
     setRules(r => ({ ...r, codes: [...r.codes, { lineItemName: '', minutes: 0 }] }))
   }
-
   const removeCode = (idx: number) => {
     setRules(r => ({ ...r, codes: r.codes.filter((_, i) => i !== idx) }))
   }
@@ -171,6 +306,8 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
     { id: 'account',   label: 'Account' },
   ]
 
+  const initials = getInitials(hubName || null, email)
+
   return (
     <div>
       {/* Tab bar */}
@@ -192,11 +329,93 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
 
       <div className="space-y-6">
 
-      {/* PROFILE TAB */}
+      {/* ── PROFILE TAB ─────────────────────────────────────────────────── */}
       {activeTab === 'profile' && (
       <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
         <h2 className="font-semibold text-lg mb-1">Profile</h2>
-        <p className="text-gray-400 text-sm mb-5">Your account details.</p>
+        <p className="text-gray-400 text-sm mb-6">Your Hub identity — name and photo appear in messages, DMs, and the team roster.</p>
+
+        {/* Avatar */}
+        <div className="flex items-center gap-5 mb-6">
+          <div className="relative">
+            {hasAvatar ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                key={avatarBust}
+                src={`/api/profile/avatar/${userId}?t=${avatarBust}`}
+                alt="Profile photo"
+                className="w-20 h-20 rounded-full object-cover border-2 border-gray-700"
+                onError={() => setHasAvatar(false)}
+              />
+            ) : (
+              <div className="w-20 h-20 rounded-full bg-orange-500/20 border-2 border-gray-700 flex items-center justify-center">
+                <span className="text-2xl font-bold text-orange-400">{initials}</span>
+              </div>
+            )}
+          </div>
+          <div>
+            <button
+              onClick={() => fileInputRef.current?.click()}
+              className="px-4 py-2 bg-gray-800 hover:bg-gray-700 text-sm text-white rounded-lg border border-gray-700 transition-colors"
+            >
+              {hasAvatar ? 'Change photo' : 'Upload photo'}
+            </button>
+            <p className="text-xs text-gray-500 mt-1.5">JPG, PNG, WebP or GIF · Max 5 MB</p>
+            {uploadErr && <p className="text-red-400 text-xs mt-1">{uploadErr}</p>}
+          </div>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/webp,image/gif"
+            className="hidden"
+            onChange={onFileChange}
+          />
+        </div>
+
+        {/* Crop modal */}
+        {cropSrc && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+            <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md">
+              <h3 className="font-semibold text-lg mb-4">Crop your photo</h3>
+              <div className="flex justify-center mb-5">
+                <ReactCrop
+                  crop={crop}
+                  onChange={c => setCrop(c)}
+                  aspect={1}
+                  circularCrop
+                  minWidth={50}
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img
+                    ref={imgRef}
+                    src={cropSrc}
+                    alt="Crop preview"
+                    onLoad={onImageLoad}
+                    style={{ maxHeight: '60vh', maxWidth: '100%' }}
+                  />
+                </ReactCrop>
+              </div>
+              {uploadErr && <p className="text-red-400 text-sm mb-3">{uploadErr}</p>}
+              <div className="flex gap-3 justify-end">
+                <button
+                  onClick={() => { setCropSrc(null); setUploadErr(null) }}
+                  className="px-4 py-2 text-sm text-gray-400 hover:text-white transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={uploadCrop}
+                  disabled={uploading || !crop}
+                  className="px-5 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  {uploading ? 'Uploading…' : 'Save photo'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Fields */}
         <div className="space-y-4">
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Email</label>
@@ -204,12 +423,27 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Display name</label>
-            <input value={profileName} onChange={e => setProfileName(e.target.value)}
-              placeholder="e.g. Heroes Lawn Care" className={inputCls} />
+            <input
+              value={hubName}
+              onChange={e => setHubName(e.target.value)}
+              placeholder="Your name as it appears in Hub"
+              className={inputCls}
+            />
           </div>
-          {profileErr && <p className="text-red-400 text-sm">{profileErr}</p>}
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Phone number <span className="text-gray-600">(optional)</span></label>
+            <input
+              value={phone}
+              onChange={e => setPhone(e.target.value)}
+              placeholder="e.g. (281) 555-0100"
+              type="tel"
+              className={inputCls}
+            />
+            <p className="text-xs text-gray-600 mt-1">Visible to team members in the staff directory.</p>
+          </div>
+          {hubErr && <p className="text-red-400 text-sm">{hubErr}</p>}
           <div className="flex items-center gap-3">
-            {saveBtn('Save', profileSave, saveProfile)}
+            {saveBtn('Save', hubSave, saveHubProfile)}
             <button onClick={handleSignOut} className="ml-auto text-sm text-gray-400 hover:text-white transition-colors">
               Sign out
             </button>
@@ -218,7 +452,7 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
       </section>
       )}
 
-      {/* ROUTING TAB */}
+      {/* ── ROUTING TAB ─────────────────────────────────────────────────── */}
       {activeTab === 'routing' && <>
 
       {/* Duration Rules */}
@@ -228,7 +462,6 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
           How the optimizer estimates time spent at each stop.
         </p>
 
-        {/* Method selector */}
         <div className="mb-6">
           <label className="block text-xs text-gray-400 mb-2">Method</label>
           <div className="space-y-2">
@@ -252,18 +485,13 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
           </div>
         </div>
 
-        {/* Formula config — only shown when method=formula */}
         {durationMethod === 'formula' && (
           <div className="space-y-6 border-t border-gray-800 pt-6">
-
-            {/* Line items table */}
             <div>
               <div className="flex items-center justify-between mb-3">
                 <div>
                   <p className="text-sm font-medium text-white">Line Item → Time</p>
-                  <p className="text-xs text-gray-400 mt-0.5">
-                    All matching line items on a visit are summed.
-                  </p>
+                  <p className="text-xs text-gray-400 mt-0.5">All matching line items on a visit are summed.</p>
                 </div>
                 <button onClick={refreshLineItems} disabled={loadingLineItems || !connected}
                   title={!connected ? 'Connect Jobber first' : 'Pull all line items from your Jobber account'}
@@ -273,15 +501,11 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
               </div>
               {lineItemsErr && <p className="text-red-400 text-xs mb-2">{lineItemsErr}</p>}
               {rules.cachedLineItems.length > 0 && (
-                <p className="text-xs text-green-400 mb-3">
-                  ✓ {rules.cachedLineItems.length} line items loaded from Jobber
-                </p>
+                <p className="text-xs text-green-400 mb-3">✓ {rules.cachedLineItems.length} line items loaded from Jobber</p>
               )}
-
               {rules.codes.length === 0 && (
                 <p className="text-xs text-gray-500 mb-3">No line items configured yet. Add one below.</p>
               )}
-
               <div className="space-y-2">
                 {rules.codes.map((code, idx) => (
                   <div key={idx} className="flex items-center gap-2">
@@ -314,16 +538,13 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
                   </div>
                 ))}
               </div>
-
               {rules.codes.length < 15 && (
-                <button onClick={addCode}
-                  className="mt-3 text-xs text-orange-400 hover:text-orange-300 transition-colors">
+                <button onClick={addCode} className="mt-3 text-xs text-orange-400 hover:text-orange-300 transition-colors">
                   + Add line item
                 </button>
               )}
             </div>
 
-            {/* Lawn size */}
             <div className="flex items-center gap-3">
               <input type="checkbox" id="useLawnSize" checked={rules.useLawnSize}
                 onChange={e => setRules(r => ({ ...r, useLawnSize: e.target.checked }))}
@@ -333,7 +554,6 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
               </label>
             </div>
 
-            {/* Padding + Minimum */}
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <label className="block text-xs text-gray-400 mb-1.5">Padding per stop (min)</label>
@@ -351,11 +571,8 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
               </div>
             </div>
 
-            {/* Assessments/Requests */}
             <div className="border-t border-gray-800 pt-5">
-              <label className="block text-xs text-gray-400 mb-1.5">
-                Requests / Assessments (min)
-              </label>
+              <label className="block text-xs text-gray-400 mb-1.5">Requests / Assessments (min)</label>
               <input type="number" min={1} max={240} value={rules.assessmentMinutes}
                 onChange={e => setRules(r => ({ ...r, assessmentMinutes: Number(e.target.value) }))}
                 className={inputCls} />
@@ -366,7 +583,6 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
           </div>
         )}
 
-        {/* Default method — just shows the service time field */}
         {durationMethod === 'default' && (
           <div className="border-t border-gray-800 pt-5 space-y-4">
             <div>
@@ -385,9 +601,7 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
         )}
 
         {durationErr && <p className="text-red-400 text-sm mt-4">{durationErr}</p>}
-        <div className="mt-5">
-          {saveBtn('Save', durationSave, saveDuration)}
-        </div>
+        <div className="mt-5">{saveBtn('Save', durationSave, saveDuration)}</div>
       </section>
 
       {/* Routing Defaults */}
@@ -409,6 +623,21 @@ export default function SettingsForm({ email, initial, jobberConnected }: Props)
         </div>
         {routingErr && <p className="text-red-400 text-sm mb-3">{routingErr}</p>}
         {saveBtn('Save', routingSave, saveRouting)}
+      </section>
+
+      {/* Routing — Profile name */}
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <h2 className="font-semibold text-lg mb-1">Routing Profile Name</h2>
+        <p className="text-gray-400 text-sm mb-5">Company or team name shown in the route optimizer.</p>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Name</label>
+            <input value={profileName} onChange={e => setProfileName(e.target.value)}
+              placeholder="e.g. Heroes Lawn Care" className={inputCls} />
+          </div>
+          {profileErr && <p className="text-red-400 text-sm">{profileErr}</p>}
+          {saveBtn('Save', profileSave, saveProfile)}
+        </div>
       </section>
 
       {/* Depot */}

@@ -26,11 +26,15 @@ export default async function AdminPage() {
     role: string; can_access_routing: boolean; can_access_lawn: boolean;
     can_access_call_log: boolean; can_access_responder: boolean; can_access_timesheet: boolean;
     can_access_books: boolean; can_access_tracker: boolean; can_access_hub: boolean;
+    display_name: string | null; avatar_url: string | null; invite_sent_at: string | null;
   }) => ({
     id: r.id,
     email: r.email ?? '',
     created_at: r.created_at,
     last_sign_in_at: r.last_sign_in_at ?? null,
+    display_name: r.display_name ?? null,
+    avatar_url: r.avatar_url ?? null,
+    invite_sent_at: r.invite_sent_at ?? null,
     profile: {
       id: r.id,
       role: r.role,

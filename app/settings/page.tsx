@@ -21,14 +21,32 @@ export default async function SettingsPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data } = await supabase
-    .from('user_settings')
-    .select('display_name, depot_address, depot_lat, depot_lng, default_service_minutes, default_drive_mph, duration_method, duration_rules')
-    .eq('user_id', user.id)
-    .maybeSingle()
+  const [settingsResult, hubUserResult, profileResult] = await Promise.all([
+    supabase
+      .from('user_settings')
+      .select('display_name, depot_address, depot_lat, depot_lng, default_service_minutes, default_drive_mph, duration_method, duration_rules')
+      .eq('user_id', user.id)
+      .maybeSingle(),
+    supabase
+      .from('hub_users')
+      .select('display_name, avatar_url')
+      .eq('id', user.id)
+      .maybeSingle(),
+    supabase
+      .from('user_profiles')
+      .select('phone')
+      .eq('id', user.id)
+      .maybeSingle(),
+  ])
 
-  const settings = { ...DEFAULTS, ...(data ?? {}) }
+  const settings = { ...DEFAULTS, ...(settingsResult.data ?? {}) }
   const jobberConnected = await isJobberConnected(user.id)
+
+  const hubProfile = {
+    display_name: hubUserResult.data?.display_name ?? null,
+    avatar_url: hubUserResult.data?.avatar_url ?? null,
+    phone: profileResult.data?.phone ?? null,
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -55,7 +73,9 @@ export default async function SettingsPage() {
       <main className="max-w-2xl mx-auto px-6 py-10">
         <SettingsForm
           email={user.email ?? ''}
+          userId={user.id}
           initial={settings}
+          hubProfile={hubProfile}
           jobberConnected={jobberConnected}
         />
       </main>

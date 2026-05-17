@@ -28,11 +28,16 @@ export async function GET() {
       role: string; can_access_routing: boolean; can_access_lawn: boolean;
       can_access_call_log: boolean; can_access_responder: boolean; can_access_timesheet: boolean;
       can_access_books: boolean; can_access_tracker: boolean; can_access_hub: boolean;
+      display_name: string | null; avatar_url: string | null; invite_sent_at: string | null;
+      phone: string | null;
     }) => ({
       id: r.id,
       email: r.email ?? '',
       created_at: r.created_at,
       last_sign_in_at: r.last_sign_in_at ?? null,
+      display_name: r.display_name ?? null,
+      avatar_url: r.avatar_url ?? null,
+      invite_sent_at: r.invite_sent_at ?? null,
       profile: {
         id: r.id,
         role: r.role,
@@ -50,17 +55,55 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const user = await requireAdmin()
-  if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const adminUser = await requireAdmin()
+  if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const { email } = await request.json()
+  const { email, display_name, deferred } = await request.json()
   if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 })
 
   const admin = createAdminClient()
+
+  if (deferred) {
+    // Create auth user without sending any email
+    const { data, error } = await admin.auth.admin.createUser({
+      email,
+      email_confirm: false,
+    })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+    // user_profiles row is created by the on_auth_user_created trigger,
+    // but invite_sent_at stays null (pending) — we just need to mark it explicitly
+    // In case the trigger runs, update invite_sent_at to null (already default)
+    if (display_name && data.user) {
+      await admin
+        .from('hub_users')
+        .update({ display_name })
+        .eq('id', data.user.id)
+    }
+
+    return NextResponse.json({ user: data.user, deferred: true })
+  }
+
+  // Standard invite — send magic link email immediately
   const { data, error } = await admin.auth.admin.inviteUserByEmail(email, {
     redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Mark invite as sent
+  if (data.user) {
+    await admin
+      .from('user_profiles')
+      .update({ invite_sent_at: new Date().toISOString() })
+      .eq('id', data.user.id)
+
+    if (display_name) {
+      await admin
+        .from('hub_users')
+        .update({ display_name })
+        .eq('id', data.user.id)
+    }
+  }
 
   return NextResponse.json({ user: data.user })
 }
