@@ -94,9 +94,17 @@ export default function HubSidebar({
 
   // New board form state
   const [newBoardName, setNewBoardName] = useState('')
-  const [newBoardPrivate, setNewBoardPrivate] = useState(false)
-  const [newBoardPersonal, setNewBoardPersonal] = useState(false)
+  const [newBoardType, setNewBoardType] = useState<'public' | 'private' | 'personal'>('public')
   const [creatingBoard, setCreatingBoard] = useState(false)
+
+  // Board settings state
+  const [boardSettings, setBoardSettings] = useState<Board | null>(null)
+  const [settingsName, setSettingsName] = useState('')
+  const [settingsType, setSettingsType] = useState<'public' | 'private' | 'personal'>('public')
+  const [settingsMembers, setSettingsMembers] = useState<HubUser[]>([])
+  const [settingsMembersLoading, setSettingsMembersLoading] = useState(false)
+  const [savingSettings, setSavingSettings] = useState(false)
+  const [addMemberOpen, setAddMemberOpen] = useState(false)
 
   // Unread state
   const [unreadRoomIds, setUnreadRoomIds] = useState<Set<string>>(new Set())
@@ -319,16 +327,88 @@ export default function HubSidebar({
     const res = await fetch('/api/hub/boards', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ name: newBoardName.trim(), is_private: newBoardPrivate || newBoardPersonal, is_personal: newBoardPersonal }),
+      body: JSON.stringify({
+        name: newBoardName.trim(),
+        is_private: newBoardType === 'private' || newBoardType === 'personal',
+        is_personal: newBoardType === 'personal',
+      }),
     })
     const data = await res.json()
     setCreatingBoard(false)
     if (res.ok) {
       setBoards(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
       setShowNewBoard(false)
-      setNewBoardName(''); setNewBoardPrivate(false); setNewBoardPersonal(false)
+      setNewBoardName(''); setNewBoardType('public')
       router.push(`/hub/board/${data.id}`)
     }
+  }
+
+  async function openBoardSettings(board: Board) {
+    setBoardSettings(board)
+    setSettingsName(board.name)
+    setSettingsType(board.is_personal ? 'personal' : board.is_private ? 'private' : 'public')
+    setSettingsMembers([])
+    setAddMemberOpen(false)
+    if (board.is_private && !board.is_personal) {
+      setSettingsMembersLoading(true)
+      const res = await fetch(`/api/hub/boards/${board.id}/members`)
+      const data = await res.json()
+      setSettingsMembers(data.members ?? [])
+      setSettingsMembersLoading(false)
+    }
+  }
+
+  async function saveBoardSettings() {
+    if (!boardSettings || !settingsName.trim() || savingSettings) return
+    setSavingSettings(true)
+    const res = await fetch(`/api/hub/boards/${boardSettings.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: settingsName.trim(),
+        is_private: settingsType === 'private' || settingsType === 'personal',
+        is_personal: settingsType === 'personal',
+      }),
+    })
+    const data = await res.json()
+    setSavingSettings(false)
+    if (res.ok) {
+      setBoards(prev => prev.map(b => b.id === boardSettings.id ? { ...b, ...data } : b))
+      setBoardSettings(null)
+    }
+  }
+
+  async function deleteBoardConfirm() {
+    if (!boardSettings) return
+    if (!confirm(`Delete "${boardSettings.name}"? This will permanently delete all tasks.`)) return
+    const res = await fetch(`/api/hub/boards/${boardSettings.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setBoards(prev => prev.filter(b => b.id !== boardSettings.id))
+      setBoardSettings(null)
+      if (pathname === `/hub/board/${boardSettings.id}`) router.push('/hub')
+    }
+  }
+
+  async function addBoardMember(userId: string) {
+    if (!boardSettings) return
+    const res = await fetch(`/api/hub/boards/${boardSettings.id}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    })
+    if (res.ok) {
+      const user = hubUsers.find(u => u.id === userId)
+      if (user && !settingsMembers.find(m => m.id === userId)) {
+        setSettingsMembers(prev => [...prev, user])
+      }
+    }
+    setAddMemberOpen(false)
+  }
+
+  async function removeBoardMember(userId: string) {
+    if (!boardSettings) return
+    const res = await fetch(`/api/hub/boards/${boardSettings.id}/members/${userId}`, { method: 'DELETE' })
+    if (res.ok) setSettingsMembers(prev => prev.filter(m => m.id !== userId))
   }
 
   function toggleUser(id: string) {
@@ -583,7 +663,7 @@ export default function HubSidebar({
                 <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Boards</span>
               </button>
               <button
-                onClick={() => { setShowNewBoard(true); setNewBoardName(''); setNewBoardPrivate(false); setNewBoardPersonal(false) }}
+                onClick={() => { setShowNewBoard(true); setNewBoardName(''); setNewBoardType('public') }}
                 className="text-white/40 hover:text-white/70 transition-colors text-lg leading-none"
                 title="New board"
               >
@@ -595,20 +675,33 @@ export default function HubSidebar({
             )}
             {!collapsed.boards && boards.map(board => {
               const isActive = pathname === `/hub/board/${board.id}`
+              const isOwner = board.created_by === currentUserId
               return (
-                <Link
-                  key={board.id}
-                  href={`/hub/board/${board.id}`}
-                  onClick={() => onClose?.()}
-                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
-                    isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <span className="text-white/40 text-xs flex-none">
-                    {board.is_personal ? '👤' : board.is_private ? '🔒' : '☑'}
-                  </span>
-                  <span className="truncate flex-1">{board.name}</span>
-                </Link>
+                <div key={board.id} className="flex items-center group/board">
+                  <Link
+                    href={`/hub/board/${board.id}`}
+                    onClick={() => onClose?.()}
+                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors flex-1 min-w-0 ${
+                      isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                    }`}
+                  >
+                    <span className="text-white/40 text-xs flex-none">
+                      {board.is_personal ? '👤' : board.is_private ? '🔒' : '☑'}
+                    </span>
+                    <span className="truncate flex-1">{board.name}</span>
+                  </Link>
+                  {isOwner && (
+                    <button
+                      onClick={e => { e.stopPropagation(); openBoardSettings(board) }}
+                      className="opacity-0 group-hover/board:opacity-100 p-1 mr-1 text-white/30 hover:text-white/60 transition-all flex-none rounded"
+                      title="Board settings"
+                    >
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                      </svg>
+                    </button>
+                  )}
+                </div>
               )
             })}
           </div>
@@ -717,10 +810,10 @@ export default function HubSidebar({
                   {/* Time Records (admin only) */}
                   {isAdmin && (
                     <Link
-                      href="/hub/timesheet"
+                      href="/admin/timesheet"
                       onClick={() => onClose?.()}
                       className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
-                        pathname.startsWith('/hub/timesheet') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                        pathname.startsWith('/admin/timesheet') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                       }`}
                     >
                       <span className="text-xs flex-none">⏱</span>
@@ -938,7 +1031,7 @@ export default function HubSidebar({
               <h2 className="font-semibold text-white">New Board</h2>
               <button onClick={() => setShowNewBoard(false)} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
             </div>
-            <div className="px-5 py-4 space-y-3">
+            <div className="px-5 py-4 space-y-4">
               <input
                 autoFocus
                 value={newBoardName}
@@ -947,26 +1040,25 @@ export default function HubSidebar({
                 placeholder="Board name"
                 className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
               />
-              <label className="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer select-none">
-                <div
-                  onClick={() => { setNewBoardPersonal(v => !v); if (!newBoardPersonal) setNewBoardPrivate(false) }}
-                  className={`w-9 h-5 rounded-full transition-colors relative flex-none cursor-pointer ${newBoardPersonal ? 'bg-[#2E7EB8]' : 'bg-gray-700'}`}
-                >
-                  <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${newBoardPersonal ? 'translate-x-4' : 'translate-x-0.5'}`} />
+              <div>
+                <div className="text-xs text-white/50 mb-1.5">Visibility</div>
+                <div className="flex rounded-xl overflow-hidden border border-gray-700">
+                  {(['public', 'private', 'personal'] as const).map((type, i) => (
+                    <button
+                      key={type}
+                      onClick={() => setNewBoardType(type)}
+                      className={`flex-1 py-2 text-xs font-medium transition-colors ${i > 0 ? 'border-l border-gray-700' : ''} ${newBoardType === type ? 'bg-[#2E7EB8] text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                    >
+                      {type === 'public' ? '🌐 Public' : type === 'private' ? '🔒 Private' : '👤 Personal'}
+                    </button>
+                  ))}
                 </div>
-                Personal (only you)
-              </label>
-              {!newBoardPersonal && (
-                <label className="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer select-none">
-                  <div
-                    onClick={() => setNewBoardPrivate(v => !v)}
-                    className={`w-9 h-5 rounded-full transition-colors relative flex-none cursor-pointer ${newBoardPrivate ? 'bg-[#2E7EB8]' : 'bg-gray-700'}`}
-                  >
-                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${newBoardPrivate ? 'translate-x-4' : 'translate-x-0.5'}`} />
-                  </div>
-                  Private (invite only)
-                </label>
-              )}
+                <p className="text-[11px] text-white/30 mt-1.5 px-0.5">
+                  {newBoardType === 'public' && 'Visible to everyone on the team'}
+                  {newBoardType === 'private' && 'Invite only — you choose who can see it'}
+                  {newBoardType === 'personal' && 'Only visible to you'}
+                </p>
+              </div>
             </div>
             <div className="px-5 py-4 border-t border-gray-800 flex gap-3">
               <button
@@ -986,6 +1078,127 @@ export default function HubSidebar({
           </div>
         </div>
       )}
+
+      {/* Board Settings modal */}
+      {boardSettings && (() => {
+        const nonSelfMembers = settingsMembers.filter(m => m.id !== boardSettings.created_by)
+        const eligibleToAdd = hubUsers.filter(u => !u.is_bot && u.id !== currentUserId && !settingsMembers.find(m => m.id === u.id))
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+            <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4 flex flex-col max-h-[85vh]">
+              <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 flex-none">
+                <h2 className="font-semibold text-white">Board Settings</h2>
+                <button onClick={() => setBoardSettings(null)} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
+              </div>
+              <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
+                {/* Name */}
+                <div>
+                  <label className="text-xs text-white/50 block mb-1.5">Board name</label>
+                  <input
+                    value={settingsName}
+                    onChange={e => setSettingsName(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                  />
+                </div>
+                {/* Type */}
+                <div>
+                  <label className="text-xs text-white/50 block mb-1.5">Visibility</label>
+                  <div className="flex rounded-xl overflow-hidden border border-gray-700">
+                    {(['public', 'private', 'personal'] as const).map((type, i) => (
+                      <button
+                        key={type}
+                        onClick={() => setSettingsType(type)}
+                        className={`flex-1 py-2 text-xs font-medium transition-colors ${i > 0 ? 'border-l border-gray-700' : ''} ${settingsType === type ? 'bg-[#2E7EB8] text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                      >
+                        {type === 'public' ? '🌐 Public' : type === 'private' ? '🔒 Private' : '👤 Personal'}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+                {/* Members — only for private boards */}
+                {settingsType === 'private' && (
+                  <div>
+                    <div className="flex items-center justify-between mb-2">
+                      <label className="text-xs text-white/50">Members</label>
+                      <button
+                        onClick={() => setAddMemberOpen(v => !v)}
+                        className="text-xs text-[#2E7EB8] hover:text-white transition-colors"
+                      >
+                        + Add
+                      </button>
+                    </div>
+                    {addMemberOpen && eligibleToAdd.length > 0 && (
+                      <div className="bg-gray-800 rounded-xl border border-gray-700 mb-2 max-h-36 overflow-y-auto">
+                        {eligibleToAdd.map(u => (
+                          <button
+                            key={u.id}
+                            onClick={() => addBoardMember(u.id)}
+                            className="w-full flex items-center gap-2 px-3 py-2 text-sm text-gray-300 hover:bg-gray-700 text-left"
+                          >
+                            <div className="w-6 h-6 rounded-full bg-gray-600 flex items-center justify-center text-xs font-bold text-white flex-none">
+                              {u.display_name.slice(0, 1).toUpperCase()}
+                            </div>
+                            {u.display_name}
+                          </button>
+                        ))}
+                        {eligibleToAdd.length === 0 && <p className="text-xs text-gray-500 px-3 py-2">Everyone is already a member.</p>}
+                      </div>
+                    )}
+                    {settingsMembersLoading ? (
+                      <p className="text-xs text-white/30 py-1">Loading…</p>
+                    ) : settingsMembers.length === 0 ? (
+                      <p className="text-xs text-white/30 py-1">No members yet.</p>
+                    ) : (
+                      <div className="space-y-1">
+                        {settingsMembers.map(m => (
+                          <div key={m.id} className="flex items-center gap-2 py-1">
+                            <div className="w-6 h-6 rounded-full bg-gray-600 flex items-center justify-center text-xs font-bold text-white flex-none">
+                              {m.display_name.slice(0, 1).toUpperCase()}
+                            </div>
+                            <span className="text-sm text-gray-300 flex-1 truncate">{m.display_name}</span>
+                            {m.id === boardSettings.created_by ? (
+                              <span className="text-xs text-white/30">Owner</span>
+                            ) : (
+                              <button
+                                onClick={() => removeBoardMember(m.id)}
+                                className="text-xs text-white/30 hover:text-red-400 transition-colors px-1.5 py-0.5 rounded"
+                              >
+                                Remove
+                              </button>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+              <div className="px-5 py-4 border-t border-gray-800 flex-none flex items-center gap-3">
+                <button
+                  onClick={deleteBoardConfirm}
+                  className="py-2 px-3 rounded-xl border border-red-500/30 text-sm text-red-400 hover:bg-red-500/10 transition-colors"
+                >
+                  Delete
+                </button>
+                <div className="flex-1" />
+                <button
+                  onClick={() => setBoardSettings(null)}
+                  className="py-2 px-4 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white hover:border-gray-600 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={saveBoardSettings}
+                  disabled={!settingsName.trim() || savingSettings}
+                  className="py-2 px-4 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                >
+                  {savingSettings ? 'Saving…' : 'Save'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Browse Rooms modal */}
       {showBrowseRooms && (

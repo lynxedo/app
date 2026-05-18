@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import HubAdminPanel from './HubAdminPanel'
@@ -34,28 +33,11 @@ export default async function AdminHubPage() {
   ])
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href="/hub" className="text-gray-400 hover:text-white text-sm transition-colors">
-            ← Hub
-          </Link>
-          <span className="text-gray-600">·</span>
-          <Link href="/admin" className="text-gray-400 hover:text-white text-sm transition-colors">
-            Admin
-          </Link>
-          <span className="text-gray-600">·</span>
-          <span className="text-xl font-bold tracking-tight">Hub Admin</span>
-        </div>
-      </header>
-      <main className="max-w-4xl mx-auto px-6 py-10">
-        <HubAdminPanel
-          initialRooms={roomsResult.data ?? []}
-          hubUsers={hubUsersResult.data ?? []}
-          allowMemberRoomCreation={settingsResult.data?.allow_member_room_creation ?? true}
-          activeAnnouncement={announcementResult.data ?? null}
-        />
-      </main>
-    </div>
+    <HubAdminPanel
+      initialRooms={roomsResult.data ?? []}
+      hubUsers={hubUsersResult.data ?? []}
+      allowMemberRoomCreation={settingsResult.data?.allow_member_room_creation ?? true}
+      activeAnnouncement={announcementResult.data ?? null}
+    />
   )
 }
