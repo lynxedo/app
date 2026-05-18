@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function GET() {
   const supabase = await createClient()
@@ -44,8 +45,9 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Add creator as member
-  await supabase.from('board_members').insert({ board_id: board.id, user_id: user.id })
+  // Add creator as member — admin client bypasses RLS so owner can also add others later
+  const admin = createAdminClient()
+  await admin.from('board_members').insert({ board_id: board.id, user_id: user.id })
 
   return NextResponse.json(board, { status: 201 })
 }
