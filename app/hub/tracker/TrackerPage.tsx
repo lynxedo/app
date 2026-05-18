@@ -1369,7 +1369,7 @@ export default function TrackerPage({
   const totalLeads = leads.length
 
   return (
-    <div className="flex" className="flex-1 overflow-hidden">
+    <div className="flex flex-1 overflow-hidden">
       {/* Main */}
       <div className="flex-1 overflow-auto min-w-0">
         {/* Toolbar */}
