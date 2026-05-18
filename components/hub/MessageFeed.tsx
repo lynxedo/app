@@ -453,7 +453,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                   {/* Hover / tap actions */}
                   {!isEditing && (
                     <div
-                      className={`flex-none transition-opacity flex gap-0.5 relative ${isActionsVisible ? 'opacity-100' : 'opacity-0 group-hover:opacity-100'}`}
+                      className={`flex-none transition-opacity gap-0.5 relative ${isActionsVisible ? 'flex opacity-100' : 'hidden md:flex md:opacity-0 md:group-hover:opacity-100'}`}
                       onClick={e => e.stopPropagation()}
                     >
                       <div className="relative">
