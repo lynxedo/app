@@ -439,10 +439,9 @@ function UserRow({
               )}
               <button
                 onClick={handleEditOpen}
-                title="Edit name"
-                className="text-gray-600 hover:text-gray-300 transition-colors text-xs leading-none"
+                className="px-2 py-0.5 text-xs text-gray-400 hover:text-white border border-gray-700 hover:border-gray-500 rounded transition-colors"
               >
-                ✎
+                Edit
               </button>
             </div>
             <div className="text-xs text-gray-500 mt-0.5">Last sign in: {lastSeen}</div>
