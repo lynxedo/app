@@ -60,7 +60,8 @@ export async function POST(
 
   if (subscriberIds.length > 0) {
     const senderName = senderResult.data?.display_name ?? 'Someone'
-    const techName = (entryResult.data?.tech as { display_name: string } | null)?.display_name ?? 'a tech'
+    const techRaw = entryResult.data?.tech
+    const techName = (Array.isArray(techRaw) ? techRaw[0] : techRaw)?.display_name ?? 'a tech'
     const snippet = content.trim().length > 100
       ? content.trim().slice(0, 97) + '…'
       : content.trim()
