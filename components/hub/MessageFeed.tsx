@@ -306,7 +306,8 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
 
   const deleteMessage = useCallback(async (msgId: string) => {
     if (!confirm('Delete this message?')) return
-    await fetch(`/api/hub/messages/${msgId}`, { method: 'DELETE' })
+    const res = await fetch(`/api/hub/messages/${msgId}`, { method: 'DELETE' })
+    if (res.ok) setMessages(prev => prev.filter(m => m.id !== msgId))
   }, [])
 
   const handleForward = useCallback(async (target: ForwardTarget, comment: string) => {
