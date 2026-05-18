@@ -298,7 +298,7 @@ async function fireAutomationRules({
 
   const { data: rules } = await admin
     .from('hub_automation_rules')
-    .select('id, trigger_room_id, keyword, action_type, target_room_id, target_user_id, message_template')
+    .select('id, trigger_room_id, keyword, action_type, target_room_id, target_user_id, target_board_id, message_template')
     .eq('company_id', companyId)
     .eq('active', true)
 
@@ -326,6 +326,14 @@ async function fireAutomationRules({
         room_id: rule.target_room_id,
         sender_id: CLAUDE_BOT_ID,
         content: messageText,
+      })
+    } else if (rule.action_type === 'create_board_task' && rule.target_board_id) {
+      await admin.from('board_items').insert({
+        board_id: rule.target_board_id,
+        company_id: companyId,
+        content: messageText,
+        priority: 'none',
+        created_by: CLAUDE_BOT_ID,
       })
     } else if (rule.action_type === 'dm_user' && rule.target_user_id) {
       // Find or create a DM conversation between the bot and the target user

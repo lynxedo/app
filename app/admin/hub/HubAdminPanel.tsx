@@ -20,14 +20,17 @@ type AutomationRule = {
   id: string
   trigger_source: string
   keyword: string
-  action_type: 'post_room' | 'dm_user'
+  action_type: 'post_room' | 'dm_user' | 'create_board_task'
   message_template: string
   active: boolean
   created_at: string
   trigger_room: { id: string; name: string } | null
   target_room: { id: string; name: string } | null
   target_user: { id: string; display_name: string } | null
+  target_board: { id: string; name: string } | null
 }
+
+type Board = { id: string; name: string; is_private: boolean; is_personal: boolean }
 
 const DURATION_OPTIONS = [
   { label: '1 day', hours: 24 },
@@ -87,11 +90,13 @@ export default function HubAdminPanel({
   // Automation rules
   const [automationRules, setAutomationRules] = useState<AutomationRule[]>([])
   const [automationLoaded, setAutomationLoaded] = useState(false)
+  const [boards, setBoards] = useState<Board[]>([])
   const [newRuleTriggerRoom, setNewRuleTriggerRoom] = useState('')
   const [newRuleKeyword, setNewRuleKeyword] = useState('')
-  const [newRuleActionType, setNewRuleActionType] = useState<'post_room' | 'dm_user'>('post_room')
+  const [newRuleActionType, setNewRuleActionType] = useState<'post_room' | 'dm_user' | 'create_board_task'>('post_room')
   const [newRuleTargetRoom, setNewRuleTargetRoom] = useState('')
   const [newRuleTargetUser, setNewRuleTargetUser] = useState('')
+  const [newRuleTargetBoard, setNewRuleTargetBoard] = useState('')
   const [newRuleTemplate, setNewRuleTemplate] = useState('')
   const [savingRule, setSavingRule] = useState(false)
   const [ruleError, setRuleError] = useState('')
@@ -288,9 +293,14 @@ export default function HubAdminPanel({
 
   async function loadAutomationRules() {
     if (automationLoaded) return
-    const res = await fetch('/api/hub/automation-rules')
-    const data = await res.json()
-    setAutomationRules(data.rules ?? [])
+    const [rulesRes, boardsRes] = await Promise.all([
+      fetch('/api/hub/automation-rules'),
+      fetch('/api/hub/boards'),
+    ])
+    const rulesData = await rulesRes.json()
+    const boardsData = await boardsRes.json()
+    setAutomationRules(rulesData.rules ?? [])
+    setBoards((boardsData.boards ?? []).filter((b: Board) => !b.is_personal))
     setAutomationLoaded(true)
   }
 
@@ -298,6 +308,7 @@ export default function HubAdminPanel({
     if (!newRuleKeyword.trim() || !newRuleTemplate.trim() || savingRule) return
     if (newRuleActionType === 'post_room' && !newRuleTargetRoom) { setRuleError('Select a target room'); return }
     if (newRuleActionType === 'dm_user' && !newRuleTargetUser) { setRuleError('Select a target user'); return }
+    if (newRuleActionType === 'create_board_task' && !newRuleTargetBoard) { setRuleError('Select a target board'); return }
     setSavingRule(true)
     setRuleError('')
     const res = await fetch('/api/hub/automation-rules', {
@@ -309,6 +320,7 @@ export default function HubAdminPanel({
         action_type: newRuleActionType,
         target_room_id: newRuleActionType === 'post_room' ? newRuleTargetRoom : null,
         target_user_id: newRuleActionType === 'dm_user' ? newRuleTargetUser : null,
+        target_board_id: newRuleActionType === 'create_board_task' ? newRuleTargetBoard : null,
         message_template: newRuleTemplate.trim(),
       }),
     })
@@ -316,7 +328,8 @@ export default function HubAdminPanel({
     setSavingRule(false)
     if (!res.ok) { setRuleError(data.error ?? 'Failed to create rule'); return }
     setAutomationRules(prev => [data, ...prev])
-    setNewRuleKeyword(''); setNewRuleTemplate(''); setNewRuleTriggerRoom(''); setNewRuleTargetRoom(''); setNewRuleTargetUser('')
+    setNewRuleKeyword(''); setNewRuleTemplate(''); setNewRuleTriggerRoom('')
+    setNewRuleTargetRoom(''); setNewRuleTargetUser(''); setNewRuleTargetBoard('')
   }
 
   async function toggleRuleActive(id: string, active: boolean) {
@@ -804,13 +817,14 @@ Content-Type: application/json
                   >
                     <option value="post_room">Post to a room</option>
                     <option value="dm_user">DM a user</option>
+                    <option value="create_board_task">Create a board task</option>
                   </select>
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 mb-1 block">
-                    {newRuleActionType === 'post_room' ? 'Target room' : 'Target user'}
+                    {newRuleActionType === 'post_room' ? 'Target room' : newRuleActionType === 'dm_user' ? 'Target user' : 'Target board'}
                   </label>
-                  {newRuleActionType === 'post_room' ? (
+                  {newRuleActionType === 'post_room' && (
                     <select
                       value={newRuleTargetRoom}
                       onChange={e => setNewRuleTargetRoom(e.target.value)}
@@ -819,7 +833,8 @@ Content-Type: application/json
                       <option value="">Select room…</option>
                       {activeRooms.map(r => <option key={r.id} value={r.id}>#{r.name}</option>)}
                     </select>
-                  ) : (
+                  )}
+                  {newRuleActionType === 'dm_user' && (
                     <select
                       value={newRuleTargetUser}
                       onChange={e => setNewRuleTargetUser(e.target.value)}
@@ -829,6 +844,16 @@ Content-Type: application/json
                       {hubUsers.filter(u => !u.display_name.startsWith('Claude')).map(u => (
                         <option key={u.id} value={u.id}>{u.display_name}</option>
                       ))}
+                    </select>
+                  )}
+                  {newRuleActionType === 'create_board_task' && (
+                    <select
+                      value={newRuleTargetBoard}
+                      onChange={e => setNewRuleTargetBoard(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                    >
+                      <option value="">Select board…</option>
+                      {boards.map(b => <option key={b.id} value={b.id}>{b.name}{b.is_private ? ' 🔒' : ''}</option>)}
                     </select>
                   )}
                 </div>
@@ -890,7 +915,9 @@ Content-Type: application/json
                         <span className="text-xs text-gray-400">
                           {rule.action_type === 'post_room'
                             ? `post in #${rule.target_room?.name ?? '?'}`
-                            : `DM ${rule.target_user?.display_name ?? '?'}`}
+                            : rule.action_type === 'dm_user'
+                            ? `DM ${rule.target_user?.display_name ?? '?'}`
+                            : `task on "${rule.target_board?.name ?? '?'}"`}
                         </span>
                       </div>
                       <p className="text-sm text-gray-300 truncate">{rule.message_template}</p>

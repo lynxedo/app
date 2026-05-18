@@ -17,7 +17,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (profile.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await request.json()
-  const allowed = ['trigger_room_id', 'keyword', 'action_type', 'target_room_id', 'target_user_id', 'message_template', 'active']
+  const allowed = ['trigger_room_id', 'keyword', 'action_type', 'target_room_id', 'target_user_id', 'target_board_id', 'message_template', 'active']
   const updates: Record<string, unknown> = {}
   for (const key of allowed) {
     if (key in body) updates[key] = body[key]
