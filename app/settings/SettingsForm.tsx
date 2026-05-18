@@ -20,6 +20,7 @@ interface Settings {
 }
 
 interface HubProfile {
+  full_name: string | null
   display_name: string | null
   avatar_url: string | null
   phone: string | null
@@ -90,6 +91,7 @@ export default function SettingsForm({ email, userId, initial, hubProfile, jobbe
   const [activeTab, setActiveTab] = useState<Tab>('profile')
 
   // ── Hub profile state ─────────────────────────────────────────────────────
+  const [fullName, setFullName] = useState(hubProfile.full_name ?? '')
   const [hubName, setHubName] = useState(hubProfile.display_name ?? '')
   const [phone, setPhone] = useState(hubProfile.phone ?? '')
   const [hasAvatar, setHasAvatar] = useState(
@@ -143,6 +145,7 @@ export default function SettingsForm({ email, userId, initial, hubProfile, jobbe
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
+          full_name: fullName || null,
           display_name: hubName || null,
           phone: phone || null,
         }),
@@ -418,6 +421,16 @@ export default function SettingsForm({ email, userId, initial, hubProfile, jobbe
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Email</label>
             <input value={email} disabled className={inputCls + ' text-gray-400'} />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Full name</label>
+            <input
+              value={fullName}
+              onChange={e => setFullName(e.target.value)}
+              placeholder="Your legal name (e.g. Ben Simpson)"
+              className={inputCls}
+            />
+            <p className="text-xs text-gray-600 mt-1">Used for payroll and records. Not visible to teammates.</p>
           </div>
           <div>
             <label className="block text-xs text-gray-400 mb-1.5">Display name</label>

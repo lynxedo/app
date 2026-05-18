@@ -20,10 +20,23 @@ type User = {
   email: string
   created_at: string
   last_sign_in_at: string | null
+  full_name: string | null
   display_name: string | null
   avatar_url: string | null
   invite_sent_at: string | null
   profile: UserProfile | null
+}
+
+type RosterEmployee = {
+  id: string
+  first_name: string
+  last_name: string
+  preferred_name: string | null
+  department: string | null
+  job_title: string | null
+  pay_type: string | null
+  email: string | null
+  user_id: string | null
 }
 
 const TOOLS: { key: keyof UserProfile; label: string }[] = [
@@ -73,12 +86,16 @@ function Avatar({ userId, avatarUrl, name, email }: { userId: string; avatarUrl:
 export default function AdminPanel({
   currentUserId,
   initialUsers,
+  initialEmployees,
 }: {
   currentUserId: string
   initialUsers: User[]
+  initialEmployees: RosterEmployee[]
 }) {
   const [users, setUsers] = useState(initialUsers)
+  const [employees, setEmployees] = useState(initialEmployees)
   const [inviteEmail, setInviteEmail] = useState('')
+  const [inviteFullName, setInviteFullName] = useState('')
   const [inviteDisplayName, setInviteDisplayName] = useState('')
   const [inviteStatus, setInviteStatus] = useState<'idle' | 'loading' | 'success' | 'deferred' | 'error'>('idle')
   const [inviteError, setInviteError] = useState('')
@@ -89,17 +106,22 @@ export default function AdminPanel({
     const res = await fetch('/api/admin/users', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ email: inviteEmail, display_name: inviteDisplayName || undefined, deferred }),
+      body: JSON.stringify({
+        email: inviteEmail,
+        full_name: inviteFullName || undefined,
+        display_name: inviteDisplayName || undefined,
+        deferred,
+      }),
     })
     if (res.ok) {
       const data = await res.json()
-      // Add new user to list with pending status if deferred
       if (data.user) {
         const newUser: User = {
           id: data.user.id,
           email: data.user.email ?? inviteEmail,
           created_at: data.user.created_at ?? new Date().toISOString(),
           last_sign_in_at: null,
+          full_name: inviteFullName || null,
           display_name: inviteDisplayName || null,
           avatar_url: null,
           invite_sent_at: deferred ? null : new Date().toISOString(),
@@ -120,12 +142,66 @@ export default function AdminPanel({
       }
       setInviteStatus(deferred ? 'deferred' : 'success')
       setInviteEmail('')
+      setInviteFullName('')
       setInviteDisplayName('')
       setTimeout(() => setInviteStatus('idle'), 4000)
     } else {
       const data = await res.json()
       setInviteStatus('error')
       setInviteError(data.error || 'Failed to add user')
+    }
+  }
+
+  async function handleInviteEmployee(emp: RosterEmployee) {
+    if (!emp.email) {
+      alert('This employee has no email address on file. Add one in Timesheet Admin first.')
+      return
+    }
+    if (!confirm(`Create a Lynxedo account for ${emp.first_name} ${emp.last_name} and send them an invite to ${emp.email}?`)) return
+
+    const res = await fetch(`/api/admin/employees/${emp.id}/invite`, { method: 'POST' })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.user) {
+        const newUser: User = {
+          id: data.user.id,
+          email: emp.email ?? '',
+          created_at: data.user.created_at ?? new Date().toISOString(),
+          last_sign_in_at: null,
+          full_name: `${emp.first_name} ${emp.last_name}`,
+          display_name: emp.preferred_name ?? emp.first_name,
+          avatar_url: null,
+          invite_sent_at: new Date().toISOString(),
+          profile: {
+            id: data.user.id,
+            role: 'user',
+            can_access_routing: false,
+            can_access_lawn: false,
+            can_access_call_log: false,
+            can_access_responder: false,
+            can_access_timesheet: true,
+            can_access_books: false,
+            can_access_tracker: false,
+            can_access_hub: false,
+          },
+        }
+        setUsers(prev => [...prev, newUser])
+        setEmployees(prev => prev.filter(e => e.id !== emp.id))
+      }
+    } else {
+      const data = await res.json()
+      alert(data.error || 'Failed to create account')
+    }
+  }
+
+  async function handleDeleteEmployee(emp: RosterEmployee) {
+    if (!confirm(`Remove ${emp.first_name} ${emp.last_name} from the employee roster?\n\nThis does not affect Gusto. You can re-sync from Gusto to restore them.`)) return
+    const res = await fetch(`/api/admin/employees/${emp.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setEmployees(prev => prev.filter(e => e.id !== emp.id))
+    } else {
+      const data = await res.json()
+      alert(data.error || 'Failed to remove employee')
     }
   }
 
@@ -179,9 +255,16 @@ export default function AdminPanel({
           />
           <input
             type="text"
+            value={inviteFullName}
+            onChange={e => setInviteFullName(e.target.value)}
+            placeholder="Full name (e.g. Ben Simpson)"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+          />
+          <input
+            type="text"
             value={inviteDisplayName}
             onChange={e => setInviteDisplayName(e.target.value)}
-            placeholder="Display name (optional)"
+            placeholder="Display name in Hub (e.g. Ben S.)"
             className="w-full bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
           />
           <div className="flex gap-3">
@@ -212,10 +295,13 @@ export default function AdminPanel({
         )}
       </div>
 
-      {/* User list */}
+      {/* Unified people list */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
         <div className="px-6 py-4 border-b border-gray-800">
-          <h2 className="font-semibold text-lg">Users <span className="text-gray-500 font-normal text-base">({users.length})</span></h2>
+          <h2 className="font-semibold text-lg">
+            People{' '}
+            <span className="text-gray-500 font-normal text-base">({users.length + employees.length})</span>
+          </h2>
         </div>
         <div className="divide-y divide-gray-800">
           {users.map(user => (
@@ -226,6 +312,14 @@ export default function AdminPanel({
               onChange={handleChange}
               onDelete={handleDelete}
               onSendInvite={handleSendInvite}
+            />
+          ))}
+          {employees.map(emp => (
+            <EmployeeRow
+              key={emp.id}
+              employee={emp}
+              onInvite={handleInviteEmployee}
+              onDelete={handleDeleteEmployee}
             />
           ))}
         </div>
@@ -271,13 +365,18 @@ function UserRow({
     <div className="px-6 py-5">
       <div className="flex items-center justify-between gap-4 mb-4">
         <div className="flex items-center gap-3 min-w-0">
-          <Avatar userId={user.id} avatarUrl={user.avatar_url} name={user.display_name} email={user.email} />
+          <Avatar userId={user.id} avatarUrl={user.avatar_url} name={user.display_name || user.full_name} email={user.email} />
           <div className="min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
-              {user.display_name ? (
+              {user.full_name ? (
+                <span className="font-medium text-sm">{user.full_name}</span>
+              ) : user.display_name ? (
                 <span className="font-medium text-sm">{user.display_name}</span>
               ) : null}
-              <span className={`text-sm ${user.display_name ? 'text-gray-400' : 'font-medium'}`}>{user.email}</span>
+              {user.display_name && user.full_name && user.display_name !== user.full_name && (
+                <span className="text-xs text-gray-500">({user.display_name})</span>
+              )}
+              <span className={`text-sm ${(user.full_name || user.display_name) ? 'text-gray-400' : 'font-medium'}`}>{user.email}</span>
               {isSelf && (
                 <span className="text-xs bg-blue-500/15 text-blue-400 border border-blue-500/25 px-2 py-0.5 rounded-full">You</span>
               )}
@@ -336,6 +435,59 @@ function UserRow({
             </label>
           )
         })}
+      </div>
+    </div>
+  )
+}
+
+function EmployeeRow({
+  employee,
+  onInvite,
+  onDelete,
+}: {
+  employee: RosterEmployee
+  onInvite: (emp: RosterEmployee) => void
+  onDelete: (emp: RosterEmployee) => void
+}) {
+  const name = employee.preferred_name
+    ? `${employee.preferred_name} ${employee.last_name}`
+    : `${employee.first_name} ${employee.last_name}`
+
+  const initials = (employee.first_name[0] + employee.last_name[0]).toUpperCase()
+
+  return (
+    <div className="px-6 py-5">
+      <div className="flex items-center justify-between gap-4">
+        <div className="flex items-center gap-3 min-w-0">
+          <div className="w-9 h-9 rounded-full bg-gray-700 border border-gray-600 flex items-center justify-center flex-shrink-0">
+            <span className="text-xs font-bold text-gray-300">{initials}</span>
+          </div>
+          <div className="min-w-0">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-medium text-sm">{name}</span>
+              <span className="text-xs bg-gray-700/60 text-gray-400 border border-gray-600/50 px-2 py-0.5 rounded-full">Employee Only</span>
+            </div>
+            <div className="text-xs text-gray-500 mt-0.5">
+              {[employee.job_title, employee.department].filter(Boolean).join(' · ')}
+              {employee.email && <span className="ml-2 text-gray-600">{employee.email}</span>}
+            </div>
+          </div>
+        </div>
+        <div className="flex items-center gap-2 flex-shrink-0">
+          <button
+            onClick={() => onInvite(employee)}
+            className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg text-xs font-medium border border-blue-600/30 transition-colors whitespace-nowrap"
+          >
+            Invite to Lynxedo
+          </button>
+          <button
+            onClick={() => onDelete(employee)}
+            title="Remove from roster"
+            className="text-gray-600 hover:text-red-400 transition-colors text-base leading-none px-1"
+          >
+            ✕
+          </button>
+        </div>
       </div>
     </div>
   )

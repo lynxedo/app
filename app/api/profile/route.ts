@@ -14,12 +14,13 @@ export async function GET() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('phone, hub_text_size, hub_pinned_ids')
+    .select('phone, hub_text_size, hub_pinned_ids, full_name')
     .eq('id', user.id)
     .single()
 
   return NextResponse.json({
     email: user.email,
+    full_name: profile?.full_name ?? null,
     display_name: hubUser?.display_name ?? null,
     avatar_url: hubUser?.avatar_url ?? null,
     phone: profile?.phone ?? null,
@@ -33,7 +34,7 @@ export async function PUT(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { display_name, phone, hub_text_size, hub_pinned_ids } = await request.json()
+  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids } = await request.json()
 
   if (display_name !== undefined) {
     const { error } = await supabase
@@ -44,6 +45,7 @@ export async function PUT(request: Request) {
   }
 
   const profileUpdates: Record<string, string | null | string[]> = {}
+  if (full_name !== undefined) profileUpdates.full_name = full_name || null
   if (phone !== undefined) profileUpdates.phone = phone || null
   if (hub_text_size !== undefined) profileUpdates.hub_text_size = hub_text_size
   if (hub_pinned_ids !== undefined) profileUpdates.hub_pinned_ids = hub_pinned_ids

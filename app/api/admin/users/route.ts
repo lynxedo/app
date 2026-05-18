@@ -58,27 +58,25 @@ export async function POST(request: Request) {
   const adminUser = await requireAdmin()
   if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
-  const { email, display_name, deferred } = await request.json()
+  const { email, full_name, display_name, deferred } = await request.json()
   if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 })
 
   const admin = createAdminClient()
 
   if (deferred) {
-    // Create auth user without sending any email
     const { data, error } = await admin.auth.admin.createUser({
       email,
       email_confirm: false,
     })
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-    // user_profiles row is created by the on_auth_user_created trigger,
-    // but invite_sent_at stays null (pending) — we just need to mark it explicitly
-    // In case the trigger runs, update invite_sent_at to null (already default)
-    if (display_name && data.user) {
-      await admin
-        .from('hub_users')
-        .update({ display_name })
-        .eq('id', data.user.id)
+    if (data.user) {
+      if (full_name) {
+        await admin.from('user_profiles').update({ full_name }).eq('id', data.user.id)
+      }
+      if (display_name) {
+        await admin.from('hub_users').update({ display_name }).eq('id', data.user.id)
+      }
     }
 
     return NextResponse.json({ user: data.user, deferred: true })
@@ -90,18 +88,13 @@ export async function POST(request: Request) {
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Mark invite as sent
   if (data.user) {
-    await admin
-      .from('user_profiles')
-      .update({ invite_sent_at: new Date().toISOString() })
-      .eq('id', data.user.id)
+    const profileUpdates: Record<string, string> = { invite_sent_at: new Date().toISOString() }
+    if (full_name) profileUpdates.full_name = full_name
+    await admin.from('user_profiles').update(profileUpdates).eq('id', data.user.id)
 
     if (display_name) {
-      await admin
-        .from('hub_users')
-        .update({ display_name })
-        .eq('id', data.user.id)
+      await admin.from('hub_users').update({ display_name }).eq('id', data.user.id)
     }
   }
 

@@ -36,7 +36,7 @@ export default async function SettingsPage() {
       .maybeSingle(),
     supabase
       .from('user_profiles')
-      .select('phone')
+      .select('phone, full_name')
       .eq('id', user.id)
       .maybeSingle(),
   ])
@@ -45,6 +45,7 @@ export default async function SettingsPage() {
   const jobberConnected = await isJobberConnected(user.id)
 
   const hubProfile = {
+    full_name: profileResult.data?.full_name ?? null,
     display_name: hubUserResult.data?.display_name ?? null,
     avatar_url: hubUserResult.data?.avatar_url ?? null,
     phone: profileResult.data?.phone ?? null,
