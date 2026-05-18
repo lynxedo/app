@@ -51,7 +51,9 @@ export async function POST(request: Request) {
   const { name, description, is_private } = await request.json()
   if (!name?.trim()) return NextResponse.json({ error: 'name required' }, { status: 400 })
 
-  const { data: room, error } = await supabase
+  // Use admin client — RLS blocks is_private: true for session clients
+  const admin = createAdminClient()
+  const { data: room, error } = await admin
     .from('rooms')
     .insert({
       company_id: profile.company_id,
@@ -65,7 +67,7 @@ export async function POST(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // Add creator as member
-  await supabase.from('room_members').insert({ room_id: room.id, user_id: user.id, role: 'admin' })
+  await admin.from('room_members').insert({ room_id: room.id, user_id: user.id, role: 'admin' })
 
   return NextResponse.json(room, { status: 201 })
 }

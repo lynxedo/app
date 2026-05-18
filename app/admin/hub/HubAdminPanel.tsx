@@ -114,6 +114,24 @@ export default function HubAdminPanel({
     }
   }
 
+  async function toggleRoomPrivate(id: string, makePrivate: boolean) {
+    const room = rooms.find(r => r.id === id)
+    if (!room) return
+    if (makePrivate) {
+      if (!confirm(`Make "${room.name}" private? Only members you add will have access — everyone else will lose access immediately.`)) return
+    } else {
+      if (!confirm(`Make "${room.name}" public? All Hub members will be able to join this room.`)) return
+    }
+    const res = await fetch(`/api/hub/rooms/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ is_private: makePrivate }),
+    })
+    if (res.ok) {
+      setRooms(prev => prev.map(r => r.id === id ? { ...r, is_private: makePrivate } : r))
+    }
+  }
+
   async function toggleClaudeEnabled(id: string, enabled: boolean) {
     setRooms(prev => prev.map(r => r.id === id ? { ...r, claude_enabled: enabled } : r))
     await fetch(`/api/hub/rooms/${id}`, {
@@ -245,7 +263,6 @@ export default function HubAdminPanel({
 
   const activeRooms = rooms.filter(r => !r.archived_at)
   const archivedRooms = rooms.filter(r => r.archived_at)
-  const privateRooms = activeRooms.filter(r => r.is_private)
   const selectedRoom = membersRoomId ? rooms.find(r => r.id === membersRoomId) : null
 
   return (
@@ -362,6 +379,17 @@ export default function HubAdminPanel({
                           Rename
                         </button>
                         <button
+                          onClick={() => toggleRoomPrivate(room.id, !room.is_private)}
+                          className={`text-xs px-2 py-1 rounded hover:bg-gray-800 transition-colors ${
+                            room.is_private
+                              ? 'text-purple-400/70 hover:text-purple-300'
+                              : 'text-gray-400 hover:text-white'
+                          }`}
+                          title={room.is_private ? 'Make public' : 'Make private'}
+                        >
+                          {room.is_private ? 'Make Public' : 'Make Private'}
+                        </button>
+                        <button
                           onClick={() => archiveRoom(room.id, true)}
                           className="text-xs text-yellow-500/70 hover:text-yellow-400 px-2 py-1 rounded hover:bg-gray-800 transition-colors"
                         >
@@ -403,12 +431,13 @@ export default function HubAdminPanel({
       {tab === 'members' && (
         <div className="space-y-6">
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-            <h2 className="font-semibold text-white mb-4">Manage Private Room Members</h2>
-            {privateRooms.length === 0 ? (
-              <p className="text-sm text-gray-500">No private rooms exist yet.</p>
+            <h2 className="font-semibold text-white mb-1">Manage Room Members</h2>
+            <p className="text-xs text-gray-500 mb-4">Select a room to add or remove members. For public rooms, members control who appears in Browse Rooms as &quot;joined&quot;.</p>
+            {activeRooms.length === 0 ? (
+              <p className="text-sm text-gray-500">No active rooms.</p>
             ) : (
               <div className="space-y-2 mb-6">
-                {privateRooms.map(room => (
+                {activeRooms.map(room => (
                   <button
                     key={room.id}
                     onClick={() => loadMembers(room.id)}
@@ -416,8 +445,9 @@ export default function HubAdminPanel({
                       membersRoomId === room.id ? 'bg-[#2E7EB8]/20 border border-[#2E7EB8]/40 text-white' : 'bg-gray-800 border border-gray-700 text-gray-300 hover:bg-gray-750 hover:text-white'
                     }`}
                   >
-                    <span className="text-gray-500">🔒</span>
+                    <span className="text-gray-500 text-xs">{room.is_private ? '🔒' : '#'}</span>
                     <span className="font-medium">{room.name}</span>
+                    {room.is_private && <span className="ml-auto text-xs text-purple-400/70">private</span>}
                   </button>
                 ))}
               </div>

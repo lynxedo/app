@@ -84,6 +84,13 @@ export default function HubSidebar({
   const [newRoomDesc, setNewRoomDesc] = useState('')
   const [newRoomPrivate, setNewRoomPrivate] = useState(false)
   const [creatingRoom, setCreatingRoom] = useState(false)
+  const [createRoomError, setCreateRoomError] = useState('')
+
+  // Browse rooms state
+  const [showBrowseRooms, setShowBrowseRooms] = useState(false)
+  const [browseRooms, setBrowseRooms] = useState<{ id: string; name: string; description: string | null; is_member: boolean }[]>([])
+  const [browseLoading, setBrowseLoading] = useState(false)
+  const [joiningRoomId, setJoiningRoomId] = useState<string | null>(null)
 
   // New board form state
   const [newBoardName, setNewBoardName] = useState('')
@@ -247,6 +254,7 @@ export default function HubSidebar({
   async function createRoom() {
     if (!newRoomName.trim() || creatingRoom) return
     setCreatingRoom(true)
+    setCreateRoomError('')
     const res = await fetch('/api/hub/rooms', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -258,8 +266,50 @@ export default function HubSidebar({
       const newRoom = { id: data.id, name: data.name, is_private: data.is_private }
       setSidebarRooms(prev => [...prev, newRoom].sort((a, b) => a.name.localeCompare(b.name)))
       setShowNewRoom(false)
-      setNewRoomName(''); setNewRoomDesc(''); setNewRoomPrivate(false)
+      setNewRoomName(''); setNewRoomDesc(''); setNewRoomPrivate(false); setCreateRoomError('')
       router.push(`/hub/${data.id}`)
+    } else {
+      setCreateRoomError(data.error ?? 'Failed to create room')
+    }
+  }
+
+  async function leaveRoom(roomId: string, roomName: string) {
+    if (!confirm(`Leave #${roomName}? You can rejoin public rooms from Browse Rooms.`)) return
+    const res = await fetch(`/api/hub/rooms/${roomId}/leave`, { method: 'DELETE' })
+    if (res.ok) {
+      setSidebarRooms(prev => prev.filter(r => r.id !== roomId))
+      if (pathname === `/hub/${roomId}`) router.push('/hub')
+    }
+    setContextMenu(null)
+  }
+
+  async function loadBrowseRooms() {
+    setBrowseLoading(true)
+    const res = await fetch('/api/hub/rooms-browse')
+    const data = await res.json()
+    setBrowseRooms(data.rooms ?? [])
+    setBrowseLoading(false)
+  }
+
+  async function joinRoom(roomId: string) {
+    setJoiningRoomId(roomId)
+    const res = await fetch(`/api/hub/rooms/${roomId}/join`, { method: 'POST' })
+    const data = await res.json()
+    setJoiningRoomId(null)
+    if (res.ok) {
+      setBrowseRooms(prev => prev.map(r => r.id === roomId ? { ...r, is_member: true } : r))
+      setSidebarRooms(prev => {
+        if (prev.find(r => r.id === roomId)) return prev
+        return [...prev, { id: data.id, name: data.name, is_private: data.is_private }].sort((a, b) => a.name.localeCompare(b.name))
+      })
+    }
+  }
+
+  async function leaveRoomFromBrowse(roomId: string) {
+    const res = await fetch(`/api/hub/rooms/${roomId}/leave`, { method: 'DELETE' })
+    if (res.ok) {
+      setBrowseRooms(prev => prev.map(r => r.id === roomId ? { ...r, is_member: false } : r))
+      setSidebarRooms(prev => prev.filter(r => r.id !== roomId))
     }
   }
 
@@ -482,15 +532,24 @@ export default function HubSidebar({
                 <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.rooms ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
                 <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Rooms</span>
               </button>
-              {canCreateRoom && (
+              <div className="flex items-center gap-1">
                 <button
-                  onClick={() => { setShowNewRoom(true); setNewRoomName(''); setNewRoomDesc(''); setNewRoomPrivate(false) }}
-                  className="text-white/40 hover:text-white/70 transition-colors text-lg leading-none"
-                  title="New room"
+                  onClick={() => { setShowBrowseRooms(true); loadBrowseRooms() }}
+                  className="text-white/40 hover:text-white/70 transition-colors text-xs px-1 py-0.5 rounded"
+                  title="Browse rooms"
                 >
-                  +
+                  Browse
                 </button>
-              )}
+                {canCreateRoom && (
+                  <button
+                    onClick={() => { setShowNewRoom(true); setNewRoomName(''); setNewRoomDesc(''); setNewRoomPrivate(false); setCreateRoomError('') }}
+                    className="text-white/40 hover:text-white/70 transition-colors text-lg leading-none"
+                    title="New room"
+                  >
+                    +
+                  </button>
+                )}
+              </div>
             </div>
             {!collapsed.rooms && sortedRooms.map(room => renderRoom(room))}
           </div>
@@ -801,6 +860,20 @@ export default function HubSidebar({
               </>
             )}
           </button>
+          {contextMenu.type === 'room' && (() => {
+            const room = sidebarRooms.find(r => r.id === contextMenu.id)
+            return room ? (
+              <button
+                onClick={() => leaveRoom(room.id, room.name)}
+                className="w-full text-left px-4 py-2.5 text-sm text-red-400 hover:bg-gray-800 transition-colors flex items-center gap-2"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M17 16l4-4m0 0l-4-4m4 4H7m6 4v1a3 3 0 01-3 3H6a3 3 0 01-3-3V7a3 3 0 013-3h4a3 3 0 013 3v1" />
+                </svg>
+                Leave room
+              </button>
+            ) : null
+          })()}
         </div>
       )}
 
@@ -836,6 +909,7 @@ export default function HubSidebar({
                 </div>
                 Private room
               </label>
+              {createRoomError && <p className="text-xs text-red-400">{createRoomError}</p>}
             </div>
             <div className="px-5 py-4 border-t border-gray-800 flex gap-3">
               <button
@@ -908,6 +982,54 @@ export default function HubSidebar({
               >
                 {creatingBoard ? 'Creating…' : 'Create'}
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Browse Rooms modal */}
+      {showBrowseRooms && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4 flex flex-col max-h-[80vh]">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 flex-none">
+              <h2 className="font-semibold text-white">Browse Rooms</h2>
+              <button onClick={() => setShowBrowseRooms(false)} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
+            </div>
+            <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
+              {browseLoading ? (
+                <p className="text-sm text-gray-500 py-4 text-center">Loading…</p>
+              ) : browseRooms.length === 0 ? (
+                <p className="text-sm text-gray-500 py-4 text-center">No public rooms found.</p>
+              ) : browseRooms.map(room => (
+                <div key={room.id} className="flex items-center justify-between bg-gray-800 rounded-xl px-3 py-2.5">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-gray-500 text-xs">#</span>
+                      <span className="text-sm text-white font-medium truncate">{room.name}</span>
+                    </div>
+                    {room.description && <p className="text-xs text-gray-500 mt-0.5 truncate">{room.description}</p>}
+                  </div>
+                  {room.is_member ? (
+                    <button
+                      onClick={() => leaveRoomFromBrowse(room.id)}
+                      className="flex-none ml-3 text-xs text-gray-400 hover:text-red-400 px-2 py-1 rounded border border-gray-600 hover:border-red-500/40 transition-colors"
+                    >
+                      Leave
+                    </button>
+                  ) : (
+                    <button
+                      onClick={() => joinRoom(room.id)}
+                      disabled={joiningRoomId === room.id}
+                      className="flex-none ml-3 text-xs text-white bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-50 px-3 py-1 rounded transition-colors"
+                    >
+                      {joiningRoomId === room.id ? '…' : 'Join'}
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <div className="px-5 py-3 border-t border-gray-800 flex-none">
+              <p className="text-xs text-gray-600">Private rooms are by invitation only — ask an admin.</p>
             </div>
           </div>
         </div>

@@ -1,6 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import HubShell from '@/components/hub/HubShell'
 import PushInit from '@/components/hub/PushInit'
 
@@ -48,9 +49,14 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  const admin = createAdminClient()
   const now = new Date().toISOString()
-  const [roomsResult, hubUsersResult, meResult, profileResult, announcementResult] = await Promise.all([
-    supabase.from('rooms').select('id, name, is_private').is('archived_at', null).order('name'),
+  const [memberRoomsResult, hubUsersResult, meResult, profileResult, announcementResult] = await Promise.all([
+    // Only return rooms this user is a member of (Slack-style)
+    admin
+      .from('room_members')
+      .select('room_id, rooms!inner(id, name, is_private, archived_at)')
+      .eq('user_id', user.id),
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
     supabase.from('hub_users').select('display_name, status').eq('id', user.id).single(),
     supabase.from('user_profiles').select('role, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_lawn').eq('id', user.id).single(),
@@ -62,6 +68,15 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       .limit(1)
       .maybeSingle(),
   ])
+
+  type RoomShape = { id: string; name: string; is_private: boolean; archived_at: string | null }
+  const rooms = (memberRoomsResult.data ?? [])
+    .map(m => {
+      const r = m.rooms as RoomShape | RoomShape[]
+      return Array.isArray(r) ? r[0] : r
+    })
+    .filter((r): r is RoomShape => !!r && !r.archived_at)
+    .sort((a, b) => a.name.localeCompare(b.name))
 
   const isAdmin = profileResult.data?.role === 'admin'
   const initialTextSize = profileResult.data?.hub_text_size ?? 'default'
@@ -84,7 +99,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     <>
       <IosSplashScreens />
       <HubShell
-        rooms={roomsResult.data ?? []}
+        rooms={rooms}
         userEmail={user.email ?? ''}
         currentUserId={user.id}
         hubUsers={(hubUsersResult.data ?? []) as never}
