@@ -13,10 +13,17 @@ export async function GET(
 
   const { id } = await params
 
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
   const { data: file } = await supabase
     .from('files')
     .select('storage_path, filename, mime_type')
     .eq('id', id)
+    .eq('company_id', profile?.company_id)
     .single()
 
   if (!file) return NextResponse.json({ error: 'Not found' }, { status: 404 })

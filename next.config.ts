@@ -6,6 +6,14 @@ const nextConfig: NextConfig = {
       source: '/(books|api/qbo)(.*)',
       headers: [{ key: 'Cache-Control', value: 'no-store, no-cache' }],
     },
+    {
+      source: '/(.*)',
+      headers: [
+        { key: 'X-Frame-Options', value: 'DENY' },
+        { key: 'X-Content-Type-Options', value: 'nosniff' },
+        { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
+      ],
+    },
   ],
 };
 

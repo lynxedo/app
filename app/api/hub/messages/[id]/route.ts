@@ -14,10 +14,21 @@ export async function PATCH(
   const { content } = await request.json()
   if (!content?.trim()) return NextResponse.json({ error: 'content required' }, { status: 400 })
 
-  const { data, error } = await supabase
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role')
+    .eq('id', user.id)
+    .single()
+
+  const isAdmin = profile?.role === 'admin'
+  const db = isAdmin ? createAdminClient() : supabase
+
+  const query = db
     .from('messages')
     .update({ content: content.trim(), edited_at: new Date().toISOString() })
     .eq('id', id)
+
+  const { data, error } = await (isAdmin ? query : query.eq('sender_id', user.id))
     .select('id, content, edited_at')
     .single()
 

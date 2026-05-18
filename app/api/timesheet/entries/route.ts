@@ -15,13 +15,19 @@ export async function GET(req: NextRequest) {
     .single()
 
   const params = req.nextUrl.searchParams
-  const employee_id = params.get('employee_id')
+  let employee_id = params.get('employee_id')
   const start = params.get('start')
   const end = params.get('end')
 
-  // Non-admins can only see their own entries
-  if (profile?.role !== 'admin' && !employee_id) {
-    return NextResponse.json({ error: 'employee_id required' }, { status: 400 })
+  // Non-admins can only see their own entries — ignore any employee_id passed in
+  if (profile?.role !== 'admin') {
+    const { data: emp } = await supabase
+      .from('employees')
+      .select('id')
+      .eq('user_id', user.id)
+      .single()
+    if (!emp) return NextResponse.json({ error: 'No linked employee record' }, { status: 403 })
+    employee_id = emp.id
   }
 
   let query = supabase

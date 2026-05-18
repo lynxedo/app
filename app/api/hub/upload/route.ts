@@ -29,6 +29,18 @@ export async function POST(request: Request) {
   const maxBytes = 100 * 1024 * 1024
   if (file.size > maxBytes) return NextResponse.json({ error: 'File exceeds 100 MB limit' }, { status: 400 })
 
+  const ALLOWED_TYPES = new Set([
+    'image/jpeg', 'image/png', 'image/gif', 'image/webp',
+    'application/pdf',
+    'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
+    'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+    'text/plain', 'text/csv',
+  ])
+  if (!ALLOWED_TYPES.has(file.type)) {
+    return NextResponse.json({ error: 'File type not allowed' }, { status: 400 })
+  }
+
   const { data: profile } = await supabase
     .from('user_profiles')
     .select('company_id')
