@@ -23,7 +23,8 @@ export async function GET(request: Request) {
       id, log_date, office_notes, route_sheet_url, route_sheet_name, created_at,
       tech:hub_users!tech_user_id(id, display_name, avatar_url),
       creator:hub_users!created_by(id, display_name),
-      updates:daily_log_updates(id, content, created_at, created_by, creator:hub_users!created_by(id, display_name, avatar_url))
+      updates:daily_log_updates(id, content, created_at, created_by, creator:hub_users!created_by(id, display_name, avatar_url)),
+      subscribers:daily_log_subscribers(user_id)
     `)
     .eq('company_id', profile.company_id)
     .eq('log_date', date)
@@ -31,12 +32,13 @@ export async function GET(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Sort updates within each entry by created_at
   const sorted = (entries ?? []).map(e => ({
     ...e,
     updates: [...(e.updates ?? [])].sort(
       (a, b) => new Date(a.created_at).getTime() - new Date(b.created_at).getTime()
     ),
+    subscriber_ids: (e.subscribers ?? []).map((s: { user_id: string }) => s.user_id),
+    subscribers: undefined,
   }))
 
   return NextResponse.json({ entries: sorted })
@@ -82,5 +84,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  return NextResponse.json({ ...entry, updates: [] }, { status: 201 })
+  // Auto-subscribe the creator
+  await supabase
+    .from('daily_log_subscribers')
+    .insert({ entry_id: entry.id, user_id: user.id })
+    .select()
+
+  return NextResponse.json({ ...entry, updates: [], subscriber_ids: [user.id] }, { status: 201 })
 }

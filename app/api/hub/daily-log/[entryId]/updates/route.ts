@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { sendHubPush } from '@/lib/hub-push'
 
 export async function POST(
   request: Request,
@@ -32,5 +34,47 @@ export async function POST(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Fire push to all subscribers except the poster
+  const admin = createAdminClient()
+  const [subscribersResult, senderResult, entryResult] = await Promise.all([
+    admin
+      .from('daily_log_subscribers')
+      .select('user_id')
+      .eq('entry_id', entryId),
+    admin
+      .from('hub_users')
+      .select('display_name')
+      .eq('id', user.id)
+      .single(),
+    admin
+      .from('daily_log_entries')
+      .select('tech:hub_users!tech_user_id(display_name)')
+      .eq('id', entryId)
+      .single(),
+  ])
+
+  const subscriberIds = (subscribersResult.data ?? [])
+    .map((s: { user_id: string }) => s.user_id)
+    .filter((id: string) => id !== user.id) // don't notify the poster
+
+  if (subscriberIds.length > 0) {
+    const senderName = senderResult.data?.display_name ?? 'Someone'
+    const techName = (entryResult.data?.tech as { display_name: string } | null)?.display_name ?? 'a tech'
+    const snippet = content.trim().length > 100
+      ? content.trim().slice(0, 97) + '…'
+      : content.trim()
+
+    await sendHubPush(
+      subscriberIds,
+      {
+        title: `${senderName} — Daily Log (${techName})`,
+        body: snippet,
+        url: '/hub/daily-log',
+      },
+      { isDm: true }
+    )
+  }
+
   return NextResponse.json(update, { status: 201 })
 }

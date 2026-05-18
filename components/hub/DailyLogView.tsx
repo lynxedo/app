@@ -22,6 +22,7 @@ type DailyLogEntry = {
   tech: HubUser | null
   creator: HubUser | null
   updates: DailyLogUpdate[]
+  subscriber_ids: string[]
 }
 
 function formatDateHeading(dateStr: string) {
@@ -144,10 +145,20 @@ function EntryCard({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [boardPickerUpdateId, setBoardPickerUpdateId] = useState<string | null>(null)
   const [notesBoardOpen, setNotesBoardOpen] = useState(false)
+  const [isSubscribed, setIsSubscribed] = useState(entry.subscriber_ids.includes(currentUserId))
+  const [togglingSubscribe, setTogglingSubscribe] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const updatesBottomRef = useRef<HTMLDivElement>(null)
 
   const canEdit = isAdmin || entry.creator?.id === currentUserId
+
+  async function toggleSubscribe() {
+    setTogglingSubscribe(true)
+    const method = isSubscribed ? 'DELETE' : 'POST'
+    await fetch(`/api/hub/daily-log/${entry.id}/subscribe`, { method })
+    setIsSubscribed(v => !v)
+    setTogglingSubscribe(false)
+  }
 
   useEffect(() => {
     setUpdates(entry.updates)
@@ -219,22 +230,40 @@ function EntryCard({
             {entry.tech?.display_name ?? 'Unknown Tech'}
           </span>
         </div>
-        {canEdit && (
-          <div className="flex items-center gap-1">
-            {confirmDelete ? (
+        <div className="flex items-center gap-1.5">
+          {/* Follow / Unfollow */}
+          <button
+            onClick={toggleSubscribe}
+            disabled={togglingSubscribe}
+            title={isSubscribed ? 'Unfollow — you will stop receiving notifications for this entry' : 'Follow — get notified when updates are posted'}
+            className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-40 ${
+              isSubscribed
+                ? 'border-[#2E7EB8] text-[#2E7EB8] hover:bg-[#2E7EB8]/10'
+                : 'border-gray-600 text-gray-400 hover:border-gray-400 hover:text-gray-200'
+            }`}
+          >
+            <svg className="w-3 h-3 flex-none" fill={isSubscribed ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+            {isSubscribed ? 'Following' : 'Follow'}
+          </button>
+
+          {/* Delete (admin / creator only) */}
+          {canEdit && (
+            confirmDelete ? (
               <div className="flex items-center gap-2">
-                <span className="text-xs text-red-400">Remove this entry?</span>
+                <span className="text-xs text-red-400">Remove?</span>
                 <button
                   onClick={deleteEntry}
                   className="text-xs px-2 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
                 >
-                  Remove
+                  Yes
                 </button>
                 <button
                   onClick={() => setConfirmDelete(false)}
                   className="text-xs px-2 py-1 text-gray-400 hover:text-gray-200 transition-colors"
                 >
-                  Cancel
+                  No
                 </button>
               </div>
             ) : (
@@ -247,9 +276,9 @@ function EntryCard({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
                 </svg>
               </button>
-            )}
-          </div>
-        )}
+            )
+          )}
+        </div>
       </div>
 
       <div className="p-4 space-y-4">
@@ -524,7 +553,7 @@ export default function DailyLogView({
     const data = await res.json()
     setCreating(false)
     if (res.ok) {
-      setEntries(prev => [...prev, data])
+      setEntries(prev => [...prev, { ...data, subscriber_ids: data.subscriber_ids ?? [] }])
       setShowAddEntry(false)
       setNewTechId('')
       setNewNotes('')
