@@ -19,6 +19,7 @@ export default function HubShell({
   isAdmin,
   initialAnnouncement,
   initialTextSize,
+  initialPinnedIds,
   children,
 }: {
   rooms: Room[]
@@ -30,6 +31,7 @@ export default function HubShell({
   isAdmin?: boolean
   initialAnnouncement?: InitialAnnouncement
   initialTextSize?: string
+  initialPinnedIds?: string[]
   children: React.ReactNode
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -71,6 +73,7 @@ export default function HubShell({
           onClose={() => setSidebarOpen(false)}
           textSize={textSize}
           onTextSizeChange={setTextSize}
+          initialPinnedIds={initialPinnedIds ?? []}
         />
       </div>
 

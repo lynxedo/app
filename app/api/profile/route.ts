@@ -14,7 +14,7 @@ export async function GET() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('phone, hub_text_size')
+    .select('phone, hub_text_size, hub_pinned_ids')
     .eq('id', user.id)
     .single()
 
@@ -24,6 +24,7 @@ export async function GET() {
     avatar_url: hubUser?.avatar_url ?? null,
     phone: profile?.phone ?? null,
     hub_text_size: profile?.hub_text_size ?? 'default',
+    hub_pinned_ids: profile?.hub_pinned_ids ?? [],
   })
 }
 
@@ -32,7 +33,7 @@ export async function PUT(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { display_name, phone, hub_text_size } = await request.json()
+  const { display_name, phone, hub_text_size, hub_pinned_ids } = await request.json()
 
   if (display_name !== undefined) {
     const { error } = await supabase
@@ -42,9 +43,10 @@ export async function PUT(request: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  const profileUpdates: Record<string, string | null> = {}
+  const profileUpdates: Record<string, string | null | string[]> = {}
   if (phone !== undefined) profileUpdates.phone = phone || null
   if (hub_text_size !== undefined) profileUpdates.hub_text_size = hub_text_size
+  if (hub_pinned_ids !== undefined) profileUpdates.hub_pinned_ids = hub_pinned_ids
 
   if (Object.keys(profileUpdates).length > 0) {
     const { error } = await supabase

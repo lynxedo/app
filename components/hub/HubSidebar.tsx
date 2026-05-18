@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import type { HubUser } from './MessageFeed'
 import StatusPicker from './StatusPicker'
@@ -14,6 +14,13 @@ type Conversation = {
   id: string
   participants: HubUser[]
   last_message?: string
+}
+
+type ContextMenu = {
+  x: number
+  y: number
+  id: string
+  type: 'room' | 'conv'
 }
 
 function convLabel(conv: Conversation, currentUserId: string) {
@@ -33,6 +40,7 @@ export default function HubSidebar({
   onClose,
   textSize,
   onTextSizeChange,
+  initialPinnedIds = [],
 }: {
   rooms: Room[]
   userEmail: string
@@ -44,10 +52,12 @@ export default function HubSidebar({
   onClose?: () => void
   textSize?: string
   onTextSizeChange?: (size: string) => void
+  initialPinnedIds?: string[]
 }) {
   const pathname = usePathname()
   const router = useRouter()
   const isClientsView = pathname.startsWith('/hub/clients')
+
   const [sidebarRooms, setSidebarRooms] = useState<Room[]>(rooms)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [showNewPM, setShowNewPM] = useState(false)
@@ -63,6 +73,21 @@ export default function HubSidebar({
   const [newRoomPrivate, setNewRoomPrivate] = useState(false)
   const [creatingRoom, setCreatingRoom] = useState(false)
 
+  // Unread state
+  const [unreadRoomIds, setUnreadRoomIds] = useState<Set<string>>(new Set())
+  const [unreadConvIds, setUnreadConvIds] = useState<Set<string>>(new Set())
+
+  // Favorites / pinning state
+  const [pinnedIds, setPinnedIds] = useState<string[]>(initialPinnedIds)
+
+  // Context menu
+  const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
+  const contextMenuRef = useRef<HTMLDivElement>(null)
+
+  // Long-press tracking
+  const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressTargetRef = useRef<{ id: string; type: 'room' | 'conv' } | null>(null)
+
   const loadConversations = useCallback(() => {
     fetch('/api/hub/conversations')
       .then(r => r.json())
@@ -72,13 +97,58 @@ export default function HubSidebar({
 
   useEffect(() => { loadConversations() }, [loadConversations])
 
-  // Load hub settings to know if this member can create rooms
   useEffect(() => {
     fetch('/api/hub/settings')
       .then(r => r.json())
       .then(d => setAllowMemberCreate(d.allow_member_room_creation ?? true))
       .catch(() => {})
   }, [])
+
+  // Load unread status on mount
+  useEffect(() => {
+    fetch('/api/hub/read-receipts')
+      .then(r => r.json())
+      .then(d => {
+        setUnreadRoomIds(new Set(d.unread_room_ids ?? []))
+        setUnreadConvIds(new Set(d.unread_conv_ids ?? []))
+      })
+      .catch(() => {})
+  }, [])
+
+  // Mark as read when the user navigates to a room or PM
+  useEffect(() => {
+    const roomMatch = pathname.match(/^\/hub\/([^/]+)$/)
+    const pmMatch = pathname.match(/^\/hub\/pm\/([^/]+)$/)
+    if (roomMatch) {
+      const roomId = roomMatch[1]
+      setUnreadRoomIds(prev => { const next = new Set(prev); next.delete(roomId); return next })
+      fetch('/api/hub/read-receipts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: roomId }),
+      }).catch(() => {})
+    } else if (pmMatch) {
+      const convId = pmMatch[1]
+      setUnreadConvIds(prev => { const next = new Set(prev); next.delete(convId); return next })
+      fetch('/api/hub/read-receipts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_id: convId }),
+      }).catch(() => {})
+    }
+  }, [pathname])
+
+  // Close context menu on outside click
+  useEffect(() => {
+    if (!contextMenu) return
+    function handleClick(e: MouseEvent) {
+      if (contextMenuRef.current && !contextMenuRef.current.contains(e.target as Node)) {
+        setContextMenu(null)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [contextMenu])
 
   const canCreateRoom = isAdmin || allowMemberCreate
 
@@ -123,8 +193,120 @@ export default function HubSidebar({
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
   }
 
+  // Pin / unpin
+  function togglePin(id: string) {
+    setPinnedIds(prev => {
+      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
+      fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hub_pinned_ids: next }),
+      }).catch(() => {})
+      return next
+    })
+    setContextMenu(null)
+  }
+
+  // Context menu trigger
+  function openContextMenu(e: React.MouseEvent, id: string, type: 'room' | 'conv') {
+    e.preventDefault()
+    e.stopPropagation()
+    setContextMenu({ x: e.clientX, y: e.clientY, id, type })
+  }
+
+  // Long press handlers for mobile
+  function onTouchStart(id: string, type: 'room' | 'conv') {
+    longPressTargetRef.current = { id, type }
+    longPressTimerRef.current = setTimeout(() => {
+      const target = longPressTargetRef.current
+      if (!target) return
+      // Show context menu in center of screen for mobile
+      setContextMenu({ x: window.innerWidth / 2 - 80, y: window.innerHeight / 2 - 40, id: target.id, type: target.type })
+    }, 500)
+  }
+
+  function onTouchEnd() {
+    if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
+    longPressTargetRef.current = null
+  }
+
   const otherUsers = hubUsers.filter(u => u.id !== currentUserId && !u.is_bot)
   const displayName = currentUserDisplayName ?? userEmail.split('@')[0]
+
+  // Sort rooms: unread first, then alpha
+  const sortedRooms = [...sidebarRooms].sort((a, b) => {
+    const aUnread = unreadRoomIds.has(a.id)
+    const bUnread = unreadRoomIds.has(b.id)
+    if (aUnread && !bUnread) return -1
+    if (!aUnread && bUnread) return 1
+    return a.name.localeCompare(b.name)
+  })
+
+  // Sort conversations: unread first
+  const sortedConvs = [...conversations].sort((a, b) => {
+    const aUnread = unreadConvIds.has(a.id)
+    const bUnread = unreadConvIds.has(b.id)
+    if (aUnread && !bUnread) return -1
+    if (!aUnread && bUnread) return 1
+    return 0
+  })
+
+  // Build favorites list
+  const pinnedSet = new Set(pinnedIds)
+  const favoriteRooms = sortedRooms.filter(r => pinnedSet.has(r.id))
+  const favoriteConvs = sortedConvs.filter(c => pinnedSet.has(c.id))
+  const hasFavorites = favoriteRooms.length > 0 || favoriteConvs.length > 0
+
+  function renderRoom(room: Room, showPrefix = true) {
+    const isActive = pathname === `/hub/${room.id}`
+    const hasUnread = unreadRoomIds.has(room.id)
+    return (
+      <Link
+        key={room.id}
+        href={`/hub/${room.id}`}
+        onClick={() => onClose?.()}
+        onContextMenu={e => openContextMenu(e, room.id, 'room')}
+        onTouchStart={() => onTouchStart(room.id, 'room')}
+        onTouchEnd={onTouchEnd}
+        onTouchMove={onTouchEnd}
+        className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+          isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+        }`}
+      >
+        {showPrefix && <span className="text-white/40 text-xs flex-none">{room.is_private ? '🔒' : '#'}</span>}
+        <span className="truncate flex-1">{room.name}</span>
+        {hasUnread && !isActive && (
+          <span className="flex-none w-2 h-2 rounded-full bg-[#f97316]" />
+        )}
+      </Link>
+    )
+  }
+
+  function renderConv(conv: Conversation, showPrefix = true) {
+    const label = convLabel(conv, currentUserId)
+    const isActive = pathname === `/hub/pm/${conv.id}`
+    const hasUnread = unreadConvIds.has(conv.id)
+    return (
+      <Link
+        key={conv.id}
+        href={`/hub/pm/${conv.id}`}
+        onClick={() => onClose?.()}
+        onContextMenu={e => openContextMenu(e, conv.id, 'conv')}
+        onTouchStart={() => onTouchStart(conv.id, 'conv')}
+        onTouchEnd={onTouchEnd}
+        onTouchMove={onTouchEnd}
+        className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+          isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+        }`}
+      >
+        {showPrefix && <span className="text-white/30 text-xs flex-none">💬</span>}
+        <span className="truncate flex-1">{label}</span>
+        {hasUnread && !isActive && (
+          <span className="flex-none w-2 h-2 rounded-full bg-[#f97316]" />
+        )}
+      </Link>
+    )
+  }
 
   return (
     <>
@@ -171,6 +353,18 @@ export default function HubSidebar({
         ) : (
 
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
+
+          {/* Favorites */}
+          {hasFavorites && (
+            <div>
+              <div className="px-2 mb-1">
+                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Favorites</span>
+              </div>
+              {favoriteRooms.map(room => renderRoom(room, false))}
+              {favoriteConvs.map(conv => renderConv(conv, false))}
+            </div>
+          )}
+
           {/* Rooms */}
           <div>
             <div className="flex items-center justify-between px-2 mb-1">
@@ -185,22 +379,7 @@ export default function HubSidebar({
                 </button>
               )}
             </div>
-            {sidebarRooms.map(room => {
-              const isActive = pathname === `/hub/${room.id}`
-              return (
-                <Link
-                  key={room.id}
-                  href={`/hub/${room.id}`}
-                  onClick={() => onClose?.()}
-                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
-                    isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <span className="text-white/40 text-xs">{room.is_private ? '🔒' : '#'}</span>
-                  <span className="truncate">{room.name}</span>
-                </Link>
-              )
-            })}
+            {sortedRooms.map(room => renderRoom(room))}
           </div>
 
           {/* Direct Messages */}
@@ -218,23 +397,7 @@ export default function HubSidebar({
             {conversations.length === 0 && (
               <p className="text-xs text-white/30 px-2 py-1">No messages yet</p>
             )}
-            {conversations.map(conv => {
-              const label = convLabel(conv, currentUserId)
-              const isActive = pathname === `/hub/pm/${conv.id}`
-              return (
-                <Link
-                  key={conv.id}
-                  href={`/hub/pm/${conv.id}`}
-                  onClick={() => onClose?.()}
-                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
-                    isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <span className="text-white/30 text-xs">💬</span>
-                  <span className="truncate">{label}</span>
-                </Link>
-              )
-            })}
+            {sortedConvs.map(conv => renderConv(conv))}
           </div>
 
           {/* Pages */}
@@ -330,6 +493,36 @@ export default function HubSidebar({
       </aside>
 
       {showNotifPrefs && <NotifPrefsModal onClose={() => setShowNotifPrefs(false)} />}
+
+      {/* Context menu for pin/unpin */}
+      {contextMenu && (
+        <div
+          ref={contextMenuRef}
+          className="fixed z-[100] bg-gray-900 border border-gray-700 rounded-xl shadow-2xl py-1 min-w-[160px]"
+          style={{ left: contextMenu.x, top: contextMenu.y }}
+        >
+          <button
+            onClick={() => togglePin(contextMenu.id)}
+            className="w-full text-left px-4 py-2.5 text-sm text-gray-200 hover:bg-gray-800 transition-colors flex items-center gap-2"
+          >
+            {pinnedSet.has(contextMenu.id) ? (
+              <>
+                <svg className="w-4 h-4 text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+                Remove from Favorites
+              </>
+            ) : (
+              <>
+                <svg className="w-4 h-4 text-yellow-400" fill="currentColor" viewBox="0 0 24 24">
+                  <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+                </svg>
+                Add to Favorites
+              </>
+            )}
+          </button>
+        </div>
+      )}
 
       {/* New Room modal */}
       {showNewRoom && (
