@@ -449,7 +449,7 @@ export default function HubAdminPanel({
                         {/* Claude enabled toggle */}
                         <button
                           onClick={() => toggleClaudeEnabled(room.id, !room.claude_enabled)}
-                          title={room.claude_enabled ? 'Claude ON — click to disable' : 'Claude OFF — click to enable'}
+                          title={room.claude_enabled ? 'Guardian ON — click to disable' : 'Guardian OFF — click to enable'}
                           className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
                             room.claude_enabled
                               ? 'bg-[#2E7EB8]/20 text-[#6FB3E8] hover:bg-[#2E7EB8]/30'
@@ -457,7 +457,7 @@ export default function HubAdminPanel({
                           }`}
                         >
                           <span>✦</span>
-                          <span>{room.claude_enabled ? 'Claude ON' : 'Claude OFF'}</span>
+                          <span>{room.claude_enabled ? 'Guardian ON' : 'Guardian OFF'}</span>
                         </button>
                         <button
                           onClick={() => { setRenamingId(room.id); setRenameVal(room.name) }}
@@ -593,10 +593,10 @@ export default function HubAdminPanel({
             )}
           </div>
 
-          {/* Claude Access per user */}
+          {/* Guardian Access per user */}
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-            <h2 className="font-semibold text-white mb-1">Claude Access — Per User</h2>
-            <p className="text-xs text-gray-500 mb-4">Controls who can use @Claude in rooms and DMs. Room must also have Claude enabled.</p>
+            <h2 className="font-semibold text-white mb-1">Guardian Access — Per User</h2>
+            <p className="text-xs text-gray-500 mb-4">Controls who can use @Guardian in rooms and DMs. Room must also have Guardian enabled.</p>
             <div className="space-y-2">
               {hubUsersList.map(u => (
                 <div key={u.id} className="flex items-center justify-between bg-gray-800 rounded-xl px-4 py-2.5">

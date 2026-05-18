@@ -210,8 +210,8 @@ export async function POST(request: Request) {
   // For DMs: no room gate — only check the user gate
   const canUseClaude = userClaudeAllowed
 
-  // @Claude handler — rooms only, top-level and thread replies both supported
-  if (room_id && roomClaudeEnabled && canUseClaude && hasContent && content.toLowerCase().includes('@claude')) {
+  // @Guardian handler — rooms only, top-level and thread replies both supported
+  if (room_id && roomClaudeEnabled && canUseClaude && hasContent && content.toLowerCase().includes('@guardian')) {
     handleClaudeReply({
       roomId: room_id,
       parentMessageId: parent_id ?? msg.id,
@@ -221,7 +221,7 @@ export async function POST(request: Request) {
       userId: user.id,
     }).catch(() => null)
   } else if (room_id && roomClaudeEnabled && canUseClaude && parent_id && hasContent) {
-    // Thread reply without @claude — auto-continue if Claude is already in this thread
+    // Thread reply without @guardian — auto-continue if Guardian is already in this thread
     const { count } = await supabase
       .from('messages')
       .select('id', { count: 'exact', head: true })
@@ -239,9 +239,9 @@ export async function POST(request: Request) {
     }
   }
 
-  // @Claude in DMs — user must be allowed; no room gate for DMs
+  // @Guardian in DMs — user must be allowed; no room gate for DMs
   if (conversation_id && canUseClaude && hasContent && !parent_id) {
-    const mentionsClaude = content.toLowerCase().includes('@claude')
+    const mentionsClaude = content.toLowerCase().includes('@guardian')
     if (mentionsClaude) {
       handleClaudeReplyDM({
         conversationId: conversation_id,
