@@ -18,6 +18,8 @@ type Conversation = {
   last_message?: string
 }
 
+type Board = { id: string; name: string; is_private: boolean; is_personal: boolean; created_by: string }
+
 type ContextMenu = {
   x: number
   y: number
@@ -62,9 +64,11 @@ export default function HubSidebar({
 
   const [sidebarRooms, setSidebarRooms] = useState<Room[]>(rooms)
   const [conversations, setConversations] = useState<Conversation[]>([])
+  const [boards, setBoards] = useState<Board[]>([])
   const [showNewPM, setShowNewPM] = useState(false)
   const [showNotifPrefs, setShowNotifPrefs] = useState(false)
   const [showNewRoom, setShowNewRoom] = useState(false)
+  const [showNewBoard, setShowNewBoard] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
   const [creating, setCreating] = useState(false)
   const [allowMemberCreate, setAllowMemberCreate] = useState(true)
@@ -74,6 +78,12 @@ export default function HubSidebar({
   const [newRoomDesc, setNewRoomDesc] = useState('')
   const [newRoomPrivate, setNewRoomPrivate] = useState(false)
   const [creatingRoom, setCreatingRoom] = useState(false)
+
+  // New board form state
+  const [newBoardName, setNewBoardName] = useState('')
+  const [newBoardPrivate, setNewBoardPrivate] = useState(false)
+  const [newBoardPersonal, setNewBoardPersonal] = useState(false)
+  const [creatingBoard, setCreatingBoard] = useState(false)
 
   // Unread state
   const [unreadRoomIds, setUnreadRoomIds] = useState<Set<string>>(new Set())
@@ -100,7 +110,15 @@ export default function HubSidebar({
       .catch(() => {})
   }, [])
 
+  const loadBoards = useCallback(() => {
+    fetch('/api/hub/boards')
+      .then(r => r.json())
+      .then(d => setBoards(d.boards ?? []))
+      .catch(() => {})
+  }, [])
+
   useEffect(() => { loadConversations() }, [loadConversations])
+  useEffect(() => { loadBoards() }, [loadBoards])
 
   // Refresh conversations when Quick Compose creates a new one
   useEffect(() => {
@@ -226,6 +244,24 @@ export default function HubSidebar({
       setShowNewRoom(false)
       setNewRoomName(''); setNewRoomDesc(''); setNewRoomPrivate(false)
       router.push(`/hub/${data.id}`)
+    }
+  }
+
+  async function createBoard() {
+    if (!newBoardName.trim() || creatingBoard) return
+    setCreatingBoard(true)
+    const res = await fetch('/api/hub/boards', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: newBoardName.trim(), is_private: newBoardPrivate || newBoardPersonal, is_personal: newBoardPersonal }),
+    })
+    const data = await res.json()
+    setCreatingBoard(false)
+    if (res.ok) {
+      setBoards(prev => [...prev, data].sort((a, b) => a.name.localeCompare(b.name)))
+      setShowNewBoard(false)
+      setNewBoardName(''); setNewBoardPrivate(false); setNewBoardPersonal(false)
+      router.push(`/hub/board/${data.id}`)
     }
   }
 
@@ -453,6 +489,41 @@ export default function HubSidebar({
             {sortedConvs.map(conv => renderConv(conv))}
           </div>
 
+          {/* Boards */}
+          <div>
+            <div className="flex items-center justify-between px-2 mb-1">
+              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Boards</span>
+              <button
+                onClick={() => { setShowNewBoard(true); setNewBoardName(''); setNewBoardPrivate(false); setNewBoardPersonal(false) }}
+                className="text-white/40 hover:text-white/70 transition-colors text-lg leading-none"
+                title="New board"
+              >
+                +
+              </button>
+            </div>
+            {boards.length === 0 && (
+              <p className="text-xs text-white/30 px-2 py-1">No boards yet</p>
+            )}
+            {boards.map(board => {
+              const isActive = pathname === `/hub/board/${board.id}`
+              return (
+                <Link
+                  key={board.id}
+                  href={`/hub/board/${board.id}`}
+                  onClick={() => onClose?.()}
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+                    isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <span className="text-white/40 text-xs flex-none">
+                    {board.is_personal ? '👤' : board.is_private ? '🔒' : '☑'}
+                  </span>
+                  <span className="truncate flex-1">{board.name}</span>
+                </Link>
+              )
+            })}
+          </div>
+
           {/* Pages */}
           <div>
             <div className="px-2 mb-1">
@@ -632,6 +703,63 @@ export default function HubSidebar({
                 className="flex-1 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
               >
                 {creatingRoom ? 'Creating…' : 'Create'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* New Board modal */}
+      {showNewBoard && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4">
+            <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
+              <h2 className="font-semibold text-white">New Board</h2>
+              <button onClick={() => setShowNewBoard(false)} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
+            </div>
+            <div className="px-5 py-4 space-y-3">
+              <input
+                autoFocus
+                value={newBoardName}
+                onChange={e => setNewBoardName(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && createBoard()}
+                placeholder="Board name"
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+              />
+              <label className="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer select-none">
+                <div
+                  onClick={() => { setNewBoardPersonal(v => !v); if (!newBoardPersonal) setNewBoardPrivate(false) }}
+                  className={`w-9 h-5 rounded-full transition-colors relative flex-none cursor-pointer ${newBoardPersonal ? 'bg-[#2E7EB8]' : 'bg-gray-700'}`}
+                >
+                  <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${newBoardPersonal ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                </div>
+                Personal (only you)
+              </label>
+              {!newBoardPersonal && (
+                <label className="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer select-none">
+                  <div
+                    onClick={() => setNewBoardPrivate(v => !v)}
+                    className={`w-9 h-5 rounded-full transition-colors relative flex-none cursor-pointer ${newBoardPrivate ? 'bg-[#2E7EB8]' : 'bg-gray-700'}`}
+                  >
+                    <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${newBoardPrivate ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                  </div>
+                  Private (invite only)
+                </label>
+              )}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-800 flex gap-3">
+              <button
+                onClick={() => setShowNewBoard(false)}
+                className="flex-1 py-2 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white hover:border-gray-600 transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={createBoard}
+                disabled={!newBoardName.trim() || creatingBoard}
+                className="flex-1 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+              >
+                {creatingBoard ? 'Creating…' : 'Create'}
               </button>
             </div>
           </div>

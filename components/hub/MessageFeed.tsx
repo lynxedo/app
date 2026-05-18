@@ -159,6 +159,9 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   const [editContent, setEditContent] = useState('')
   const [pickerMsgId, setPickerMsgId] = useState<string | null>(null)
   const [forwardingMsg, setForwardingMsg] = useState<HubMessage | null>(null)
+  const [addToBoardMsgId, setAddToBoardMsgId] = useState<string | null>(null)
+  const [boardPickerBoards, setBoardPickerBoards] = useState<{ id: string; name: string }[]>([])
+  const [addingToBoard, setAddingToBoard] = useState(false)
   const [tappedMsgId, setTappedMsgId] = useState<string | null>(null)
   const [rxMap, setRxMap] = useState<Record<string, RxItem[]>>(() => {
     const map: Record<string, RxItem[]> = {}
@@ -320,6 +323,25 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     setForwardingMsg(null)
   }, [forwardingMsg])
 
+  function openBoardPicker(msgId: string) {
+    setAddToBoardMsgId(msgId)
+    fetch('/api/hub/boards')
+      .then(r => r.json())
+      .then(d => setBoardPickerBoards(d.boards ?? []))
+      .catch(() => {})
+  }
+
+  async function addToBoard(boardId: string, msg: HubMessage) {
+    setAddingToBoard(true)
+    await fetch(`/api/hub/boards/${boardId}/items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: msg.content, forwarded_from_message_id: msg.id }),
+    })
+    setAddingToBoard(false)
+    setAddToBoardMsgId(null)
+  }
+
   // Group messages by date
   const groups: { date: string; messages: HubMessage[] }[] = []
   for (const msg of messages) {
@@ -479,6 +501,34 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                       >
                         ↗
                       </button>
+
+                      <div className="relative">
+                        <button
+                          onClick={() => addToBoardMsgId === msg.id ? setAddToBoardMsgId(null) : openBoardPicker(msg.id)}
+                          className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
+                          title="Add to Board"
+                        >
+                          ☑
+                        </button>
+                        {addToBoardMsgId === msg.id && (
+                          <div className="absolute right-0 top-7 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl py-1 min-w-[180px]" onClick={e => e.stopPropagation()}>
+                            <div className="px-3 py-1.5 text-xs text-white/40 font-semibold uppercase tracking-wider border-b border-gray-800">Add to Board</div>
+                            {boardPickerBoards.length === 0 && (
+                              <p className="px-3 py-2 text-xs text-gray-500">No boards yet</p>
+                            )}
+                            {boardPickerBoards.map(board => (
+                              <button
+                                key={board.id}
+                                disabled={addingToBoard}
+                                onClick={() => addToBoard(board.id, msg)}
+                                className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+                              >
+                                {board.name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
 
                       {onOpenThread && (
                         <button
