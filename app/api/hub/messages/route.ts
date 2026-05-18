@@ -113,16 +113,18 @@ export async function POST(request: Request) {
     )
   }
 
+  // Fetch sender display name once — used by all push paths below
+  const { data: senderProfile } = await supabase
+    .from('hub_users')
+    .select('display_name')
+    .eq('id', user.id)
+    .single()
+  const senderName = senderProfile?.display_name ?? 'Someone'
+
   // Push for @mentions — pass room_id so push logic can check mute prefs
   const textToScan = content ?? ''
   const mentionedFirstNames = [...textToScan.matchAll(/@(\w+)/g)].map((m: RegExpMatchArray) => m[1].toLowerCase())
   if (mentionedFirstNames.length > 0) {
-    const { data: senderProfile } = await supabase
-      .from('hub_users')
-      .select('display_name')
-      .eq('id', user.id)
-      .single()
-
     const { data: allUsers } = await supabase
       .from('hub_users')
       .select('id, display_name')
@@ -135,13 +137,56 @@ export async function POST(request: Request) {
       .map((u: { id: string }) => u.id)
 
     if (matchedIds.length > 0) {
-      const senderName = senderProfile?.display_name ?? 'Someone'
       const destination = room_id ? `/hub/${room_id}` : `/hub/pm/${conversation_id}`
       await sendHubPush(matchedIds, {
         title: `${senderName} mentioned you`,
         body: textToScan.trim().slice(0, 120),
         url: destination,
       }, { isMention: true, roomId: room_id ?? null })
+    }
+  }
+
+  // Push for new DM messages (top-level only) — notify all other participants
+  if (conversation_id && !parent_id) {
+    const { data: members } = await supabase
+      .from('conversation_members')
+      .select('user_id')
+      .eq('conversation_id', conversation_id)
+      .neq('user_id', user.id)
+
+    const recipientIds = (members ?? []).map((m: { user_id: string }) => m.user_id)
+    if (recipientIds.length > 0) {
+      await sendHubPush(recipientIds, {
+        title: senderName,
+        body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
+        url: `/hub/pm/${conversation_id}`,
+      }, { isDm: true })
+    }
+  }
+
+  // Push for new room messages (top-level only) — notify all company members
+  // sendHubPush filters by each user's notification prefs (muted/mentions/all)
+  if (room_id && !parent_id) {
+    const { data: roomData } = await supabase
+      .from('rooms')
+      .select('name')
+      .eq('id', room_id)
+      .single()
+
+    const { data: allHubUsers } = await supabase
+      .from('hub_users')
+      .select('id')
+      .eq('company_id', profile.company_id)
+      .neq('id', user.id)
+      .eq('is_bot', false)
+
+    const roomMemberIds = (allHubUsers ?? []).map((u: { id: string }) => u.id)
+    if (roomMemberIds.length > 0) {
+      await sendHubPush(roomMemberIds, {
+        title: `#${roomData?.name ?? 'room'} — ${senderName}`,
+        body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
+        url: `/hub/${room_id}`,
+      }, { roomId: room_id })
     }
   }
 

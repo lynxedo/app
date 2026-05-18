@@ -16,6 +16,7 @@ function ensureVapid() {
 
 interface PushOptions {
   isMention?: boolean   // true when this push is an @mention (bypasses most DND)
+  isDm?: boolean        // true for DM messages — bypasses mentions-level filter but not muted/DND
   roomId?: string | null  // room context for per-room mute checks
 }
 
@@ -29,7 +30,7 @@ export async function sendHubPush(
   ensureVapid()
 
   const admin = createAdminClient()
-  const { isMention = false, roomId = null } = options
+  const { isMention = false, isDm = false, roomId = null } = options
 
   // Fetch DND status + notification prefs for all target users
   const [statusResult, prefsResult] = await Promise.all([
@@ -75,7 +76,7 @@ export async function sendHubPush(
 
     // Global notification level
     if (global?.level === 'muted') return false
-    if (global?.level === 'mentions' && !isMention) return false
+    if (global?.level === 'mentions' && !isMention && !isDm) return false
 
     // Per-room pref — muted room suppresses all pushes from that room (including mentions)
     if (roomPref?.level === 'muted') return false
