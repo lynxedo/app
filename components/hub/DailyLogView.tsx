@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 
-type HubUser = { id: string; display_name: string; avatar_url?: string | null }
+type HubUser = { id: string; display_name: string; avatar_url?: string | null; is_bot?: boolean }
 
 type DailyLogUpdate = {
   id: string
