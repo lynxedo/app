@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 import HubSidebar from './HubSidebar'
 import AnnouncementTicker from './AnnouncementTicker'
 import HubQuickCompose from './HubQuickCompose'
+import TimesheetClockModal from './TimesheetClockModal'
 import { HubTextSizeContext } from './HubTextSizeContext'
 import type { HubUser } from './MessageFeed'
 
@@ -48,6 +49,7 @@ export default function HubShell({
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
   const [showCompose, setShowCompose] = useState(false)
+  const [showTimeClock, setShowTimeClock] = useState(false)
   const [textSize, setTextSize] = useState(initialTextSize ?? 'default')
 
   // Sync server-fetched preference to localStorage so MessageFeed can read it
@@ -106,6 +108,7 @@ export default function HubShell({
           canAccessCallLog={canAccessCallLog}
           canAccessLawn={canAccessLawn}
           canAccessTimesheet={canAccessTimesheet}
+          onOpenTimeClock={() => { setSidebarOpen(false); setShowTimeClock(true) }}
         />
       </div>
 
@@ -149,6 +152,7 @@ export default function HubShell({
         onConversationCreated={handleConversationCreated}
       />
     )}
+    {showTimeClock && <TimesheetClockModal onClose={() => setShowTimeClock(false)} />}
     </HubTextSizeContext.Provider>
   )
 }

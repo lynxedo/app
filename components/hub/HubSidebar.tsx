@@ -9,7 +9,6 @@ import StatusPicker from './StatusPicker'
 import NotifPrefsModal from './NotifPrefsModal'
 import ClientsSidebar from './ClientsSidebar'
 import HubSearchOverlay from './HubSearchOverlay'
-import TimesheetClockModal from './TimesheetClockModal'
 
 type Room = { id: string; name: string; is_private: boolean }
 
@@ -50,6 +49,7 @@ export default function HubSidebar({
   canAccessCallLog = false,
   canAccessLawn = false,
   canAccessTimesheet = false,
+  onOpenTimeClock,
 }: {
   rooms: Room[]
   userEmail: string
@@ -66,6 +66,7 @@ export default function HubSidebar({
   canAccessCallLog?: boolean
   canAccessLawn?: boolean
   canAccessTimesheet?: boolean
+  onOpenTimeClock?: () => void
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -115,9 +116,6 @@ export default function HubSidebar({
 
   // Favorites / pinning state
   const [pinnedIds, setPinnedIds] = useState<string[]>(initialPinnedIds)
-
-  // Time Clock modal
-  const [showTimeClock, setShowTimeClock] = useState(false)
 
   // Search
   const [showSearch, setShowSearch] = useState(false)
@@ -816,7 +814,7 @@ export default function HubSidebar({
                   {/* My Time Clock */}
                   {(canAccessTimesheet || isAdmin) && (
                     <button
-                      onClick={() => { setShowTimeClock(true); onClose?.() }}
+                      onClick={() => onOpenTimeClock?.()}
                       className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors text-white/70 hover:bg-white/10 hover:text-white"
                     >
                       <span className="text-xs flex-none">⏱</span>
@@ -933,7 +931,6 @@ export default function HubSidebar({
       </aside>
 
       {showNotifPrefs && <NotifPrefsModal onClose={() => setShowNotifPrefs(false)} />}
-      {showTimeClock && <TimesheetClockModal onClose={() => setShowTimeClock(false)} />}
 
       {showSearch && (
         <HubSearchOverlay
