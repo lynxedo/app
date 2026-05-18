@@ -554,6 +554,20 @@ export default function HubSidebar({
             })}
           </div>
 
+          {/* Daily Log */}
+          <div>
+            <Link
+              href="/hub/daily-log"
+              onClick={() => onClose?.()}
+              className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+                pathname.startsWith('/hub/daily-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <span className="text-white/40 text-xs flex-none">📋</span>
+              <span className="truncate flex-1">Daily Log</span>
+            </Link>
+          </div>
+
           {/* Tools */}
           {(canAccessTracker || canAccessCallLog || canAccessLawn || isAdmin) && (
             <div>
