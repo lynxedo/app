@@ -113,8 +113,11 @@ export async function POST(request: Request) {
     )
   }
 
+  // All push recipient lookups use adminClient to bypass RLS
+  const pushAdmin = createAdminClient()
+
   // Fetch sender display name once — used by all push paths below
-  const { data: senderProfile } = await supabase
+  const { data: senderProfile } = await pushAdmin
     .from('hub_users')
     .select('display_name')
     .eq('id', user.id)
@@ -125,7 +128,7 @@ export async function POST(request: Request) {
   const textToScan = content ?? ''
   const mentionedFirstNames = [...textToScan.matchAll(/@(\w+)/g)].map((m: RegExpMatchArray) => m[1].toLowerCase())
   if (mentionedFirstNames.length > 0) {
-    const { data: allUsers } = await supabase
+    const { data: allUsers } = await pushAdmin
       .from('hub_users')
       .select('id, display_name')
       .not('id', 'eq', user.id)
@@ -148,7 +151,7 @@ export async function POST(request: Request) {
 
   // Push for new DM messages (top-level only) — notify all other participants
   if (conversation_id && !parent_id) {
-    const { data: members } = await supabase
+    const { data: members } = await pushAdmin
       .from('conversation_members')
       .select('user_id')
       .eq('conversation_id', conversation_id)
@@ -167,13 +170,13 @@ export async function POST(request: Request) {
   // Push for new room messages (top-level only) — notify all company members
   // sendHubPush filters by each user's notification prefs (muted/mentions/all)
   if (room_id && !parent_id) {
-    const { data: roomData } = await supabase
+    const { data: roomData } = await pushAdmin
       .from('rooms')
       .select('name')
       .eq('id', room_id)
       .single()
 
-    const { data: allHubUsers } = await supabase
+    const { data: allHubUsers } = await pushAdmin
       .from('hub_users')
       .select('id')
       .eq('company_id', profile.company_id)
