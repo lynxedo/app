@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { createClient } from "@/lib/supabase/server";
-import GlobalNav from "@/components/GlobalNav";
+import ConditionalGlobalNav from "@/components/ConditionalGlobalNav";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -54,7 +54,7 @@ export default async function RootLayout({
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col">
-        {navProfile && <GlobalNav profile={navProfile} />}
+        {navProfile && <ConditionalGlobalNav profile={navProfile} />}
         {children}
       </body>
     </html>

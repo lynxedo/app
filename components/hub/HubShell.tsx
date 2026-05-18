@@ -24,6 +24,9 @@ export default function HubShell({
   initialAnnouncement,
   initialTextSize,
   initialPinnedIds,
+  canAccessTracker,
+  canAccessCallLog,
+  canAccessLawn,
   children,
 }: {
   rooms: Room[]
@@ -36,6 +39,9 @@ export default function HubShell({
   initialAnnouncement?: InitialAnnouncement
   initialTextSize?: string
   initialPinnedIds?: string[]
+  canAccessTracker?: boolean
+  canAccessCallLog?: boolean
+  canAccessLawn?: boolean
   children: React.ReactNode
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -67,7 +73,7 @@ export default function HubShell({
 
   return (
     <HubTextSizeContext.Provider value={textSize}>
-    <div className="flex h-[100dvh] md:h-[calc(100dvh-3rem)] bg-gray-950 text-white overflow-hidden">
+    <div className="flex h-[100dvh] bg-gray-950 text-white overflow-hidden">
       {/* Mobile sidebar overlay backdrop */}
       {sidebarOpen && (
         <div
@@ -94,11 +100,14 @@ export default function HubShell({
           textSize={textSize}
           onTextSizeChange={setTextSize}
           initialPinnedIds={initialPinnedIds ?? []}
+          canAccessTracker={canAccessTracker}
+          canAccessCallLog={canAccessCallLog}
+          canAccessLawn={canAccessLawn}
         />
       </div>
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden pb-16 md:pb-0">
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar with hamburger */}
         <div className="flex-none flex items-center gap-3 px-4 py-2.5 border-b border-gray-800 md:hidden">
           <button

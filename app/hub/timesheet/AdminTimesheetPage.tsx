@@ -1,0 +1,1136 @@
+'use client'
+
+import { useState, useEffect, useCallback } from 'react'
+import Link from 'next/link'
+
+type Employee = {
+  id: string
+  gusto_uuid: string | null
+  first_name: string
+  last_name: string
+  preferred_name: string | null
+  department: string
+  job_title: string
+  pay_type: 'hourly' | 'salary'
+  flsa_status: 'Exempt' | 'Nonexempt'
+  hourly_rate: number | null
+  gusto_synced_at: string | null
+  user_id: string | null
+}
+
+type LynxedoUser = { id: string; email: string }
+
+const BLANK_ADD_FORM = {
+  first_name: '', last_name: '', preferred_name: '',
+  email: '', phone: '', job_title: '', department: '',
+  pay_type: 'hourly' as 'hourly' | 'salary', hourly_rate: '',
+}
+
+type TimeEntry = {
+  id: string
+  employee_id: string
+  date: string
+  clock_in: string
+  clock_out: string | null
+  total_hours: number | null
+  regular_hours: number | null
+  overtime_hours: number | null
+}
+
+type TimePunch = {
+  id: string
+  employee_id: string
+  punch_type: 'in' | 'out'
+  punched_at: string
+  note: string | null
+  edit_reason: string | null
+  original_punched_at: string | null
+  lat: number | null
+  lng: number | null
+}
+
+type OpenPunch = {
+  id: string
+  employee_id: string
+  punched_at: string
+  employees: { first_name: string; last_name: string; preferred_name: string | null }
+}
+
+type ImportChange = {
+  key: string
+  action: 'add' | 'update_rate' | 'update_title' | 'deactivate'
+  label: string
+  detail: string
+  [k: string]: unknown
+}
+
+type ImportPreview = {
+  configured: boolean
+  changes: ImportChange[]
+  message?: string
+}
+
+// ── helpers ──────────────────────────────────────────────────────────────────
+
+function getWeekStart(date: Date = new Date()): Date {
+  const d = new Date(date)
+  const day = d.getDay()
+  d.setDate(d.getDate() - (day === 0 ? 6 : day - 1))
+  d.setHours(0, 0, 0, 0)
+  return d
+}
+
+function toDateStr(d: Date): string {
+  return d.toISOString().split('T')[0]
+}
+
+function formatWeekRange(start: Date): string {
+  const end = new Date(start)
+  end.setDate(start.getDate() + 6)
+  const s = start.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+  const e = end.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  return `${s} – ${e}`
+}
+
+function formatTime(ts: string): string {
+  return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+}
+
+function formatDuration(sinceTs: string): string {
+  const ms = Date.now() - new Date(sinceTs).getTime()
+  const h = Math.floor(ms / 3600000)
+  const m = Math.floor((ms % 3600000) / 60000)
+  return h > 0 ? `${h}h ${m}m` : `${m}m`
+}
+
+function displayName(e: Employee): string {
+  return e.preferred_name || e.first_name
+}
+
+function weekSummary(entries: TimeEntry[]) {
+  const total = entries.reduce((s, e) => s + (e.total_hours ?? 0), 0)
+  const dailyOT = entries.reduce((s, e) => s + (e.overtime_hours ?? 0), 0)
+  const weeklyOT = Math.max(0, total - 40)
+  const ot = Math.max(dailyOT, weeklyOT)
+  const regular = Math.max(0, total - ot)
+  return { total: Math.round(total * 100) / 100, regular: Math.round(regular * 100) / 100, ot: Math.round(ot * 100) / 100 }
+}
+
+function exportPayPeriodCSV(employees: Employee[], entries: TimeEntry[], weekStart: Date) {
+  const end = new Date(weekStart)
+  end.setDate(weekStart.getDate() + 6)
+  const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+  const rows: string[][] = [
+    ['Employee', 'Department', '$/hr', 'Regular Hours', 'OT Hours', 'Total Hours', 'Est. Wages'],
+  ]
+  for (const emp of employees) {
+    const s = weekSummary(entries.filter(e => e.employee_id === emp.id))
+    const estPay = emp.hourly_rate
+      ? (s.regular * emp.hourly_rate + s.ot * emp.hourly_rate * 1.5).toFixed(2)
+      : ''
+    rows.push([
+      `${emp.first_name} ${emp.last_name}`,
+      emp.department,
+      emp.hourly_rate ? String(emp.hourly_rate) : '',
+      s.regular.toFixed(2),
+      s.ot.toFixed(2),
+      s.total.toFixed(2),
+      estPay,
+    ])
+  }
+  const csv = rows.map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(',')).join('\n')
+  const blob = new Blob([csv], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `timesheet-${fmt(weekStart).replace(/[, ]+/g, '-')}-to-${fmt(end).replace(/[, ]+/g, '-')}.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+// ── main component ────────────────────────────────────────────────────────────
+
+export default function AdminTimesheetPage() {
+  const [weekStart, setWeekStart] = useState(() => getWeekStart())
+  const [employees, setEmployees] = useState<Employee[]>([])
+  const [entries, setEntries] = useState<TimeEntry[]>([])
+  const [openPunches, setOpenPunches] = useState<OpenPunch[]>([])
+  const [loading, setLoading] = useState(true)
+  const [clockingId, setClockingId] = useState<string | null>(null)
+  const [editEmployee, setEditEmployee] = useState<Employee | null>(null)
+  const [editWeekStart, setEditWeekStart] = useState(() => getWeekStart())
+  const [editPunches, setEditPunches] = useState<TimePunch[]>([])
+  const [editPunchesLoading, setEditPunchesLoading] = useState(false)
+  const [editingPunch, setEditingPunch] = useState<{ id: string; time: string; reason: string } | null>(null)
+  const [addingPunch, setAddingPunch] = useState<{ type: 'in' | 'out'; datetime: string; note: string } | null>(null)
+  const [now, setNow] = useState(Date.now())
+  const [tab, setTab] = useState<'week' | 'summary' | 'employees'>('week')
+  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
+  const [importLoading, setImportLoading] = useState(false)
+  const [importSelections, setImportSelections] = useState<Set<string>>(new Set())
+  const [applying, setApplying] = useState(false)
+  const [applyResult, setApplyResult] = useState<{ added: number; updated: number; deactivated: number } | null>(null)
+
+  const [showAddEmployee, setShowAddEmployee] = useState(false)
+  const [addForm, setAddForm] = useState(BLANK_ADD_FORM)
+  const [addSaving, setAddSaving] = useState(false)
+  const [addError, setAddError] = useState('')
+  const [linkingEmployee, setLinkingEmployee] = useState<Employee | null>(null)
+  const [lynxedoUsers, setLynxedoUsers] = useState<LynxedoUser[]>([])
+  const [selectedUserId, setSelectedUserId] = useState('')
+  const [linkSaving, setLinkSaving] = useState(false)
+
+  const weekEnd = new Date(weekStart)
+  weekEnd.setDate(weekStart.getDate() + 6)
+
+  // Tick every minute to update live durations
+  useEffect(() => {
+    const t = setInterval(() => setNow(Date.now()), 60000)
+    return () => clearInterval(t)
+  }, [])
+
+  const loadData = useCallback(async () => {
+    setLoading(true)
+    const [empRes, entRes] = await Promise.all([
+      fetch('/api/timesheet/employees'),
+      fetch(`/api/timesheet/entries?start=${toDateStr(weekStart)}&end=${toDateStr(weekEnd)}`),
+    ])
+    const empData = await empRes.json()
+    const entData = await entRes.json()
+    setEmployees(empData.employees ?? [])
+    setEntries(entData.entries ?? [])
+    setOpenPunches(entData.open_punches ?? [])
+    setLoading(false)
+  }, [weekStart]) // eslint-disable-line react-hooks/exhaustive-deps
+
+  useEffect(() => { loadData() }, [loadData])
+
+  async function clockAction(employee: Employee, action: 'in' | 'out') {
+    setClockingId(employee.id)
+    await fetch('/api/timesheet/punch', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ employee_id: employee.id, action }),
+    })
+    setClockingId(null)
+    loadData()
+  }
+
+  async function loadEditPunches(employee: Employee, ws: Date) {
+    setEditPunchesLoading(true)
+    const we = new Date(ws)
+    we.setDate(ws.getDate() + 6)
+    const res = await fetch(
+      `/api/timesheet/admin/punches?employee_id=${employee.id}&start=${toDateStr(ws)}&end=${toDateStr(we)}`
+    )
+    const data = await res.json()
+    setEditPunches(data.punches ?? [])
+    setEditingPunch(null)
+    setAddingPunch(null)
+    setEditPunchesLoading(false)
+  }
+
+  async function openEditPunches(employee: Employee) {
+    const ws = getWeekStart()
+    setEditEmployee(employee)
+    setEditWeekStart(ws)
+    loadEditPunches(employee, ws)
+  }
+
+  function navigateEditWeek(delta: number) {
+    if (!editEmployee) return
+    setEditWeekStart(prev => {
+      const next = new Date(prev)
+      next.setDate(prev.getDate() + delta * 7)
+      loadEditPunches(editEmployee, next)
+      return next
+    })
+  }
+
+  async function savePunchEdit() {
+    if (!editingPunch || !editEmployee) return
+    await fetch(`/api/timesheet/admin/punch/${editingPunch.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ punched_at: editingPunch.time, edit_reason: editingPunch.reason }),
+    })
+    setEditingPunch(null)
+    loadEditPunches(editEmployee, editWeekStart)
+    loadData()
+  }
+
+  async function deletePunch(id: string) {
+    if (!confirm('Delete this punch? This cannot be undone.')) return
+    await fetch(`/api/timesheet/admin/punches?id=${id}`, { method: 'DELETE' })
+    if (editEmployee) loadEditPunches(editEmployee, editWeekStart)
+    loadData()
+  }
+
+  async function addPunch() {
+    if (!addingPunch || !editEmployee) return
+    await fetch('/api/timesheet/admin/punches', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        employee_id: editEmployee.id,
+        punch_type: addingPunch.type,
+        punched_at: addingPunch.datetime,
+        note: addingPunch.note || null,
+      }),
+    })
+    setAddingPunch(null)
+    loadEditPunches(editEmployee, editWeekStart)
+    loadData()
+  }
+
+  async function fetchImportPreview() {
+    setImportLoading(true)
+    setApplyResult(null)
+    const res = await fetch('/api/timesheet/gusto-import')
+    const data = await res.json()
+    setImportPreview(data)
+    setImportSelections(new Set((data.changes ?? []).map((c: ImportChange) => c.key)))
+    setImportLoading(false)
+  }
+
+  async function applyImport() {
+    if (!importPreview) return
+    setApplying(true)
+    const selected = importPreview.changes.filter(c => importSelections.has(c.key))
+    const res = await fetch('/api/timesheet/gusto-import', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ changes: selected }),
+    })
+    const data = await res.json()
+    setApplyResult(data.results)
+    setImportPreview(null)
+    setApplying(false)
+    loadData()
+  }
+
+  function toggleSelection(key: string) {
+    setImportSelections(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
+
+  async function saveNewEmployee() {
+    setAddSaving(true)
+    setAddError('')
+    const res = await fetch('/api/timesheet/employees', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(addForm),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      setAddError(data.error ?? 'Failed to add employee')
+      setAddSaving(false)
+      return
+    }
+    setShowAddEmployee(false)
+    setAddForm(BLANK_ADD_FORM)
+    setAddSaving(false)
+    loadData()
+  }
+
+  async function openLinkModal(emp: Employee) {
+    setLinkingEmployee(emp)
+    setSelectedUserId('')
+    const res = await fetch('/api/admin/users')
+    const data = await res.json()
+    const linkedIds = new Set(employees.map(e => e.user_id).filter(Boolean))
+    const unlinked = (data.users ?? []).filter((u: LynxedoUser) => !linkedIds.has(u.id))
+    setLynxedoUsers(unlinked)
+  }
+
+  async function saveLink() {
+    if (!linkingEmployee || !selectedUserId) return
+    setLinkSaving(true)
+    await fetch(`/api/timesheet/employees/${linkingEmployee.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: selectedUserId }),
+    })
+    await fetch(`/api/admin/users/${selectedUserId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ can_access_timesheet: true }),
+    })
+    setLinkingEmployee(null)
+    setLinkSaving(false)
+    loadData()
+  }
+
+  const isClockedIn = (emp: Employee) => openPunches.some(p => p.employee_id === emp.id)
+  const openPunch = (emp: Employee) => openPunches.find(p => p.employee_id === emp.id)
+  const empEntries = (emp: Employee) => entries.filter(e => e.employee_id === emp.id)
+
+  // ── render ─────────────────────────────────────────────────────────────────
+
+  const liveCount = openPunches.length
+  const isCurrentWeek = toDateStr(weekStart) === toDateStr(getWeekStart())
+
+  return (
+    <div className="min-h-screen bg-gray-950 text-white">
+      {/* Header */}
+      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+        <div className="flex items-center gap-3">
+          <Link href="/admin" className="text-gray-500 hover:text-white transition-colors text-sm">← Admin</Link>
+          <span className="text-gray-700">/</span>
+          <span className="font-semibold">Timesheet</span>
+        </div>
+        <Link href="/timesheet" className="text-sm text-gray-400 hover:text-white transition-colors">
+          My Clock →
+        </Link>
+      </header>
+
+      <main className="max-w-5xl mx-auto px-4 py-6">
+
+        {/* Week nav + tabs */}
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
+          <div className="flex items-center gap-3">
+            <button
+              onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() - 7); return n })}
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors text-sm"
+            >‹</button>
+            <div className="text-center">
+              <div className="font-semibold">{formatWeekRange(weekStart)}</div>
+              {isCurrentWeek && <div className="text-xs text-blue-400">Current Week</div>}
+            </div>
+            <button
+              onClick={() => setWeekStart(d => { const n = new Date(d); n.setDate(n.getDate() + 7); return n })}
+              className="w-8 h-8 flex items-center justify-center rounded-lg bg-gray-800 hover:bg-gray-700 transition-colors text-sm"
+            >›</button>
+          </div>
+          <div className="flex gap-1 bg-gray-900 rounded-lg p-1 border border-gray-800 self-start sm:self-auto">
+            <button onClick={() => setTab('week')} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${tab === 'week' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>
+              Employees
+            </button>
+            <button onClick={() => setTab('summary')} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${tab === 'summary' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>
+              Pay Period
+            </button>
+            <button onClick={() => setTab('employees')} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${tab === 'employees' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>
+              Roster
+            </button>
+          </div>
+        </div>
+
+        {loading ? (
+          <div className="text-gray-500 text-sm py-8 text-center">Loading…</div>
+        ) : tab === 'week' ? (
+          <>
+            {/* Live status bar */}
+            {liveCount > 0 && isCurrentWeek && (
+              <div className="bg-green-500/10 border border-green-500/20 rounded-xl px-4 py-3 mb-5 flex flex-wrap gap-3 items-center">
+                <span className="text-green-400 text-sm font-medium">🟢 {liveCount} clocked in</span>
+                {openPunches.map(p => {
+                  const dur = formatDuration(p.punched_at)
+                  void now // tick
+                  return (
+                    <span key={p.id} className="text-sm text-gray-300">
+                      {p.employees.preferred_name || p.employees.first_name} since {formatTime(p.punched_at)} ({dur})
+                    </span>
+                  )
+                })}
+              </div>
+            )}
+
+            {/* Employee cards */}
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {employees.map(emp => {
+                const clockedIn = isClockedIn(emp)
+                const punch = openPunch(emp)
+                const summary = weekSummary(empEntries(emp))
+                const isClocking = clockingId === emp.id
+
+                return (
+                  <div key={emp.id} className={`bg-gray-900 border rounded-xl p-4 flex flex-col gap-3 ${clockedIn ? 'border-green-500/30' : 'border-gray-800'}`}>
+                    {/* Name + status */}
+                    <div className="flex items-start justify-between">
+                      <div>
+                        <div className="font-semibold">{emp.first_name} {emp.last_name}</div>
+                        <div className="text-xs text-gray-500 mt-0.5">{emp.job_title}</div>
+                      </div>
+                      <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${clockedIn ? 'bg-green-500/15 text-green-400 border border-green-500/25' : 'bg-gray-800 text-gray-500 border border-gray-700'}`}>
+                        {clockedIn ? 'In' : 'Out'}
+                      </span>
+                    </div>
+
+                    {/* Live since */}
+                    {clockedIn && punch && isCurrentWeek && (
+                      <div className="text-xs text-green-400">
+                        Since {formatTime(punch.punched_at)} · {formatDuration(punch.punched_at)}
+                        <span className="text-transparent">{now}</span>
+                      </div>
+                    )}
+
+                    {/* Hours summary */}
+                    <div className="grid grid-cols-3 gap-2 text-center">
+                      <div>
+                        <div className="text-lg font-bold">{summary.total.toFixed(1)}</div>
+                        <div className="text-xs text-gray-500">Total</div>
+                      </div>
+                      <div>
+                        <div className="text-lg font-bold">{summary.regular.toFixed(1)}</div>
+                        <div className="text-xs text-gray-500">Regular</div>
+                      </div>
+                      <div>
+                        <div className={`text-lg font-bold ${summary.ot > 0 ? 'text-amber-400' : ''}`}>
+                          {summary.ot.toFixed(1)}
+                        </div>
+                        <div className="text-xs text-gray-500">OT {summary.ot > 0 ? '⚠️' : ''}</div>
+                      </div>
+                    </div>
+
+                    {/* Rate */}
+                    {emp.pay_type === 'hourly' && emp.hourly_rate && (
+                      <div className="text-xs text-gray-500">
+                        ${emp.hourly_rate}/hr · est. ${((summary.regular * emp.hourly_rate) + (summary.ot * emp.hourly_rate * 1.5)).toFixed(0)}
+                      </div>
+                    )}
+                    {emp.pay_type === 'salary' && (
+                      <div className="text-xs text-gray-500">Salaried — not pushed to Gusto</div>
+                    )}
+
+                    {/* Actions */}
+                    <div className="flex gap-2 mt-auto pt-1">
+                      {isCurrentWeek && (
+                        <button
+                          onClick={() => clockAction(emp, clockedIn ? 'out' : 'in')}
+                          disabled={isClocking}
+                          className={`flex-1 py-2 rounded-lg text-sm font-medium transition-colors disabled:opacity-50 ${
+                            clockedIn
+                              ? 'bg-red-500/15 text-red-400 border border-red-500/25 hover:bg-red-500/25'
+                              : 'bg-green-500/15 text-green-400 border border-green-500/25 hover:bg-green-500/25'
+                          }`}
+                        >
+                          {isClocking ? '…' : clockedIn ? 'Clock Out' : 'Clock In'}
+                        </button>
+                      )}
+                      <button
+                        onClick={() => openEditPunches(emp)}
+                        className="px-3 py-2 rounded-lg text-sm text-gray-400 border border-gray-700 hover:border-gray-600 hover:text-white transition-colors"
+                        title="Edit punches"
+                      >
+                        ✎
+                      </button>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          </>
+        ) : tab === 'summary' ? (
+          // Pay period summary tab
+          <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+            <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+              <div>
+                <h2 className="font-semibold">Pay Period Summary</h2>
+                <p className="text-xs text-gray-500 mt-0.5">{formatWeekRange(weekStart)}</p>
+              </div>
+              <div className="flex gap-2">
+                <button
+                  onClick={() => exportPayPeriodCSV(employees, entries, weekStart)}
+                  className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                >
+                  ↓ Export CSV
+                </button>
+                <button
+                  disabled
+                  title="Gusto OAuth required — coming in Phase 2"
+                  className="bg-blue-600/40 text-blue-400 text-sm font-medium px-4 py-2 rounded-lg cursor-not-allowed border border-blue-500/25"
+                >
+                  Send to Gusto ↗
+                </button>
+              </div>
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-gray-800 text-gray-500 text-xs uppercase tracking-wide">
+                    <th className="text-left px-5 py-3">Employee</th>
+                    <th className="text-right px-4 py-3">$/hr</th>
+                    <th className="text-right px-4 py-3">Regular</th>
+                    <th className="text-right px-4 py-3">OT</th>
+                    <th className="text-right px-4 py-3">Total</th>
+                    <th className="text-right px-4 py-3">Est. Wages</th>
+                    <th className="text-center px-4 py-3">GPS</th>
+                    <th className="text-center px-4 py-3">Gusto</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-gray-800">
+                  {employees.map(emp => {
+                    const summary = weekSummary(empEntries(emp))
+                    const estPay = emp.hourly_rate
+                      ? (summary.regular * emp.hourly_rate) + (summary.ot * emp.hourly_rate * 1.5)
+                      : null
+
+                    return (
+                      <tr key={emp.id} className="hover:bg-gray-800/50 transition-colors">
+                        <td className="px-5 py-3">
+                          <div className="font-medium">{emp.first_name} {emp.last_name}</div>
+                          <div className="text-xs text-gray-500">{emp.department}</div>
+                        </td>
+                        <td className="text-right px-4 py-3 tabular-nums text-gray-400">
+                          {emp.hourly_rate ? `$${Number(emp.hourly_rate).toFixed(2)}` : <span className="text-gray-700">—</span>}
+                        </td>
+                        <td className="text-right px-4 py-3 tabular-nums">{summary.regular.toFixed(2)}h</td>
+                        <td className={`text-right px-4 py-3 tabular-nums ${summary.ot > 0 ? 'text-amber-400 font-medium' : ''}`}>
+                          {summary.ot.toFixed(2)}h
+                        </td>
+                        <td className="text-right px-4 py-3 tabular-nums font-medium">{summary.total.toFixed(2)}h</td>
+                        <td className="text-right px-4 py-3 tabular-nums">
+                          {estPay !== null ? `$${estPay.toFixed(2)}` : <span className="text-gray-600">—</span>}
+                        </td>
+                        <td className="text-center px-4 py-3">
+                          <button
+                            onClick={() => openEditPunches(emp)}
+                            className="text-xs text-gray-500 hover:text-blue-400 transition-colors"
+                            title="View punch locations"
+                          >
+                            📍
+                          </button>
+                        </td>
+                        <td className="text-center px-4 py-3">
+                          {emp.pay_type === 'hourly'
+                            ? <span className="text-xs text-gray-600 bg-gray-800 px-2 py-0.5 rounded">Pending</span>
+                            : <span className="text-xs text-gray-700">N/A</span>
+                          }
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                <tfoot>
+                  <tr className="border-t border-gray-700 bg-gray-800/50 font-semibold">
+                    <td className="px-5 py-3 text-gray-400 text-xs uppercase">Totals</td>
+                    <td />
+                    {(() => {
+                      const hourlyEmps = employees.filter(e => e.pay_type === 'hourly')
+                      const totReg = hourlyEmps.reduce((s, e) => s + weekSummary(empEntries(e)).regular, 0)
+                      const totOT = hourlyEmps.reduce((s, e) => s + weekSummary(empEntries(e)).ot, 0)
+                      const totHrs = hourlyEmps.reduce((s, e) => s + weekSummary(empEntries(e)).total, 0)
+                      const totPay = hourlyEmps.reduce((s, e) => {
+                        const sum = weekSummary(empEntries(e))
+                        return s + (e.hourly_rate ? sum.regular * e.hourly_rate + sum.ot * e.hourly_rate * 1.5 : 0)
+                      }, 0)
+                      return (
+                        <>
+                          <td className="text-right px-4 py-3 tabular-nums">{totReg.toFixed(2)}h</td>
+                          <td className={`text-right px-4 py-3 tabular-nums ${totOT > 0 ? 'text-amber-400' : ''}`}>{totOT.toFixed(2)}h</td>
+                          <td className="text-right px-4 py-3 tabular-nums">{totHrs.toFixed(2)}h</td>
+                          <td className="text-right px-4 py-3 tabular-nums">${totPay.toFixed(2)}</td>
+                          <td />
+                          <td />
+                        </>
+                      )
+                    })()}
+                  </tr>
+                </tfoot>
+              </table>
+            </div>
+            <div className="px-5 py-3 border-t border-gray-800">
+              <p className="text-xs text-gray-600">Send to Gusto will be enabled once Gusto OAuth is connected in Settings (Phase 2).</p>
+            </div>
+          </div>
+        ) : (
+          // Roster tab
+          <div className="space-y-4">
+
+            {/* Employee table */}
+            <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+              <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+                <div>
+                  <h2 className="font-semibold">Employee Roster</h2>
+                  <p className="text-xs text-gray-500 mt-0.5">{employees.length} active employees</p>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => { setShowAddEmployee(true); setAddForm(BLANK_ADD_FORM); setAddError('') }}
+                    className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors"
+                  >
+                    + Add Employee
+                  </button>
+                  <button
+                    onClick={fetchImportPreview}
+                    disabled={importLoading}
+                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  >
+                    {importLoading ? (
+                      <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                    ) : '↓'}
+                    Sync from Gusto
+                  </button>
+                </div>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-gray-800 text-gray-500 text-xs uppercase tracking-wide">
+                      <th className="text-left px-5 py-3">Name</th>
+                      <th className="text-left px-4 py-3">Title</th>
+                      <th className="text-left px-4 py-3">Dept</th>
+                      <th className="text-center px-4 py-3">Type</th>
+                      <th className="text-right px-4 py-3">$/hr</th>
+                      <th className="text-center px-4 py-3">Account</th>
+                      <th className="text-right px-5 py-3">Gusto Synced</th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-gray-800">
+                    {employees.map(emp => (
+                      <tr key={emp.id} className="hover:bg-gray-800/40 transition-colors">
+                        <td className="px-5 py-3 font-medium">{emp.first_name} {emp.last_name}</td>
+                        <td className="px-4 py-3 text-gray-400">{emp.job_title}</td>
+                        <td className="px-4 py-3 text-gray-500 text-xs">{emp.department}</td>
+                        <td className="px-4 py-3 text-center">
+                          <span className={`text-xs px-2 py-0.5 rounded-full ${emp.pay_type === 'hourly' ? 'bg-blue-500/15 text-blue-400' : 'bg-gray-800 text-gray-500'}`}>
+                            {emp.pay_type}
+                          </span>
+                        </td>
+                        <td className="px-4 py-3 text-right tabular-nums">
+                          {emp.hourly_rate
+                            ? <span className="font-medium">${Number(emp.hourly_rate).toFixed(2)}</span>
+                            : <span className="text-gray-700">—</span>}
+                        </td>
+                        <td className="px-4 py-3 text-center">
+                          {emp.user_id ? (
+                            <span className="text-xs bg-green-500/15 text-green-400 border border-green-500/20 px-2 py-0.5 rounded-full">Linked</span>
+                          ) : (
+                            <button
+                              onClick={() => openLinkModal(emp)}
+                              className="text-xs text-gray-500 hover:text-blue-400 border border-gray-700 hover:border-blue-500/40 px-2 py-0.5 rounded-full transition-colors"
+                            >
+                              Link
+                            </button>
+                          )}
+                        </td>
+                        <td className="px-5 py-3 text-right text-xs text-gray-600">
+                          {emp.gusto_synced_at
+                            ? new Date(emp.gusto_synced_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+                            : '—'}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            {/* Apply result banner */}
+            {applyResult && (
+              <div className="bg-green-500/10 border border-green-500/25 rounded-xl px-5 py-3 flex items-center justify-between">
+                <span className="text-green-400 text-sm">
+                  Import complete — {applyResult.added} added, {applyResult.updated} updated, {applyResult.deactivated} deactivated
+                </span>
+                <button onClick={() => setApplyResult(null)} className="text-green-600 hover:text-green-400 text-lg leading-none">×</button>
+              </div>
+            )}
+          </div>
+        )}
+      </main>
+
+      {/* Gusto import preview panel */}
+      {importPreview && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setImportPreview(null) }}>
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
+
+            {/* Header */}
+            <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="font-semibold">Gusto Import Preview</h3>
+                <p className="text-xs text-gray-500 mt-0.5">Select what to import, then click Apply</p>
+              </div>
+              <button onClick={() => setImportPreview(null)} className="text-gray-500 hover:text-white transition-colors text-xl leading-none">×</button>
+            </div>
+
+            <div className="overflow-y-auto flex-1 px-5 py-4">
+
+              {!importPreview.configured ? (
+                <div className="text-center py-6 space-y-3">
+                  <div className="text-3xl">🔗</div>
+                  <p className="text-sm font-medium text-gray-300">Gusto not connected</p>
+                  <p className="text-xs text-gray-500 leading-relaxed max-w-xs mx-auto">{importPreview.message}</p>
+                </div>
+              ) : importPreview.changes.length === 0 ? (
+                <div className="text-center py-6 space-y-3">
+                  <div className="text-3xl">✅</div>
+                  <p className="text-sm font-medium text-gray-300">All up to date</p>
+                  <p className="text-xs text-gray-500">No differences found between Gusto and your roster.</p>
+                </div>
+              ) : (
+                <div className="space-y-5">
+
+                  {/* Select all / none */}
+                  <div className="flex gap-3 text-xs">
+                    <button onClick={() => setImportSelections(new Set(importPreview.changes.map(c => c.key)))} className="text-blue-400 hover:text-blue-300">Select all</button>
+                    <span className="text-gray-700">·</span>
+                    <button onClick={() => setImportSelections(new Set())} className="text-gray-500 hover:text-gray-400">Deselect all</button>
+                    <span className="ml-auto text-gray-600">{importSelections.size} of {importPreview.changes.length} selected</span>
+                  </div>
+
+                  {/* Group by action type */}
+                  {(['add', 'update_rate', 'update_title', 'deactivate'] as const).map(action => {
+                    const group = importPreview.changes.filter(c => c.action === action)
+                    if (group.length === 0) return null
+                    const labels: Record<string, string> = {
+                      add: '🆕 New Employees',
+                      update_rate: '💰 Rate Changes',
+                      update_title: '📝 Title Changes',
+                      deactivate: '⚠️ No Longer in Gusto',
+                    }
+                    return (
+                      <div key={action}>
+                        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{labels[action]} ({group.length})</div>
+                        <div className="space-y-1">
+                          {group.map(change => (
+                            <label key={change.key} className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-gray-800 cursor-pointer group">
+                              <input
+                                type="checkbox"
+                                checked={importSelections.has(change.key)}
+                                onChange={() => toggleSelection(change.key)}
+                                className="w-4 h-4 rounded accent-blue-500 shrink-0"
+                              />
+                              <div className="flex-1 min-w-0">
+                                <div className="text-sm font-medium">{change.label}</div>
+                                <div className={`text-xs mt-0.5 ${action === 'deactivate' ? 'text-amber-500' : 'text-gray-500'}`}>{change.detail}</div>
+                              </div>
+                            </label>
+                          ))}
+                        </div>
+                      </div>
+                    )
+                  })}
+                </div>
+              )}
+            </div>
+
+            {/* Footer */}
+            {importPreview.configured && importPreview.changes.length > 0 && (
+              <div className="px-5 py-4 border-t border-gray-800 flex gap-3 shrink-0">
+                <button
+                  onClick={applyImport}
+                  disabled={applying || importSelections.size === 0}
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm"
+                >
+                  {applying ? 'Applying…' : `Apply Import (${importSelections.size})`}
+                </button>
+                <button onClick={() => setImportPreview(null)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">
+                  Cancel
+                </button>
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Add Employee modal */}
+      {showAddEmployee && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setShowAddEmployee(false) }}>
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between shrink-0">
+              <h3 className="font-semibold">Add Employee</h3>
+              <button onClick={() => setShowAddEmployee(false)} className="text-gray-500 hover:text-white text-xl leading-none">×</button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">First Name *</label>
+                  <input
+                    value={addForm.first_name}
+                    onChange={e => setAddForm(f => ({ ...f, first_name: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    placeholder="Jane"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Last Name *</label>
+                  <input
+                    value={addForm.last_name}
+                    onChange={e => setAddForm(f => ({ ...f, last_name: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    placeholder="Smith"
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Preferred Name</label>
+                <input
+                  value={addForm.preferred_name}
+                  onChange={e => setAddForm(f => ({ ...f, preferred_name: e.target.value }))}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                  placeholder="Optional nickname"
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Email</label>
+                  <input
+                    type="email"
+                    value={addForm.email}
+                    onChange={e => setAddForm(f => ({ ...f, email: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    placeholder="jane@example.com"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Phone</label>
+                  <input
+                    value={addForm.phone}
+                    onChange={e => setAddForm(f => ({ ...f, phone: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    placeholder="555-555-5555"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Job Title</label>
+                  <input
+                    value={addForm.job_title}
+                    onChange={e => setAddForm(f => ({ ...f, job_title: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    placeholder="Crew Leader"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Department</label>
+                  <input
+                    value={addForm.department}
+                    onChange={e => setAddForm(f => ({ ...f, department: e.target.value }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                    placeholder="Field"
+                  />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Pay Type *</label>
+                  <select
+                    value={addForm.pay_type}
+                    onChange={e => setAddForm(f => ({ ...f, pay_type: e.target.value as 'hourly' | 'salary' }))}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
+                  >
+                    <option value="hourly">Hourly</option>
+                    <option value="salary">Salary</option>
+                  </select>
+                </div>
+                {addForm.pay_type === 'hourly' && (
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">Hourly Rate</label>
+                    <input
+                      type="number"
+                      step="0.01"
+                      min="0"
+                      value={addForm.hourly_rate}
+                      onChange={e => setAddForm(f => ({ ...f, hourly_rate: e.target.value }))}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
+                      placeholder="18.00"
+                    />
+                  </div>
+                )}
+              </div>
+              {addError && <p className="text-red-400 text-xs">{addError}</p>}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-800 flex gap-3 shrink-0">
+              <button
+                onClick={saveNewEmployee}
+                disabled={addSaving || !addForm.first_name || !addForm.last_name}
+                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm"
+              >
+                {addSaving ? 'Saving…' : 'Add Employee'}
+              </button>
+              <button onClick={() => setShowAddEmployee(false)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Link Account modal */}
+      {linkingEmployee && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setLinkingEmployee(null) }}>
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-md flex flex-col">
+            <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between shrink-0">
+              <div>
+                <h3 className="font-semibold">Link Lynxedo Account</h3>
+                <p className="text-xs text-gray-500 mt-0.5">{linkingEmployee.first_name} {linkingEmployee.last_name}</p>
+              </div>
+              <button onClick={() => setLinkingEmployee(null)} className="text-gray-500 hover:text-white text-xl leading-none">×</button>
+            </div>
+            <div className="px-5 py-5 space-y-4">
+              <p className="text-xs text-gray-500 leading-relaxed">
+                Select the Lynxedo login that belongs to this employee. They&apos;ll get timesheet access automatically.
+              </p>
+              {lynxedoUsers.length === 0 ? (
+                <p className="text-sm text-gray-600 text-center py-4">No unlinked Lynxedo users found.</p>
+              ) : (
+                <select
+                  value={selectedUserId}
+                  onChange={e => setSelectedUserId(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">Select a user…</option>
+                  {lynxedoUsers.map(u => (
+                    <option key={u.id} value={u.id}>{u.email}</option>
+                  ))}
+                </select>
+              )}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-800 flex gap-3 shrink-0">
+              <button
+                onClick={saveLink}
+                disabled={linkSaving || !selectedUserId}
+                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm"
+              >
+                {linkSaving ? 'Linking…' : 'Link Account'}
+              </button>
+              <button onClick={() => setLinkingEmployee(null)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Edit punches panel */}
+      {editEmployee && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setEditEmployee(null) }}>
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg max-h-[80vh] flex flex-col">
+            <div className="px-5 py-4 border-b border-gray-800 shrink-0">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="font-semibold">Punches — {editEmployee.first_name} {editEmployee.last_name}</h3>
+                <button onClick={() => setEditEmployee(null)} className="text-gray-500 hover:text-white transition-colors text-xl leading-none">×</button>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => navigateEditWeek(-1)}
+                  className="w-7 h-7 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors text-sm"
+                >‹</button>
+                <span className="flex-1 text-center text-xs text-gray-400">{formatWeekRange(editWeekStart)}</span>
+                <button
+                  onClick={() => navigateEditWeek(1)}
+                  disabled={toDateStr(editWeekStart) >= toDateStr(getWeekStart())}
+                  className="w-7 h-7 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
+                >›</button>
+              </div>
+            </div>
+
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-3">
+              {editPunchesLoading && <p className="text-sm text-gray-500">Loading…</p>}
+              {!editPunchesLoading && editPunches.length === 0 && <p className="text-sm text-gray-500">No punches this week.</p>}
+
+              {editPunches.map(punch => (
+                <div key={punch.id} className="flex items-center gap-3 group">
+                  <span className={`text-xs font-semibold w-8 text-center py-0.5 rounded ${punch.punch_type === 'in' ? 'bg-green-500/20 text-green-400' : 'bg-red-500/20 text-red-400'}`}>
+                    {punch.punch_type === 'in' ? 'IN' : 'OUT'}
+                  </span>
+
+                  {editingPunch?.id === punch.id ? (
+                    <div className="flex-1 flex gap-2">
+                      <input
+                        type="datetime-local"
+                        value={editingPunch.time.slice(0, 16)}
+                        onChange={e => setEditingPunch(p => p ? { ...p, time: e.target.value + ':00.000Z' } : p)}
+                        className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Reason *"
+                        value={editingPunch.reason}
+                        onChange={e => setEditingPunch(p => p ? { ...p, reason: e.target.value } : p)}
+                        className="w-28 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500"
+                      />
+                      <button onClick={savePunchEdit} className="text-green-400 hover:text-green-300 text-sm px-2">✓</button>
+                      <button onClick={() => setEditingPunch(null)} className="text-gray-500 hover:text-white text-sm px-1">✕</button>
+                    </div>
+                  ) : (
+                    <>
+                      <span className="flex-1 text-sm font-medium tabular-nums">
+                        {formatTime(punch.punched_at)}
+                        <span className="text-gray-600 text-xs ml-2">
+                          {new Date(punch.punched_at).toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })}
+                        </span>
+                        {punch.edit_reason && (
+                          <span className="text-xs text-amber-500/70 ml-2" title={`Edited: ${punch.edit_reason}`}>✎</span>
+                        )}
+                        {punch.lat && punch.lng && (
+                          <a
+                            href={`https://maps.google.com/?q=${punch.lat},${punch.lng}`}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs ml-2"
+                            title={`${punch.lat.toFixed(5)}, ${punch.lng.toFixed(5)} — open in Maps`}
+                          >📍</a>
+                        )}
+                      </span>
+                      <button
+                        onClick={() => setEditingPunch({ id: punch.id, time: punch.punched_at, reason: '' })}
+                        className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-white transition-all text-sm px-1"
+                        title="Edit time"
+                      >✎</button>
+                      <button
+                        onClick={() => deletePunch(punch.id)}
+                        className="opacity-0 group-hover:opacity-100 text-gray-700 hover:text-red-400 transition-all text-sm px-1"
+                        title="Delete punch"
+                      >✕</button>
+                    </>
+                  )}
+                </div>
+              ))}
+
+              {/* Add punch */}
+              {addingPunch ? (
+                <div className="border border-dashed border-gray-700 rounded-lg p-3 space-y-2">
+                  <div className="flex gap-2">
+                    <select
+                      value={addingPunch.type}
+                      onChange={e => setAddingPunch(p => p ? { ...p, type: e.target.value as 'in' | 'out' } : p)}
+                      className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none"
+                    >
+                      <option value="in">Clock In</option>
+                      <option value="out">Clock Out</option>
+                    </select>
+                    <input
+                      type="datetime-local"
+                      value={addingPunch.datetime.slice(0, 16)}
+                      onChange={e => setAddingPunch(p => p ? { ...p, datetime: e.target.value + ':00.000Z' } : p)}
+                      className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                    />
+                  </div>
+                  <input
+                    type="text"
+                    placeholder="Note (optional)"
+                    value={addingPunch.note}
+                    onChange={e => setAddingPunch(p => p ? { ...p, note: e.target.value } : p)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                  />
+                  <div className="flex gap-2">
+                    <button onClick={addPunch} className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-1.5 rounded-lg transition-colors">Add</button>
+                    <button onClick={() => setAddingPunch(null)} className="text-gray-500 hover:text-white text-sm px-3 py-1.5 transition-colors">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                <button
+                  onClick={() => {
+                    const isCurrentEditWeek = toDateStr(editWeekStart) === toDateStr(getWeekStart())
+                    const defaultDt = isCurrentEditWeek ? new Date() : new Date(editWeekStart)
+                    defaultDt.setHours(8, 0, 0, 0)
+                    setAddingPunch({ type: 'in', datetime: defaultDt.toISOString(), note: '' })
+                  }}
+                  className="w-full border border-dashed border-gray-700 hover:border-gray-600 rounded-lg py-2 text-sm text-gray-500 hover:text-gray-400 transition-colors"
+                >
+                  + Add Punch
+                </button>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

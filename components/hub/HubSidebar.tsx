@@ -45,6 +45,9 @@ export default function HubSidebar({
   textSize,
   onTextSizeChange,
   initialPinnedIds = [],
+  canAccessTracker = false,
+  canAccessCallLog = false,
+  canAccessLawn = false,
 }: {
   rooms: Room[]
   userEmail: string
@@ -57,6 +60,9 @@ export default function HubSidebar({
   textSize?: string
   onTextSizeChange?: (size: string) => void
   initialPinnedIds?: string[]
+  canAccessTracker?: boolean
+  canAccessCallLog?: boolean
+  canAccessLawn?: boolean
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -94,6 +100,16 @@ export default function HubSidebar({
 
   // Search
   const [showSearch, setShowSearch] = useState(false)
+
+  // Collapsible sections
+  const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  function toggleSection(key: string) {
+    setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
+  }
+
+  // Tracker sub-nav expansion (auto-expands when on a tracker page)
+  const [trackerManualOpen, setTrackerManualOpen] = useState(false)
+  const trackerOpen = pathname.startsWith('/hub/tracker') || trackerManualOpen
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
@@ -386,7 +402,7 @@ export default function HubSidebar({
 
   return (
     <>
-      <aside className="w-60 flex-none bg-[#1A3D5C] flex flex-col h-full h-[100dvh] pb-16 md:pb-0">
+      <aside className="w-60 flex-none bg-[#1A3D5C] flex flex-col h-full h-[100dvh]">
         {/* Workspace header */}
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
           <div className="font-bold text-white text-sm tracking-wide">Heroes Lawn Care</div>
@@ -446,18 +462,26 @@ export default function HubSidebar({
           {/* Favorites */}
           {hasFavorites && (
             <div>
-              <div className="px-2 mb-1">
-                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Favorites</span>
-              </div>
-              {favoriteRooms.map(room => renderRoom(room, false))}
-              {favoriteConvs.map(conv => renderConv(conv, false))}
+              <button onClick={() => toggleSection('favorites')} className="w-full flex items-center justify-between px-2 mb-1 group">
+                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Favorites</span>
+                <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.favorites ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+              </button>
+              {!collapsed.favorites && (
+                <>
+                  {favoriteRooms.map(room => renderRoom(room, false))}
+                  {favoriteConvs.map(conv => renderConv(conv, false))}
+                </>
+              )}
             </div>
           )}
 
           {/* Rooms */}
           <div>
             <div className="flex items-center justify-between px-2 mb-1">
-              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Rooms</span>
+              <button onClick={() => toggleSection('rooms')} className="flex items-center gap-1 group">
+                <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.rooms ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Rooms</span>
+              </button>
               {canCreateRoom && (
                 <button
                   onClick={() => { setShowNewRoom(true); setNewRoomName(''); setNewRoomDesc(''); setNewRoomPrivate(false) }}
@@ -468,13 +492,16 @@ export default function HubSidebar({
                 </button>
               )}
             </div>
-            {sortedRooms.map(room => renderRoom(room))}
+            {!collapsed.rooms && sortedRooms.map(room => renderRoom(room))}
           </div>
 
           {/* Direct Messages */}
           <div>
             <div className="flex items-center justify-between px-2 mb-1">
-              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Direct Messages</span>
+              <button onClick={() => toggleSection('dms')} className="flex items-center gap-1 group">
+                <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.dms ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Direct Messages</span>
+              </button>
               <button
                 onClick={() => { setShowNewPM(true); setSelectedIds([]) }}
                 className="text-white/40 hover:text-white/70 transition-colors text-lg leading-none"
@@ -483,16 +510,19 @@ export default function HubSidebar({
                 +
               </button>
             </div>
-            {conversations.length === 0 && (
+            {!collapsed.dms && conversations.length === 0 && (
               <p className="text-xs text-white/30 px-2 py-1">No messages yet</p>
             )}
-            {sortedConvs.map(conv => renderConv(conv))}
+            {!collapsed.dms && sortedConvs.map(conv => renderConv(conv))}
           </div>
 
           {/* Boards */}
           <div>
             <div className="flex items-center justify-between px-2 mb-1">
-              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Boards</span>
+              <button onClick={() => toggleSection('boards')} className="flex items-center gap-1 group">
+                <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.boards ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Boards</span>
+              </button>
               <button
                 onClick={() => { setShowNewBoard(true); setNewBoardName(''); setNewBoardPrivate(false); setNewBoardPersonal(false) }}
                 className="text-white/40 hover:text-white/70 transition-colors text-lg leading-none"
@@ -501,10 +531,10 @@ export default function HubSidebar({
                 +
               </button>
             </div>
-            {boards.length === 0 && (
+            {!collapsed.boards && boards.length === 0 && (
               <p className="text-xs text-white/30 px-2 py-1">No boards yet</p>
             )}
-            {boards.map(board => {
+            {!collapsed.boards && boards.map(board => {
               const isActive = pathname === `/hub/board/${board.id}`
               return (
                 <Link
@@ -524,38 +554,141 @@ export default function HubSidebar({
             })}
           </div>
 
+          {/* Tools */}
+          {(canAccessTracker || canAccessCallLog || canAccessLawn || isAdmin) && (
+            <div>
+              <button onClick={() => toggleSection('tools')} className="w-full flex items-center gap-1 px-2 mb-1 group">
+                <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.tools ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Tools</span>
+              </button>
+              {!collapsed.tools && (
+                <>
+                  {/* Tracker with sub-items */}
+                  {canAccessTracker && (
+                    <div>
+                      <div className="flex items-center">
+                        <Link
+                          href="/hub/tracker"
+                          onClick={() => { onClose?.(); setTrackerManualOpen(true) }}
+                          className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors flex-1 ${
+                            pathname.startsWith('/hub/tracker') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <span className="text-xs flex-none">📋</span>
+                          <span className="truncate flex-1">Tracker</span>
+                        </Link>
+                        <button
+                          onClick={() => setTrackerManualOpen(v => !v)}
+                          className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
+                          title={trackerOpen ? 'Collapse' : 'Expand'}
+                        >
+                          <svg className={`w-3 h-3 transition-transform ${trackerOpen ? '' : '-rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                        </button>
+                      </div>
+                      {trackerOpen && (
+                        <div className="ml-4 mt-0.5 space-y-0.5">
+                          {[
+                            { href: '/hub/tracker', label: 'Pipeline', exact: true },
+                            { href: '/hub/tracker/dashboard', label: 'Dashboard', exact: false },
+                            { href: '/hub/tracker/import', label: 'Import', exact: false },
+                            ...(isAdmin ? [{ href: '/hub/tracker/settings', label: 'Settings', exact: false }] : []),
+                          ].map(tab => {
+                            const isActive = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href)
+                            return (
+                              <Link
+                                key={tab.href}
+                                href={tab.href}
+                                onClick={() => onClose?.()}
+                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
+                                  isActive ? 'text-[#2E7EB8] font-medium' : 'text-white/50 hover:text-white hover:bg-white/10'
+                                }`}
+                              >
+                                <span className="text-white/20 flex-none">›</span>
+                                {tab.label}
+                              </Link>
+                            )
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  {/* Call Log */}
+                  {canAccessCallLog && (
+                    <Link
+                      href="/hub/call-log"
+                      onClick={() => onClose?.()}
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+                        pathname.startsWith('/hub/call-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      <span className="text-xs flex-none">📞</span>
+                      <span className="truncate">Call Log</span>
+                    </Link>
+                  )}
+
+                  {/* Lawn Calculator */}
+                  {canAccessLawn && (
+                    <Link
+                      href="/hub/lawn"
+                      onClick={() => onClose?.()}
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+                        pathname === '/hub/lawn' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      <span className="text-xs flex-none">🌿</span>
+                      <span className="truncate">Lawn Calculator</span>
+                    </Link>
+                  )}
+
+                  {/* Time Records (admin only) */}
+                  {isAdmin && (
+                    <Link
+                      href="/hub/timesheet"
+                      onClick={() => onClose?.()}
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+                        pathname.startsWith('/hub/timesheet') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                      }`}
+                    >
+                      <span className="text-xs flex-none">⏱</span>
+                      <span className="truncate">Time Records</span>
+                    </Link>
+                  )}
+                </>
+              )}
+            </div>
+          )}
+
           {/* Pages */}
           <div>
-            <div className="px-2 mb-1">
-              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Pages</span>
-            </div>
-            <Link
-              href="/hub/pages/company-news"
-              onClick={() => onClose?.()}
-              className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
-                pathname === '/hub/pages/company-news' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <span className="text-xs">📰</span>
-              <span className="truncate">Company News</span>
-            </Link>
-          </div>
-
-          {/* Files */}
-          <div>
-            <div className="px-2 mb-1">
-              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Files</span>
-            </div>
-            <Link
-              href="/hub/files"
-              onClick={() => onClose?.()}
-              className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
-                pathname === '/hub/files' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <span className="text-xs">📁</span>
-              <span className="truncate">Files</span>
-            </Link>
+            <button onClick={() => toggleSection('pages')} className="w-full flex items-center gap-1 px-2 mb-1 group">
+              <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.pages ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Pages</span>
+            </button>
+            {!collapsed.pages && (
+              <>
+                <Link
+                  href="/hub/pages/company-news"
+                  onClick={() => onClose?.()}
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+                    pathname === '/hub/pages/company-news' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <span className="text-xs">📰</span>
+                  <span className="truncate">Company News</span>
+                </Link>
+                <Link
+                  href="/hub/files"
+                  onClick={() => onClose?.()}
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+                    pathname === '/hub/files' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                  }`}
+                >
+                  <span className="text-xs">📁</span>
+                  <span className="truncate">Files</span>
+                </Link>
+              </>
+            )}
           </div>
         </nav>
         )} {/* end teams-only block */}

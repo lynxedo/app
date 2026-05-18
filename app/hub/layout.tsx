@@ -53,7 +53,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     supabase.from('rooms').select('id, name, is_private').is('archived_at', null).order('name'),
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
     supabase.from('hub_users').select('display_name, status').eq('id', user.id).single(),
-    supabase.from('user_profiles').select('role, hub_text_size, hub_pinned_ids').eq('id', user.id).single(),
+    supabase.from('user_profiles').select('role, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_lawn').eq('id', user.id).single(),
     supabase
       .from('hub_announcements')
       .select('id, content, expires_at, reactions:announcement_reactions(announcement_id, user_id, emoji)')
@@ -66,6 +66,9 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const isAdmin = profileResult.data?.role === 'admin'
   const initialTextSize = profileResult.data?.hub_text_size ?? 'default'
   const initialPinnedIds: string[] = profileResult.data?.hub_pinned_ids ?? []
+  const canAccessTracker = profileResult.data?.can_access_tracker ?? false
+  const canAccessCallLog = profileResult.data?.can_access_call_log ?? false
+  const canAccessLawn = profileResult.data?.can_access_lawn ?? false
 
   const ann = announcementResult.data
   const initialAnnouncement = ann
@@ -91,6 +94,9 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         initialAnnouncement={initialAnnouncement}
         initialTextSize={initialTextSize}
         initialPinnedIds={initialPinnedIds}
+        canAccessTracker={canAccessTracker}
+        canAccessCallLog={canAccessCallLog}
+        canAccessLawn={canAccessLawn}
       >
         {children}
       </HubShell>

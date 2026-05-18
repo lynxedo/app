@@ -34,7 +34,7 @@ interface Props {
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
-type Tab = 'profile' | 'routing' | 'lawn' | 'responder' | 'account'
+type Tab = 'profile' | 'routing' | 'account'
 
 const METHOD_OPTIONS = [
   { value: 'formula',      label: 'Formula (Line Items)',          desc: 'Sum line item times + lawn size + padding' },
@@ -301,8 +301,6 @@ export default function SettingsForm({ email, userId, initial, hubProfile, jobbe
   const tabs: { id: Tab; label: string }[] = [
     { id: 'profile',   label: 'Profile' },
     { id: 'routing',   label: 'Routing' },
-    { id: 'lawn',      label: 'Lawn' },
-    { id: 'responder', label: 'Responder' },
     { id: 'account',   label: 'Account' },
   ]
 
@@ -682,25 +680,6 @@ export default function SettingsForm({ email, userId, initial, hubProfile, jobbe
 
       </>}
 
-      {/* LAWN TAB */}
-      {activeTab === 'lawn' && (
-      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 text-center py-16">
-        <div className="text-4xl mb-4">🌿</div>
-        <h2 className="font-semibold text-lg mb-2">Lawn Settings</h2>
-        <p className="text-gray-400 text-sm">County data, pricing config, and calculator defaults will live here.</p>
-        <p className="text-gray-600 text-xs mt-3">Coming in an upcoming session.</p>
-      </section>
-      )}
-
-      {/* RESPONDER TAB */}
-      {activeTab === 'responder' && (
-      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 text-center py-16">
-        <div className="text-4xl mb-4">📞</div>
-        <h2 className="font-semibold text-lg mb-2">Responder Settings</h2>
-        <p className="text-gray-400 text-sm">VoIP credentials, Slack channel, and notification preferences will live here.</p>
-        <p className="text-gray-600 text-xs mt-3">Coming in an upcoming session.</p>
-      </section>
-      )}
 
       {/* ACCOUNT TAB */}
       {activeTab === 'account' && (

@@ -72,14 +72,24 @@ export async function proxy(request: NextRequest) {
         '/timesheet': 'can_access_timesheet',
         '/tracker': 'can_access_tracker',
         '/hub': 'can_access_hub',
+        '/hub/call-log': 'can_access_call_log',
+        '/hub/lawn': 'can_access_lawn',
+        '/hub/tracker': 'can_access_tracker',
       }
 
       for (const [route, permKey] of Object.entries(permissionMap)) {
         if ((pathname === route || pathname.startsWith(route + '/')) && !profile[permKey]) {
           const url = request.nextUrl.clone()
-          url.pathname = '/dashboard'
+          url.pathname = route.startsWith('/hub/') ? '/hub' : '/dashboard'
           return NextResponse.redirect(url)
         }
+      }
+
+      // /hub/timesheet is admin-only
+      if ((pathname === '/hub/timesheet' || pathname.startsWith('/hub/timesheet/')) && profile.role !== 'admin') {
+        const url = request.nextUrl.clone()
+        url.pathname = '/hub'
+        return NextResponse.redirect(url)
       }
 
       if ((pathname === '/admin' || pathname.startsWith('/admin/')) && profile.role !== 'admin') {
@@ -94,5 +104,11 @@ export async function proxy(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ['/dashboard/:path*', '/routing/:path*', '/lawn/:path*', '/responder/:path*', '/settings/:path*', '/call-log/:path*', '/admin/:path*', '/timesheet/:path*', '/timesheet', '/books/:path*', '/books', '/tracker/:path*', '/tracker', '/hub/:path*', '/hub', '/login'],
+  matcher: [
+    '/dashboard/:path*', '/routing/:path*', '/lawn/:path*', '/lawn',
+    '/responder/:path*', '/settings/:path*', '/call-log/:path*', '/call-log',
+    '/admin/:path*', '/timesheet/:path*', '/timesheet',
+    '/books/:path*', '/books', '/tracker/:path*', '/tracker',
+    '/hub/:path*', '/hub', '/login',
+  ],
 }

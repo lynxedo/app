@@ -76,7 +76,7 @@ export default async function DashboardPage() {
 
           {profile?.can_access_lawn && (
             <Link
-              href="/lawn"
+              href="/hub/lawn"
               className="group bg-gray-900 border border-gray-800 hover:border-green-500 rounded-2xl p-6 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-green-500/10 block"
             >
               <div className="flex items-start justify-between mb-4">
@@ -93,7 +93,7 @@ export default async function DashboardPage() {
 
           {profile?.can_access_call_log && (
             <Link
-              href="/call-log"
+              href="/hub/call-log"
               className="group bg-gray-900 border border-gray-800 hover:border-purple-500 rounded-2xl p-6 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-purple-500/10 block"
             >
               <div className="flex items-start justify-between mb-4">
@@ -161,7 +161,7 @@ export default async function DashboardPage() {
 
           {profile?.can_access_tracker && (
             <Link
-              href="/tracker"
+              href="/hub/tracker"
               className="group bg-gray-900 border border-gray-800 hover:border-indigo-500 rounded-2xl p-6 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-indigo-500/10 block"
             >
               <div className="flex items-start justify-between mb-4">
