@@ -83,6 +83,8 @@ function Avatar({ userId, avatarUrl, name, email }: { userId: string; avatarUrl:
   )
 }
 
+const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500 w-full'
+
 export default function AdminPanel({
   currentUserId,
   initialUsers,
@@ -152,59 +154,6 @@ export default function AdminPanel({
     }
   }
 
-  async function handleInviteEmployee(emp: RosterEmployee) {
-    if (!emp.email) {
-      alert('This employee has no email address on file. Add one in Timesheet Admin first.')
-      return
-    }
-    if (!confirm(`Create a Lynxedo account for ${emp.first_name} ${emp.last_name} and send them an invite to ${emp.email}?`)) return
-
-    const res = await fetch(`/api/admin/employees/${emp.id}/invite`, { method: 'POST' })
-    if (res.ok) {
-      const data = await res.json()
-      if (data.user) {
-        const newUser: User = {
-          id: data.user.id,
-          email: emp.email ?? '',
-          created_at: data.user.created_at ?? new Date().toISOString(),
-          last_sign_in_at: null,
-          full_name: `${emp.first_name} ${emp.last_name}`,
-          display_name: emp.preferred_name ?? emp.first_name,
-          avatar_url: null,
-          invite_sent_at: new Date().toISOString(),
-          profile: {
-            id: data.user.id,
-            role: 'user',
-            can_access_routing: false,
-            can_access_lawn: false,
-            can_access_call_log: false,
-            can_access_responder: false,
-            can_access_timesheet: true,
-            can_access_books: false,
-            can_access_tracker: false,
-            can_access_hub: false,
-          },
-        }
-        setUsers(prev => [...prev, newUser])
-        setEmployees(prev => prev.filter(e => e.id !== emp.id))
-      }
-    } else {
-      const data = await res.json()
-      alert(data.error || 'Failed to create account')
-    }
-  }
-
-  async function handleDeleteEmployee(emp: RosterEmployee) {
-    if (!confirm(`Remove ${emp.first_name} ${emp.last_name} from the employee roster?\n\nThis does not affect Gusto. You can re-sync from Gusto to restore them.`)) return
-    const res = await fetch(`/api/admin/employees/${emp.id}`, { method: 'DELETE' })
-    if (res.ok) {
-      setEmployees(prev => prev.filter(e => e.id !== emp.id))
-    } else {
-      const data = await res.json()
-      alert(data.error || 'Failed to remove employee')
-    }
-  }
-
   async function handleSendInvite(userId: string) {
     const res = await fetch(`/api/admin/users/${userId}/invite`, { method: 'POST' })
     if (res.ok) {
@@ -229,10 +178,93 @@ export default function AdminPanel({
     }
   }
 
+  async function handleSaveName(userId: string, fullName: string, displayName: string) {
+    const res = await fetch(`/api/admin/users/${userId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ full_name: fullName || null, display_name: displayName || null }),
+    })
+    if (res.ok) {
+      setUsers(prev => prev.map(u =>
+        u.id === userId
+          ? { ...u, full_name: fullName || null, display_name: displayName || null }
+          : u
+      ))
+    } else {
+      const data = await res.json()
+      alert(data.error || 'Failed to save names')
+    }
+  }
+
   async function handleDelete(userId: string, email: string) {
     if (!confirm(`Remove ${email} from Lynxedo?\n\nThey will lose access immediately.`)) return
     const res = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' })
     if (res.ok) setUsers(prev => prev.filter(u => u.id !== userId))
+  }
+
+  async function handleLinkEmployee(empId: string, userId: string) {
+    const res = await fetch(`/api/admin/employees/${empId}/link`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    })
+    if (res.ok) {
+      setEmployees(prev => prev.filter(e => e.id !== empId))
+    } else {
+      const data = await res.json()
+      alert(data.error || 'Failed to link employee')
+    }
+  }
+
+  async function handleInviteEmployee(empId: string, workEmail: string, fullName: string, displayName: string) {
+    const res = await fetch(`/api/admin/employees/${empId}/invite`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ work_email: workEmail }),
+    })
+    if (res.ok) {
+      const data = await res.json()
+      if (data.user) {
+        const newUser: User = {
+          id: data.user.id,
+          email: workEmail,
+          created_at: data.user.created_at ?? new Date().toISOString(),
+          last_sign_in_at: null,
+          full_name: fullName || null,
+          display_name: displayName || null,
+          avatar_url: null,
+          invite_sent_at: new Date().toISOString(),
+          profile: {
+            id: data.user.id,
+            role: 'user',
+            can_access_routing: false,
+            can_access_lawn: false,
+            can_access_call_log: false,
+            can_access_responder: false,
+            can_access_timesheet: true,
+            can_access_books: false,
+            can_access_tracker: false,
+            can_access_hub: false,
+          },
+        }
+        setUsers(prev => [...prev, newUser])
+        setEmployees(prev => prev.filter(e => e.id !== empId))
+      }
+    } else {
+      const data = await res.json()
+      alert(data.error || 'Failed to create account')
+    }
+  }
+
+  async function handleDeleteEmployee(emp: RosterEmployee) {
+    if (!confirm(`Remove ${emp.first_name} ${emp.last_name} from the employee roster?\n\nThis does not affect Gusto. You can re-sync from Gusto to restore them.`)) return
+    const res = await fetch(`/api/admin/employees/${emp.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setEmployees(prev => prev.filter(e => e.id !== emp.id))
+    } else {
+      const data = await res.json()
+      alert(data.error || 'Failed to remove employee')
+    }
   }
 
   return (
@@ -312,12 +344,15 @@ export default function AdminPanel({
               onChange={handleChange}
               onDelete={handleDelete}
               onSendInvite={handleSendInvite}
+              onSaveName={handleSaveName}
             />
           ))}
           {employees.map(emp => (
             <EmployeeRow
               key={emp.id}
               employee={emp}
+              users={users}
+              onLink={handleLinkEmployee}
               onInvite={handleInviteEmployee}
               onDelete={handleDeleteEmployee}
             />
@@ -335,18 +370,24 @@ function UserRow({
   onChange,
   onDelete,
   onSendInvite,
+  onSaveName,
 }: {
   user: User
   isSelf: boolean
   onChange: (userId: string, field: string, value: boolean | string) => void
   onDelete: (userId: string, email: string) => void
   onSendInvite: (userId: string) => void
+  onSaveName: (userId: string, fullName: string, displayName: string) => Promise<void>
 }) {
   const profile = user.profile
   if (!profile) return null
 
   const [sendingInvite, setSendingInvite] = useState(false)
   const [invited, setInvited] = useState(!!user.invite_sent_at)
+  const [editing, setEditing] = useState(false)
+  const [editFull, setEditFull] = useState(user.full_name ?? '')
+  const [editDisplay, setEditDisplay] = useState(user.display_name ?? '')
+  const [saving, setSaving] = useState(false)
 
   const isPending = !invited
 
@@ -359,6 +400,19 @@ function UserRow({
     await onSendInvite(user.id)
     setInvited(true)
     setSendingInvite(false)
+  }
+
+  const handleSave = async () => {
+    setSaving(true)
+    await onSaveName(user.id, editFull, editDisplay)
+    setSaving(false)
+    setEditing(false)
+  }
+
+  const handleEditOpen = () => {
+    setEditFull(user.full_name ?? '')
+    setEditDisplay(user.display_name ?? '')
+    setEditing(true)
   }
 
   return (
@@ -383,6 +437,13 @@ function UserRow({
               {isPending && (
                 <span className="text-xs bg-yellow-500/15 text-yellow-400 border border-yellow-500/25 px-2 py-0.5 rounded-full">Pending Invite</span>
               )}
+              <button
+                onClick={handleEditOpen}
+                title="Edit name"
+                className="text-gray-600 hover:text-gray-300 transition-colors text-xs leading-none"
+              >
+                ✎
+              </button>
             </div>
             <div className="text-xs text-gray-500 mt-0.5">Last sign in: {lastSeen}</div>
           </div>
@@ -418,6 +479,48 @@ function UserRow({
         </div>
       </div>
 
+      {/* Inline name editor */}
+      {editing && (
+        <div className="mb-4 p-3 bg-gray-800/60 border border-gray-700 rounded-xl space-y-2">
+          <div className="flex gap-2">
+            <div className="flex-1">
+              <label className="block text-xs text-gray-500 mb-1">Full name</label>
+              <input
+                value={editFull}
+                onChange={e => setEditFull(e.target.value)}
+                placeholder="Legal name"
+                className={inputCls}
+                autoFocus
+              />
+            </div>
+            <div className="flex-1">
+              <label className="block text-xs text-gray-500 mb-1">Display name (Hub)</label>
+              <input
+                value={editDisplay}
+                onChange={e => setEditDisplay(e.target.value)}
+                placeholder="Name shown in messages"
+                className={inputCls}
+              />
+            </div>
+          </div>
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => setEditing(false)}
+              className="px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="flex flex-wrap gap-4">
         {TOOLS.map(({ key, label }) => {
           const enabled = profile[key] as boolean
@@ -442,18 +545,55 @@ function UserRow({
 
 function EmployeeRow({
   employee,
+  users,
+  onLink,
   onInvite,
   onDelete,
 }: {
   employee: RosterEmployee
-  onInvite: (emp: RosterEmployee) => void
+  users: User[]
+  onLink: (empId: string, userId: string) => Promise<void>
+  onInvite: (empId: string, workEmail: string, fullName: string, displayName: string) => Promise<void>
   onDelete: (emp: RosterEmployee) => void
 }) {
   const name = employee.preferred_name
     ? `${employee.preferred_name} ${employee.last_name}`
     : `${employee.first_name} ${employee.last_name}`
-
+  const fullName = `${employee.first_name} ${employee.last_name}`
+  const displayName = employee.preferred_name ?? employee.first_name
   const initials = (employee.first_name[0] + employee.last_name[0]).toUpperCase()
+
+  const [expanded, setExpanded] = useState(false)
+  const [mode, setMode] = useState<'choose' | 'link' | 'invite'>('choose')
+  const [selectedUserId, setSelectedUserId] = useState('')
+  const [workEmail, setWorkEmail] = useState(employee.email ?? '')
+  const [working, setWorking] = useState(false)
+
+  const handleLink = async () => {
+    if (!selectedUserId) return
+    setWorking(true)
+    await onLink(employee.id, selectedUserId)
+    setWorking(false)
+  }
+
+  const handleInvite = async () => {
+    if (!workEmail) return
+    setWorking(true)
+    await onInvite(employee.id, workEmail, fullName, displayName)
+    setWorking(false)
+  }
+
+  const open = (m: 'link' | 'invite') => {
+    setMode(m)
+    setExpanded(true)
+    setSelectedUserId('')
+    setWorkEmail(employee.email ?? '')
+  }
+
+  const close = () => {
+    setExpanded(false)
+    setMode('choose')
+  }
 
   return (
     <div className="px-6 py-5">
@@ -474,12 +614,27 @@ function EmployeeRow({
           </div>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0">
-          <button
-            onClick={() => onInvite(employee)}
-            className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg text-xs font-medium border border-blue-600/30 transition-colors whitespace-nowrap"
-          >
-            Invite to Lynxedo
-          </button>
+          {!expanded && (
+            <>
+              <button
+                onClick={() => open('link')}
+                className="px-3 py-1.5 bg-gray-700/60 hover:bg-gray-700 text-gray-300 rounded-lg text-xs font-medium border border-gray-600/50 transition-colors whitespace-nowrap"
+              >
+                Link account
+              </button>
+              <button
+                onClick={() => open('invite')}
+                className="px-3 py-1.5 bg-blue-600/20 hover:bg-blue-600/30 text-blue-400 rounded-lg text-xs font-medium border border-blue-600/30 transition-colors whitespace-nowrap"
+              >
+                Invite to Lynxedo
+              </button>
+            </>
+          )}
+          {expanded && (
+            <button onClick={close} className="text-gray-500 hover:text-white transition-colors text-sm px-1">
+              Cancel
+            </button>
+          )}
           <button
             onClick={() => onDelete(employee)}
             title="Remove from roster"
@@ -489,6 +644,63 @@ function EmployeeRow({
           </button>
         </div>
       </div>
+
+      {/* Expanded action panel */}
+      {expanded && (
+        <div className="mt-3 p-3 bg-gray-800/60 border border-gray-700 rounded-xl">
+          {mode === 'link' && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400">Link <span className="text-white">{name}</span> to an existing Lynxedo account:</p>
+              <div className="flex gap-2">
+                <select
+                  value={selectedUserId}
+                  onChange={e => setSelectedUserId(e.target.value)}
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                >
+                  <option value="">— Select a user —</option>
+                  {users.map(u => (
+                    <option key={u.id} value={u.id}>
+                      {u.full_name || u.display_name || u.email}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  onClick={handleLink}
+                  disabled={!selectedUserId || working}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap"
+                >
+                  {working ? 'Linking…' : 'Link'}
+                </button>
+              </div>
+            </div>
+          )}
+
+          {mode === 'invite' && (
+            <div className="space-y-2">
+              <p className="text-xs text-gray-400">
+                Send a Lynxedo invite to <span className="text-white">{name}</span>.
+                Use their <span className="text-white">@heroeslawntx.com</span> work email — personal emails cannot log in.
+              </p>
+              <div className="flex gap-2">
+                <input
+                  type="email"
+                  value={workEmail}
+                  onChange={e => setWorkEmail(e.target.value)}
+                  placeholder="name@heroeslawntx.com"
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-blue-500"
+                />
+                <button
+                  onClick={handleInvite}
+                  disabled={!workEmail || working}
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap"
+                >
+                  {working ? 'Sending…' : 'Send Invite'}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }

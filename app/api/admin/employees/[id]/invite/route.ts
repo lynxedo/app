@@ -15,13 +15,14 @@ async function requireAdmin() {
 }
 
 export async function POST(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const admin_ctx = await requireAdmin()
   if (!admin_ctx) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { id } = await params
+  const body = await request.json().catch(() => ({}))
   const admin = createAdminClient()
 
   const { data: emp, error: empError } = await admin
@@ -32,9 +33,12 @@ export async function POST(
     .single()
 
   if (empError || !emp) return NextResponse.json({ error: 'Employee not found' }, { status: 404 })
-  if (!emp.email) return NextResponse.json({ error: 'Employee has no email address' }, { status: 400 })
 
-  const { data, error } = await admin.auth.admin.inviteUserByEmail(emp.email, {
+  // work_email in body takes priority over the Gusto personal email on file
+  const inviteEmail: string = body.work_email || emp.email
+  if (!inviteEmail) return NextResponse.json({ error: 'No email address provided' }, { status: 400 })
+
+  const { data, error } = await admin.auth.admin.inviteUserByEmail(inviteEmail, {
     redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/auth/callback`,
   })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

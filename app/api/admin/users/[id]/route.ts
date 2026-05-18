@@ -23,11 +23,22 @@ export async function PATCH(
 
   const { id } = await params
   const body = await request.json()
-
   const admin = createAdminClient()
+
+  // display_name lives on hub_users — pull it out and write separately
+  const { display_name, full_name, ...profileFields } = body
+
+  if (display_name !== undefined) {
+    await admin.from('hub_users').update({ display_name: display_name || null }).eq('id', id)
+  }
+
+  // full_name and everything else (role, permissions) lives on user_profiles
+  const profileUpdates: Record<string, unknown> = { ...profileFields, updated_at: new Date().toISOString() }
+  if (full_name !== undefined) profileUpdates.full_name = full_name || null
+
   const { data, error } = await admin
     .from('user_profiles')
-    .update({ ...body, updated_at: new Date().toISOString() })
+    .update(profileUpdates)
     .eq('id', id)
     .select()
     .single()
@@ -49,8 +60,6 @@ export async function DELETE(
   }
 
   const admin = createAdminClient()
-
-  // Delete profile row first (in case there's no CASCADE DELETE on the FK)
   await admin.from('user_profiles').delete().eq('id', id)
 
   const { error } = await admin.auth.admin.deleteUser(id)
