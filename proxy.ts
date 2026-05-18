@@ -45,8 +45,10 @@ export async function proxy(request: NextRequest) {
       .single()
 
     // Domain check: verify the user's email matches their company's registered Google Workspace domain
+    // TEST_ACCOUNTS bypass domain check — for internal testing only
+    const TEST_ACCOUNTS = ['ben.n.simp@gmail.com']
     const googleDomain = (profile?.companies as unknown as { google_domain: string | null } | null)?.google_domain
-    if (!googleDomain || !user.email?.endsWith('@' + googleDomain)) {
+    if (!TEST_ACCOUNTS.includes(user.email ?? '') && (!googleDomain || !user.email?.endsWith('@' + googleDomain))) {
       const url = request.nextUrl.clone()
       url.pathname = '/api/auth/signout'
       url.searchParams.set('reason', 'unauthorized')
