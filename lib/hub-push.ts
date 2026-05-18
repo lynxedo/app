@@ -5,11 +5,13 @@ let vapidConfigured = false
 
 function ensureVapid() {
   if (vapidConfigured) return
-  if (!process.env.HUB_VAPID_PUBLIC_KEY || !process.env.HUB_VAPID_PRIVATE_KEY) return
+  const pubKey = process.env.HUB_VAPID_PUBLIC_KEY ?? process.env.NEXT_PUBLIC_HUB_VAPID_PUBLIC_KEY
+  const privKey = process.env.HUB_VAPID_PRIVATE_KEY
+  if (!pubKey || !privKey) return
   webpush.setVapidDetails(
     `mailto:${process.env.HUB_VAPID_EMAIL ?? 'ben@heroeslawntx.com'}`,
-    process.env.HUB_VAPID_PUBLIC_KEY,
-    process.env.HUB_VAPID_PRIVATE_KEY,
+    pubKey,
+    privKey,
   )
   vapidConfigured = true
 }
@@ -25,7 +27,8 @@ export async function sendHubPush(
   payload: { title: string; body: string; url: string },
   options: PushOptions = {}
 ) {
-  if (!process.env.HUB_VAPID_PUBLIC_KEY || userIds.length === 0) return
+  const pubKey = process.env.HUB_VAPID_PUBLIC_KEY ?? process.env.NEXT_PUBLIC_HUB_VAPID_PUBLIC_KEY
+  if (!pubKey || userIds.length === 0) return
 
   ensureVapid()
 
@@ -93,7 +96,7 @@ export async function sendHubPush(
     .in('user_id', eligibleIds)
 
   const json = JSON.stringify(payload)
-  await Promise.allSettled(
+  const results = await Promise.allSettled(
     (subs ?? []).map((sub: { endpoint: string; p256dh: string; auth_key: string }) =>
       webpush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
@@ -101,4 +104,10 @@ export async function sendHubPush(
       )
     )
   )
+  for (const r of results) {
+    if (r.status === 'rejected') {
+      const e = r.reason as { statusCode?: number; message?: string }
+      console.error('[hub-push] send failed:', e?.statusCode, e?.message)
+    }
+  }
 }

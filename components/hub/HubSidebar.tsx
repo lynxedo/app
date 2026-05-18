@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
+import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
 import StatusPicker from './StatusPicker'
 import NotifPrefsModal from './NotifPrefsModal'
@@ -114,6 +115,35 @@ export default function HubSidebar({
       })
       .catch(() => {})
   }, [])
+
+  // Realtime: mark rooms/convs unread when new messages arrive
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('sidebar-messages')
+      .on(
+        'postgres_changes',
+        { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const msg = payload.new as { room_id: string | null; conversation_id: string | null; sender_id: string; parent_id: string | null }
+          // Ignore thread replies and messages sent by this user
+          if (msg.parent_id || msg.sender_id === currentUserId) return
+          const activeRoomMatch = pathname.match(/^\/hub\/([^/]+)$/)
+          const activePmMatch = pathname.match(/^\/hub\/pm\/([^/]+)$/)
+          if (msg.room_id) {
+            // Don't mark unread if user is currently viewing this room
+            if (activeRoomMatch?.[1] === msg.room_id) return
+            setUnreadRoomIds(prev => new Set([...prev, msg.room_id!]))
+          } else if (msg.conversation_id) {
+            if (activePmMatch?.[1] === msg.conversation_id) return
+            setUnreadConvIds(prev => new Set([...prev, msg.conversation_id!]))
+          }
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [currentUserId, pathname])
 
   // Mark as read when the user navigates to a room or PM
   useEffect(() => {
