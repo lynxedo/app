@@ -16,6 +16,19 @@ type ApiKey = {
   created_by_user: { display_name: string } | null
 }
 
+type AutomationRule = {
+  id: string
+  trigger_source: string
+  keyword: string
+  action_type: 'post_room' | 'dm_user'
+  message_template: string
+  active: boolean
+  created_at: string
+  trigger_room: { id: string; name: string } | null
+  target_room: { id: string; name: string } | null
+  target_user: { id: string; display_name: string } | null
+}
+
 const DURATION_OPTIONS = [
   { label: '1 day', hours: 24 },
   { label: '3 days', hours: 72 },
@@ -71,8 +84,20 @@ export default function HubAdminPanel({
   const [keyError, setKeyError] = useState('')
   const [revealedKey, setRevealedKey] = useState<{ name: string; plain_key: string } | null>(null)
 
+  // Automation rules
+  const [automationRules, setAutomationRules] = useState<AutomationRule[]>([])
+  const [automationLoaded, setAutomationLoaded] = useState(false)
+  const [newRuleTriggerRoom, setNewRuleTriggerRoom] = useState('')
+  const [newRuleKeyword, setNewRuleKeyword] = useState('')
+  const [newRuleActionType, setNewRuleActionType] = useState<'post_room' | 'dm_user'>('post_room')
+  const [newRuleTargetRoom, setNewRuleTargetRoom] = useState('')
+  const [newRuleTargetUser, setNewRuleTargetUser] = useState('')
+  const [newRuleTemplate, setNewRuleTemplate] = useState('')
+  const [savingRule, setSavingRule] = useState(false)
+  const [ruleError, setRuleError] = useState('')
+
   // Section tabs
-  const [tab, setTab] = useState<'rooms' | 'members' | 'settings' | 'announcements' | 'api-keys'>('rooms')
+  const [tab, setTab] = useState<'rooms' | 'members' | 'settings' | 'announcements' | 'api-keys' | 'automation'>('rooms')
 
   async function createRoom() {
     if (!newName.trim() || creating) return
@@ -261,6 +286,54 @@ export default function HubAdminPanel({
     }
   }
 
+  async function loadAutomationRules() {
+    if (automationLoaded) return
+    const res = await fetch('/api/hub/automation-rules')
+    const data = await res.json()
+    setAutomationRules(data.rules ?? [])
+    setAutomationLoaded(true)
+  }
+
+  async function createAutomationRule() {
+    if (!newRuleKeyword.trim() || !newRuleTemplate.trim() || savingRule) return
+    if (newRuleActionType === 'post_room' && !newRuleTargetRoom) { setRuleError('Select a target room'); return }
+    if (newRuleActionType === 'dm_user' && !newRuleTargetUser) { setRuleError('Select a target user'); return }
+    setSavingRule(true)
+    setRuleError('')
+    const res = await fetch('/api/hub/automation-rules', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        trigger_room_id: newRuleTriggerRoom || null,
+        keyword: newRuleKeyword.trim(),
+        action_type: newRuleActionType,
+        target_room_id: newRuleActionType === 'post_room' ? newRuleTargetRoom : null,
+        target_user_id: newRuleActionType === 'dm_user' ? newRuleTargetUser : null,
+        message_template: newRuleTemplate.trim(),
+      }),
+    })
+    const data = await res.json()
+    setSavingRule(false)
+    if (!res.ok) { setRuleError(data.error ?? 'Failed to create rule'); return }
+    setAutomationRules(prev => [data, ...prev])
+    setNewRuleKeyword(''); setNewRuleTemplate(''); setNewRuleTriggerRoom(''); setNewRuleTargetRoom(''); setNewRuleTargetUser('')
+  }
+
+  async function toggleRuleActive(id: string, active: boolean) {
+    setAutomationRules(prev => prev.map(r => r.id === id ? { ...r, active } : r))
+    await fetch(`/api/hub/automation-rules/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ active }),
+    })
+  }
+
+  async function deleteAutomationRule(id: string) {
+    if (!confirm('Delete this automation rule?')) return
+    const res = await fetch(`/api/hub/automation-rules/${id}`, { method: 'DELETE' })
+    if (res.ok) setAutomationRules(prev => prev.filter(r => r.id !== id))
+  }
+
   const activeRooms = rooms.filter(r => !r.archived_at)
   const archivedRooms = rooms.filter(r => r.archived_at)
   const selectedRoom = membersRoomId ? rooms.find(r => r.id === membersRoomId) : null
@@ -275,10 +348,11 @@ export default function HubAdminPanel({
           ['settings', 'Settings'],
           ['announcements', 'Announcements'],
           ['api-keys', 'API Keys'],
+          ['automation', 'Automation'],
         ] as const).map(([key, label]) => (
           <button
             key={key}
-            onClick={() => { setTab(key); if (key === 'api-keys') loadApiKeys() }}
+            onClick={() => { setTab(key); if (key === 'api-keys') loadApiKeys(); if (key === 'automation') loadAutomationRules() }}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === key ? 'border-[#2E7EB8] text-white' : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}
@@ -680,6 +754,169 @@ Content-Type: application/json
   "room_name": "general",
   "content": "Hello from the API!"
 }`}</pre>
+          </div>
+        </div>
+      )}
+
+      {/* ── AUTOMATION TAB ── */}
+      {tab === 'automation' && (
+        <div className="space-y-8">
+          {/* New rule form */}
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+            <h2 className="font-semibold text-white mb-1">New Automation Rule</h2>
+            <p className="text-xs text-gray-500 mb-5">
+              When a message in a room contains a keyword, automatically post to a room or DM a user.
+              Use <code className="bg-gray-800 px-1 rounded text-gray-300">{'{trigger_message}'}</code>,{' '}
+              <code className="bg-gray-800 px-1 rounded text-gray-300">{'{user}'}</code>, and{' '}
+              <code className="bg-gray-800 px-1 rounded text-gray-300">{'{room}'}</code> in the message template.
+            </p>
+            <div className="space-y-3">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Watch room (blank = any room)</label>
+                  <select
+                    value={newRuleTriggerRoom}
+                    onChange={e => setNewRuleTriggerRoom(e.target.value)}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                  >
+                    <option value="">Any room</option>
+                    {activeRooms.map(r => <option key={r.id} value={r.id}>#{r.name}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Keyword (case-insensitive, partial match)</label>
+                  <input
+                    value={newRuleKeyword}
+                    onChange={e => setNewRuleKeyword(e.target.value)}
+                    placeholder="e.g. rain, urgent, reschedule"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                  />
+                </div>
+              </div>
+
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">Action</label>
+                  <select
+                    value={newRuleActionType}
+                    onChange={e => setNewRuleActionType(e.target.value as 'post_room' | 'dm_user')}
+                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                  >
+                    <option value="post_room">Post to a room</option>
+                    <option value="dm_user">DM a user</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 mb-1 block">
+                    {newRuleActionType === 'post_room' ? 'Target room' : 'Target user'}
+                  </label>
+                  {newRuleActionType === 'post_room' ? (
+                    <select
+                      value={newRuleTargetRoom}
+                      onChange={e => setNewRuleTargetRoom(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                    >
+                      <option value="">Select room…</option>
+                      {activeRooms.map(r => <option key={r.id} value={r.id}>#{r.name}</option>)}
+                    </select>
+                  ) : (
+                    <select
+                      value={newRuleTargetUser}
+                      onChange={e => setNewRuleTargetUser(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                    >
+                      <option value="">Select user…</option>
+                      {hubUsers.filter(u => !u.display_name.startsWith('Claude')).map(u => (
+                        <option key={u.id} value={u.id}>{u.display_name}</option>
+                      ))}
+                    </select>
+                  )}
+                </div>
+              </div>
+
+              <div>
+                <label className="text-xs text-gray-500 mb-1 block">Message template</label>
+                <textarea
+                  value={newRuleTemplate}
+                  onChange={e => setNewRuleTemplate(e.target.value)}
+                  placeholder={`e.g. {user} mentioned rain in #{room}: "{trigger_message}"`}
+                  rows={2}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8] resize-none"
+                />
+              </div>
+
+              {ruleError && <p className="text-sm text-red-400">{ruleError}</p>}
+
+              <div className="flex justify-end">
+                <button
+                  onClick={createAutomationRule}
+                  disabled={!newRuleKeyword.trim() || !newRuleTemplate.trim() || savingRule}
+                  className="px-5 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                >
+                  {savingRule ? 'Saving…' : 'Create Rule'}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Rules list */}
+          <div>
+            <h2 className="font-semibold text-white mb-3">
+              Rules ({automationRules.length})
+            </h2>
+            {!automationLoaded ? (
+              <p className="text-sm text-gray-500 px-1">Loading…</p>
+            ) : automationRules.length === 0 ? (
+              <p className="text-sm text-gray-500 px-1">No automation rules yet.</p>
+            ) : (
+              <div className="space-y-2">
+                {automationRules.map(rule => (
+                  <div
+                    key={rule.id}
+                    className={`bg-gray-900 border rounded-xl px-4 py-3.5 flex items-start gap-4 ${
+                      rule.active ? 'border-gray-800' : 'border-gray-800/50 opacity-60'
+                    }`}
+                  >
+                    <div className="flex-1 min-w-0">
+                      <div className="flex items-center gap-2 flex-wrap mb-1">
+                        <span className="text-xs text-gray-500">
+                          {rule.trigger_room ? `#${rule.trigger_room.name}` : 'Any room'}
+                        </span>
+                        <span className="text-xs text-gray-600">→</span>
+                        <span className="text-xs font-mono bg-gray-800 px-2 py-0.5 rounded text-orange-300">
+                          {rule.keyword}
+                        </span>
+                        <span className="text-xs text-gray-600">→</span>
+                        <span className="text-xs text-gray-400">
+                          {rule.action_type === 'post_room'
+                            ? `post in #${rule.target_room?.name ?? '?'}`
+                            : `DM ${rule.target_user?.display_name ?? '?'}`}
+                        </span>
+                      </div>
+                      <p className="text-sm text-gray-300 truncate">{rule.message_template}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-none mt-0.5">
+                      <button
+                        onClick={() => toggleRuleActive(rule.id, !rule.active)}
+                        className={`text-xs px-2.5 py-1 rounded-lg transition-colors ${
+                          rule.active
+                            ? 'bg-green-500/20 text-green-400 hover:bg-green-500/30'
+                            : 'bg-gray-800 text-gray-500 hover:bg-gray-700 hover:text-gray-300'
+                        }`}
+                      >
+                        {rule.active ? 'On' : 'Off'}
+                      </button>
+                      <button
+                        onClick={() => deleteAutomationRule(rule.id)}
+                        className="text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded hover:bg-red-500/10 transition-colors"
+                      >
+                        Delete
+                      </button>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
         </div>
       )}

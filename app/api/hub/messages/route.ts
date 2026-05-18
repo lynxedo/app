@@ -268,7 +268,108 @@ export async function POST(request: Request) {
     }
   }
 
+  // Automation rules — only for top-level room messages from real users (not bot)
+  if (room_id && !parent_id && hasContent && user.id !== CLAUDE_BOT_ID) {
+    fireAutomationRules({
+      companyId: profile.company_id,
+      roomId: room_id,
+      content: content.trim(),
+      senderName,
+      roomName: '', // resolved inside fireAutomationRules lazily
+    }).catch(() => null)
+  }
+
   return NextResponse.json(msg, { status: 201 })
+}
+
+async function fireAutomationRules({
+  companyId,
+  roomId,
+  content,
+  senderName,
+}: {
+  companyId: string
+  roomId: string
+  content: string
+  senderName: string
+  roomName: string
+}) {
+  const admin = createAdminClient()
+
+  const { data: rules } = await admin
+    .from('hub_automation_rules')
+    .select('id, trigger_room_id, keyword, action_type, target_room_id, target_user_id, message_template')
+    .eq('company_id', companyId)
+    .eq('active', true)
+
+  if (!rules || rules.length === 0) return
+
+  // Fetch room name once for template substitution
+  const { data: roomRow } = await admin.from('rooms').select('name').eq('id', roomId).single()
+  const roomName = roomRow?.name ?? ''
+
+  const lowerContent = content.toLowerCase()
+
+  for (const rule of rules) {
+    // Room filter: null = watch any room
+    if (rule.trigger_room_id && rule.trigger_room_id !== roomId) continue
+    if (!lowerContent.includes(rule.keyword.toLowerCase())) continue
+
+    const messageText = rule.message_template
+      .replace(/\{trigger_message\}/g, content)
+      .replace(/\{user\}/g, senderName)
+      .replace(/\{room\}/g, roomName)
+
+    if (rule.action_type === 'post_room' && rule.target_room_id) {
+      await admin.from('messages').insert({
+        company_id: companyId,
+        room_id: rule.target_room_id,
+        sender_id: CLAUDE_BOT_ID,
+        content: messageText,
+      })
+    } else if (rule.action_type === 'dm_user' && rule.target_user_id) {
+      // Find or create a DM conversation between the bot and the target user
+      const { data: existing } = await admin
+        .from('conversation_members')
+        .select('conversation_id')
+        .eq('user_id', CLAUDE_BOT_ID)
+        .limit(50)
+
+      let conversationId: string | null = null
+
+      if (existing && existing.length > 0) {
+        const botConvIds = existing.map((m: { conversation_id: string }) => m.conversation_id)
+        const { data: match } = await admin
+          .from('conversation_members')
+          .select('conversation_id')
+          .eq('user_id', rule.target_user_id)
+          .in('conversation_id', botConvIds)
+          .limit(1)
+        if (match && match.length > 0) conversationId = match[0].conversation_id
+      }
+
+      if (!conversationId) {
+        const { data: conv } = await admin
+          .from('conversations')
+          .insert({ company_id: companyId })
+          .select('id')
+          .single()
+        if (!conv) continue
+        conversationId = conv.id
+        await admin.from('conversation_members').insert([
+          { conversation_id: conversationId, user_id: CLAUDE_BOT_ID },
+          { conversation_id: conversationId, user_id: rule.target_user_id },
+        ])
+      }
+
+      await admin.from('messages').insert({
+        company_id: companyId,
+        conversation_id: conversationId,
+        sender_id: CLAUDE_BOT_ID,
+        content: messageText,
+      })
+    }
+  }
 }
 
 async function handleClaudeReplyDM({
