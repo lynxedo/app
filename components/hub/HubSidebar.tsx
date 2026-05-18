@@ -9,6 +9,7 @@ import StatusPicker from './StatusPicker'
 import NotifPrefsModal from './NotifPrefsModal'
 import ClientsSidebar from './ClientsSidebar'
 import HubSearchOverlay from './HubSearchOverlay'
+import TimesheetClockModal from './TimesheetClockModal'
 
 type Room = { id: string; name: string; is_private: boolean }
 
@@ -48,6 +49,7 @@ export default function HubSidebar({
   canAccessTracker = false,
   canAccessCallLog = false,
   canAccessLawn = false,
+  canAccessTimesheet = false,
 }: {
   rooms: Room[]
   userEmail: string
@@ -63,6 +65,7 @@ export default function HubSidebar({
   canAccessTracker?: boolean
   canAccessCallLog?: boolean
   canAccessLawn?: boolean
+  canAccessTimesheet?: boolean
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -112,6 +115,9 @@ export default function HubSidebar({
 
   // Favorites / pinning state
   const [pinnedIds, setPinnedIds] = useState<string[]>(initialPinnedIds)
+
+  // Time Clock modal
+  const [showTimeClock, setShowTimeClock] = useState(false)
 
   // Search
   const [showSearch, setShowSearch] = useState(false)
@@ -721,7 +727,7 @@ export default function HubSidebar({
           </div>
 
           {/* Tools */}
-          {(canAccessTracker || canAccessCallLog || canAccessLawn || isAdmin) && (
+          {(canAccessTracker || canAccessCallLog || canAccessLawn || canAccessTimesheet || isAdmin) && (
             <div>
               <button onClick={() => toggleSection('tools')} className="w-full flex items-center gap-1 px-2 mb-1 group">
                 <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.tools ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
@@ -807,6 +813,17 @@ export default function HubSidebar({
                     </Link>
                   )}
 
+                  {/* My Time Clock */}
+                  {(canAccessTimesheet || isAdmin) && (
+                    <button
+                      onClick={() => { setShowTimeClock(true); onClose?.() }}
+                      className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors text-white/70 hover:bg-white/10 hover:text-white"
+                    >
+                      <span className="text-xs flex-none">⏱</span>
+                      <span className="truncate">My Time Clock</span>
+                    </button>
+                  )}
+
                   {/* Time Records (admin only) */}
                   {isAdmin && (
                     <Link
@@ -816,7 +833,7 @@ export default function HubSidebar({
                         pathname.startsWith('/admin/timesheet') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                       }`}
                     >
-                      <span className="text-xs flex-none">⏱</span>
+                      <span className="text-xs flex-none">📋</span>
                       <span className="truncate">Time Records</span>
                     </Link>
                   )}
@@ -916,6 +933,7 @@ export default function HubSidebar({
       </aside>
 
       {showNotifPrefs && <NotifPrefsModal onClose={() => setShowNotifPrefs(false)} />}
+      {showTimeClock && <TimesheetClockModal onClose={() => setShowTimeClock(false)} />}
 
       {showSearch && (
         <HubSearchOverlay

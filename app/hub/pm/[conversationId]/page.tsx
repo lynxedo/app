@@ -24,7 +24,8 @@ export default async function PMPage({
   if (!membership) notFound()
 
   const admin = createAdminClient()
-  const [membersResult, messagesResult, hubUsersResult, allRoomsResult] = await Promise.all([
+  const [profileResult, membersResult, messagesResult, hubUsersResult, allRoomsResult] = await Promise.all([
+    supabase.from('user_profiles').select('role').eq('id', user.id).single(),
     admin.from('conversation_members')
       .select('user_id, hub_users!user_id(id, display_name, avatar_url, is_bot)')
       .eq('conversation_id', conversationId),
@@ -105,6 +106,7 @@ export default async function PMPage({
         initialMessages={initialMessages as never}
         currentUserId={user.id}
         hubUsers={(hubUsersResult.data ?? []) as never}
+        isAdmin={profileResult.data?.role === 'admin'}
         senderDisplayName={convTitle}
         composerPlaceholder={`Message ${convTitle}`}
         rooms={(allRoomsResult.data ?? []) as { id: string; name: string }[]}

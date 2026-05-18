@@ -44,7 +44,6 @@ export default function MessageComposer({
 
   const filteredUsers = mentionQuery !== null
     ? hubUsers.filter(u =>
-        !u.is_bot &&
         u.display_name.toLowerCase().includes(mentionQuery.toLowerCase())
       ).slice(0, 6)
     : []

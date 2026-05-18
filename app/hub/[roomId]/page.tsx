@@ -14,9 +14,10 @@ export default async function RoomPage({
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const [roomResult, hubUserResult, messagesResult, hubUsersResult, allRoomsResult] = await Promise.all([
+  const [roomResult, hubUserResult, profileResult, messagesResult, hubUsersResult, allRoomsResult] = await Promise.all([
     supabase.from('rooms').select('id, name, description, is_private').eq('id', roomId).single(),
     supabase.from('hub_users').select('id, display_name, avatar_url').eq('id', user.id).single(),
+    supabase.from('user_profiles').select('role').eq('id', user.id).single(),
     supabase.from('messages')
       .select(`id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
         sender:hub_users!sender_id (id, display_name, avatar_url, is_bot),
@@ -95,6 +96,7 @@ export default async function RoomPage({
         initialMessages={initialMessages as never}
         currentUserId={user.id}
         hubUsers={(hubUsersResult.data ?? []) as never}
+        isAdmin={profileResult.data?.role === 'admin'}
         senderDisplayName={room.name}
         composerPlaceholder={`Message #${room.name}`}
         rooms={(allRoomsResult.data ?? []) as { id: string; name: string }[]}

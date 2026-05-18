@@ -13,6 +13,7 @@ export default function RoomView({
   initialMessages,
   currentUserId,
   hubUsers,
+  isAdmin,
   senderDisplayName,
   composerPlaceholder,
   rooms,
@@ -22,6 +23,7 @@ export default function RoomView({
   initialMessages: HubMessage[]
   currentUserId: string
   hubUsers: HubUser[]
+  isAdmin?: boolean
   senderDisplayName: string
   composerPlaceholder?: string
   rooms?: RoomRef[]
@@ -40,6 +42,7 @@ export default function RoomView({
           initialMessages={initialMessages}
           currentUserId={currentUserId}
           hubUsers={hubUsers}
+          isAdmin={isAdmin}
           onOpenThread={setOpenThreadMsg}
           openThreadMsgId={openThreadMsg?.id ?? null}
           rooms={rooms}

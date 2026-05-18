@@ -127,6 +127,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   initialMessages: HubMessage[]
   currentUserId: string
   hubUsers: HubUser[]
+  isAdmin?: boolean
   onOpenThread?: (msg: HubMessage) => void
   openThreadMsgId?: string | null
   rooms?: { id: string; name: string }[]
@@ -136,6 +137,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   initialMessages,
   currentUserId,
   hubUsers,
+  isAdmin,
   onOpenThread,
   openThreadMsgId,
   rooms,
@@ -541,22 +543,22 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                       )}
 
                       {isOwn && (
-                        <>
-                          <button
-                            onClick={() => { setEditingId(msg.id); setEditContent(msg.content); setTappedMsgId(null) }}
-                            className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
-                            title="Edit"
-                          >
-                            ✏️
-                          </button>
-                          <button
-                            onClick={() => deleteMessage(msg.id)}
-                            className="text-xs text-gray-500 hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-gray-800"
-                            title="Delete"
-                          >
-                            🗑️
-                          </button>
-                        </>
+                        <button
+                          onClick={() => { setEditingId(msg.id); setEditContent(msg.content); setTappedMsgId(null) }}
+                          className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
+                          title="Edit"
+                        >
+                          ✏️
+                        </button>
+                      )}
+                      {(isOwn || isAdmin) && (
+                        <button
+                          onClick={() => deleteMessage(msg.id)}
+                          className="text-xs text-gray-500 hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-gray-800"
+                          title="Delete"
+                        >
+                          🗑️
+                        </button>
                       )}
                     </div>
                   )}
