@@ -102,6 +102,12 @@ export default function HubSidebar({
 
   useEffect(() => { loadConversations() }, [loadConversations])
 
+  // Refresh conversations when Quick Compose creates a new one
+  useEffect(() => {
+    window.addEventListener('hub-conversation-created', loadConversations)
+    return () => window.removeEventListener('hub-conversation-created', loadConversations)
+  }, [loadConversations])
+
   useEffect(() => {
     fetch('/api/hub/settings')
       .then(r => r.json())

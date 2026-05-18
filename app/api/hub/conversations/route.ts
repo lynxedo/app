@@ -83,14 +83,15 @@ export async function POST(request: Request) {
     .single()
   if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
 
-  // For 1-on-1 DMs, check if conversation already exists
-  if (allParticipants.length === 2) {
+  // Check if a conversation with this exact set of participants already exists
+  {
     const { data: myMemberships } = await supabase
       .from('conversation_members')
       .select('conversation_id')
       .eq('user_id', user.id)
 
     const admin = createAdminClient()
+    const target = [...allParticipants].sort()
     for (const m of myMemberships ?? []) {
       const { data: convMembers } = await admin
         .from('conversation_members')
@@ -98,8 +99,7 @@ export async function POST(request: Request) {
         .eq('conversation_id', m.conversation_id)
 
       const ids = (convMembers ?? []).map((cm: { user_id: string }) => cm.user_id).sort()
-      const target = [...allParticipants].sort()
-      if (ids.length === 2 && ids[0] === target[0] && ids[1] === target[1]) {
+      if (ids.length === target.length && ids.every((id, i) => id === target[i])) {
         return NextResponse.json({ id: m.conversation_id, existing: true })
       }
     }

@@ -1,13 +1,17 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import HubSidebar from './HubSidebar'
 import AnnouncementTicker from './AnnouncementTicker'
+import HubQuickCompose from './HubQuickCompose'
 import { HubTextSizeContext } from './HubTextSizeContext'
 import type { HubUser } from './MessageFeed'
 
 type Room = { id: string; name: string; is_private: boolean }
 type InitialAnnouncement = { id: string; content: string; expires_at: string; reactions: Array<{ announcement_id: string; user_id: string; emoji: string }> } | null
+
+// Exposed so HubSidebar can call it from a custom event
+export const HUB_CONV_CREATED_EVENT = 'hub-conversation-created'
 
 export default function HubShell({
   rooms,
@@ -35,15 +39,31 @@ export default function HubShell({
   children: React.ReactNode
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [showCompose, setShowCompose] = useState(false)
   const [textSize, setTextSize] = useState(initialTextSize ?? 'default')
 
   // Sync server-fetched preference to localStorage so MessageFeed can read it
   useEffect(() => {
     const size = initialTextSize ?? 'default'
     localStorage.setItem('hub-text-size', size)
-    // Also fire the event so a mounted MessageFeed picks it up immediately
     window.dispatchEvent(new CustomEvent('hub-text-size-change', { detail: size }))
   }, [initialTextSize])
+
+  // Cmd+K / Ctrl+K opens Quick Compose
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setShowCompose(prev => !prev)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
+  const handleConversationCreated = useCallback(() => {
+    window.dispatchEvent(new CustomEvent(HUB_CONV_CREATED_EVENT))
+  }, [])
 
   return (
     <HubTextSizeContext.Provider value={textSize}>
@@ -96,7 +116,28 @@ export default function HubShell({
         <AnnouncementTicker currentUserId={currentUserId} initialAnnouncement={initialAnnouncement ?? null} />
         {children}
       </div>
+
+      {/* Mobile floating compose button — above the bottom global nav */}
+      <button
+        onClick={() => setShowCompose(true)}
+        className="md:hidden fixed bottom-[4.5rem] right-4 z-30 w-12 h-12 bg-[#2E7EB8] hover:bg-[#2470a8] rounded-full shadow-lg flex items-center justify-center transition-colors"
+        aria-label="New message"
+      >
+        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+        </svg>
+      </button>
     </div>
+
+    {showCompose && (
+      <HubQuickCompose
+        onClose={() => setShowCompose(false)}
+        rooms={rooms}
+        hubUsers={hubUsers}
+        currentUserId={currentUserId}
+        onConversationCreated={handleConversationCreated}
+      />
+    )}
     </HubTextSizeContext.Provider>
   )
 }
