@@ -8,6 +8,7 @@ import type { HubUser } from './MessageFeed'
 import StatusPicker from './StatusPicker'
 import NotifPrefsModal from './NotifPrefsModal'
 import ClientsSidebar from './ClientsSidebar'
+import HubSearchOverlay from './HubSearchOverlay'
 
 type Room = { id: string; name: string; is_private: boolean }
 
@@ -80,6 +81,9 @@ export default function HubSidebar({
 
   // Favorites / pinning state
   const [pinnedIds, setPinnedIds] = useState<string[]>(initialPinnedIds)
+
+  // Search
+  const [showSearch, setShowSearch] = useState(false)
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
@@ -355,6 +359,19 @@ export default function HubSidebar({
           )}
         </div>
 
+        {/* Search bar */}
+        <div className="flex-none px-3 pt-2 pb-1">
+          <button
+            onClick={() => setShowSearch(true)}
+            className="w-full flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/15 rounded-lg text-sm text-white/40 hover:text-white/60 transition-colors"
+          >
+            <svg className="w-3.5 h-3.5 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
+            </svg>
+            Search
+          </button>
+        </div>
+
         {/* Teams / Clients switcher */}
         <div className="flex-none px-3 py-2 border-b border-white/10">
           <div className="flex bg-white/10 rounded-lg p-0.5 gap-0.5">
@@ -523,6 +540,15 @@ export default function HubSidebar({
       </aside>
 
       {showNotifPrefs && <NotifPrefsModal onClose={() => setShowNotifPrefs(false)} />}
+
+      {showSearch && (
+        <HubSearchOverlay
+          onClose={() => setShowSearch(false)}
+          currentUserId={currentUserId}
+          hubUsers={hubUsers}
+          conversations={conversations}
+        />
+      )}
 
       {/* Context menu for pin/unpin */}
       {contextMenu && (
