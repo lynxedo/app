@@ -175,7 +175,7 @@ export default function ThreadPanel({
       </div>
 
       {/* Replies */}
-      <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3">
+      <div className="flex-1 overflow-y-auto w-full px-4 py-3 space-y-3">
         {replies.length === 0 && (
           <p className="text-xs text-gray-600 text-center py-4">No replies yet — be the first!</p>
         )}

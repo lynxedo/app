@@ -331,7 +331,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto px-1 md:px-4 py-3 space-y-1">
+      <div className="flex-1 overflow-y-auto w-full px-1 md:px-4 py-3 space-y-1">
         {groups.map(group => (
           <div key={group.date}>
             <div className="flex items-center gap-3 my-4">
