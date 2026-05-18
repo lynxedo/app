@@ -110,23 +110,22 @@ export default function HubShell({
               <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
             </svg>
           </button>
-          <span className="text-sm font-semibold text-white">Heroes Lawn Care</span>
+          <span className="text-sm font-semibold text-white flex-1">Heroes Lawn Care</span>
+          <button
+            onClick={() => setShowCompose(true)}
+            className="text-gray-400 hover:text-white transition-colors p-1 -mr-1 rounded hover:bg-gray-800"
+            aria-label="New message"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+            </svg>
+          </button>
         </div>
 
         <AnnouncementTicker currentUserId={currentUserId} initialAnnouncement={initialAnnouncement ?? null} />
         {children}
       </div>
 
-      {/* Mobile floating compose button — above the bottom global nav */}
-      <button
-        onClick={() => setShowCompose(true)}
-        className="md:hidden fixed bottom-[4.5rem] right-4 z-30 w-12 h-12 bg-[#2E7EB8] hover:bg-[#2470a8] rounded-full shadow-lg flex items-center justify-center transition-colors"
-        aria-label="New message"
-      >
-        <svg className="w-5 h-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
-        </svg>
-      </button>
     </div>
 
     {showCompose && (
