@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
 import { checkPinCookie } from '@/lib/check-pin-cookie'
 import { loadPLData } from '@/lib/qbo-pl'
 
