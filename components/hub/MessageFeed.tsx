@@ -62,7 +62,7 @@ function formatBytes(b: number) {
 
 function Avatar({ sender }: { sender: Sender | null }) {
   if (!sender) return <div className="w-8 h-8 rounded-full bg-gray-700 flex-none" />
-  if (sender.avatar_url) return <img src={sender.avatar_url} alt="" className="w-8 h-8 rounded-full flex-none object-cover" />
+  if (sender.avatar_url) return <img src={`/api/profile/avatar/${sender.id}`} alt="" className="w-8 h-8 rounded-full flex-none object-cover" />
   const initials = sender.display_name.slice(0, 2).toUpperCase()
   return (
     <div className={`w-8 h-8 rounded-full flex-none flex items-center justify-center text-xs font-bold text-white ${sender.is_bot ? 'bg-[#2E7EB8]' : 'bg-gray-600'}`}>
