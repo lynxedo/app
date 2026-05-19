@@ -26,12 +26,20 @@ export default function AuthCallbackPage() {
       // PKCE flow — code exchange (browser client can handle invite codes without a verifier)
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code)
-        if (!error) { router.push('/dashboard'); return }
+        if (!error) {
+          const next = url.searchParams.get('next') || '/dashboard'
+          router.push(next)
+          return
+        }
       }
 
       // Implicit flow — hash fragment tokens are auto-processed by the Supabase browser client
       const { data: { session } } = await supabase.auth.getSession()
-      if (session) { router.push('/dashboard'); return }
+      if (session) {
+        const next = url.searchParams.get('next') || '/dashboard'
+        router.push(next)
+        return
+      }
 
       router.push('/login?error=auth_failed')
     }

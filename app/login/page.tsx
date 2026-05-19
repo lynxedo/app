@@ -25,11 +25,13 @@ function LoginForm() {
     setGoogleLoading(true)
     setError('')
     const supabase = createClient()
+    const isNative = typeof window !== 'undefined' && 'Capacitor' in window
+    const redirectTo = isNative
+      ? 'com.lynxedo.hub://auth/callback'
+      : `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback`
     await supabase.auth.signInWithOAuth({
       provider: 'google',
-      options: {
-        redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback`,
-      },
+      options: { redirectTo },
     })
   }
 
