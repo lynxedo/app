@@ -26,13 +26,26 @@ function LoginForm() {
     setError('')
     const supabase = createClient()
     const isNative = typeof window !== 'undefined' && 'Capacitor' in window
-    const redirectTo = isNative
-      ? 'com.lynxedo.hub://auth/callback'
-      : `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback`
-    await supabase.auth.signInWithOAuth({
-      provider: 'google',
-      options: { redirectTo },
-    })
+
+    if (isNative) {
+      // On native iOS, open OAuth in SFSafariViewController (Google accepts this; rejects WKWebView)
+      const { data } = await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: {
+          redirectTo: 'com.lynxedo.hub://auth/callback',
+          skipBrowserRedirect: true,
+        },
+      })
+      if (data?.url) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (window as any).Capacitor.Plugins.Browser.open({ url: data.url })
+      }
+    } else {
+      await supabase.auth.signInWithOAuth({
+        provider: 'google',
+        options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback` },
+      })
+    }
   }
 
   const handleMagicLink = async (e: React.FormEvent) => {
