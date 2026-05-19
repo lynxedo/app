@@ -33,6 +33,7 @@ export type HubMessage = {
   reactions?: RxItem[]
   files?: FileItem[]
   reply_count?: number
+  source?: string | null
 }
 
 function formatTime(iso: string) {
@@ -399,6 +400,9 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                           {sender?.display_name ?? 'Unknown'}
                           {sender?.is_bot && (
                             <span className="ml-1.5 text-xs bg-[#2E7EB8]/30 text-[#2E7EB8] px-1.5 py-0.5 rounded font-normal">Bot</span>
+                          )}
+                          {msg.source === 'slack' && (
+                            <span title="Sent from Slack" className="ml-1.5 text-xs bg-[#4A154B]/40 text-[#ECB22E] px-1.5 py-0.5 rounded font-normal">S</span>
                           )}
                         </span>
                         <span className="text-xs text-gray-500">{formatTime(msg.created_at)}</span>

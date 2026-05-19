@@ -3,9 +3,10 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 import { askClaude } from '@/lib/hub-claude'
+import { bridgeHubMessageToSlack } from '@/lib/slack-bridge'
 
 const MESSAGE_SELECT = `
-  id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
+  id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from, source,
   sender:hub_users!sender_id (id, display_name, avatar_url, is_bot),
   reactions (message_id, user_id, emoji),
   files (id, filename, mime_type, size_bytes, storage_path)
@@ -296,6 +297,17 @@ export async function POST(request: Request) {
       content: content.trim(),
       senderName,
       roomName: '', // resolved inside fireAutomationRules lazily
+    }).catch(() => null)
+  }
+
+  // Slack bridge — mirror top-level Hub messages to Slack if a bridge exists for this room/DM
+  if (!parent_id && hasContent && user.id !== CLAUDE_BOT_ID) {
+    bridgeHubMessageToSlack({
+      roomId: room_id ?? null,
+      conversationId: conversation_id ?? null,
+      senderId: user.id,
+      senderName,
+      content: content.trim(),
     }).catch(() => null)
   }
 

@@ -14,7 +14,7 @@ export async function GET(
   const { data, error } = await supabase
     .from('messages')
     .select(`
-      id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
+      id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from, source,
       sender:hub_users!sender_id (id, display_name, avatar_url, is_bot),
       reactions (message_id, user_id, emoji),
       files (id, filename, mime_type, size_bytes, storage_path)
