@@ -46,8 +46,10 @@ function LoginForm() {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (window as any).Capacitor.Plugins.Browser.open({ url: data.url })
       } catch {
-        setError('Browser plugin not available — please update the app.')
-        setGoogleLoading(false)
+        // Capacitor bridge unavailable in Android remote WebView pages.
+        // Navigate directly — MainActivity intercepts accounts.google.com
+        // and opens it in a Chrome Custom Tab instead of the WebView.
+        window.location.href = data.url
       }
     } else {
       await supabase.auth.signInWithOAuth({
