@@ -84,9 +84,40 @@ async function initWebPush() {
   }
 }
 
+async function initAndroidFcm() {
+  const registerToken = async (token: string) => {
+    if (!token) return
+    try {
+      await fetch('/api/hub/fcm-subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+    } catch {
+      // Non-critical
+    }
+  }
+
+  const w = window as Window & { __fcmToken?: string }
+  if (w.__fcmToken) {
+    await registerToken(w.__fcmToken)
+    return
+  }
+  // Token not injected yet — wait for MainActivity to inject it (fires after page load)
+  window.addEventListener('fcmTokenReady', () => {
+    if (w.__fcmToken) registerToken(w.__fcmToken)
+  }, { once: true })
+}
+
 export default function PushInit() {
   useEffect(() => {
-    if (window.Capacitor?.isNativePlatform()) {
+    const isAndroid = /android/i.test(navigator.userAgent)
+    const isNative = window.Capacitor?.isNativePlatform() ||
+      localStorage.getItem('lynxedo_native') === '1'
+
+    if (isNative && isAndroid) {
+      initAndroidFcm()
+    } else if (isNative) {
       initNativePush()
     } else {
       initWebPush()

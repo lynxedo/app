@@ -1,6 +1,7 @@
 import webpush from 'web-push'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendApnsPush } from '@/lib/hub-apns'
+import { sendFcmPush } from '@/lib/hub-fcm'
 
 let vapidConfigured = false
 
@@ -123,6 +124,19 @@ export async function sendHubPush(
   if (deviceTokens.length > 0) {
     await sendApnsPush(deviceTokens, payload).catch((err: Error) =>
       console.error('[hub-push] apns failed:', err.message)
+    )
+  }
+
+  // FCM — native Android app subscribers
+  const { data: fcmRows } = await admin
+    .from('fcm_tokens')
+    .select('device_token')
+    .in('user_id', eligibleIds)
+
+  const fcmTokens = (fcmRows ?? []).map((r: { device_token: string }) => r.device_token)
+  if (fcmTokens.length > 0) {
+    await sendFcmPush(fcmTokens, payload).catch((err: Error) =>
+      console.error('[hub-push] fcm failed:', err.message)
     )
   }
 }
