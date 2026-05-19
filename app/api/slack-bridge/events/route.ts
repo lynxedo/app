@@ -111,27 +111,43 @@ async function handleEvent(event: SlackMessageEvent) {
       source: 'slack',
     })
   } else if (bridge.bridge_type === 'dm' && bridge.hub_user_id) {
-    // For DMs we need a conversation — find an existing DM conversation that includes
-    // the bridged hub user. If multiple exist, prefer the one with Ben (admin). For now,
-    // pick the most-recent conversation the bridged user is in.
+    // For DMs, find the conversation the bridged user is in that has the most recent
+    // message activity. (1-on-1 DM with the admin who set up the bridge is the typical case.)
     const { data: convs } = await admin
       .from('conversation_members')
       .select('conversation_id')
       .eq('user_id', bridge.hub_user_id)
     const convIds = (convs ?? []).map((c: { conversation_id: string }) => c.conversation_id)
     if (convIds.length === 0) return
-    const { data: latest } = await admin
-      .from('conversations')
-      .select('id')
-      .in('id', convIds)
-      .eq('company_id', bridge.company_id)
-      .order('updated_at', { ascending: false })
+
+    const { data: latestMsg } = await admin
+      .from('messages')
+      .select('conversation_id')
+      .in('conversation_id', convIds)
+      .is('parent_id', null)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
       .limit(1)
       .maybeSingle()
-    if (!latest) return
+
+    // Fallback: if there's no message history, just pick the newest conversation
+    let conversationId = latestMsg?.conversation_id
+    if (!conversationId) {
+      const { data: newestConv } = await admin
+        .from('conversations')
+        .select('id')
+        .in('id', convIds)
+        .eq('company_id', bridge.company_id)
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      conversationId = newestConv?.id
+    }
+    if (!conversationId) return
+
     await admin.from('messages').insert({
       company_id: bridge.company_id,
-      conversation_id: latest.id,
+      conversation_id: conversationId,
       sender_id: bridge.hub_user_id,
       content: event.text.trim(),
       source: 'slack',
