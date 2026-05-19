@@ -13,6 +13,18 @@ export default function AuthCallbackPage() {
 
     async function handleAuth() {
       const url = new URL(window.location.href)
+
+      // Android native app: the OAuth used an https redirect (to avoid
+      // Google's device-level account picker). Now bounce to the custom
+      // scheme so the Android intent filter routes back into the app's
+      // WebView, where the PKCE code verifier lives.
+      if (url.searchParams.get('app') === 'android') {
+        const params = new URLSearchParams(url.searchParams)
+        params.delete('app')
+        window.location.href = `com.lynxedo.hub://auth/callback?${params.toString()}`
+        return
+      }
+
       const code = url.searchParams.get('code')
       const token_hash = url.searchParams.get('token_hash')
       const type = url.searchParams.get('type') as EmailOtpType | null

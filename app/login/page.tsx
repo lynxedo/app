@@ -27,13 +27,21 @@ function LoginForm() {
     const supabase = createClient()
     const isNative = typeof window !== 'undefined' &&
       ('Capacitor' in window || localStorage.getItem('lynxedo_native') === '1')
+    const isAndroidNative = isNative && /android/i.test(navigator.userAgent)
 
     if (isNative) {
-      // On native iOS, open OAuth in SFSafariViewController (Google accepts this; rejects WKWebView)
+      // iOS: custom-scheme redirect works fine (no Android Account Manager).
+      // Android: must use https redirect or Google triggers the device-level
+      // "Add account" flow. The callback page bounces back to the custom
+      // scheme so MainActivity can route it into the WebView for code exchange.
+      const redirectTo = isAndroidNative
+        ? 'https://lynxedo.com/auth/callback?app=android'
+        : 'com.lynxedo.hub://auth/callback'
+
       const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
-          redirectTo: 'com.lynxedo.hub://auth/callback',
+          redirectTo,
           skipBrowserRedirect: true,
         },
       })
