@@ -61,10 +61,11 @@ export async function sendFcmPush(
         message: {
           token,
           notification: { title: payload.title, body: payload.body },
-          android: {
-            notification: { click_action: 'OPEN_HUB' },
-            data: { url: payload.url },
-          },
+          // Top-level data — Android delivers these as Intent extras to
+          // MainActivity when the user taps the notification (both for
+          // FCM-auto-handled background notifications and our manually-shown
+          // foreground notifications).
+          data: { url: payload.url },
         },
       }),
     }).then(async r => {
