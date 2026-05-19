@@ -39,11 +39,12 @@ export async function GET(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Fetch original messages for any forwarded messages
+  // Fetch original messages for any forwarded messages — use admin client to bypass
+  // RLS so originals from other rooms are always readable in the forwarded banner
   const forwardedIds = (data ?? []).map((m: { forwarded_from: string | null }) => m.forwarded_from).filter(Boolean) as string[]
   let forwardedMap: Record<string, { id: string; content: string; sender: { display_name: string } | null; room_id: string | null; conversation_id: string | null }> = {}
   if (forwardedIds.length > 0) {
-    const { data: originals } = await supabase
+    const { data: originals } = await createAdminClient()
       .from('messages')
       .select('id, content, room_id, conversation_id, sender:hub_users!sender_id (display_name)')
       .in('id', forwardedIds)
@@ -146,6 +147,25 @@ export async function POST(request: Request) {
         body: textToScan.trim().slice(0, 120),
         url: destination,
       }, { isMention: true, roomId: room_id ?? null })
+    }
+  }
+
+  // @room — force-notify all room members (bypasses mentions-only pref, respects muted)
+  if (room_id && !parent_id && textToScan.toLowerCase().includes('@room')) {
+    const { data: roomMeta } = await pushAdmin.from('rooms').select('name').eq('id', room_id).single()
+    const { data: allHubUsers } = await pushAdmin
+      .from('hub_users')
+      .select('id')
+      .eq('company_id', profile.company_id)
+      .neq('id', user.id)
+      .eq('is_bot', false)
+    const roomMemberIds = (allHubUsers ?? []).map((u: { id: string }) => u.id)
+    if (roomMemberIds.length > 0) {
+      await sendHubPush(roomMemberIds, {
+        title: `📢 @room — #${roomMeta?.name ?? 'room'} — ${senderName}`,
+        body: textToScan.trim().slice(0, 120),
+        url: `/hub/${room_id}`,
+      }, { isMention: true, roomId: room_id })
     }
   }
 

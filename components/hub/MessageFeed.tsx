@@ -77,6 +77,7 @@ function renderContent(content: string, hubUsers: HubUser[]) {
   return parts.map((part, i) => {
     if (part.startsWith('@')) {
       const name = part.slice(1).toLowerCase()
+      if (name === 'room') return <span key={i} className="bg-yellow-500/20 text-yellow-300 rounded px-0.5 font-medium">{part}</span>
       const isUser = hubUsers.some(u => u.display_name.split(' ')[0].toLowerCase() === name)
       if (isUser) return <span key={i} className="bg-[#2E7EB8]/20 text-[#6FB3E8] rounded px-0.5">{part}</span>
     }
@@ -144,7 +145,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   rooms,
 }, ref) {
   const textSize = useHubTextSize()
-  const msgFontSize = textSize === 'small' ? '0.8125rem' : textSize === 'large' ? '1.25rem' : undefined
+  const msgFontSize = textSize === 'small' ? '0.8125rem' : textSize === 'large' ? '1.5rem' : undefined
 
   const [messages, setMessages] = useState<HubMessage[]>(initialMessages)
   const [editingId, setEditingId] = useState<string | null>(null)
@@ -384,7 +385,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
               return (
                 <div
                   key={msg.id}
-                  className={`group flex items-start gap-2 py-0.5 rounded hover:bg-gray-900/50 transition-colors ${isThreadOpen ? 'bg-[#2E7EB8]/5 border-l-2 border-[#2E7EB8]' : ''}`}
+                  className={`group relative flex items-start gap-2 py-0.5 rounded hover:bg-gray-900/50 transition-colors ${isThreadOpen ? 'bg-[#2E7EB8]/5 border-l-2 border-[#2E7EB8]' : ''}`}
                   onClick={() => !isEditing && setTappedMsgId(prev => prev === msg.id ? null : msg.id)}
                 >
                   <div className="flex-none w-7 md:w-8 mt-0.5">
@@ -471,16 +472,21 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                     )}
                   </div>
 
-                  {/* Hover / tap actions */}
+                  {/* Hover / tap actions
+                      Desktop: fixed-width invisible bar on the right, shown on group-hover
+                      Mobile: absolute overlay in top-right corner when tapped (no text shift) */}
                   {!isEditing && (
                     <div
-                      className={`flex-none transition-opacity gap-0.5 relative ${isActionsVisible ? 'flex opacity-100' : 'hidden md:flex md:opacity-0 md:group-hover:opacity-100'}`}
+                      className={`flex-none transition-opacity gap-0.5 relative
+                        ${isActionsVisible
+                          ? 'flex opacity-100 absolute right-1 top-0 z-10 bg-gray-900/95 border border-gray-700/60 rounded-lg shadow-lg px-0.5 py-0.5 md:static md:bg-transparent md:border-none md:shadow-none md:px-0 md:py-0'
+                          : 'hidden md:flex md:opacity-0 md:group-hover:opacity-100'}`}
                       onClick={e => e.stopPropagation()}
                     >
                       <div className="relative">
                         <button
                           onClick={() => setPickerMsgId(pickerMsgId === msg.id ? null : msg.id)}
-                          className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800 text-sm"
+                          className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-sm md:px-1.5 md:py-0.5"
                           title="Add reaction"
                         >
                           😊
@@ -495,7 +501,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
 
                       <button
                         onClick={() => setForwardingMsg(msg)}
-                        className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
+                        className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
                         title="Forward message"
                       >
                         ↗
@@ -504,13 +510,13 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                       <div className="relative">
                         <button
                           onClick={() => addToBoardMsgId === msg.id ? setAddToBoardMsgId(null) : openBoardPicker(msg.id)}
-                          className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
+                          className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
                           title="Add to Board"
                         >
                           ☑
                         </button>
                         {addToBoardMsgId === msg.id && (
-                          <div className="absolute right-0 top-7 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl py-1 min-w-[180px]" onClick={e => e.stopPropagation()}>
+                          <div className="absolute right-0 top-9 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl py-1 min-w-[180px]" onClick={e => e.stopPropagation()}>
                             <div className="px-3 py-1.5 text-xs text-white/40 font-semibold uppercase tracking-wider border-b border-gray-800">Add to Board</div>
                             {boardPickerBoards.length === 0 && (
                               <p className="px-3 py-2 text-xs text-gray-500">No boards yet</p>
@@ -532,7 +538,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                       {onOpenThread && (
                         <button
                           onClick={() => onOpenThread(msg)}
-                          className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
+                          className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
                           title="Reply in thread"
                         >
                           💬
@@ -542,7 +548,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                       {isOwn && (
                         <button
                           onClick={() => { setEditingId(msg.id); setEditContent(msg.content); setTappedMsgId(null) }}
-                          className="text-xs text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
+                          className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
                           title="Edit"
                         >
                           ✏️
@@ -551,7 +557,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                       {(isOwn || isAdmin) && (
                         <button
                           onClick={() => deleteMessage(msg.id)}
-                          className="text-xs text-gray-500 hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-gray-800"
+                          className="text-gray-500 hover:text-red-400 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
                           title="Delete"
                         >
                           🗑️

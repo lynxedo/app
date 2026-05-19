@@ -21,9 +21,10 @@ export async function PATCH(
     .single()
 
   const isAdmin = profile?.role === 'admin'
-  const db = isAdmin ? createAdminClient() : supabase
 
-  const query = db
+  // Always use admin client to bypass RLS; enforce ownership at app layer for non-admins
+  const adminDb = createAdminClient()
+  const query = adminDb
     .from('messages')
     .update({ content: content.trim(), edited_at: new Date().toISOString() })
     .eq('id', id)
@@ -54,15 +55,13 @@ export async function DELETE(
 
   const isAdmin = profile?.role === 'admin'
 
-  // Admins use service-role client to bypass RLS; owners can delete their own via RLS
-  const db = isAdmin ? createAdminClient() : supabase
-
-  const query = db
+  // Always use admin client to bypass RLS; enforce ownership at app layer for non-admins
+  const adminDb = createAdminClient()
+  const query = adminDb
     .from('messages')
     .update({ deleted_at: new Date().toISOString() })
     .eq('id', id)
 
-  // Non-admins can only delete their own messages
   const { error } = isAdmin ? await query : await query.eq('sender_id', user.id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

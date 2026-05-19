@@ -1,7 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
+import EmojiPicker from '@/components/hub/EmojiPicker'
 
 type Room = { id: string; name: string; description: string | null; is_private: boolean; archived_at: string | null; claude_enabled: boolean }
 type HubUser = { id: string; display_name: string; claude_allowed?: boolean }
@@ -78,6 +79,8 @@ export default function HubAdminPanel({
   const [annCustomDate, setAnnCustomDate] = useState('')
   const [postingAnn, setPostingAnn] = useState(false)
   const [annError, setAnnError] = useState('')
+  const [showAnnEmojiPicker, setShowAnnEmojiPicker] = useState(false)
+  const annTextareaRef = useRef<HTMLTextAreaElement>(null)
 
   // API Keys
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
@@ -981,13 +984,45 @@ Content-Type: application/json
               <p className="text-xs text-yellow-600 mb-4">Posting a new announcement will replace the current one for new visitors. (Old one stays until deleted or expired.)</p>
             )}
             <div className="space-y-4">
-              <textarea
-                value={annContent}
-                onChange={e => setAnnContent(e.target.value)}
-                placeholder="Announcement text…"
-                rows={3}
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8] resize-none"
-              />
+              <div className="relative">
+                <textarea
+                  ref={annTextareaRef}
+                  value={annContent}
+                  onChange={e => setAnnContent(e.target.value)}
+                  placeholder="Announcement text…"
+                  rows={3}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 pr-10 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8] resize-none"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowAnnEmojiPicker(v => !v)}
+                  className="absolute right-3 top-3 text-gray-500 hover:text-gray-300 transition-colors text-base"
+                  title="Insert emoji"
+                >
+                  😊
+                </button>
+                {showAnnEmojiPicker && (
+                  <EmojiPicker
+                    onSelect={emoji => {
+                      const el = annTextareaRef.current
+                      if (el) {
+                        const start = el.selectionStart ?? annContent.length
+                        const end = el.selectionEnd ?? annContent.length
+                        const next = annContent.slice(0, start) + emoji + annContent.slice(end)
+                        setAnnContent(next)
+                        setTimeout(() => {
+                          el.focus()
+                          el.setSelectionRange(start + emoji.length, start + emoji.length)
+                        }, 0)
+                      } else {
+                        setAnnContent(prev => prev + emoji)
+                      }
+                      setShowAnnEmojiPicker(false)
+                    }}
+                    onClose={() => setShowAnnEmojiPicker(false)}
+                  />
+                )}
+              </div>
 
               <div>
                 <p className="text-xs text-gray-500 mb-2 font-medium">Duration</p>
