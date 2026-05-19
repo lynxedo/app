@@ -11,23 +11,31 @@ function urlBase64ToUint8Array(base64String: string) {
   return Uint8Array.from([...raw].map(c => c.charCodeAt(0)))
 }
 
-// Capacitor plugin types — accessed via the native bridge, not imported as npm package
+// iOS Capacitor PushNotifications plugin — accessed via native bridge
 type CapPushPlugin = {
   requestPermissions(): Promise<{ receive: 'granted' | 'denied' | 'prompt' }>
   register(): Promise<void>
   addListener(event: 'registration', handler: (token: { value: string }) => void): Promise<void>
   addListener(event: 'registrationError', handler: (err: { error: string }) => void): Promise<void>
 }
+
+// Android native bridge — exposed by FcmBridge.java via addJavascriptInterface
+type AndroidFcm = {
+  getToken(): string
+  getPlatform(): string
+}
+
 declare global {
   interface Window {
     Capacitor?: {
       isNativePlatform(): boolean
       Plugins: { PushNotifications?: CapPushPlugin }
     }
+    AndroidFcm?: AndroidFcm
   }
 }
 
-async function initNativePush() {
+async function initIosApns() {
   const plugin = window.Capacitor?.Plugins?.PushNotifications
   if (!plugin) return
 
@@ -49,8 +57,46 @@ async function initNativePush() {
       console.error('[PushInit] APNs registration error:', err.error)
     })
   } catch {
-    // Non-critical — silently ignore
+    // Non-critical
   }
+}
+
+async function initAndroidFcm() {
+  const bridge = window.AndroidFcm
+  if (!bridge) return
+
+  let registered = false
+  const tryRegister = async (): Promise<boolean> => {
+    if (registered) return true
+    let token = ''
+    try { token = bridge.getToken() } catch { return false }
+    if (!token) return false
+    try {
+      const res = await fetch('/api/hub/fcm-subscribe', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token }),
+      })
+      if (!res.ok) {
+        console.error('[PushInit] FCM subscribe failed:', res.status, await res.text())
+        return false
+      }
+      registered = true
+      return true
+    } catch (e) {
+      console.error('[PushInit] FCM subscribe error:', e)
+      return false
+    }
+  }
+
+  // Try immediately; on first install the token may not be cached yet,
+  // so poll for up to 30s (FirebaseMessaging.getToken is async on first run).
+  if (await tryRegister()) return
+  let attempts = 0
+  const poll = setInterval(async () => {
+    attempts++
+    if (await tryRegister() || attempts >= 30) clearInterval(poll)
+  }, 1000)
 }
 
 async function initWebPush() {
@@ -84,60 +130,20 @@ async function initWebPush() {
   }
 }
 
-async function initAndroidFcm() {
-  const w = window as Window & { __fcmToken?: string }
-  let registered = false
-
-  const registerToken = async (token: string) => {
-    if (!token || registered) return
-    registered = true
-    try {
-      await fetch('/api/hub/fcm-subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token }),
-      })
-    } catch {
-      registered = false // allow retry on error
-    }
-  }
-
-  if (w.__fcmToken) {
-    await registerToken(w.__fcmToken)
-    return
-  }
-
-  // Listen for injection event from MainActivity (fires after onPageFinished or token fetch)
-  window.addEventListener('fcmTokenReady', () => {
-    if (w.__fcmToken) registerToken(w.__fcmToken)
-  }, { once: true })
-
-  // Poll for up to 15 seconds in case the event fires before this listener was added
-  let attempts = 0
-  const poll = setInterval(() => {
-    attempts++
-    if (w.__fcmToken) {
-      clearInterval(poll)
-      registerToken(w.__fcmToken)
-    } else if (attempts >= 15) {
-      clearInterval(poll)
-    }
-  }, 1000)
-}
-
 export default function PushInit() {
   useEffect(() => {
-    const isAndroid = /android/i.test(navigator.userAgent)
-    const isNative = window.Capacitor?.isNativePlatform() ||
-      localStorage.getItem('lynxedo_native') === '1'
-
-    if (isNative && isAndroid) {
+    // Android: addJavascriptInterface bridge from MainActivity (works on remote URLs)
+    if (window.AndroidFcm) {
       initAndroidFcm()
-    } else if (isNative) {
-      initNativePush()
-    } else {
-      initWebPush()
+      return
     }
+    // iOS: Capacitor bridge is available on remote URLs via WKWebView script injection
+    if (window.Capacitor?.isNativePlatform()) {
+      initIosApns()
+      return
+    }
+    // Browser / PWA
+    initWebPush()
   }, [])
 
   return null
