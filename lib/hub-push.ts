@@ -1,5 +1,6 @@
 import webpush from 'web-push'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { sendApnsPush } from '@/lib/hub-apns'
 
 let vapidConfigured = false
 
@@ -90,13 +91,14 @@ export async function sendHubPush(
 
   if (eligibleIds.length === 0) return
 
+  // Web Push (VAPID) — browser / PWA subscribers
   const { data: subs } = await admin
     .from('push_subscriptions')
     .select('endpoint, p256dh, auth_key')
     .in('user_id', eligibleIds)
 
   const json = JSON.stringify(payload)
-  const results = await Promise.allSettled(
+  const webResults = await Promise.allSettled(
     (subs ?? []).map((sub: { endpoint: string; p256dh: string; auth_key: string }) =>
       webpush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
@@ -104,10 +106,23 @@ export async function sendHubPush(
       )
     )
   )
-  for (const r of results) {
+  for (const r of webResults) {
     if (r.status === 'rejected') {
       const e = r.reason as { statusCode?: number; message?: string }
-      console.error('[hub-push] send failed:', e?.statusCode, e?.message)
+      console.error('[hub-push] web-push failed:', e?.statusCode, e?.message)
     }
+  }
+
+  // APNs — native iOS app subscribers
+  const { data: apnsRows } = await admin
+    .from('apns_tokens')
+    .select('device_token')
+    .in('user_id', eligibleIds)
+
+  const deviceTokens = (apnsRows ?? []).map((r: { device_token: string }) => r.device_token)
+  if (deviceTokens.length > 0) {
+    await sendApnsPush(deviceTokens, payload).catch((err: Error) =>
+      console.error('[hub-push] apns failed:', err.message)
+    )
   }
 }
