@@ -85,8 +85,12 @@ async function initWebPush() {
 }
 
 async function initAndroidFcm() {
+  const w = window as Window & { __fcmToken?: string }
+  let registered = false
+
   const registerToken = async (token: string) => {
-    if (!token) return
+    if (!token || registered) return
+    registered = true
     try {
       await fetch('/api/hub/fcm-subscribe', {
         method: 'POST',
@@ -94,19 +98,31 @@ async function initAndroidFcm() {
         body: JSON.stringify({ token }),
       })
     } catch {
-      // Non-critical
+      registered = false // allow retry on error
     }
   }
 
-  const w = window as Window & { __fcmToken?: string }
   if (w.__fcmToken) {
     await registerToken(w.__fcmToken)
     return
   }
-  // Token not injected yet — wait for MainActivity to inject it (fires after page load)
+
+  // Listen for injection event from MainActivity (fires after onPageFinished or token fetch)
   window.addEventListener('fcmTokenReady', () => {
     if (w.__fcmToken) registerToken(w.__fcmToken)
   }, { once: true })
+
+  // Poll for up to 15 seconds in case the event fires before this listener was added
+  let attempts = 0
+  const poll = setInterval(() => {
+    attempts++
+    if (w.__fcmToken) {
+      clearInterval(poll)
+      registerToken(w.__fcmToken)
+    } else if (attempts >= 15) {
+      clearInterval(poll)
+    }
+  }, 1000)
 }
 
 export default function PushInit() {
