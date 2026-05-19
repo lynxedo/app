@@ -18,6 +18,7 @@ export const metadata: Metadata = {
 
 export const viewport: Viewport = {
   themeColor: '#0f172a',
+  viewportFit: 'cover',
 }
 
 // iOS splash screens — React 19 hoists these <link> tags to <head>

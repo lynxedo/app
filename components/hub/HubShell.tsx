@@ -115,7 +115,7 @@ export default function HubShell({
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
         {/* Mobile top bar with hamburger */}
-        <div className="flex-none flex items-center gap-3 px-4 py-2.5 border-b border-gray-800 md:hidden">
+        <div className="flex-none flex items-center gap-3 px-4 py-2.5 border-b border-gray-800 md:hidden" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 10px)' }}>
           <button
             onClick={() => setSidebarOpen(true)}
             className="text-gray-400 hover:text-white transition-colors p-1 -ml-1 rounded hover:bg-gray-800"
