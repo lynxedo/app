@@ -25,7 +25,8 @@ function LoginForm() {
     setGoogleLoading(true)
     setError('')
     const supabase = createClient()
-    const isNative = typeof window !== 'undefined' && 'Capacitor' in window
+    const isNative = typeof window !== 'undefined' &&
+      ('Capacitor' in window || localStorage.getItem('lynxedo_native') === '1')
 
     if (isNative) {
       // On native iOS, open OAuth in SFSafariViewController (Google accepts this; rejects WKWebView)
