@@ -56,24 +56,6 @@ export default function HubShell({
     localStorage.setItem('hub-text-size', initialTextSize ?? 'default')
   }, [initialTextSize])
 
-  // Track the visible viewport height (shrinks when the on-screen keyboard
-  // opens) and expose it as --hub-vh. Using 100dvh alone isn't reliable on
-  // Android WebView, which is why the mobile top bar / hamburger gets pushed
-  // off screen when a DM has enough messages to overflow.
-  useEffect(() => {
-    const vv = window.visualViewport
-    if (!vv) return
-    const update = () => {
-      document.documentElement.style.setProperty('--hub-vh', `${vv.height}px`)
-    }
-    update()
-    vv.addEventListener('resize', update)
-    vv.addEventListener('scroll', update)
-    return () => {
-      vv.removeEventListener('resize', update)
-      vv.removeEventListener('scroll', update)
-    }
-  }, [])
 
   // Cmd+K / Ctrl+K opens Quick Compose
   useEffect(() => {
@@ -93,10 +75,7 @@ export default function HubShell({
 
   return (
     <HubTextSizeContext.Provider value={textSize}>
-    <div
-      className="flex bg-gray-950 text-white overflow-hidden"
-      style={{ height: 'var(--hub-vh, 100dvh)' }}
-    >
+    <div className="flex h-[100dvh] bg-gray-950 text-white overflow-hidden">
       {/* Mobile sidebar overlay backdrop */}
       {sidebarOpen && (
         <div

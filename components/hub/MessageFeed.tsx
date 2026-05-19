@@ -166,6 +166,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     return map
   })
   const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
 
   useImperativeHandle(ref, () => ({
@@ -180,7 +181,12 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   }))
 
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+    // Directly scroll the messages container instead of using scrollIntoView,
+    // which scrolls every ancestor scrollable element (including the outer
+    // hub shell with overflow-hidden — that's what was pushing the hamburger
+    // off screen on mobile when new messages arrived).
+    const el = scrollContainerRef.current
+    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
   }, [messages.length])
 
   // Realtime: messages
@@ -346,7 +352,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
 
   return (
     <>
-      <div className="flex-1 overflow-y-auto w-full px-1 md:px-4 py-3 space-y-1">
+      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto w-full px-1 md:px-4 py-3 space-y-1">
         {groups.map(group => (
           <div key={group.date}>
             <div className="flex items-center gap-3 my-4">
