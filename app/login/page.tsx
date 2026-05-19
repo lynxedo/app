@@ -29,16 +29,24 @@ function LoginForm() {
 
     if (isNative) {
       // On native iOS, open OAuth in SFSafariViewController (Google accepts this; rejects WKWebView)
-      const { data } = await supabase.auth.signInWithOAuth({
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
         provider: 'google',
         options: {
           redirectTo: 'com.lynxedo.hub://auth/callback',
           skipBrowserRedirect: true,
         },
       })
-      if (data?.url) {
+      if (oauthError || !data?.url) {
+        setError('Could not start Google sign-in. Please try again.')
+        setGoogleLoading(false)
+        return
+      }
+      try {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         await (window as any).Capacitor.Plugins.Browser.open({ url: data.url })
+      } catch {
+        setError('Browser plugin not available — please update the app.')
+        setGoogleLoading(false)
       }
     } else {
       await supabase.auth.signInWithOAuth({
