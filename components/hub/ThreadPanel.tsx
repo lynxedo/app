@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { HubMessage, HubUser, Sender } from './MessageFeed'
+import { useHubTextSize } from './HubTextSizeContext'
 
 function normSender(raw: Sender | Sender[] | null): Sender | null {
   if (!raw) return null
@@ -42,17 +43,7 @@ export default function ThreadPanel({
   hubUsers: HubUser[]
   onClose: () => void
 }) {
-  const [textSize, setTextSize] = useState<string>(() =>
-    typeof window !== 'undefined' ? (localStorage.getItem('hub-text-size') ?? 'default') : 'default'
-  )
-  useEffect(() => {
-    const handler = (e: Event) => {
-      const next = (e as CustomEvent<string>).detail
-      setTextSize(next)
-    }
-    window.addEventListener('hub-text-size-change', handler)
-    return () => window.removeEventListener('hub-text-size-change', handler)
-  }, [])
+  const textSize = useHubTextSize()
   const msgFontSize = textSize === 'small' ? '0.8125rem' : textSize === 'large' ? '1.25rem' : undefined
 
   const [replies, setReplies] = useState<Reply[]>([])

@@ -893,7 +893,6 @@ export default function HubSidebar({
                       key={size}
                       onClick={() => {
                         onTextSizeChange(size)
-                        window.dispatchEvent(new CustomEvent('hub-text-size-change', { detail: size }))
                         onClose?.()
                         fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_text_size: size }) })
                       }}

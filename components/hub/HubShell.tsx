@@ -52,11 +52,8 @@ export default function HubShell({
   const [showTimeClock, setShowTimeClock] = useState(false)
   const [textSize, setTextSize] = useState(initialTextSize ?? 'default')
 
-  // Sync server-fetched preference to localStorage so MessageFeed can read it
   useEffect(() => {
-    const size = initialTextSize ?? 'default'
-    localStorage.setItem('hub-text-size', size)
-    window.dispatchEvent(new CustomEvent('hub-text-size-change', { detail: size }))
+    localStorage.setItem('hub-text-size', initialTextSize ?? 'default')
   }, [initialTextSize])
 
   // Cmd+K / Ctrl+K opens Quick Compose
