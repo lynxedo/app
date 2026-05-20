@@ -26,6 +26,13 @@ interface HubProfile {
   phone: string | null
 }
 
+interface NotifPref {
+  level: 'all' | 'mentions' | 'muted'
+  dnd_enabled: boolean
+  dnd_start: string | null
+  dnd_end: string | null
+}
+
 interface Props {
   email: string
   userId: string
@@ -33,6 +40,7 @@ interface Props {
   hubProfile: HubProfile
   jobberConnected: boolean
   landingPage: 'hub' | 'dashboard'
+  notifPref: NotifPref
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
@@ -87,7 +95,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, initial, hubProfile, jobberConnected, landingPage }: Props) {
+export default function SettingsForm({ email, userId, initial, hubProfile, jobberConnected, landingPage, notifPref }: Props) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>('profile')
 
@@ -159,6 +167,75 @@ export default function SettingsForm({ email, userId, initial, hubProfile, jobbe
       setLandingErr(e instanceof Error ? e.message : 'Network error')
       setLandingSave('error')
     }
+  }
+
+  // ── Notification prefs (global) ────────────────────────────────────────────
+  const [notifLevel, setNotifLevel] = useState<'all' | 'mentions' | 'muted'>(notifPref.level)
+  const [dndEnabled, setDndEnabled] = useState(notifPref.dnd_enabled)
+  // time inputs use HH:MM (no seconds); DB column is `time` so HH:MM:SS or HH:MM both store fine
+  const trimSec = (t: string | null) => (t ? t.slice(0, 5) : '')
+  const [dndStart, setDndStart] = useState(trimSec(notifPref.dnd_start))
+  const [dndEnd, setDndEnd] = useState(trimSec(notifPref.dnd_end))
+  const [notifSave, setNotifSave] = useState<SaveState>('idle')
+  const [notifErr, setNotifErr] = useState<string | null>(null)
+
+  const saveNotifPrefs = async (overrides?: Partial<{ level: 'all' | 'mentions' | 'muted'; dnd_enabled: boolean; dnd_start: string; dnd_end: string }>) => {
+    setNotifSave('saving')
+    setNotifErr(null)
+    const body = {
+      room_id: null,
+      level: overrides?.level ?? notifLevel,
+      dnd_enabled: overrides?.dnd_enabled ?? dndEnabled,
+      dnd_start: (overrides?.dnd_start ?? dndStart) || null,
+      dnd_end: (overrides?.dnd_end ?? dndEnd) || null,
+    }
+    try {
+      const res = await fetch('/api/hub/notification-prefs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        setNotifErr(d.error ?? 'Save failed')
+        setNotifSave('error')
+        return
+      }
+      setNotifSave('saved')
+      setTimeout(() => setNotifSave('idle'), 2000)
+    } catch (e) {
+      setNotifErr(e instanceof Error ? e.message : 'Network error')
+      setNotifSave('error')
+    }
+  }
+
+  // ── Password change ────────────────────────────────────────────────────────
+  const [pwNew, setPwNew] = useState('')
+  const [pwConfirm, setPwConfirm] = useState('')
+  const [pwSave, setPwSave] = useState<SaveState>('idle')
+  const [pwErr, setPwErr] = useState<string | null>(null)
+  const changePassword = async () => {
+    setPwErr(null)
+    if (pwNew.length < 8) {
+      setPwErr('Password must be at least 8 characters.')
+      return
+    }
+    if (pwNew !== pwConfirm) {
+      setPwErr('Passwords do not match.')
+      return
+    }
+    setPwSave('saving')
+    const supabase = createClient()
+    const { error } = await supabase.auth.updateUser({ password: pwNew })
+    if (error) {
+      setPwErr(error.message)
+      setPwSave('error')
+      return
+    }
+    setPwNew('')
+    setPwConfirm('')
+    setPwSave('saved')
+    setTimeout(() => setPwSave('idle'), 2500)
   }
 
   const [durationMethod, setDurationMethod] = useState(initial.duration_method)
@@ -761,10 +838,120 @@ export default function SettingsForm({ email, userId, initial, hubProfile, jobbe
         </div>
       </section>
 
-      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 text-center py-12">
-        <div className="text-3xl mb-3">🏢</div>
-        <p className="text-gray-500 text-sm">Company name, plan details, and user management will live here.</p>
-        <p className="text-gray-600 text-xs mt-2">Coming in an upcoming session.</p>
+      {/* Notifications */}
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <h2 className="font-semibold text-lg mb-1">Notifications</h2>
+        <p className="text-gray-400 text-sm mb-5">Controls all Hub notifications — push, web, and native app.</p>
+
+        <div className="mb-6">
+          <label className="block text-xs text-gray-400 mb-2">When to notify me</label>
+          <div className="space-y-2">
+            {([
+              { value: 'all',      title: 'Everything',  desc: 'Notify me for all messages in rooms I belong to.' },
+              { value: 'mentions', title: 'Mentions + DMs only', desc: 'Only when I’m @mentioned or someone DMs me.' },
+              { value: 'muted',    title: 'Nothing',     desc: 'Mute everything. Mentions and DMs are still suppressed.' },
+            ] as const).map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => { setNotifLevel(opt.value); saveNotifPrefs({ level: opt.value }) }}
+                disabled={notifSave === 'saving'}
+                className={`w-full text-left p-4 rounded-xl border transition-colors ${
+                  notifLevel === opt.value
+                    ? 'bg-blue-600/10 border-blue-500/50'
+                    : 'bg-gray-950 border-gray-800 hover:border-gray-700'
+                } disabled:opacity-60`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className={`w-4 h-4 rounded-full border-2 flex-none ${notifLevel === opt.value ? 'border-blue-400 bg-blue-400' : 'border-gray-600'}`} />
+                  <div>
+                    <div className="font-medium text-white">{opt.title}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">{opt.desc}</div>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Scheduled DND */}
+        <div className="border-t border-gray-800 pt-5">
+          <div className="flex items-center justify-between mb-1">
+            <h3 className="font-medium text-white">Scheduled Do Not Disturb</h3>
+            <label className="inline-flex items-center cursor-pointer">
+              <input
+                type="checkbox"
+                checked={dndEnabled}
+                onChange={e => { setDndEnabled(e.target.checked); saveNotifPrefs({ dnd_enabled: e.target.checked }) }}
+                className="sr-only peer"
+              />
+              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
+            </label>
+          </div>
+          <p className="text-gray-400 text-sm mb-4">
+            Automatically silence non-mention notifications during a recurring window every day. Mentions still come through.
+          </p>
+          <div className={`grid grid-cols-2 gap-4 ${dndEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Quiet hours start</label>
+              <input
+                type="time"
+                value={dndStart}
+                onChange={e => setDndStart(e.target.value)}
+                onBlur={() => saveNotifPrefs()}
+                className={inputCls}
+              />
+            </div>
+            <div>
+              <label className="block text-xs text-gray-400 mb-1.5">Quiet hours end</label>
+              <input
+                type="time"
+                value={dndEnd}
+                onChange={e => setDndEnd(e.target.value)}
+                onBlur={() => saveNotifPrefs()}
+                className={inputCls}
+              />
+            </div>
+          </div>
+          {dndEnabled && dndStart && dndEnd && (
+            <p className="text-xs text-gray-500 mt-2">
+              {dndStart > dndEnd ? `Quiet from ${dndStart} until ${dndEnd} the next morning (wraps midnight).` : `Quiet from ${dndStart} to ${dndEnd} each day.`}
+            </p>
+          )}
+        </div>
+
+        {notifErr && <p className="text-red-400 text-sm mt-3">{notifErr}</p>}
+        {notifSave === 'saved' && <p className="text-green-400 text-xs mt-3">Saved.</p>}
+      </section>
+
+      {/* Change password */}
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <h2 className="font-semibold text-lg mb-1">Change password</h2>
+        <p className="text-gray-400 text-sm mb-5">Use at least 8 characters. You’ll stay signed in on this device.</p>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">New password</label>
+            <input
+              type="password"
+              value={pwNew}
+              onChange={e => setPwNew(e.target.value)}
+              autoComplete="new-password"
+              className={inputCls}
+            />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Confirm new password</label>
+            <input
+              type="password"
+              value={pwConfirm}
+              onChange={e => setPwConfirm(e.target.value)}
+              autoComplete="new-password"
+              className={inputCls}
+            />
+          </div>
+          {pwErr && <p className="text-red-400 text-sm">{pwErr}</p>}
+          {pwSave === 'saved' && <p className="text-green-400 text-sm">Password updated.</p>}
+          {saveBtn('Update password', pwSave, changePassword, !pwNew || !pwConfirm)}
+        </div>
       </section>
       </>
       )}

@@ -302,7 +302,7 @@ export default function LawnPage() {
           <Link href="/dashboard" className="text-gray-400 hover:text-white text-sm transition-colors">
             ← Dashboard
           </Link>
-          <h1 className="text-xl font-bold tracking-tight">🌿 Lawn Calculator</h1>
+          <h1 className="text-xl font-bold tracking-tight">🌿 Lawn Sizer</h1>
         </div>
         <div className="flex items-center gap-4">
           <Link href="/help" className="text-gray-400 hover:text-white transition-colors text-lg leading-none font-bold" title="Help">

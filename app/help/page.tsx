@@ -75,7 +75,7 @@ export default function HelpPage() {
               </div>
             </div>
             <div>
-              <p className="text-xs text-gray-500 mb-1.5 uppercase tracking-wide">🌿 Lawn Calculator</p>
+              <p className="text-xs text-gray-500 mb-1.5 uppercase tracking-wide">🌿 Lawn Sizer</p>
               <div className="grid grid-cols-2 gap-1.5 text-sm">
                 {[
                   ['#lawn-how', 'How to use it'],
@@ -269,12 +269,12 @@ export default function HelpPage() {
           </Section>
         </div>
 
-        {/* ── LAWN CALCULATOR ── */}
-        <ToolHeading icon="🌿" label="Lawn Calculator" />
+        {/* ── LAWN SIZER ── */}
+        <ToolHeading icon="🌿" label="Lawn Sizer" />
 
         <div id="lawn-how">
           <Section title="How to Use It">
-            <p>The Lawn Calculator estimates the mowable square footage of a property using satellite imagery and county parcel data. Use it to size new leads before quoting.</p>
+            <p>Lawn Sizer estimates the mowable square footage of a property using satellite imagery and county parcel data. Use it to size new leads before quoting.</p>
             <Step n={1}><strong className="text-white">Enter the property address</strong> and click <strong className="text-white">Calculate</strong>. Lynxedo geocodes the address and pulls parcel data from the county.</Step>
             <Step n={2}><strong className="text-white">Quick result</strong> appears first — a single AI analysis of the satellite image. If confidence is HIGH ✅, you&apos;re done.</Step>
             <Step n={3}>If confidence is MEDIUM ⚠️ or FLAG 🚩, the tool automatically runs <strong className="text-white">Advanced mode</strong> — three separate AI analyses averaged together for a more reliable estimate.</Step>

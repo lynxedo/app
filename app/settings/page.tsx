@@ -23,7 +23,7 @@ export default async function SettingsPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const [settingsResult, hubUserResult, profileResult] = await Promise.all([
+  const [settingsResult, hubUserResult, profileResult, notifPrefResult] = await Promise.all([
     supabase
       .from('user_settings')
       .select('display_name, depot_address, depot_lat, depot_lng, default_service_minutes, default_drive_mph, duration_method, duration_rules')
@@ -39,6 +39,12 @@ export default async function SettingsPage() {
       .select('phone, full_name, landing_page')
       .eq('id', user.id)
       .maybeSingle(),
+    supabase
+      .from('notification_prefs')
+      .select('level, dnd_enabled, dnd_start, dnd_end')
+      .eq('user_id', user.id)
+      .is('room_id', null)
+      .maybeSingle(),
   ])
 
   const settings = { ...DEFAULTS, ...(settingsResult.data ?? {}) }
@@ -52,6 +58,13 @@ export default async function SettingsPage() {
   }
 
   const landingPage = (profileResult.data?.landing_page ?? 'hub') as 'hub' | 'dashboard'
+
+  const notifPref = {
+    level: (notifPrefResult.data?.level ?? 'all') as 'all' | 'mentions' | 'muted',
+    dnd_enabled: notifPrefResult.data?.dnd_enabled ?? false,
+    dnd_start: notifPrefResult.data?.dnd_start ?? null,
+    dnd_end: notifPrefResult.data?.dnd_end ?? null,
+  }
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -83,6 +96,7 @@ export default async function SettingsPage() {
           hubProfile={hubProfile}
           jobberConnected={jobberConnected}
           landingPage={landingPage}
+          notifPref={notifPref}
         />
       </main>
     </div>

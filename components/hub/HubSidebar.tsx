@@ -45,7 +45,7 @@ const TOOL_CATALOG: Record<string, ToolDef> = {
   'tool:daily-log':     { id: 'tool:daily-log',     label: 'Daily Log',       icon: '📋', href: '/hub/daily-log',    prefixMatch: true },
   'tool:time-records':  { id: 'tool:time-records',  label: 'Time Records',    icon: '🕐', href: '/admin/timesheet',  prefixMatch: true },
   'tool:tracker':       { id: 'tool:tracker',       label: 'Tracker',         icon: '🎯', href: '/hub/tracker',      prefixMatch: true },
-  'tool:lawn':          { id: 'tool:lawn',          label: 'Lawn Calculator', icon: '🌿', href: '/hub/lawn',         prefixMatch: false },
+  'tool:lawn':          { id: 'tool:lawn',          label: 'Lawn Sizer',      icon: '🌿', href: '/hub/lawn',         prefixMatch: false },
   'tool:call-log':      { id: 'tool:call-log',      label: 'Call Log',        icon: '📞', href: '/hub/call-log',     prefixMatch: true },
   'tool:books':         { id: 'tool:books',         label: 'Books',           icon: '📊', href: '/books',            prefixMatch: true },
 }
@@ -961,7 +961,7 @@ export default function HubSidebar({
                               }`}
                             >
                               <span className="text-xs flex-none">🌿</span>
-                              <span className="truncate flex-1">Lawn Calculator</span>
+                              <span className="truncate flex-1">Lawn Sizer</span>
                             </Link>
                             {renderToolStar('tool:lawn')}
                           </div>

@@ -85,7 +85,7 @@ export default async function DashboardPage() {
                 <span className="text-3xl">🌿</span>
                 <span className="text-xs font-semibold px-2.5 py-1 rounded-full bg-green-500/15 text-green-400 border border-green-500/25">Live</span>
               </div>
-              <div className="font-bold text-lg mb-1">Lawn Calculator</div>
+              <div className="font-bold text-lg mb-1">Lawn Sizer</div>
               <div className="text-gray-400 text-sm leading-relaxed">
                 Calculate lawn size, estimate service time, and generate quotes based on county data.
               </div>

@@ -45,7 +45,7 @@ export async function sendHubPush(
       .in('id', userIds),
     admin
       .from('notification_prefs')
-      .select('user_id, room_id, level, dnd_enabled')
+      .select('user_id, room_id, level, dnd_enabled, dnd_start, dnd_end')
       .in('user_id', userIds),
   ])
 
@@ -54,7 +54,26 @@ export async function sendHubPush(
     statusMap[u.id] = { status: u.status, status_until: u.status_until }
   }
 
-  type PrefRow = { user_id: string; room_id: string | null; level: string; dnd_enabled: boolean }
+  // Compute current Texas-local time as HH:MM:SS once per send.
+  // Heroes is the only customer today; this can become per-user TZ later.
+  const nowLocal = new Date().toLocaleTimeString('en-US', {
+    timeZone: 'America/Chicago',
+    hour12: false,
+    hour: '2-digit',
+    minute: '2-digit',
+    second: '2-digit',
+  })
+  const inDndWindow = (start: string | null, end: string | null): boolean => {
+    if (!start || !end) return false
+    // start === end is "off" (a zero-length window)
+    if (start === end) return false
+    // Window wraps midnight when end < start (e.g. 22:00 → 07:00)
+    return start < end
+      ? nowLocal >= start && nowLocal < end
+      : nowLocal >= start || nowLocal < end
+  }
+
+  type PrefRow = { user_id: string; room_id: string | null; level: string; dnd_enabled: boolean; dnd_start: string | null; dnd_end: string | null }
   const globalPrefs: Record<string, PrefRow> = {}
   const roomPrefs: Record<string, Record<string, PrefRow>> = {}
   for (const p of (prefsResult.data ?? []) as PrefRow[]) {
@@ -78,6 +97,9 @@ export async function sendHubPush(
 
     // Pref-based DND (notification_prefs.dnd_enabled on global row)
     if (global?.dnd_enabled && !isMention) return false
+
+    // Scheduled DND — time-of-day window on global row
+    if (global && inDndWindow(global.dnd_start, global.dnd_end) && !isMention) return false
 
     // Global notification level
     if (global?.level === 'muted') return false
