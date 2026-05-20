@@ -56,14 +56,6 @@ export default function HubShell({
     localStorage.setItem('hub-text-size', initialTextSize ?? 'default')
   }, [initialTextSize])
 
-  // Lock document scroll while in Hub. Prevents iOS Safari from auto-scrolling
-  // the document when the composer textarea is focused (which would push the
-  // mobile top bar above the visible viewport).
-  useEffect(() => {
-    document.body.classList.add('hub-no-body-scroll')
-    return () => { document.body.classList.remove('hub-no-body-scroll') }
-  }, [])
-
 
   // Cmd+K / Ctrl+K opens Quick Compose
   useEffect(() => {
@@ -120,8 +112,13 @@ export default function HubShell({
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Mobile top bar with hamburger */}
-        <div className="flex-none flex items-center gap-3 px-4 py-3 border-b border-gray-800 md:hidden" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
+        {/* Mobile top bar — fixed to the viewport so it stays visible when iOS
+            Safari auto-scrolls the document on textarea focus. A flex-none
+            spacer below preserves the column layout. */}
+        <div
+          className="fixed top-0 left-0 right-0 z-30 md:hidden flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-950"
+          style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}
+        >
           <button
             onClick={() => setSidebarOpen(true)}
             className="text-gray-300 hover:text-white transition-colors p-1.5 -ml-1.5 rounded hover:bg-gray-800"
@@ -142,6 +139,15 @@ export default function HubShell({
             </svg>
           </button>
         </div>
+
+        {/* Spacer pushing flow content below the fixed top bar. Matches the
+            top bar's effective height: safe-area + py-3 (24px) + h-6 icons +
+            border. */}
+        <div
+          className="flex-none md:hidden"
+          style={{ height: 'calc(env(safe-area-inset-top) + 61px)' }}
+          aria-hidden="true"
+        />
 
         <AnnouncementTicker currentUserId={currentUserId} initialAnnouncement={initialAnnouncement ?? null} />
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
