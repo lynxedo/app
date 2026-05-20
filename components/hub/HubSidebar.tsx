@@ -27,6 +27,29 @@ type ContextMenu = {
   type: 'room' | 'conv'
 }
 
+// Tool catalog — used by Favorites to render pinned tools and by the
+// Tools section to render each entry's star button. Pin IDs are
+// prefixed with `tool:` and live in the same hub_pinned_ids array as
+// room/conversation UUIDs.
+type ToolDef = {
+  id: string
+  label: string
+  icon: string
+  href: string
+  /** When `true`, the link uses startsWith for active-route matching. */
+  prefixMatch?: boolean
+}
+
+const TOOL_CATALOG: Record<string, ToolDef> = {
+  'tool:routing':       { id: 'tool:routing',       label: 'Routing',         icon: '⚡',  href: '/routing',          prefixMatch: true },
+  'tool:daily-log':     { id: 'tool:daily-log',     label: 'Daily Log',       icon: '📋', href: '/hub/daily-log',    prefixMatch: true },
+  'tool:time-records':  { id: 'tool:time-records',  label: 'Time Records',    icon: '🕐', href: '/admin/timesheet',  prefixMatch: true },
+  'tool:tracker':       { id: 'tool:tracker',       label: 'Tracker',         icon: '🎯', href: '/hub/tracker',      prefixMatch: true },
+  'tool:lawn':          { id: 'tool:lawn',          label: 'Lawn Calculator', icon: '🌿', href: '/hub/lawn',         prefixMatch: false },
+  'tool:call-log':      { id: 'tool:call-log',      label: 'Call Log',        icon: '📞', href: '/hub/call-log',     prefixMatch: true },
+  'tool:books':         { id: 'tool:books',         label: 'Books',           icon: '📊', href: '/books',            prefixMatch: true },
+}
+
 function convLabel(conv: Conversation, currentUserId: string) {
   const others = conv.participants.filter(p => p.id !== currentUserId)
   if (others.length === 0) return 'Just you'
@@ -437,6 +460,25 @@ export default function HubSidebar({
     setContextMenu(null)
   }
 
+  // Star button for tool entries — pinned tools render filled and
+  // always-visible; unpinned render outline and only on hover of the
+  // surrounding `.group/tool` container.
+  function renderToolStar(toolId: string) {
+    const pinned = pinnedIds.includes(toolId)
+    return (
+      <button
+        onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(toolId) }}
+        className={`p-1.5 transition-opacity flex-none ${pinned ? 'opacity-100 text-yellow-400 hover:text-yellow-300' : 'opacity-0 group-hover/tool:opacity-100 text-white/30 hover:text-white/60'}`}
+        title={pinned ? 'Unpin from Favorites' : 'Pin to Favorites'}
+        aria-label={pinned ? 'Unpin from Favorites' : 'Pin to Favorites'}
+      >
+        <svg className="w-3.5 h-3.5" fill={pinned ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
+        </svg>
+      </button>
+    )
+  }
+
   // Context menu trigger
   function openContextMenu(e: React.MouseEvent, id: string, type: 'room' | 'conv') {
     e.preventDefault()
@@ -485,7 +527,23 @@ export default function HubSidebar({
   const pinnedSet = new Set(pinnedIds)
   const favoriteRooms = sortedRooms.filter(r => pinnedSet.has(r.id))
   const favoriteConvs = sortedConvs.filter(c => pinnedSet.has(c.id))
-  const hasFavorites = favoriteRooms.length > 0 || favoriteConvs.length > 0
+
+  // Pinned tools — filter by current access so a tool the user lost
+  // permission to doesn't render a dead link.
+  const toolAccess: Record<string, boolean> = {
+    'tool:routing':      canAccessRouting,
+    'tool:daily-log':    true,
+    'tool:time-records': !!isAdmin,
+    'tool:tracker':      canAccessTracker,
+    'tool:lawn':         canAccessLawn,
+    'tool:call-log':     canAccessCallLog,
+    'tool:books':        canAccessBooks,
+  }
+  const favoriteTools: ToolDef[] = pinnedIds
+    .filter(id => id.startsWith('tool:') && TOOL_CATALOG[id] && toolAccess[id])
+    .map(id => TOOL_CATALOG[id])
+
+  const hasFavorites = favoriteRooms.length > 0 || favoriteConvs.length > 0 || favoriteTools.length > 0
 
   function renderRoom(room: Room, showPrefix = true) {
     const isActive = pathname === `/hub/${room.id}`
@@ -631,6 +689,31 @@ export default function HubSidebar({
                 <>
                   {favoriteRooms.map(room => renderRoom(room, false))}
                   {favoriteConvs.map(conv => renderConv(conv, false))}
+                  {favoriteTools.map(tool => {
+                    const isActive = tool.prefixMatch ? pathname.startsWith(tool.href) : pathname === tool.href
+                    return (
+                      <div key={tool.id} className="group/fav flex items-center">
+                        <Link
+                          href={tool.href}
+                          onClick={() => onClose?.()}
+                          className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
+                            isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                          }`}
+                        >
+                          <span className="text-xs flex-none">{tool.icon}</span>
+                          <span className="truncate flex-1">{tool.label}</span>
+                        </Link>
+                        <button
+                          onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(tool.id) }}
+                          className="p-1.5 opacity-0 group-hover/fav:opacity-100 text-yellow-400 hover:text-yellow-300 transition-opacity"
+                          title="Unpin from Favorites"
+                          aria-label="Unpin from Favorites"
+                        >
+                          <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24"><path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" /></svg>
+                        </button>
+                      </div>
+                    )
+                  })}
                 </>
               )}
             </div>
@@ -763,38 +846,47 @@ export default function HubSidebar({
                         {!collapsed['tools-operations'] && (
                         <>
                         {canAccessRouting && (
-                          <Link
-                            href="/routing"
-                            onClick={() => onClose?.()}
-                            className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                              pathname.startsWith('/routing') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                            }`}
-                          >
-                            <span className="text-xs flex-none">⚡</span>
-                            <span className="truncate">Routing</span>
-                          </Link>
+                          <div className="group/tool flex items-center">
+                            <Link
+                              href="/routing"
+                              onClick={() => onClose?.()}
+                              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
+                                pathname.startsWith('/routing') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                              }`}
+                            >
+                              <span className="text-xs flex-none">⚡</span>
+                              <span className="truncate flex-1">Routing</span>
+                            </Link>
+                            {renderToolStar('tool:routing')}
+                          </div>
                         )}
-                        <Link
-                          href="/hub/daily-log"
-                          onClick={() => onClose?.()}
-                          className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                            pathname.startsWith('/hub/daily-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                          }`}
-                        >
-                          <span className="text-xs flex-none">📋</span>
-                          <span className="truncate">Daily Log</span>
-                        </Link>
-                        {isAdmin && (
+                        <div className="group/tool flex items-center">
                           <Link
-                            href="/admin/timesheet"
+                            href="/hub/daily-log"
                             onClick={() => onClose?.()}
-                            className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                              pathname.startsWith('/admin/timesheet') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                            className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
+                              pathname.startsWith('/hub/daily-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                             }`}
                           >
-                            <span className="text-xs flex-none">🕐</span>
-                            <span className="truncate">Time Records</span>
+                            <span className="text-xs flex-none">📋</span>
+                            <span className="truncate flex-1">Daily Log</span>
                           </Link>
+                          {renderToolStar('tool:daily-log')}
+                        </div>
+                        {isAdmin && (
+                          <div className="group/tool flex items-center">
+                            <Link
+                              href="/admin/timesheet"
+                              onClick={() => onClose?.()}
+                              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
+                                pathname.startsWith('/admin/timesheet') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                              }`}
+                            >
+                              <span className="text-xs flex-none">🕐</span>
+                              <span className="truncate flex-1">Time Records</span>
+                            </Link>
+                            {renderToolStar('tool:time-records')}
+                          </div>
                         )}
                         </>
                         )}
@@ -812,7 +904,7 @@ export default function HubSidebar({
                         <>
                         {canAccessTracker && (
                           <div>
-                            <div className="flex items-center">
+                            <div className="group/tool flex items-center">
                               <Link
                                 href="/hub/tracker"
                                 onClick={() => { onClose?.(); setTrackerManualOpen(true) }}
@@ -823,9 +915,10 @@ export default function HubSidebar({
                                 <span className="text-xs flex-none">🎯</span>
                                 <span className="truncate flex-1">Tracker</span>
                               </Link>
+                              {renderToolStar('tool:tracker')}
                               <button
                                 onClick={() => setTrackerManualOpen(v => !v)}
-                                className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
+                                className="p-1.5 text-white/30 hover:text-white/60 transition-colors flex-none"
                                 title={trackerOpen ? 'Collapse' : 'Expand'}
                               >
                                 <svg className={`w-3 h-3 transition-transform ${trackerOpen ? '' : '-rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
@@ -859,16 +952,19 @@ export default function HubSidebar({
                           </div>
                         )}
                         {canAccessLawn && (
-                          <Link
-                            href="/hub/lawn"
-                            onClick={() => onClose?.()}
-                            className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                              pathname === '/hub/lawn' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                            }`}
-                          >
-                            <span className="text-xs flex-none">🌿</span>
-                            <span className="truncate">Lawn Calculator</span>
-                          </Link>
+                          <div className="group/tool flex items-center">
+                            <Link
+                              href="/hub/lawn"
+                              onClick={() => onClose?.()}
+                              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
+                                pathname === '/hub/lawn' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                              }`}
+                            >
+                              <span className="text-xs flex-none">🌿</span>
+                              <span className="truncate flex-1">Lawn Calculator</span>
+                            </Link>
+                            {renderToolStar('tool:lawn')}
+                          </div>
                         )}
                         </>
                         )}
@@ -885,16 +981,19 @@ export default function HubSidebar({
                         {!collapsed['tools-communications'] && (
                         <>
                         {canAccessCallLog && (
-                          <Link
-                            href="/hub/call-log"
-                            onClick={() => onClose?.()}
-                            className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                              pathname.startsWith('/hub/call-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                            }`}
-                          >
-                            <span className="text-xs flex-none">📞</span>
-                            <span className="truncate">Call Log</span>
-                          </Link>
+                          <div className="group/tool flex items-center">
+                            <Link
+                              href="/hub/call-log"
+                              onClick={() => onClose?.()}
+                              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
+                                pathname.startsWith('/hub/call-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                              }`}
+                            >
+                              <span className="text-xs flex-none">📞</span>
+                              <span className="truncate flex-1">Call Log</span>
+                            </Link>
+                            {renderToolStar('tool:call-log')}
+                          </div>
                         )}
                         </>
                         )}
@@ -911,16 +1010,19 @@ export default function HubSidebar({
                         {!collapsed['tools-finance'] && (
                         <>
                         {canAccessBooks && (
-                          <Link
-                            href="/books"
-                            onClick={() => onClose?.()}
-                            className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                              pathname.startsWith('/books') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                            }`}
-                          >
-                            <span className="text-xs flex-none">📊</span>
-                            <span className="truncate">Books</span>
-                          </Link>
+                          <div className="group/tool flex items-center">
+                            <Link
+                              href="/books"
+                              onClick={() => onClose?.()}
+                              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
+                                pathname.startsWith('/books') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                              }`}
+                            >
+                              <span className="text-xs flex-none">📊</span>
+                              <span className="truncate flex-1">Books</span>
+                            </Link>
+                            {renderToolStar('tool:books')}
+                          </div>
                         )}
                         </>
                         )}
