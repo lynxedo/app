@@ -6,7 +6,17 @@ import EmojiPicker from '@/components/hub/EmojiPicker'
 
 type Room = { id: string; name: string; description: string | null; is_private: boolean; archived_at: string | null; claude_enabled: boolean }
 type HubUser = { id: string; display_name: string; claude_allowed?: boolean }
-type Announcement = { id: string; content: string; created_at: string; expires_at: string } | null
+type AnnType = 'announcement' | 'shout_out'
+type Announcement = {
+  id: string
+  content: string
+  created_at: string
+  expires_at: string
+  type: AnnType
+  archived_at: string | null
+  edited_at: string | null
+  created_by: string
+}
 type ApiKey = {
   id: string
   name: string
@@ -73,17 +83,19 @@ export default function HubAdminPanel({
   initialRooms,
   hubUsers,
   allowMemberRoomCreation,
-  activeAnnouncement,
+  activeAnnouncements,
 }: {
   initialRooms: Room[]
   hubUsers: HubUser[]
   allowMemberRoomCreation: boolean
-  activeAnnouncement: Announcement
+  activeAnnouncements: Announcement[]
 }) {
   const router = useRouter()
   const [rooms, setRooms] = useState<Room[]>(initialRooms)
   const [allowCreate, setAllowCreate] = useState(allowMemberRoomCreation)
-  const [announcement, setAnnouncement] = useState<Announcement>(activeAnnouncement)
+  const [activeAnns, setActiveAnns] = useState<Announcement[]>(activeAnnouncements)
+  const activeAnnouncement = activeAnns.find(a => a.type === 'announcement') ?? null
+  const activeShoutOut = activeAnns.find(a => a.type === 'shout_out') ?? null
 
   // New room form
   const [newName, setNewName] = useState('')
@@ -102,7 +114,8 @@ export default function HubAdminPanel({
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [addUserId, setAddUserId] = useState('')
 
-  // Announcement
+  // Announcement composer
+  const [annType, setAnnType] = useState<AnnType>('announcement')
   const [annContent, setAnnContent] = useState('')
   const [annDuration, setAnnDuration] = useState<number | 'custom'>(24)
   const [annCustomDate, setAnnCustomDate] = useState('')
@@ -110,6 +123,11 @@ export default function HubAdminPanel({
   const [annError, setAnnError] = useState('')
   const [showAnnEmojiPicker, setShowAnnEmojiPicker] = useState(false)
   const annTextareaRef = useRef<HTMLTextAreaElement>(null)
+  // Edit modal
+  const [editingAnn, setEditingAnn] = useState<Announcement | null>(null)
+  const [editContent, setEditContent] = useState('')
+  const [savingEdit, setSavingEdit] = useState(false)
+  const [editError, setEditError] = useState('')
 
   // API Keys
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
@@ -300,20 +318,46 @@ export default function HubAdminPanel({
     const res = await fetch('/api/hub/announcements', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: annContent.trim(), expires_at }),
+      body: JSON.stringify({ content: annContent.trim(), expires_at, type: annType }),
     })
     const data = await res.json()
     setPostingAnn(false)
     if (!res.ok) { setAnnError(data.error ?? 'Failed to post'); return }
-    setAnnouncement(data)
+    // Replace any active row of the same type with the new one
+    setActiveAnns(prev => [...prev.filter(a => a.type !== data.type), data as Announcement])
     setAnnContent('')
     router.refresh()
   }
 
-  async function deleteAnnouncement() {
-    if (!announcement) return
-    const res = await fetch(`/api/hub/announcements/${announcement.id}`, { method: 'DELETE' })
-    if (res.ok) { setAnnouncement(null); router.refresh() }
+  async function archiveAnnouncement(ann: Announcement) {
+    const res = await fetch(`/api/hub/announcements/${ann.id}`, { method: 'DELETE' })
+    if (res.ok) {
+      setActiveAnns(prev => prev.filter(a => a.id !== ann.id))
+      router.refresh()
+    }
+  }
+
+  function startEdit(ann: Announcement) {
+    setEditingAnn(ann)
+    setEditContent(ann.content)
+    setEditError('')
+  }
+
+  async function saveEdit() {
+    if (!editingAnn || !editContent.trim() || savingEdit) return
+    setSavingEdit(true)
+    setEditError('')
+    const res = await fetch(`/api/hub/announcements/${editingAnn.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: editContent.trim() }),
+    })
+    const data = await res.json()
+    setSavingEdit(false)
+    if (!res.ok) { setEditError(data.error ?? 'Failed to save'); return }
+    setActiveAnns(prev => prev.map(a => a.id === data.id ? { ...a, ...data } : a))
+    setEditingAnn(null)
+    router.refresh()
   }
 
   async function loadApiKeys() {
@@ -1132,33 +1176,97 @@ Content-Type: application/json
       {tab === 'announcements' && (
         <div className="space-y-6">
           {/* Active announcement */}
-          {announcement && (
-            <div className="bg-yellow-900/20 border border-yellow-700/40 rounded-2xl p-5">
+          {activeAnnouncement && (
+            <div className="bg-[#0F2D45] border border-[#2E7EB8]/40 rounded-2xl p-5">
               <div className="flex items-start justify-between gap-4">
-                <div>
-                  <div className="text-xs text-yellow-500 font-semibold uppercase tracking-wider mb-1">Active Announcement</div>
-                  <p className="text-sm text-white">{announcement.content}</p>
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-[#6FB3E8] font-semibold uppercase tracking-wider mb-1">📢 Active Announcement</div>
+                  <p className="text-sm text-white whitespace-pre-wrap">{activeAnnouncement.content}</p>
                   <p className="text-xs text-gray-500 mt-2">
-                    Expires {new Date(announcement.expires_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+                    Expires {new Date(activeAnnouncement.expires_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+                    {activeAnnouncement.edited_at && ' · edited'}
                   </p>
                 </div>
-                <button
-                  onClick={deleteAnnouncement}
-                  className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors flex-none"
-                >
-                  Delete
-                </button>
+                <div className="flex flex-col gap-2 flex-none">
+                  <button
+                    onClick={() => startEdit(activeAnnouncement)}
+                    className="text-xs text-gray-300 hover:text-white px-3 py-1.5 border border-gray-700 rounded-lg hover:bg-gray-800 transition-colors"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => archiveAnnouncement(activeAnnouncement)}
+                    className="text-xs text-yellow-400 hover:text-yellow-300 px-3 py-1.5 border border-yellow-500/30 rounded-lg hover:bg-yellow-500/10 transition-colors"
+                  >
+                    Archive
+                  </button>
+                </div>
               </div>
             </div>
           )}
 
-          {/* Post new announcement */}
+          {/* Active shout out */}
+          {activeShoutOut && (
+            <div className="bg-amber-500/10 border border-amber-400/30 rounded-2xl p-5">
+              <div className="flex items-start justify-between gap-4">
+                <div className="flex-1 min-w-0">
+                  <div className="text-xs text-amber-300 font-semibold uppercase tracking-wider mb-1">🎉 Active Shout Out</div>
+                  <p className="text-sm text-amber-50 whitespace-pre-wrap">{activeShoutOut.content}</p>
+                  <p className="text-xs text-amber-200/60 mt-2">
+                    Expires {new Date(activeShoutOut.expires_at).toLocaleString('en-US', { dateStyle: 'medium', timeStyle: 'short' })}
+                    {activeShoutOut.edited_at && ' · edited'}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 flex-none">
+                  <button
+                    onClick={() => startEdit(activeShoutOut)}
+                    className="text-xs text-amber-100 hover:text-white px-3 py-1.5 border border-amber-400/30 rounded-lg hover:bg-amber-500/10 transition-colors"
+                  >
+                    Edit
+                  </button>
+                  <button
+                    onClick={() => archiveAnnouncement(activeShoutOut)}
+                    className="text-xs text-amber-300 hover:text-amber-200 px-3 py-1.5 border border-amber-400/30 rounded-lg hover:bg-amber-500/10 transition-colors"
+                  >
+                    Archive
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* Post new */}
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
             <h2 className="font-semibold text-white mb-4">
-              {announcement ? 'Post New Announcement' : 'Post Announcement'}
+              Post {annType === 'shout_out' ? 'Shout Out' : 'Announcement'}
             </h2>
-            {announcement && (
-              <p className="text-xs text-yellow-600 mb-4">Posting a new announcement will replace the current one for new visitors. (Old one stays until deleted or expired.)</p>
+
+            {/* Type selector */}
+            <div className="flex gap-2 mb-4">
+              <button
+                onClick={() => { setAnnType('announcement'); if (annDuration === 72) setAnnDuration(24) }}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
+                  annType === 'announcement'
+                    ? 'bg-[#2E7EB8] text-white'
+                    : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+                }`}
+              >
+                <span>📢</span> Announcement
+              </button>
+              <button
+                onClick={() => { setAnnType('shout_out'); setAnnDuration(72) }}
+                className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
+                  annType === 'shout_out'
+                    ? 'bg-amber-500 text-gray-900'
+                    : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+                }`}
+              >
+                <span>🎉</span> Shout Out
+              </button>
+            </div>
+
+            {((annType === 'announcement' && activeAnnouncement) || (annType === 'shout_out' && activeShoutOut)) && (
+              <p className="text-xs text-yellow-600 mb-4">Posting will automatically archive the current active {annType === 'shout_out' ? 'shout out' : 'announcement'}.</p>
             )}
             <div className="space-y-4">
               <div className="relative">
@@ -1166,7 +1274,7 @@ Content-Type: application/json
                   ref={annTextareaRef}
                   value={annContent}
                   onChange={e => setAnnContent(e.target.value)}
-                  placeholder="Announcement text…"
+                  placeholder={annType === 'shout_out' ? 'Shout out text…' : 'Announcement text…'}
                   rows={3}
                   className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 pr-10 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8] resize-none"
                 />
@@ -1239,12 +1347,50 @@ Content-Type: application/json
               <button
                 onClick={postAnnouncement}
                 disabled={!annContent.trim() || postingAnn}
-                className="px-6 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                className={`px-6 py-2.5 rounded-xl disabled:opacity-40 text-sm font-medium transition-colors ${
+                  annType === 'shout_out'
+                    ? 'bg-amber-500 hover:bg-amber-400 text-gray-900'
+                    : 'bg-[#2E7EB8] hover:bg-[#2470a8] text-white'
+                }`}
               >
-                {postingAnn ? 'Posting…' : 'Post Announcement'}
+                {postingAnn ? 'Posting…' : `Post ${annType === 'shout_out' ? 'Shout Out' : 'Announcement'}`}
               </button>
             </div>
           </div>
+
+          {/* Edit modal */}
+          {editingAnn && (
+            <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+              <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-lg w-full">
+                <h3 className="text-white font-semibold mb-1">
+                  Edit {editingAnn.type === 'shout_out' ? 'Shout Out' : 'Announcement'}
+                </h3>
+                <p className="text-xs text-gray-500 mb-4">Expiration is not changed. Posting time is preserved.</p>
+                <textarea
+                  value={editContent}
+                  onChange={e => setEditContent(e.target.value)}
+                  rows={4}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-[#2E7EB8] resize-none mb-4"
+                />
+                {editError && <p className="text-sm text-red-400 mb-3">{editError}</p>}
+                <div className="flex justify-end gap-2">
+                  <button
+                    onClick={() => setEditingAnn(null)}
+                    className="px-4 py-2 rounded-xl text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+                  >
+                    Cancel
+                  </button>
+                  <button
+                    onClick={saveEdit}
+                    disabled={!editContent.trim() || savingEdit}
+                    className="px-5 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                  >
+                    {savingEdit ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
         </div>
       )}
 

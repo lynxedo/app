@@ -31,7 +31,8 @@ type AnnouncementRow = {
   id: string
   content: string
   expires_at: string
-  type?: string | null
+  type: 'announcement' | 'shout_out'
+  archived_at: string | null
   created_at: string
 }
 
@@ -56,10 +57,11 @@ export default async function HubHomePage() {
     supabase.from('hub_users').select('display_name').eq('id', user.id).single(),
     supabase
       .from('hub_announcements')
-      .select('id, content, expires_at, created_at')
+      .select('id, content, expires_at, type, archived_at, created_at')
+      .is('archived_at', null)
       .gt('expires_at', nowIso)
       .order('created_at', { ascending: false })
-      .limit(5),
+      .limit(10),
     admin
       .from('room_members')
       .select('room_id, rooms!inner(id, name, description, is_private, archived_at)')
@@ -71,7 +73,9 @@ export default async function HubHomePage() {
     user.email?.split('@')[0] ||
     'there'
 
-  const announcements = (announcementsResult.data ?? []) as AnnouncementRow[]
+  const allActive = (announcementsResult.data ?? []) as AnnouncementRow[]
+  const announcements = allActive.filter(a => a.type === 'announcement').slice(0, 5)
+  const shoutOuts = allActive.filter(a => a.type === 'shout_out').slice(0, 5)
 
   const rooms = (memberRoomsResult.data ?? [])
     .map((m: { rooms: RoomRow | RoomRow[] }) => (Array.isArray(m.rooms) ? m.rooms[0] : m.rooms))
@@ -87,7 +91,7 @@ export default async function HubHomePage() {
         </div>
 
         <section className="mb-10">
-          <h2 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3">Announcements</h2>
+          <h2 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3">📢 Announcements</h2>
           {announcements.length === 0 ? (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 text-sm text-gray-500">
               No active announcements right now.
@@ -105,6 +109,22 @@ export default async function HubHomePage() {
             </div>
           )}
         </section>
+
+        {shoutOuts.length > 0 && (
+          <section className="mb-10">
+            <h2 className="text-xs font-semibold text-amber-300/60 uppercase tracking-wider mb-3">🎉 Shout Outs</h2>
+            <div className="space-y-2">
+              {shoutOuts.map(a => (
+                <div key={a.id} className="bg-amber-500/10 border border-amber-400/30 rounded-xl p-5">
+                  <p className="text-amber-50 whitespace-pre-wrap">{a.content}</p>
+                  <p className="text-xs text-amber-200/50 mt-3">
+                    Expires {new Intl.DateTimeFormat('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric' }).format(new Date(a.expires_at))}
+                  </p>
+                </div>
+              ))}
+            </div>
+          </section>
+        )}
 
         <section>
           <h2 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3">Jump back into</h2>

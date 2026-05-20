@@ -13,6 +13,7 @@ type UserProfile = {
   can_access_books: boolean
   can_access_tracker: boolean
   can_access_hub: boolean
+  can_post_shout_outs: boolean
 }
 
 type User = {
@@ -48,6 +49,7 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_access_books', label: 'Financial Dashboard' },
   { key: 'can_access_tracker', label: 'Lead Tracker' },
   { key: 'can_access_hub', label: 'Hub' },
+  { key: 'can_post_shout_outs', label: 'Post Shout Outs' },
 ]
 
 function getInitials(name: string | null, email: string): string {
@@ -138,6 +140,7 @@ export default function AdminPanel({
             can_access_books: false,
             can_access_tracker: false,
             can_access_hub: false,
+            can_post_shout_outs: false,
           },
         }
         setUsers(prev => [...prev, newUser])
@@ -245,6 +248,7 @@ export default function AdminPanel({
             can_access_books: false,
             can_access_tracker: false,
             can_access_hub: false,
+            can_post_shout_outs: false,
           },
         }
         setUsers(prev => [...prev, newUser])

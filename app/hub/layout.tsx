@@ -52,7 +52,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
 
   const admin = createAdminClient()
   const now = new Date().toISOString()
-  const [memberRoomsResult, hubUsersResult, meResult, profileResult, announcementResult] = await Promise.all([
+  const [memberRoomsResult, hubUsersResult, meResult, profileResult, announcementsResult] = await Promise.all([
     // Only return rooms this user is a member of (Slack-style)
     admin
       .from('room_members')
@@ -61,13 +61,13 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
     supabase.from('hub_users').select('display_name, status').eq('id', user.id).single(),
     supabase.from('user_profiles').select('role, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_lawn, can_access_timesheet, can_access_routing, can_access_books').eq('id', user.id).single(),
+    // Active rows for BOTH types — DB returns latest first; we keep newest per type below.
     supabase
       .from('hub_announcements')
-      .select('id, content, expires_at, reactions:announcement_reactions(announcement_id, user_id, emoji)')
+      .select('id, content, expires_at, type, archived_at, created_by, reactions:announcement_reactions(announcement_id, user_id, emoji)')
+      .is('archived_at', null)
       .gt('expires_at', now)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle(),
+      .order('created_at', { ascending: false }),
   ])
 
   type RoomShape = { id: string; name: string; is_private: boolean; archived_at: string | null }
@@ -89,15 +89,31 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessRouting = profileResult.data?.can_access_routing ?? false
   const canAccessBooks = profileResult.data?.can_access_books ?? false
 
-  const ann = announcementResult.data
-  const initialAnnouncement = ann
-    ? {
-        id: ann.id as string,
-        content: ann.content as string,
-        expires_at: ann.expires_at as string,
-        reactions: (Array.isArray(ann.reactions) ? ann.reactions : []) as Array<{ announcement_id: string; user_id: string; emoji: string }>,
-      }
-    : null
+  type AnnouncementRow = {
+    id: string
+    content: string
+    expires_at: string
+    type: 'announcement' | 'shout_out'
+    archived_at: string | null
+    created_by: string
+    reactions: Array<{ announcement_id: string; user_id: string; emoji: string }>
+  }
+  const rawAnnouncements = (announcementsResult.data ?? []) as AnnouncementRow[]
+  // Keep the newest non-expired, non-archived row per type
+  const seenTypes = new Set<string>()
+  const initialActiveAnnouncements = rawAnnouncements.filter(a => {
+    if (seenTypes.has(a.type)) return false
+    seenTypes.add(a.type)
+    return true
+  }).map(a => ({
+    id: a.id,
+    content: a.content,
+    expires_at: a.expires_at,
+    type: a.type,
+    archived_at: a.archived_at,
+    created_by: a.created_by,
+    reactions: Array.isArray(a.reactions) ? a.reactions : [],
+  }))
 
   return (
     <>
@@ -110,7 +126,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         currentUserStatus={meResult.data?.status ?? null}
         currentUserDisplayName={meResult.data?.display_name ?? undefined}
         isAdmin={isAdmin}
-        initialAnnouncement={initialAnnouncement}
+        initialActiveAnnouncements={initialActiveAnnouncements}
         initialTextSize={initialTextSize}
         initialPinnedIds={initialPinnedIds}
         canAccessTracker={canAccessTracker}

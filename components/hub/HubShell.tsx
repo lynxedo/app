@@ -2,14 +2,13 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import HubSidebar from './HubSidebar'
-import AnnouncementTicker from './AnnouncementTicker'
+import AnnouncementTicker, { type Announcement } from './AnnouncementTicker'
 import HubQuickCompose from './HubQuickCompose'
 import TimesheetClockModal from './TimesheetClockModal'
 import { HubTextSizeContext } from './HubTextSizeContext'
 import type { HubUser } from './MessageFeed'
 
 type Room = { id: string; name: string; is_private: boolean }
-type InitialAnnouncement = { id: string; content: string; expires_at: string; reactions: Array<{ announcement_id: string; user_id: string; emoji: string }> } | null
 
 // Exposed so HubSidebar can call it from a custom event
 export const HUB_CONV_CREATED_EVENT = 'hub-conversation-created'
@@ -22,7 +21,7 @@ export default function HubShell({
   currentUserStatus,
   currentUserDisplayName,
   isAdmin,
-  initialAnnouncement,
+  initialActiveAnnouncements,
   initialTextSize,
   initialPinnedIds,
   canAccessTracker,
@@ -40,7 +39,7 @@ export default function HubShell({
   currentUserStatus?: string | null
   currentUserDisplayName?: string
   isAdmin?: boolean
-  initialAnnouncement?: InitialAnnouncement
+  initialActiveAnnouncements?: Announcement[]
   initialTextSize?: string
   initialPinnedIds?: string[]
   canAccessTracker?: boolean
@@ -179,7 +178,11 @@ export default function HubShell({
           aria-hidden="true"
         />
 
-        <AnnouncementTicker currentUserId={currentUserId} initialAnnouncement={initialAnnouncement ?? null} />
+        <AnnouncementTicker
+          currentUserId={currentUserId}
+          isAdmin={isAdmin}
+          initialActive={initialActiveAnnouncements ?? []}
+        />
         <div className="flex-1 min-h-0 overflow-hidden flex flex-col">
           {children}
         </div>

@@ -5,14 +5,36 @@ import { createClient } from '@/lib/supabase/client'
 
 type Reaction = { announcement_id: string; user_id: string; emoji: string }
 
-type Announcement = {
+type AnnType = 'announcement' | 'shout_out'
+
+export type Announcement = {
   id: string
   content: string
   expires_at: string
+  type: AnnType
+  archived_at: string | null
+  created_by: string
   reactions: Reaction[]
 }
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '🙌', '👀']
+
+const STYLE: Record<AnnType, { icon: string; bg: string; border: string; text: string; ariaLabel: string }> = {
+  announcement: {
+    icon: '📢',
+    bg: 'bg-[#0F2D45]',
+    border: 'border-white/10',
+    text: 'text-white/80',
+    ariaLabel: 'Company announcement',
+  },
+  shout_out: {
+    icon: '🎉',
+    bg: 'bg-amber-500/10',
+    border: 'border-amber-400/30',
+    text: 'text-amber-100',
+    ariaLabel: 'Shout out',
+  },
+}
 
 function groupReactions(reactions: Reaction[], currentUserId: string) {
   const counts: Record<string, { count: number; mine: boolean }> = {}
@@ -24,66 +46,27 @@ function groupReactions(reactions: Reaction[], currentUserId: string) {
   return counts
 }
 
-export default function AnnouncementTicker({
+function TickerBar({
+  announcement,
   currentUserId,
-  initialAnnouncement,
+  canEdit,
+  onEdit,
+  onDismiss,
+  onReactionsChange,
+  reactions,
 }: {
+  announcement: Announcement
   currentUserId: string
-  initialAnnouncement?: Announcement | null
+  canEdit: boolean
+  onEdit: () => void
+  onDismiss: () => void
+  onReactionsChange: (next: Reaction[]) => void
+  reactions: Reaction[]
 }) {
-  const [announcement, setAnnouncement] = useState<Announcement | null>(initialAnnouncement ?? null)
-  const [dismissed, setDismissed] = useState(false)
   const [showPicker, setShowPicker] = useState(false)
-  const [reactions, setReactions] = useState<Reaction[]>(initialAnnouncement?.reactions ?? [])
   const pickerRef = useRef<HTMLDivElement>(null)
+  const style = STYLE[announcement.type]
 
-  // Check localStorage dismissal whenever the active announcement changes
-  useEffect(() => {
-    if (!announcement) return
-    const key = `dismissed_announcement_${announcement.id}`
-    setDismissed(localStorage.getItem(key) === '1')
-  }, [announcement?.id])
-
-  // Refresh from API on mount (picks up any changes since SSR)
-  useEffect(() => {
-    fetch('/api/hub/announcements')
-      .then(r => r.json())
-      .then(d => {
-        if (d.announcement) {
-          setAnnouncement(d.announcement)
-          setReactions(d.announcement.reactions ?? [])
-        } else {
-          setAnnouncement(null)
-        }
-      })
-      .catch(() => {})
-  }, [])
-
-  // Realtime subscription for new/deleted announcements
-  useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase
-      .channel('hub_announcements_ticker')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'hub_announcements' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const ann = payload.new as Announcement
-            setAnnouncement({ ...ann, reactions: [] })
-            setReactions([])
-            setDismissed(false)
-          } else if (payload.eventType === 'DELETE') {
-            setAnnouncement(null)
-          }
-        }
-      )
-      .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
-  }, [])
-
-  // Close picker on outside click
   useEffect(() => {
     if (!showPicker) return
     function handler(e: MouseEvent) {
@@ -95,26 +78,13 @@ export default function AnnouncementTicker({
     return () => document.removeEventListener('mousedown', handler)
   }, [showPicker])
 
-  if (!announcement || dismissed) return null
-  if (new Date(announcement.expires_at) <= new Date()) return null
-
-  function dismiss() {
-    if (!announcement) return
-    localStorage.setItem(`dismissed_announcement_${announcement.id}`, '1')
-    setDismissed(true)
-  }
-
   async function toggleReaction(emoji: string) {
-    if (!announcement) return
     setShowPicker(false)
-
-    // Optimistic update
     const existing = reactions.find(r => r.user_id === currentUserId && r.emoji === emoji)
-    if (existing) {
-      setReactions(prev => prev.filter(r => !(r.user_id === currentUserId && r.emoji === emoji)))
-    } else {
-      setReactions(prev => [...prev, { announcement_id: announcement.id, user_id: currentUserId, emoji }])
-    }
+    const next = existing
+      ? reactions.filter(r => !(r.user_id === currentUserId && r.emoji === emoji))
+      : [...reactions, { announcement_id: announcement.id, user_id: currentUserId, emoji }]
+    onReactionsChange(next)
 
     await fetch(`/api/hub/announcements/${announcement.id}/reactions`, {
       method: 'POST',
@@ -127,19 +97,30 @@ export default function AnnouncementTicker({
   const hasReactions = Object.keys(grouped).length > 0
 
   return (
-    <div className="flex-none flex items-center gap-3 px-4 h-8 bg-[#0F2D45] border-b border-white/10 relative">
-      {/* Megaphone icon */}
-      <span className="flex-none text-sm">📢</span>
+    <div
+      className={`flex-none flex items-center gap-3 px-4 h-8 ${style.bg} border-b ${style.border} relative`}
+      aria-label={style.ariaLabel}
+    >
+      <span className="flex-none text-sm">{style.icon}</span>
 
-      {/* Scrolling marquee */}
       <div className="flex-1 overflow-hidden relative">
-        <div className="whitespace-nowrap animate-marquee text-sm text-white/80 inline-block">
+        <div className={`whitespace-nowrap animate-marquee text-sm ${style.text} inline-block`}>
           {announcement.content}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
           {announcement.content}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
         </div>
       </div>
 
-      {/* Reactions */}
+      {canEdit && (
+        <button
+          onClick={onEdit}
+          className="flex-none text-white/30 hover:text-white/70 transition-colors text-xs leading-none px-1"
+          title="Edit"
+          aria-label="Edit"
+        >
+          ✎
+        </button>
+      )}
+
       <div className="flex items-center gap-1 flex-none relative" ref={pickerRef}>
         {hasReactions && (
           <button
@@ -182,14 +163,186 @@ export default function AnnouncementTicker({
         )}
       </div>
 
-      {/* Dismiss */}
       <button
-        onClick={dismiss}
+        onClick={onDismiss}
         className="flex-none text-white/30 hover:text-white/70 transition-colors text-xs leading-none"
         title="Dismiss"
       >
         ✕
       </button>
     </div>
+  )
+}
+
+function EditModal({
+  announcement,
+  onClose,
+  onSaved,
+}: {
+  announcement: Announcement
+  onClose: () => void
+  onSaved: (next: Announcement) => void
+}) {
+  const [content, setContent] = useState(announcement.content)
+  const [saving, setSaving] = useState(false)
+  const [error, setError] = useState('')
+  const label = announcement.type === 'shout_out' ? 'Shout Out' : 'Announcement'
+
+  async function save() {
+    if (!content.trim() || saving) return
+    setSaving(true)
+    setError('')
+    const res = await fetch(`/api/hub/announcements/${announcement.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: content.trim() }),
+    })
+    const data = await res.json()
+    setSaving(false)
+    if (!res.ok) { setError(data.error ?? 'Failed to save'); return }
+    onSaved({ ...announcement, ...data })
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/70 flex items-center justify-center z-50 p-4">
+      <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 max-w-lg w-full">
+        <h3 className="text-white font-semibold mb-1">Edit {label}</h3>
+        <p className="text-xs text-gray-500 mb-4">
+          Expiration stays the same. Posting time and reactions are preserved.
+        </p>
+        <textarea
+          value={content}
+          onChange={e => setContent(e.target.value)}
+          rows={4}
+          className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-[#2E7EB8] resize-none mb-4"
+        />
+        {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
+        <div className="flex justify-end gap-2">
+          <button
+            onClick={onClose}
+            className="px-4 py-2 rounded-xl text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+          >
+            Cancel
+          </button>
+          <button
+            onClick={save}
+            disabled={!content.trim() || saving}
+            className="px-5 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+export default function AnnouncementTicker({
+  currentUserId,
+  isAdmin,
+  initialActive,
+}: {
+  currentUserId: string
+  isAdmin?: boolean
+  initialActive?: Announcement[]
+}) {
+  const [active, setActive] = useState<Announcement[]>(initialActive ?? [])
+  const [dismissed, setDismissed] = useState<Record<string, boolean>>({})
+  const [reactionsById, setReactionsById] = useState<Record<string, Reaction[]>>(() => {
+    const out: Record<string, Reaction[]> = {}
+    for (const a of initialActive ?? []) out[a.id] = a.reactions ?? []
+    return out
+  })
+  const [editing, setEditing] = useState<Announcement | null>(null)
+
+  // Sync dismissed-state from localStorage whenever the active set changes
+  useEffect(() => {
+    const next: Record<string, boolean> = {}
+    for (const a of active) {
+      next[a.id] = localStorage.getItem(`dismissed_announcement_${a.id}`) === '1'
+    }
+    setDismissed(next)
+  }, [active.map(a => a.id).join(',')])
+
+  // Refresh from API on mount
+  useEffect(() => {
+    fetch('/api/hub/announcements')
+      .then(r => r.json())
+      .then((d: { active?: Announcement[] }) => {
+        const list = d.active ?? []
+        setActive(list)
+        const r: Record<string, Reaction[]> = {}
+        for (const a of list) r[a.id] = a.reactions ?? []
+        setReactionsById(r)
+      })
+      .catch(() => {})
+  }, [])
+
+  // Realtime: refetch on any change to hub_announcements
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('hub_announcements_ticker')
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'hub_announcements' },
+        () => {
+          fetch('/api/hub/announcements')
+            .then(r => r.json())
+            .then((d: { active?: Announcement[] }) => {
+              const list = d.active ?? []
+              setActive(list)
+              setReactionsById(prev => {
+                const next: Record<string, Reaction[]> = {}
+                for (const a of list) next[a.id] = prev[a.id] ?? a.reactions ?? []
+                return next
+              })
+            })
+            .catch(() => {})
+        }
+      )
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [])
+
+  function dismiss(id: string) {
+    localStorage.setItem(`dismissed_announcement_${id}`, '1')
+    setDismissed(prev => ({ ...prev, [id]: true }))
+  }
+
+  const visible = active.filter(a => {
+    if (dismissed[a.id]) return false
+    if (a.archived_at) return false
+    if (new Date(a.expires_at) <= new Date()) return false
+    return true
+  })
+
+  if (visible.length === 0 && !editing) return null
+
+  return (
+    <>
+      {visible.map(a => (
+        <TickerBar
+          key={a.id}
+          announcement={a}
+          currentUserId={currentUserId}
+          canEdit={!!isAdmin || a.created_by === currentUserId}
+          onEdit={() => setEditing(a)}
+          onDismiss={() => dismiss(a.id)}
+          reactions={reactionsById[a.id] ?? []}
+          onReactionsChange={next => setReactionsById(prev => ({ ...prev, [a.id]: next }))}
+        />
+      ))}
+      {editing && (
+        <EditModal
+          announcement={editing}
+          onClose={() => setEditing(null)}
+          onSaved={next => {
+            setActive(prev => prev.map(a => a.id === next.id ? next : a))
+            setEditing(null)
+          }}
+        />
+      )}
+    </>
   )
 }
