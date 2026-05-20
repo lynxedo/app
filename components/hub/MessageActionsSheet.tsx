@@ -12,11 +12,13 @@ type Action = {
 }
 
 export default function MessageActionsSheet({
+  hasText,
   hasImages,
   isOwn,
   isAdmin,
   hasOnOpenThread,
   onClose,
+  onCopy,
   onAddReaction,
   onForward,
   onSaveToFiles,
@@ -25,11 +27,13 @@ export default function MessageActionsSheet({
   onEdit,
   onDelete,
 }: {
+  hasText: boolean
   hasImages: boolean
   isOwn: boolean
   isAdmin: boolean
   hasOnOpenThread: boolean
   onClose: () => void
+  onCopy: () => void
   onAddReaction: (emoji: string) => void
   onForward: () => void
   onSaveToFiles: () => void
@@ -51,6 +55,7 @@ export default function MessageActionsSheet({
   }
 
   const actions: Action[] = [
+    ...(hasText ? [{ icon: '📋', label: 'Copy text', onClick: () => { onCopy(); dismiss() } }] : []),
     { icon: '↗', label: 'Forward', onClick: () => { onForward(); dismiss() } },
     ...(hasImages ? [{ icon: '📁', label: 'Save to Files', onClick: () => { onSaveToFiles(); dismiss() } }] : []),
     { icon: '☑', label: 'Add to Board', onClick: () => { onAddToBoard(); dismiss() } },

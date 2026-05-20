@@ -409,7 +409,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
               return (
                 <div
                   key={msg.id}
-                  className={`group relative flex items-start gap-2 py-0.5 rounded hover:bg-gray-900/50 transition-colors ${isThreadOpen ? 'bg-[#2E7EB8]/5 border-l-2 border-[#2E7EB8]' : ''}`}
+                  className={`group relative flex items-start gap-2 py-0.5 rounded hover:bg-gray-900/50 transition-colors select-none md:select-text ${isThreadOpen ? 'bg-[#2E7EB8]/5 border-l-2 border-[#2E7EB8]' : ''}`}
                   onClick={() => {
                     if (longPressFired.current) { longPressFired.current = false; return }
                     if (!isEditing) setTappedMsgId(prev => prev === msg.id ? null : msg.id)
@@ -418,7 +418,8 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                   onTouchMove={cancelLongPress}
                   onTouchEnd={cancelLongPress}
                   onTouchCancel={cancelLongPress}
-                  style={{ touchAction: 'pan-y' }}
+                  onContextMenu={e => e.preventDefault()}
+                  style={{ touchAction: 'pan-y', WebkitTouchCallout: 'none' }}
                 >
                   <div className="flex-none w-7 md:w-8 mt-0.5">
                     {!isContinuation ? <Avatar sender={sender} /> : null}
@@ -624,11 +625,13 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
         const files = normFiles(msg.files)
         return (
           <MessageActionsSheet
+            hasText={!!msg.content?.trim()}
             hasImages={files.some(f => f.mime_type.startsWith('image/'))}
             isOwn={isOwn}
             isAdmin={!!isAdmin}
             hasOnOpenThread={!!onOpenThread}
             onClose={() => setActionSheetMsgId(null)}
+            onCopy={() => { navigator.clipboard?.writeText(msg.content ?? '').catch(() => {}) }}
             onAddReaction={emoji => toggleReaction(msg.id, emoji)}
             onForward={() => setForwardingMsg(msg)}
             onSaveToFiles={() => setSaveToFilesMsg(msg)}
