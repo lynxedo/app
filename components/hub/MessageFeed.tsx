@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
 import SaveToFilesModal from './SaveToFilesModal'
+import MessageActionsSheet from './MessageActionsSheet'
 import { useHubTextSize } from './HubTextSizeContext'
 
 export type MessageFeedHandle = { addMessage: (msg: HubMessage) => void }
@@ -159,6 +160,9 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   const [boardPickerBoards, setBoardPickerBoards] = useState<{ id: string; name: string }[]>([])
   const [addingToBoard, setAddingToBoard] = useState(false)
   const [tappedMsgId, setTappedMsgId] = useState<string | null>(null)
+  const [actionSheetMsgId, setActionSheetMsgId] = useState<string | null>(null)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressFired = useRef(false)
   const [rxMap, setRxMap] = useState<Record<string, RxItem[]>>(() => {
     const map: Record<string, RxItem[]> = {}
     for (const m of initialMessages) map[m.id] = normReactions(m.reactions)
@@ -345,6 +349,23 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     setAddToBoardMsgId(null)
   }
 
+  function startLongPress(msgId: string) {
+    longPressFired.current = false
+    if (longPressTimer.current) clearTimeout(longPressTimer.current)
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true
+      setActionSheetMsgId(msgId)
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(10)
+    }, 500)
+  }
+
+  function cancelLongPress() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }
+
   // Group messages by date
   const groups: { date: string; messages: HubMessage[] }[] = []
   for (const msg of messages) {
@@ -389,7 +410,15 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                 <div
                   key={msg.id}
                   className={`group relative flex items-start gap-2 py-0.5 rounded hover:bg-gray-900/50 transition-colors ${isThreadOpen ? 'bg-[#2E7EB8]/5 border-l-2 border-[#2E7EB8]' : ''}`}
-                  onClick={() => !isEditing && setTappedMsgId(prev => prev === msg.id ? null : msg.id)}
+                  onClick={() => {
+                    if (longPressFired.current) { longPressFired.current = false; return }
+                    if (!isEditing) setTappedMsgId(prev => prev === msg.id ? null : msg.id)
+                  }}
+                  onTouchStart={() => { if (!isEditing) startLongPress(msg.id) }}
+                  onTouchMove={cancelLongPress}
+                  onTouchEnd={cancelLongPress}
+                  onTouchCancel={cancelLongPress}
+                  style={{ touchAction: 'pan-y' }}
                 >
                   <div className="flex-none w-7 md:w-8 mt-0.5">
                     {!isContinuation ? <Avatar sender={sender} /> : null}
@@ -478,15 +507,12 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                     )}
                   </div>
 
-                  {/* Hover / tap actions
-                      Desktop: fixed-width invisible bar on the right, shown on group-hover
-                      Mobile: absolute overlay in top-right corner when tapped (no text shift) */}
+                  {/* Hover actions — desktop only.
+                      Mobile uses long-press → MessageActionsSheet instead. */}
                   {!isEditing && (
                     <div
-                      className={`flex-none transition-opacity gap-0.5 relative
-                        ${isActionsVisible
-                          ? 'flex opacity-100 absolute right-1 top-0 z-10 bg-gray-900/95 border border-gray-700/60 rounded-lg shadow-lg px-0.5 py-0.5 md:static md:bg-transparent md:border-none md:shadow-none md:px-0 md:py-0'
-                          : 'hidden md:flex md:opacity-0 md:group-hover:opacity-100'}`}
+                      className={`flex-none transition-opacity gap-0.5 relative hidden md:flex
+                        ${isActionsVisible ? 'md:opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}
                       onClick={e => e.stopPropagation()}
                     >
                       <div className="relative">
@@ -589,6 +615,77 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
 
         <div ref={bottomRef} />
       </div>
+
+      {actionSheetMsgId && (() => {
+        const msg = messages.find(m => m.id === actionSheetMsgId)
+        if (!msg) return null
+        const sender = normSender(msg.sender)
+        const isOwn = sender?.id === currentUserId
+        const files = normFiles(msg.files)
+        return (
+          <MessageActionsSheet
+            hasImages={files.some(f => f.mime_type.startsWith('image/'))}
+            isOwn={isOwn}
+            isAdmin={!!isAdmin}
+            hasOnOpenThread={!!onOpenThread}
+            onClose={() => setActionSheetMsgId(null)}
+            onAddReaction={emoji => toggleReaction(msg.id, emoji)}
+            onForward={() => setForwardingMsg(msg)}
+            onSaveToFiles={() => setSaveToFilesMsg(msg)}
+            onAddToBoard={() => openBoardPicker(msg.id)}
+            onOpenThread={() => onOpenThread?.(msg)}
+            onEdit={() => { setEditingId(msg.id); setEditContent(msg.content) }}
+            onDelete={() => deleteMessage(msg.id)}
+          />
+        )
+      })()}
+
+      {/* Mobile-only board picker. Desktop uses the inline dropdown anchored
+          to the hover action bar; that bar is hidden on mobile. */}
+      {addToBoardMsgId && (
+        <div className="fixed inset-0 z-50 md:hidden flex items-end" onClick={() => setAddToBoardMsgId(null)}>
+          <div className="absolute inset-0 bg-black/60" />
+          <div
+            className="relative w-full bg-gray-900 border-t border-gray-800 rounded-t-2xl shadow-2xl"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-center pt-2 pb-1">
+              <div className="w-10 h-1 rounded-full bg-gray-700" />
+            </div>
+            <div className="px-5 py-2 text-xs text-white/40 font-semibold uppercase tracking-wider border-b border-gray-800">
+              Add to Board
+            </div>
+            {boardPickerBoards.length === 0 ? (
+              <p className="px-5 py-4 text-sm text-gray-500">No boards yet</p>
+            ) : (
+              <div className="max-h-[60vh] overflow-y-auto">
+                {boardPickerBoards.map(board => (
+                  <button
+                    key={board.id}
+                    disabled={addingToBoard}
+                    onClick={() => {
+                      const msg = messages.find(m => m.id === addToBoardMsgId)
+                      if (msg) addToBoard(board.id, msg)
+                    }}
+                    className="w-full text-left px-5 py-3.5 text-base text-gray-100 active:bg-gray-800 transition-colors disabled:opacity-50"
+                  >
+                    {board.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="border-t border-gray-800 px-4 py-1">
+              <button
+                onClick={() => setAddToBoardMsgId(null)}
+                className="w-full py-3 text-base text-gray-400 active:text-white transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {forwardingMsg && (
         <ForwardModal
