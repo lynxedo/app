@@ -332,7 +332,7 @@ export default function MessageComposer({
           placeholder={placeholder ?? 'Message…'}
           rows={1}
           disabled={sending}
-          className="flex-1 bg-transparent text-sm text-white placeholder-gray-500 resize-none outline-none leading-relaxed min-h-[24px] max-h-36"
+          className="flex-1 bg-transparent text-base md:text-sm text-white placeholder-gray-500 resize-none outline-none leading-relaxed min-h-[24px] max-h-36"
         />
 
         {/* Schedule button */}

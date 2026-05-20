@@ -495,7 +495,7 @@ export default function HubSidebar({
         onTouchStart={() => onTouchStart(room.id, 'room')}
         onTouchEnd={onTouchEnd}
         onTouchMove={onTouchEnd}
-        className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+        className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-base md:text-sm transition-colors ${
           isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
         }`}
       >
@@ -521,7 +521,7 @@ export default function HubSidebar({
         onTouchStart={() => onTouchStart(conv.id, 'conv')}
         onTouchEnd={onTouchEnd}
         onTouchMove={onTouchEnd}
-        className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+        className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-base md:text-sm transition-colors ${
           isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
         }`}
       >
@@ -539,7 +539,7 @@ export default function HubSidebar({
       <aside className="w-screen md:w-60 flex-none bg-[#1A3D5C] flex flex-col h-full h-[100dvh]">
         {/* Workspace header */}
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
-          <div className="font-bold text-white text-sm tracking-wide">Heroes Lawn Care</div>
+          <div className="font-bold text-white text-base md:text-sm tracking-wide">Heroes Lawn Care</div>
           {onClose && (
             <button
               onClick={onClose}
@@ -555,7 +555,7 @@ export default function HubSidebar({
         <div className="flex-none px-3 pt-2 pb-1">
           <button
             onClick={() => setShowSearch(true)}
-            className="w-full flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/15 rounded-lg text-sm text-white/40 hover:text-white/60 transition-colors"
+            className="w-full flex items-center gap-2 px-3 py-1.5 bg-white/10 hover:bg-white/15 rounded-lg text-base md:text-sm text-white/40 hover:text-white/60 transition-colors"
           >
             <svg className="w-3.5 h-3.5 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
@@ -685,7 +685,7 @@ export default function HubSidebar({
                   <Link
                     href={`/hub/board/${board.id}`}
                     onClick={() => onClose?.()}
-                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors flex-1 min-w-0 ${
+                    className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-base md:text-sm transition-colors flex-1 min-w-0 ${
                       isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                     }`}
                   >
@@ -715,7 +715,7 @@ export default function HubSidebar({
             <Link
               href="/hub/daily-log"
               onClick={() => onClose?.()}
-              className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+              className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-base md:text-sm transition-colors ${
                 pathname.startsWith('/hub/daily-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
               }`}
             >
@@ -740,7 +740,7 @@ export default function HubSidebar({
                         <Link
                           href="/hub/tracker"
                           onClick={() => { onClose?.(); setTrackerManualOpen(true) }}
-                          className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors flex-1 ${
+                          className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-base md:text-sm transition-colors flex-1 ${
                             pathname.startsWith('/hub/tracker') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                           }`}
                         >
@@ -788,7 +788,7 @@ export default function HubSidebar({
                     <Link
                       href="/hub/call-log"
                       onClick={() => onClose?.()}
-                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-base md:text-sm transition-colors ${
                         pathname.startsWith('/hub/call-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                       }`}
                     >
@@ -802,7 +802,7 @@ export default function HubSidebar({
                     <Link
                       href="/hub/lawn"
                       onClick={() => onClose?.()}
-                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-base md:text-sm transition-colors ${
                         pathname === '/hub/lawn' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                       }`}
                     >
@@ -815,7 +815,7 @@ export default function HubSidebar({
                   {(canAccessTimesheet || isAdmin) && (
                     <button
                       onClick={() => onOpenTimeClock?.()}
-                      className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors text-white/70 hover:bg-white/10 hover:text-white"
+                      className="w-full flex items-center gap-1.5 px-2 py-1.5 rounded text-base md:text-sm transition-colors text-white/70 hover:bg-white/10 hover:text-white"
                     >
                       <span className="text-xs flex-none">⏱</span>
                       <span className="truncate">My Time Clock</span>
@@ -827,7 +827,7 @@ export default function HubSidebar({
                     <Link
                       href="/admin/timesheet"
                       onClick={() => onClose?.()}
-                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+                      className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-base md:text-sm transition-colors ${
                         pathname.startsWith('/admin/timesheet') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                       }`}
                     >
@@ -851,7 +851,7 @@ export default function HubSidebar({
                 <Link
                   href="/hub/pages/company-news"
                   onClick={() => onClose?.()}
-                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-base md:text-sm transition-colors ${
                     pathname === '/hub/pages/company-news' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                   }`}
                 >
@@ -861,7 +861,7 @@ export default function HubSidebar({
                 <Link
                   href="/hub/files"
                   onClick={() => onClose?.()}
-                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-sm transition-colors ${
+                  className={`flex items-center gap-1.5 px-2 py-1.5 rounded text-base md:text-sm transition-colors ${
                     pathname === '/hub/files' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                   }`}
                 >
