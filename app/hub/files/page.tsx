@@ -7,15 +7,20 @@ export default async function FilesPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const [profileResult, filesResult] = await Promise.all([
+  const [profileResult, filesResult, tagsResult] = await Promise.all([
     supabase.from('user_profiles').select('role').eq('id', user.id).single(),
     supabase
       .from('hub_files')
       .select(`
-        id, filename, mime_type, size_bytes, description, uploaded_at,
+        id, filename, mime_type, size_bytes, description, uploaded_at, tags,
         uploader:hub_users!uploader_id (display_name)
       `)
       .order('uploaded_at', { ascending: false }),
+    supabase
+      .from('hub_file_tags')
+      .select('id, name, color, tag_type, description')
+      .order('tag_type', { ascending: true })
+      .order('name', { ascending: true }),
   ])
 
   const isAdmin = profileResult.data?.role === 'admin'
@@ -27,11 +32,13 @@ export default async function FilesPage() {
     size_bytes: number
     description: string | null
     uploaded_at: string
+    tags: string[] | null
     uploader: { display_name: string } | { display_name: string }[] | null
   }) => ({
     ...f,
+    tags: f.tags ?? [],
     uploader: Array.isArray(f.uploader) ? f.uploader[0] : f.uploader,
   }))
 
-  return <FilesClient initialFiles={files} isAdmin={isAdmin} />
+  return <FilesClient initialFiles={files} initialTags={tagsResult.data ?? []} isAdmin={isAdmin} />
 }

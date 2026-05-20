@@ -2,7 +2,9 @@
 
 This folder contains the source code for the Lynxedo platform at lynxedo.com.
 
-Read `Google Drive > My Drive > Lynxedo > Reference > LYNXEDO_MASTER_REFERENCE.md` for full platform context.
+**Platform context:**
+- `Lynxedo/CLAUDE.md` — root quick start (file map, safety rules)
+- `Lynxedo/Reference/LYNXEDO_MASTER_REFERENCE.md` — full platform state (tables, env vars, quirks, file structure)
 
 ---
 

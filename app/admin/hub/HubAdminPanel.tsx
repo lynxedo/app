@@ -44,6 +44,24 @@ type SlackBridge = {
   hub_room: { id: string; name: string } | null
 }
 
+type FileTagType = 'general' | 'social-page' | 'social-queue'
+type FileTag = {
+  id: string
+  name: string
+  color: string
+  tag_type: FileTagType
+  description: string | null
+  created_at: string
+}
+
+const FILE_TAG_TYPE_LABELS: Record<FileTagType, string> = {
+  general: 'General',
+  'social-page': 'Social Page',
+  'social-queue': 'Social Queue',
+}
+
+const FILE_TAG_DEFAULT_COLORS = ['#F97316', '#EF4444', '#10B981', '#3B82F6', '#A855F7', '#EC4899', '#F59E0B', '#6B7280']
+
 const DURATION_OPTIONS = [
   { label: '1 day', hours: 24 },
   { label: '3 days', hours: 72 },
@@ -126,8 +144,22 @@ export default function HubAdminPanel({
   const [savingBridge, setSavingBridge] = useState(false)
   const [bridgeError, setBridgeError] = useState('')
 
+  // File tags
+  const [fileTags, setFileTags] = useState<FileTag[]>([])
+  const [fileTagsLoaded, setFileTagsLoaded] = useState(false)
+  const [newTagName, setNewTagName] = useState('')
+  const [newTagColor, setNewTagColor] = useState('#F97316')
+  const [newTagType, setNewTagType] = useState<FileTagType>('general')
+  const [newTagDescription, setNewTagDescription] = useState('')
+  const [savingTag, setSavingTag] = useState(false)
+  const [tagError, setTagError] = useState('')
+  const [editingTagId, setEditingTagId] = useState<string | null>(null)
+  const [editTagDraft, setEditTagDraft] = useState<{ name: string; color: string; tag_type: FileTagType; description: string }>({
+    name: '', color: '#6B7280', tag_type: 'general', description: ''
+  })
+
   // Section tabs
-  const [tab, setTab] = useState<'rooms' | 'members' | 'settings' | 'announcements' | 'api-keys' | 'automation' | 'slack-bridges'>('rooms')
+  const [tab, setTab] = useState<'rooms' | 'members' | 'settings' | 'announcements' | 'api-keys' | 'automation' | 'slack-bridges' | 'file-tags'>('rooms')
 
   async function createRoom() {
     if (!newName.trim() || creating) return
@@ -365,6 +397,78 @@ export default function HubAdminPanel({
     setBridges(prev => prev.filter(b => b.id !== id))
   }
 
+  async function loadFileTags() {
+    const res = await fetch('/api/admin/file-tags')
+    if (!res.ok) return
+    const data = await res.json()
+    setFileTags(data.tags ?? [])
+    setFileTagsLoaded(true)
+  }
+
+  async function createFileTag() {
+    if (!newTagName.trim() || savingTag) return
+    setSavingTag(true)
+    setTagError('')
+    const res = await fetch('/api/admin/file-tags', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: newTagName.trim(),
+        color: newTagColor,
+        tag_type: newTagType,
+        description: newTagDescription.trim() || null,
+      }),
+    })
+    const data = await res.json()
+    setSavingTag(false)
+    if (!res.ok) { setTagError(data.error ?? 'Failed to create tag'); return }
+    setFileTags(prev => [...prev, data.tag].sort((a, b) => a.tag_type.localeCompare(b.tag_type) || a.name.localeCompare(b.name)))
+    setNewTagName(''); setNewTagDescription(''); setNewTagType('general'); setNewTagColor('#F97316')
+  }
+
+  function startEditTag(tag: FileTag) {
+    setEditingTagId(tag.id)
+    setEditTagDraft({
+      name: tag.name,
+      color: tag.color,
+      tag_type: tag.tag_type,
+      description: tag.description ?? '',
+    })
+    setTagError('')
+  }
+
+  async function saveEditTag(id: string) {
+    if (!editTagDraft.name.trim()) return
+    setTagError('')
+    const res = await fetch(`/api/admin/file-tags/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        name: editTagDraft.name.trim(),
+        color: editTagDraft.color,
+        tag_type: editTagDraft.tag_type,
+        description: editTagDraft.description.trim() || null,
+      }),
+    })
+    const data = await res.json()
+    if (!res.ok) { setTagError(data.error ?? 'Failed to update tag'); return }
+    setFileTags(prev => prev.map(t => t.id === id ? data.tag : t)
+      .sort((a, b) => a.tag_type.localeCompare(b.tag_type) || a.name.localeCompare(b.name)))
+    setEditingTagId(null)
+    if (data.warning) alert(data.warning)
+  }
+
+  async function deleteFileTag(tag: FileTag) {
+    if (!confirm(`Delete tag "${tag.name}"?\n\nThis will also remove it from any files currently tagged with it.`)) return
+    const res = await fetch(`/api/admin/file-tags/${tag.id}`, { method: 'DELETE' })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      alert(data.error ?? 'Failed to delete tag')
+      return
+    }
+    setFileTags(prev => prev.filter(t => t.id !== tag.id))
+  }
+
   async function loadAutomationRules() {
     if (automationLoaded) return
     const [rulesRes, boardsRes] = await Promise.all([
@@ -437,10 +541,11 @@ export default function HubAdminPanel({
           ['api-keys', 'API Keys'],
           ['automation', 'Automation'],
           ['slack-bridges', 'Slack Bridge'],
+          ['file-tags', 'File Tags'],
         ] as const).map(([key, label]) => (
           <button
             key={key}
-            onClick={() => { setTab(key); if (key === 'api-keys') loadApiKeys(); if (key === 'automation') loadAutomationRules(); if (key === 'slack-bridges') loadBridges() }}
+            onClick={() => { setTab(key); if (key === 'api-keys') loadApiKeys(); if (key === 'automation') loadAutomationRules(); if (key === 'slack-bridges') loadBridges(); if (key === 'file-tags' && !fileTagsLoaded) loadFileTags() }}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === key ? 'border-[#2E7EB8] text-white' : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}
@@ -1300,6 +1405,202 @@ Content-Type: application/json
               <p><strong className="text-white">Slack User ID:</strong> In Slack, click a teammate&apos;s avatar → View full profile → ⋮ (More) → &quot;Copy member ID&quot;. Starts with <code className="text-green-400">U</code>.</p>
               <p><strong className="text-white">Slack Channel ID:</strong> Open the channel in Slack on the web, look at the URL — the ID after the last <code className="text-green-400">/</code> starts with <code className="text-green-400">C</code>.</p>
               <p><strong className="text-white">Important — invite @Bridge bot</strong>: For channel bridges, you must invite the <code className="text-green-400">@Bridge</code> app to the Slack channel, otherwise messages won&apos;t reach us.</p>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── FILE TAGS TAB ── */}
+      {tab === 'file-tags' && (
+        <div className="space-y-8">
+          {/* Create tag */}
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+            <h2 className="font-semibold text-white mb-1">Create File Tag</h2>
+            <p className="text-sm text-gray-500 mb-4">
+              Tags organize files in <code className="text-green-400">/hub/files</code>. <strong className="text-white">Social Queue</strong> tags mark photos for the social poster. <strong className="text-white">Social Page</strong> tags target a specific Facebook/Instagram account.
+            </p>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Name</label>
+                <input
+                  value={newTagName}
+                  onChange={e => setNewTagName(e.target.value)}
+                  onKeyDown={e => e.key === 'Enter' && createFileTag()}
+                  placeholder="e.g. Irrigation, Spring Promo"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                />
+              </div>
+              <div>
+                <label className="text-xs text-gray-400 block mb-1">Type</label>
+                <select
+                  value={newTagType}
+                  onChange={e => setNewTagType(e.target.value as FileTagType)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                >
+                  <option value="general">General</option>
+                  <option value="social-queue">Social Queue (eligible for social posts)</option>
+                  <option value="social-page">Social Page (targets a specific FB/IG page)</option>
+                </select>
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-xs text-gray-400 block mb-1">Color</label>
+                <div className="flex gap-2 flex-wrap">
+                  {FILE_TAG_DEFAULT_COLORS.map(c => (
+                    <button
+                      key={c}
+                      type="button"
+                      onClick={() => setNewTagColor(c)}
+                      className={`w-7 h-7 rounded-full transition-transform ${newTagColor === c ? 'ring-2 ring-white scale-110' : 'hover:scale-105'}`}
+                      style={{ backgroundColor: c }}
+                      aria-label={c}
+                    />
+                  ))}
+                  <input
+                    type="color"
+                    value={newTagColor}
+                    onChange={e => setNewTagColor(e.target.value)}
+                    className="w-7 h-7 rounded-full bg-transparent border-0 cursor-pointer"
+                    aria-label="Custom color"
+                  />
+                </div>
+              </div>
+              <div className="md:col-span-2">
+                <label className="text-xs text-gray-400 block mb-1">Description (optional)</label>
+                <input
+                  value={newTagDescription}
+                  onChange={e => setNewTagDescription(e.target.value)}
+                  placeholder="What this tag is for"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                />
+              </div>
+            </div>
+            {tagError && <p className="text-sm text-red-400 mt-3">{tagError}</p>}
+            <button
+              onClick={createFileTag}
+              disabled={savingTag || !newTagName.trim()}
+              className="mt-4 px-5 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+            >
+              {savingTag ? 'Creating…' : 'Add Tag'}
+            </button>
+          </div>
+
+          {/* Tags list */}
+          <div>
+            <h2 className="font-semibold text-white mb-3">Tags ({fileTags.length})</h2>
+            {!fileTagsLoaded ? (
+              <p className="text-sm text-gray-500 px-1">Loading…</p>
+            ) : fileTags.length === 0 ? (
+              <p className="text-sm text-gray-500 px-1">No tags yet. Create one above.</p>
+            ) : (
+              <div className="space-y-2">
+                {fileTags.map(tag => (
+                  <div
+                    key={tag.id}
+                    className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3"
+                  >
+                    {editingTagId === tag.id ? (
+                      <div className="space-y-3">
+                        <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                          <input
+                            value={editTagDraft.name}
+                            onChange={e => setEditTagDraft(d => ({ ...d, name: e.target.value }))}
+                            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                            placeholder="Name"
+                          />
+                          <select
+                            value={editTagDraft.tag_type}
+                            onChange={e => setEditTagDraft(d => ({ ...d, tag_type: e.target.value as FileTagType }))}
+                            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                          >
+                            <option value="general">General</option>
+                            <option value="social-queue">Social Queue</option>
+                            <option value="social-page">Social Page</option>
+                          </select>
+                        </div>
+                        <input
+                          value={editTagDraft.description}
+                          onChange={e => setEditTagDraft(d => ({ ...d, description: e.target.value }))}
+                          placeholder="Description"
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                        />
+                        <div className="flex items-center gap-2 flex-wrap">
+                          {FILE_TAG_DEFAULT_COLORS.map(c => (
+                            <button
+                              key={c}
+                              type="button"
+                              onClick={() => setEditTagDraft(d => ({ ...d, color: c }))}
+                              className={`w-6 h-6 rounded-full transition-transform ${editTagDraft.color === c ? 'ring-2 ring-white scale-110' : 'hover:scale-105'}`}
+                              style={{ backgroundColor: c }}
+                              aria-label={c}
+                            />
+                          ))}
+                          <input
+                            type="color"
+                            value={editTagDraft.color}
+                            onChange={e => setEditTagDraft(d => ({ ...d, color: e.target.value }))}
+                            className="w-6 h-6 rounded-full bg-transparent border-0 cursor-pointer"
+                          />
+                        </div>
+                        {tagError && <p className="text-sm text-red-400">{tagError}</p>}
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => saveEditTag(tag.id)}
+                            className="px-4 py-1.5 rounded-lg bg-[#2E7EB8] hover:bg-[#2470a8] text-sm text-white"
+                          >
+                            Save
+                          </button>
+                          <button
+                            onClick={() => { setEditingTagId(null); setTagError('') }}
+                            className="px-4 py-1.5 rounded-lg border border-gray-700 hover:bg-gray-800 text-sm text-gray-300"
+                          >
+                            Cancel
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="flex items-center gap-4">
+                        <span
+                          className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium text-white flex-none"
+                          style={{ backgroundColor: tag.color }}
+                        >
+                          {tag.name}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs uppercase tracking-wide text-gray-500">
+                            {FILE_TAG_TYPE_LABELS[tag.tag_type]}
+                          </div>
+                          {tag.description && (
+                            <div className="text-sm text-gray-400 truncate mt-0.5">{tag.description}</div>
+                          )}
+                        </div>
+                        <button
+                          onClick={() => startEditTag(tag)}
+                          className="text-xs text-gray-400 hover:text-white px-3 py-1.5 border border-gray-700 rounded-lg hover:bg-gray-800 transition-colors flex-none"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => deleteFileTag(tag)}
+                          className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors flex-none"
+                        >
+                          Delete
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Help */}
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+            <h2 className="font-semibold text-white mb-3">About Tag Types</h2>
+            <div className="space-y-3 text-sm text-gray-400">
+              <p><strong className="text-white">General</strong> — Plain organizational tag. Useful for sorting files in the Files list.</p>
+              <p><strong className="text-white">Social Queue</strong> — Files tagged with one of these are eligible to be pulled into the social media posting queue (Lynxedo Social).</p>
+              <p><strong className="text-white">Social Page</strong> — Represents a specific social media account (e.g. Heroes Page, Doody Duty Page). When connected to Lynxedo Social, posts are routed to the matching FB/IG account.</p>
+              <p className="pt-2 border-t border-gray-800"><strong className="text-white">Renaming a tag</strong> automatically updates the tag everywhere it&apos;s currently used. <strong className="text-white">Deleting</strong> removes it from files too.</p>
             </div>
           </div>
         </div>

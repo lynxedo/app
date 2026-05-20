@@ -4,6 +4,7 @@ import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHand
 import { createClient } from '@/lib/supabase/client'
 import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
+import SaveToFilesModal from './SaveToFilesModal'
 import { useHubTextSize } from './HubTextSizeContext'
 
 export type MessageFeedHandle = { addMessage: (msg: HubMessage) => void }
@@ -153,6 +154,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   const [editContent, setEditContent] = useState('')
   const [pickerMsgId, setPickerMsgId] = useState<string | null>(null)
   const [forwardingMsg, setForwardingMsg] = useState<HubMessage | null>(null)
+  const [saveToFilesMsg, setSaveToFilesMsg] = useState<HubMessage | null>(null)
   const [addToBoardMsgId, setAddToBoardMsgId] = useState<string | null>(null)
   const [boardPickerBoards, setBoardPickerBoards] = useState<{ id: string; name: string }[]>([])
   const [addingToBoard, setAddingToBoard] = useState(false)
@@ -511,6 +513,16 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                         ↗
                       </button>
 
+                      {files.some(f => f.mime_type.startsWith('image/')) && (
+                        <button
+                          onClick={() => setSaveToFilesMsg(msg)}
+                          className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-sm md:px-1.5 md:py-0.5"
+                          title="Save to Files"
+                        >
+                          📁
+                        </button>
+                      )}
+
                       <div className="relative">
                         <button
                           onClick={() => addToBoardMsgId === msg.id ? setAddToBoardMsgId(null) : openBoardPicker(msg.id)}
@@ -584,6 +596,13 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           messagePreview={forwardingMsg.content}
           onClose={() => setForwardingMsg(null)}
           onForward={handleForward}
+        />
+      )}
+
+      {saveToFilesMsg && (
+        <SaveToFilesModal
+          attachments={normFiles(saveToFilesMsg.files)}
+          onClose={() => setSaveToFilesMsg(null)}
         />
       )}
     </>

@@ -53,6 +53,53 @@ export async function GET(
   })
 }
 
+export async function PATCH(
+  request: Request,
+  { params }: { params: Promise<{ id: string }> }
+) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role, company_id')
+    .eq('id', user.id)
+    .single()
+  if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+
+  const { id } = await params
+  const body = await request.json().catch(() => ({}))
+
+  const updates: Record<string, unknown> = {}
+  if (body.description !== undefined) {
+    updates.description = typeof body.description === 'string' ? body.description.trim() || null : null
+  }
+  if (body.tags !== undefined) {
+    if (!Array.isArray(body.tags)) {
+      return NextResponse.json({ error: 'tags must be an array of strings' }, { status: 400 })
+    }
+    updates.tags = body.tags.map((t: unknown) => String(t).trim()).filter((t: string) => t.length > 0)
+  }
+
+  if (Object.keys(updates).length === 0) {
+    return NextResponse.json({ error: 'No updates provided' }, { status: 400 })
+  }
+
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('hub_files')
+    .update(updates)
+    .eq('id', id)
+    .eq('company_id', profile.company_id)
+    .select('id, filename, mime_type, size_bytes, description, storage_path, uploaded_at, tags')
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!data) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  return NextResponse.json({ file: data })
+}
+
 export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }

@@ -23,7 +23,7 @@ export async function GET() {
   const { data, error } = await supabase
     .from('hub_files')
     .select(`
-      id, filename, mime_type, size_bytes, description, storage_path, uploaded_at,
+      id, filename, mime_type, size_bytes, description, storage_path, uploaded_at, tags, social_used_at,
       uploader:hub_users!uploader_id (display_name)
     `)
     .order('uploaded_at', { ascending: false })
@@ -38,9 +38,12 @@ export async function GET() {
     description: string | null
     storage_path: string
     uploaded_at: string
+    tags: string[] | null
+    social_used_at: string | null
     uploader: { display_name: string } | { display_name: string }[] | null
   }) => ({
     ...f,
+    tags: f.tags ?? [],
     uploader: Array.isArray(f.uploader) ? f.uploader[0] : f.uploader,
   }))
 
@@ -67,6 +70,10 @@ export async function POST(request: Request) {
   const formData = await request.formData()
   const file = formData.get('file') as File | null
   const description = (formData.get('description') as string | null)?.trim() || null
+  const tagsRaw = formData.get('tags') as string | null
+  const tags: string[] = tagsRaw
+    ? tagsRaw.split(',').map(t => t.trim()).filter(Boolean)
+    : []
 
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
 
@@ -98,8 +105,9 @@ export async function POST(request: Request) {
       mime_type: file.type || 'application/octet-stream',
       size_bytes: file.size,
       description,
+      tags,
     })
-    .select('id, filename, mime_type, size_bytes, description, storage_path, uploaded_at')
+    .select('id, filename, mime_type, size_bytes, description, storage_path, uploaded_at, tags')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
