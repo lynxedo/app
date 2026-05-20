@@ -33,8 +33,6 @@ export default function MessageComposer({
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionStart, setMentionStart] = useState(-1)
   const [mentionIndex, setMentionIndex] = useState(0)
-  const [isFocused, setIsFocused] = useState(false)
-
   // Scheduled send
   const [scheduledAt, setScheduledAt] = useState<string>('') // ISO datetime-local string
   const [showScheduler, setShowScheduler] = useState(false)
@@ -106,9 +104,17 @@ export default function MessageComposer({
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(filteredUsers[mentionIndex]); return }
       if (e.key === 'Escape') { setMentionQuery(null); return }
     }
+    // Enter sends on desktop only. On mobile (≤767px) Enter inserts a
+    // newline — sending requires tapping the Send button. This matches
+    // how every native mobile messaging app behaves and avoids the
+    // "I accidentally sent a half-typed message" papercut.
     if (e.key === 'Enter' && !e.shiftKey) {
-      e.preventDefault()
-      send()
+      const isMobile = typeof window !== 'undefined'
+        && window.matchMedia('(max-width: 767px)').matches
+      if (!isMobile) {
+        e.preventDefault()
+        send()
+      }
     }
   }
 
@@ -330,31 +336,11 @@ export default function MessageComposer({
           onPaste={handlePaste}
           onDrop={handleDrop}
           onDragOver={e => e.preventDefault()}
-          onFocus={() => setIsFocused(true)}
-          onBlur={() => setIsFocused(false)}
           placeholder={placeholder ?? 'Message…'}
           rows={1}
           disabled={sending}
           className="flex-1 bg-transparent text-base md:text-sm text-white placeholder-gray-500 resize-none outline-none leading-relaxed min-h-[24px] max-h-36"
         />
-
-        {/* Dismiss-keyboard button — mobile only, only while textarea is
-            focused. iOS Safari scrolls the document when typing, which can
-            hide the top nav; tapping this blurs the textarea, the keyboard
-            dismisses, and the layout snaps back. */}
-        {isFocused && (
-          <button
-            type="button"
-            onClick={() => textareaRef.current?.blur()}
-            className="md:hidden flex-none text-gray-400 hover:text-white transition-colors pb-0.5"
-            aria-label="Hide keyboard"
-            title="Hide keyboard"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-        )}
 
         {/* Schedule button */}
         <div className="relative flex-none pb-0.5" ref={schedulerRef}>
@@ -391,28 +377,35 @@ export default function MessageComposer({
           )}
         </div>
 
-        <button
-          onClick={send}
-          disabled={(!content.trim() && pendingFiles.length === 0) || sending}
-          className={`flex-none w-8 h-8 rounded-lg disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors ${
-            scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-[#2E7EB8] hover:bg-[#2470a8]'
-          }`}
-          title={scheduledAt ? 'Schedule message' : 'Send (Enter)'}
-        >
-          {scheduledAt ? (
-            <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-          ) : (
-            <svg className="w-4 h-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-              <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-            </svg>
-          )}
-        </button>
+        {/* Send button. Fixed pixel size so it doesn't balloon when the
+            user picks L for root font-size — at 22px root, a rem-based
+            w-8 h-8 would render as 44×44. Hidden when nothing to send,
+            which gives the textarea full width while typing isn't yet
+            possible. */}
+        {(content.trim() || pendingFiles.length > 0) && (
+          <button
+            onClick={send}
+            disabled={sending}
+            style={{ width: '32px', height: '32px' }}
+            className={`flex-none rounded-lg disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors ${
+              scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-[#2E7EB8] hover:bg-[#2470a8]'
+            }`}
+            title={scheduledAt ? 'Schedule message' : 'Send'}
+          >
+            {scheduledAt ? (
+              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+                <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+              </svg>
+            )}
+          </button>
+        )}
       </div>
 
       <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileChange} />
-      <p className="text-xs text-gray-600 mt-1.5 px-1">Enter to send · Shift+Enter for new line · @ to mention</p>
     </div>
   )
 }

@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { createClient } from "@/lib/supabase/server";
@@ -20,6 +20,15 @@ export const metadata: Metadata = {
     default: 'Lynxedo',
   },
   description: "Field service operations for Heroes Lawn Care",
+};
+
+// viewport-fit=cover is required for env(safe-area-inset-*) to return
+// real values in iOS Safari. Without it the GlobalNav top spacer (and
+// any per-page safe-area handling) collapses to 0 outside the Hub.
+export const viewport: Viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  viewportFit: 'cover',
 };
 
 export default async function RootLayout({

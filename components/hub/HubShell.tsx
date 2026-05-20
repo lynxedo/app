@@ -179,12 +179,18 @@ export default function HubShell({
           </button>
         </div>
 
-        {/* Spacer pushing flow content below the fixed top bar. Matches the
-            top bar's effective height: safe-area + py-3 (24px) + h-6 icons +
-            border. */}
+        {/* Spacer pushing flow content below the fixed top bar. The bar's
+            icons (h-6 = 1.5rem) scale with the S/M/L root font-size, so
+            this height must be rem-based — a fixed px constant gets
+            overtaken at L and the announcement ticker ends up partly
+            hidden behind the bar.
+
+            Bar height: env(safe-area-inset-top) + 12px (padding-top,
+            inline) + 1.5rem (h-6 button icons) + 12px (py-3 bottom) +
+            1px (border-b) ≈ safe + 25px + 1.5rem. Add ~12px buffer. */}
         <div
           className="flex-none md:hidden"
-          style={{ height: 'calc(env(safe-area-inset-top) + 61px)' }}
+          style={{ height: 'calc(env(safe-area-inset-top) + 1.5rem + 37px)' }}
           aria-hidden="true"
         />
 
