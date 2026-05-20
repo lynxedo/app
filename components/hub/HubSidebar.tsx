@@ -536,7 +536,7 @@ export default function HubSidebar({
 
   return (
     <>
-      <aside className="w-60 flex-none bg-[#1A3D5C] flex flex-col h-full h-[100dvh]">
+      <aside className="w-screen md:w-60 flex-none bg-[#1A3D5C] flex flex-col h-full h-[100dvh]">
         {/* Workspace header */}
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
           <div className="font-bold text-white text-sm tracking-wide">Heroes Lawn Care</div>
