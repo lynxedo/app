@@ -40,14 +40,14 @@ body {
    ThreadPanel for more dramatic scaling. Mobile gets bigger steps than
    desktop because phones are held close and Ben specifically called out
    that the desktop-style scale was still too small on iPhone. */
-html.text-size-small  { font-size: 14px; }
-html.text-size-default { font-size: 16px; }
-html.text-size-large  { font-size: 19px; }
+html.text-size-small  { font-size: 15px; }
+html.text-size-default { font-size: 18px; }
+html.text-size-large  { font-size: 23px; }
 
 @media (max-width: 767px) {
-  html.text-size-small  { font-size: 15px; }
-  html.text-size-default { font-size: 17px; }
-  html.text-size-large  { font-size: 22px; }
+  html.text-size-small  { font-size: 17px; }
+  html.text-size-default { font-size: 22px; }
+  html.text-size-large  { font-size: 28px; }
 }
 
 .hub-text-small .hub-message-text {
