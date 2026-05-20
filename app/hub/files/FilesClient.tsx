@@ -402,7 +402,24 @@ export default function FilesClient({
                   </div>
                 ) : (
                   <div className="flex items-center gap-3">
-                    <span className="text-2xl flex-none">{fileIcon(f.mime_type)}</span>
+                    {f.mime_type.startsWith('image/') ? (
+                      <a
+                        href={`/api/hub/hub-files/${f.id}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="flex-none w-12 h-12 rounded-lg overflow-hidden bg-gray-800 border border-gray-700 hover:border-gray-500 transition-colors"
+                        title="Open image"
+                      >
+                        <img
+                          src={`/api/hub/hub-files/${f.id}`}
+                          alt={f.filename}
+                          loading="lazy"
+                          className="w-full h-full object-cover"
+                        />
+                      </a>
+                    ) : (
+                      <span className="text-2xl flex-none">{fileIcon(f.mime_type)}</span>
+                    )}
 
                     <div className="flex-1 min-w-0">
                       <a
