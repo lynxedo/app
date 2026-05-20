@@ -2,6 +2,14 @@ name: Deploy to VPS
 on:
   push:
     branches: [main]
+# Serialize deploys. Without this, rapid back-to-back pushes start parallel
+# deploys that race against each other on the VPS — one deploy's pm2 start
+# can run against another deploy's still-building .next, crashing the
+# service. cancel-in-progress is false so every commit still deploys; they
+# just queue one at a time.
+concurrency:
+  group: deploy-vps
+  cancel-in-progress: false
 jobs:
   deploy:
     runs-on: ubuntu-latest
