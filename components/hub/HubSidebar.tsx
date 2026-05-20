@@ -882,7 +882,7 @@ export default function HubSidebar({
             userEmail={userEmail}
           />
           <div className="px-4 pb-3 flex items-center justify-between">
-            <Link href="/dashboard" className="text-xs text-white/40 hover:text-white/70 transition-colors">
+            <Link href="/dashboard" className="text-base md:text-xs py-2 -my-1 md:py-0 md:my-0 text-white/40 hover:text-white/70 transition-colors">
               ← Dashboard
             </Link>
             <div className="flex items-center gap-2">
