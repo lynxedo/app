@@ -6,29 +6,12 @@ import SettingsForm from './SettingsForm'
 
 export const metadata = { title: 'Settings' }
 
-const DEFAULTS = {
-  display_name: null as string | null,
-  depot_address: null as string | null,
-  depot_lat: null as number | null,
-  depot_lng: null as number | null,
-  default_service_minutes: 30,
-  default_drive_mph: 25,
-  duration_method: 'default' as string,
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  duration_rules: null as any,
-}
-
 export default async function SettingsPage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const [settingsResult, hubUserResult, profileResult, notifPrefResult] = await Promise.all([
-    supabase
-      .from('user_settings')
-      .select('display_name, depot_address, depot_lat, depot_lng, default_service_minutes, default_drive_mph, duration_method, duration_rules')
-      .eq('user_id', user.id)
-      .maybeSingle(),
+  const [hubUserResult, profileResult, notifPrefResult] = await Promise.all([
     supabase
       .from('hub_users')
       .select('display_name, avatar_url')
@@ -47,7 +30,6 @@ export default async function SettingsPage() {
       .maybeSingle(),
   ])
 
-  const settings = { ...DEFAULTS, ...(settingsResult.data ?? {}) }
   const jobberConnected = await isJobberConnected(user.id)
 
   const hubProfile = {
@@ -92,7 +74,6 @@ export default async function SettingsPage() {
         <SettingsForm
           email={user.email ?? ''}
           userId={user.id}
-          initial={settings}
           hubProfile={hubProfile}
           jobberConnected={jobberConnected}
           landingPage={landingPage}

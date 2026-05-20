@@ -126,12 +126,20 @@ export async function POST(req: NextRequest) {
   if (!addresses || addresses.length === 0)
     return NextResponse.json({ error: 'No addresses provided' }, { status: 400 })
 
-  // Load user settings
-  const { data: settings } = await supabase
-    .from('user_settings')
-    .select('depot_lat, depot_lng, default_service_minutes, default_drive_mph, duration_method, duration_rules')
-    .eq('user_id', user.id)
+  // Load company-wide routing settings (admins configure these in /admin/routing)
+  const { data: hubUser } = await supabase
+    .from('hub_users')
+    .select('company_id')
+    .eq('id', user.id)
     .maybeSingle()
+
+  const { data: settings } = hubUser?.company_id
+    ? await supabase
+        .from('company_routing_settings')
+        .select('depot_lat, depot_lng, default_service_minutes, default_drive_mph, duration_method, duration_rules')
+        .eq('company_id', hubUser.company_id)
+        .maybeSingle()
+    : { data: null }
 
   const depot = (settings?.depot_lat != null && settings?.depot_lng != null)
     ? { lat: settings.depot_lat as number, lng: settings.depot_lng as number }
