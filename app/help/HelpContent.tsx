@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 // ──────────────────────────────────────────────────────────────────────────
 // Shared UI primitives
@@ -80,6 +80,13 @@ export default function HelpContent() {
     router.replace(url.pathname + url.search, { scroll: false })
   }, [activeTab, router])
 
+  // Scroll the active tab into view when it changes (handles mobile horizontal scroll)
+  const tabRefs = useRef<Record<string, HTMLButtonElement | null>>({})
+  useEffect(() => {
+    const el = tabRefs.current[activeTab]
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
+  }, [activeTab])
+
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <header className="border-b border-gray-800 px-6 py-4 flex items-center gap-4">
@@ -91,13 +98,14 @@ export default function HelpContent() {
 
       {/* Tab bar */}
       <div className="sticky top-0 z-10 bg-gray-950/95 backdrop-blur border-b border-gray-800">
-        <div className="max-w-3xl mx-auto px-2 sm:px-6">
-          <div className="flex gap-1 overflow-x-auto no-scrollbar py-2">
+        <div className="px-2 sm:px-4">
+          <div className="flex gap-1 overflow-x-auto no-scrollbar py-2 lg:justify-center">
             {TABS.map(tab => {
               const isActive = activeTab === tab.id
               return (
                 <button
                   key={tab.id}
+                  ref={el => { tabRefs.current[tab.id] = el }}
                   onClick={() => setActiveTab(tab.id)}
                   className={`flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
                     isActive
