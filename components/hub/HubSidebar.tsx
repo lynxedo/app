@@ -966,72 +966,17 @@ export default function HubSidebar({
         </nav>
         )} {/* end teams-only block */}
 
-        {/* Footer: user status + dashboard link */}
+        {/* Footer: user status + account menu (Settings/Admin/Help/Logout/Text size/etc. all live in the dropdown) */}
         <div className="flex-none border-t border-white/10">
           <StatusPicker
             currentStatus={currentUserStatus ?? null}
             displayName={displayName}
             userEmail={userEmail}
             isAdmin={isAdmin}
+            textSize={textSize}
+            onTextSizeChange={onTextSizeChange}
+            onOpenNotifPrefs={() => setShowNotifPrefs(true)}
           />
-          <div className="px-4 pb-3 flex items-center justify-between">
-            <Link href="/dashboard" className="text-base md:text-xs py-2 -my-1 md:py-0 md:my-0 text-white/40 hover:text-white/70 transition-colors">
-              ← Dashboard
-            </Link>
-            <div className="flex items-center gap-2">
-              {onTextSizeChange && (
-                <div className="flex items-center gap-0.5">
-                  {([['small', 'S'], ['default', 'M'], ['large', 'L']] as const).map(([size, label]) => (
-                    <button
-                      key={size}
-                      onClick={() => {
-                        onTextSizeChange(size)
-                        onClose?.()
-                        fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_text_size: size }) })
-                      }}
-                      className={`px-2 py-1 rounded text-xs font-semibold transition-colors ${(textSize ?? 'default') === size ? 'bg-white/15 text-white' : 'text-white/30 hover:text-white/60 hover:bg-white/10'}`}
-                    >
-                      {label}
-                    </button>
-                  ))}
-                </div>
-              )}
-              {isAdmin && (
-                <Link
-                  href="/admin/hub"
-                  onClick={() => onClose?.()}
-                  className="text-white/30 hover:text-white/60 transition-colors"
-                  title="Hub admin"
-                  aria-label="Hub admin"
-                >
-                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.623 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.249-8.25-3.285z" />
-                  </svg>
-                </Link>
-              )}
-              <button
-                onClick={() => setShowNotifPrefs(true)}
-                className="text-white/30 hover:text-white/60 transition-colors"
-                title="Notification preferences"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
-                </svg>
-              </button>
-              <Link
-                href="/settings"
-                onClick={() => onClose?.()}
-                className="text-white/30 hover:text-white/60 transition-colors"
-                title="Settings"
-                aria-label="Settings"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-                </svg>
-              </Link>
-            </div>
-          </div>
         </div>
       </aside>
 

@@ -26,11 +26,17 @@ export default function StatusPicker({
   displayName,
   userEmail,
   isAdmin = false,
+  textSize,
+  onTextSizeChange,
+  onOpenNotifPrefs,
 }: {
   currentStatus: string | null
   displayName: string
   userEmail: string
   isAdmin?: boolean
+  textSize?: string
+  onTextSizeChange?: (size: string) => void
+  onOpenNotifPrefs?: () => void
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -135,6 +141,17 @@ export default function StatusPicker({
               </svg>
               <span>Help</span>
             </Link>
+            {onOpenNotifPrefs && (
+              <button
+                onClick={() => { setOpen(false); onOpenNotifPrefs() }}
+                className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+              >
+                <svg className="w-4 h-4 flex-none text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+                </svg>
+                <span>Notifications</span>
+              </button>
+            )}
             {isAdmin && (
               <Link
                 href="/admin"
@@ -147,7 +164,51 @@ export default function StatusPicker({
                 <span>Admin</span>
               </Link>
             )}
+            {isAdmin && (
+              <Link
+                href="/admin/hub"
+                onClick={() => setOpen(false)}
+                className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+              >
+                <svg className="w-4 h-4 flex-none text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 21h16.5M4.5 3h15M5.25 3v18m13.5-18v18M9 6.75h1.5m-1.5 3h1.5m-1.5 3h1.5m3-6H15m-1.5 3H15m-1.5 3H15M9 21v-3.375c0-.621.504-1.125 1.125-1.125h3.75c.621 0 1.125.504 1.125 1.125V21" />
+                </svg>
+                <span>Hub Admin</span>
+              </Link>
+            )}
+            <Link
+              href="/dashboard"
+              onClick={() => setOpen(false)}
+              className="w-full flex items-center gap-3 px-3 py-2 text-sm text-gray-300 hover:bg-gray-800 transition-colors"
+            >
+              <svg className="w-4 h-4 flex-none text-gray-400" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z" />
+              </svg>
+              <span>All Tools</span>
+            </Link>
           </div>
+
+          {onTextSizeChange && (
+            <div className="border-t border-gray-800 mt-1 pt-2 pb-1 px-3">
+              <div className="flex items-center justify-between">
+                <span className="text-xs text-gray-400">Text size</span>
+                <div className="flex items-center gap-0.5">
+                  {([['small', 'S'], ['default', 'M'], ['large', 'L']] as const).map(([size, label]) => (
+                    <button
+                      key={size}
+                      onClick={() => {
+                        onTextSizeChange(size)
+                        fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_text_size: size }) })
+                      }}
+                      className={`px-2 py-1 rounded text-xs font-semibold transition-colors ${(textSize ?? 'default') === size ? 'bg-white/15 text-white' : 'text-white/40 hover:text-white/70 hover:bg-white/10'}`}
+                    >
+                      {label}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
 
           <div className="border-t border-gray-800 mt-1 pt-1">
             <button
