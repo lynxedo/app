@@ -152,7 +152,7 @@ function EditCell({
     <span
       onClick={() => { setLocal(value ?? ''); setEditing(true) }}
       className={`block w-full cursor-text transition-colors truncate ${
-        lightMode ? 'hover:text-indigo-600' : 'hover:text-indigo-300'
+        lightMode ? 'text-gray-700 hover:text-indigo-600' : 'hover:text-indigo-300'
       }`}
       title={value ?? ''}
     >
