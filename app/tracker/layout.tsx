@@ -23,7 +23,7 @@ export default async function TrackerLayout({ children }: { children: React.Reac
       <header className="border-b border-gray-800 px-6 py-3 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <Link
-            href="/dashboard"
+            href="/hub"
             className="text-lg font-bold tracking-tight text-gray-300 hover:text-white transition-colors"
           >
             Lynxedo

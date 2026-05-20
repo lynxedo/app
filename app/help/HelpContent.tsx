@@ -90,8 +90,8 @@ export default function HelpContent() {
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       <header className="border-b border-gray-800 px-6 py-4 flex items-center gap-4">
-        <Link href="/dashboard" className="text-gray-400 hover:text-white text-sm transition-colors">
-          ← Dashboard
+        <Link href="/hub" className="text-gray-400 hover:text-white text-sm transition-colors">
+          ← Hub
         </Link>
         <h1 className="text-xl font-bold tracking-tight">Help</h1>
       </header>
@@ -524,7 +524,7 @@ function TimesheetTab() {
   return (
     <>
       <Section title="Clocking In and Out">
-        <p>Open Timesheet from the dashboard or sidebar (or use the clock icon in Hub).</p>
+        <p>Open Timesheet from the Hub sidebar (or use the clock icon at the top of Hub).</p>
         <Step n={1}>Tap <strong className="text-white">Clock In</strong> when you start your shift. Lynxedo records the time and your GPS location.</Step>
         <Step n={2}>Add a note if you want (start-of-shift conditions, crew, anything noteworthy).</Step>
         <Step n={3}>Tap <strong className="text-white">Clock Out</strong> when you&apos;re done. You&apos;ll see your total hours for the shift and the week.</Step>

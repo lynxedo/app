@@ -259,8 +259,8 @@ export default function CallLogPage() {
       {/* Header */}
       <header className="shrink-0 border-b border-gray-800 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link href="/dashboard" className="text-gray-400 hover:text-white text-sm transition-colors">
-            ← Dashboard
+          <Link href="/hub" className="text-gray-400 hover:text-white text-sm transition-colors">
+            ← Hub
           </Link>
           <h1 className="text-xl font-bold tracking-tight">📞 Call Log</h1>
         </div>

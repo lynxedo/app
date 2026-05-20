@@ -54,10 +54,10 @@ export default async function SettingsPage() {
       <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
           <Link
-            href="/dashboard"
+            href="/hub"
             className="text-gray-400 hover:text-white text-sm transition-colors"
           >
-            ← Dashboard
+            ← Hub
           </Link>
           <h1 className="text-xl font-bold tracking-tight">Settings</h1>
         </div>

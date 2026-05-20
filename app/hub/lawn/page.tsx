@@ -299,8 +299,8 @@ export default function LawnPage() {
     <div className="min-h-screen bg-gray-950 text-white">
       <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
         <div className="flex items-center gap-4">
-          <Link href="/dashboard" className="text-gray-400 hover:text-white text-sm transition-colors">
-            ← Dashboard
+          <Link href="/hub" className="text-gray-400 hover:text-white text-sm transition-colors">
+            ← Hub
           </Link>
           <h1 className="text-xl font-bold tracking-tight">🌿 Lawn Sizer</h1>
         </div>

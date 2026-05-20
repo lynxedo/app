@@ -178,7 +178,7 @@ export default function TimesheetPage({
     <div className="min-h-screen bg-gray-950 text-white flex flex-col">
       {/* Header */}
       <header className="border-b border-gray-800 px-4 py-4 flex items-center justify-between">
-        <Link href="/dashboard" className="text-gray-500 hover:text-white transition-colors text-sm">← Home</Link>
+        <Link href="/hub" className="text-gray-500 hover:text-white transition-colors text-sm">← Hub</Link>
         <span className="font-semibold">Timesheet</span>
         {isAdmin && (
           <Link href="/admin/timesheet" className="text-sm text-gray-400 hover:text-white transition-colors">
