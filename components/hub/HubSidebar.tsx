@@ -49,6 +49,8 @@ export default function HubSidebar({
   canAccessCallLog = false,
   canAccessLawn = false,
   canAccessTimesheet = false,
+  canAccessRouting = false,
+  canAccessBooks = false,
   onOpenTimeClock,
 }: {
   rooms: Room[]
@@ -66,6 +68,8 @@ export default function HubSidebar({
   canAccessCallLog?: boolean
   canAccessLawn?: boolean
   canAccessTimesheet?: boolean
+  canAccessRouting?: boolean
+  canAccessBooks?: boolean
   onOpenTimeClock?: () => void
 }) {
   const pathname = usePathname()
@@ -593,6 +597,29 @@ export default function HubSidebar({
 
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
 
+          {/* Home + My Time Clock — always-visible top-level entries */}
+          <div className="space-y-0.5">
+            <Link
+              href="/hub/home"
+              onClick={() => onClose?.()}
+              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+                pathname === '/hub/home' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <span className="text-xs flex-none">🏠</span>
+              <span className="truncate flex-1">Home</span>
+            </Link>
+            {(canAccessTimesheet || isAdmin) && (
+              <button
+                onClick={() => onOpenTimeClock?.()}
+                className="w-full flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors text-white/70 hover:bg-white/10 hover:text-white"
+              >
+                <span className="text-xs flex-none">⏱</span>
+                <span className="truncate flex-1 text-left">My Time Clock</span>
+              </button>
+            )}
+          </div>
+
           {/* Favorites */}
           {hasFavorites && (
             <div>
@@ -710,135 +737,172 @@ export default function HubSidebar({
             })}
           </div>
 
-          {/* Daily Log */}
-          <div>
-            <Link
-              href="/hub/daily-log"
-              onClick={() => onClose?.()}
-              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                pathname.startsWith('/hub/daily-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <span className="text-white/40 text-xs flex-none">📋</span>
-              <span className="truncate flex-1">Daily Log</span>
-            </Link>
-          </div>
-
-          {/* Tools */}
-          {(canAccessTracker || canAccessCallLog || canAccessLawn || canAccessTimesheet || isAdmin) && (
-            <div>
-              <button onClick={() => toggleSection('tools')} className="w-full flex items-center gap-1 px-2 mb-1 group">
-                <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.tools ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Tools</span>
-              </button>
-              {!collapsed.tools && (
-                <>
-                  {/* Tracker with sub-items */}
-                  {canAccessTracker && (
-                    <div>
-                      <div className="flex items-center">
+          {/* Tools — categorized */}
+          {(() => {
+            const hasOperations = canAccessRouting || isAdmin // Daily Log + Time Records always available; Routing gated
+            const hasSales = canAccessTracker || canAccessLawn
+            const hasComms = canAccessCallLog
+            const hasFinance = canAccessBooks
+            const showTools = hasOperations || hasSales || hasComms || hasFinance
+            if (!showTools) return null
+            return (
+              <div>
+                <button onClick={() => toggleSection('tools')} className="w-full flex items-center gap-1 px-2 mb-1 group">
+                  <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.tools ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                  <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Tools</span>
+                </button>
+                {!collapsed.tools && (
+                  <div className="space-y-3">
+                    {/* Operations */}
+                    {hasOperations && (
+                      <div>
+                        <div className="px-2 mb-0.5 text-[10px] font-semibold text-white/30 uppercase tracking-wider">Operations</div>
+                        {canAccessRouting && (
+                          <Link
+                            href="/routing"
+                            onClick={() => onClose?.()}
+                            className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+                              pathname.startsWith('/routing') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                            }`}
+                          >
+                            <span className="text-xs flex-none">⚡</span>
+                            <span className="truncate">Routing</span>
+                          </Link>
+                        )}
                         <Link
-                          href="/hub/tracker"
-                          onClick={() => { onClose?.(); setTrackerManualOpen(true) }}
-                          className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
-                            pathname.startsWith('/hub/tracker') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                          href="/hub/daily-log"
+                          onClick={() => onClose?.()}
+                          className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+                            pathname.startsWith('/hub/daily-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                           }`}
                         >
                           <span className="text-xs flex-none">📋</span>
-                          <span className="truncate flex-1">Tracker</span>
+                          <span className="truncate">Daily Log</span>
                         </Link>
-                        <button
-                          onClick={() => setTrackerManualOpen(v => !v)}
-                          className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
-                          title={trackerOpen ? 'Collapse' : 'Expand'}
-                        >
-                          <svg className={`w-3 h-3 transition-transform ${trackerOpen ? '' : '-rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                        </button>
+                        {isAdmin && (
+                          <Link
+                            href="/admin/timesheet"
+                            onClick={() => onClose?.()}
+                            className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+                              pathname.startsWith('/admin/timesheet') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                            }`}
+                          >
+                            <span className="text-xs flex-none">🕐</span>
+                            <span className="truncate">Time Records</span>
+                          </Link>
+                        )}
                       </div>
-                      {trackerOpen && (
-                        <div className="ml-4 mt-0.5 space-y-0.5">
-                          {[
-                            { href: '/hub/tracker', label: 'Pipeline', exact: true },
-                            { href: '/hub/tracker/dashboard', label: 'Dashboard', exact: false },
-                            { href: '/hub/tracker/import', label: 'Import', exact: false },
-                            ...(isAdmin ? [{ href: '/hub/tracker/settings', label: 'Settings', exact: false }] : []),
-                          ].map(tab => {
-                            const isActive = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href)
-                            return (
+                    )}
+
+                    {/* Sales */}
+                    {hasSales && (
+                      <div>
+                        <div className="px-2 mb-0.5 text-[10px] font-semibold text-white/30 uppercase tracking-wider">Sales</div>
+                        {canAccessTracker && (
+                          <div>
+                            <div className="flex items-center">
                               <Link
-                                key={tab.href}
-                                href={tab.href}
-                                onClick={() => onClose?.()}
-                                className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
-                                  isActive ? 'text-[#2E7EB8] font-medium' : 'text-white/50 hover:text-white hover:bg-white/10'
+                                href="/hub/tracker"
+                                onClick={() => { onClose?.(); setTrackerManualOpen(true) }}
+                                className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
+                                  pathname.startsWith('/hub/tracker') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                                 }`}
                               >
-                                <span className="text-white/20 flex-none">›</span>
-                                {tab.label}
+                                <span className="text-xs flex-none">🎯</span>
+                                <span className="truncate flex-1">Tracker</span>
                               </Link>
-                            )
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  )}
+                              <button
+                                onClick={() => setTrackerManualOpen(v => !v)}
+                                className="p-1.5 text-white/30 hover:text-white/60 transition-colors"
+                                title={trackerOpen ? 'Collapse' : 'Expand'}
+                              >
+                                <svg className={`w-3 h-3 transition-transform ${trackerOpen ? '' : '-rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                              </button>
+                            </div>
+                            {trackerOpen && (
+                              <div className="ml-4 mt-0.5 space-y-0.5">
+                                {[
+                                  { href: '/hub/tracker', label: 'Pipeline', exact: true },
+                                  { href: '/hub/tracker/dashboard', label: 'Dashboard', exact: false },
+                                  { href: '/hub/tracker/import', label: 'Import', exact: false },
+                                  ...(isAdmin ? [{ href: '/hub/tracker/settings', label: 'Settings', exact: false }] : []),
+                                ].map(tab => {
+                                  const isActive = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href)
+                                  return (
+                                    <Link
+                                      key={tab.href}
+                                      href={tab.href}
+                                      onClick={() => onClose?.()}
+                                      className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
+                                        isActive ? 'text-[#2E7EB8] font-medium' : 'text-white/50 hover:text-white hover:bg-white/10'
+                                      }`}
+                                    >
+                                      <span className="text-white/20 flex-none">›</span>
+                                      {tab.label}
+                                    </Link>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        )}
+                        {canAccessLawn && (
+                          <Link
+                            href="/hub/lawn"
+                            onClick={() => onClose?.()}
+                            className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+                              pathname === '/hub/lawn' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                            }`}
+                          >
+                            <span className="text-xs flex-none">🌿</span>
+                            <span className="truncate">Lawn Calculator</span>
+                          </Link>
+                        )}
+                      </div>
+                    )}
 
-                  {/* Call Log */}
-                  {canAccessCallLog && (
-                    <Link
-                      href="/hub/call-log"
-                      onClick={() => onClose?.()}
-                      className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                        pathname.startsWith('/hub/call-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                      }`}
-                    >
-                      <span className="text-xs flex-none">📞</span>
-                      <span className="truncate">Call Log</span>
-                    </Link>
-                  )}
+                    {/* Communications */}
+                    {hasComms && (
+                      <div>
+                        <div className="px-2 mb-0.5 text-[10px] font-semibold text-white/30 uppercase tracking-wider">Communications</div>
+                        {canAccessCallLog && (
+                          <Link
+                            href="/hub/call-log"
+                            onClick={() => onClose?.()}
+                            className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+                              pathname.startsWith('/hub/call-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                            }`}
+                          >
+                            <span className="text-xs flex-none">📞</span>
+                            <span className="truncate">Call Log</span>
+                          </Link>
+                        )}
+                      </div>
+                    )}
 
-                  {/* Lawn Calculator */}
-                  {canAccessLawn && (
-                    <Link
-                      href="/hub/lawn"
-                      onClick={() => onClose?.()}
-                      className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                        pathname === '/hub/lawn' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                      }`}
-                    >
-                      <span className="text-xs flex-none">🌿</span>
-                      <span className="truncate">Lawn Calculator</span>
-                    </Link>
-                  )}
-
-                  {/* My Time Clock */}
-                  {(canAccessTimesheet || isAdmin) && (
-                    <button
-                      onClick={() => onOpenTimeClock?.()}
-                      className="w-full flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors text-white/70 hover:bg-white/10 hover:text-white"
-                    >
-                      <span className="text-xs flex-none">⏱</span>
-                      <span className="truncate">My Time Clock</span>
-                    </button>
-                  )}
-
-                  {/* Time Records (admin only) */}
-                  {isAdmin && (
-                    <Link
-                      href="/admin/timesheet"
-                      onClick={() => onClose?.()}
-                      className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                        pathname.startsWith('/admin/timesheet') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                      }`}
-                    >
-                      <span className="text-xs flex-none">📋</span>
-                      <span className="truncate">Time Records</span>
-                    </Link>
-                  )}
-                </>
-              )}
-            </div>
-          )}
+                    {/* Finance */}
+                    {hasFinance && (
+                      <div>
+                        <div className="px-2 mb-0.5 text-[10px] font-semibold text-white/30 uppercase tracking-wider">Finance</div>
+                        {canAccessBooks && (
+                          <Link
+                            href="/books"
+                            onClick={() => onClose?.()}
+                            className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+                              pathname.startsWith('/books') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                            }`}
+                          >
+                            <span className="text-xs flex-none">📊</span>
+                            <span className="truncate">Books</span>
+                          </Link>
+                        )}
+                      </div>
+                    )}
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* Pages */}
           <div>

@@ -60,7 +60,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       .eq('user_id', user.id),
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
     supabase.from('hub_users').select('display_name, status').eq('id', user.id).single(),
-    supabase.from('user_profiles').select('role, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_lawn, can_access_timesheet').eq('id', user.id).single(),
+    supabase.from('user_profiles').select('role, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_lawn, can_access_timesheet, can_access_routing, can_access_books').eq('id', user.id).single(),
     supabase
       .from('hub_announcements')
       .select('id, content, expires_at, reactions:announcement_reactions(announcement_id, user_id, emoji)')
@@ -86,6 +86,8 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessCallLog = profileResult.data?.can_access_call_log ?? false
   const canAccessLawn = profileResult.data?.can_access_lawn ?? false
   const canAccessTimesheet = profileResult.data?.can_access_timesheet ?? false
+  const canAccessRouting = profileResult.data?.can_access_routing ?? false
+  const canAccessBooks = profileResult.data?.can_access_books ?? false
 
   const ann = announcementResult.data
   const initialAnnouncement = ann
@@ -115,6 +117,8 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessCallLog={canAccessCallLog}
         canAccessLawn={canAccessLawn}
         canAccessTimesheet={canAccessTimesheet}
+        canAccessRouting={canAccessRouting}
+        canAccessBooks={canAccessBooks}
       >
         {children}
       </HubShell>

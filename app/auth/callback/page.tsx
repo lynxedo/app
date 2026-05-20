@@ -11,6 +11,17 @@ export default function AuthCallbackPage() {
   useEffect(() => {
     const supabase = createClient()
 
+    async function landingPath() {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) return '/hub/home'
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('landing_page')
+        .eq('id', user.id)
+        .single()
+      return profile?.landing_page === 'dashboard' ? '/dashboard' : '/hub/home'
+    }
+
     async function handleAuth() {
       const url = new URL(window.location.href)
 
@@ -28,19 +39,19 @@ export default function AuthCallbackPage() {
       const code = url.searchParams.get('code')
       const token_hash = url.searchParams.get('token_hash')
       const type = url.searchParams.get('type') as EmailOtpType | null
+      const explicitNext = url.searchParams.get('next')
 
       // Invite / email OTP flow — token_hash + type
       if (token_hash && type) {
         const { error } = await supabase.auth.verifyOtp({ token_hash, type })
-        if (!error) { router.push('/dashboard'); return }
+        if (!error) { router.push(explicitNext || (await landingPath())); return }
       }
 
       // PKCE flow — code exchange (browser client can handle invite codes without a verifier)
       if (code) {
         const { error } = await supabase.auth.exchangeCodeForSession(code)
         if (!error) {
-          const next = url.searchParams.get('next') || '/dashboard'
-          router.push(next)
+          router.push(explicitNext || (await landingPath()))
           return
         }
       }
@@ -48,8 +59,7 @@ export default function AuthCallbackPage() {
       // Implicit flow — hash fragment tokens are auto-processed by the Supabase browser client
       const { data: { session } } = await supabase.auth.getSession()
       if (session) {
-        const next = url.searchParams.get('next') || '/dashboard'
-        router.push(next)
+        router.push(explicitNext || (await landingPath()))
         return
       }
 

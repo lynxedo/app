@@ -36,7 +36,7 @@ export default async function SettingsPage() {
       .maybeSingle(),
     supabase
       .from('user_profiles')
-      .select('phone, full_name')
+      .select('phone, full_name, landing_page')
       .eq('id', user.id)
       .maybeSingle(),
   ])
@@ -50,6 +50,8 @@ export default async function SettingsPage() {
     avatar_url: hubUserResult.data?.avatar_url ?? null,
     phone: profileResult.data?.phone ?? null,
   }
+
+  const landingPage = (profileResult.data?.landing_page ?? 'hub') as 'hub' | 'dashboard'
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -80,6 +82,7 @@ export default async function SettingsPage() {
           initial={settings}
           hubProfile={hubProfile}
           jobberConnected={jobberConnected}
+          landingPage={landingPage}
         />
       </main>
     </div>

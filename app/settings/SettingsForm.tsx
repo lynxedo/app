@@ -32,6 +32,7 @@ interface Props {
   initial: Settings
   hubProfile: HubProfile
   jobberConnected: boolean
+  landingPage: 'hub' | 'dashboard'
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
@@ -86,7 +87,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, initial, hubProfile, jobberConnected }: Props) {
+export default function SettingsForm({ email, userId, initial, hubProfile, jobberConnected, landingPage }: Props) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>('profile')
 
@@ -128,6 +129,37 @@ export default function SettingsForm({ email, userId, initial, hubProfile, jobbe
 
   const [connected, setConnected] = useState(jobberConnected)
   const [disconnecting, setDisconnecting] = useState(false)
+
+  // ── Landing page preference ───────────────────────────────────────────────
+  const [landing, setLanding] = useState<'hub' | 'dashboard'>(landingPage)
+  const [landingSave, setLandingSave] = useState<SaveState>('idle')
+  const [landingErr, setLandingErr] = useState<string | null>(null)
+  const saveLanding = async (next: 'hub' | 'dashboard') => {
+    const previous = landing
+    setLanding(next)
+    setLandingSave('saving')
+    setLandingErr(null)
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ landing_page: next }),
+      })
+      if (!res.ok) {
+        const d = await res.json()
+        setLanding(previous)
+        setLandingErr(d.error ?? 'Save failed')
+        setLandingSave('error')
+        return
+      }
+      setLandingSave('saved')
+      setTimeout(() => setLandingSave('idle'), 2000)
+    } catch (e) {
+      setLanding(previous)
+      setLandingErr(e instanceof Error ? e.message : 'Network error')
+      setLandingSave('error')
+    }
+  }
 
   const [durationMethod, setDurationMethod] = useState(initial.duration_method)
   const [rules, setRules] = useState<DurationRulesConfig>({ ...DEFAULT_DURATION_RULES, ...(initial.duration_rules ?? {}) })
@@ -696,12 +728,45 @@ export default function SettingsForm({ email, userId, initial, hubProfile, jobbe
 
       {/* ACCOUNT TAB */}
       {activeTab === 'account' && (
-      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 text-center py-16">
-        <div className="text-4xl mb-4">🏢</div>
-        <h2 className="font-semibold text-lg mb-2">Account</h2>
-        <p className="text-gray-400 text-sm">Company name, plan details, and user management will live here.</p>
-        <p className="text-gray-600 text-xs mt-3">Coming in an upcoming session.</p>
+      <>
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <h2 className="font-semibold text-lg mb-1">Default landing page</h2>
+        <p className="text-gray-400 text-sm mb-5">Where you land after signing in.</p>
+        <div className="space-y-2">
+          {([
+            { value: 'hub' as const, title: 'Hub', desc: 'Open Hub Home — announcements and your rooms.' },
+            { value: 'dashboard' as const, title: 'Dashboard', desc: 'Open the tool tile launcher.' },
+          ]).map(opt => (
+            <button
+              key={opt.value}
+              onClick={() => saveLanding(opt.value)}
+              disabled={landingSave === 'saving'}
+              className={`w-full text-left p-4 rounded-xl border transition-colors ${
+                landing === opt.value
+                  ? 'bg-blue-600/10 border-blue-500/50'
+                  : 'bg-gray-950 border-gray-800 hover:border-gray-700'
+              } disabled:opacity-60`}
+            >
+              <div className="flex items-center gap-3">
+                <span className={`w-4 h-4 rounded-full border-2 flex-none ${landing === opt.value ? 'border-blue-400 bg-blue-400' : 'border-gray-600'}`} />
+                <div>
+                  <div className="font-medium text-white">{opt.title}</div>
+                  <div className="text-xs text-gray-400 mt-0.5">{opt.desc}</div>
+                </div>
+              </div>
+            </button>
+          ))}
+          {landingErr && <p className="text-red-400 text-sm mt-2">{landingErr}</p>}
+          {landingSave === 'saved' && <p className="text-green-400 text-xs mt-2">Saved.</p>}
+        </div>
       </section>
+
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6 text-center py-12">
+        <div className="text-3xl mb-3">🏢</div>
+        <p className="text-gray-500 text-sm">Company name, plan details, and user management will live here.</p>
+        <p className="text-gray-600 text-xs mt-2">Coming in an upcoming session.</p>
+      </section>
+      </>
       )}
 
     </div>

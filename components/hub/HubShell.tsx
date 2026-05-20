@@ -29,6 +29,8 @@ export default function HubShell({
   canAccessCallLog,
   canAccessLawn,
   canAccessTimesheet,
+  canAccessRouting,
+  canAccessBooks,
   children,
 }: {
   rooms: Room[]
@@ -45,6 +47,8 @@ export default function HubShell({
   canAccessCallLog?: boolean
   canAccessLawn?: boolean
   canAccessTimesheet?: boolean
+  canAccessRouting?: boolean
+  canAccessBooks?: boolean
   children: React.ReactNode
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -127,6 +131,8 @@ export default function HubShell({
           canAccessCallLog={canAccessCallLog}
           canAccessLawn={canAccessLawn}
           canAccessTimesheet={canAccessTimesheet}
+          canAccessRouting={canAccessRouting}
+          canAccessBooks={canAccessBooks}
           onOpenTimeClock={() => { setSidebarOpen(false); setShowTimeClock(true) }}
         />
       </div>

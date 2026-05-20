@@ -40,9 +40,11 @@ export async function proxy(request: NextRequest) {
     // Single fetch: profile + company — used for domain check and permission enforcement
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('role, company_id, can_access_routing, can_access_lawn, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, companies(google_domain)')
+      .select('role, company_id, landing_page, can_access_routing, can_access_lawn, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, companies(google_domain)')
       .eq('id', user.id)
       .single()
+
+    const landingPath = profile?.landing_page === 'dashboard' ? '/dashboard' : '/hub/home'
 
     // Domain check: verify the user's email matches their company's registered Google Workspace domain
     // TEST_ACCOUNTS bypass domain check — for internal testing only
@@ -55,10 +57,10 @@ export async function proxy(request: NextRequest) {
       return NextResponse.redirect(url)
     }
 
-    // Redirect logged-in users away from login
+    // Redirect logged-in users away from login to their preferred landing page
     if (pathname === '/login') {
       const url = request.nextUrl.clone()
-      url.pathname = '/dashboard'
+      url.pathname = landingPath
       return NextResponse.redirect(url)
     }
 
