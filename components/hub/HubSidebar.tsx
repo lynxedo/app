@@ -756,7 +756,12 @@ export default function HubSidebar({
                     {/* Operations */}
                     {hasOperations && (
                       <div>
-                        <div className="px-2 mb-0.5 text-[10px] font-semibold text-white/30 uppercase tracking-wider">Operations</div>
+                        <button onClick={() => toggleSection('tools-operations')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
+                          <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-operations'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                          <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider group-hover:text-white/60">Operations</span>
+                        </button>
+                        {!collapsed['tools-operations'] && (
+                        <>
                         {canAccessRouting && (
                           <Link
                             href="/routing"
@@ -791,13 +796,20 @@ export default function HubSidebar({
                             <span className="truncate">Time Records</span>
                           </Link>
                         )}
+                        </>
+                        )}
                       </div>
                     )}
 
                     {/* Sales */}
                     {hasSales && (
                       <div>
-                        <div className="px-2 mb-0.5 text-[10px] font-semibold text-white/30 uppercase tracking-wider">Sales</div>
+                        <button onClick={() => toggleSection('tools-sales')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
+                          <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-sales'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                          <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider group-hover:text-white/60">Sales</span>
+                        </button>
+                        {!collapsed['tools-sales'] && (
+                        <>
                         {canAccessTracker && (
                           <div>
                             <div className="flex items-center">
@@ -858,13 +870,20 @@ export default function HubSidebar({
                             <span className="truncate">Lawn Calculator</span>
                           </Link>
                         )}
+                        </>
+                        )}
                       </div>
                     )}
 
                     {/* Communications */}
                     {hasComms && (
                       <div>
-                        <div className="px-2 mb-0.5 text-[10px] font-semibold text-white/30 uppercase tracking-wider">Communications</div>
+                        <button onClick={() => toggleSection('tools-communications')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
+                          <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-communications'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                          <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider group-hover:text-white/60">Communications</span>
+                        </button>
+                        {!collapsed['tools-communications'] && (
+                        <>
                         {canAccessCallLog && (
                           <Link
                             href="/hub/call-log"
@@ -877,13 +896,20 @@ export default function HubSidebar({
                             <span className="truncate">Call Log</span>
                           </Link>
                         )}
+                        </>
+                        )}
                       </div>
                     )}
 
                     {/* Finance */}
                     {hasFinance && (
                       <div>
-                        <div className="px-2 mb-0.5 text-[10px] font-semibold text-white/30 uppercase tracking-wider">Finance</div>
+                        <button onClick={() => toggleSection('tools-finance')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
+                          <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-finance'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                          <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider group-hover:text-white/60">Finance</span>
+                        </button>
+                        {!collapsed['tools-finance'] && (
+                        <>
                         {canAccessBooks && (
                           <Link
                             href="/books"
@@ -895,6 +921,8 @@ export default function HubSidebar({
                             <span className="text-xs flex-none">📊</span>
                             <span className="truncate">Books</span>
                           </Link>
+                        )}
+                        </>
                         )}
                       </div>
                     )}
@@ -944,6 +972,7 @@ export default function HubSidebar({
             currentStatus={currentUserStatus ?? null}
             displayName={displayName}
             userEmail={userEmail}
+            isAdmin={isAdmin}
           />
           <div className="px-4 pb-3 flex items-center justify-between">
             <Link href="/dashboard" className="text-base md:text-xs py-2 -my-1 md:py-0 md:my-0 text-white/40 hover:text-white/70 transition-colors">
@@ -970,6 +999,7 @@ export default function HubSidebar({
               {isAdmin && (
                 <Link
                   href="/admin/hub"
+                  onClick={() => onClose?.()}
                   className="text-white/30 hover:text-white/60 transition-colors"
                   title="Hub admin"
                   aria-label="Hub admin"
@@ -988,6 +1018,18 @@ export default function HubSidebar({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
                 </svg>
               </button>
+              <Link
+                href="/settings"
+                onClick={() => onClose?.()}
+                className="text-white/30 hover:text-white/60 transition-colors"
+                title="Settings"
+                aria-label="Settings"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                </svg>
+              </Link>
             </div>
           </div>
         </div>
