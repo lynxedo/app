@@ -49,7 +49,9 @@ export default function ThreadPanel({
   const [replies, setReplies] = useState<Reply[]>([])
   const [replyContent, setReplyContent] = useState('')
   const [sending, setSending] = useState(false)
+  const [isFocused, setIsFocused] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
+  const textareaRef = useRef<HTMLTextAreaElement>(null)
   const supabase = createClient()
 
   useEffect(() => {
@@ -193,18 +195,34 @@ export default function ThreadPanel({
 
       {/* Reply composer */}
       <div className="flex-none border-t border-gray-800 px-3 py-3">
-        <div className="bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 focus-within:border-[#2E7EB8] transition-colors">
+        <div className="bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 focus-within:border-[#2E7EB8] transition-colors flex items-start gap-2">
           <textarea
+            ref={textareaRef}
             value={replyContent}
             onChange={e => setReplyContent(e.target.value)}
             onKeyDown={e => {
               if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply() }
             }}
+            onFocus={() => setIsFocused(true)}
+            onBlur={() => setIsFocused(false)}
             placeholder="Reply in thread…"
             rows={2}
             disabled={sending}
-            className="w-full bg-transparent text-sm text-white placeholder-gray-500 resize-none outline-none leading-relaxed"
+            className="flex-1 bg-transparent text-base md:text-sm text-white placeholder-gray-500 resize-none outline-none leading-relaxed"
           />
+          {isFocused && (
+            <button
+              type="button"
+              onClick={() => textareaRef.current?.blur()}
+              className="md:hidden flex-none text-gray-400 hover:text-white transition-colors mt-0.5"
+              aria-label="Hide keyboard"
+              title="Hide keyboard"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          )}
         </div>
         <div className="flex justify-end mt-1.5">
           <button
