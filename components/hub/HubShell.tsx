@@ -56,6 +56,27 @@ export default function HubShell({
     localStorage.setItem('hub-text-size', initialTextSize ?? 'default')
   }, [initialTextSize])
 
+  // Track Visual Viewport offset so the position:fixed mobile top bar can
+  // follow the visible area on iOS Safari. iOS otherwise scrolls the layout
+  // viewport when the composer textarea is focused, dragging fixed elements
+  // along with it. We expose --vv-top as a CSS variable and apply it as
+  // `top` on the mobile top bar.
+  useEffect(() => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null
+    if (!vv) return
+    function update() {
+      document.documentElement.style.setProperty('--vv-top', `${vv!.offsetTop}px`)
+    }
+    vv.addEventListener('scroll', update)
+    vv.addEventListener('resize', update)
+    update()
+    return () => {
+      vv.removeEventListener('scroll', update)
+      vv.removeEventListener('resize', update)
+      document.documentElement.style.removeProperty('--vv-top')
+    }
+  }, [])
+
 
   // Cmd+K / Ctrl+K opens Quick Compose
   useEffect(() => {
@@ -116,8 +137,11 @@ export default function HubShell({
             Safari auto-scrolls the document on textarea focus. A flex-none
             spacer below preserves the column layout. */}
         <div
-          className="fixed top-0 left-0 right-0 z-30 md:hidden flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-950"
-          style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}
+          className="fixed left-0 right-0 z-30 md:hidden flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-950"
+          style={{
+            top: 'var(--vv-top, 0px)',
+            paddingTop: 'calc(env(safe-area-inset-top) + 12px)',
+          }}
         >
           <button
             onClick={() => setSidebarOpen(true)}

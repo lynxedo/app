@@ -33,6 +33,7 @@ export default function MessageComposer({
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionStart, setMentionStart] = useState(-1)
   const [mentionIndex, setMentionIndex] = useState(0)
+  const [isFocused, setIsFocused] = useState(false)
 
   // Scheduled send
   const [scheduledAt, setScheduledAt] = useState<string>('') // ISO datetime-local string
@@ -329,11 +330,31 @@ export default function MessageComposer({
           onPaste={handlePaste}
           onDrop={handleDrop}
           onDragOver={e => e.preventDefault()}
+          onFocus={() => setIsFocused(true)}
+          onBlur={() => setIsFocused(false)}
           placeholder={placeholder ?? 'Message…'}
           rows={1}
           disabled={sending}
           className="flex-1 bg-transparent text-base md:text-sm text-white placeholder-gray-500 resize-none outline-none leading-relaxed min-h-[24px] max-h-36"
         />
+
+        {/* Dismiss-keyboard button — mobile only, only while textarea is
+            focused. iOS Safari scrolls the document when typing, which can
+            hide the top nav; tapping this blurs the textarea, the keyboard
+            dismisses, and the layout snaps back. */}
+        {isFocused && (
+          <button
+            type="button"
+            onClick={() => textareaRef.current?.blur()}
+            className="md:hidden flex-none text-gray-400 hover:text-white transition-colors pb-0.5"
+            aria-label="Hide keyboard"
+            title="Hide keyboard"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        )}
 
         {/* Schedule button */}
         <div className="relative flex-none pb-0.5" ref={schedulerRef}>
