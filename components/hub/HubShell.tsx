@@ -59,6 +59,16 @@ export default function HubShell({
     localStorage.setItem('hub-text-size', initialTextSize ?? 'default')
   }, [initialTextSize])
 
+  // Keep <html> class in sync with the user's selection so platform-wide
+  // root font-size scaling (defined in globals.css) reflects S/M/L changes
+  // without a full reload. Server already sets the initial class from the
+  // user's profile in app/layout.tsx.
+  useEffect(() => {
+    const html = document.documentElement
+    html.classList.remove('text-size-small', 'text-size-default', 'text-size-large')
+    html.classList.add(`text-size-${textSize}`)
+  }, [textSize])
+
   // Track Visual Viewport offset so the position:fixed mobile top bar can
   // follow the visible area on iOS Safari. iOS otherwise scrolls the layout
   // viewport when the composer textarea is focused, dragging fixed elements

@@ -34,6 +34,14 @@ body {
   animation: marquee 18s linear infinite;
 }
 
+/* S/M/L text size — applied to <html> from server (hub_text_size).
+   Scales every rem-based size in the app: sidebar, settings, help, etc.
+   Message bubbles get an additional explicit override in MessageFeed /
+   ThreadPanel for more dramatic scaling. */
+html.text-size-small  { font-size: 14px; }
+html.text-size-default { font-size: 16px; }
+html.text-size-large  { font-size: 18px; }
+
 .hub-text-small .hub-message-text {
   font-size: 0.8125rem;
   line-height: 1.4;

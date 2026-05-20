@@ -92,6 +92,17 @@ export default function GlobalNav({ profile }: { profile: NavProfile }) {
 
   return (
     <>
+      {/* Mobile safe-area spacer — pushes every non-Hub page below the
+          iPhone status bar / Dynamic Island. GlobalNav is the only thing
+          rendered above page content on non-Hub routes (the mobile nav
+          itself is fixed at the bottom), so this is the single place we
+          can compensate for env(safe-area-inset-top) globally. */}
+      <div
+        className="md:hidden flex-none"
+        style={{ height: 'env(safe-area-inset-top)' }}
+        aria-hidden="true"
+      />
+
       {/* Desktop top bar */}
       <nav className="hidden md:flex flex-none h-12 bg-gray-900 border-b border-gray-800 items-center px-4 gap-1 z-30">
         <span className="text-xs font-bold text-[#2E7EB8] tracking-widest uppercase mr-3 select-none">Lynxedo</span>

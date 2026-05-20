@@ -38,20 +38,27 @@ export default async function RootLayout({
     can_access_tracker: boolean
     can_access_call_log: boolean
   } | null = null
+  let textSize: 'small' | 'default' | 'large' = 'default'
 
   if (user) {
     const { data } = await supabase
       .from('user_profiles')
-      .select('role, can_access_hub, can_access_routing, can_access_timesheet, can_access_tracker, can_access_call_log')
+      .select('role, can_access_hub, can_access_routing, can_access_timesheet, can_access_tracker, can_access_call_log, hub_text_size')
       .eq('id', user.id)
       .single()
-    if (data) navProfile = data
+    if (data) {
+      const { hub_text_size, ...rest } = data
+      navProfile = rest
+      if (hub_text_size === 'small' || hub_text_size === 'large' || hub_text_size === 'default') {
+        textSize = hub_text_size
+      }
+    }
   }
 
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased text-size-${textSize}`}
     >
       <body className="min-h-full flex flex-col">
         {navProfile && <ConditionalGlobalNav profile={navProfile} />}

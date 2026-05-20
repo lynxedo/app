@@ -1373,7 +1373,7 @@ export default function TrackerPage({
       {/* Main */}
       <div className="flex-1 overflow-auto min-w-0">
         {/* Toolbar */}
-        <div className="sticky top-0 z-10 bg-gray-950 border-b border-gray-800 px-4 py-2.5 flex items-center gap-2 flex-wrap">
+        <div className="sticky top-[env(safe-area-inset-top)] md:top-0 z-10 bg-gray-950 border-b border-gray-800 px-4 py-2.5 flex items-center gap-2 flex-wrap">
           <input
             type="text"
             placeholder="Search name, phone, email…"

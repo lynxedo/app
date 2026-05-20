@@ -97,7 +97,7 @@ export default function HelpContent() {
       </header>
 
       {/* Tab bar */}
-      <div className="sticky top-0 z-10 bg-gray-950/95 backdrop-blur border-b border-gray-800">
+      <div className="sticky top-[env(safe-area-inset-top)] md:top-0 z-10 bg-gray-950/95 backdrop-blur border-b border-gray-800">
         <div className="px-2 sm:px-4">
           <div className="flex gap-1 overflow-x-auto no-scrollbar py-2 lg:justify-center">
             {TABS.map(tab => {
@@ -618,6 +618,16 @@ function SettingsTab() {
 
       <Section title="Account — Change Password">
         <p>Use at least 8 characters. You&apos;ll stay signed in on this device after the change. If you forget your password, sign out and use the &ldquo;forgot password&rdquo; flow on the login page.</p>
+      </Section>
+
+      <Section title="Text Size (S / M / L)">
+        <p>Open your account menu in the bottom-left of the Hub sidebar — there are three buttons labeled <strong className="text-white">S</strong>, <strong className="text-white">M</strong>, <strong className="text-white">L</strong> for text size.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">S</strong> — fits more on screen</li>
+          <li><strong className="text-white">M</strong> — default</li>
+          <li><strong className="text-white">L</strong> — easier to read, especially on phones</li>
+        </ul>
+        <p>The setting scales <em>everything</em> — message bubbles, the sidebar, Settings, Help, every tool — and it travels with your account, so it&apos;s the same on every device you sign in on.</p>
       </Section>
     </>
   )
