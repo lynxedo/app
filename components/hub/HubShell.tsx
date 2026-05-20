@@ -56,6 +56,14 @@ export default function HubShell({
     localStorage.setItem('hub-text-size', initialTextSize ?? 'default')
   }, [initialTextSize])
 
+  // Lock document scroll while in Hub. Prevents iOS Safari from auto-scrolling
+  // the document when the composer textarea is focused (which would push the
+  // mobile top bar above the visible viewport).
+  useEffect(() => {
+    document.body.classList.add('hub-no-body-scroll')
+    return () => { document.body.classList.remove('hub-no-body-scroll') }
+  }, [])
+
 
   // Cmd+K / Ctrl+K opens Quick Compose
   useEffect(() => {
