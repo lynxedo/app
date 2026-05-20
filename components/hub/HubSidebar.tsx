@@ -20,6 +20,8 @@ type Conversation = {
 
 type Board = { id: string; name: string; is_private: boolean; is_personal: boolean; created_by: string }
 
+type ExternalLink = { id: string; name: string; url: string; icon: string; sort_order: number }
+
 type ContextMenu = {
   x: number
   y: number
@@ -102,6 +104,7 @@ export default function HubSidebar({
   const [sidebarRooms, setSidebarRooms] = useState<Room[]>(rooms)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [boards, setBoards] = useState<Board[]>([])
+  const [externalLinks, setExternalLinks] = useState<ExternalLink[]>([])
   const [showNewPM, setShowNewPM] = useState(false)
   const [showNotifPrefs, setShowNotifPrefs] = useState(false)
   const [showNewRoom, setShowNewRoom] = useState(false)
@@ -181,6 +184,22 @@ export default function HubSidebar({
 
   useEffect(() => { loadConversations() }, [loadConversations])
   useEffect(() => { loadBoards() }, [loadBoards])
+
+  useEffect(() => {
+    fetch('/api/hub/external-links')
+      .then(r => r.json())
+      .then(d => setExternalLinks(d.links ?? []))
+      .catch(() => {})
+  }, [])
+
+  // Refresh links when the admin tab updates them
+  useEffect(() => {
+    function reload() {
+      fetch('/api/hub/external-links').then(r => r.json()).then(d => setExternalLinks(d.links ?? [])).catch(() => {})
+    }
+    window.addEventListener('hub-external-links-changed', reload)
+    return () => window.removeEventListener('hub-external-links-changed', reload)
+  }, [])
 
   // Refresh conversations when Quick Compose creates a new one
   useEffect(() => {
@@ -1065,6 +1084,29 @@ export default function HubSidebar({
               </>
             )}
           </div>
+
+          {/* External Links */}
+          {externalLinks.length > 0 && (
+            <div>
+              <button onClick={() => toggleSection('links')} className="w-full flex items-center gap-1 px-2 mb-1 group">
+                <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.links ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Links</span>
+              </button>
+              {!collapsed.links && externalLinks.map(link => (
+                <a
+                  key={link.id}
+                  href={link.url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors text-white/70 hover:bg-white/10 hover:text-white"
+                  title={link.url}
+                >
+                  <span className="text-xs">{link.icon}</span>
+                  <span className="truncate">{link.name}</span>
+                </a>
+              ))}
+            </div>
+          )}
         </nav>
         )} {/* end teams-only block */}
 

@@ -166,6 +166,8 @@ function HubTab() {
           <li><strong className="text-white">Direct Messages</strong> — your one-on-ones</li>
           <li><strong className="text-white">Boards</strong> — your saved-message boards</li>
           <li><strong className="text-white">Tools</strong> — Daily Log, Tracker, Lawn Sizer, Call Log, Routing, Books, Time Records</li>
+          <li><strong className="text-white">Pages</strong> — Company News, Files</li>
+          <li><strong className="text-white">Links</strong> — one-click shortcuts to external tools (Jobber, Gusto, QuickBooks, Captivated, etc.)</li>
         </ul>
         <Note>📱 On mobile, the sidebar is hidden by default — tap the menu icon (top-left) to open it. Swiping right from the left edge also opens it.</Note>
       </Section>
@@ -237,6 +239,14 @@ function HubTab() {
         </ul>
         <AdminOnly>
           <p>Admins manage the tag list under <strong className="text-white">/admin/hub → Files Tags</strong>. Add, rename, or remove tags. Tags applied to existing files stay attached even if you rename the tag.</p>
+        </AdminOnly>
+      </Section>
+
+      <Section title="External Links">
+        <p>The <strong className="text-white">LINKS</strong> section near the bottom of the sidebar is a curated list of shortcuts to outside tools the team uses every day — Jobber, Gusto, QuickBooks, Captivated, and so on. Click any link to open it in a new browser tab.</p>
+        <Note>Click the chevron next to <strong className="text-white">LINKS</strong> to collapse the section if you don&apos;t want it taking up space.</Note>
+        <AdminOnly>
+          <p>Admins manage the list under <strong className="text-white">/admin/hub → External Links</strong>. Each link has a name, URL, emoji icon, and sort order. Use multiples of 10 for sort order (10, 20, 30…) so you can insert new links between later. Everyone in Hub sees the same set of links.</p>
         </AdminOnly>
       </Section>
 
