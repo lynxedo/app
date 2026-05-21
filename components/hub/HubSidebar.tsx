@@ -598,6 +598,13 @@ export default function HubSidebar({
   const favoriteRooms = sortedRooms.filter(r => pinnedSet.has(r.id))
   const favoriteConvs = sortedConvs.filter(c => pinnedSet.has(c.id))
 
+  // Unread surfacing — rooms and DMs with unread messages also appear in a
+  // dedicated section at the top of the sidebar, so they stay visible even
+  // when the user has Rooms/DMs sections collapsed.
+  const unreadRoomsList = sortedRooms.filter(r => unreadRoomIds.has(r.id))
+  const unreadConvsList = sortedConvs.filter(c => unreadConvIds.has(c.id))
+  const hasUnreadItems = unreadRoomsList.length > 0 || unreadConvsList.length > 0
+
   // Pinned tools — filter by current access so a tool the user lost
   // permission to doesn't render a dead link.
   const toolAccess: Record<string, boolean> = {
@@ -778,6 +785,19 @@ export default function HubSidebar({
               </button>
             )}
           </div>
+
+          {/* Unread — always-expanded section that surfaces any room or DM
+              with unread messages. Hides entirely when nothing is unread, so
+              it doesn't add clutter once you're caught up. */}
+          {hasUnreadItems && (
+            <div>
+              <div className="px-2 mb-1">
+                <span className="text-sm md:text-xs font-semibold text-orange-300 uppercase tracking-wider">Unread</span>
+              </div>
+              {unreadConvsList.map(conv => renderConv(conv))}
+              {unreadRoomsList.map(room => renderRoom(room))}
+            </div>
+          )}
 
           {/* Favorites */}
           {hasFavorites && (

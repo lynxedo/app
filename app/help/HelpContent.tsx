@@ -169,6 +169,7 @@ function HubTab() {
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Home</strong> — announcements, shout outs, your starred rooms</li>
           <li><strong className="text-white">Clients</strong> — SMS conversations with customers (Captivated)</li>
+          <li><strong className="text-white">Unread</strong> — any room or DM with unread messages, surfaced at the top so you don&apos;t miss them even if Rooms or DMs is collapsed. The section disappears when you&apos;re caught up.</li>
           <li><strong className="text-white">Rooms</strong> — group conversations you belong to</li>
           <li><strong className="text-white">Direct Messages</strong> — your one-on-ones</li>
           <li><strong className="text-white">Boards</strong> — your saved-message boards</li>
