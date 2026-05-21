@@ -51,9 +51,25 @@ export default function HubShell({
   children: React.ReactNode
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const [desktopCollapsed, setDesktopCollapsed] = useState(false)
   const [showCompose, setShowCompose] = useState(false)
   const [showTimeClock, setShowTimeClock] = useState(false)
   const [textSize, setTextSize] = useState(initialTextSize ?? 'default')
+
+  // Desktop-only sidebar collapse, persisted across reloads via localStorage.
+  // Mobile uses the existing sidebarOpen drawer; this flag is `md:`-only.
+  useEffect(() => {
+    try {
+      setDesktopCollapsed(localStorage.getItem('hub-sidebar-collapsed') === '1')
+    } catch {}
+  }, [])
+  const toggleDesktopCollapsed = useCallback(() => {
+    setDesktopCollapsed(prev => {
+      const next = !prev
+      try { localStorage.setItem('hub-sidebar-collapsed', next ? '1' : '0') } catch {}
+      return next
+    })
+  }, [])
 
   useEffect(() => {
     localStorage.setItem('hub-text-size', initialTextSize ?? 'default')
@@ -118,11 +134,13 @@ export default function HubShell({
         />
       )}
 
-      {/* Sidebar — always visible on md+, drawer on mobile */}
+      {/* Sidebar — drawer on mobile, in-flow column on desktop (hidden when
+          desktopCollapsed). */}
       <div className={`
         fixed inset-y-0 left-0 z-50 md:relative md:z-auto
         transform transition-transform duration-200 ease-in-out
         ${sidebarOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+        ${desktopCollapsed ? 'md:hidden' : ''}
       `}>
         <HubSidebar
           rooms={rooms}
@@ -133,6 +151,7 @@ export default function HubShell({
           currentUserDisplayName={currentUserDisplayName}
           isAdmin={isAdmin}
           onClose={() => setSidebarOpen(false)}
+          onDesktopCollapse={toggleDesktopCollapsed}
           textSize={textSize}
           onTextSizeChange={setTextSize}
           initialPinnedIds={initialPinnedIds ?? []}
@@ -145,6 +164,21 @@ export default function HubShell({
           onOpenTimeClock={() => { setSidebarOpen(false); setShowTimeClock(true) }}
         />
       </div>
+
+      {/* Desktop-only reopen chevron — visible only when the desktop sidebar
+          is collapsed. Sits flush against the left edge of the main column. */}
+      {desktopCollapsed && (
+        <button
+          onClick={toggleDesktopCollapsed}
+          className="hidden md:flex fixed left-0 top-1/2 -translate-y-1/2 z-30 items-center justify-center w-6 h-16 bg-[#1A3D5C] hover:bg-[#22506F] border-y border-r border-white/10 rounded-r text-white/80 hover:text-white transition-colors"
+          aria-label="Show sidebar"
+          title="Show sidebar"
+        >
+          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+          </svg>
+        </button>
+      )}
 
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">

@@ -69,6 +69,7 @@ export default function HubSidebar({
   currentUserDisplayName,
   isAdmin,
   onClose,
+  onDesktopCollapse,
   textSize,
   onTextSizeChange,
   initialPinnedIds = [],
@@ -88,6 +89,7 @@ export default function HubSidebar({
   currentUserDisplayName?: string
   isAdmin?: boolean
   onClose?: () => void
+  onDesktopCollapse?: () => void
   textSize?: string
   onTextSizeChange?: (size: string) => void
   initialPinnedIds?: string[]
@@ -663,17 +665,31 @@ export default function HubSidebar({
     <>
       <aside className="w-screen md:w-60 flex-none bg-[#1A3D5C] flex flex-col h-full h-[100dvh]">
         {/* Workspace header */}
-        <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
-          <div className="font-bold text-white text-lg md:text-sm tracking-wide">Heroes Lawn Care</div>
-          {onClose && (
-            <button
-              onClick={onClose}
-              className="md:hidden text-white/40 hover:text-white/70 transition-colors p-1 rounded"
-              aria-label="Close sidebar"
-            >
-              ✕
-            </button>
-          )}
+        <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
+          <div className="font-bold text-white text-lg md:text-sm tracking-wide min-w-0 truncate">Heroes Lawn Care</div>
+          <div className="flex items-center gap-1 flex-none">
+            {onDesktopCollapse && (
+              <button
+                onClick={onDesktopCollapse}
+                className="hidden md:flex items-center justify-center text-white/40 hover:text-white/80 transition-colors p-1 rounded"
+                aria-label="Collapse sidebar"
+                title="Collapse sidebar"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+                </svg>
+              </button>
+            )}
+            {onClose && (
+              <button
+                onClick={onClose}
+                className="md:hidden text-white/40 hover:text-white/70 transition-colors p-1 rounded"
+                aria-label="Close sidebar"
+              >
+                ✕
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Search bar */}

@@ -177,6 +177,7 @@ function HubTab() {
           <li><strong className="text-white">Links</strong> — one-click shortcuts to external tools (Jobber, Gusto, QuickBooks, Captivated, etc.)</li>
         </ul>
         <Note>📱 On mobile, the sidebar is hidden by default — tap the menu icon (top-left) to open it. Swiping right from the left edge also opens it.</Note>
+        <Note>🖥️ On desktop, click the small left-chevron at the top-right of the sidebar header to collapse it out of the way. A floating chevron appears on the left edge of the screen — click it to bring the sidebar back. Your choice is remembered.</Note>
       </Section>
 
       <Section title="Rooms">
