@@ -222,6 +222,7 @@ function HubTab() {
         <p className="font-medium text-white mt-3">Toolbar buttons (left to right, below the input)</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">📎 Attach</strong> — pick a file or photo. You can also paste images from your clipboard or drag-and-drop a file straight onto the composer.</li>
+          <li><strong className="text-white">Aa Format</strong> — wraps your selected text (or inserts markers for you to type between) in bold, italic, strike, code, or quote. See the Formatting section below for the full list of markers and keyboard shortcuts.</li>
           <li><strong className="text-white">😀 Emoji</strong> — opens a full emoji picker with search, categories, recents, and skin tones.</li>
           <li><strong className="text-white">@ Mention</strong> — inserts <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> and opens the name picker. Mentioned people get a push notification even if their notifications are set to Mentions only. You can also just type <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> directly.</li>
           <li><strong className="text-white">⏰ Schedule</strong> — pick a future date/time. The button turns blue, the Send button turns yellow, and a banner shows when it&apos;ll go out. Click the ✕ on the banner to switch back to send-now.</li>
@@ -229,6 +230,26 @@ function HubTab() {
         </ul>
         <p className="font-medium text-white mt-3">Typing emoji by name</p>
         <p>Type <code className="bg-gray-800 px-1 rounded text-orange-300">:</code> followed by a name and a list of matches pops up. <code className="bg-gray-800 px-1 rounded">:smile</code> → 😄, <code className="bg-gray-800 px-1 rounded">:fire</code> → 🔥, <code className="bg-gray-800 px-1 rounded">:thumbsup</code> → 👍. Arrow keys to navigate the list, Enter or Tab to insert.</p>
+      </Section>
+
+      <Section title="Formatting Text">
+        <p>Hub uses Slack-style markdown. The <strong className="text-white">Aa</strong> toolbar button opens a small popover with one-tap formatters — or type the markers directly. Either way, your message displays formatted when it sends.</p>
+        <p className="font-medium text-white mt-3">Markers</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><code className="bg-gray-800 px-1 rounded text-orange-300">*bold*</code> → <strong className="text-white">bold</strong></li>
+          <li><code className="bg-gray-800 px-1 rounded text-orange-300">_italic_</code> → <em>italic</em></li>
+          <li><code className="bg-gray-800 px-1 rounded text-orange-300">~strike~</code> → <span className="line-through">strike</span></li>
+          <li><code className="bg-gray-800 px-1 rounded text-orange-300">`code`</code> → <code className="bg-gray-700 text-gray-100 rounded px-1 font-mono text-sm">code</code> (inline)</li>
+          <li><code className="bg-gray-800 px-1 rounded text-orange-300">&gt; quote</code> at the start of a line → renders as a quoted line with a left border</li>
+        </ul>
+        <p className="font-medium text-white mt-3">Keyboard shortcuts (desktop)</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">⌘B</strong> / <strong className="text-white">Ctrl+B</strong> — bold</li>
+          <li><strong className="text-white">⌘I</strong> / <strong className="text-white">Ctrl+I</strong> — italic</li>
+          <li><strong className="text-white">⌘⇧X</strong> / <strong className="text-white">Ctrl+Shift+X</strong> — strikethrough</li>
+        </ul>
+        <p className="text-gray-400 mt-3">If you have text selected when you tap a formatter (or hit a shortcut), it wraps the selection. With no selection, the markers are inserted and your cursor lands between them so you can type.</p>
+        <p className="text-gray-400 mt-1">Markdown also works in thread replies and in forwarded message previews.</p>
       </Section>
 
       <Section title="Message Actions (long-press / right-click)">

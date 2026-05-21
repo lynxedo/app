@@ -6,6 +6,7 @@ import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
 import SaveToFilesModal from './SaveToFilesModal'
 import MessageActionsSheet from './MessageActionsSheet'
+import { renderContent } from './renderContent'
 
 export type MessageFeedHandle = { addMessage: (msg: HubMessage) => void }
 
@@ -74,19 +75,6 @@ function Avatar({ sender }: { sender: Sender | null }) {
   )
 }
 
-function renderContent(content: string, hubUsers: HubUser[]) {
-  const parts = content.split(/(@\w+)/g)
-  return parts.map((part, i) => {
-    if (part.startsWith('@')) {
-      const name = part.slice(1).toLowerCase()
-      if (name === 'room') return <span key={i} className="bg-yellow-500/20 text-yellow-300 rounded px-0.5 font-medium">{part}</span>
-      const isUser = hubUsers.some(u => u.display_name.split(' ')[0].toLowerCase() === name)
-      if (isUser) return <span key={i} className="bg-[#2E7EB8]/20 text-[#6FB3E8] rounded px-0.5">{part}</span>
-    }
-    return <span key={i}>{part}</span>
-  })
-}
-
 function FileAttachment({ file }: { file: FileItem }) {
   // Optimistic-send rows have a `localUrl` blob URL and a temp id; use
   // the blob URL until realtime delivers the row with a real DB id.
@@ -111,7 +99,7 @@ function FileAttachment({ file }: { file: FileItem }) {
   )
 }
 
-function ForwardedBanner({ original, rooms }: { original: ForwardedOriginal; rooms?: { id: string; name: string }[] }) {
+function ForwardedBanner({ original, rooms, hubUsers }: { original: ForwardedOriginal; rooms?: { id: string; name: string }[]; hubUsers: HubUser[] }) {
   const roomName = rooms?.find(r => r.id === original.room_id)?.name
   const source = roomName ? `#${roomName}` : original.conversation_id ? 'a DM' : 'another conversation'
   const senderName = original.sender?.display_name ?? 'Unknown'
@@ -121,7 +109,7 @@ function ForwardedBanner({ original, rooms }: { original: ForwardedOriginal; roo
         ↗ Forwarded from {source} · {senderName}
       </div>
       <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap break-words line-clamp-4">
-        {original.content || <span className="italic text-gray-500">Attachment</span>}
+        {original.content ? renderContent(original.content, hubUsers) : <span className="italic text-gray-500">Attachment</span>}
       </p>
     </div>
   )
@@ -466,7 +454,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
 
                     {/* Forwarded message banner */}
                     {msg.forwarded_original && (
-                      <ForwardedBanner original={msg.forwarded_original} rooms={rooms} />
+                      <ForwardedBanner original={msg.forwarded_original} rooms={rooms} hubUsers={hubUsers} />
                     )}
 
                     {isEditing ? (

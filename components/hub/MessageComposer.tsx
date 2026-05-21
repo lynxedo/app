@@ -63,6 +63,9 @@ export default function MessageComposer({
   // Emoji picker popover (toolbar 😀 button)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const emojiPickerRef = useRef<HTMLDivElement>(null)
+  // Format picker popover (toolbar Aa button)
+  const [showFormatPicker, setShowFormatPicker] = useState(false)
+  const formatPickerRef = useRef<HTMLDivElement>(null)
   // Expand chevron — does NOT persist across mounts or sessions; every
   // room/DM open starts collapsed (Session 39 PRD).
   const [expanded, setExpanded] = useState(false)
@@ -113,6 +116,18 @@ export default function MessageComposer({
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [showScheduler])
+
+  // Close format picker on outside click
+  useEffect(() => {
+    if (!showFormatPicker) return
+    function handler(e: MouseEvent) {
+      if (formatPickerRef.current && !formatPickerRef.current.contains(e.target as Node)) {
+        setShowFormatPicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showFormatPicker])
 
   function autoSize() {
     const el = textareaRef.current
@@ -226,6 +241,46 @@ export default function MessageComposer({
     })
   }
 
+  // Wrap the current selection (or insert markers at the caret) with a
+  // Slack-style formatter — *bold*, _italic_, ~strike~, `code`. If there's
+  // a selection it stays selected (wrapped); otherwise the caret lands
+  // between the two markers so the user can type.
+  function wrapSelection(marker: string) {
+    const el = textareaRef.current
+    if (!el) return
+    const start = el.selectionStart ?? content.length
+    const end = el.selectionEnd ?? content.length
+    const before = content.slice(0, start)
+    const selected = content.slice(start, end)
+    const after = content.slice(end)
+    setContent(before + marker + selected + marker + after)
+    const newStart = start + marker.length
+    const newEnd = end + marker.length
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      if (selected.length > 0) el.setSelectionRange(newStart, newEnd)
+      else el.setSelectionRange(newStart, newStart)
+    })
+  }
+
+  // Insert `> ` at the start of the line containing the caret.
+  function prependQuoteToLine() {
+    const el = textareaRef.current
+    if (!el) return
+    const start = el.selectionStart ?? content.length
+    const lineStart = content.lastIndexOf('\n', start - 1) + 1
+    if (content.slice(lineStart, lineStart + 2) === '> ') return // already quoted
+    const newVal = content.slice(0, lineStart) + '> ' + content.slice(lineStart)
+    setContent(newVal)
+    const newCaret = start + 2
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(newCaret, newCaret)
+    })
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Emoji autocomplete navigation takes priority over mention because
     // the two can't be open at the same time (different trigger chars).
@@ -240,6 +295,13 @@ export default function MessageComposer({
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return }
       if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertMention(filteredUsers[mentionIndex]); return }
       if (e.key === 'Escape') { setMentionQuery(null); return }
+    }
+    // Formatting shortcuts — Cmd on Mac, Ctrl elsewhere.
+    if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+      const k = e.key.toLowerCase()
+      if (k === 'b' && !e.shiftKey) { e.preventDefault(); wrapSelection('*'); return }
+      if (k === 'i' && !e.shiftKey) { e.preventDefault(); wrapSelection('_'); return }
+      if (k === 'x' && e.shiftKey)  { e.preventDefault(); wrapSelection('~'); return }
     }
     // Enter sends on desktop only. On mobile (≤767px) Enter inserts a
     // newline — sending requires tapping the Send button. This matches
@@ -529,7 +591,7 @@ export default function MessageComposer({
       </div>
 
       {/* Toolbar bar below the input. Order (Slack-style):
-          📎 attach · [Aa format slot, reserved/hidden] · 😀 emoji · @ mention · ⏰ schedule · ▶ Send */}
+          📎 attach · Aa format · 😀 emoji · @ mention · ⏰ schedule · ▶ Send */}
       <div className="flex items-center gap-1 mt-1.5 px-1">
         {/* Attach */}
         <button
@@ -545,10 +607,68 @@ export default function MessageComposer({
           </svg>
         </button>
 
-        {/* Aa format slot — reserved for a future markdown-formatting
-            session. Rendered as a hidden placeholder so the surrounding
-            spacing matches the planned final layout. */}
-        <div className="w-7 h-7 hidden" aria-hidden="true" />
+        {/* Aa format — Slack-style markdown wrappers. Popover stays open
+            until outside-click; each action closes it so typing flows. */}
+        <div className="relative" ref={formatPickerRef}>
+          <button
+            type="button"
+            onClick={() => setShowFormatPicker(v => !v)}
+            className="text-gray-500 hover:text-gray-300 transition-colors p-1.5 rounded-md hover:bg-gray-800 font-semibold text-sm"
+            title="Format text"
+            aria-label="Format text"
+          >
+            Aa
+          </button>
+          {showFormatPicker && (
+            <div className="absolute bottom-full left-0 mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-1 z-50 flex items-center gap-0.5">
+              <button
+                type="button"
+                onClick={() => { wrapSelection('*'); setShowFormatPicker(false) }}
+                className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-800 rounded-md font-bold"
+                title="Bold (⌘B)"
+                aria-label="Bold"
+              >
+                B
+              </button>
+              <button
+                type="button"
+                onClick={() => { wrapSelection('_'); setShowFormatPicker(false) }}
+                className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-800 rounded-md italic font-serif"
+                title="Italic (⌘I)"
+                aria-label="Italic"
+              >
+                I
+              </button>
+              <button
+                type="button"
+                onClick={() => { wrapSelection('~'); setShowFormatPicker(false) }}
+                className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-800 rounded-md line-through"
+                title="Strikethrough (⌘⇧X)"
+                aria-label="Strikethrough"
+              >
+                S
+              </button>
+              <button
+                type="button"
+                onClick={() => { wrapSelection('`'); setShowFormatPicker(false) }}
+                className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-800 rounded-md font-mono text-xs"
+                title="Inline code"
+                aria-label="Inline code"
+              >
+                {'<>'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { prependQuoteToLine(); setShowFormatPicker(false) }}
+                className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-800 rounded-md text-base"
+                title="Quote line"
+                aria-label="Quote line"
+              >
+                ❝
+              </button>
+            </div>
+          )}
+        </div>
 
         {/* Emoji picker */}
         <div className="relative" ref={emojiPickerRef}>

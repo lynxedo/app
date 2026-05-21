@@ -6,6 +6,7 @@ import data from '@emoji-mart/data'
 import { init, SearchIndex } from 'emoji-mart'
 import { createClient } from '@/lib/supabase/client'
 import type { HubMessage, HubUser, Sender } from './MessageFeed'
+import { renderContent } from './renderContent'
 
 init({ data })
 
@@ -64,6 +65,8 @@ export default function ThreadPanel({
   const [emojiResults, setEmojiResults] = useState<EmojiSuggestion[]>([])
   // Emoji picker popover (toolbar 😀 button)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const [showFormatPicker, setShowFormatPicker] = useState(false)
+  const formatPickerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const didInitialScroll = useRef(false)
@@ -83,6 +86,52 @@ export default function ThreadPanel({
     })()
     return () => { cancelled = true }
   }, [emojiQuery])
+
+  useEffect(() => {
+    if (!showFormatPicker) return
+    function handler(e: MouseEvent) {
+      if (formatPickerRef.current && !formatPickerRef.current.contains(e.target as Node)) {
+        setShowFormatPicker(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showFormatPicker])
+
+  function wrapSelection(marker: string) {
+    const el = textareaRef.current
+    if (!el) return
+    const start = el.selectionStart ?? replyContent.length
+    const end = el.selectionEnd ?? replyContent.length
+    const before = replyContent.slice(0, start)
+    const selected = replyContent.slice(start, end)
+    const after = replyContent.slice(end)
+    setReplyContent(before + marker + selected + marker + after)
+    const newStart = start + marker.length
+    const newEnd = end + marker.length
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      if (selected.length > 0) el.setSelectionRange(newStart, newEnd)
+      else el.setSelectionRange(newStart, newStart)
+    })
+  }
+
+  function prependQuoteToLine() {
+    const el = textareaRef.current
+    if (!el) return
+    const start = el.selectionStart ?? replyContent.length
+    const lineStart = replyContent.lastIndexOf('\n', start - 1) + 1
+    if (replyContent.slice(lineStart, lineStart + 2) === '> ') return
+    const newVal = replyContent.slice(0, lineStart) + '> ' + replyContent.slice(lineStart)
+    setReplyContent(newVal)
+    const newCaret = start + 2
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(newCaret, newCaret)
+    })
+  }
 
   function handleReplyChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value
@@ -242,7 +291,7 @@ export default function ThreadPanel({
               <span className="text-xs text-gray-600">{formatTime(parentMessage.created_at)}</span>
             </div>
             <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap break-words line-clamp-4">
-              {parentMessage.content}
+              {renderContent(parentMessage.content, hubUsers)}
             </p>
           </div>
         </div>
@@ -267,7 +316,7 @@ export default function ThreadPanel({
                   <span className="text-xs text-gray-600">{formatTime(reply.created_at)}</span>
                 </div>
                 <p className="hub-message-text text-lg md:text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
-                  {reply.content}
+                  {renderContent(reply.content, hubUsers)}
                   {reply.edited_at && <span className="ml-1 text-xs text-gray-600">(edited)</span>}
                 </p>
               </div>
@@ -310,6 +359,12 @@ export default function ThreadPanel({
                 if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertEmojiFromSuggestion(emojiResults[emojiIndex]); return }
                 if (e.key === 'Escape') { setEmojiQuery(null); return }
               }
+              if ((e.metaKey || e.ctrlKey) && !e.altKey) {
+                const k = e.key.toLowerCase()
+                if (k === 'b' && !e.shiftKey) { e.preventDefault(); wrapSelection('*'); return }
+                if (k === 'i' && !e.shiftKey) { e.preventDefault(); wrapSelection('_'); return }
+                if (k === 'x' && e.shiftKey)  { e.preventDefault(); wrapSelection('~'); return }
+              }
               if (e.key === 'Enter' && !e.shiftKey) {
                 const isMobile = typeof window !== 'undefined'
                   && window.matchMedia('(max-width: 767px)').matches
@@ -339,6 +394,28 @@ export default function ThreadPanel({
         </div>
 
         <div className="flex items-center gap-1 mt-1.5 px-1">
+          {/* Aa format */}
+          <div className="relative" ref={formatPickerRef}>
+            <button
+              type="button"
+              onClick={() => setShowFormatPicker(v => !v)}
+              className="text-gray-500 hover:text-gray-300 transition-colors p-1.5 rounded-md hover:bg-gray-800 font-semibold text-sm"
+              title="Format text"
+              aria-label="Format text"
+            >
+              Aa
+            </button>
+            {showFormatPicker && (
+              <div className="absolute bottom-full left-0 mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-1 z-50 flex items-center gap-0.5">
+                <button type="button" onClick={() => { wrapSelection('*'); setShowFormatPicker(false) }} className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-800 rounded-md font-bold" title="Bold (⌘B)" aria-label="Bold">B</button>
+                <button type="button" onClick={() => { wrapSelection('_'); setShowFormatPicker(false) }} className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-800 rounded-md italic font-serif" title="Italic (⌘I)" aria-label="Italic">I</button>
+                <button type="button" onClick={() => { wrapSelection('~'); setShowFormatPicker(false) }} className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-800 rounded-md line-through" title="Strikethrough (⌘⇧X)" aria-label="Strikethrough">S</button>
+                <button type="button" onClick={() => { wrapSelection('`'); setShowFormatPicker(false) }} className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-800 rounded-md font-mono text-xs" title="Inline code" aria-label="Inline code">{'<>'}</button>
+                <button type="button" onClick={() => { prependQuoteToLine(); setShowFormatPicker(false) }} className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-800 rounded-md text-base" title="Quote line" aria-label="Quote line">❝</button>
+              </div>
+            )}
+          </div>
+
           {/* Emoji picker */}
           <div className="relative">
             <button
