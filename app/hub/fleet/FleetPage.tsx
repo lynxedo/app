@@ -233,8 +233,8 @@ export default function FleetPage() {
   }, [])
 
   return (
-    <div className="flex flex-col md:flex-row h-full w-full bg-gray-950 text-white">
-      <div className="flex-1 relative min-h-[40vh]">
+    <div className="flex flex-col md:flex-row flex-1 min-h-0 w-full bg-gray-950 text-white">
+      <div className="flex-1 min-h-[50vh] md:min-h-0 relative">
         <div ref={mapContainerRef} className="absolute inset-0" />
         {error && (
           <div className="absolute top-4 left-4 right-4 md:right-auto md:max-w-md bg-red-900/80 border border-red-700 text-red-100 px-3 py-2 rounded text-sm">
