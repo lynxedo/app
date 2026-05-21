@@ -77,6 +77,7 @@ export async function proxy(request: NextRequest) {
         '/hub/call-log': 'can_access_call_log',
         '/hub/lawn': 'can_access_lawn',
         '/hub/tracker': 'can_access_tracker',
+        '/hub/routing': 'can_access_routing',
       }
 
       for (const [route, permKey] of Object.entries(permissionMap)) {

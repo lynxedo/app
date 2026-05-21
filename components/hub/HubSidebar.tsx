@@ -45,7 +45,7 @@ type ToolDef = {
 }
 
 const TOOL_CATALOG: Record<string, ToolDef> = {
-  'tool:routing':       { id: 'tool:routing',       label: 'Routing',         icon: '⚡',  href: '/routing',          prefixMatch: true },
+  'tool:routing':       { id: 'tool:routing',       label: 'Routing',         icon: '⚡',  href: '/hub/routing',      prefixMatch: true },
   'tool:daily-log':     { id: 'tool:daily-log',     label: 'Daily Log',       icon: '📋', href: '/hub/daily-log',    prefixMatch: true },
   'tool:time-records':  { id: 'tool:time-records',  label: 'Time Records',    icon: '🕐', href: '/admin/timesheet',  prefixMatch: true },
   'tool:tracker':       { id: 'tool:tracker',       label: 'Tracker',         icon: '🎯', href: '/hub/tracker',      prefixMatch: true },
@@ -57,7 +57,10 @@ const TOOL_CATALOG: Record<string, ToolDef> = {
 
 function convLabel(conv: Conversation, currentUserId: string) {
   const others = conv.participants.filter(p => p.id !== currentUserId)
-  if (others.length === 0) return 'Just you'
+  if (others.length === 0) {
+    const self = conv.participants.find(p => p.id === currentUserId)
+    return self?.display_name ?? 'You'
+  }
   return others.map(p => p.display_name.split(' ')[0]).join(', ')
 }
 
@@ -157,11 +160,24 @@ export default function HubSidebar({
   // Search
   const [showSearch, setShowSearch] = useState(false)
 
-  // Collapsible sections
+  // Collapsible sections — persisted per-user in localStorage so each section
+  // (Favorites, Rooms, DMs, Boards, Tools subcategories, Pages, Links) remembers
+  // its expand/collapse state across visits and across devices that share a browser.
+  const sectionsStorageKey = `hub-sidebar-sections:${currentUserId}`
   const [collapsed, setCollapsed] = useState<Record<string, boolean>>({})
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(sectionsStorageKey)
+      if (raw) setCollapsed(JSON.parse(raw))
+    } catch {}
+  }, [sectionsStorageKey])
   const [showArchivedDms, setShowArchivedDms] = useState(false)
   function toggleSection(key: string) {
-    setCollapsed(prev => ({ ...prev, [key]: !prev[key] }))
+    setCollapsed(prev => {
+      const next = { ...prev, [key]: !prev[key] }
+      try { localStorage.setItem(sectionsStorageKey, JSON.stringify(next)) } catch {}
+      return next
+    })
   }
 
   // Tracker sub-nav expansion (auto-expands when on a tracker page)
@@ -943,10 +959,10 @@ export default function HubSidebar({
                         {canAccessRouting && (
                           <div className="group/tool flex items-center">
                             <Link
-                              href="/routing"
+                              href="/hub/routing"
                               onClick={() => onClose?.()}
                               className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
-                                pathname.startsWith('/routing') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                                pathname.startsWith('/hub/routing') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
                               }`}
                             >
                               <span className="text-xs flex-none">⚡</span>

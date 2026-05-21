@@ -197,6 +197,7 @@ function HubTab() {
         <Step n={1}>Click <strong className="text-white">+ New DM</strong> in the sidebar.</Step>
         <Step n={2}>Pick one person for a one-on-one, or multiple people for a group DM.</Step>
         <Step n={3}>Type your message and send. The DM appears in their sidebar instantly.</Step>
+        <p className="mt-3"><strong className="text-white">DM with yourself.</strong> You also have a private DM with just you, labeled with your own name. Use it as a scratchpad — jot notes, paste links, or forward messages you want to keep handy. Nobody else can see it.</p>
       </Section>
 
       <Section title="Managing your DMs">
@@ -380,6 +381,7 @@ function HubTab() {
           <li><strong className="text-white">Dashboard</strong> — counts and conversion rates by source, by month.</li>
           <li><strong className="text-white">Import</strong> — bulk-add leads from a spreadsheet.</li>
         </ul>
+        <p className="mt-3"><strong className="text-white">Resize or reorder columns.</strong> Drag a column header to reorder it. Drag the right edge of any header to resize. Your layout is saved per-user and follows you across devices.</p>
         <AdminOnly>
           <p>Admins configure lead sources, stages, and field defaults under <strong className="text-white">Tracker → Settings</strong>.</p>
         </AdminOnly>
@@ -402,7 +404,7 @@ function RoutingTab() {
       <Section title="First-Time Setup">
         <Step n={1}>Connect your Jobber account under <Link href="/settings" className="text-orange-400 hover:text-orange-300">Settings → Integrations</Link>. Click <strong className="text-white">Connect Jobber →</strong> and authorize.</Step>
         <Step n={2}>An admin needs to configure the depot, duration rules, and routing defaults at <strong className="text-white">Admin → Routing</strong> (see Admin section below). This only happens once for the whole company.</Step>
-        <Step n={3}>Head to the <Link href="/routing" className="text-orange-400 hover:text-orange-300">Route Optimizer</Link> and build your first route.</Step>
+        <Step n={3}>Head to the <Link href="/hub/routing" className="text-orange-400 hover:text-orange-300">Route Optimizer</Link> and build your first route.</Step>
       </Section>
 
       <Section title="Building a Route">

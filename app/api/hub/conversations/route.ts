@@ -2,10 +2,53 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
+async function ensureSelfConversation(userId: string) {
+  const admin = createAdminClient()
+  // Find any single-member conversation where the only member is this user.
+  const { data: mine } = await admin
+    .from('conversation_members')
+    .select('conversation_id')
+    .eq('user_id', userId)
+  const myIds = (mine ?? []).map((m: { conversation_id: string }) => m.conversation_id)
+  if (myIds.length > 0) {
+    const { data: peers } = await admin
+      .from('conversation_members')
+      .select('conversation_id, user_id')
+      .in('conversation_id', myIds)
+    const counts: Record<string, number> = {}
+    for (const p of (peers ?? []) as { conversation_id: string; user_id: string }[]) {
+      counts[p.conversation_id] = (counts[p.conversation_id] ?? 0) + 1
+    }
+    for (const cid of myIds) if (counts[cid] === 1) return cid
+  }
+  // Create one
+  const { data: profile } = await admin
+    .from('user_profiles')
+    .select('company_id')
+    .eq('id', userId)
+    .single()
+  if (!profile?.company_id) return null
+  const { data: conv, error } = await admin
+    .from('conversations')
+    .insert({ company_id: profile.company_id })
+    .select('id')
+    .single()
+  if (error || !conv) return null
+  await admin
+    .from('conversation_members')
+    .insert({ conversation_id: conv.id, user_id: userId })
+  return conv.id
+}
+
 export async function GET() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Ensure the user's self-DM exists (idempotent — finds or creates a
+  // single-member conversation owned by this user, used as a personal
+  // scratchpad / saved-messages spot in the sidebar).
+  await ensureSelfConversation(user.id)
 
   // Get conversation IDs + my archived_at for each
   const { data: memberships } = await supabase
@@ -85,10 +128,11 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { participant_ids } = await request.json()
-  if (!Array.isArray(participant_ids) || participant_ids.length === 0) {
+  if (!Array.isArray(participant_ids)) {
     return NextResponse.json({ error: 'participant_ids required' }, { status: 400 })
   }
 
+  // Empty participant_ids (or one containing only the caller) means "self DM".
   const allParticipants = [...new Set<string>([user.id, ...participant_ids])]
 
   const { data: profile } = await supabase

@@ -61,7 +61,7 @@ export default async function DashboardPage() {
 
           {profile?.can_access_routing && (
             <Link
-              href="/routing"
+              href="/hub/routing"
               className="group bg-gray-900 border border-gray-800 hover:border-blue-500 rounded-2xl p-6 transition-all hover:-translate-y-0.5 hover:shadow-lg hover:shadow-blue-500/10 block"
             >
               <div className="flex items-start justify-between mb-4">

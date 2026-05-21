@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 
 type Lead = {
   id: string
@@ -325,6 +325,180 @@ function MultiSelectCell({
 }
 
 // ────────────────────────────────────────────────
+// Column definitions — reorderable + resizable middle columns.
+// Fixed first (checkbox) and last (actions) columns sit outside this list.
+// ────────────────────────────────────────────────
+type LeadCtx = {
+  opts: TrackerSettings
+  lightMode: boolean
+  statusColors: Record<string, string>
+  onUpdate: (id: string, field: string, value: unknown) => void
+  onOpenNotes: (id: string) => void
+}
+
+type ColumnDef = {
+  id: string
+  label: string
+  defaultWidth: number
+  render: (lead: Lead, ctx: LeadCtx) => ReactNode
+}
+
+const LEAD_COLUMNS: ColumnDef[] = [
+  {
+    id: 'name', label: 'Name', defaultWidth: 176,
+    render: (lead, { lightMode, onUpdate }) => (
+      <div className="flex gap-1">
+        <EditCell value={lead.first_name} placeholder="First" lightMode={lightMode} onSave={v => onUpdate(lead.id, 'first_name', v)} />
+        <EditCell value={lead.last_name} placeholder="Last" lightMode={lightMode} onSave={v => onUpdate(lead.id, 'last_name', v)} />
+      </div>
+    ),
+  },
+  {
+    id: 'phone', label: 'Phone', defaultWidth: 128,
+    render: (lead, { lightMode, onUpdate }) => (
+      <EditCell
+        value={lead.phone}
+        displayValue={formatPhone(lead.phone) || undefined}
+        lightMode={lightMode}
+        onSave={v => onUpdate(lead.id, 'phone', v ? formatPhone(v) : null)}
+      />
+    ),
+  },
+  {
+    id: 'stage', label: 'Stage', defaultWidth: 144,
+    render: (lead, { lightMode, onUpdate }) => (
+      <select
+        value={lead.stage ?? ''}
+        onChange={e => onUpdate(lead.id, 'stage', e.target.value || null)}
+        className={`w-full bg-transparent text-sm focus:outline-none cursor-pointer transition-colors ${
+          lightMode ? 'text-gray-700 hover:text-indigo-600' : 'text-white hover:text-indigo-300'
+        }`}
+      >
+        {PIPELINE_GROUPS.map(g => <option key={g.key} value={g.key}>{g.label}</option>)}
+      </select>
+    ),
+  },
+  {
+    id: 'service', label: 'Service', defaultWidth: 160,
+    render: (lead, { opts, lightMode, onUpdate }) => (
+      <MultiSelectCell values={lead.service} options={opts.service_options} lightMode={lightMode} onSave={v => onUpdate(lead.id, 'service', v)} />
+    ),
+  },
+  {
+    id: 'status', label: 'Status', defaultWidth: 128,
+    render: (lead, { opts, lightMode, statusColors, onUpdate }) => (
+      <StatusCell
+        value={lead.status}
+        options={opts.status_options}
+        statusColors={statusColors}
+        lightMode={lightMode}
+        onSave={v => onUpdate(lead.id, 'status', v)}
+      />
+    ),
+  },
+  {
+    id: 'lead_source', label: 'Lead Source', defaultWidth: 128,
+    render: (lead, { opts, lightMode, onUpdate }) => (
+      <SelectCell value={lead.lead_source} options={opts.lead_source_options} lightMode={lightMode} onSave={v => onUpdate(lead.id, 'lead_source', v)} />
+    ),
+  },
+  {
+    id: 'salesperson', label: 'Salesperson', defaultWidth: 112,
+    render: (lead, { opts, lightMode, onUpdate }) => (
+      <SelectCell value={lead.salesperson} options={opts.salesperson_options} lightMode={lightMode} onSave={v => onUpdate(lead.id, 'salesperson', v)} />
+    ),
+  },
+  {
+    id: 'base_program', label: 'Base Program', defaultWidth: 144,
+    render: (lead, { opts, lightMode, onUpdate }) => (
+      <SelectCell
+        value={lead.base_program_sold}
+        options={opts.base_program_sold_options}
+        lightMode={lightMode}
+        onSave={v => onUpdate(lead.id, 'base_program_sold', v)}
+      />
+    ),
+  },
+  {
+    id: 'aux_services', label: 'Aux Services', defaultWidth: 160,
+    render: (lead, { opts, lightMode, onUpdate }) => (
+      <MultiSelectCell
+        values={lead.auxiliary_services}
+        options={opts.auxiliary_services_options}
+        lightMode={lightMode}
+        onSave={v => onUpdate(lead.id, 'auxiliary_services', v)}
+      />
+    ),
+  },
+  {
+    id: 'annual_value', label: 'Ann. Value', defaultWidth: 96,
+    render: (lead, { lightMode, onUpdate }) => (
+      <EditCell
+        value={lead.annual_value != null ? String(lead.annual_value) : null}
+        displayValue={fmtCurrency(lead.annual_value) || undefined}
+        lightMode={lightMode}
+        onSave={v => onUpdate(lead.id, 'annual_value', v ? parseFloat(v) : null)}
+      />
+    ),
+  },
+  {
+    id: 'created', label: 'Created', defaultWidth: 96,
+    render: (lead, { lightMode, onUpdate }) => (
+      <EditCell
+        value={lead.lead_creation_date}
+        displayValue={fmtDate(lead.lead_creation_date) || undefined}
+        type="date"
+        lightMode={lightMode}
+        onSave={v => onUpdate(lead.id, 'lead_creation_date', v)}
+      />
+    ),
+  },
+  {
+    id: 'latest_note', label: 'Latest Note', defaultWidth: 200,
+    render: (lead, { lightMode, onOpenNotes }) => {
+      const noteText = lead.latest_note?.note ?? null
+      const truncated = noteText && noteText.length > 60 ? noteText.slice(0, 60) + '…' : noteText
+      return truncated ? (
+        <span
+          className={`cursor-pointer transition-colors truncate block ${
+            lightMode ? 'text-gray-500 hover:text-indigo-600' : 'text-gray-400 hover:text-indigo-300'
+          }`}
+          title={noteText ?? ''}
+          onClick={() => onOpenNotes(lead.id)}
+        >
+          {truncated}
+        </span>
+      ) : (
+        <span className={`text-xs italic ${lightMode ? 'text-gray-400' : 'text-gray-700'}`}>no notes</span>
+      )
+    },
+  },
+]
+
+type ColumnEntry = { id: string; width: number }
+
+function resolveColumns(layout: ColumnEntry[] | null): Array<ColumnDef & { width: number }> {
+  const byId = new Map(LEAD_COLUMNS.map(c => [c.id, c]))
+  const seen = new Set<string>()
+  const out: Array<ColumnDef & { width: number }> = []
+  // Apply saved order first, skipping any unknown ids (e.g. column removed in code).
+  if (layout) {
+    for (const entry of layout) {
+      const def = byId.get(entry.id)
+      if (def && !seen.has(entry.id)) {
+        out.push({ ...def, width: Math.max(50, Math.min(600, entry.width || def.defaultWidth)) })
+        seen.add(entry.id)
+      }
+    }
+  }
+  // Append any new columns (added in code after layout was saved) at the end in default order.
+  for (const def of LEAD_COLUMNS) {
+    if (!seen.has(def.id)) out.push({ ...def, width: def.defaultWidth })
+  }
+  return out
+}
+
+// ────────────────────────────────────────────────
 // Lead row
 // ────────────────────────────────────────────────
 function LeadRow({
@@ -337,6 +511,7 @@ function LeadRow({
   onEdit,
   lightMode,
   statusColors,
+  columns,
 }: {
   lead: Lead
   opts: TrackerSettings
@@ -347,13 +522,13 @@ function LeadRow({
   onEdit: (id: string) => void
   lightMode: boolean
   statusColors: Record<string, string>
+  columns: Array<ColumnDef & { width: number }>
 }) {
-  const noteText = lead.latest_note?.note ?? null
-  const truncatedNote = noteText && noteText.length > 60 ? noteText.slice(0, 60) + '…' : noteText
-
   const rowCls = checked
     ? lightMode ? 'bg-indigo-50' : 'bg-indigo-950/30'
     : lightMode ? 'hover:bg-gray-50 group' : 'hover:bg-gray-900/40 group'
+
+  const ctx: LeadCtx = { opts, lightMode, statusColors, onUpdate, onOpenNotes }
 
   return (
     <tr className={rowCls}>
@@ -365,97 +540,11 @@ function LeadRow({
           className="rounded accent-indigo-500 cursor-pointer"
         />
       </td>
-      <td className="px-3 py-2 text-sm">
-        <div className="flex gap-1">
-          <EditCell value={lead.first_name} placeholder="First" lightMode={lightMode} onSave={v => onUpdate(lead.id, 'first_name', v)} />
-          <EditCell value={lead.last_name} placeholder="Last" lightMode={lightMode} onSave={v => onUpdate(lead.id, 'last_name', v)} />
-        </div>
-      </td>
-      <td className="px-3 py-2 text-sm">
-        <EditCell
-          value={lead.phone}
-          displayValue={formatPhone(lead.phone) || undefined}
-          lightMode={lightMode}
-          onSave={v => onUpdate(lead.id, 'phone', v ? formatPhone(v) : null)}
-        />
-      </td>
-      <td className="px-3 py-2 text-sm w-36">
-        <select
-          value={lead.stage ?? ''}
-          onChange={e => onUpdate(lead.id, 'stage', e.target.value || null)}
-          className={`w-full bg-transparent text-sm focus:outline-none cursor-pointer transition-colors ${
-            lightMode ? 'text-gray-700 hover:text-indigo-600' : 'text-white hover:text-indigo-300'
-          }`}
-        >
-          {PIPELINE_GROUPS.map(g => <option key={g.key} value={g.key}>{g.label}</option>)}
-        </select>
-      </td>
-      <td className="px-3 py-2 text-sm max-w-[160px]">
-        <MultiSelectCell values={lead.service} options={opts.service_options} lightMode={lightMode} onSave={v => onUpdate(lead.id, 'service', v)} />
-      </td>
-      <td className="px-3 py-2 text-sm">
-        <StatusCell
-          value={lead.status}
-          options={opts.status_options}
-          statusColors={statusColors}
-          lightMode={lightMode}
-          onSave={v => onUpdate(lead.id, 'status', v)}
-        />
-      </td>
-      <td className="px-3 py-2 text-sm">
-        <SelectCell value={lead.lead_source} options={opts.lead_source_options} lightMode={lightMode} onSave={v => onUpdate(lead.id, 'lead_source', v)} />
-      </td>
-      <td className="px-3 py-2 text-sm">
-        <SelectCell value={lead.salesperson} options={opts.salesperson_options} lightMode={lightMode} onSave={v => onUpdate(lead.id, 'salesperson', v)} />
-      </td>
-      <td className="px-3 py-2 text-sm">
-        <SelectCell
-          value={lead.base_program_sold}
-          options={opts.base_program_sold_options}
-          lightMode={lightMode}
-          onSave={v => onUpdate(lead.id, 'base_program_sold', v)}
-        />
-      </td>
-      <td className="px-3 py-2 text-sm max-w-[160px]">
-        <MultiSelectCell
-          values={lead.auxiliary_services}
-          options={opts.auxiliary_services_options}
-          lightMode={lightMode}
-          onSave={v => onUpdate(lead.id, 'auxiliary_services', v)}
-        />
-      </td>
-      <td className="px-3 py-2 text-sm">
-        <EditCell
-          value={lead.annual_value != null ? String(lead.annual_value) : null}
-          displayValue={fmtCurrency(lead.annual_value) || undefined}
-          lightMode={lightMode}
-          onSave={v => onUpdate(lead.id, 'annual_value', v ? parseFloat(v) : null)}
-        />
-      </td>
-      <td className="px-3 py-2 text-sm">
-        <EditCell
-          value={lead.lead_creation_date}
-          displayValue={fmtDate(lead.lead_creation_date) || undefined}
-          type="date"
-          lightMode={lightMode}
-          onSave={v => onUpdate(lead.id, 'lead_creation_date', v)}
-        />
-      </td>
-      <td className="px-3 py-2 text-sm max-w-[200px]">
-        {truncatedNote ? (
-          <span
-            className={`cursor-pointer transition-colors truncate block ${
-              lightMode ? 'text-gray-500 hover:text-indigo-600' : 'text-gray-400 hover:text-indigo-300'
-            }`}
-            title={noteText ?? ''}
-            onClick={() => onOpenNotes(lead.id)}
-          >
-            {truncatedNote}
-          </span>
-        ) : (
-          <span className={`text-xs italic ${lightMode ? 'text-gray-400' : 'text-gray-700'}`}>no notes</span>
-        )}
-      </td>
+      {columns.map(col => (
+        <td key={col.id} className="px-3 py-2 text-sm overflow-hidden" style={{ maxWidth: col.width }}>
+          {col.render(lead, ctx)}
+        </td>
+      ))}
       <td className="px-3 py-2 text-center whitespace-nowrap">
         <button onClick={() => onEdit(lead.id)} title="Edit lead" className="text-gray-600 hover:text-indigo-400 transition-colors text-sm leading-none mr-2">✎</button>
         <button onClick={() => onOpenNotes(lead.id)} title="Notes" className="text-gray-600 hover:text-indigo-400 transition-colors text-base leading-none">💬</button>
@@ -505,6 +594,9 @@ function GroupSection({
   onEdit,
   stageColor,
   lightMode,
+  columns,
+  onColumnResize,
+  onColumnReorder,
 }: {
   group: { key: string; label: string; leads: Lead[] }
   collapsed: boolean
@@ -518,7 +610,11 @@ function GroupSection({
   onEdit: (id: string) => void
   stageColor: string
   lightMode: boolean
+  columns: Array<ColumnDef & { width: number }>
+  onColumnResize: (id: string, width: number) => void
+  onColumnReorder: (fromId: string, toId: string) => void
 }) {
+  const totalWidth = columns.reduce((sum, c) => sum + c.width, 0) + 32 + 56 // checkbox col + actions col
   return (
     <div className="rounded-lg overflow-hidden shadow-sm">
       {/* Full-width colored stage header */}
@@ -537,27 +633,63 @@ function GroupSection({
 
       {!collapsed && (
         <div className={`overflow-x-auto ${lightMode ? 'bg-white' : ''}`}>
-          <table className="w-full min-w-[1400px]">
+          <table className="w-full" style={{ minWidth: totalWidth, tableLayout: 'fixed' }}>
+            <colgroup>
+              <col style={{ width: 32 }} />
+              {columns.map(col => <col key={col.id} style={{ width: col.width }} />)}
+              <col style={{ width: 56 }} />
+            </colgroup>
             <thead>
               <tr className={`text-left text-xs border-b ${
                 lightMode
                   ? 'text-gray-500 border-gray-200'
                   : 'text-gray-500 border-gray-800/50'
               }`}>
-                <th className="px-3 py-1.5 w-8"></th>
-                <th className="px-3 py-1.5 font-medium w-44">Name</th>
-                <th className="px-3 py-1.5 font-medium w-32">Phone</th>
-                <th className="px-3 py-1.5 font-medium w-36">Stage</th>
-                <th className="px-3 py-1.5 font-medium w-40">Service</th>
-                <th className="px-3 py-1.5 font-medium w-32">Status</th>
-                <th className="px-3 py-1.5 font-medium w-32">Lead Source</th>
-                <th className="px-3 py-1.5 font-medium w-28">Salesperson</th>
-                <th className="px-3 py-1.5 font-medium w-36">Base Program</th>
-                <th className="px-3 py-1.5 font-medium w-40">Aux Services</th>
-                <th className="px-3 py-1.5 font-medium w-24">Ann. Value</th>
-                <th className="px-3 py-1.5 font-medium w-24">Created</th>
-                <th className="px-3 py-1.5 font-medium">Latest Note</th>
-                <th className="px-3 py-1.5 w-14"></th>
+                <th className="px-3 py-1.5"></th>
+                {columns.map(col => (
+                  <th
+                    key={col.id}
+                    className="px-3 py-1.5 font-medium relative select-none"
+                    draggable
+                    onDragStart={e => {
+                      e.dataTransfer.setData('text/x-tracker-col', col.id)
+                      e.dataTransfer.effectAllowed = 'move'
+                    }}
+                    onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+                    onDrop={e => {
+                      e.preventDefault()
+                      const fromId = e.dataTransfer.getData('text/x-tracker-col')
+                      if (fromId && fromId !== col.id) onColumnReorder(fromId, col.id)
+                    }}
+                    title="Drag to reorder · drag right edge to resize"
+                  >
+                    <span className="cursor-grab active:cursor-grabbing">{col.label}</span>
+                    <span
+                      role="separator"
+                      aria-orientation="vertical"
+                      onMouseDown={e => {
+                        e.preventDefault()
+                        e.stopPropagation()
+                        const startX = e.clientX
+                        const startWidth = col.width
+                        function onMove(ev: MouseEvent) {
+                          const dx = ev.clientX - startX
+                          const next = Math.max(50, Math.min(600, startWidth + dx))
+                          onColumnResize(col.id, next)
+                        }
+                        function onUp() {
+                          window.removeEventListener('mousemove', onMove)
+                          window.removeEventListener('mouseup', onUp)
+                        }
+                        window.addEventListener('mousemove', onMove)
+                        window.addEventListener('mouseup', onUp)
+                      }}
+                      className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-indigo-400/40"
+                      onDragStart={e => e.preventDefault()}
+                    />
+                  </th>
+                ))}
+                <th className="px-3 py-1.5"></th>
               </tr>
             </thead>
             <tbody className={`divide-y ${lightMode ? 'divide-gray-100' : 'divide-gray-800/40'}`}>
@@ -573,11 +705,12 @@ function GroupSection({
                   onEdit={onEdit}
                   lightMode={lightMode}
                   statusColors={opts.status_colors ?? {}}
+                  columns={columns}
                 />
               ))}
               {group.leads.length === 0 && (
                 <tr>
-                  <td colSpan={14} className={`px-4 py-4 text-sm italic ${lightMode ? 'text-gray-400' : 'text-gray-700'}`}>
+                  <td colSpan={columns.length + 2} className={`px-4 py-4 text-sm italic ${lightMode ? 'text-gray-400' : 'text-gray-700'}`}>
                     No leads in this stage.
                   </td>
                 </tr>
@@ -1173,9 +1306,11 @@ function NewLeadForm({
 export default function TrackerPage({
   settings,
   currentUser,
+  initialColumnLayout,
 }: {
   settings: TrackerSettings | null
   currentUser: CurrentUser
+  initialColumnLayout?: { id: string; width: number }[] | null
 }) {
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
@@ -1191,6 +1326,38 @@ export default function TrackerPage({
   const [bulkStage, setBulkStage] = useState('')
   const [bulkWorking, setBulkWorking] = useState(false)
   const [lightMode, setLightMode] = useState(false)
+
+  // Column layout — width + order persisted per-user via /api/tracker/column-layout.
+  // null layout means "use defaults"; resolveColumns merges saved order/width with
+  // any new defaults the code adds later.
+  const [columnLayout, setColumnLayout] = useState<{ id: string; width: number }[] | null>(initialColumnLayout ?? null)
+  const effectiveColumns = resolveColumns(columnLayout)
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const persistLayout = useCallback((next: Array<ColumnDef & { width: number }>) => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    const payload = next.map(c => ({ id: c.id, width: c.width }))
+    setColumnLayout(payload)
+    saveTimerRef.current = setTimeout(() => {
+      fetch('/api/tracker/column-layout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ layout: payload }),
+      }).catch(() => {})
+    }, 600)
+  }, [])
+  const handleColumnResize = useCallback((id: string, width: number) => {
+    const next = effectiveColumns.map(c => c.id === id ? { ...c, width } : c)
+    persistLayout(next)
+  }, [effectiveColumns, persistLayout])
+  const handleColumnReorder = useCallback((fromId: string, toId: string) => {
+    const fromIdx = effectiveColumns.findIndex(c => c.id === fromId)
+    const toIdx = effectiveColumns.findIndex(c => c.id === toId)
+    if (fromIdx < 0 || toIdx < 0 || fromIdx === toIdx) return
+    const next = effectiveColumns.slice()
+    const [moved] = next.splice(fromIdx, 1)
+    next.splice(toIdx, 0, moved)
+    persistLayout(next)
+  }, [effectiveColumns, persistLayout])
 
   useEffect(() => {
     const stored = localStorage.getItem('tracker-light-mode')
@@ -1448,6 +1615,9 @@ export default function TrackerPage({
                 onEdit={id => { setEditLeadId(id); setNotesLeadId(null); setNewLeadOpen(false) }}
                 stageColor={opts.stage_colors?.[group.key] ?? DEFAULT_STAGE_COLORS[group.key]}
                 lightMode={lightMode}
+                columns={effectiveColumns}
+                onColumnResize={handleColumnResize}
+                onColumnReorder={handleColumnReorder}
               />
             ))}
           </div>

@@ -56,8 +56,9 @@ export default async function PMPage({
   }).filter(Boolean) as HubUser[]
 
   const others = participants.filter(p => p.id !== user.id)
+  const self = participants.find(p => p.id === user.id)
   const convTitle = others.length === 0
-    ? 'Just you'
+    ? (self?.display_name ?? 'You')
     : others.map(p => p.display_name).join(', ')
 
   const rawMessages = ((messagesResult.data ?? []) as unknown[]).reverse()

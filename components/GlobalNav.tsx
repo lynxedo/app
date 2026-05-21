@@ -75,7 +75,7 @@ export default function GlobalNav({ profile }: { profile: NavProfile }) {
 
   const items: NavItem[] = [
     profile.can_access_hub && { href: '/hub', label: 'Hub', icon: <IconHub /> },
-    profile.can_access_routing && { href: '/routing', label: 'Routing', icon: <IconRouting /> },
+    profile.can_access_routing && { href: '/hub/routing', label: 'Routing', icon: <IconRouting /> },
     profile.can_access_timesheet && { href: '/timesheet', label: 'Timesheet', icon: <IconTimesheet /> },
     profile.can_access_tracker && { href: '/tracker', label: 'Tracker', icon: <IconTracker /> },
     profile.can_access_call_log && { href: '/call-log', label: 'Calls', icon: <IconCalls /> },
