@@ -101,6 +101,31 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Advance the sender's own read receipt so this message doesn't make
+  // their own room/DM appear unread on a sidebar refresh. The GET path
+  // marks a room/conv unread whenever the latest message is newer than
+  // the user's last_read_at — without this, the sender's send is "newer
+  // than I last read" until they re-open the conversation.
+  // Only top-level messages count toward unread state.
+  if (!parent_id && (room_id || conversation_id)) {
+    const receipt: {
+      company_id: string
+      user_id: string
+      last_read_at: string
+      room_id?: string
+      conversation_id?: string
+    } = {
+      company_id: profile.company_id,
+      user_id: user.id,
+      last_read_at: msg.created_at,
+    }
+    if (room_id) receipt.room_id = room_id
+    if (conversation_id) receipt.conversation_id = conversation_id
+    await supabase
+      .from('hub_read_receipts')
+      .upsert(receipt, { onConflict: room_id ? 'user_id,room_id' : 'user_id,conversation_id' })
+  }
+
   // Auto-unarchive the DM for all members on new activity
   if (conversation_id) {
     const unarchiveAdmin = createAdminClient()
