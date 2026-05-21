@@ -5,6 +5,8 @@ import { createAdminClient } from '@/lib/supabase/admin'
 async function ensureSelfConversation(userId: string) {
   const admin = createAdminClient()
   // Find any single-member conversation where the only member is this user.
+  // Prefer the oldest one if there are duplicates (most likely to be the
+  // canonical / Slack-imported one).
   const { data: mine } = await admin
     .from('conversation_members')
     .select('conversation_id')
@@ -19,7 +21,24 @@ async function ensureSelfConversation(userId: string) {
     for (const p of (peers ?? []) as { conversation_id: string; user_id: string }[]) {
       counts[p.conversation_id] = (counts[p.conversation_id] ?? 0) + 1
     }
-    for (const cid of myIds) if (counts[cid] === 1) return cid
+    const candidates = myIds.filter(cid => counts[cid] === 1)
+    if (candidates.length > 0) {
+      const { data: ordered } = await admin
+        .from('conversations')
+        .select('id, created_at')
+        .in('id', candidates)
+        .order('created_at', { ascending: true })
+        .limit(1)
+      const winner = ordered?.[0]?.id ?? candidates[0]
+      // Always unarchive — a self-DM is your scratchpad; if you've ever
+      // archived it, surface it again the next time you open Hub.
+      await admin
+        .from('conversation_members')
+        .update({ archived_at: null })
+        .eq('conversation_id', winner)
+        .eq('user_id', userId)
+      return winner
+    }
   }
   // Create one
   const { data: profile } = await admin
