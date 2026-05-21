@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import type { HubMessage, HubUser, Sender } from './MessageFeed'
 
@@ -48,6 +48,7 @@ export default function ThreadPanel({
   const [isFocused, setIsFocused] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const didInitialScroll = useRef(false)
   const supabase = createClient()
 
   useEffect(() => {
@@ -62,7 +63,16 @@ export default function ThreadPanel({
       })
   }, [parentMessage.id])
 
+  // First time replies arrive, jump to the bottom instantly before paint — no
+  // visible scroll on thread open. Subsequent reply arrivals use smooth scroll.
+  useLayoutEffect(() => {
+    if (didInitialScroll.current || replies.length === 0) return
+    bottomRef.current?.scrollIntoView({ block: 'end' })
+    didInitialScroll.current = true
+  }, [replies.length])
+
   useEffect(() => {
+    if (!didInitialScroll.current) return
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
   }, [replies.length])
 

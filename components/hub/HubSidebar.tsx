@@ -860,7 +860,7 @@ export default function HubSidebar({
                       <div>
                         <button onClick={() => toggleSection('tools-operations')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
                           <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-operations'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                          <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider group-hover:text-white/60">Operations</span>
+                          <span className="text-xs font-semibold text-white/55 uppercase tracking-wider group-hover:text-white/80">Operations</span>
                         </button>
                         {!collapsed['tools-operations'] && (
                         <>
@@ -917,7 +917,7 @@ export default function HubSidebar({
                       <div>
                         <button onClick={() => toggleSection('tools-sales')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
                           <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-sales'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                          <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider group-hover:text-white/60">Sales</span>
+                          <span className="text-xs font-semibold text-white/55 uppercase tracking-wider group-hover:text-white/80">Sales</span>
                         </button>
                         {!collapsed['tools-sales'] && (
                         <>
@@ -995,7 +995,7 @@ export default function HubSidebar({
                       <div>
                         <button onClick={() => toggleSection('tools-communications')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
                           <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-communications'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                          <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider group-hover:text-white/60">Communications</span>
+                          <span className="text-xs font-semibold text-white/55 uppercase tracking-wider group-hover:text-white/80">Communications</span>
                         </button>
                         {!collapsed['tools-communications'] && (
                         <>
@@ -1024,7 +1024,7 @@ export default function HubSidebar({
                       <div>
                         <button onClick={() => toggleSection('tools-finance')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
                           <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-finance'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                          <span className="text-[10px] font-semibold text-white/30 uppercase tracking-wider group-hover:text-white/60">Finance</span>
+                          <span className="text-xs font-semibold text-white/55 uppercase tracking-wider group-hover:text-white/80">Finance</span>
                         </button>
                         {!collapsed['tools-finance'] && (
                         <>

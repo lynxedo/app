@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
@@ -187,6 +187,14 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
     },
   }))
+
+  // Initial paint: jump to bottom instantly before the browser paints, so the
+  // user never sees the list render from the top and animate down. Subsequent
+  // message arrivals keep the smooth-scroll behavior below.
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [])
 
   useEffect(() => {
     // Directly scroll the messages container instead of using scrollIntoView,
