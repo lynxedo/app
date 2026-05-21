@@ -58,7 +58,19 @@ async function refreshJobberToken(
   }
 
   const tokens = await res.json()
-  const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
+
+  // Jobber sometimes returns 200 with an error body (no access_token), and
+  // sometimes returns 200 with the tokens but no `expires_in`. Both cases
+  // used to crash this function — `new Date(Date.now() + undefined * 1000)`
+  // throws on `.toISOString()` — so the rotated refresh_token would never be
+  // saved, leaving the dead one in the DB and forcing the user to reconnect
+  // on every visit. Mirror the same guards the auth callback already uses.
+  if (!tokens.access_token) {
+    console.error('Jobber refresh: 200 OK but no access_token:', JSON.stringify(tokens))
+    return null
+  }
+  const expiresIn = typeof tokens.expires_in === 'number' ? tokens.expires_in : 3600
+  const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
 
   // Use admin client (service role) for the write. Refresh is a system
   // operation — it must not depend on the user-session RLS policy allowing
