@@ -701,7 +701,7 @@ export default function HubSidebar({
           {hasFavorites && (
             <div>
               <button onClick={() => toggleSection('favorites')} className="w-full flex items-center justify-between px-2 mb-1 group">
-                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Favorites</span>
+                <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Favorites</span>
                 <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.favorites ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
               </button>
               {!collapsed.favorites && (
@@ -743,7 +743,7 @@ export default function HubSidebar({
             <div className="flex items-center justify-between px-2 mb-1">
               <button onClick={() => toggleSection('rooms')} className="flex items-center gap-1 group">
                 <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.rooms ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Rooms</span>
+                <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Rooms</span>
               </button>
               <div className="flex items-center gap-1">
                 <button
@@ -772,7 +772,7 @@ export default function HubSidebar({
             <div className="flex items-center justify-between px-2 mb-1">
               <button onClick={() => toggleSection('dms')} className="flex items-center gap-1 group">
                 <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.dms ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Direct Messages</span>
+                <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Direct Messages</span>
               </button>
               <button
                 onClick={() => { setShowNewPM(true); setSelectedIds([]) }}
@@ -793,7 +793,7 @@ export default function HubSidebar({
             <div className="flex items-center justify-between px-2 mb-1">
               <button onClick={() => toggleSection('boards')} className="flex items-center gap-1 group">
                 <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.boards ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Boards</span>
+                <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Boards</span>
               </button>
               <button
                 onClick={() => { setShowNewBoard(true); setNewBoardName(''); setNewBoardType('public') }}
@@ -851,7 +851,7 @@ export default function HubSidebar({
               <div>
                 <button onClick={() => toggleSection('tools')} className="w-full flex items-center gap-1 px-2 mb-1 group">
                   <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.tools ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                  <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Tools</span>
+                  <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Tools</span>
                 </button>
                 {!collapsed.tools && (
                   <div className="space-y-3">
@@ -860,7 +860,7 @@ export default function HubSidebar({
                       <div>
                         <button onClick={() => toggleSection('tools-operations')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
                           <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-operations'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                          <span className="text-xs font-semibold text-white/55 uppercase tracking-wider group-hover:text-white/80">Operations</span>
+                          <span className="text-xs md:text-[11px] font-semibold text-emerald-300 uppercase tracking-wider group-hover:text-emerald-200">Operations</span>
                         </button>
                         {!collapsed['tools-operations'] && (
                         <>
@@ -917,7 +917,7 @@ export default function HubSidebar({
                       <div>
                         <button onClick={() => toggleSection('tools-sales')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
                           <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-sales'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                          <span className="text-xs font-semibold text-white/55 uppercase tracking-wider group-hover:text-white/80">Sales</span>
+                          <span className="text-xs md:text-[11px] font-semibold text-emerald-300 uppercase tracking-wider group-hover:text-emerald-200">Sales</span>
                         </button>
                         {!collapsed['tools-sales'] && (
                         <>
@@ -995,7 +995,7 @@ export default function HubSidebar({
                       <div>
                         <button onClick={() => toggleSection('tools-communications')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
                           <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-communications'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                          <span className="text-xs font-semibold text-white/55 uppercase tracking-wider group-hover:text-white/80">Communications</span>
+                          <span className="text-xs md:text-[11px] font-semibold text-emerald-300 uppercase tracking-wider group-hover:text-emerald-200">Communications</span>
                         </button>
                         {!collapsed['tools-communications'] && (
                         <>
@@ -1024,7 +1024,7 @@ export default function HubSidebar({
                       <div>
                         <button onClick={() => toggleSection('tools-finance')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
                           <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-finance'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                          <span className="text-xs font-semibold text-white/55 uppercase tracking-wider group-hover:text-white/80">Finance</span>
+                          <span className="text-xs md:text-[11px] font-semibold text-emerald-300 uppercase tracking-wider group-hover:text-emerald-200">Finance</span>
                         </button>
                         {!collapsed['tools-finance'] && (
                         <>
@@ -1057,7 +1057,7 @@ export default function HubSidebar({
           <div>
             <button onClick={() => toggleSection('pages')} className="w-full flex items-center gap-1 px-2 mb-1 group">
               <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.pages ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-              <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Pages</span>
+              <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Pages</span>
             </button>
             {!collapsed.pages && (
               <>
@@ -1090,7 +1090,7 @@ export default function HubSidebar({
             <div>
               <button onClick={() => toggleSection('links')} className="w-full flex items-center gap-1 px-2 mb-1 group">
                 <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.links ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                <span className="text-xs font-semibold text-white/40 uppercase tracking-wider group-hover:text-white/60">Links</span>
+                <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Links</span>
               </button>
               {!collapsed.links && externalLinks.map(link => (
                 <a
