@@ -308,6 +308,16 @@ export default function MessageComposer({
     setSending(true)
     setContent('')
     const files = pendingFiles.map(({ localUrl: _, ...f }) => f)
+    // Snapshot the pending files with their blob URLs for the optimistic
+    // insert. Real DB ids arrive via the realtime INSERT a moment later.
+    const optimisticFiles = pendingFiles.map((f, i) => ({
+      id: `temp-file-${Date.now()}-${i}`,
+      filename: f.filename,
+      mime_type: f.mime_type,
+      size_bytes: f.size_bytes,
+      storage_path: f.storage_path,
+      localUrl: f.localUrl,
+    }))
     setPendingFiles([])
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     // Auto-collapse the expanded composer on send (PRD).
@@ -354,7 +364,7 @@ export default function MessageComposer({
           conversation_id: conversationId ?? null,
           sender,
           reactions: [],
-          files: [],
+          files: optimisticFiles,
         })
       }
     }

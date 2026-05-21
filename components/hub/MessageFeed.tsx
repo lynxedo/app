@@ -11,7 +11,7 @@ export type MessageFeedHandle = { addMessage: (msg: HubMessage) => void }
 
 export type HubUser = { id: string; display_name: string; avatar_url: string | null; is_bot?: boolean; status?: string | null }
 export type RxItem = { user_id: string; emoji: string }
-export type FileItem = { id: string; filename: string; mime_type: string; size_bytes: number; storage_path: string }
+export type FileItem = { id: string; filename: string; mime_type: string; size_bytes: number; storage_path: string; localUrl?: string }
 export type Sender = HubUser
 export type ForwardedOriginal = {
   id: string
@@ -88,7 +88,9 @@ function renderContent(content: string, hubUsers: HubUser[]) {
 }
 
 function FileAttachment({ file }: { file: FileItem }) {
-  const src = `/api/hub/files/${file.id}`
+  // Optimistic-send rows have a `localUrl` blob URL and a temp id; use
+  // the blob URL until realtime delivers the row with a real DB id.
+  const src = file.localUrl ?? `/api/hub/files/${file.id}`
   const size = formatBytes(file.size_bytes)
   if (file.mime_type.startsWith('image/')) {
     return (
@@ -181,7 +183,20 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     addMessage(msg: HubMessage) {
       setMessages(prev => {
         const idx = prev.findIndex(m => m.id === msg.id)
-        if (idx >= 0) { const next = [...prev]; next[idx] = msg; return next }
+        if (idx >= 0) {
+          // Race: if realtime already delivered this message with real
+          // DB file rows, don't let an optimistic insert (temp ids +
+          // blob URLs) clobber them.
+          const existing = prev[idx]
+          const existingHasRealFiles = (existing.files ?? []).some(f => !f.id.startsWith('temp-'))
+          const incomingHasTempFiles = (msg.files ?? []).some(f => f.id.startsWith('temp-'))
+          const merged = existingHasRealFiles && incomingHasTempFiles
+            ? { ...msg, files: existing.files }
+            : msg
+          const next = [...prev]
+          next[idx] = merged
+          return next
+        }
         return [...prev, msg]
       })
       setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
