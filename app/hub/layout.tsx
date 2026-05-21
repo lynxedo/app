@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import HubShell from '@/components/hub/HubShell'
 import PushInit from '@/components/hub/PushInit'
+import HubIdleTracker from '@/components/hub/HubIdleTracker'
 
 export const metadata: Metadata = {
   title: 'Hub',
@@ -139,6 +140,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         {children}
       </HubShell>
       <PushInit />
+      <HubIdleTracker />
     </>
   )
 }

@@ -157,6 +157,13 @@ function HubTab() {
         <p>Hub has three main areas: <strong className="text-white">Rooms</strong> (group conversations), <strong className="text-white">DMs</strong> (one-on-one messages), and <strong className="text-white">Boards</strong> (saved messages you want to keep around).</p>
       </Section>
 
+      <Section title="Home Screen">
+        <p>The Home screen is what you see when you open Hub for the first time each day. It shows the date, your greeting, the active company announcements and shout outs, and your most-used rooms — so you can get oriented before diving into a conversation.</p>
+        <p><strong className="text-white">My Time Clock card</strong> — if you have timesheet access and an employee record, a clock-in card appears near the top of Home. Tap <strong className="text-white">Clock In</strong> to start your shift (Lynxedo grabs your GPS at the same time, same as the Timesheet page). Once you&apos;re clocked in the card shows the time you started and how long you&apos;ve been on the clock; tap <strong className="text-white">Clock Out</strong> when you finish. The card mirrors what the Timesheet page does, just one tap from the landing screen so you don&apos;t have to navigate every morning.</p>
+        <p><strong className="text-white">Auto-return to Home after long gaps</strong> — if it&apos;s been more than 14 hours since you last opened Hub, the next time you open it you&apos;ll land on Home (instead of resuming the last room you had open). The idea: after an overnight gap you probably want to see the announcements and clock in first, not jump straight into whatever room you closed yesterday. Tapping a push notification still takes you to that specific message — the auto-return only kicks in on a normal app open after a long gap.</p>
+        <Note>Don&apos;t want to land on Home? You can change your default landing page under <strong className="text-white">Settings → Account → Default landing page</strong> (Hub or Dashboard).</Note>
+      </Section>
+
       <Section title="Sidebar Navigation">
         <p>The sidebar on the left is how you get around Hub. Top to bottom you&apos;ll see:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">

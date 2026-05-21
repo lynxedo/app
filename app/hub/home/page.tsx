@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import HomeTimeClockCard, { type HomeTimeClockInitial } from '@/components/hub/home/HomeTimeClockCard'
 
 export const metadata = { title: 'Home' }
 
@@ -53,7 +54,7 @@ export default async function HubHomePage() {
   const now = new Date()
   const nowIso = now.toISOString()
 
-  const [meResult, announcementsResult, memberRoomsResult] = await Promise.all([
+  const [meResult, announcementsResult, memberRoomsResult, profileResult, employeeResult] = await Promise.all([
     supabase.from('hub_users').select('display_name').eq('id', user.id).single(),
     supabase
       .from('hub_announcements')
@@ -66,7 +67,32 @@ export default async function HubHomePage() {
       .from('room_members')
       .select('room_id, rooms!inner(id, name, description, is_private, archived_at)')
       .eq('user_id', user.id),
+    supabase.from('user_profiles').select('can_access_timesheet').eq('id', user.id).single(),
+    supabase
+      .from('employees')
+      .select('id, first_name, last_name, preferred_name, job_title')
+      .eq('user_id', user.id)
+      .maybeSingle(),
   ])
+
+  // Time clock initial state — only fetched + rendered if user has timesheet access AND a linked employee record
+  const canAccessTimesheet = profileResult.data?.can_access_timesheet ?? false
+  let timeClockInitial: HomeTimeClockInitial | null = null
+  if (canAccessTimesheet && employeeResult.data) {
+    const { data: lastPunch } = await supabase
+      .from('time_punches')
+      .select('punch_type, punched_at')
+      .eq('employee_id', employeeResult.data.id)
+      .order('punched_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    const clockedIn = lastPunch?.punch_type === 'in'
+    timeClockInitial = {
+      employee: employeeResult.data,
+      clocked_in: clockedIn,
+      since: clockedIn ? lastPunch.punched_at : null,
+    }
+  }
 
   const firstName =
     (meResult.data?.display_name ?? '').split(' ')[0] ||
@@ -89,6 +115,8 @@ export default async function HubHomePage() {
           <h1 className="text-2xl md:text-3xl font-bold text-white">{greetingFor(now)}, {firstName}</h1>
           <p className="text-sm text-gray-400 mt-1">{dateLabel(now)}</p>
         </div>
+
+        {timeClockInitial && <HomeTimeClockCard initial={timeClockInitial} />}
 
         <section className="mb-10">
           <h2 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3">📢 Announcements</h2>
