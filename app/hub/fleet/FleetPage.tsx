@@ -155,7 +155,21 @@ export default function FleetPage() {
     })
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
     mapRef.current = map
+
+    // Mapbox locks in the container's pixel dimensions at construct time, so
+    // if our flex parent hasn't fully laid out yet (or the user rotates the
+    // device, or the sidebar collapses), the map renders at a stale size.
+    // Force a resize on mount and watch the container for any future change.
+    const container = mapContainerRef.current
+    let ro: ResizeObserver | null = null
+    if (container) {
+      ro = new ResizeObserver(() => map.resize())
+      ro.observe(container)
+    }
+    requestAnimationFrame(() => map.resize())
+
     return () => {
+      ro?.disconnect()
       map.remove()
       mapRef.current = null
     }
