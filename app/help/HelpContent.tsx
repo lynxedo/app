@@ -172,7 +172,7 @@ function HubTab() {
           <li><strong className="text-white">Rooms</strong> — group conversations you belong to</li>
           <li><strong className="text-white">Direct Messages</strong> — your one-on-ones</li>
           <li><strong className="text-white">Boards</strong> — your saved-message boards</li>
-          <li><strong className="text-white">Tools</strong> — Daily Log, Tracker, Lawn Sizer, Call Log, Routing, Books, Time Records</li>
+          <li><strong className="text-white">Tools</strong> — Daily Log, Tracker, Lawn Sizer, Call Log, Routing, Books, Time Records, Fleet</li>
           <li><strong className="text-white">Pages</strong> — Company News, Files</li>
           <li><strong className="text-white">Links</strong> — one-click shortcuts to external tools (Jobber, Gusto, QuickBooks, Captivated, etc.)</li>
         </ul>
@@ -342,6 +342,29 @@ function HubTab() {
       <Section title="Daily Log">
         <p>Daily Log is a running log of operational notes for the day — who&apos;s on what crew, what went wrong, what got finished. Anyone can post.</p>
         <p>Posts are organized by date. Scrolling back through old days is how you reconstruct what happened the week of a callback.</p>
+      </Section>
+
+      <Section title="Fleet Tracker">
+        <p>Fleet shows all company vehicles on a live map (powered by OneStepGPS). Each vehicle appears as a colored pin with a heading arrow and a popup that gives speed, fuel %, and last ping time. Tap a vehicle in the sidebar list to fly the map to it.</p>
+        <p>Pin colors:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-green-300">Green</strong> — driving</li>
+          <li><strong className="text-yellow-300">Yellow</strong> — stopped or parked</li>
+          <li><strong className="text-orange-300">Orange</strong> — being towed</li>
+          <li><strong className="text-gray-300">Gray</strong> — off / offline</li>
+        </ul>
+        <p>A small red dot in the corner of a pin means at least one alert is active for that vehicle. The data refreshes every 30 seconds.</p>
+        <p>Four alert types can fire:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">🚨 Speeding</strong> — vehicle is driving over the configured speed limit</li>
+          <li><strong className="text-white">🌙 After-hours</strong> — vehicle is driving outside configured work hours</li>
+          <li><strong className="text-white">⛽ Low fuel</strong> — fuel is below the configured threshold</li>
+          <li><strong className="text-white">📡 Offline</strong> — vehicle hasn&apos;t reported in past the configured timeout (suppressed outside work hours so parked-overnight trucks don&apos;t spam)</li>
+        </ul>
+        <Note>Alerts are evaluated server-side every 5 minutes and delivered as a Hub DM. You don&apos;t need to be looking at the map for alerts to fire.</Note>
+        <AdminOnly>
+          <p>Admins configure which alerts fire and the thresholds under <strong className="text-white">/admin/fleet</strong>. Each user must have the <em>Fleet Tracker</em> permission enabled in Admin → People to see the map.</p>
+        </AdminOnly>
       </Section>
 
       <Section title="Tracker (Lead Pipeline)">

@@ -13,6 +13,7 @@ type UserProfile = {
   can_access_books: boolean
   can_access_tracker: boolean
   can_access_hub: boolean
+  can_access_fleet: boolean
   can_post_shout_outs: boolean
 }
 
@@ -49,6 +50,7 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_access_books', label: 'Financial Dashboard' },
   { key: 'can_access_tracker', label: 'Lead Tracker' },
   { key: 'can_access_hub', label: 'Hub' },
+  { key: 'can_access_fleet', label: 'Fleet Tracker' },
   { key: 'can_post_shout_outs', label: 'Post Shout Outs' },
 ]
 
@@ -140,6 +142,7 @@ export default function AdminPanel({
             can_access_books: false,
             can_access_tracker: false,
             can_access_hub: false,
+            can_access_fleet: false,
             can_post_shout_outs: false,
           },
         }
@@ -248,6 +251,7 @@ export default function AdminPanel({
             can_access_books: false,
             can_access_tracker: false,
             can_access_hub: false,
+            can_access_fleet: false,
             can_post_shout_outs: false,
           },
         }

@@ -38,7 +38,7 @@ export default async function AdminPage() {
     role: string; can_access_routing: boolean; can_access_lawn: boolean;
     can_access_call_log: boolean; can_access_responder: boolean; can_access_timesheet: boolean;
     can_access_books: boolean; can_access_tracker: boolean; can_access_hub: boolean;
-    can_post_shout_outs: boolean;
+    can_access_fleet: boolean; can_post_shout_outs: boolean;
     display_name: string | null; avatar_url: string | null; invite_sent_at: string | null;
     full_name: string | null;
   }) => ({
@@ -61,6 +61,7 @@ export default async function AdminPage() {
       can_access_books: r.can_access_books,
       can_access_tracker: r.can_access_tracker,
       can_access_hub: r.can_access_hub,
+      can_access_fleet: r.can_access_fleet,
       can_post_shout_outs: r.can_post_shout_outs,
     },
   }))

@@ -52,6 +52,7 @@ const TOOL_CATALOG: Record<string, ToolDef> = {
   'tool:lawn':          { id: 'tool:lawn',          label: 'Lawn Sizer',      icon: '🌿', href: '/hub/lawn',         prefixMatch: false },
   'tool:call-log':      { id: 'tool:call-log',      label: 'Call Log',        icon: '📞', href: '/hub/call-log',     prefixMatch: true },
   'tool:books':         { id: 'tool:books',         label: 'Books',           icon: '📊', href: '/books',            prefixMatch: true },
+  'tool:fleet':         { id: 'tool:fleet',         label: 'Fleet',           icon: '🚛', href: '/hub/fleet',        prefixMatch: true },
 }
 
 function convLabel(conv: Conversation, currentUserId: string) {
@@ -79,6 +80,7 @@ export default function HubSidebar({
   canAccessTimesheet = false,
   canAccessRouting = false,
   canAccessBooks = false,
+  canAccessFleet = false,
   onOpenTimeClock,
 }: {
   rooms: Room[]
@@ -99,6 +101,7 @@ export default function HubSidebar({
   canAccessTimesheet?: boolean
   canAccessRouting?: boolean
   canAccessBooks?: boolean
+  canAccessFleet?: boolean
   onOpenTimeClock?: () => void
 }) {
   const pathname = usePathname()
@@ -587,6 +590,7 @@ export default function HubSidebar({
     'tool:lawn':         canAccessLawn,
     'tool:call-log':     canAccessCallLog,
     'tool:books':        canAccessBooks,
+    'tool:fleet':        canAccessFleet,
   }
   const favoriteTools: ToolDef[] = pinnedIds
     .filter(id => id.startsWith('tool:') && TOOL_CATALOG[id] && toolAccess[id])
@@ -913,7 +917,7 @@ export default function HubSidebar({
 
           {/* Tools — categorized */}
           {(() => {
-            const hasOperations = canAccessRouting || isAdmin // Daily Log + Time Records always available; Routing gated
+            const hasOperations = canAccessRouting || canAccessFleet || isAdmin // Daily Log + Time Records always available; Routing & Fleet gated
             const hasSales = canAccessTracker || canAccessLawn
             const hasComms = canAccessCallLog
             const hasFinance = canAccessBooks
@@ -977,6 +981,21 @@ export default function HubSidebar({
                               <span className="truncate flex-1">Time Records</span>
                             </Link>
                             {renderToolStar('tool:time-records')}
+                          </div>
+                        )}
+                        {canAccessFleet && (
+                          <div className="group/tool flex items-center">
+                            <Link
+                              href="/hub/fleet"
+                              onClick={() => onClose?.()}
+                              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
+                                pathname.startsWith('/hub/fleet') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                              }`}
+                            >
+                              <span className="text-xs flex-none">🚛</span>
+                              <span className="truncate flex-1">Fleet</span>
+                            </Link>
+                            {renderToolStar('tool:fleet')}
                           </div>
                         )}
                         </>

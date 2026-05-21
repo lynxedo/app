@@ -61,7 +61,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       .eq('user_id', user.id),
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
     supabase.from('hub_users').select('display_name, status').eq('id', user.id).single(),
-    supabase.from('user_profiles').select('role, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_lawn, can_access_timesheet, can_access_routing, can_access_books').eq('id', user.id).single(),
+    supabase.from('user_profiles').select('role, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_lawn, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet').eq('id', user.id).single(),
     // Active rows for BOTH types — DB returns latest first; we keep newest per type below.
     supabase
       .from('hub_announcements')
@@ -89,6 +89,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessTimesheet = profileResult.data?.can_access_timesheet ?? false
   const canAccessRouting = profileResult.data?.can_access_routing ?? false
   const canAccessBooks = profileResult.data?.can_access_books ?? false
+  const canAccessFleet = profileResult.data?.can_access_fleet ?? false
 
   type AnnouncementRow = {
     id: string
@@ -136,6 +137,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessTimesheet={canAccessTimesheet}
         canAccessRouting={canAccessRouting}
         canAccessBooks={canAccessBooks}
+        canAccessFleet={canAccessFleet}
       >
         {children}
       </HubShell>
