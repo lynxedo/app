@@ -38,7 +38,8 @@ function normalizeDevice(raw: unknown): FleetDevice | null {
   if (!raw || typeof raw !== 'object') return null
   const r = raw as Record<string, unknown>
   const pt = (r.latest_device_point ?? r.latest_point ?? {}) as Record<string, unknown>
-  const state = (r.device_state ?? r.state ?? {}) as Record<string, unknown>
+  // OneStepGPS nests device_state under latest_device_point — not at top level.
+  const state = (pt.device_state ?? r.device_state ?? r.state ?? {}) as Record<string, unknown>
   const lat = Number(pt.lat ?? pt.latitude)
   const lng = Number(pt.lng ?? pt.lon ?? pt.longitude)
   if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
