@@ -67,7 +67,7 @@ export async function GET() {
   // Ensure the user's self-DM exists (idempotent — finds or creates a
   // single-member conversation owned by this user, used as a personal
   // scratchpad / saved-messages spot in the sidebar).
-  await ensureSelfConversation(user.id)
+  const canonicalSelfConvId = await ensureSelfConversation(user.id)
 
   // Get conversation IDs + my archived_at for each
   const { data: memberships } = await supabase
@@ -134,8 +134,16 @@ export async function GET() {
     c.archived = c.archived_at != null || autoArchived
   }
 
+  // Hide duplicate single-member self-DMs from the sidebar entirely. There
+  // can be only one "Ben" in the list — show the canonical one (oldest /
+  // Slack-imported), drop the rest from the response. They stay in the DB
+  // for data preservation; just never surface in the UI.
   const conversations = Object.values(convsMap)
     .filter(c => c.participants.length > 0)
+    .filter(c => {
+      const onlySelf = c.participants.length === 1 && c.participants[0].id === user.id
+      return !onlySelf || c.id === canonicalSelfConvId
+    })
     .sort((a, b) => (b.last_at ?? '').localeCompare(a.last_at ?? ''))
 
   return NextResponse.json({ conversations })
@@ -153,6 +161,14 @@ export async function POST(request: Request) {
 
   // Empty participant_ids (or one containing only the caller) means "self DM".
   const allParticipants = [...new Set<string>([user.id, ...participant_ids])]
+  const isSelfDM = allParticipants.length === 1 && allParticipants[0] === user.id
+
+  // For self-DMs, short-circuit to the canonical conv so we never bounce
+  // between duplicates depending on Postgres row order.
+  if (isSelfDM) {
+    const canonical = await ensureSelfConversation(user.id)
+    if (canonical) return NextResponse.json({ id: canonical, existing: true })
+  }
 
   const { data: profile } = await supabase
     .from('user_profiles')

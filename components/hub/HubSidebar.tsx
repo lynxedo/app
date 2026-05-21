@@ -566,7 +566,9 @@ export default function HubSidebar({
     longPressTargetRef.current = null
   }
 
-  const otherUsers = hubUsers.filter(u => u.id !== currentUserId && !u.is_bot)
+  // Include self so the user can pick themselves to open the self-DM (a
+  // single-member scratchpad). Bots remain hidden.
+  const otherUsers = hubUsers.filter(u => !u.is_bot)
   const displayName = currentUserDisplayName ?? userEmail.split('@')[0]
 
   // Sort rooms: unread first, then alpha

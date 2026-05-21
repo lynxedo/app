@@ -36,7 +36,8 @@ export default function HubQuickCompose({
   }, [onClose])
 
   const q = query.trim().toLowerCase()
-  const otherUsers = hubUsers.filter(u => u.id !== currentUserId && !u.is_bot)
+  // Include self so the user can pick themselves to open the self-DM. Bots stay hidden.
+  const otherUsers = hubUsers.filter(u => !u.is_bot)
   const filteredRooms = rooms.filter(r => !q || r.name.toLowerCase().includes(q))
   const filteredUsers = otherUsers.filter(u => !q || u.display_name.toLowerCase().includes(q))
 
