@@ -179,6 +179,7 @@ export default function AdminTimesheetPage() {
   const [lynxedoUsers, setLynxedoUsers] = useState<LynxedoUser[]>([])
   const [selectedUserId, setSelectedUserId] = useState('')
   const [linkSaving, setLinkSaving] = useState(false)
+  const [linkError, setLinkError] = useState<string | null>(null)
 
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekStart.getDate() + 6)
@@ -340,6 +341,7 @@ export default function AdminTimesheetPage() {
   async function openLinkModal(emp: Employee) {
     setLinkingEmployee(emp)
     setSelectedUserId('')
+    setLinkError(null)
     const res = await fetch('/api/admin/users')
     const data = await res.json()
     const linkedIds = new Set(employees.map(e => e.user_id).filter(Boolean))
@@ -350,19 +352,33 @@ export default function AdminTimesheetPage() {
   async function saveLink() {
     if (!linkingEmployee || !selectedUserId) return
     setLinkSaving(true)
-    await fetch(`/api/timesheet/employees/${linkingEmployee.id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ user_id: selectedUserId }),
-    })
-    await fetch(`/api/admin/users/${selectedUserId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ can_access_timesheet: true }),
-    })
-    setLinkingEmployee(null)
-    setLinkSaving(false)
-    loadData()
+    setLinkError(null)
+    try {
+      const linkRes = await fetch(`/api/timesheet/employees/${linkingEmployee.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: selectedUserId }),
+      })
+      if (!linkRes.ok) {
+        const body = await linkRes.json().catch(() => ({}))
+        throw new Error(body.error || `Link failed (${linkRes.status})`)
+      }
+      const permRes = await fetch(`/api/admin/users/${selectedUserId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ can_access_timesheet: true }),
+      })
+      if (!permRes.ok) {
+        const body = await permRes.json().catch(() => ({}))
+        throw new Error(`Linked, but could not grant timesheet access: ${body.error || permRes.status}`)
+      }
+      setLinkingEmployee(null)
+      loadData()
+    } catch (err) {
+      setLinkError(err instanceof Error ? err.message : 'Something went wrong')
+    } finally {
+      setLinkSaving(false)
+    }
   }
 
   const isClockedIn = (emp: Employee) => openPunches.some(p => p.employee_id === emp.id)
@@ -979,6 +995,11 @@ export default function AdminTimesheetPage() {
                     <option key={u.id} value={u.id}>{u.email}</option>
                   ))}
                 </select>
+              )}
+              {linkError && (
+                <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
+                  {linkError}
+                </p>
               )}
             </div>
             <div className="px-5 py-4 border-t border-gray-800 flex gap-3 shrink-0">
