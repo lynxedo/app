@@ -17,6 +17,8 @@ export default function RoomView({
   senderDisplayName,
   composerPlaceholder,
   rooms,
+  conversationMembers,
+  initialMemberReadReceipts,
 }: {
   roomId?: string
   conversationId?: string
@@ -27,6 +29,9 @@ export default function RoomView({
   senderDisplayName: string
   composerPlaceholder?: string
   rooms?: RoomRef[]
+  // DM-only — drives the "Read by..." indicator.
+  conversationMembers?: HubUser[]
+  initialMemberReadReceipts?: { user_id: string; last_read_at: string }[]
 }) {
   const [openThreadMsg, setOpenThreadMsg] = useState<HubMessage | null>(null)
   const feedRef = useRef<MessageFeedHandle>(null)
@@ -46,6 +51,8 @@ export default function RoomView({
           onOpenThread={setOpenThreadMsg}
           openThreadMsgId={openThreadMsg?.id ?? null}
           rooms={rooms}
+          conversationMembers={conversationMembers}
+          initialMemberReadReceipts={initialMemberReadReceipts}
         />
         <MessageComposer
           roomId={roomId}

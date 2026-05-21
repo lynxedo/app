@@ -24,7 +24,7 @@ export default async function PMPage({
   if (!membership) notFound()
 
   const admin = createAdminClient()
-  const [profileResult, membersResult, messagesResult, hubUsersResult, allRoomsResult] = await Promise.all([
+  const [profileResult, membersResult, messagesResult, hubUsersResult, allRoomsResult, receiptsResult] = await Promise.all([
     supabase.from('user_profiles').select('role').eq('id', user.id).single(),
     admin.from('conversation_members')
       .select('user_id, hub_users!user_id(id, display_name, avatar_url, is_bot)')
@@ -41,6 +41,12 @@ export default async function PMPage({
       .limit(50),
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot').order('display_name'),
     supabase.from('rooms').select('id, name').is('archived_at', null).order('name'),
+    // Read receipts for ALL members of this conversation — drives the
+    // "Read by..." indicator under the user's most recent self-sent message.
+    // RLS policy hub_read_receipts_select_dm_members allows this fetch.
+    supabase.from('hub_read_receipts')
+      .select('user_id, last_read_at')
+      .eq('conversation_id', conversationId),
   ])
 
   type MemberRow = { user_id: string; hub_users: HubUser | HubUser[] }
@@ -110,6 +116,8 @@ export default async function PMPage({
         senderDisplayName={convTitle}
         composerPlaceholder={`Message ${convTitle}`}
         rooms={(allRoomsResult.data ?? []) as { id: string; name: string }[]}
+        conversationMembers={participants}
+        initialMemberReadReceipts={(receiptsResult.data ?? []) as { user_id: string; last_read_at: string }[]}
       />
     </div>
   )

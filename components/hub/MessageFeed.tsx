@@ -125,6 +125,10 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   onOpenThread?: (msg: HubMessage) => void
   openThreadMsgId?: string | null
   rooms?: { id: string; name: string }[]
+  // DM-only: members of this conversation and their read receipts.
+  // Drives the "Read by..." indicator under the user's latest self-send.
+  conversationMembers?: HubUser[]
+  initialMemberReadReceipts?: { user_id: string; last_read_at: string }[]
 }>(function MessageFeed({
   roomId,
   conversationId,
@@ -135,6 +139,8 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   onOpenThread,
   openThreadMsgId,
   rooms,
+  conversationMembers,
+  initialMemberReadReceipts,
 }, ref) {
   // Message bubbles inherit size from root font-size (S/M/L on <html>) via
   // the same `text-lg md:text-sm` class the sidebar uses — no per-size
@@ -166,6 +172,49 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const supabase = createClient()
+
+  // Read receipts for other members of this DM (DMs only — rooms are
+  // Slack-style: no read receipts). Keyed by user_id → last_read_at ISO.
+  const [memberReceipts, setMemberReceipts] = useState<Record<string, string>>(() => {
+    const map: Record<string, string> = {}
+    for (const r of initialMemberReadReceipts ?? []) map[r.user_id] = r.last_read_at
+    return map
+  })
+
+  // Latest top-level message authored by the current user in this feed —
+  // the indicator anchors here. Falls back to null when there are no
+  // self-sent messages yet.
+  const latestSelfMsg = (() => {
+    if (!conversationId) return null
+    for (let i = messages.length - 1; i >= 0; i--) {
+      const m = messages[i]
+      if (m.parent_id) continue
+      const sender = normSender(m.sender)
+      if (sender?.id === currentUserId) return m
+    }
+    return null
+  })()
+
+  // Build the "Read by ..." label. Excludes self + bots. Returns null
+  // when no other member has read up to this message.
+  function readersLabelFor(msgCreatedAt: string): string | null {
+    if (!conversationId || !conversationMembers) return null
+    const others = conversationMembers.filter(m => m.id !== currentUserId && !m.is_bot)
+    if (others.length === 0) return null
+    const readers = others.filter(m => {
+      const rr = memberReceipts[m.id]
+      return rr && rr >= msgCreatedAt
+    })
+    if (readers.length === 0) return null
+    // 1-on-1 — no need to name the single other person.
+    if (others.length === 1) return 'Read'
+    // Group — name up to two readers, then "& N more".
+    if (readers.length === others.length) return 'Read by everyone'
+    const names = readers.map(r => r.display_name.split(' ')[0])
+    if (names.length === 1) return `Read by ${names[0]}`
+    if (names.length === 2) return `Read by ${names[0]} & ${names[1]}`
+    return `Read by ${names[0]}, ${names[1]} & ${names.length - 2} more`
+  }
 
   useImperativeHandle(ref, () => ({
     addMessage(msg: HubMessage) {
@@ -291,6 +340,36 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
 
     return () => { supabase.removeChannel(channel) }
   }, [roomId, conversationId])
+
+  // Realtime: read receipts (DMs only). Lets "Read by ..." update live
+  // the moment another member opens the conversation. RLS policy
+  // hub_read_receipts_select_dm_members controls who receives events.
+  useEffect(() => {
+    if (!conversationId) return
+    const channel = supabase
+      .channel(`receipts:${conversationId}`)
+      .on(
+        'postgres_changes',
+        { event: '*', schema: 'public', table: 'hub_read_receipts', filter: `conversation_id=eq.${conversationId}` },
+        (payload) => {
+          const row = (payload.new ?? payload.old) as { user_id: string; last_read_at?: string } | null
+          if (!row?.user_id) return
+          if (payload.eventType === 'DELETE') {
+            setMemberReceipts(prev => {
+              if (!(row.user_id in prev)) return prev
+              const next = { ...prev }
+              delete next[row.user_id]
+              return next
+            })
+          } else if (row.last_read_at) {
+            setMemberReceipts(prev => ({ ...prev, [row.user_id]: row.last_read_at! }))
+          }
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [conversationId])
 
   const toggleReaction = useCallback(async (msgId: string, emoji: string) => {
     const current = rxMap[msgId] ?? []
@@ -517,6 +596,15 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                         {replyCounts[msg.id]} {replyCounts[msg.id] === 1 ? 'reply' : 'replies'}
                       </button>
                     )}
+
+                    {/* Read / Read by ... — only on the user's most recent
+                        self-sent top-level message in a DM. */}
+                    {latestSelfMsg?.id === msg.id && (() => {
+                      const label = readersLabelFor(msg.created_at)
+                      return label ? (
+                        <div className="mt-0.5 text-[11px] text-gray-500">{label}</div>
+                      ) : null
+                    })()}
                   </div>
 
                   {/* Hover actions — desktop only.

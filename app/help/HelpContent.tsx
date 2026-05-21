@@ -252,6 +252,18 @@ function HubTab() {
         <p className="text-gray-400 mt-1">Markdown also works in thread replies and in forwarded message previews.</p>
       </Section>
 
+      <Section title="Read Receipts">
+        <p>In DMs, a small grey label appears under your most recent message to show when the other person (or people) have seen it. Inspired by iMessage.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">1-on-1 DM</strong> — shows <em>Read</em> when the other person has opened the conversation since you sent.</li>
+          <li><strong className="text-white">Group DM</strong> — shows <em>Read by Joe</em>, then <em>Read by Joe &amp; Sarah</em>, then <em>Read by Joe, Sarah &amp; 2 more</em>, and finally <em>Read by everyone</em> once the whole group has caught up.</li>
+          <li>The label only sits under the most recent message <em>you</em> sent — if they read it, it stays put; if you send another, the label moves to the new one once that one is read too.</li>
+          <li>Updates live — the moment someone opens the DM, you see the label change without refreshing.</li>
+          <li>Rooms (channels) intentionally <strong>do not</strong> show read receipts. Slack-style — channels would be overwhelming and weird to track per-person.</li>
+          <li>Bots (like @Guardian) are never counted as readers.</li>
+        </ul>
+      </Section>
+
       <Section title="Message Actions (long-press / right-click)">
         <p>Long-press a message on mobile, or hover and right-click on desktop, to see the actions menu:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
