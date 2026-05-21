@@ -120,20 +120,31 @@ export async function sendHubPush(
     .select('endpoint, p256dh, auth_key')
     .in('user_id', eligibleIds)
 
+  const subsList = (subs ?? []) as { endpoint: string; p256dh: string; auth_key: string }[]
   const json = JSON.stringify(payload)
   const webResults = await Promise.allSettled(
-    (subs ?? []).map((sub: { endpoint: string; p256dh: string; auth_key: string }) =>
+    subsList.map(sub =>
       webpush.sendNotification(
         { endpoint: sub.endpoint, keys: { p256dh: sub.p256dh, auth: sub.auth_key } },
         json
       )
     )
   )
-  for (const r of webResults) {
+  const staleWebEndpoints: string[] = []
+  webResults.forEach((r, i) => {
     if (r.status === 'rejected') {
       const e = r.reason as { statusCode?: number; message?: string }
       console.error('[hub-push] web-push failed:', e?.statusCode, e?.message)
+      // 404 = subscription never existed; 410 Gone = browser unsubscribed.
+      // Both are terminal — delete the row.
+      if (e?.statusCode === 404 || e?.statusCode === 410) {
+        staleWebEndpoints.push(subsList[i].endpoint)
+      }
     }
+  })
+  if (staleWebEndpoints.length > 0) {
+    admin.from('push_subscriptions').delete().in('endpoint', staleWebEndpoints)
+      .then(({ error }) => { if (error) console.error('[hub-push] delete stale web subs failed:', error.message) })
   }
 
   // APNs — native iOS app subscribers
@@ -144,9 +155,13 @@ export async function sendHubPush(
 
   const deviceTokens = (apnsRows ?? []).map((r: { device_token: string }) => r.device_token)
   if (deviceTokens.length > 0) {
-    await sendApnsPush(deviceTokens, payload).catch((err: Error) =>
-      console.error('[hub-push] apns failed:', err.message)
-    )
+    sendApnsPush(deviceTokens, payload)
+      .then(({ staleTokens }) => {
+        if (staleTokens.length > 0) {
+          return admin.from('apns_tokens').delete().in('device_token', staleTokens)
+        }
+      })
+      .catch((err: Error) => console.error('[hub-push] apns failed:', err.message))
   }
 
   // FCM — native Android app subscribers
@@ -157,8 +172,12 @@ export async function sendHubPush(
 
   const fcmTokens = (fcmRows ?? []).map((r: { device_token: string }) => r.device_token)
   if (fcmTokens.length > 0) {
-    await sendFcmPush(fcmTokens, payload).catch((err: Error) =>
-      console.error('[hub-push] fcm failed:', err.message)
-    )
+    sendFcmPush(fcmTokens, payload)
+      .then(({ staleTokens }) => {
+        if (staleTokens.length > 0) {
+          return admin.from('fcm_tokens').delete().in('device_token', staleTokens)
+        }
+      })
+      .catch((err: Error) => console.error('[hub-push] fcm failed:', err.message))
   }
 }

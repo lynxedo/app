@@ -42,13 +42,15 @@ async function getFcmAccessToken(): Promise<string> {
 export async function sendFcmPush(
   tokens: string[],
   payload: { title: string; body: string; url: string }
-) {
-  if (tokens.length === 0) return
+): Promise<{ staleTokens: string[] }> {
+  if (tokens.length === 0) return { staleTokens: [] }
   const projectId = process.env.FCM_PROJECT_ID
   if (!projectId) throw new Error('FCM_PROJECT_ID not set')
 
   const accessToken = await getFcmAccessToken()
   const endpoint = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`
+
+  const staleTokens: string[] = []
 
   await Promise.allSettled(tokens.map(token =>
     fetch(endpoint, {
@@ -72,7 +74,17 @@ export async function sendFcmPush(
       if (!r.ok) {
         const text = await r.text()
         console.error('[hub-fcm] send failed:', r.status, text)
+        // Only treat UNREGISTERED (uninstalled app / refreshed token) as
+        // terminal. 5xx, 429, and INVALID_ARGUMENT on other fields are
+        // transient or upstream issues — don't delete on those.
+        try {
+          const parsed = JSON.parse(text) as { error?: { details?: Array<{ errorCode?: string }> } }
+          const code = parsed?.error?.details?.find(d => d.errorCode)?.errorCode
+          if (code === 'UNREGISTERED') staleTokens.push(token)
+        } catch { /* not JSON, skip */ }
       }
     })
   ))
+
+  return { staleTokens }
 }

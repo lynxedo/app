@@ -50,6 +50,7 @@ async function refreshJobberToken(
       client_id: JOBBER_CLIENT_ID,
       client_secret: JOBBER_CLIENT_SECRET,
     }),
+    signal: AbortSignal.timeout(10000),
   })
 
   if (!res.ok) {
@@ -116,6 +117,7 @@ export async function jobberGraphQL<T = unknown>(
       'X-JOBBER-GRAPHQL-VERSION': JOBBER_API_VERSION,
     },
     body: JSON.stringify({ query, variables }),
+    signal: AbortSignal.timeout(15000),
   })
 
   if (!res.ok) {

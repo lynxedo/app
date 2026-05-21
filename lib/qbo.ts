@@ -43,6 +43,7 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
       refresh_token: refreshToken,
     }),
     cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
   })
 
   const intuitTid = res.headers.get('intuit_tid')
@@ -111,6 +112,7 @@ export async function qboFetch(
       ...(options.headers ?? {}),
     },
     next: { revalidate: 14400 },
+    signal: options.signal ?? AbortSignal.timeout(15000),
   })
 
   const intuitTid = res.headers.get('intuit_tid')

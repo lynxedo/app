@@ -18,6 +18,7 @@ async function postToSlack({ channel, text, username }: SlackPostArgs): Promise<
         'Authorization': `Bearer ${SLACK_BOT_TOKEN}`,
       },
       body: JSON.stringify({ channel, text, username }),
+      signal: AbortSignal.timeout(8000),
     })
   } catch {
     // Don't break the Hub message insert if Slack is down
@@ -34,6 +35,7 @@ async function openDmChannel(slackUserId: string): Promise<string | null> {
         'Authorization': `Bearer ${SLACK_BOT_TOKEN}`,
       },
       body: JSON.stringify({ users: slackUserId }),
+      signal: AbortSignal.timeout(8000),
     })
     const data = await res.json()
     return data?.channel?.id ?? null

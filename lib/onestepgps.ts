@@ -69,7 +69,7 @@ async function fetchUpstream(): Promise<FleetDevice[]> {
   const key = process.env.ONESTEPGPS_API_KEY
   if (!key) throw new Error('ONESTEPGPS_API_KEY is not configured')
   const url = `${ENDPOINT}?api-key=${encodeURIComponent(key)}&latest_point=true`
-  const res = await fetch(url, { cache: 'no-store' })
+  const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(10000) })
   if (!res.ok) throw new Error(`OneStepGPS upstream ${res.status}`)
   const body = (await res.json()) as unknown
   let list: unknown[] = []

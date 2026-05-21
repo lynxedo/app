@@ -24,6 +24,5 @@ jobs:
             cd /opt/lynxedo/app
             git pull origin main
             npm install --legacy-peer-deps
-            pm2 stop lynxedo
             npm run build
-            pm2 start lynxedo --update-env
+            pm2 reload lynxedo --update-env

@@ -168,6 +168,7 @@ export async function POST(request: Request) {
     const { data: allUsers } = await pushAdmin
       .from('hub_users')
       .select('id, display_name')
+      .eq('company_id', profile.company_id)
       .not('id', 'eq', user.id)
 
     const matchedIds = (allUsers ?? [])
@@ -178,11 +179,13 @@ export async function POST(request: Request) {
 
     if (matchedIds.length > 0) {
       const destination = room_id ? `/hub/${room_id}` : `/hub/pm/${conversation_id}`
-      await sendHubPush(matchedIds, {
+      sendHubPush(matchedIds, {
         title: `${senderName} mentioned you`,
         body: textToScan.trim().slice(0, 120),
         url: destination,
-      }, { isMention: true, roomId: room_id ?? null })
+      }, { isMention: true, roomId: room_id ?? null }).catch((err: Error) =>
+        console.error('[messages] mention push failed:', err.message)
+      )
     }
   }
 
@@ -197,11 +200,13 @@ export async function POST(request: Request) {
       .eq('is_bot', false)
     const roomMemberIds = (allHubUsers ?? []).map((u: { id: string }) => u.id)
     if (roomMemberIds.length > 0) {
-      await sendHubPush(roomMemberIds, {
+      sendHubPush(roomMemberIds, {
         title: `📢 @room — #${roomMeta?.name ?? 'room'} — ${senderName}`,
         body: textToScan.trim().slice(0, 120),
         url: `/hub/${room_id}`,
-      }, { isMention: true, roomId: room_id })
+      }, { isMention: true, roomId: room_id }).catch((err: Error) =>
+        console.error('[messages] @room push failed:', err.message)
+      )
     }
   }
 
@@ -215,11 +220,13 @@ export async function POST(request: Request) {
 
     const recipientIds = (members ?? []).map((m: { user_id: string }) => m.user_id)
     if (recipientIds.length > 0) {
-      await sendHubPush(recipientIds, {
+      sendHubPush(recipientIds, {
         title: senderName,
         body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
         url: `/hub/pm/${conversation_id}`,
-      }, { isDm: true })
+      }, { isDm: true }).catch((err: Error) =>
+        console.error('[messages] DM push failed:', err.message)
+      )
     }
   }
 
@@ -241,11 +248,13 @@ export async function POST(request: Request) {
 
     const roomMemberIds = (allHubUsers ?? []).map((u: { id: string }) => u.id)
     if (roomMemberIds.length > 0) {
-      await sendHubPush(roomMemberIds, {
+      sendHubPush(roomMemberIds, {
         title: `#${roomData?.name ?? 'room'} — ${senderName}`,
         body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
         url: `/hub/${room_id}`,
-      }, { roomId: room_id })
+      }, { roomId: room_id }).catch((err: Error) =>
+        console.error('[messages] room push failed:', err.message)
+      )
     }
   }
 

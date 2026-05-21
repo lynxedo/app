@@ -26,12 +26,12 @@ function getJwt(keyId: string, teamId: string, privateKeyPem: string): string {
 export async function sendApnsPush(
   deviceTokens: string[],
   payload: { title: string; body: string; url: string }
-) {
+): Promise<{ staleTokens: string[] }> {
   const keyId = process.env.APNS_KEY_ID
   const teamId = process.env.APNS_TEAM_ID
   const bundleId = process.env.APNS_BUNDLE_ID ?? 'com.lynxedo.hub'
   const keyContent = process.env.APNS_KEY_CONTENT
-  if (!keyId || !teamId || !keyContent || deviceTokens.length === 0) return
+  if (!keyId || !teamId || !keyContent || deviceTokens.length === 0) return { staleTokens: [] }
 
   // APNS_KEY_CONTENT stored with escaped newlines in .env.local
   const privateKey = keyContent.replace(/\\n/g, '\n')
@@ -40,8 +40,10 @@ export async function sendApnsPush(
     jwt = getJwt(keyId, teamId, privateKey)
   } catch (err) {
     console.error('[hub-apns] JWT sign failed:', (err as Error).message)
-    return
+    return { staleTokens: [] }
   }
+
+  const staleTokens: string[] = []
 
   const apnsBody = JSON.stringify({
     aps: {
@@ -92,6 +94,19 @@ export async function sendApnsPush(
               console.error(
                 `[hub-apns] status ${status} token=${deviceToken.slice(0, 8)}… body=${responseBody}`
               )
+              // 410 Gone OR BadDeviceToken/Unregistered reason → terminal,
+              // mark for deletion. Anything else (timeout, server error,
+              // throttling) leaves the token alone.
+              if (status === 410) {
+                staleTokens.push(deviceToken)
+              } else {
+                try {
+                  const parsed = JSON.parse(responseBody) as { reason?: string }
+                  if (parsed.reason === 'BadDeviceToken' || parsed.reason === 'Unregistered') {
+                    staleTokens.push(deviceToken)
+                  }
+                } catch { /* not JSON */ }
+              }
               reject(new Error(`APNs ${status}`))
             }
           })
@@ -104,4 +119,5 @@ export async function sendApnsPush(
   )
 
   session.close()
+  return { staleTokens }
 }

@@ -28,13 +28,11 @@ export async function GET() {
     .select('conversation_id, user_id, hub_users!user_id(id, display_name, avatar_url)')
     .in('conversation_id', convIds)
 
-  // Get most recent message per conversation
+  // Get most recent message per conversation — DISTINCT ON via RPC so we
+  // pull one row per conv instead of every message in every DM (Heroes' top
+  // DM has 21k+ messages, this used to load all of them).
   const { data: recentMsgs } = await admin
-    .from('messages')
-    .select('conversation_id, content, created_at')
-    .in('conversation_id', convIds)
-    .is('deleted_at', null)
-    .order('created_at', { ascending: false })
+    .rpc('get_last_top_level_message_per_conversation', { conv_ids: convIds })
 
   // Build conversation objects
   type HubUser = { id: string; display_name: string; avatar_url: string | null }
@@ -100,30 +98,41 @@ export async function POST(request: Request) {
     .single()
   if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
 
-  // Check if a conversation with this exact set of participants already exists
+  // Check if a conversation with this exact set of participants already exists.
+  // Single batched query for all members of all my conversations, then group
+  // and compare in JS — used to do one round-trip per conversation.
   {
     const { data: myMemberships } = await supabase
       .from('conversation_members')
       .select('conversation_id')
       .eq('user_id', user.id)
 
-    const admin = createAdminClient()
-    const target = [...allParticipants].sort()
-    for (const m of myMemberships ?? []) {
-      const { data: convMembers } = await admin
+    const myConvIds = (myMemberships ?? []).map((m: { conversation_id: string }) => m.conversation_id)
+    if (myConvIds.length > 0) {
+      const admin = createAdminClient()
+      const { data: allMembers } = await admin
         .from('conversation_members')
-        .select('user_id')
-        .eq('conversation_id', m.conversation_id)
+        .select('conversation_id, user_id')
+        .in('conversation_id', myConvIds)
 
-      const ids = (convMembers ?? []).map((cm: { user_id: string }) => cm.user_id).sort()
-      if (ids.length === target.length && ids.every((id, i) => id === target[i])) {
-        // Starting a new DM with this person — unarchive for the caller
-        await supabase
-          .from('conversation_members')
-          .update({ archived_at: null })
-          .eq('conversation_id', m.conversation_id)
-          .eq('user_id', user.id)
-        return NextResponse.json({ id: m.conversation_id, existing: true })
+      const membersByConv: Record<string, string[]> = {}
+      for (const m of (allMembers ?? []) as { conversation_id: string; user_id: string }[]) {
+        if (!membersByConv[m.conversation_id]) membersByConv[m.conversation_id] = []
+        membersByConv[m.conversation_id].push(m.user_id)
+      }
+
+      const target = [...allParticipants].sort()
+      for (const [convId, userIds] of Object.entries(membersByConv)) {
+        const ids = [...userIds].sort()
+        if (ids.length === target.length && ids.every((id, i) => id === target[i])) {
+          // Starting a new DM with this person — unarchive for the caller
+          await supabase
+            .from('conversation_members')
+            .update({ archived_at: null })
+            .eq('conversation_id', convId)
+            .eq('user_id', user.id)
+          return NextResponse.json({ id: convId, existing: true })
+        }
       }
     }
   }
