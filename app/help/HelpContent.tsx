@@ -195,8 +195,8 @@ function HubTab() {
       <Section title="Sending Messages">
         <p>The composer is the box at the bottom of every conversation.</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">Send</strong> — press Enter (or tap the send button on mobile).</li>
-          <li><strong className="text-white">New line</strong> — Shift+Enter on desktop.</li>
+          <li><strong className="text-white">Send</strong> — on desktop, press Enter. On phone or tablet, tap the blue send button (only shows up once you&apos;ve started typing).</li>
+          <li><strong className="text-white">New line</strong> — Shift+Enter on desktop. On mobile, plain Enter inserts a new line — sending takes a deliberate tap of the send button so you can&apos;t fire off a half-typed message by accident.</li>
           <li><strong className="text-white">@mention someone</strong> — type <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> and start typing a name. They&apos;ll get a push notification even if Notifications are set to Mentions only.</li>
           <li><strong className="text-white">Attach a file or photo</strong> — paperclip icon, or paste/drop directly into the composer.</li>
           <li><strong className="text-white">Emoji</strong> — smiley icon, or just type 🙂.</li>
