@@ -156,19 +156,23 @@ export default function FleetPage() {
     map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
     mapRef.current = map
 
-    // Mapbox locks in the container's pixel dimensions at construct time, so
-    // if our flex parent hasn't fully laid out yet (or the user rotates the
-    // device, or the sidebar collapses), the map renders at a stale size.
-    // Force a resize on mount and watch the container for any future change.
+    // Mapbox locks in the container's pixel dimensions at construct time and
+    // doesn't react to flex/grid layout shifts on its own. Hammer resize across
+    // a handful of frames in case the layout settles late, then keep observing
+    // the container for any future change (sidebar collapse, device rotation).
     const container = mapContainerRef.current
     let ro: ResizeObserver | null = null
     if (container) {
       ro = new ResizeObserver(() => map.resize())
       ro.observe(container)
     }
-    requestAnimationFrame(() => map.resize())
+    const resizeTimers: number[] = []
+    ;[0, 50, 200, 500, 1000].forEach((ms) => {
+      resizeTimers.push(window.setTimeout(() => map.resize(), ms))
+    })
 
     return () => {
+      resizeTimers.forEach((t) => window.clearTimeout(t))
       ro?.disconnect()
       map.remove()
       mapRef.current = null
@@ -248,8 +252,8 @@ export default function FleetPage() {
 
   return (
     <div className="flex flex-col md:flex-row flex-1 min-h-0 w-full bg-gray-950 text-white">
-      <div className="flex-1 min-h-[50vh] md:min-h-0 relative">
-        <div ref={mapContainerRef} className="absolute inset-0" />
+      <div className="relative flex-1 min-h-[50vh] md:min-h-0 md:h-full">
+        <div ref={mapContainerRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
         {error && (
           <div className="absolute top-4 left-4 right-4 md:right-auto md:max-w-md bg-red-900/80 border border-red-700 text-red-100 px-3 py-2 rounded text-sm">
             {error}
