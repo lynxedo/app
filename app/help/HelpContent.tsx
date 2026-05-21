@@ -200,20 +200,29 @@ function HubTab() {
       </Section>
 
       <Section title="Sending Messages">
-        <p>The composer is the box at the bottom of every conversation.</p>
+        <p>The composer is the box at the bottom of every conversation. Tools live in a thin toolbar <em>below</em> the input — not crammed inside it — so what you&apos;ve typed always reads cleanly.</p>
+        <p className="font-medium text-white mt-3">Sending and writing</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Send</strong> — on desktop, press Enter. On phone or tablet, tap the blue send button (only shows up once you&apos;ve started typing).</li>
           <li><strong className="text-white">New line</strong> — Shift+Enter on desktop. On mobile, plain Enter inserts a new line — sending takes a deliberate tap of the send button so you can&apos;t fire off a half-typed message by accident.</li>
-          <li><strong className="text-white">@mention someone</strong> — type <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> and start typing a name. They&apos;ll get a push notification even if Notifications are set to Mentions only.</li>
-          <li><strong className="text-white">Attach a file or photo</strong> — paperclip icon, or paste/drop directly into the composer.</li>
-          <li><strong className="text-white">Emoji</strong> — smiley icon, or just type 🙂.</li>
+          <li><strong className="text-white">Expand the box</strong> — small chevron just above the input (flush right). Tap it to grow the composer to about half the screen for drafting longer messages; tap again to shrink. Sending also auto-shrinks it. Every room or DM you open starts at the default small size.</li>
         </ul>
+        <p className="font-medium text-white mt-3">Toolbar buttons (left to right, below the input)</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">📎 Attach</strong> — pick a file or photo. You can also paste images from your clipboard or drag-and-drop a file straight onto the composer.</li>
+          <li><strong className="text-white">😀 Emoji</strong> — opens a full emoji picker with search, categories, recents, and skin tones.</li>
+          <li><strong className="text-white">@ Mention</strong> — inserts <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> and opens the name picker. Mentioned people get a push notification even if their notifications are set to Mentions only. You can also just type <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> directly.</li>
+          <li><strong className="text-white">⏰ Schedule</strong> — pick a future date/time. The button turns blue, the Send button turns yellow, and a banner shows when it&apos;ll go out. Click the ✕ on the banner to switch back to send-now.</li>
+          <li><strong className="text-white">▶ Send</strong> — sends the message. Hidden until you&apos;ve started typing or attached something.</li>
+        </ul>
+        <p className="font-medium text-white mt-3">Typing emoji by name</p>
+        <p>Type <code className="bg-gray-800 px-1 rounded text-orange-300">:</code> followed by a name and a list of matches pops up. <code className="bg-gray-800 px-1 rounded">:smile</code> → 😄, <code className="bg-gray-800 px-1 rounded">:fire</code> → 🔥, <code className="bg-gray-800 px-1 rounded">:thumbsup</code> → 👍. Arrow keys to navigate the list, Enter or Tab to insert.</p>
       </Section>
 
       <Section title="Message Actions (long-press / right-click)">
         <p>Long-press a message on mobile, or hover and right-click on desktop, to see the actions menu:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">React</strong> — tap an emoji to react. Anyone in the conversation can see and click the reaction.</li>
+          <li><strong className="text-white">React</strong> — tap one of the six quick reactions, or hit the <strong className="text-white">+</strong> button next to them to open the full emoji picker (search, categories, recents). On desktop, hover a message → 😊 button. Anyone in the conversation can see and click the reaction.</li>
           <li><strong className="text-white">Copy text</strong> — copies the message text to your clipboard.</li>
           <li><strong className="text-white">Forward</strong> — send the message into another room or DM.</li>
           <li><strong className="text-white">Save to Files</strong> — for photos. Saves the image into Hub Files where it&apos;s tagged and searchable.</li>

@@ -1,7 +1,18 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
+import data from '@emoji-mart/data'
+import { init, SearchIndex } from 'emoji-mart'
 import type { HubMessage, HubUser } from './MessageFeed'
+
+// emoji-mart needs its data registered once before SearchIndex.search() works.
+// Calling init() multiple times is a no-op, so module-load is fine.
+init({ data })
+
+const EmojiMartPicker = dynamic(() => import('@emoji-mart/react').then(m => m.default), {
+  ssr: false,
+})
 
 type PendingFile = {
   storage_path: string
@@ -9,6 +20,12 @@ type PendingFile = {
   mime_type: string
   size_bytes: number
   localUrl?: string
+}
+
+type EmojiSuggestion = {
+  id: string
+  name: string
+  native: string
 }
 
 export default function MessageComposer({
@@ -30,13 +47,25 @@ export default function MessageComposer({
   const [sending, setSending] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [uploading, setUploading] = useState(false)
+  // Mention autocomplete
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionStart, setMentionStart] = useState(-1)
   const [mentionIndex, setMentionIndex] = useState(0)
+  // Emoji :name: autocomplete
+  const [emojiQuery, setEmojiQuery] = useState<string | null>(null)
+  const [emojiStart, setEmojiStart] = useState(-1)
+  const [emojiIndex, setEmojiIndex] = useState(0)
+  const [emojiResults, setEmojiResults] = useState<EmojiSuggestion[]>([])
   // Scheduled send
   const [scheduledAt, setScheduledAt] = useState<string>('') // ISO datetime-local string
   const [showScheduler, setShowScheduler] = useState(false)
   const schedulerRef = useRef<HTMLDivElement>(null)
+  // Emoji picker popover (toolbar 😀 button)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
+  const emojiPickerRef = useRef<HTMLDivElement>(null)
+  // Expand chevron — does NOT persist across mounts or sessions; every
+  // room/DM open starts collapsed (Session 39 PRD).
+  const [expanded, setExpanded] = useState(false)
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
@@ -53,6 +82,26 @@ export default function MessageComposer({
     return content.includes(`@${firstName}`) || content.includes(`@${u.display_name.split(' ')[0]}`)
   })
 
+  // Run emoji search whenever the :name: query changes.
+  useEffect(() => {
+    if (emojiQuery === null || emojiQuery.length === 0) {
+      setEmojiResults([])
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      // SearchIndex.search returns up to 90 results sorted by relevance.
+      const found: Array<{ id: string; name: string; skins: { native: string }[] }> =
+        await SearchIndex.search(emojiQuery) ?? []
+      if (cancelled) return
+      setEmojiResults(
+        found.slice(0, 6).map(e => ({ id: e.id, name: e.name, native: e.skins?.[0]?.native ?? '' }))
+      )
+      setEmojiIndex(0)
+    })()
+    return () => { cancelled = true }
+  }, [emojiQuery])
+
   // Close scheduler on outside click
   useEffect(() => {
     if (!showScheduler) return
@@ -65,24 +114,51 @@ export default function MessageComposer({
     return () => document.removeEventListener('mousedown', handler)
   }, [showScheduler])
 
+  function autoSize() {
+    const el = textareaRef.current
+    if (!el) return
+    if (expanded) {
+      // Expanded — let the wrapping flex layout dictate height. Reset
+      // inline height so the percentage class wins.
+      el.style.height = ''
+      return
+    }
+    el.style.height = 'auto'
+    el.style.height = Math.min(el.scrollHeight, 144) + 'px'
+  }
+
+  // Resize when we toggle expanded or content changes.
+  useEffect(() => { autoSize() }, [expanded, content])
+
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value
     const cursor = e.target.selectionStart ?? val.length
     setContent(val)
 
-    const el = e.target
-    el.style.height = 'auto'
-    el.style.height = Math.min(el.scrollHeight, 144) + 'px'
-
     const beforeCursor = val.slice(0, cursor)
-    const match = beforeCursor.match(/@(\w*)$/)
-    if (match) {
-      setMentionQuery(match[1])
+
+    // Mention detection: @ followed by word chars at end of beforeCursor
+    const mentionMatch = beforeCursor.match(/@(\w*)$/)
+    if (mentionMatch) {
+      setMentionQuery(mentionMatch[1])
       setMentionStart(beforeCursor.lastIndexOf('@'))
       setMentionIndex(0)
     } else {
       setMentionQuery(null)
       setMentionStart(-1)
+    }
+
+    // Emoji shortcode detection: : followed by 1+ word chars, not part of
+    // a URL (no preceding `/` or `:` immediately before — `https://` would
+    // otherwise trigger us). Require at least one letter to avoid showing
+    // a giant list on bare `:`.
+    const emojiMatch = beforeCursor.match(/(?:^|\s):(\w{1,})$/)
+    if (emojiMatch) {
+      setEmojiQuery(emojiMatch[1])
+      setEmojiStart(beforeCursor.length - emojiMatch[1].length - 1)
+    } else {
+      setEmojiQuery(null)
+      setEmojiStart(-1)
     }
   }
 
@@ -97,7 +173,68 @@ export default function MessageComposer({
     textareaRef.current?.focus()
   }
 
+  function insertEmojiFromSuggestion(emoji: EmojiSuggestion) {
+    const before = content.slice(0, emojiStart)
+    const after = content.slice(emojiStart + 1 + (emojiQuery?.length ?? 0))
+    const newVal = before + emoji.native + after
+    setContent(newVal)
+    setEmojiQuery(null)
+    setEmojiStart(-1)
+    // Restore caret position just after the inserted emoji.
+    const caret = (before + emoji.native).length
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(caret, caret)
+    })
+  }
+
+  function insertEmojiAtCaret(native: string) {
+    const el = textareaRef.current
+    const start = el?.selectionStart ?? content.length
+    const end = el?.selectionEnd ?? content.length
+    const newVal = content.slice(0, start) + native + content.slice(end)
+    setContent(newVal)
+    const caret = start + native.length
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(caret, caret)
+    })
+  }
+
+  function insertMentionTrigger() {
+    // Toolbar @ button — insert "@" at the caret and let the existing
+    // mention autocomplete fire as the user types the name.
+    const el = textareaRef.current
+    const start = el?.selectionStart ?? content.length
+    const end = el?.selectionEnd ?? content.length
+    const before = content.slice(0, start)
+    const needsSpace = before.length > 0 && !/\s$/.test(before)
+    const insert = (needsSpace ? ' ' : '') + '@'
+    const newVal = before + insert + content.slice(end)
+    setContent(newVal)
+    const caret = before.length + insert.length
+    setMentionQuery('')
+    setMentionStart(caret - 1)
+    setMentionIndex(0)
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(caret, caret)
+    })
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Emoji autocomplete navigation takes priority over mention because
+    // the two can't be open at the same time (different trigger chars).
+    if (emojiQuery !== null && emojiResults.length > 0) {
+      if (e.key === 'ArrowDown') { e.preventDefault(); setEmojiIndex(i => Math.min(i + 1, emojiResults.length - 1)); return }
+      if (e.key === 'ArrowUp') { e.preventDefault(); setEmojiIndex(i => Math.max(i - 1, 0)); return }
+      if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertEmojiFromSuggestion(emojiResults[emojiIndex]); return }
+      if (e.key === 'Escape') { setEmojiQuery(null); return }
+    }
     if (mentionQuery !== null && filteredUsers.length > 0) {
       if (e.key === 'ArrowDown') { e.preventDefault(); setMentionIndex(i => Math.min(i + 1, filteredUsers.length - 1)); return }
       if (e.key === 'ArrowUp') { e.preventDefault(); setMentionIndex(i => Math.max(i - 1, 0)); return }
@@ -173,6 +310,8 @@ export default function MessageComposer({
     const files = pendingFiles.map(({ localUrl: _, ...f }) => f)
     setPendingFiles([])
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
+    // Auto-collapse the expanded composer on send (PRD).
+    setExpanded(false)
 
     if (scheduledAt) {
       // Scheduled send
@@ -226,6 +365,8 @@ export default function MessageComposer({
 
   // Min datetime for scheduler — 1 minute from now
   const minDateTime = new Date(Date.now() + 60000).toISOString().slice(0, 16)
+
+  const hasContent = content.trim().length > 0 || pendingFiles.length > 0
 
   return (
     <div
@@ -314,20 +455,52 @@ export default function MessageComposer({
         </div>
       )}
 
-      {/* Composer box */}
-      <div className="flex items-end gap-3 bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 focus-within:border-[#2E7EB8] transition-colors">
+      {/* Emoji :name: autocomplete */}
+      {emojiQuery !== null && emojiResults.length > 0 && (
+        <div className="mb-2 bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-xl">
+          {emojiResults.map((emoji, i) => (
+            <button
+              key={emoji.id}
+              onMouseDown={e => { e.preventDefault(); insertEmojiFromSuggestion(emoji) }}
+              className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
+                i === emojiIndex ? 'bg-[#2E7EB8]/20 text-white' : 'text-gray-300 hover:bg-gray-700'
+              }`}
+            >
+              <span className="text-xl flex-none w-6 text-center">{emoji.native}</span>
+              <span className="text-gray-400">:{emoji.id}:</span>
+              <span className="ml-auto text-xs text-gray-500 truncate">{emoji.name}</span>
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Expand chevron — sits ABOVE the input rectangle, flush right.
+          Ben's explicit ask: outside the input, not inside it. */}
+      <div className="flex justify-end mb-1">
         <button
           type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="flex-none text-gray-500 hover:text-gray-300 disabled:opacity-30 transition-colors pb-0.5"
-          title="Attach file"
+          onClick={() => setExpanded(v => !v)}
+          className="text-gray-500 hover:text-gray-300 transition-colors p-1 -mr-1"
+          title={expanded ? 'Shrink composer' : 'Expand composer'}
+          aria-label={expanded ? 'Shrink composer' : 'Expand composer'}
         >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            {expanded ? (
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 15l-7-7-7 7" />
+            ) : (
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 9l7 7 7-7" />
+            )}
           </svg>
         </button>
+      </div>
 
+      {/* Input rectangle — clean, just the textarea. Attach/send/emoji
+          live in the toolbar bar below. */}
+      <div
+        className={`bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 focus-within:border-[#2E7EB8] transition-colors ${
+          expanded ? 'h-[50vh] flex' : ''
+        }`}
+      >
         <textarea
           ref={textareaRef}
           value={content}
@@ -339,16 +512,89 @@ export default function MessageComposer({
           placeholder={placeholder ?? 'Message…'}
           rows={1}
           disabled={sending}
-          className="flex-1 bg-transparent text-base md:text-sm text-white placeholder-gray-500 resize-none outline-none leading-relaxed min-h-[24px] max-h-36"
+          className={`w-full bg-transparent text-base md:text-sm text-white placeholder-gray-500 resize-none outline-none leading-relaxed ${
+            expanded ? 'flex-1 h-full' : 'min-h-[24px] max-h-36'
+          }`}
         />
+      </div>
 
-        {/* Schedule button */}
-        <div className="relative flex-none pb-0.5" ref={schedulerRef}>
+      {/* Toolbar bar below the input. Order (Slack-style):
+          📎 attach · [Aa format slot, reserved/hidden] · 😀 emoji · @ mention · ⏰ schedule · ▶ Send */}
+      <div className="flex items-center gap-1 mt-1.5 px-1">
+        {/* Attach */}
+        <button
+          type="button"
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="text-gray-500 hover:text-gray-300 disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-gray-800"
+          title="Attach file"
+          aria-label="Attach file"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+          </svg>
+        </button>
+
+        {/* Aa format slot — reserved for a future markdown-formatting
+            session. Rendered as a hidden placeholder so the surrounding
+            spacing matches the planned final layout. */}
+        <div className="w-7 h-7 hidden" aria-hidden="true" />
+
+        {/* Emoji picker */}
+        <div className="relative" ref={emojiPickerRef}>
+          <button
+            type="button"
+            onClick={() => setShowEmojiPicker(v => !v)}
+            className="text-gray-500 hover:text-gray-300 transition-colors p-1.5 rounded-md hover:bg-gray-800"
+            title="Insert emoji"
+            aria-label="Insert emoji"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <circle cx="12" cy="12" r="9" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" />
+            </svg>
+          </button>
+          {showEmojiPicker && (
+            <div className="absolute bottom-full left-0 mb-2 z-50">
+              <EmojiMartPicker
+                data={data}
+                theme="dark"
+                previewPosition="none"
+                skinTonePosition="search"
+                navPosition="bottom"
+                perLine={8}
+                maxFrequentRows={2}
+                onEmojiSelect={(e: { native: string }) => {
+                  insertEmojiAtCaret(e.native)
+                  setShowEmojiPicker(false)
+                }}
+                onClickOutside={() => setShowEmojiPicker(false)}
+              />
+            </div>
+          )}
+        </div>
+
+        {/* Mention trigger */}
+        <button
+          type="button"
+          onClick={insertMentionTrigger}
+          className="text-gray-500 hover:text-gray-300 transition-colors p-1.5 rounded-md hover:bg-gray-800 font-semibold text-base"
+          title="Mention someone"
+          aria-label="Mention someone"
+        >
+          @
+        </button>
+
+        {/* Schedule */}
+        <div className="relative" ref={schedulerRef}>
           <button
             type="button"
             onClick={() => setShowScheduler(v => !v)}
-            className={`transition-colors ${scheduledAt ? 'text-[#2E7EB8]' : 'text-gray-500 hover:text-gray-300'}`}
+            className={`transition-colors p-1.5 rounded-md hover:bg-gray-800 ${
+              scheduledAt ? 'text-[#2E7EB8]' : 'text-gray-500 hover:text-gray-300'
+            }`}
             title="Schedule send"
+            aria-label="Schedule send"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -356,7 +602,7 @@ export default function MessageComposer({
           </button>
 
           {showScheduler && (
-            <div className="absolute bottom-full right-0 mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-3 z-50 w-64">
+            <div className="absolute bottom-full left-0 mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-3 z-50 w-64">
               <p className="text-xs text-gray-400 mb-2 font-medium">Schedule for later</p>
               <input
                 type="datetime-local"
@@ -377,12 +623,13 @@ export default function MessageComposer({
           )}
         </div>
 
+        {/* Spacer pushes Send to the right edge */}
+        <div className="flex-1" />
+
         {/* Send button. Fixed pixel size so it doesn't balloon when the
-            user picks L for root font-size — at 22px root, a rem-based
-            w-8 h-8 would render as 44×44. Hidden when nothing to send,
-            which gives the textarea full width while typing isn't yet
-            possible. */}
-        {(content.trim() || pendingFiles.length > 0) && (
+            user picks L for root font-size (Session 36.6). Hidden when
+            nothing to send. */}
+        {hasContent && (
           <button
             onClick={send}
             disabled={sending}
@@ -391,6 +638,7 @@ export default function MessageComposer({
               scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-[#2E7EB8] hover:bg-[#2470a8]'
             }`}
             title={scheduledAt ? 'Schedule message' : 'Send'}
+            aria-label={scheduledAt ? 'Schedule message' : 'Send'}
           >
             {scheduledAt ? (
               <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

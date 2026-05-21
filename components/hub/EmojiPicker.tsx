@@ -1,41 +1,42 @@
 'use client'
 
-import { useEffect, useRef } from 'react'
+import dynamic from 'next/dynamic'
+import data from '@emoji-mart/data'
 
-const EMOJIS = ['👍', '👎', '❤️', '😂', '🎉', '😮', '😢', '🙏', '🔥', '✅', '👀', '🚀']
+// emoji-mart renders into a Web Component shadow DOM — needs to be
+// client-only. The dynamic import keeps the ~250kb data bundle out of
+// the initial route chunk.
+const Picker = dynamic(() => import('@emoji-mart/react').then(m => m.default), {
+  ssr: false,
+})
 
 export default function EmojiPicker({
   onSelect,
   onClose,
+  align = 'right',
 }: {
   onSelect: (emoji: string) => void
   onClose: () => void
+  align?: 'left' | 'right'
 }) {
-  const ref = useRef<HTMLDivElement>(null)
-
-  useEffect(() => {
-    function handler(e: MouseEvent) {
-      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [onClose])
-
   return (
     <div
-      ref={ref}
-      className="absolute bottom-full right-0 mb-1 z-50 bg-gray-800 border border-gray-700 rounded-xl shadow-2xl p-2 flex flex-wrap gap-0.5"
-      style={{ width: 208 }}
+      className={`absolute bottom-full mb-1 z-50 ${align === 'right' ? 'right-0' : 'left-0'}`}
     >
-      {EMOJIS.map(emoji => (
-        <button
-          key={emoji}
-          onClick={() => { onSelect(emoji); onClose() }}
-          className="w-9 h-9 flex items-center justify-center rounded-lg hover:bg-gray-700 text-xl transition-colors"
-        >
-          {emoji}
-        </button>
-      ))}
+      <Picker
+        data={data}
+        theme="dark"
+        previewPosition="none"
+        skinTonePosition="search"
+        navPosition="bottom"
+        perLine={8}
+        maxFrequentRows={2}
+        onEmojiSelect={(e: { native: string }) => {
+          onSelect(e.native)
+          onClose()
+        }}
+        onClickOutside={onClose}
+      />
     </div>
   )
 }

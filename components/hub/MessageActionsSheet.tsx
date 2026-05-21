@@ -1,6 +1,12 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import dynamic from 'next/dynamic'
+import data from '@emoji-mart/data'
+
+const EmojiMartPicker = dynamic(() => import('@emoji-mart/react').then(m => m.default), {
+  ssr: false,
+})
 
 const QUICK_EMOJIS = ['👍', '❤️', '😂', '🎉', '😮', '🙏']
 
@@ -43,6 +49,7 @@ export default function MessageActionsSheet({
   onDelete: () => void
 }) {
   const [visible, setVisible] = useState(false)
+  const [showPicker, setShowPicker] = useState(false)
 
   useEffect(() => {
     const id = requestAnimationFrame(() => setVisible(true))
@@ -90,6 +97,16 @@ export default function MessageActionsSheet({
               {emoji}
             </button>
           ))}
+          <button
+            onClick={() => setShowPicker(true)}
+            className="w-12 h-12 flex items-center justify-center rounded-full hover:bg-gray-800 active:bg-gray-700 transition-colors text-gray-400"
+            aria-label="More reactions"
+            title="More reactions"
+          >
+            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
+          </button>
         </div>
 
         <div className="py-1">
@@ -114,6 +131,32 @@ export default function MessageActionsSheet({
           </button>
         </div>
       </div>
+
+      {/* Full emoji picker overlay — opened by the + button above the
+          quick-reaction row. Centered with backdrop; tap outside to
+          dismiss back to the sheet. */}
+      {showPicker && (
+        <div
+          className="absolute inset-0 z-10 flex items-center justify-center px-3"
+          onClick={e => { e.stopPropagation(); setShowPicker(false) }}
+        >
+          <div onClick={e => e.stopPropagation()}>
+            <EmojiMartPicker
+              data={data}
+              theme="dark"
+              previewPosition="none"
+              skinTonePosition="search"
+              navPosition="bottom"
+              perLine={8}
+              maxFrequentRows={2}
+              onEmojiSelect={(e: { native: string }) => {
+                onAddReaction(e.native)
+                dismiss()
+              }}
+            />
+          </div>
+        </div>
+      )}
     </div>
   )
 }

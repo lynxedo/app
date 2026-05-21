@@ -1,8 +1,19 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import dynamic from 'next/dynamic'
+import data from '@emoji-mart/data'
+import { init, SearchIndex } from 'emoji-mart'
 import { createClient } from '@/lib/supabase/client'
 import type { HubMessage, HubUser, Sender } from './MessageFeed'
+
+init({ data })
+
+const EmojiMartPicker = dynamic(() => import('@emoji-mart/react').then(m => m.default), {
+  ssr: false,
+})
+
+type EmojiSuggestion = { id: string; name: string; native: string }
 
 function normSender(raw: Sender | Sender[] | null): Sender | null {
   if (!raw) return null
@@ -46,10 +57,77 @@ export default function ThreadPanel({
   const [replyContent, setReplyContent] = useState('')
   const [sending, setSending] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
+  // Emoji :name: autocomplete
+  const [emojiQuery, setEmojiQuery] = useState<string | null>(null)
+  const [emojiStart, setEmojiStart] = useState(-1)
+  const [emojiIndex, setEmojiIndex] = useState(0)
+  const [emojiResults, setEmojiResults] = useState<EmojiSuggestion[]>([])
+  // Emoji picker popover (toolbar 😀 button)
+  const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const didInitialScroll = useRef(false)
   const supabase = createClient()
+
+  useEffect(() => {
+    if (emojiQuery === null || emojiQuery.length === 0) { setEmojiResults([]); return }
+    let cancelled = false
+    ;(async () => {
+      const found: Array<{ id: string; name: string; skins: { native: string }[] }> =
+        await SearchIndex.search(emojiQuery) ?? []
+      if (cancelled) return
+      setEmojiResults(
+        found.slice(0, 6).map(e => ({ id: e.id, name: e.name, native: e.skins?.[0]?.native ?? '' }))
+      )
+      setEmojiIndex(0)
+    })()
+    return () => { cancelled = true }
+  }, [emojiQuery])
+
+  function handleReplyChange(e: React.ChangeEvent<HTMLTextAreaElement>) {
+    const val = e.target.value
+    const cursor = e.target.selectionStart ?? val.length
+    setReplyContent(val)
+    const beforeCursor = val.slice(0, cursor)
+    const emojiMatch = beforeCursor.match(/(?:^|\s):(\w{1,})$/)
+    if (emojiMatch) {
+      setEmojiQuery(emojiMatch[1])
+      setEmojiStart(beforeCursor.length - emojiMatch[1].length - 1)
+    } else {
+      setEmojiQuery(null)
+      setEmojiStart(-1)
+    }
+  }
+
+  function insertEmojiFromSuggestion(emoji: EmojiSuggestion) {
+    const before = replyContent.slice(0, emojiStart)
+    const after = replyContent.slice(emojiStart + 1 + (emojiQuery?.length ?? 0))
+    const newVal = before + emoji.native + after
+    setReplyContent(newVal)
+    setEmojiQuery(null)
+    setEmojiStart(-1)
+    const caret = (before + emoji.native).length
+    requestAnimationFrame(() => {
+      const el = textareaRef.current
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(caret, caret)
+    })
+  }
+
+  function insertEmojiAtCaret(native: string) {
+    const el = textareaRef.current
+    const start = el?.selectionStart ?? replyContent.length
+    const end = el?.selectionEnd ?? replyContent.length
+    const newVal = replyContent.slice(0, start) + native + replyContent.slice(end)
+    setReplyContent(newVal)
+    const caret = start + native.length
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(caret, caret)
+    })
+  }
 
   useEffect(() => {
     supabase
@@ -201,13 +279,42 @@ export default function ThreadPanel({
 
       {/* Reply composer */}
       <div className="flex-none border-t border-gray-800 px-3 py-3">
+        {/* Emoji :name: autocomplete */}
+        {emojiQuery !== null && emojiResults.length > 0 && (
+          <div className="mb-2 bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-xl">
+            {emojiResults.map((emoji, i) => (
+              <button
+                key={emoji.id}
+                onMouseDown={e => { e.preventDefault(); insertEmojiFromSuggestion(emoji) }}
+                className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
+                  i === emojiIndex ? 'bg-[#2E7EB8]/20 text-white' : 'text-gray-300 hover:bg-gray-700'
+                }`}
+              >
+                <span className="text-xl flex-none w-6 text-center">{emoji.native}</span>
+                <span className="text-gray-400">:{emoji.id}:</span>
+                <span className="ml-auto text-xs text-gray-500 truncate">{emoji.name}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
         <div className="bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 focus-within:border-[#2E7EB8] transition-colors flex items-start gap-2">
           <textarea
             ref={textareaRef}
             value={replyContent}
-            onChange={e => setReplyContent(e.target.value)}
+            onChange={handleReplyChange}
             onKeyDown={e => {
-              if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendReply() }
+              if (emojiQuery !== null && emojiResults.length > 0) {
+                if (e.key === 'ArrowDown') { e.preventDefault(); setEmojiIndex(i => Math.min(i + 1, emojiResults.length - 1)); return }
+                if (e.key === 'ArrowUp') { e.preventDefault(); setEmojiIndex(i => Math.max(i - 1, 0)); return }
+                if (e.key === 'Enter' || e.key === 'Tab') { e.preventDefault(); insertEmojiFromSuggestion(emojiResults[emojiIndex]); return }
+                if (e.key === 'Escape') { setEmojiQuery(null); return }
+              }
+              if (e.key === 'Enter' && !e.shiftKey) {
+                const isMobile = typeof window !== 'undefined'
+                  && window.matchMedia('(max-width: 767px)').matches
+                if (!isMobile) { e.preventDefault(); sendReply() }
+              }
             }}
             onFocus={() => setIsFocused(true)}
             onBlur={() => setIsFocused(false)}
@@ -230,7 +337,44 @@ export default function ThreadPanel({
             </button>
           )}
         </div>
-        <div className="flex justify-end mt-1.5">
+
+        <div className="flex items-center gap-1 mt-1.5 px-1">
+          {/* Emoji picker */}
+          <div className="relative">
+            <button
+              type="button"
+              onClick={() => setShowEmojiPicker(v => !v)}
+              className="text-gray-500 hover:text-gray-300 transition-colors p-1.5 rounded-md hover:bg-gray-800"
+              title="Insert emoji"
+              aria-label="Insert emoji"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <circle cx="12" cy="12" r="9" />
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" />
+              </svg>
+            </button>
+            {showEmojiPicker && (
+              <div className="absolute bottom-full left-0 mb-2 z-50">
+                <EmojiMartPicker
+                  data={data}
+                  theme="dark"
+                  previewPosition="none"
+                  skinTonePosition="search"
+                  navPosition="bottom"
+                  perLine={8}
+                  maxFrequentRows={2}
+                  onEmojiSelect={(e: { native: string }) => {
+                    insertEmojiAtCaret(e.native)
+                    setShowEmojiPicker(false)
+                  }}
+                  onClickOutside={() => setShowEmojiPicker(false)}
+                />
+              </div>
+            )}
+          </div>
+
+          <div className="flex-1" />
+
           <button
             onClick={sendReply}
             disabled={!replyContent.trim() || sending}
