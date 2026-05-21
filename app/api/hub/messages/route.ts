@@ -101,6 +101,16 @@ export async function POST(request: Request) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Auto-unarchive the DM for all members on new activity
+  if (conversation_id) {
+    const unarchiveAdmin = createAdminClient()
+    await unarchiveAdmin
+      .from('conversation_members')
+      .update({ archived_at: null })
+      .eq('conversation_id', conversation_id)
+      .not('archived_at', 'is', null)
+  }
+
   if (hasFiles) {
     await supabase.from('files').insert(
       files.map((f: { storage_path: string; filename: string; mime_type: string; size_bytes: number }) => ({

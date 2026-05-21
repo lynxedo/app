@@ -37,6 +37,15 @@ export async function POST(request: Request) {
 
     if (insertErr) continue
 
+    // Auto-unarchive the DM for all members on new activity
+    if (sm.conversation_id) {
+      await admin
+        .from('conversation_members')
+        .update({ archived_at: null })
+        .eq('conversation_id', sm.conversation_id)
+        .not('archived_at', 'is', null)
+    }
+
     // If there were files, we'd need to re-attach them — for now files are stored
     // in the scheduled_messages.files jsonb but inserting into files table requires
     // the message id. Handle inline:

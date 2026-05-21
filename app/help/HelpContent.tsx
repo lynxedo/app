@@ -196,7 +196,19 @@ function HubTab() {
         <Step n={1}>Click <strong className="text-white">+ New DM</strong> in the sidebar.</Step>
         <Step n={2}>Pick one person for a one-on-one, or multiple people for a group DM.</Step>
         <Step n={3}>Type your message and send. The DM appears in their sidebar instantly.</Step>
-        <Note>DMs cannot be deleted, but you can hide them from your sidebar by clicking the ✕ next to the conversation.</Note>
+      </Section>
+
+      <Section title="Managing your DMs">
+        <p>Your DM list keeps itself tidy automatically — and you can also tuck specific conversations out of the way yourself.</p>
+        <p className="font-medium text-white mt-3">Auto-archive after 60 days</p>
+        <p>If you and another person haven&apos;t exchanged a message in 60 days, that DM quietly moves into your archived list. Nothing is deleted — every message and photo is still there. The conversation just stops cluttering your active list.</p>
+        <p className="font-medium text-white mt-3">Archive a DM yourself</p>
+        <p>Right-click (or long-press on mobile) any DM in the sidebar and pick <strong className="text-white">Archive conversation</strong>. It disappears from your active list immediately.</p>
+        <Note>Archiving is per-person. If you archive your DM with Alice, only your sidebar changes — Alice still sees the DM in her active list.</Note>
+        <p className="font-medium text-white mt-3">See archived DMs</p>
+        <p>At the bottom of the Direct Messages section in the sidebar, you&apos;ll see <strong className="text-white">Show N archived</strong>. Click it to reveal a dimmed list of every archived DM. Each row has a small unarchive icon to bring it back to your active list.</p>
+        <p className="font-medium text-white mt-3">Auto-unarchive when there&apos;s new activity</p>
+        <p>If someone sends a message to an archived DM, or if you start a new DM with that person, it automatically jumps back to your active list. You never have to think about whether archiving was the right call — new activity always wins.</p>
       </Section>
 
       <Section title="Sending Messages">

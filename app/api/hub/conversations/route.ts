@@ -7,14 +7,18 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  // Get conversation IDs where user is a member
+  // Get conversation IDs + my archived_at for each
   const { data: memberships } = await supabase
     .from('conversation_members')
-    .select('conversation_id')
+    .select('conversation_id, archived_at')
     .eq('user_id', user.id)
 
   if (!memberships?.length) return NextResponse.json({ conversations: [] })
 
+  const myArchived: Record<string, string | null> = {}
+  for (const m of memberships as { conversation_id: string; archived_at: string | null }[]) {
+    myArchived[m.conversation_id] = m.archived_at
+  }
   const convIds = memberships.map((m: { conversation_id: string }) => m.conversation_id)
 
   // Use admin client to read all members (bypasses RLS which only shows own rows)
@@ -34,13 +38,18 @@ export async function GET() {
 
   // Build conversation objects
   type HubUser = { id: string; display_name: string; avatar_url: string | null }
-  type ConvMap = { id: string; participants: HubUser[]; last_message?: string; last_at?: string }
+  type ConvMap = { id: string; participants: HubUser[]; last_message?: string; last_at?: string; archived_at: string | null; archived: boolean }
   const convsMap: Record<string, ConvMap> = {}
 
   for (const m of members ?? []) {
     const cm = m as unknown as { conversation_id: string; user_id: string; hub_users: HubUser | HubUser[] }
     if (!convsMap[cm.conversation_id]) {
-      convsMap[cm.conversation_id] = { id: cm.conversation_id, participants: [] }
+      convsMap[cm.conversation_id] = {
+        id: cm.conversation_id,
+        participants: [],
+        archived_at: myArchived[cm.conversation_id] ?? null,
+        archived: false,
+      }
     }
     const hu = Array.isArray(cm.hub_users) ? cm.hub_users[0] : cm.hub_users
     if (hu) convsMap[cm.conversation_id].participants.push(hu)
@@ -55,6 +64,14 @@ export async function GET() {
       convsMap[m.conversation_id].last_at = m.created_at
       seen.add(m.conversation_id)
     }
+  }
+
+  // Compute archived: manually archived OR auto-archived (last message > 60 days old).
+  // A DM with no messages yet (just created) is treated as active.
+  const sixtyDaysAgoMs = Date.now() - 60 * 24 * 60 * 60 * 1000
+  for (const c of Object.values(convsMap)) {
+    const autoArchived = c.last_at ? new Date(c.last_at).getTime() < sixtyDaysAgoMs : false
+    c.archived = c.archived_at != null || autoArchived
   }
 
   const conversations = Object.values(convsMap)
@@ -100,6 +117,12 @@ export async function POST(request: Request) {
 
       const ids = (convMembers ?? []).map((cm: { user_id: string }) => cm.user_id).sort()
       if (ids.length === target.length && ids.every((id, i) => id === target[i])) {
+        // Starting a new DM with this person — unarchive for the caller
+        await supabase
+          .from('conversation_members')
+          .update({ archived_at: null })
+          .eq('conversation_id', m.conversation_id)
+          .eq('user_id', user.id)
         return NextResponse.json({ id: m.conversation_id, existing: true })
       }
     }

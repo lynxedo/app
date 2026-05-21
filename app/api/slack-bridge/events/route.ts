@@ -152,6 +152,13 @@ async function handleEvent(event: SlackMessageEvent) {
       content: event.text.trim(),
       source: 'slack',
     })
+
+    // Auto-unarchive the DM for all members on new activity
+    await admin
+      .from('conversation_members')
+      .update({ archived_at: null })
+      .eq('conversation_id', conversationId)
+      .not('archived_at', 'is', null)
   }
 }
 
