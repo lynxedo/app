@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
+import { notifyDailyLogComplete } from '@/lib/daily-log-notify'
 
 export async function POST(
   request: Request,
@@ -49,7 +50,7 @@ export async function POST(
       .single(),
     admin
       .from('daily_log_entries')
-      .select('tech:hub_users!tech_user_id(display_name)')
+      .select('completed_at, tech:hub_users!tech_user_id(display_name)')
       .eq('id', entryId)
       .single(),
   ])
@@ -74,6 +75,13 @@ export async function POST(
         url: '/hub/daily-log',
       },
       { isDm: true }
+    )
+  }
+
+  // If the entry is already complete, re-fire the completion DM with the latest update list
+  if (entryResult.data?.completed_at) {
+    notifyDailyLogComplete(entryId).catch((err) =>
+      console.error('[daily-log] re-notify on update failed:', err),
     )
   }
 

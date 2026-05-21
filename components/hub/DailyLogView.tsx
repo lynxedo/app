@@ -21,6 +21,11 @@ type DailyLogEntry = {
   created_at: string
   tech: HubUser | null
   creator: HubUser | null
+  completer: HubUser | null
+  completed_at: string | null
+  completed_by: string | null
+  secondary_tech_user_ids: string[]
+  secondary_techs: HubUser[]
   updates: DailyLogUpdate[]
   subscriber_ids: string[]
 }
@@ -125,12 +130,14 @@ function EntryCard({
   entry,
   currentUserId,
   isAdmin,
+  hubUsers,
   onDeleted,
   onUpdated,
 }: {
   entry: DailyLogEntry
   currentUserId: string
   isAdmin: boolean
+  hubUsers: HubUser[]
   onDeleted: (id: string) => void
   onUpdated: (entry: DailyLogEntry) => void
 }) {
@@ -147,10 +154,72 @@ function EntryCard({
   const [notesBoardOpen, setNotesBoardOpen] = useState(false)
   const [isSubscribed, setIsSubscribed] = useState(entry.subscriber_ids.includes(currentUserId))
   const [togglingSubscribe, setTogglingSubscribe] = useState(false)
+  const [togglingComplete, setTogglingComplete] = useState(false)
+  const [addingSecondary, setAddingSecondary] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const updatesBottomRef = useRef<HTMLDivElement>(null)
 
   const canEdit = isAdmin || entry.creator?.id === currentUserId
+  const isOnEntry =
+    entry.tech?.id === currentUserId ||
+    entry.secondary_tech_user_ids.includes(currentUserId)
+  const canToggleComplete = isAdmin || isOnEntry
+  const isComplete = Boolean(entry.completed_at)
+
+  async function toggleComplete() {
+    if (togglingComplete) return
+    setTogglingComplete(true)
+    const method = isComplete ? 'DELETE' : 'POST'
+    const res = await fetch(`/api/hub/daily-log/${entry.id}/complete`, { method })
+    setTogglingComplete(false)
+    if (!res.ok) return
+    if (isComplete) {
+      onUpdated({ ...entry, completed_at: null, completed_by: null, completer: null })
+    } else {
+      const now = new Date().toISOString()
+      onUpdated({
+        ...entry,
+        completed_at: now,
+        completed_by: currentUserId,
+        completer: { id: currentUserId, display_name: 'You' },
+      })
+    }
+  }
+
+  async function addSecondaryTech(techId: string) {
+    if (!techId) return
+    const next = [...entry.secondary_tech_user_ids, techId]
+    const res = await fetch(`/api/hub/daily-log/${entry.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secondary_tech_user_ids: next }),
+    })
+    if (res.ok) {
+      const newTech = hubUsers.find(u => u.id === techId)
+      onUpdated({
+        ...entry,
+        secondary_tech_user_ids: next,
+        secondary_techs: newTech ? [...entry.secondary_techs, newTech] : entry.secondary_techs,
+      })
+      setAddingSecondary(false)
+    }
+  }
+
+  async function removeSecondaryTech(techId: string) {
+    const next = entry.secondary_tech_user_ids.filter(id => id !== techId)
+    const res = await fetch(`/api/hub/daily-log/${entry.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secondary_tech_user_ids: next }),
+    })
+    if (res.ok) {
+      onUpdated({
+        ...entry,
+        secondary_tech_user_ids: next,
+        secondary_techs: entry.secondary_techs.filter(t => t.id !== techId),
+      })
+    }
+  }
 
   async function toggleSubscribe() {
     setTogglingSubscribe(true)
@@ -220,17 +289,110 @@ function EntryCard({
     onDeleted(entry.id)
   }
 
+  // Techs already on this entry (primary + secondaries) — excluded from add-second picker
+  const onEntryIds = new Set<string>([
+    entry.tech?.id ?? '',
+    ...entry.secondary_tech_user_ids,
+  ])
+
   return (
-    <div className="bg-gray-900 border border-gray-700/60 rounded-2xl overflow-hidden">
+    <div className={`bg-gray-900 border rounded-2xl overflow-hidden transition-colors ${
+      isComplete ? 'border-emerald-700/50' : 'border-gray-700/60'
+    }`}>
       {/* Card header */}
-      <div className="flex items-center justify-between px-4 py-3 bg-gray-800/60 border-b border-gray-700/50">
-        <div className="flex items-center gap-2.5">
+      <div className={`flex items-center justify-between px-4 py-3 border-b ${
+        isComplete ? 'bg-emerald-900/20 border-emerald-700/40' : 'bg-gray-800/60 border-gray-700/50'
+      }`}>
+        <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+          <label
+            className={`flex items-center justify-center w-6 h-6 rounded-md border cursor-pointer transition-colors flex-none ${
+              canToggleComplete ? 'hover:border-emerald-400' : 'cursor-not-allowed opacity-40'
+            } ${
+              isComplete
+                ? 'bg-emerald-600 border-emerald-500 text-white'
+                : 'bg-gray-900 border-gray-600 text-transparent'
+            }`}
+            title={
+              !canToggleComplete
+                ? 'Only the techs on this route or an admin can mark it complete'
+                : isComplete
+                  ? 'Click to unmark — clears completion status'
+                  : 'Click to mark this route complete'
+            }
+          >
+            <input
+              type="checkbox"
+              checked={isComplete}
+              onChange={toggleComplete}
+              disabled={!canToggleComplete || togglingComplete}
+              className="sr-only"
+            />
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+            </svg>
+          </label>
           <UserAvatar user={entry.tech} size={8} />
           <span className="font-semibold text-white text-sm">
             {entry.tech?.display_name ?? 'Unknown Tech'}
           </span>
+          {/* Secondary techs as chips */}
+          {entry.secondary_techs.map(t => (
+            <span
+              key={t.id}
+              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-700/60 text-xs text-gray-300"
+              title="Secondary tech"
+            >
+              + {t.display_name}
+              {canEdit && (
+                <button
+                  onClick={() => removeSecondaryTech(t.id)}
+                  className="text-gray-500 hover:text-red-400 ml-0.5"
+                  title="Remove"
+                >
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+          {/* Add second tech */}
+          {canEdit && (
+            addingSecondary ? (
+              <select
+                autoFocus
+                onBlur={() => setAddingSecondary(false)}
+                onChange={e => addSecondaryTech(e.target.value)}
+                defaultValue=""
+                className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-0.5 text-xs text-white outline-none focus:border-[#2E7EB8]"
+              >
+                <option value="" disabled>+ Add tech…</option>
+                {hubUsers
+                  .filter(u => !u.is_bot && !onEntryIds.has(u.id))
+                  .sort((a, b) => a.display_name.localeCompare(b.display_name))
+                  .map(u => (
+                    <option key={u.id} value={u.id}>{u.display_name}</option>
+                  ))}
+              </select>
+            ) : (
+              <button
+                onClick={() => setAddingSecondary(true)}
+                className="text-xs text-gray-500 hover:text-[#2E7EB8] transition-colors"
+                title="Add a second tech who rode on this route"
+              >
+                + tech
+              </button>
+            )
+          )}
+          {isComplete && entry.completer && (
+            <span className="text-xs text-emerald-400 ml-1" title={
+              entry.completed_at
+                ? `Completed at ${new Date(entry.completed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
+                : ''
+            }>
+              ✓ by {entry.completer.display_name}
+            </span>
+          )}
         </div>
-        <div className="flex items-center gap-1.5">
+        <div className="flex items-center gap-1.5 flex-none">
           {/* Follow / Unfollow */}
           <button
             onClick={toggleSubscribe}
@@ -510,6 +672,7 @@ export default function DailyLogView({
   // New entry form
   const [showAddEntry, setShowAddEntry] = useState(false)
   const [newTechId, setNewTechId] = useState('')
+  const [newSecondaryIds, setNewSecondaryIds] = useState<string[]>([])
   const [newNotes, setNewNotes] = useState('')
   const [creating, setCreating] = useState(false)
   const [createError, setCreateError] = useState('')
@@ -534,7 +697,11 @@ export default function DailyLogView({
   const isToday = date === todayStr()
 
   const visibleEntries = myDayOnly
-    ? entries.filter(e => e.tech?.id === currentUserId)
+    ? entries.filter(
+        e =>
+          e.tech?.id === currentUserId ||
+          (e.secondary_tech_user_ids ?? []).includes(currentUserId),
+      )
     : entries
 
   async function createEntry() {
@@ -547,6 +714,7 @@ export default function DailyLogView({
       body: JSON.stringify({
         log_date: date,
         tech_user_id: newTechId,
+        secondary_tech_user_ids: newSecondaryIds,
         office_notes: newNotes.trim() || null,
       }),
     })
@@ -556,6 +724,7 @@ export default function DailyLogView({
       setEntries(prev => [...prev, { ...data, subscriber_ids: data.subscriber_ids ?? [] }])
       setShowAddEntry(false)
       setNewTechId('')
+      setNewSecondaryIds([])
       setNewNotes('')
     } else {
       setCreateError(data.error ?? 'Failed to create entry')
@@ -694,6 +863,7 @@ export default function DailyLogView({
                 entry={entry}
                 currentUserId={currentUserId}
                 isAdmin={isAdmin}
+                hubUsers={hubUsers}
                 onDeleted={id => setEntries(prev => prev.filter(e => e.id !== id))}
                 onUpdated={updated => setEntries(prev => prev.map(e => e.id === updated.id ? updated : e))}
               />
@@ -708,20 +878,64 @@ export default function DailyLogView({
           <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-md mx-4">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
               <h2 className="font-semibold text-white">Add Tech — {formatDateHeading(date)}</h2>
-              <button onClick={() => { setShowAddEntry(false); setCreateError('') }} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
+              <button onClick={() => { setShowAddEntry(false); setCreateError(''); setNewSecondaryIds([]) }} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
             </div>
             <div className="px-5 py-4 space-y-3">
               <div>
-                <label className="block text-xs text-gray-400 mb-1.5">Technician</label>
+                <label className="block text-xs text-gray-400 mb-1.5">Primary Technician</label>
                 <select
                   value={newTechId}
-                  onChange={e => setNewTechId(e.target.value)}
+                  onChange={e => {
+                    setNewTechId(e.target.value)
+                    setNewSecondaryIds(prev => prev.filter(id => id !== e.target.value))
+                  }}
                   className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8] appearance-none"
                 >
                   <option value="">Select a tech…</option>
                   {hubUsers
                     .filter(u => !u.is_bot)
                     .filter(u => !entries.some(e => e.tech?.id === u.id))
+                    .sort((a, b) => a.display_name.localeCompare(b.display_name))
+                    .map(u => (
+                      <option key={u.id} value={u.id}>{u.display_name}</option>
+                    ))}
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1.5">
+                  Second Tech <span className="text-gray-600 font-normal">(optional — for two techs on the same route)</span>
+                </label>
+                {newSecondaryIds.length > 0 && (
+                  <div className="flex flex-wrap gap-1.5 mb-2">
+                    {newSecondaryIds.map(id => {
+                      const u = hubUsers.find(h => h.id === id)
+                      if (!u) return null
+                      return (
+                        <span key={id} className="inline-flex items-center gap-1 px-2 py-1 rounded-full bg-gray-700 text-xs text-gray-200">
+                          {u.display_name}
+                          <button
+                            type="button"
+                            onClick={() => setNewSecondaryIds(prev => prev.filter(x => x !== id))}
+                            className="text-gray-400 hover:text-red-400"
+                          >
+                            ×
+                          </button>
+                        </span>
+                      )
+                    })}
+                  </div>
+                )}
+                <select
+                  value=""
+                  onChange={e => {
+                    if (e.target.value) setNewSecondaryIds(prev => [...prev, e.target.value])
+                  }}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8] appearance-none"
+                >
+                  <option value="">+ Add another tech…</option>
+                  {hubUsers
+                    .filter(u => !u.is_bot)
+                    .filter(u => u.id !== newTechId && !newSecondaryIds.includes(u.id))
                     .sort((a, b) => a.display_name.localeCompare(b.display_name))
                     .map(u => (
                       <option key={u.id} value={u.id}>{u.display_name}</option>
@@ -742,7 +956,7 @@ export default function DailyLogView({
             </div>
             <div className="px-5 py-4 border-t border-gray-800 flex gap-3">
               <button
-                onClick={() => { setShowAddEntry(false); setCreateError('') }}
+                onClick={() => { setShowAddEntry(false); setCreateError(''); setNewSecondaryIds([]) }}
                 className="flex-1 py-2 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white hover:border-gray-600 transition-colors"
               >
                 Cancel

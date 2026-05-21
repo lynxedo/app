@@ -342,6 +342,12 @@ function HubTab() {
       <Section title="Daily Log">
         <p>Daily Log is a running log of operational notes for the day — who&apos;s on what crew, what went wrong, what got finished. Anyone can post.</p>
         <p>Posts are organized by date. Scrolling back through old days is how you reconstruct what happened the week of a callback.</p>
+        <p><strong className="text-white">Two techs on one route:</strong> when creating an entry you can pick a primary tech plus one or more secondary techs (the second person riding the route). The entry shows up on every tech&apos;s <em>My Day</em> view, and either tech can post updates or mark it complete.</p>
+        <p><strong className="text-white">Marking a route complete:</strong> tap the checkbox next to the tech name at the top of the entry card when the route is done. The card turns green and shows who marked it complete. Unchecking clears it.</p>
+        <p>When a route is marked complete, a DM goes out via @Guardian to the people configured in <em>Admin → Daily Log</em>. The DM contains that day&apos;s office notes, route sheet name, and every update that was posted — so you can read the whole day at a glance instead of opening the log. If anything changes after the route is marked complete (a new update gets posted, notes get edited), the DM resends with the updated info.</p>
+        <AdminOnly>
+          <p>Admins pick who receives completion DMs under <strong className="text-white">/admin/daily-log</strong>. Pick as many users as you want; leave it empty to disable completion DMs entirely.</p>
+        </AdminOnly>
       </Section>
 
       <Section title="Fleet Tracker">

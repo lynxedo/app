@@ -9,6 +9,7 @@ const TABS = [
   { href: '/admin/routing', label: 'Routing', exact: false },
   { href: '/admin/timesheet', label: 'Time Records', exact: false },
   { href: '/admin/fleet', label: 'Fleet', exact: false },
+  { href: '/admin/daily-log', label: 'Daily Log', exact: false },
 ]
 
 export default function AdminTabNav() {
