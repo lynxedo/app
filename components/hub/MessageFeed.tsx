@@ -273,6 +273,18 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           }))
           return
         }
+        // If someone else just sent a message into the conversation
+        // we're actively viewing, advance our read receipt immediately
+        // so the sender sees "Read" without us leaving and re-entering.
+        // (The sidebar pathname effect only fires on NAVIGATE INTO,
+        // not on incoming messages while we're already here.)
+        if (payload.new.sender_id !== currentUserId) {
+          fetch('/api/hub/read-receipts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(roomId ? { room_id: roomId } : { conversation_id: conversationId }),
+          }).catch(() => {})
+        }
         const { data } = await supabase
           .from('messages')
           .select(`id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
