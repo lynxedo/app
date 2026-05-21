@@ -18,25 +18,25 @@ type Scheme = {
 
 const SCHEMES: Scheme[] = [
   {
-    id: 'amber-sky',
-    label: 'A · Amber + Sky',
-    description: 'Top = warm amber gold. Sub = cool sky blue. High contrast both directions.',
+    id: 'amber-emerald',
+    label: 'A · Amber + Emerald',
+    description: 'Top = warm amber gold. Sub = soft emerald green. Classic gold + green pairing.',
     topClass: 'text-amber-300',
-    subClass: 'text-sky-300',
+    subClass: 'text-emerald-300',
   },
   {
-    id: 'sky-slate',
-    label: 'B · Sky + Slate',
-    description: 'Top = sky blue (ties to brand). Sub = muted slate gray. Monochromatic, professional.',
-    topClass: 'text-sky-300',
-    subClass: 'text-slate-400',
+    id: 'amber-violet',
+    label: 'B · Amber + Violet',
+    description: 'Top = amber gold. Sub = soft violet/purple. Maximum hue separation — gold and purple complement each other.',
+    topClass: 'text-amber-300',
+    subClass: 'text-violet-300',
   },
   {
-    id: 'amber-slate',
-    label: 'C · Amber + Slate',
-    description: 'Top = amber pop. Sub = muted slate. Maximum top/sub differentiation, editorial feel.',
+    id: 'amber-teal',
+    label: 'C · Amber + Teal',
+    description: 'Top = amber gold. Sub = teal (blue-green). Cool sub like sky but more distinct from the brand active blue.',
     topClass: 'text-amber-300',
-    subClass: 'text-slate-400',
+    subClass: 'text-teal-300',
   },
 ]
 
