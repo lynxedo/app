@@ -576,6 +576,16 @@ function SettingsTab() {
         </ul>
       </Section>
 
+      <Section title="Signing In">
+        <p>There are two ways to sign in at <Link href="/login" className="text-orange-400 hover:text-orange-300">lynxedo.com/login</Link>:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Sign in with Google</strong> — fastest if you have a Heroes Lawn Google account. One click and you&apos;re in.</li>
+          <li><strong className="text-white">Email code</strong> — enter your email, hit <strong className="text-white">Send code</strong>, and we&apos;ll email you a 6-digit code. Type it on the same screen and you&apos;re in.</li>
+        </ul>
+        <p>Both methods land you on the same account — you can switch back and forth whenever you want. Codes expire in 1 hour, and if you mistype one just hit <strong className="text-white">Send code</strong> again for a fresh one.</p>
+        <Note>The email code replaces the old &ldquo;click this link&rdquo; sign-in email — much friendlier on phones, because the code goes into the same browser or app you started in.</Note>
+      </Section>
+
       <Section title="Profile">
         <p><strong className="text-white">Email</strong> — read-only, the address you sign in with.</p>
         <p><strong className="text-white">Full name</strong> — your legal name. Used on payroll and admin views.</p>
