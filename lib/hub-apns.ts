@@ -6,8 +6,7 @@ let cachedJwt: { token: string; issuedAt: number } | null = null
 
 function getJwt(keyId: string, teamId: string, privateKeyPem: string): string {
   const now = Math.floor(Date.now() / 1000)
-  // DEBUG: JWT cache disabled — restore once iOS push debugging resolved
-  // if (cachedJwt && now - cachedJwt.issuedAt < 2700) return cachedJwt.token
+  if (cachedJwt && now - cachedJwt.issuedAt < 2700) return cachedJwt.token
 
   const header = Buffer.from(JSON.stringify({ alg: 'ES256', kid: keyId })).toString('base64url')
   const payload = Buffer.from(JSON.stringify({ iss: teamId, iat: now })).toString('base64url')
@@ -32,12 +31,7 @@ export async function sendApnsPush(
   const teamId = process.env.APNS_TEAM_ID
   const bundleId = process.env.APNS_BUNDLE_ID ?? 'com.lynxedo.hub'
   const keyContent = process.env.APNS_KEY_CONTENT
-  console.log(`[hub-apns] sendApnsPush called: tokens=${deviceTokens.length} keyId=${keyId ? 'set' : 'MISSING'} teamId=${teamId ? 'set' : 'MISSING'} bundleId=${bundleId} keyContent=${keyContent ? `set len=${keyContent.length}` : 'MISSING'}`)
-  console.log(`[hub-apns] payload: ${JSON.stringify(payload)}`)
-  if (!keyId || !teamId || !keyContent || deviceTokens.length === 0) {
-    console.log('[hub-apns] early return — missing creds or no tokens')
-    return { staleTokens: [] }
-  }
+  if (!keyId || !teamId || !keyContent || deviceTokens.length === 0) return { staleTokens: [] }
 
   // APNS_KEY_CONTENT stored with escaped newlines in .env.local
   const privateKey = keyContent.replace(/\\n/g, '\n')
@@ -48,7 +42,6 @@ export async function sendApnsPush(
     console.error('[hub-apns] JWT sign failed:', (err as Error).message)
     return { staleTokens: [] }
   }
-  console.log(`[hub-apns] jwt issued, length=${jwt.length}, head=${jwt.slice(0, 40)}`)
 
   const staleTokens: string[] = []
 
@@ -95,7 +88,6 @@ export async function sendApnsPush(
             responseBody += chunk
           })
           req.on('end', () => {
-            console.log(`[hub-apns] response status=${status} token=${deviceToken.slice(0, 8)}…`)
             if (status === 200) {
               resolve()
             } else {

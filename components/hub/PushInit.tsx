@@ -35,66 +35,35 @@ declare global {
   }
 }
 
-// Mirrors console.log/error to the server so we can read it in `pm2 logs lynxedo`
-// without needing an Xcode device console / USB cable.
-function remoteLog(tag: string, message: string, data?: unknown) {
-  if (data !== undefined) console.log(`[${tag}]`, message, data)
-  else console.log(`[${tag}]`, message)
-  try {
-    fetch('/api/hub/debug-log', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ tag, message, data }),
-      keepalive: true,
-    }).catch(() => {})
-  } catch { /* ignore */ }
-}
-
 async function initIosApns() {
   const plugin = window.Capacitor?.Plugins?.PushNotifications
-  if (!plugin) {
-    remoteLog('PushInit-iOS', 'PushNotifications plugin not available on window.Capacitor.Plugins')
-    return
-  }
-
-  remoteLog('PushInit-iOS', 'starting APNs init')
+  if (!plugin) return
 
   // Attach listeners BEFORE register() so a fast callback can't race past us.
   try {
     await plugin.addListener('registration', async (token) => {
-      remoteLog('PushInit-iOS', 'registration callback fired', { tokenLength: token.value.length })
       try {
-        const res = await fetch('/api/hub/apns-subscribe', {
+        await fetch('/api/hub/apns-subscribe', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ device_token: token.value }),
         })
-        if (!res.ok) {
-          remoteLog('PushInit-iOS', 'apns-subscribe POST failed', { status: res.status, body: await res.text() })
-        } else {
-          remoteLog('PushInit-iOS', 'apns-subscribe POST ok')
-        }
-      } catch (e) {
-        remoteLog('PushInit-iOS', 'apns-subscribe fetch threw', { error: (e as Error).message })
-      }
+      } catch { /* non-critical */ }
     })
 
     await plugin.addListener('registrationError', (err) => {
-      remoteLog('PushInit-iOS', 'APNs registrationError', { error: err.error })
+      console.error('[PushInit] iOS APNs registrationError:', err.error)
     })
   } catch (e) {
-    remoteLog('PushInit-iOS', 'addListener threw', { error: (e as Error).message })
+    console.error('[PushInit] iOS addListener threw:', e)
   }
 
   try {
-    const perm = await plugin.requestPermissions()
-    remoteLog('PushInit-iOS', 'requestPermissions returned', { receive: perm.receive })
-    if (perm.receive !== 'granted') return
-
+    const { receive } = await plugin.requestPermissions()
+    if (receive !== 'granted') return
     await plugin.register()
-    remoteLog('PushInit-iOS', 'register() resolved — waiting for registration callback')
   } catch (e) {
-    remoteLog('PushInit-iOS', 'requestPermissions/register threw', { error: (e as Error).message })
+    console.error('[PushInit] iOS requestPermissions/register threw:', e)
   }
 }
 

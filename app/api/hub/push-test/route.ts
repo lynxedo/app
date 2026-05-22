@@ -41,7 +41,7 @@ export async function POST() {
   let webSent = 0
   if (pubKey && privKey && subs.length > 0) {
     webpush.setVapidDetails(`mailto:${email}`, pubKey, privKey)
-    const body = JSON.stringify({ ...payload, body: `${payload.body} (${stamp.slice(11, 19)} UTC)` })
+    const body = JSON.stringify(payload)
     const results = await Promise.allSettled(
       subs.map(s =>
         webpush.sendNotification(
