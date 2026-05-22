@@ -3,8 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 import { askClaude } from '@/lib/hub-claude'
-import { bridgeHubMessageToSlack } from '@/lib/slack-bridge'
 import { markActive } from '@/lib/hub-activity'
+import { bridgeHubMessageToChatSynx } from '@/lib/chat-synx'
 
 const MESSAGE_SELECT = `
   id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from, source,
@@ -157,10 +157,10 @@ export async function POST(request: Request) {
   // All push recipient lookups use adminClient to bypass RLS
   const pushAdmin = createAdminClient()
 
-  // Fetch sender display name once — used by all push paths below
+  // Fetch sender display name + avatar once — used by push paths below and Chat Synx bridge
   const { data: senderProfile } = await pushAdmin
     .from('hub_users')
-    .select('display_name')
+    .select('display_name, avatar_url')
     .eq('id', user.id)
     .single()
   const senderName = senderProfile?.display_name ?? 'Someone'
@@ -348,13 +348,15 @@ export async function POST(request: Request) {
     }).catch(() => null)
   }
 
-  // Slack bridge — mirror top-level Hub messages to Slack if a bridge exists for this room/DM
-  if (!parent_id && hasContent && user.id !== CLAUDE_BOT_ID) {
-    bridgeHubMessageToSlack({
-      roomId: room_id ?? null,
-      conversationId: conversation_id ?? null,
+  // Chat Synx bridge — mirror Hub room messages (incl. thread replies) to Slack if a bridge exists
+  if (room_id && hasContent && user.id !== CLAUDE_BOT_ID) {
+    bridgeHubMessageToChatSynx({
+      messageId: msg.id,
+      roomId: room_id,
+      parentId: parent_id ?? null,
       senderId: user.id,
       senderName,
+      senderAvatarUrl: senderProfile?.avatar_url ?? null,
       content: content.trim(),
     }).catch(() => null)
   }

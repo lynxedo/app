@@ -43,17 +43,6 @@ type AutomationRule = {
 
 type Board = { id: string; name: string; is_private: boolean; is_personal: boolean }
 
-type SlackBridge = {
-  id: string
-  bridge_type: 'dm' | 'room'
-  slack_user_id: string | null
-  slack_channel_id: string | null
-  active: boolean
-  created_at: string
-  hub_user: { id: string; display_name: string } | null
-  hub_room: { id: string; name: string } | null
-}
-
 type FileTagType = 'general' | 'social-page' | 'social-queue'
 type FileTag = {
   id: string
@@ -71,6 +60,22 @@ const FILE_TAG_TYPE_LABELS: Record<FileTagType, string> = {
 }
 
 const FILE_TAG_DEFAULT_COLORS = ['#F97316', '#EF4444', '#10B981', '#3B82F6', '#A855F7', '#EC4899', '#F59E0B', '#6B7280']
+
+type ChatSynxLink = {
+  slack_user_id: string
+  display_name: string | null
+  avatar_url: string | null
+  created_at: string
+  hub_user: { id: string; display_name: string; avatar_url: string | null } | null
+}
+
+type ChatSynxBridge = {
+  id: string
+  slack_channel_id: string
+  active: boolean
+  created_at: string
+  hub_room: { id: string; name: string } | null
+}
 
 type ExternalLink = {
   id: string
@@ -160,14 +165,18 @@ export default function HubAdminPanel({
   const [savingRule, setSavingRule] = useState(false)
   const [ruleError, setRuleError] = useState('')
 
-  // Slack bridges
-  const [bridges, setBridges] = useState<SlackBridge[]>([])
-  const [bridgesLoaded, setBridgesLoaded] = useState(false)
-  const [newBridgeType, setNewBridgeType] = useState<'dm' | 'room'>('dm')
-  const [newSlackUserId, setNewSlackUserId] = useState('')
-  const [newBridgeHubUser, setNewBridgeHubUser] = useState('')
-  const [newSlackChannelId, setNewSlackChannelId] = useState('')
-  const [newBridgeHubRoom, setNewBridgeHubRoom] = useState('')
+  // Chat Synx — sub-tab + person links + channel bridges
+  const [chatSynxSubTab, setChatSynxSubTab] = useState<'people' | 'channels'>('people')
+  const [chatSynxLinks, setChatSynxLinks] = useState<ChatSynxLink[]>([])
+  const [chatSynxLinksLoaded, setChatSynxLinksLoaded] = useState(false)
+  const [newLinkSlackUserId, setNewLinkSlackUserId] = useState('')
+  const [newLinkHubUserId, setNewLinkHubUserId] = useState('')
+  const [savingLink, setSavingLink] = useState(false)
+  const [linkError, setLinkError] = useState('')
+  const [chatSynxBridges, setChatSynxBridges] = useState<ChatSynxBridge[]>([])
+  const [chatSynxBridgesLoaded, setChatSynxBridgesLoaded] = useState(false)
+  const [newBridgeSlackChannelId, setNewBridgeSlackChannelId] = useState('')
+  const [newBridgeHubRoomId, setNewBridgeHubRoomId] = useState('')
   const [savingBridge, setSavingBridge] = useState(false)
   const [bridgeError, setBridgeError] = useState('')
 
@@ -202,7 +211,7 @@ export default function HubAdminPanel({
   const [showEditLinkEmojiPicker, setShowEditLinkEmojiPicker] = useState(false)
 
   // Section tabs
-  const [tab, setTab] = useState<'rooms' | 'members' | 'settings' | 'announcements' | 'api-keys' | 'automation' | 'slack-bridges' | 'file-tags' | 'external-links'>('rooms')
+  const [tab, setTab] = useState<'rooms' | 'members' | 'settings' | 'announcements' | 'api-keys' | 'automation' | 'chat-synx' | 'file-tags' | 'external-links'>('rooms')
 
   async function createRoom() {
     if (!newName.trim() || creating) return
@@ -417,53 +426,79 @@ export default function HubAdminPanel({
     }
   }
 
-  async function loadBridges() {
-    const res = await fetch('/api/admin/slack-bridges')
+  async function loadChatSynxLinks() {
+    const res = await fetch('/api/admin/chat-synx/links')
+    if (!res.ok) return
     const data = await res.json()
-    setBridges(data.bridges ?? [])
-    setBridgesLoaded(true)
+    setChatSynxLinks(data.links ?? [])
+    setChatSynxLinksLoaded(true)
   }
 
-  async function createBridge() {
-    if (savingBridge) return
-    if (newBridgeType === 'dm') {
-      if (!newSlackUserId.trim() || !newBridgeHubUser) { setBridgeError('Slack User ID and Hub user required'); return }
-    } else {
-      if (!newSlackChannelId.trim() || !newBridgeHubRoom) { setBridgeError('Slack Channel ID and Hub room required'); return }
-    }
-    setSavingBridge(true)
-    setBridgeError('')
-    const res = await fetch('/api/admin/slack-bridges', {
+  async function createChatSynxLink() {
+    if (savingLink) return
+    if (!newLinkSlackUserId.trim() || !newLinkHubUserId) { setLinkError('Slack User ID and Hub user required'); return }
+    setSavingLink(true); setLinkError('')
+    const res = await fetch('/api/admin/chat-synx/links', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        bridge_type: newBridgeType,
-        slack_user_id: newBridgeType === 'dm' ? newSlackUserId.trim() : null,
-        hub_user_id: newBridgeType === 'dm' ? newBridgeHubUser : null,
-        slack_channel_id: newBridgeType === 'room' ? newSlackChannelId.trim() : null,
-        hub_room_id: newBridgeType === 'room' ? newBridgeHubRoom : null,
-      }),
+      body: JSON.stringify({ slack_user_id: newLinkSlackUserId.trim(), hub_user_id: newLinkHubUserId }),
+    })
+    const data = await res.json()
+    setSavingLink(false)
+    if (!res.ok) { setLinkError(data.error ?? 'Failed to create link'); return }
+    setNewLinkSlackUserId(''); setNewLinkHubUserId('')
+    await loadChatSynxLinks()
+  }
+
+  async function refreshChatSynxLink(slackUserId: string) {
+    const res = await fetch(`/api/admin/chat-synx/links/${encodeURIComponent(slackUserId)}`, { method: 'PATCH' })
+    if (!res.ok) return
+    await loadChatSynxLinks()
+  }
+
+  async function deleteChatSynxLink(slackUserId: string) {
+    if (!confirm('Delete this person mapping? Their Slack messages will stop reaching Hub until you re-link them.')) return
+    await fetch(`/api/admin/chat-synx/links/${encodeURIComponent(slackUserId)}`, { method: 'DELETE' })
+    setChatSynxLinks(prev => prev.filter(l => l.slack_user_id !== slackUserId))
+  }
+
+  async function loadChatSynxBridges() {
+    const res = await fetch('/api/admin/chat-synx/bridges')
+    if (!res.ok) return
+    const data = await res.json()
+    setChatSynxBridges(data.bridges ?? [])
+    setChatSynxBridgesLoaded(true)
+  }
+
+  async function createChatSynxBridge() {
+    if (savingBridge) return
+    if (!newBridgeSlackChannelId.trim() || !newBridgeHubRoomId) { setBridgeError('Slack Channel ID and Hub room required'); return }
+    setSavingBridge(true); setBridgeError('')
+    const res = await fetch('/api/admin/chat-synx/bridges', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ slack_channel_id: newBridgeSlackChannelId.trim(), hub_room_id: newBridgeHubRoomId }),
     })
     const data = await res.json()
     setSavingBridge(false)
-    if (!res.ok) { setBridgeError(data.error ?? 'Failed to create bridge'); return }
-    setNewSlackUserId(''); setNewBridgeHubUser(''); setNewSlackChannelId(''); setNewBridgeHubRoom('')
-    await loadBridges()
+    if (!res.ok) { setBridgeError(data.error ?? 'Failed to create channel bridge'); return }
+    setNewBridgeSlackChannelId(''); setNewBridgeHubRoomId('')
+    await loadChatSynxBridges()
   }
 
-  async function toggleBridgeActive(id: string, active: boolean) {
-    setBridges(prev => prev.map(b => b.id === id ? { ...b, active } : b))
-    await fetch(`/api/admin/slack-bridges/${id}`, {
+  async function toggleChatSynxBridge(id: string, active: boolean) {
+    setChatSynxBridges(prev => prev.map(b => b.id === id ? { ...b, active } : b))
+    await fetch(`/api/admin/chat-synx/bridges/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ active }),
     })
   }
 
-  async function deleteBridge(id: string) {
-    if (!confirm('Delete this bridge? Messages will stop flowing between Slack and Hub for this mapping.')) return
-    await fetch(`/api/admin/slack-bridges/${id}`, { method: 'DELETE' })
-    setBridges(prev => prev.filter(b => b.id !== id))
+  async function deleteChatSynxBridge(id: string) {
+    if (!confirm('Delete this channel bridge? Messages will stop flowing between this Hub room and Slack channel.')) return
+    await fetch(`/api/admin/chat-synx/bridges/${id}`, { method: 'DELETE' })
+    setChatSynxBridges(prev => prev.filter(b => b.id !== id))
   }
 
   async function loadFileTags() {
@@ -678,13 +713,13 @@ export default function HubAdminPanel({
           ['announcements', 'Announcements'],
           ['api-keys', 'API Keys'],
           ['automation', 'Automation'],
-          ['slack-bridges', 'Slack Bridge'],
+          ['chat-synx', 'Chat Synx'],
           ['file-tags', 'File Tags'],
           ['external-links', 'External Links'],
         ] as const).map(([key, label]) => (
           <button
             key={key}
-            onClick={() => { setTab(key); if (key === 'api-keys') loadApiKeys(); if (key === 'automation') loadAutomationRules(); if (key === 'slack-bridges') loadBridges(); if (key === 'file-tags' && !fileTagsLoaded) loadFileTags(); if (key === 'external-links' && !externalLinksLoaded) loadExternalLinks() }}
+            onClick={() => { setTab(key); if (key === 'api-keys') loadApiKeys(); if (key === 'automation') loadAutomationRules(); if (key === 'chat-synx') { if (!chatSynxLinksLoaded) loadChatSynxLinks(); if (!chatSynxBridgesLoaded) loadChatSynxBridges(); } if (key === 'file-tags' && !fileTagsLoaded) loadFileTags(); if (key === 'external-links' && !externalLinksLoaded) loadExternalLinks() }}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === key ? 'border-[#2E7EB8] text-white' : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}
@@ -1489,166 +1524,219 @@ Content-Type: application/json
         </div>
       )}
 
-      {/* ── SLACK BRIDGE TAB ── */}
-      {tab === 'slack-bridges' && (
-        <div className="space-y-8">
-          {/* Create bridge */}
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-            <h2 className="font-semibold text-white mb-1">Create Bridge</h2>
-            <p className="text-sm text-gray-500 mb-4">
-              Map a Slack DM or channel to a Hub user or room. Messages will flow between them in real time.
+
+      {/* ── CHAT SYNX TAB ── */}
+      {tab === 'chat-synx' && (
+        <div className="space-y-6">
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
+            <h2 className="font-semibold text-white mb-1">Chat Synx</h2>
+            <p className="text-sm text-gray-400 leading-relaxed">
+              Bridge Hub rooms to Slack channels. Set this up in two steps:
+              <strong className="text-white"> People</strong> maps each teammate&apos;s Slack identity to their Hub account so messages cross over with the right name and avatar.
+              <strong className="text-white"> Channels</strong> pairs a Hub room to a Slack channel.
             </p>
-
-            {/* Bridge type selector */}
-            <div className="flex gap-2 mb-4">
-              {([
-                ['dm', 'DM Bridge', 'Slack user ↔ Hub user (1-on-1)'],
-                ['room', 'Room Bridge', 'Slack channel ↔ Hub room'],
-              ] as const).map(([val, label, desc]) => (
-                <button
-                  key={val}
-                  onClick={() => setNewBridgeType(val)}
-                  className={`flex-1 p-3 rounded-xl border text-left transition-colors ${
-                    newBridgeType === val ? 'border-[#2E7EB8]/60 bg-[#2E7EB8]/10' : 'border-gray-700 hover:border-gray-600'
-                  }`}
-                >
-                  <div className="text-sm font-medium text-white">{label}</div>
-                  <div className="text-xs text-gray-500 mt-0.5">{desc}</div>
-                </button>
-              ))}
-            </div>
-
-            {newBridgeType === 'dm' ? (
-              <div className="space-y-3">
-                <p className="text-xs text-gray-400 leading-relaxed bg-gray-800/50 border border-gray-800 rounded-lg p-3">
-                  A DM bridge mirrors messages between a <strong className="text-white">remote Slack person</strong> and the partner they&apos;re talking with in Hub. The partner is automatically set to you (the admin creating this bridge).
-                </p>
-                <div>
-                  <label className="text-xs text-gray-400 block mb-1">Slack User ID <span className="text-gray-500">(the remote Slack person)</span></label>
-                  <input
-                    value={newSlackUserId}
-                    onChange={e => setNewSlackUserId(e.target.value)}
-                    placeholder="U01ABC234DEF (Slack profile → More → Copy member ID)"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400 block mb-1">Hub identity for that person <span className="text-gray-500">(NOT yourself — pick the remote person&apos;s Hub account)</span></label>
-                  <select
-                    value={newBridgeHubUser}
-                    onChange={e => setNewBridgeHubUser(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
-                  >
-                    <option value="">— pick the remote person&apos;s Hub account —</option>
-                    {hubUsers.map(u => (<option key={u.id} value={u.id}>{u.display_name}</option>))}
-                  </select>
-                </div>
-              </div>
-            ) : (
-              <div className="space-y-3">
-                <div>
-                  <label className="text-xs text-gray-400 block mb-1">Slack Channel ID</label>
-                  <input
-                    value={newSlackChannelId}
-                    onChange={e => setNewSlackChannelId(e.target.value)}
-                    placeholder="C01ABC234DEF (open channel in Slack web → ID is in URL)"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
-                  />
-                </div>
-                <div>
-                  <label className="text-xs text-gray-400 block mb-1">Hub Room</label>
-                  <select
-                    value={newBridgeHubRoom}
-                    onChange={e => setNewBridgeHubRoom(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
-                  >
-                    <option value="">— pick a Hub room —</option>
-                    {rooms.filter(r => !r.archived_at).map(r => (<option key={r.id} value={r.id}>#{r.name}</option>))}
-                  </select>
-                </div>
-              </div>
-            )}
-
-            {bridgeError && <p className="text-sm text-red-400 mt-3">{bridgeError}</p>}
-
-            <button
-              onClick={createBridge}
-              disabled={savingBridge}
-              className="mt-4 px-5 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
-            >
-              {savingBridge ? 'Creating…' : 'Create Bridge'}
-            </button>
+            <p className="text-xs text-gray-500 mt-2">
+              Important: invite <code className="text-green-400">@Chat Synx</code> to any Slack channel you bridge, or events won&apos;t reach us.
+            </p>
           </div>
 
-          {/* Bridges list */}
-          <div>
-            <h2 className="font-semibold text-white mb-3">Active Bridges ({bridges.length})</h2>
-            {!bridgesLoaded ? (
-              <p className="text-sm text-gray-500 px-1">Loading…</p>
-            ) : bridges.length === 0 ? (
-              <p className="text-sm text-gray-500 px-1">No bridges configured yet.</p>
-            ) : (
-              <div className="space-y-2">
-                {bridges.map(b => (
-                  <div
-                    key={b.id}
-                    className={`bg-gray-900 border rounded-xl px-4 py-3 flex items-center gap-4 ${
-                      b.active ? 'border-gray-800' : 'border-gray-800/50 opacity-60'
-                    }`}
-                  >
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2 mb-0.5">
-                        <span className="text-xs uppercase tracking-wide bg-gray-800 text-gray-400 px-2 py-0.5 rounded-full">
-                          {b.bridge_type === 'dm' ? 'DM' : 'Room'}
-                        </span>
-                        {!b.active && (
-                          <span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">Paused</span>
-                        )}
+          {/* Sub-tab toggle */}
+          <div className="flex gap-2">
+            {([
+              ['people', 'People'],
+              ['channels', 'Channels'],
+            ] as const).map(([key, label]) => (
+              <button
+                key={key}
+                onClick={() => setChatSynxSubTab(key)}
+                className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
+                  chatSynxSubTab === key ? 'bg-[#2E7EB8] text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+
+          {chatSynxSubTab === 'people' && (
+            <div className="space-y-8">
+              {/* Create person link */}
+              <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+                <h3 className="font-semibold text-white mb-1">Link a Slack person to a Hub user</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  One row per teammate. The Slack User ID identifies them in Slack; the Hub user is their account here. We&apos;ll pull their Slack display name and avatar automatically so outbound messages match.
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">Slack User ID</label>
+                    <input
+                      value={newLinkSlackUserId}
+                      onChange={e => setNewLinkSlackUserId(e.target.value)}
+                      placeholder="U01ABC234DEF (Slack profile → More → Copy member ID)"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">Hub user</label>
+                    <select
+                      value={newLinkHubUserId}
+                      onChange={e => setNewLinkHubUserId(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                    >
+                      <option value="">— pick a Hub user —</option>
+                      {hubUsers.map(u => (<option key={u.id} value={u.id}>{u.display_name}</option>))}
+                    </select>
+                  </div>
+                </div>
+                {linkError && <p className="text-sm text-red-400 mt-3">{linkError}</p>}
+                <button
+                  onClick={createChatSynxLink}
+                  disabled={savingLink}
+                  className="mt-4 px-5 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                >
+                  {savingLink ? 'Linking…' : 'Link person'}
+                </button>
+              </div>
+
+              {/* People list */}
+              <div>
+                <h3 className="font-semibold text-white mb-3">Mapped People ({chatSynxLinks.length})</h3>
+                {!chatSynxLinksLoaded ? (
+                  <p className="text-sm text-gray-500 px-1">Loading…</p>
+                ) : chatSynxLinks.length === 0 ? (
+                  <p className="text-sm text-gray-500 px-1">No people linked yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {chatSynxLinks.map(l => (
+                      <div key={l.slack_user_id} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center gap-4">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-sm text-white flex items-center gap-2 flex-wrap">
+                            {l.avatar_url ? (
+                              <img src={l.avatar_url} alt="" className="w-6 h-6 rounded-full" />
+                            ) : (
+                              <div className="w-6 h-6 rounded-full bg-gray-700" />
+                            )}
+                            <span>{l.display_name ?? '(no Slack name cached)'}</span>
+                            <code className="font-mono text-xs bg-gray-800 px-1.5 py-0.5 rounded text-gray-400">{l.slack_user_id}</code>
+                            <span className="text-gray-500 mx-1">↔</span>
+                            <span>{l.hub_user?.display_name ?? '(unknown Hub user)'}</span>
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => refreshChatSynxLink(l.slack_user_id)}
+                          className="text-xs text-gray-400 hover:text-white px-3 py-1.5 border border-gray-700 rounded-lg hover:bg-gray-800 transition-colors flex-none"
+                          title="Re-pull display name and avatar from Slack"
+                        >
+                          Refresh
+                        </button>
+                        <button
+                          onClick={() => deleteChatSynxLink(l.slack_user_id)}
+                          className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors flex-none"
+                        >
+                          Delete
+                        </button>
                       </div>
-                      <div className="text-sm text-white mt-1">
-                        {b.bridge_type === 'dm' ? (
-                          <>
-                            <code className="font-mono text-xs bg-gray-800 px-1.5 py-0.5 rounded">{b.slack_user_id}</code>
-                            <span className="text-gray-500 mx-2">↔</span>
-                            <span>{b.hub_user?.display_name ?? '(unknown user)'}</span>
-                          </>
-                        ) : (
-                          <>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {chatSynxSubTab === 'channels' && (
+            <div className="space-y-8">
+              {/* Create channel bridge */}
+              <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+                <h3 className="font-semibold text-white mb-1">Bridge a Hub room to a Slack channel</h3>
+                <p className="text-sm text-gray-500 mb-4">
+                  One row per room ↔ channel pair. Each Hub room and each Slack channel can only be in one bridge at a time.
+                </p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">Slack Channel ID</label>
+                    <input
+                      value={newBridgeSlackChannelId}
+                      onChange={e => setNewBridgeSlackChannelId(e.target.value)}
+                      placeholder="C01ABC234DEF (open channel in Slack web → ID is in URL)"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-400 block mb-1">Hub room</label>
+                    <select
+                      value={newBridgeHubRoomId}
+                      onChange={e => setNewBridgeHubRoomId(e.target.value)}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                    >
+                      <option value="">— pick a Hub room —</option>
+                      {rooms.filter(r => !r.archived_at).map(r => (<option key={r.id} value={r.id}>#{r.name}</option>))}
+                    </select>
+                  </div>
+                </div>
+                {bridgeError && <p className="text-sm text-red-400 mt-3">{bridgeError}</p>}
+                <button
+                  onClick={createChatSynxBridge}
+                  disabled={savingBridge}
+                  className="mt-4 px-5 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                >
+                  {savingBridge ? 'Bridging…' : 'Bridge channel'}
+                </button>
+              </div>
+
+              {/* Bridges list */}
+              <div>
+                <h3 className="font-semibold text-white mb-3">Active Bridges ({chatSynxBridges.length})</h3>
+                {!chatSynxBridgesLoaded ? (
+                  <p className="text-sm text-gray-500 px-1">Loading…</p>
+                ) : chatSynxBridges.length === 0 ? (
+                  <p className="text-sm text-gray-500 px-1">No channels bridged yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {chatSynxBridges.map(b => (
+                      <div
+                        key={b.id}
+                        className={`bg-gray-900 border rounded-xl px-4 py-3 flex items-center gap-4 ${b.active ? 'border-gray-800' : 'border-gray-800/50 opacity-60'}`}
+                      >
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-2 mb-1">
+                            {!b.active && (<span className="text-xs bg-yellow-500/20 text-yellow-400 px-2 py-0.5 rounded-full">Paused</span>)}
+                          </div>
+                          <div className="text-sm text-white">
                             <code className="font-mono text-xs bg-gray-800 px-1.5 py-0.5 rounded">{b.slack_channel_id}</code>
                             <span className="text-gray-500 mx-2">↔</span>
                             <span>#{b.hub_room?.name ?? '(unknown room)'}</span>
-                          </>
-                        )}
+                          </div>
+                          <div className="text-xs text-gray-600 mt-1">
+                            Created {new Date(b.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                          </div>
+                        </div>
+                        <button
+                          onClick={() => toggleChatSynxBridge(b.id, !b.active)}
+                          className="text-xs text-gray-400 hover:text-white px-3 py-1.5 border border-gray-700 rounded-lg hover:bg-gray-800 transition-colors flex-none"
+                        >
+                          {b.active ? 'Pause' : 'Resume'}
+                        </button>
+                        <button
+                          onClick={() => deleteChatSynxBridge(b.id)}
+                          className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors flex-none"
+                        >
+                          Delete
+                        </button>
                       </div>
-                      <div className="text-xs text-gray-600 mt-1">
-                        Created {new Date(b.created_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </div>
-                    </div>
-                    <button
-                      onClick={() => toggleBridgeActive(b.id, !b.active)}
-                      className="text-xs text-gray-400 hover:text-white px-3 py-1.5 border border-gray-700 rounded-lg hover:bg-gray-800 transition-colors flex-none"
-                    >
-                      {b.active ? 'Pause' : 'Resume'}
-                    </button>
-                    <button
-                      onClick={() => deleteBridge(b.id)}
-                      className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors flex-none"
-                    >
-                      Delete
-                    </button>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
-            )}
-          </div>
+            </div>
+          )}
 
           {/* Help */}
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-            <h2 className="font-semibold text-white mb-3">How to Find Slack IDs</h2>
+            <h3 className="font-semibold text-white mb-3">How to find Slack IDs</h3>
             <div className="space-y-3 text-sm text-gray-400">
-              <p><strong className="text-white">Slack User ID:</strong> In Slack, click a teammate&apos;s avatar → View full profile → ⋮ (More) → &quot;Copy member ID&quot;. Starts with <code className="text-green-400">U</code>.</p>
-              <p><strong className="text-white">Slack Channel ID:</strong> Open the channel in Slack on the web, look at the URL — the ID after the last <code className="text-green-400">/</code> starts with <code className="text-green-400">C</code>.</p>
-              <p><strong className="text-white">Important — invite @Bridge bot</strong>: For channel bridges, you must invite the <code className="text-green-400">@Bridge</code> app to the Slack channel, otherwise messages won&apos;t reach us.</p>
+              <p><strong className="text-white">Slack User ID:</strong> click a teammate&apos;s avatar in Slack → View full profile → ⋮ (More) → &quot;Copy member ID&quot;. Starts with <code className="text-green-400">U</code>.</p>
+              <p><strong className="text-white">Slack Channel ID:</strong> open the channel in Slack on the web — the ID is at the end of the URL. Starts with <code className="text-green-400">C</code>.</p>
+              <p><strong className="text-white">One-time scope check:</strong> The Chat Synx Slack app must have <code className="text-green-400">chat:write.customize</code> in its scopes for outbound posts to wear each Hub user&apos;s name and avatar. If posts show up as the bot instead, that scope is missing.</p>
             </div>
           </div>
         </div>

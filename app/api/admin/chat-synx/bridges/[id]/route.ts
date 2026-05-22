@@ -2,17 +2,15 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdminArea } from '@/lib/admin-auth'
 
-async function requireAdmin() {
+async function gate() {
   const check = await requireAdminArea('hub')
-  if (!check.ok || !check.company_id) {
-    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
-  }
+  if (!check.ok || !check.company_id) return null
   return { companyId: check.company_id }
 }
 
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const ctx = await requireAdmin()
-  if ('error' in ctx) return ctx.error
+  const ctx = await gate()
+  if (!ctx) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { id } = await params
   const body = await request.json()
@@ -25,7 +23,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const admin = createAdminClient()
   const { error } = await admin
-    .from('slack_bridges')
+    .from('chat_synx_bridges')
     .update(updates)
     .eq('id', id)
     .eq('company_id', ctx.companyId)
@@ -35,13 +33,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 }
 
 export async function DELETE(_request: Request, { params }: { params: Promise<{ id: string }> }) {
-  const ctx = await requireAdmin()
-  if ('error' in ctx) return ctx.error
+  const ctx = await gate()
+  if (!ctx) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { id } = await params
   const admin = createAdminClient()
   const { error } = await admin
-    .from('slack_bridges')
+    .from('chat_synx_bridges')
     .delete()
     .eq('id', id)
     .eq('company_id', ctx.companyId)
