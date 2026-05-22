@@ -4,10 +4,10 @@ import { requireAdminArea } from '@/lib/admin-auth'
 
 async function requireAdmin() {
   const check = await requireAdminArea('hub')
-  if (!check.ok || !check.company_id) {
+  if (!check.ok || !check.company_id || !check.user) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }
-  return { companyId: check.company_id }
+  return { companyId: check.company_id, userId: check.user.id }
 }
 
 export async function GET() {
@@ -58,6 +58,7 @@ export async function POST(request: Request) {
       bridge_type,
       slack_user_id: bridge_type === 'dm' ? slack_user_id.trim() : null,
       hub_user_id: bridge_type === 'dm' ? hub_user_id : null,
+      partner_hub_user_id: bridge_type === 'dm' ? ctx.userId : null,
       slack_channel_id: bridge_type === 'room' ? slack_channel_id.trim() : null,
       hub_room_id: bridge_type === 'room' ? hub_room_id : null,
       active: true,
