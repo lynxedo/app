@@ -702,7 +702,7 @@ export default function HubSidebar({
         >
           {showPrefix && (
             soloPerson
-              ? <span className="flex-none"><StatusDot status={soloPerson.status ?? null} /></span>
+              ? <StatusDot status={soloPerson.status ?? null} />
               : <span className={`text-xs flex-none ${muted ? 'text-white/20' : 'text-white/30'}`}>💬</span>
           )}
           <span className="truncate flex-1">{label}</span>
