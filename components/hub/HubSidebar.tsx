@@ -292,6 +292,7 @@ export default function HubSidebar({
         'postgres_changes',
         { event: 'UPDATE', schema: 'public', table: 'hub_users' },
         (payload) => {
+          console.log('[status-realtime] event received:', payload)
           const u = payload.new as { id: string; status: string | null; status_until: string | null }
           setConversations(prev => prev.map(c => ({
             ...c,
@@ -301,7 +302,9 @@ export default function HubSidebar({
           })))
         }
       )
-      .subscribe()
+      .subscribe((status) => {
+        console.log('[status-realtime] subscription status:', status)
+      })
 
     return () => { supabase.removeChannel(channel) }
   }, [])
