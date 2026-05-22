@@ -171,8 +171,8 @@ export default function HubAdminPanel({
   const [chatSynxLinksLoaded, setChatSynxLinksLoaded] = useState(false)
   const [newLinkSlackUserId, setNewLinkSlackUserId] = useState('')
   const [newLinkHubUserId, setNewLinkHubUserId] = useState('')
-  const [savingLink, setSavingLink] = useState(false)
-  const [linkError, setLinkError] = useState('')
+  const [savingPersonLink, setSavingPersonLink] = useState(false)
+  const [personLinkError, setPersonLinkError] = useState('')
   const [chatSynxBridges, setChatSynxBridges] = useState<ChatSynxBridge[]>([])
   const [chatSynxBridgesLoaded, setChatSynxBridgesLoaded] = useState(false)
   const [newBridgeSlackChannelId, setNewBridgeSlackChannelId] = useState('')
@@ -435,17 +435,17 @@ export default function HubAdminPanel({
   }
 
   async function createChatSynxLink() {
-    if (savingLink) return
-    if (!newLinkSlackUserId.trim() || !newLinkHubUserId) { setLinkError('Slack User ID and Hub user required'); return }
-    setSavingLink(true); setLinkError('')
+    if (savingPersonLink) return
+    if (!newLinkSlackUserId.trim() || !newLinkHubUserId) { setPersonLinkError('Slack User ID and Hub user required'); return }
+    setSavingPersonLink(true); setPersonLinkError('')
     const res = await fetch('/api/admin/chat-synx/links', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ slack_user_id: newLinkSlackUserId.trim(), hub_user_id: newLinkHubUserId }),
     })
     const data = await res.json()
-    setSavingLink(false)
-    if (!res.ok) { setLinkError(data.error ?? 'Failed to create link'); return }
+    setSavingPersonLink(false)
+    if (!res.ok) { setPersonLinkError(data.error ?? 'Failed to create link'); return }
     setNewLinkSlackUserId(''); setNewLinkHubUserId('')
     await loadChatSynxLinks()
   }
@@ -1588,13 +1588,13 @@ Content-Type: application/json
                     </select>
                   </div>
                 </div>
-                {linkError && <p className="text-sm text-red-400 mt-3">{linkError}</p>}
+                {personLinkError && <p className="text-sm text-red-400 mt-3">{personLinkError}</p>}
                 <button
                   onClick={createChatSynxLink}
-                  disabled={savingLink}
+                  disabled={savingPersonLink}
                   className="mt-4 px-5 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
                 >
-                  {savingLink ? 'Linking…' : 'Link person'}
+                  {savingPersonLink ? 'Linking…' : 'Link person'}
                 </button>
               </div>
 
