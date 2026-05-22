@@ -4,6 +4,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import HubShell from '@/components/hub/HubShell'
 import PushInit from '@/components/hub/PushInit'
+import ElectronNotifier from '@/components/hub/ElectronNotifier'
 import HubIdleTracker from '@/components/hub/HubIdleTracker'
 
 export const metadata: Metadata = {
@@ -142,6 +143,11 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         {children}
       </HubShell>
       <PushInit />
+      <ElectronNotifier
+        currentUserId={user.id}
+        hubUsers={(hubUsersResult.data ?? []) as { id: string; display_name: string; is_bot?: boolean }[]}
+        rooms={rooms.map(r => ({ id: r.id, name: r.name }))}
+      />
       <HubIdleTracker />
     </>
   )
