@@ -29,7 +29,7 @@ export async function POST(request: Request) {
   const signature = request.headers.get('x-slack-signature') ?? ''
   console.log(`[slack-bridge:events] incoming POST bodyLen=${rawBody.length} hasSig=${!!signature} hasTs=${!!timestamp}`)
 
-  let payload: { type?: string; challenge?: string; event?: SlackMessageEvent }
+  let payload: { type?: string; challenge?: string; event?: SlackMessageEvent; event_id?: string }
   try {
     payload = JSON.parse(rawBody)
   } catch {
@@ -55,7 +55,7 @@ export async function POST(request: Request) {
   console.log(`[slack-bridge:events] signature ok type=${payload.type} eventType=${payload.event?.type} channel=${payload.event?.channel} channelType=${payload.event?.channel_type} user=${payload.event?.user} subtype=${payload.event?.subtype ?? '-'} botId=${payload.event?.bot_id ?? '-'} textLen=${payload.event?.text?.length ?? 0}`)
 
   if (payload.type === 'event_callback' && payload.event) {
-    await handleEvent(payload.event)
+    await handleEvent(payload.event, payload.event_id ?? null)
   }
 
   return NextResponse.json({ ok: true })
@@ -73,7 +73,7 @@ type SlackMessageEvent = {
   thread_ts?: string
 }
 
-async function handleEvent(event: SlackMessageEvent) {
+async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
   if (event.type !== 'message') return
   // Ignore bot messages, edits, deletes, channel joins, etc. — only fresh user text messages
   if (event.subtype) return
@@ -137,9 +137,11 @@ async function handleEvent(event: SlackMessageEvent) {
       sender_id: senderHubId,
       content: event.text.trim(),
       source: 'slack',
+      slack_event_id: eventId,
     })
-    if (error) console.warn(`[slack-bridge:events] room insert failed: ${error.message}`)
-    else console.log(`[slack-bridge:events] room message inserted room=${bridge.hub_room_id} sender=${senderHubId}`)
+    if (error?.code === '23505') console.log(`[slack-bridge:events] duplicate event_id=${eventId} dropped (room)`)
+    else if (error) console.warn(`[slack-bridge:events] room insert failed: ${error.message}`)
+    else console.log(`[slack-bridge:events] room message inserted room=${bridge.hub_room_id} sender=${senderHubId} event_id=${eventId}`)
   } else if (bridge.bridge_type === 'dm' && bridge.hub_user_id) {
     // For DMs, find the conversation the bridged user is in that has the most recent
     // message activity. (1-on-1 DM with the admin who set up the bridge is the typical case.)
@@ -175,13 +177,20 @@ async function handleEvent(event: SlackMessageEvent) {
     }
     if (!conversationId) return
 
-    await admin.from('messages').insert({
+    const { error: dmInsertError } = await admin.from('messages').insert({
       company_id: bridge.company_id,
       conversation_id: conversationId,
       sender_id: bridge.hub_user_id,
       content: event.text.trim(),
       source: 'slack',
+      slack_event_id: eventId,
     })
+    if (dmInsertError?.code === '23505') {
+      console.log(`[slack-bridge:events] duplicate event_id=${eventId} dropped (dm)`)
+      return  // Skip auto-unarchive too — already processed
+    }
+    if (dmInsertError) console.warn(`[slack-bridge:events] DM insert failed: ${dmInsertError.message}`)
+    else console.log(`[slack-bridge:events] DM message inserted conversation=${conversationId} sender=${bridge.hub_user_id} event_id=${eventId}`)
 
     // Auto-unarchive the DM for all members on new activity
     await admin
