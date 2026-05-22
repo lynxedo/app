@@ -37,27 +37,49 @@ declare global {
 
 async function initIosApns() {
   const plugin = window.Capacitor?.Plugins?.PushNotifications
-  if (!plugin) return
+  if (!plugin) {
+    console.log('[PushInit] iOS: PushNotifications plugin not available on window.Capacitor.Plugins')
+    return
+  }
+
+  console.log('[PushInit] iOS: starting APNs init')
+
+  // Attach listeners BEFORE register() so a fast callback can't race past us.
+  try {
+    await plugin.addListener('registration', async (token) => {
+      console.log('[PushInit] iOS: registration callback fired, token length=', token.value.length)
+      try {
+        const res = await fetch('/api/hub/apns-subscribe', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ device_token: token.value }),
+        })
+        if (!res.ok) {
+          console.error('[PushInit] iOS: apns-subscribe POST failed:', res.status, await res.text())
+        } else {
+          console.log('[PushInit] iOS: apns-subscribe POST ok')
+        }
+      } catch (e) {
+        console.error('[PushInit] iOS: apns-subscribe fetch threw:', e)
+      }
+    })
+
+    await plugin.addListener('registrationError', (err) => {
+      console.error('[PushInit] iOS: APNs registrationError:', err.error)
+    })
+  } catch (e) {
+    console.error('[PushInit] iOS: addListener threw:', e)
+  }
 
   try {
-    const { receive } = await plugin.requestPermissions()
-    if (receive !== 'granted') return
+    const perm = await plugin.requestPermissions()
+    console.log('[PushInit] iOS: requestPermissions returned', perm.receive)
+    if (perm.receive !== 'granted') return
 
     await plugin.register()
-
-    plugin.addListener('registration', async (token) => {
-      await fetch('/api/hub/apns-subscribe', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ device_token: token.value }),
-      })
-    })
-
-    plugin.addListener('registrationError', (err) => {
-      console.error('[PushInit] APNs registration error:', err.error)
-    })
-  } catch {
-    // Non-critical
+    console.log('[PushInit] iOS: register() resolved — waiting for registration callback')
+  } catch (e) {
+    console.error('[PushInit] iOS: requestPermissions/register threw:', e)
   }
 }
 
