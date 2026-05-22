@@ -29,6 +29,7 @@ export default function StatusPicker({
   textSize,
   onTextSizeChange,
   onOpenNotifPrefs,
+  onStatusChanged,
 }: {
   currentStatus: string | null
   displayName: string
@@ -37,6 +38,7 @@ export default function StatusPicker({
   textSize?: string
   onTextSizeChange?: (size: string) => void
   onOpenNotifPrefs?: () => void
+  onStatusChanged?: (status: Status) => void
 }) {
   const router = useRouter()
   const [open, setOpen] = useState(false)
@@ -67,26 +69,7 @@ export default function StatusPicker({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus }),
     })
-    if (res.ok) {
-      // Broadcast so other tabs / teammates' sidebars update without refresh.
-      // postgres_changes on hub_users wasn't delivering events through Supabase
-      // Realtime for unknown reasons; broadcast bypasses the RLS/publication path.
-      const supabase = createClient()
-      const data = await res.json().catch(() => null) as { id?: string } | null
-      const userId = data?.id
-      if (userId) {
-        const channel = supabase.channel('hub-status-broadcast')
-        channel.subscribe((s) => {
-          if (s === 'SUBSCRIBED') {
-            channel.send({
-              type: 'broadcast',
-              event: 'status-changed',
-              payload: { user_id: userId, status: newStatus },
-            }).finally(() => supabase.removeChannel(channel))
-          }
-        })
-      }
-    }
+    if (res.ok) onStatusChanged?.(newStatus)
     setStatus(newStatus)
     setSaving(false)
     setOpen(false)

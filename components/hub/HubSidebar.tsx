@@ -285,8 +285,10 @@ export default function HubSidebar({
   // Uses a Supabase broadcast channel rather than postgres_changes on hub_users.
   // postgres_changes wasn't delivering events for that table for unknown reasons
   // (publication, replica identity FULL, and RLS were all set correctly).
-  // The StatusPicker sends a broadcast on this channel whenever a user saves a
-  // new status; every Hub client listens and patches participants[] in place.
+  // The StatusPicker calls onStatusChanged after saving; that handler patches
+  // local state for this user's self-DM dot AND broadcasts to all other Hub
+  // clients so their sidebars update too.
+  const statusChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
   useEffect(() => {
     const supabase = createClient()
     const channel = supabase
@@ -304,9 +306,26 @@ export default function HubSidebar({
         }
       )
       .subscribe()
-
-    return () => { supabase.removeChannel(channel) }
+    statusChannelRef.current = channel
+    return () => { supabase.removeChannel(channel); statusChannelRef.current = null }
   }, [])
+
+  const handleOwnStatusChanged = useCallback((newStatus: string | null) => {
+    // Patch own conversations state so the self-DM dot flips immediately —
+    // broadcasts skip the sender by default in Supabase Realtime.
+    setConversations(prev => prev.map(c => ({
+      ...c,
+      participants: c.participants.map(p =>
+        p.id === currentUserId ? { ...p, status: newStatus } : p
+      ),
+    })))
+    // Fire-and-forget broadcast so other Hub clients update live.
+    statusChannelRef.current?.send({
+      type: 'broadcast',
+      event: 'status-changed',
+      payload: { user_id: currentUserId, status: newStatus },
+    })
+  }, [currentUserId])
 
   // Mark as read when the user navigates to a room or PM
   useEffect(() => {
@@ -1287,6 +1306,7 @@ export default function HubSidebar({
             textSize={textSize}
             onTextSizeChange={onTextSizeChange}
             onOpenNotifPrefs={() => setShowNotifPrefs(true)}
+            onStatusChanged={handleOwnStatusChanged}
           />
         </div>
       </aside>
