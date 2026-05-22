@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { sendHubPush } from '@/lib/hub-push'
 
 const SIGNING_SECRET = process.env.CHAT_SYNX_SIGNING_SECRET ?? ''
 
@@ -118,26 +119,113 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
     }
   }
 
-  const { error } = await admin.from('messages').insert({
-    company_id: bridge.company_id,
-    room_id: bridge.hub_room_id,
-    parent_id: parentId,
-    sender_id: link.hub_user_id,
-    content: event.text.trim(),
-    source: 'chat-synx',
-    slack_event_id: eventId,
-    slack_ts: event.ts ?? null,
-  })
+  const { data: inserted, error } = await admin
+    .from('messages')
+    .insert({
+      company_id: bridge.company_id,
+      room_id: bridge.hub_room_id,
+      parent_id: parentId,
+      sender_id: link.hub_user_id,
+      content: event.text.trim(),
+      source: 'chat-synx',
+      slack_event_id: eventId,
+      slack_ts: event.ts ?? null,
+    })
+    .select('id')
+    .single()
 
   if (error?.code === '23505') {
     console.log(`[chat-synx:events] duplicate event_id=${eventId} dropped`)
     return
   }
-  if (error) {
-    console.warn(`[chat-synx:events] insert failed: ${error.message}`)
+  if (error || !inserted) {
+    console.warn(`[chat-synx:events] insert failed: ${error?.message ?? 'no row returned'}`)
     return
   }
   console.log(
-    `[chat-synx:events] inserted room=${bridge.hub_room_id} sender=${link.hub_user_id} slack_ts=${event.ts} thread_ts=${event.thread_ts ?? '-'} event_id=${eventId}${parentId ? ` parent=${parentId}` : ''}`,
+    `[chat-synx:events] inserted id=${inserted.id} room=${bridge.hub_room_id} sender=${link.hub_user_id} slack_ts=${event.ts} thread_ts=${event.thread_ts ?? '-'} event_id=${eventId}${parentId ? ` parent=${parentId}` : ''}`,
   )
+
+  // Broadcast a hint to any open MessageFeed for this room as a fallback for
+  // postgres_changes (which sometimes silently doesn't deliver — see
+  // Session 43.5 notes on hub_users for the same pattern). The client refetches
+  // the row by id, so we only need to send the id. Safe to fire-and-forget.
+  void (async () => {
+    try {
+      const channel = admin.channel(`feed:${bridge.hub_room_id}`)
+      await channel.subscribe()
+      await channel.send({
+        type: 'broadcast',
+        event: 'message-inserted',
+        payload: { id: inserted.id, parent_id: parentId, sender_id: link.hub_user_id },
+      })
+      await admin.removeChannel(channel)
+    } catch (err) {
+      console.warn(`[chat-synx:events] broadcast failed: ${(err as Error).message}`)
+    }
+  })()
+
+  // Skip push for thread replies (matches Hub /api/hub/messages behavior —
+  // top-level messages only fan out notifications).
+  if (parentId) return
+
+  // Fan out push notifications to other company members.
+  // Mirrors the room-push block in app/api/hub/messages/route.ts so
+  // Slack-originated messages notify Hub users the same way Hub-originated ones do.
+  try {
+    const [{ data: senderProfile }, { data: roomMeta }, { data: members }] = await Promise.all([
+      admin.from('hub_users').select('display_name').eq('id', link.hub_user_id).single(),
+      admin.from('rooms').select('name').eq('id', bridge.hub_room_id).single(),
+      admin
+        .from('hub_users')
+        .select('id, display_name')
+        .eq('company_id', bridge.company_id)
+        .neq('id', link.hub_user_id)
+        .eq('is_bot', false),
+    ])
+
+    const senderName = senderProfile?.display_name ?? 'Someone'
+    const roomName = roomMeta?.name ?? 'room'
+    const allOthers = (members ?? []) as { id: string; display_name: string }[]
+    const text = event.text.trim()
+
+    // @mention push — first-name match, mirrors Hub messages route
+    const mentioned = [...text.matchAll(/@(\w+)/g)].map(m => m[1].toLowerCase())
+    if (mentioned.length > 0) {
+      const matchedIds = allOthers
+        .filter(u => mentioned.some(n => u.display_name.split(' ')[0].toLowerCase() === n))
+        .map(u => u.id)
+      if (matchedIds.length > 0) {
+        sendHubPush(
+          matchedIds,
+          { title: `${senderName} mentioned you`, body: text.slice(0, 120), url: `/hub/${bridge.hub_room_id}` },
+          { isMention: true, roomId: bridge.hub_room_id },
+        ).catch(err => console.error('[chat-synx:events] mention push failed:', err.message))
+      }
+    }
+
+    // @room — force-notify all members
+    if (text.toLowerCase().includes('@room')) {
+      const ids = allOthers.map(u => u.id)
+      if (ids.length > 0) {
+        sendHubPush(
+          ids,
+          { title: `📢 @room — #${roomName} — ${senderName}`, body: text.slice(0, 120), url: `/hub/${bridge.hub_room_id}` },
+          { isMention: true, roomId: bridge.hub_room_id },
+        ).catch(err => console.error('[chat-synx:events] @room push failed:', err.message))
+      }
+    }
+
+    // Regular room push — sendHubPush filters by each user's mute prefs
+    const ids = allOthers.map(u => u.id)
+    if (ids.length > 0) {
+      sendHubPush(
+        ids,
+        { title: `#${roomName} — ${senderName}`, body: text.slice(0, 120), url: `/hub/${bridge.hub_room_id}` },
+        { roomId: bridge.hub_room_id },
+      ).catch(err => console.error('[chat-synx:events] room push failed:', err.message))
+    }
+  } catch (err) {
+    console.error('[chat-synx:events] push fan-out failed:', (err as Error).message)
+  }
 }

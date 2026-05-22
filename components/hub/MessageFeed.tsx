@@ -323,6 +323,41 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           setMessages(prev => prev.map(m => m.id === u.id ? { ...m, content: u.content, edited_at: u.edited_at } : m))
         }
       })
+      // Fallback path for INSERT — Chat Synx events route (and any other
+      // admin-client writer) fires this broadcast after inserting, so an
+      // open MessageFeed picks it up even if postgres_changes drops the WAL
+      // event. setMessages dedupes by id so receiving both is harmless.
+      .on('broadcast', { event: 'message-inserted' }, async (payload) => {
+        const p = (payload.payload ?? {}) as { id?: string; parent_id?: string | null; sender_id?: string }
+        if (!p.id) return
+        if (p.parent_id) {
+          setReplyCounts(prev => ({ ...prev, [p.parent_id!]: (prev[p.parent_id!] ?? 0) + 1 }))
+          return
+        }
+        if (p.sender_id && p.sender_id !== currentUserId) {
+          fetch('/api/hub/read-receipts', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(roomId ? { room_id: roomId } : { conversation_id: conversationId }),
+          }).catch(() => {})
+        }
+        const { data } = await supabase
+          .from('messages')
+          .select(`id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
+            sender:hub_users!sender_id (id, display_name, avatar_url, is_bot),
+            reactions (message_id, user_id, emoji),
+            files (id, filename, mime_type, size_bytes, storage_path)`)
+          .eq('id', p.id)
+          .single()
+        if (!data) return
+        const msg = data as unknown as HubMessage
+        setMessages(prev => {
+          const idx = prev.findIndex(m => m.id === msg.id)
+          if (idx >= 0) { const next = [...prev]; next[idx] = msg; return next }
+          return [...prev, msg]
+        })
+        setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
+      })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
