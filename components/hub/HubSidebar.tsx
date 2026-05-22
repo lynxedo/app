@@ -254,33 +254,56 @@ export default function HubSidebar({
   // Realtime: mark rooms/convs unread when new messages arrive
   useEffect(() => {
     const supabase = createClient()
+    const handleInsert = (msg: { room_id: string | null; conversation_id: string | null; sender_id: string; parent_id: string | null }) => {
+      // Ignore thread replies and messages sent by this user
+      if (msg.parent_id || msg.sender_id === currentUserId) return
+      const activeRoomMatch = pathname.match(/^\/hub\/([^/]+)$/)
+      const activePmMatch = pathname.match(/^\/hub\/pm\/([^/]+)$/)
+      if (msg.room_id) {
+        // Don't mark unread if user is currently viewing this room
+        if (activeRoomMatch?.[1] === msg.room_id) return
+        setUnreadRoomIds(prev => new Set([...prev, msg.room_id!]))
+      } else if (msg.conversation_id) {
+        if (activePmMatch?.[1] === msg.conversation_id) return
+        setUnreadConvIds(prev => new Set([...prev, msg.conversation_id!]))
+        // Refetch so the conversation's archived flag updates from the
+        // server-side auto-unarchive hook.
+        loadConversations()
+      }
+    }
+
     const channel = supabase
       .channel('sidebar-messages')
       .on(
         'postgres_changes',
         { event: 'INSERT', schema: 'public', table: 'messages' },
         (payload) => {
-          const msg = payload.new as { room_id: string | null; conversation_id: string | null; sender_id: string; parent_id: string | null }
-          // Ignore thread replies and messages sent by this user
-          if (msg.parent_id || msg.sender_id === currentUserId) return
-          const activeRoomMatch = pathname.match(/^\/hub\/([^/]+)$/)
-          const activePmMatch = pathname.match(/^\/hub\/pm\/([^/]+)$/)
-          if (msg.room_id) {
-            // Don't mark unread if user is currently viewing this room
-            if (activeRoomMatch?.[1] === msg.room_id) return
-            setUnreadRoomIds(prev => new Set([...prev, msg.room_id!]))
-          } else if (msg.conversation_id) {
-            if (activePmMatch?.[1] === msg.conversation_id) return
-            setUnreadConvIds(prev => new Set([...prev, msg.conversation_id!]))
-            // Refetch so the conversation's archived flag updates from the
-            // server-side auto-unarchive hook.
-            loadConversations()
-          }
+          handleInsert(payload.new as Parameters<typeof handleInsert>[0])
         }
       )
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    // Broadcast fallback for admin-client inserts (e.g. Chat Synx inbound from
+    // Slack) where postgres_changes silently drops events for unknown reasons
+    // — same pattern as Session 43.5 hub_users. The events route fires this.
+    const broadcastChannel = supabase
+      .channel('hub-sidebar-messages')
+      .on('broadcast', { event: 'message-inserted' }, (payload) => {
+        const p = (payload.payload ?? {}) as { room_id?: string | null; conversation_id?: string | null; sender_id?: string; parent_id?: string | null }
+        if (!p.sender_id) return
+        handleInsert({
+          room_id: p.room_id ?? null,
+          conversation_id: p.conversation_id ?? null,
+          sender_id: p.sender_id,
+          parent_id: p.parent_id ?? null,
+        })
+      })
+      .subscribe()
+
+    return () => {
+      supabase.removeChannel(channel)
+      supabase.removeChannel(broadcastChannel)
+    }
   }, [currentUserId, pathname, loadConversations])
 
   // Realtime: keep sidebar status dots in sync when teammates change status.

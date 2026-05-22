@@ -146,22 +146,41 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
     `[chat-synx:events] inserted id=${inserted.id} room=${bridge.hub_room_id} sender=${link.hub_user_id} slack_ts=${event.ts} thread_ts=${event.thread_ts ?? '-'} event_id=${eventId}${parentId ? ` parent=${parentId}` : ''}`,
   )
 
-  // Broadcast a hint to any open MessageFeed for this room as a fallback for
-  // postgres_changes (which sometimes silently doesn't deliver — see
-  // Session 43.5 notes on hub_users for the same pattern). The client refetches
-  // the row by id, so we only need to send the id. Safe to fire-and-forget.
+  // Broadcast a hint to any open MessageFeed for this room AND the sidebar
+  // unread indicator, as a fallback for postgres_changes (which sometimes
+  // silently doesn't deliver — see Session 43.5 notes on hub_users for the
+  // same pattern). The clients refetch the row by id, so we only need to
+  // send the id + routing info. Safe to fire-and-forget.
   void (async () => {
     try {
-      const channel = admin.channel(`feed:${bridge.hub_room_id}`)
-      await channel.subscribe()
-      await channel.send({
+      const feedChannel = admin.channel(`feed:${bridge.hub_room_id}`)
+      await feedChannel.subscribe()
+      await feedChannel.send({
         type: 'broadcast',
         event: 'message-inserted',
         payload: { id: inserted.id, parent_id: parentId, sender_id: link.hub_user_id },
       })
-      await admin.removeChannel(channel)
+      await admin.removeChannel(feedChannel)
     } catch (err) {
-      console.warn(`[chat-synx:events] broadcast failed: ${(err as Error).message}`)
+      console.warn(`[chat-synx:events] feed broadcast failed: ${(err as Error).message}`)
+    }
+    try {
+      const sidebarChannel = admin.channel('hub-sidebar-messages')
+      await sidebarChannel.subscribe()
+      await sidebarChannel.send({
+        type: 'broadcast',
+        event: 'message-inserted',
+        payload: {
+          id: inserted.id,
+          room_id: bridge.hub_room_id,
+          conversation_id: null,
+          parent_id: parentId,
+          sender_id: link.hub_user_id,
+        },
+      })
+      await admin.removeChannel(sidebarChannel)
+    } catch (err) {
+      console.warn(`[chat-synx:events] sidebar broadcast failed: ${(err as Error).message}`)
     }
   })()
 
