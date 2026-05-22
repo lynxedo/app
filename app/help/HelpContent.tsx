@@ -723,6 +723,15 @@ function SettingsTab() {
         </ul>
       </Section>
 
+      <Section title="Account — Notifications: This device">
+        <p>At the bottom of the Notifications section there&apos;s a <strong className="text-white">&ldquo;This device&rdquo;</strong> block showing whether the current device is registered to receive push notifications, with two buttons:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Send test notification</strong> — fires a real push to every device you&apos;re subscribed on. Use this to verify a device actually surfaces notifications. Make sure Hub isn&apos;t the focused window, otherwise the OS may suppress the banner (Slack works the same way).</li>
+          <li><strong className="text-white">Reset notifications on this device</strong> — if pushes stop arriving on a device that used to get them, tap this. It clears the stale subscription, asks for permission again, and registers fresh. Per platform: web/PWA does the full reset; Android re-registers the FCM token; iOS Capacitor re-runs the push registration; the Mac/Windows desktop app uses a different mechanism and doesn&apos;t need a reset (just quit and reopen the app if its notifications stop).</li>
+        </ul>
+        <Note>If the status badge says &ldquo;Blocked in browser settings,&rdquo; the browser itself has blocked notifications for lynxedo.com. Open the browser&apos;s site settings for lynxedo.com and re-enable notifications, then come back here and tap Reset.</Note>
+      </Section>
+
       <Section title="Account — Scheduled Do Not Disturb">
         <p>Automatically silence non-mention notifications during a recurring window every day (e.g. 9 PM to 6 AM). Mentions still come through.</p>
         <Step n={1}>Toggle <strong className="text-white">Scheduled Do Not Disturb</strong> on.</Step>
