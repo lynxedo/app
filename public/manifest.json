@@ -1,6 +1,6 @@
 {
   "name": "Lynxedo Hub",
-  "short_name": "Hub",
+  "short_name": "Lynxedo Hub",
   "description": "Team communication for Heroes Lawn Care",
   "start_url": "/hub",
   "display": "standalone",

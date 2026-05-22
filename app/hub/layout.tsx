@@ -11,7 +11,7 @@ export const metadata: Metadata = {
   manifest: '/manifest.json',
   appleWebApp: {
     capable: true,
-    title: 'Hub',
+    title: 'Lynxedo Hub',
     statusBarStyle: 'black',
   },
   icons: { apple: '/icons/apple-touch-icon.png' },
