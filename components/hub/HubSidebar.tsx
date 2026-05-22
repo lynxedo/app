@@ -84,6 +84,7 @@ export default function HubSidebar({
   canAccessRouting = false,
   canAccessBooks = false,
   canAccessFleet = false,
+  myPresenceMode,
   onOpenTimeClock,
 }: {
   rooms: Room[]
@@ -105,6 +106,7 @@ export default function HubSidebar({
   canAccessRouting?: boolean
   canAccessBooks?: boolean
   canAccessFleet?: boolean
+  myPresenceMode?: 'clock' | 'activity'
   onOpenTimeClock?: () => void
 }) {
   const pathname = usePathname()
@@ -297,10 +299,35 @@ export default function HubSidebar({
         'broadcast',
         { event: 'status-changed' },
         ({ payload }: { payload: { user_id: string; status: string | null } }) => {
+          // Manual dnd/busy always wins; available/null falls back to the
+          // existing effective_status (which the next conversations refetch
+          // will refresh based on clock-in / last_active_at).
+          setConversations(prev => prev.map(c => ({
+            ...c,
+            participants: c.participants.map(p => {
+              if (p.id !== payload.user_id) return p
+              const newStatus = payload.status
+              const newEffective = newStatus === 'dnd' || newStatus === 'busy'
+                ? newStatus
+                : p.effective_status ?? newStatus
+              return { ...p, status: newStatus, effective_status: newEffective }
+            }),
+          })))
+        }
+      )
+      .on(
+        'broadcast',
+        { event: 'presence-changed' },
+        ({ payload }: { payload: { user_id: string; effective_status: string } }) => {
+          // Fires from: clock-in/out (timesheet), client-side 2h idle timer,
+          // and the "going-online" page-load broadcast. Patches effective_status
+          // only — manual status field is untouched.
           setConversations(prev => prev.map(c => ({
             ...c,
             participants: c.participants.map(p =>
-              p.id === payload.user_id ? { ...p, status: payload.status } : p
+              p.id === payload.user_id
+                ? { ...p, effective_status: payload.effective_status }
+                : p
             ),
           })))
         }
@@ -310,14 +337,56 @@ export default function HubSidebar({
     return () => { supabase.removeChannel(channel); statusChannelRef.current = null }
   }, [])
 
+  // Client-side 2h idle timer for salaried/activity-path users. Each Hub
+  // navigation resets the timer; when it fires, broadcast 'offline' so other
+  // people's sidebars drop the user's dot to gray without waiting for a
+  // refetch. Skipped for hourly users — their dot is driven by clock state.
+  // Manual dnd/busy is unaffected (broadcast handler only patches
+  // effective_status, and the next conversations refetch reconciles).
+  useEffect(() => {
+    if (myPresenceMode !== 'activity') return
+    if (!currentUserStatus || currentUserStatus === 'available') {
+      // Bump local effective_status to 'available' on every navigation since
+      // we know the server just wrote last_active_at.
+      setConversations(prev => prev.map(c => ({
+        ...c,
+        participants: c.participants.map(p =>
+          p.id === currentUserId
+            ? { ...p, effective_status: p.status === 'dnd' || p.status === 'busy' ? p.status : 'available' }
+            : p
+        ),
+      })))
+    }
+    const id = setTimeout(() => {
+      // Don't override manual dnd/busy.
+      if (currentUserStatus === 'dnd' || currentUserStatus === 'busy') return
+      statusChannelRef.current?.send({
+        type: 'broadcast',
+        event: 'presence-changed',
+        payload: { user_id: currentUserId, effective_status: 'offline' },
+      })
+      setConversations(prev => prev.map(c => ({
+        ...c,
+        participants: c.participants.map(p =>
+          p.id === currentUserId ? { ...p, effective_status: 'offline' } : p
+        ),
+      })))
+    }, 2 * 60 * 60 * 1000)
+    return () => clearTimeout(id)
+  }, [pathname, currentUserId, currentUserStatus, myPresenceMode])
+
   const handleOwnStatusChanged = useCallback((newStatus: string | null) => {
     // Patch own conversations state so the self-DM dot flips immediately —
     // broadcasts skip the sender by default in Supabase Realtime.
     setConversations(prev => prev.map(c => ({
       ...c,
-      participants: c.participants.map(p =>
-        p.id === currentUserId ? { ...p, status: newStatus } : p
-      ),
+      participants: c.participants.map(p => {
+        if (p.id !== currentUserId) return p
+        const newEffective = newStatus === 'dnd' || newStatus === 'busy'
+          ? newStatus
+          : p.effective_status ?? newStatus
+        return { ...p, status: newStatus, effective_status: newEffective }
+      }),
     })))
     // Fire-and-forget broadcast so other Hub clients update live.
     statusChannelRef.current?.send({
@@ -723,7 +792,7 @@ export default function HubSidebar({
         >
           {showPrefix && (
             soloPerson
-              ? <StatusDot status={soloPerson.status ?? null} />
+              ? <StatusDot status={soloPerson.effective_status ?? soloPerson.status ?? null} />
               : <span className={`text-xs flex-none ${muted ? 'text-white/20' : 'text-white/30'}`}>💬</span>
           )}
           <span className="truncate flex-1">{label}</span>

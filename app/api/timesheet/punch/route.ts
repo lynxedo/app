@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
 
 function getPayPeriod(date: Date): { start: string; end: string } {
   const d = new Date(date)
@@ -137,6 +139,21 @@ export async function POST(req: NextRequest) {
       pay_period_end: period.end,
       notes: note || null,
     })
+  }
+
+  // Smart presence: broadcast the new effective_status so Hub sidebars
+  // flip the dot live without waiting for a refetch. Hourly users only —
+  // salaried users don't use clock state. Best-effort, non-blocking.
+  try {
+    const admin = createAdminClient()
+    const { data: emp } = await admin
+      .from('employees')
+      .select('user_id')
+      .eq('id', employee_id)
+      .single()
+    if (emp?.user_id) await broadcastPresenceForUser(emp.user_id)
+  } catch {
+    // Non-fatal — broadcast is best-effort.
   }
 
   return NextResponse.json({ punch: newPunch, action })

@@ -6,6 +6,8 @@ import HubShell from '@/components/hub/HubShell'
 import PushInit from '@/components/hub/PushInit'
 import ElectronNotifier from '@/components/hub/ElectronNotifier'
 import HubIdleTracker from '@/components/hub/HubIdleTracker'
+import { markActive } from '@/lib/hub-activity'
+import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
 
 export const metadata: Metadata = {
   title: 'Hub',
@@ -52,9 +54,18 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  // Smart presence: bump last_active_at on every Hub route load (fire-and-forget).
+  // Drives the salaried/unlinked path of hub_users_with_presence.effective_status.
+  markActive(user.id)
+  // Fire a going-online broadcast so other clients' sidebars flip live without
+  // waiting for their next conversations refetch (the "Kathryn never opens a
+  // DM" case). Awaited because Realtime channel send must complete before the
+  // server response teardown.
+  await broadcastPresenceForUser(user.id)
+
   const admin = createAdminClient()
   const now = new Date().toISOString()
-  const [memberRoomsResult, hubUsersResult, meResult, profileResult, announcementsResult] = await Promise.all([
+  const [memberRoomsResult, hubUsersResult, meResult, profileResult, announcementsResult, myPresenceResult] = await Promise.all([
     // Only return rooms this user is a member of (Slack-style)
     admin
       .from('room_members')
@@ -70,6 +81,9 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       .is('archived_at', null)
       .gt('expires_at', now)
       .order('created_at', { ascending: false }),
+    // Pull this user's own presence row from the view to decide whether the
+    // client should run the 2h idle timer (only for activity-path users).
+    admin.from('hub_users_with_presence').select('pay_type, employee_id').eq('id', user.id).single(),
   ])
 
   type RoomShape = { id: string; name: string; is_private: boolean; archived_at: string | null }
@@ -91,6 +105,13 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessRouting = profileResult.data?.can_access_routing ?? false
   const canAccessBooks = profileResult.data?.can_access_books ?? false
   const canAccessFleet = profileResult.data?.can_access_fleet ?? false
+  // Hourly path = linked to an employees row with pay_type='hourly'.
+  // Everyone else (salary, unlinked, bots) is on the activity path.
+  const myPayType = (myPresenceResult.data?.pay_type as string | null) ?? null
+  const myPresenceMode: 'clock' | 'activity' =
+    myPresenceResult.data?.employee_id && (myPayType ?? '').toLowerCase() === 'hourly'
+      ? 'clock'
+      : 'activity'
 
   type AnnouncementRow = {
     id: string
@@ -139,6 +160,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessRouting={canAccessRouting}
         canAccessBooks={canAccessBooks}
         canAccessFleet={canAccessFleet}
+        myPresenceMode={myPresenceMode}
       >
         {children}
       </HubShell>

@@ -25,10 +25,10 @@ export default async function PMPage({
   if (!membership) notFound()
 
   const admin = createAdminClient()
-  const [profileResult, membersResult, messagesResult, hubUsersResult, allRoomsResult, receiptsResult] = await Promise.all([
+  const [profileResult, memberIdsResult, messagesResult, hubUsersResult, allRoomsResult, receiptsResult] = await Promise.all([
     supabase.from('user_profiles').select('role').eq('id', user.id).single(),
     admin.from('conversation_members')
-      .select('user_id, hub_users!user_id(id, display_name, avatar_url, is_bot, status)')
+      .select('user_id')
       .eq('conversation_id', conversationId),
     supabase.from('messages')
       .select(`id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
@@ -50,11 +50,15 @@ export default async function PMPage({
       .eq('conversation_id', conversationId),
   ])
 
-  type MemberRow = { user_id: string; hub_users: HubUser | HubUser[] }
-  const participants: HubUser[] = (membersResult.data ?? []).map((m: unknown) => {
-    const row = m as MemberRow
-    return Array.isArray(row.hub_users) ? row.hub_users[0] : row.hub_users
-  }).filter(Boolean) as HubUser[]
+  // Fetch presence-enriched member info from the view in one batch.
+  const memberIds = (memberIdsResult.data ?? []).map((m: { user_id: string }) => m.user_id)
+  const { data: participantRows } = memberIds.length > 0
+    ? await admin
+        .from('hub_users_with_presence')
+        .select('id, display_name, avatar_url, is_bot, status, effective_status')
+        .in('id', memberIds)
+    : { data: [] }
+  const participants: HubUser[] = (participantRows ?? []) as HubUser[]
 
   const others = participants.filter(p => p.id !== user.id)
   const self = participants.find(p => p.id === user.id)
@@ -103,9 +107,9 @@ export default async function PMPage({
     <div className="flex flex-col h-full">
       <header className="flex-none border-b border-gray-800 px-5 py-3 flex items-center gap-3">
         {others.length === 1 ? (
-          <StatusDot status={others[0].status ?? null} />
+          <StatusDot status={others[0].effective_status ?? others[0].status ?? null} />
         ) : others.length === 0 ? (
-          <StatusDot status={self?.status ?? null} />
+          <StatusDot status={self?.effective_status ?? self?.status ?? null} />
         ) : (
           <span className="text-gray-400">💬</span>
         )}

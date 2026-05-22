@@ -171,7 +171,7 @@ function HubTab() {
           <li><strong className="text-white">Clients</strong> — SMS conversations with customers (Captivated)</li>
           <li><strong className="text-white">Unread</strong> — any room or DM with unread messages, surfaced at the top so you don&apos;t miss them even if Rooms or DMs is collapsed. The section disappears when you&apos;re caught up.</li>
           <li><strong className="text-white">Rooms</strong> — group conversations you belong to</li>
-          <li><strong className="text-white">Direct Messages</strong> — your one-on-ones. The colored dot next to each name is that person&apos;s current status: <span className="inline-block w-2 h-2 rounded-full bg-green-400 align-middle"></span> Available, <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 align-middle"></span> Busy, or <span className="inline-block w-2 h-2 rounded-full bg-red-500 align-middle"></span> Do Not Disturb. Group DMs show 💬 instead since multiple people don&apos;t share one status.</li>
+          <li><strong className="text-white">Direct Messages</strong> — your one-on-ones. The colored dot next to each name is that person&apos;s current status: <span className="inline-block w-2 h-2 rounded-full bg-green-400 align-middle"></span> Available, <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 align-middle"></span> Busy, <span className="inline-block w-2 h-2 rounded-full bg-red-500 align-middle"></span> Do Not Disturb, or <span className="inline-block w-2 h-2 rounded-full bg-gray-500 align-middle"></span> Offline (clocked out for techs, or 2h Hub-idle for office). Group DMs show 💬 instead since multiple people don&apos;t share one status.</li>
           <li><strong className="text-white">Boards</strong> — your saved-message boards</li>
           <li><strong className="text-white">Tools</strong> — Daily Log, Tracker, Lawn Sizer, Call Log, Routing, Books, Time Records, Fleet</li>
           <li><strong className="text-white">Pages</strong> — Company News, Files</li>
@@ -214,15 +214,21 @@ function HubTab() {
         <p>If someone sends a message to an archived DM, or if you start a new DM with that person, it automatically jumps back to your active list. You never have to think about whether archiving was the right call — new activity always wins.</p>
       </Section>
 
-      <Section title="Your status (Available / Busy / DND)">
-        <p>Let your teammates know if you&apos;re reachable. Click your name at the bottom of the sidebar and pick a status — it shows up everywhere your name appears.</p>
+      <Section title="Your status (Available / Busy / DND / Offline)">
+        <p>The colored dot next to each name tells everyone whether you&apos;re actually around. You can set <strong className="text-white">Busy</strong> or <strong className="text-white">Do Not Disturb</strong> manually; the rest is figured out automatically based on whether you&apos;re clocked in (techs) or active in Hub (office).</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><span className="inline-block w-2.5 h-2.5 rounded-full bg-green-400 align-middle mr-1"></span> <strong className="text-white">Available</strong> — ready to chat. The default.</li>
-          <li><span className="inline-block w-2.5 h-2.5 rounded-full bg-yellow-400 align-middle mr-1"></span> <strong className="text-white">Busy</strong> — around, but minimizing interruptions. Visual only.</li>
-          <li><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 align-middle mr-1"></span> <strong className="text-white">Do Not Disturb</strong> — silences push notifications on your phone. <em>@-mentions still come through</em> so urgent messages reach you.</li>
+          <li><span className="inline-block w-2.5 h-2.5 rounded-full bg-green-400 align-middle mr-1"></span> <strong className="text-white">Available</strong> — you&apos;re around. See below for how this is determined.</li>
+          <li><span className="inline-block w-2.5 h-2.5 rounded-full bg-yellow-400 align-middle mr-1"></span> <strong className="text-white">Busy</strong> — around but minimizing interruptions. Manual only.</li>
+          <li><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 align-middle mr-1"></span> <strong className="text-white">Do Not Disturb</strong> — silences push notifications on your phone. <em>@-mentions still come through</em>. Manual only.</li>
+          <li><span className="inline-block w-2.5 h-2.5 rounded-full bg-gray-500 align-middle mr-1"></span> <strong className="text-white">Offline</strong> — you&apos;re not currently available. Automatic; clears as soon as you become active again.</li>
         </ul>
-        <p className="mt-3">Where you&apos;ll see it: the dot replaces the 💬 next to each solo DM in your sidebar, and shows up next to the name at the top of the conversation when you&apos;re inside a DM. Status changes are live — when a teammate flips to DND, the red dot appears in your sidebar without a refresh.</p>
-        <Note>Status only changes when you set it — there&apos;s no automatic &quot;away&quot; after idle time. Set it yourself when you sit down and clear it when you&apos;re done.</Note>
+        <p className="font-medium text-white mt-3">How auto-presence works</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Field techs (hourly):</strong> your dot is green when you&apos;re clocked in and gray when you&apos;re clocked out. The dot flips the moment you punch in or out, no matter which device you use.</li>
+          <li><strong className="text-white">Office (salary):</strong> your dot is green while you&apos;re active in Hub. After 2 hours with no Hub activity it drops to gray; it flips back to green the next time you open Hub.</li>
+        </ul>
+        <p className="mt-3">Setting Busy or DND yourself always wins — they show no matter what the automatic state would have been. Clear them when you&apos;re done and the dot goes back to the automatic color.</p>
+        <p className="mt-3">Where you&apos;ll see the dot: replaces the 💬 next to each solo DM in your sidebar, and shows up next to the name at the top of the conversation when you&apos;re inside a DM. Status changes are live — your sidebar updates without a refresh.</p>
       </Section>
 
       <Section title="Sending Messages">

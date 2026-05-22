@@ -10,7 +10,7 @@ import { renderContent } from './renderContent'
 
 export type MessageFeedHandle = { addMessage: (msg: HubMessage) => void }
 
-export type HubUser = { id: string; display_name: string; avatar_url: string | null; is_bot?: boolean; status?: string | null }
+export type HubUser = { id: string; display_name: string; avatar_url: string | null; is_bot?: boolean; status?: string | null; effective_status?: string | null }
 export type RxItem = { user_id: string; emoji: string }
 export type FileItem = { id: string; filename: string; mime_type: string; size_bytes: number; storage_path: string; localUrl?: string }
 export type Sender = HubUser

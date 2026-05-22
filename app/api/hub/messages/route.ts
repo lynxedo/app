@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 import { askClaude } from '@/lib/hub-claude'
 import { bridgeHubMessageToSlack } from '@/lib/slack-bridge'
+import { markActive } from '@/lib/hub-activity'
 
 const MESSAGE_SELECT = `
   id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from, source,
@@ -68,6 +69,9 @@ export async function POST(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  // Smart presence: bump last_active_at on every send (fire-and-forget).
+  markActive(user.id)
 
   const body = await request.json()
   const { room_id, conversation_id, parent_id, content, files, forwarded_from } = body

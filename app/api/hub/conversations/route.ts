@@ -87,8 +87,22 @@ export async function GET() {
   const admin = createAdminClient()
   const { data: members } = await admin
     .from('conversation_members')
-    .select('conversation_id, user_id, hub_users!user_id(id, display_name, avatar_url, status, status_until)')
+    .select('conversation_id, user_id')
     .in('conversation_id', convIds)
+
+  // Batch-fetch presence-enriched user info from the view in one round-trip.
+  // (Views have no FK, so we can't embed via PostgREST — manual join below.)
+  const memberUserIds = [...new Set((members ?? []).map((m: { user_id: string }) => m.user_id))]
+  const { data: hubUsersData } = memberUserIds.length > 0
+    ? await admin
+        .from('hub_users_with_presence')
+        .select('id, display_name, avatar_url, status, status_until, effective_status')
+        .in('id', memberUserIds)
+    : { data: [] }
+
+  type HubUser = { id: string; display_name: string; avatar_url: string | null; status: string | null; status_until: string | null; effective_status: string }
+  const usersById = new Map<string, HubUser>()
+  for (const u of (hubUsersData ?? []) as HubUser[]) usersById.set(u.id, u)
 
   // Get most recent message per conversation — DISTINCT ON via RPC so we
   // pull one row per conv instead of every message in every DM (Heroes' top
@@ -97,12 +111,11 @@ export async function GET() {
     .rpc('get_last_top_level_message_per_conversation', { conv_ids: convIds })
 
   // Build conversation objects
-  type HubUser = { id: string; display_name: string; avatar_url: string | null; status: string | null; status_until: string | null }
   type ConvMap = { id: string; participants: HubUser[]; last_message?: string; last_at?: string; archived_at: string | null; archived: boolean }
   const convsMap: Record<string, ConvMap> = {}
 
   for (const m of members ?? []) {
-    const cm = m as unknown as { conversation_id: string; user_id: string; hub_users: HubUser | HubUser[] }
+    const cm = m as { conversation_id: string; user_id: string }
     if (!convsMap[cm.conversation_id]) {
       convsMap[cm.conversation_id] = {
         id: cm.conversation_id,
@@ -111,7 +124,7 @@ export async function GET() {
         archived: false,
       }
     }
-    const hu = Array.isArray(cm.hub_users) ? cm.hub_users[0] : cm.hub_users
+    const hu = usersById.get(cm.user_id)
     if (hu) convsMap[cm.conversation_id].participants.push(hu)
   }
 

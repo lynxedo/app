@@ -31,6 +31,7 @@ export default function HubShell({
   canAccessRouting,
   canAccessBooks,
   canAccessFleet,
+  myPresenceMode,
   children,
 }: {
   rooms: Room[]
@@ -50,6 +51,11 @@ export default function HubShell({
   canAccessRouting?: boolean
   canAccessBooks?: boolean
   canAccessFleet?: boolean
+  // 'clock' = hourly path (presence driven by time_punches; client idle
+  // timer must NOT fire here, or a clocked-in tech with a stale Hub tab
+  // would wrongly show gray on other people's sidebars).
+  // 'activity' = salaried / unlinked path (presence driven by last_active_at).
+  myPresenceMode?: 'clock' | 'activity'
   children: React.ReactNode
 }) {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -164,6 +170,7 @@ export default function HubShell({
           canAccessRouting={canAccessRouting}
           canAccessBooks={canAccessBooks}
           canAccessFleet={canAccessFleet}
+          myPresenceMode={myPresenceMode}
           onOpenTimeClock={() => { setSidebarOpen(false); setShowTimeClock(true) }}
         />
       </div>

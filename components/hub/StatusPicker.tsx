@@ -18,6 +18,7 @@ export function StatusDot({ status }: { status: string | null | undefined }) {
   if (!status || status === 'available') return <span className="w-2.5 h-2.5 rounded-full bg-green-400 ring-1 ring-[#1A3D5C] flex-none" />
   if (status === 'busy') return <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 ring-1 ring-[#1A3D5C] flex-none" />
   if (status === 'dnd') return <span className="w-2.5 h-2.5 rounded-full bg-red-500 ring-1 ring-[#1A3D5C] flex-none" />
+  if (status === 'offline') return <span className="w-2.5 h-2.5 rounded-full bg-gray-500 ring-1 ring-[#1A3D5C] flex-none" />
   return <span className="w-2.5 h-2.5 rounded-full bg-gray-500 ring-1 ring-[#1A3D5C] flex-none" />
 }
 
