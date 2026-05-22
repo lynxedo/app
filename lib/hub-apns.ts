@@ -33,7 +33,8 @@ export async function sendApnsPush(
   const teamId = process.env.APNS_TEAM_ID
   const bundleId = process.env.APNS_BUNDLE_ID ?? 'com.lynxedo.hub'
   const keyContent = process.env.APNS_KEY_CONTENT
-  console.log(`[hub-apns] sendApnsPush called: tokens=${deviceTokens.length} keyId=${keyId ? 'set' : 'MISSING'} teamId=${teamId ? 'set' : 'MISSING'} bundleId=${bundleId} keyContent=${keyContent ? 'set' : 'MISSING'}`)
+  console.log(`[hub-apns] sendApnsPush called: tokens=${deviceTokens.length} keyId=${keyId ? 'set' : 'MISSING'} teamId=${teamId ? 'set' : 'MISSING'} bundleId=${bundleId} keyContent=${keyContent ? `set len=${keyContent.length}` : 'MISSING'}`)
+  console.log(`[hub-apns] payload: ${JSON.stringify(payload)}`)
   if (!keyId || !teamId || !keyContent || deviceTokens.length === 0) {
     console.log('[hub-apns] early return — missing creds or no tokens')
     return { staleTokens: [] }
@@ -48,6 +49,7 @@ export async function sendApnsPush(
     console.error('[hub-apns] JWT sign failed:', (err as Error).message)
     return { staleTokens: [] }
   }
+  console.log(`[hub-apns] jwt issued, length=${jwt.length}, head=${jwt.slice(0, 40)}`)
 
   const staleTokens: string[] = []
 
