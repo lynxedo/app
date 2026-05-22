@@ -348,15 +348,19 @@ function HubTab() {
         <p className="text-gray-400 text-xs">Examples: <em>&ldquo;@Guardian how many visits do we have tomorrow?&rdquo;</em> · <em>&ldquo;@Guardian who&apos;s clocked in right now?&rdquo;</em></p>
       </Section>
 
-      <Section title="Slack Bridge">
-        <p>Messages posted in Hub also relay into the matching Slack channel (and vice versa) so anyone still on Slack stays in the loop during the transition. Look for the small Slack icon next to bridged messages.</p>
-        <p>Two kinds of bridges:</p>
+      <Section title="Chat Synx (Slack bridge)">
+        <p>Chat Synx mirrors messages between Hub rooms and Slack channels, both directions, in real time. Anyone on Slack stays in the loop without needing a Hub account, and vice versa.</p>
+        <p><strong className="text-white">How it appears in Slack:</strong> a message you send in Hub shows up in the linked Slack channel wearing your name and profile picture — as far as anyone reading Slack is concerned, it looks like you typed it there. (Under the hood it&apos;s the <code className="text-green-400">@Chat Synx</code> bot posting on your behalf, but you&apos;d have to look closely to tell.)</p>
+        <p><strong className="text-white">How it appears in Hub:</strong> a message someone sends in the linked Slack channel shows up in the Hub room attributed to their Hub account — same name, same avatar, same as any other Hub message.</p>
+        <p><strong className="text-white">Threads</strong> cross over both directions. Reply in a Hub thread → it lands in the same Slack thread. Reply in a Slack thread → it lands in the same Hub thread.</p>
+        <p><strong className="text-white">Setup is in two parts, both in <code className="text-green-400">/admin/hub → Chat Synx</code>:</strong></p>
         <ul className="list-disc pl-5 space-y-1">
-          <li><strong className="text-white">Room bridge</strong> — Hub room ↔ Slack channel. Admins configure these in <code className="text-green-400">/admin/hub → Slack Bridge</code>. For private Slack channels, <code className="text-green-400">@bridge</code> must be invited to the channel.</li>
-          <li><strong className="text-white">DM bridge</strong> — pairs a <em>remote Slack person</em> (e.g., a teammate who&apos;s staying on Slack) with their Hub identity AND the local Hub partner they&apos;re talking to (defaults to the admin who creates the bridge). Messages flow in both directions between the two systems. Setup tip: in the &ldquo;Hub identity&rdquo; dropdown, pick the <strong>remote person</strong>, not yourself.</li>
+          <li><strong className="text-white">People</strong> — one row per teammate. Maps a Slack user ID to a Hub user. Without this mapping, that person&apos;s Slack messages won&apos;t reach Hub (and outbound messages will use their Hub name and avatar instead of their Slack name/avatar).</li>
+          <li><strong className="text-white">Channels</strong> — one row per Hub room ↔ Slack channel pair. Each side can only be in one bridge at a time. <strong>You must invite <code className="text-green-400">@Chat Synx</code> to the Slack channel</strong> for events to reach us; type <code className="text-green-400">/invite @Chat Synx</code> in the channel.</li>
         </ul>
-        <p><strong className="text-white">Self-DM:</strong> messages you send to yourself in Hub also mirror to your Slack DM with <code className="text-green-400">@Bridge</code> — useful as a cross-platform scratchpad.</p>
-        <Note>Slack&apos;s built-in &ldquo;message yourself&rdquo; feature (the special self-DM in Slack&apos;s sidebar) does <em>not</em> bridge. Slack doesn&apos;t broadcast those events to apps. Use the <code className="text-green-400">@Bridge</code> DM instead.</Note>
+        <Note>
+          <strong className="text-white">Not yet supported:</strong> DM bridges (Hub ↔ Slack person-to-person), file attachments, message edits and deletes, and emoji reactions. Text and threads are v1. Everything else is a follow-up.
+        </Note>
       </Section>
 
       <Section title="Clients (SMS)">
