@@ -353,7 +353,7 @@ function HubTab() {
         <p>Two kinds of bridges:</p>
         <ul className="list-disc pl-5 space-y-1">
           <li><strong className="text-white">Room bridge</strong> — Hub room ↔ Slack channel. Admins configure these in <code className="text-green-400">/admin/hub → Slack Bridge</code>. For private Slack channels, <code className="text-green-400">@bridge</code> must be invited to the channel.</li>
-          <li><strong className="text-white">DM bridge</strong> — Hub user ↔ Slack user (1-on-1 mapping). Any DM you receive in Hub from a teammate routes into your Slack DM with the <code className="text-green-400">@Bridge</code> app, and Slack DMs to <code className="text-green-400">@Bridge</code> route back to your most recent Hub DM.</li>
+          <li><strong className="text-white">DM bridge</strong> — pairs a <em>remote Slack person</em> (e.g., a teammate who&apos;s staying on Slack) with their Hub identity AND the local Hub partner they&apos;re talking to (defaults to the admin who creates the bridge). Messages flow in both directions between the two systems. Setup tip: in the &ldquo;Hub identity&rdquo; dropdown, pick the <strong>remote person</strong>, not yourself.</li>
         </ul>
         <p><strong className="text-white">Self-DM:</strong> messages you send to yourself in Hub also mirror to your Slack DM with <code className="text-green-400">@Bridge</code> — useful as a cross-platform scratchpad.</p>
         <Note>Slack&apos;s built-in &ldquo;message yourself&rdquo; feature (the special self-DM in Slack&apos;s sidebar) does <em>not</em> bridge. Slack doesn&apos;t broadcast those events to apps. Use the <code className="text-green-400">@Bridge</code> DM instead.</Note>

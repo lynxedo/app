@@ -1520,23 +1520,26 @@ Content-Type: application/json
 
             {newBridgeType === 'dm' ? (
               <div className="space-y-3">
+                <p className="text-xs text-gray-400 leading-relaxed bg-gray-800/50 border border-gray-800 rounded-lg p-3">
+                  A DM bridge mirrors messages between a <strong className="text-white">remote Slack person</strong> and the partner they&apos;re talking with in Hub. The partner is automatically set to you (the admin creating this bridge).
+                </p>
                 <div>
-                  <label className="text-xs text-gray-400 block mb-1">Slack User ID</label>
+                  <label className="text-xs text-gray-400 block mb-1">Slack User ID <span className="text-gray-500">(the remote Slack person)</span></label>
                   <input
                     value={newSlackUserId}
                     onChange={e => setNewSlackUserId(e.target.value)}
-                    placeholder="U01ABC234DEF (find in Slack profile → More → Copy member ID)"
+                    placeholder="U01ABC234DEF (Slack profile → More → Copy member ID)"
                     className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
                   />
                 </div>
                 <div>
-                  <label className="text-xs text-gray-400 block mb-1">Hub User</label>
+                  <label className="text-xs text-gray-400 block mb-1">Hub identity for that person <span className="text-gray-500">(NOT yourself — pick the remote person&apos;s Hub account)</span></label>
                   <select
                     value={newBridgeHubUser}
                     onChange={e => setNewBridgeHubUser(e.target.value)}
                     className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
                   >
-                    <option value="">— pick a Hub user —</option>
+                    <option value="">— pick the remote person&apos;s Hub account —</option>
                     {hubUsers.map(u => (<option key={u.id} value={u.id}>{u.display_name}</option>))}
                   </select>
                 </div>
