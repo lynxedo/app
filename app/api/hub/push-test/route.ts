@@ -1,7 +1,83 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { sendApnsPush } from '@/lib/hub-apns'
+import { sendFcmPush } from '@/lib/hub-fcm'
 import webpush from 'web-push'
+
+// POST /api/hub/push-test — any authed user fires a test push to their own
+// subscriptions across all three channels (web-push, APNs, FCM). Bypasses
+// notification prefs/DND so the user can verify their device is actually
+// receiving pushes. Returns a per-channel count of attempts + successes.
+export async function POST() {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const pubKey = process.env.HUB_VAPID_PUBLIC_KEY ?? process.env.NEXT_PUBLIC_HUB_VAPID_PUBLIC_KEY
+  const privKey = process.env.HUB_VAPID_PRIVATE_KEY
+  const email = process.env.HUB_VAPID_EMAIL ?? 'ben@heroeslawntx.com'
+
+  const admin = createAdminClient()
+  const [subsRes, apnsRes, fcmRes] = await Promise.all([
+    admin.from('push_subscriptions').select('endpoint, p256dh, auth_key').eq('user_id', user.id),
+    admin.from('apns_tokens').select('device_token').eq('user_id', user.id),
+    admin.from('fcm_tokens').select('device_token').eq('user_id', user.id),
+  ])
+
+  const subs = (subsRes.data ?? []) as { endpoint: string; p256dh: string; auth_key: string }[]
+  const apnsTokens = (apnsRes.data ?? []).map((r: { device_token: string }) => r.device_token)
+  const fcmTokens = (fcmRes.data ?? []).map((r: { device_token: string }) => r.device_token)
+
+  const payload = {
+    title: 'Hub push test',
+    body: 'If you see this, push notifications are working on this device.',
+    url: '/hub',
+  }
+
+  const stamp = new Date().toISOString()
+
+  // Web push
+  let webSent = 0
+  if (pubKey && privKey && subs.length > 0) {
+    webpush.setVapidDetails(`mailto:${email}`, pubKey, privKey)
+    const body = JSON.stringify({ ...payload, body: `${payload.body} (${stamp.slice(11, 19)} UTC)` })
+    const results = await Promise.allSettled(
+      subs.map(s =>
+        webpush.sendNotification(
+          { endpoint: s.endpoint, keys: { p256dh: s.p256dh, auth: s.auth_key } },
+          body,
+        ),
+      ),
+    )
+    webSent = results.filter(r => r.status === 'fulfilled').length
+  }
+
+  // APNs (native iOS)
+  let apnsSent = 0
+  if (apnsTokens.length > 0) {
+    try {
+      await sendApnsPush(apnsTokens, payload)
+      apnsSent = apnsTokens.length
+    } catch { /* surface as 0 sent */ }
+  }
+
+  // FCM (native Android)
+  let fcmSent = 0
+  if (fcmTokens.length > 0) {
+    try {
+      await sendFcmPush(fcmTokens, payload)
+      fcmSent = fcmTokens.length
+    } catch { /* surface as 0 sent */ }
+  }
+
+  return NextResponse.json({
+    web: { subs: subs.length, sent: webSent },
+    apns: { tokens: apnsTokens.length, sent: apnsSent },
+    fcm: { tokens: fcmTokens.length, sent: fcmSent },
+    total_sent: webSent + apnsSent + fcmSent,
+  })
+}
 
 // Admin-only diagnostic endpoint: GET /api/hub/push-test
 // Returns the push config state and optionally fires a test notification.

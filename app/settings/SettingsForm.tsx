@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import ReactCrop, { type Crop, centerCrop, makeAspectCrop } from 'react-image-crop'
 import 'react-image-crop/dist/ReactCrop.css'
 import { createClient } from '@/lib/supabase/client'
+import NotificationDeviceControls from '@/components/hub/NotificationDeviceControls'
 
 interface HubProfile {
   full_name: string | null
@@ -613,6 +614,8 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
 
         {notifErr && <p className="text-red-400 text-sm mt-3">{notifErr}</p>}
         {notifSave === 'saved' && <p className="text-green-400 text-xs mt-3">Saved.</p>}
+
+        <NotificationDeviceControls />
       </section>
 
       {/* Change password */}
