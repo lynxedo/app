@@ -4,25 +4,23 @@ import { useEffect, useState } from 'react'
 
 type Platform = 'web' | 'ios-native' | 'android-native' | 'electron' | 'unsupported'
 
-interface CapPushPlugin {
-  requestPermissions(): Promise<{ receive: 'granted' | 'denied' | 'prompt' }>
-  register(): Promise<void>
-  addListener(event: 'registration', handler: (token: { value: string }) => void): Promise<void>
-}
-
-interface AndroidFcm {
-  getToken(): string
-  getPlatform(): string
-}
-
-declare global {
-  interface Window {
-    Capacitor?: {
-      isNativePlatform(): boolean
-      Plugins: { PushNotifications?: CapPushPlugin }
+// Window.Capacitor and Window.AndroidFcm are declared globally in PushInit.tsx —
+// we use loose casts here to avoid a duplicate declaration with a different shape.
+type CapBridgeShape = {
+  isNativePlatform(): boolean
+  Plugins: {
+    PushNotifications?: {
+      requestPermissions(): Promise<{ receive: 'granted' | 'denied' | 'prompt' }>
+      register(): Promise<void>
     }
-    AndroidFcm?: AndroidFcm
   }
+}
+type AndroidBridgeShape = { getToken(): string; getPlatform(): string }
+function getCapacitor(): CapBridgeShape | undefined {
+  return (window as unknown as { Capacitor?: CapBridgeShape }).Capacitor
+}
+function getAndroidFcm(): AndroidBridgeShape | undefined {
+  return (window as unknown as { AndroidFcm?: AndroidBridgeShape }).AndroidFcm
 }
 
 function urlBase64ToUint8Array(base64String: string) {
@@ -34,8 +32,8 @@ function urlBase64ToUint8Array(base64String: string) {
 
 function detectPlatform(): Platform {
   if (typeof window === 'undefined') return 'unsupported'
-  if (window.AndroidFcm) return 'android-native'
-  if (window.Capacitor?.isNativePlatform()) return 'ios-native'
+  if (getAndroidFcm()) return 'android-native'
+  if (getCapacitor()?.isNativePlatform()) return 'ios-native'
   if (navigator.userAgent.includes('Electron')) return 'electron'
   if ('serviceWorker' in navigator && 'PushManager' in window) return 'web'
   return 'unsupported'
@@ -139,7 +137,7 @@ export default function NotificationDeviceControls() {
         if (!res.ok) throw new Error(`Server rejected subscription (${res.status})`)
         setMsg({ kind: 'ok', text: 'This device is registered. Tap "Send test" to verify.' })
       } else if (platform === 'android-native') {
-        const bridge = window.AndroidFcm
+        const bridge = getAndroidFcm()
         if (!bridge) throw new Error('Android bridge not available')
         const token = bridge.getToken()
         if (!token) throw new Error('No FCM token yet — relaunch the app and try again')
@@ -151,7 +149,7 @@ export default function NotificationDeviceControls() {
         if (!res.ok) throw new Error(`Server rejected FCM token (${res.status})`)
         setMsg({ kind: 'ok', text: 'This device is registered. Tap "Send test" to verify.' })
       } else if (platform === 'ios-native') {
-        const plugin = window.Capacitor?.Plugins?.PushNotifications
+        const plugin = getCapacitor()?.Plugins?.PushNotifications
         if (!plugin) throw new Error('Capacitor PushNotifications plugin not loaded')
         const { receive } = await plugin.requestPermissions()
         if (receive !== 'granted') {
