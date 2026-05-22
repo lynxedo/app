@@ -27,26 +27,32 @@ export async function POST(request: Request) {
   const rawBody = await request.text()
   const timestamp = request.headers.get('x-slack-request-timestamp') ?? ''
   const signature = request.headers.get('x-slack-signature') ?? ''
+  console.log(`[slack-bridge:events] incoming POST bodyLen=${rawBody.length} hasSig=${!!signature} hasTs=${!!timestamp}`)
 
   let payload: { type?: string; challenge?: string; event?: SlackMessageEvent }
   try {
     payload = JSON.parse(rawBody)
   } catch {
+    console.warn('[slack-bridge:events] invalid JSON body')
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
   // url_verification — handshake during Slack app setup. Verify signature too.
   if (payload.type === 'url_verification') {
     if (!verifySlackSignature(rawBody, timestamp, signature)) {
+      console.warn('[slack-bridge:events] url_verification signature failed')
       return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
     }
+    console.log('[slack-bridge:events] url_verification ok')
     return NextResponse.json({ challenge: payload.challenge })
   }
 
   // All other events require signature verification
   if (!verifySlackSignature(rawBody, timestamp, signature)) {
+    console.warn(`[slack-bridge:events] signature failed type=${payload.type}`)
     return NextResponse.json({ error: 'Invalid signature' }, { status: 401 })
   }
+  console.log(`[slack-bridge:events] signature ok type=${payload.type} eventType=${payload.event?.type} channel=${payload.event?.channel} channelType=${payload.event?.channel_type} user=${payload.event?.user} subtype=${payload.event?.subtype ?? '-'} botId=${payload.event?.bot_id ?? '-'} textLen=${payload.event?.text?.length ?? 0}`)
 
   if (payload.type === 'event_callback' && payload.event) {
     await handleEvent(payload.event)
