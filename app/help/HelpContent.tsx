@@ -171,7 +171,7 @@ function HubTab() {
           <li><strong className="text-white">Clients</strong> — SMS conversations with customers (Captivated)</li>
           <li><strong className="text-white">Unread</strong> — any room or DM with unread messages, surfaced at the top so you don&apos;t miss them even if Rooms or DMs is collapsed. The section disappears when you&apos;re caught up.</li>
           <li><strong className="text-white">Rooms</strong> — group conversations you belong to</li>
-          <li><strong className="text-white">Direct Messages</strong> — your one-on-ones</li>
+          <li><strong className="text-white">Direct Messages</strong> — your one-on-ones. The colored dot next to each name is that person&apos;s current status: <span className="inline-block w-2 h-2 rounded-full bg-green-400 align-middle"></span> Available, <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 align-middle"></span> Busy, or <span className="inline-block w-2 h-2 rounded-full bg-red-500 align-middle"></span> Do Not Disturb. Group DMs show 💬 instead since multiple people don&apos;t share one status.</li>
           <li><strong className="text-white">Boards</strong> — your saved-message boards</li>
           <li><strong className="text-white">Tools</strong> — Daily Log, Tracker, Lawn Sizer, Call Log, Routing, Books, Time Records, Fleet</li>
           <li><strong className="text-white">Pages</strong> — Company News, Files</li>
@@ -212,6 +212,17 @@ function HubTab() {
         <p>At the bottom of the Direct Messages section in the sidebar, you&apos;ll see <strong className="text-white">Show N archived</strong>. Click it to reveal a dimmed list of every archived DM. Each row has a small unarchive icon to bring it back to your active list.</p>
         <p className="font-medium text-white mt-3">Auto-unarchive when there&apos;s new activity</p>
         <p>If someone sends a message to an archived DM, or if you start a new DM with that person, it automatically jumps back to your active list. You never have to think about whether archiving was the right call — new activity always wins.</p>
+      </Section>
+
+      <Section title="Your status (Available / Busy / DND)">
+        <p>Let your teammates know if you&apos;re reachable. Click your name at the bottom of the sidebar and pick a status — it shows up everywhere your name appears.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><span className="inline-block w-2.5 h-2.5 rounded-full bg-green-400 align-middle mr-1"></span> <strong className="text-white">Available</strong> — ready to chat. The default.</li>
+          <li><span className="inline-block w-2.5 h-2.5 rounded-full bg-yellow-400 align-middle mr-1"></span> <strong className="text-white">Busy</strong> — around, but minimizing interruptions. Visual only.</li>
+          <li><span className="inline-block w-2.5 h-2.5 rounded-full bg-red-500 align-middle mr-1"></span> <strong className="text-white">Do Not Disturb</strong> — silences push notifications on your phone. <em>@-mentions still come through</em> so urgent messages reach you.</li>
+        </ul>
+        <p className="mt-3">Where you&apos;ll see it: the dot replaces the 💬 next to each solo DM in your sidebar, and shows up next to the name at the top of the conversation when you&apos;re inside a DM. Status changes are live — when a teammate flips to DND, the red dot appears in your sidebar without a refresh.</p>
+        <Note>Status only changes when you set it — there&apos;s no automatic &quot;away&quot; after idle time. Set it yourself when you sit down and clear it when you&apos;re done.</Note>
       </Section>
 
       <Section title="Sending Messages">

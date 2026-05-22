@@ -87,7 +87,7 @@ export async function GET() {
   const admin = createAdminClient()
   const { data: members } = await admin
     .from('conversation_members')
-    .select('conversation_id, user_id, hub_users!user_id(id, display_name, avatar_url)')
+    .select('conversation_id, user_id, hub_users!user_id(id, display_name, avatar_url, status, status_until)')
     .in('conversation_id', convIds)
 
   // Get most recent message per conversation — DISTINCT ON via RPC so we
@@ -97,7 +97,7 @@ export async function GET() {
     .rpc('get_last_top_level_message_per_conversation', { conv_ids: convIds })
 
   // Build conversation objects
-  type HubUser = { id: string; display_name: string; avatar_url: string | null }
+  type HubUser = { id: string; display_name: string; avatar_url: string | null; status: string | null; status_until: string | null }
   type ConvMap = { id: string; participants: HubUser[]; last_message?: string; last_at?: string; archived_at: string | null; archived: boolean }
   const convsMap: Record<string, ConvMap> = {}
 

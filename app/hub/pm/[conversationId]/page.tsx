@@ -2,6 +2,7 @@ import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import RoomView from '@/components/hub/RoomView'
+import { StatusDot } from '@/components/hub/StatusPicker'
 import type { HubUser } from '@/components/hub/MessageFeed'
 
 export default async function PMPage({
@@ -27,7 +28,7 @@ export default async function PMPage({
   const [profileResult, membersResult, messagesResult, hubUsersResult, allRoomsResult, receiptsResult] = await Promise.all([
     supabase.from('user_profiles').select('role').eq('id', user.id).single(),
     admin.from('conversation_members')
-      .select('user_id, hub_users!user_id(id, display_name, avatar_url, is_bot)')
+      .select('user_id, hub_users!user_id(id, display_name, avatar_url, is_bot, status)')
       .eq('conversation_id', conversationId),
     supabase.from('messages')
       .select(`id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
@@ -101,7 +102,13 @@ export default async function PMPage({
   return (
     <div className="flex flex-col h-full">
       <header className="flex-none border-b border-gray-800 px-5 py-3 flex items-center gap-3">
-        <span className="text-gray-400">💬</span>
+        {others.length === 1 ? (
+          <StatusDot status={others[0].status ?? null} />
+        ) : others.length === 0 ? (
+          <StatusDot status={self?.status ?? null} />
+        ) : (
+          <span className="text-gray-400">💬</span>
+        )}
         <h1 className="font-semibold text-white">{convTitle}</h1>
         {others.length > 1 && (
           <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">{others.length + 1} people</span>

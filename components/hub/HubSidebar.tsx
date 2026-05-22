@@ -5,7 +5,7 @@ import { useEffect, useState, useCallback, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
-import StatusPicker from './StatusPicker'
+import StatusPicker, { StatusDot } from './StatusPicker'
 import NotifPrefsModal from './NotifPrefsModal'
 import ClientsSidebar from './ClientsSidebar'
 import HubSearchOverlay from './HubSearchOverlay'
@@ -280,6 +280,31 @@ export default function HubSidebar({
 
     return () => { supabase.removeChannel(channel) }
   }, [currentUserId, pathname, loadConversations])
+
+  // Realtime: keep sidebar status dots in sync when teammates change status.
+  // Patches participants[] across all conversations so solo-DM dots flip live
+  // without a page refresh.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('sidebar-status')
+      .on(
+        'postgres_changes',
+        { event: 'UPDATE', schema: 'public', table: 'hub_users' },
+        (payload) => {
+          const u = payload.new as { id: string; status: string | null; status_until: string | null }
+          setConversations(prev => prev.map(c => ({
+            ...c,
+            participants: c.participants.map(p =>
+              p.id === u.id ? { ...p, status: u.status } : p
+            ),
+          })))
+        }
+      )
+      .subscribe()
+
+    return () => { supabase.removeChannel(channel) }
+  }, [])
 
   // Mark as read when the user navigates to a room or PM
   useEffect(() => {
@@ -655,6 +680,13 @@ export default function HubSidebar({
     const baseColor = muted
       ? 'text-white/40 hover:bg-white/5 hover:text-white/70'
       : 'text-white/70 hover:bg-white/10 hover:text-white'
+    // Solo prefix = StatusDot for the one person on the other end (or self for self-DM).
+    // Group prefix (3+ people) keeps 💬 since no single status applies.
+    const others = conv.participants.filter(p => p.id !== currentUserId)
+    const soloPerson =
+      others.length === 1 ? others[0]
+      : others.length === 0 && conv.participants.length === 1 ? conv.participants[0]
+      : null
     return (
       <div key={conv.id} className="group/conv flex items-center">
         <Link
@@ -668,7 +700,11 @@ export default function HubSidebar({
             isActive ? 'bg-[#2E7EB8] text-white font-medium' : baseColor
           }`}
         >
-          {showPrefix && <span className={`text-xs flex-none ${muted ? 'text-white/20' : 'text-white/30'}`}>💬</span>}
+          {showPrefix && (
+            soloPerson
+              ? <span className="flex-none"><StatusDot status={soloPerson.status ?? null} /></span>
+              : <span className={`text-xs flex-none ${muted ? 'text-white/20' : 'text-white/30'}`}>💬</span>
+          )}
           <span className="truncate flex-1">{label}</span>
           {hasUnread && !isActive && (
             <span className="flex-none w-2 h-2 rounded-full bg-[#f97316]" />
