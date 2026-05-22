@@ -31,7 +31,11 @@ export async function sendApnsPush(
   const teamId = process.env.APNS_TEAM_ID
   const bundleId = process.env.APNS_BUNDLE_ID ?? 'com.lynxedo.hub'
   const keyContent = process.env.APNS_KEY_CONTENT
-  if (!keyId || !teamId || !keyContent || deviceTokens.length === 0) return { staleTokens: [] }
+  console.log(`[hub-apns] sendApnsPush called: tokens=${deviceTokens.length} keyId=${keyId ? 'set' : 'MISSING'} teamId=${teamId ? 'set' : 'MISSING'} bundleId=${bundleId} keyContent=${keyContent ? 'set' : 'MISSING'}`)
+  if (!keyId || !teamId || !keyContent || deviceTokens.length === 0) {
+    console.log('[hub-apns] early return — missing creds or no tokens')
+    return { staleTokens: [] }
+  }
 
   // APNS_KEY_CONTENT stored with escaped newlines in .env.local
   const privateKey = keyContent.replace(/\\n/g, '\n')
@@ -88,6 +92,7 @@ export async function sendApnsPush(
             responseBody += chunk
           })
           req.on('end', () => {
+            console.log(`[hub-apns] response status=${status} token=${deviceToken.slice(0, 8)}…`)
             if (status === 200) {
               resolve()
             } else {
