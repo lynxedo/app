@@ -6,7 +6,9 @@ let cachedJwt: { token: string; issuedAt: number } | null = null
 
 function getJwt(keyId: string, teamId: string, privateKeyPem: string): string {
   const now = Math.floor(Date.now() / 1000)
-  if (cachedJwt && now - cachedJwt.issuedAt < 2700) return cachedJwt.token
+  // DEBUG: disable JWT cache to test whether long-lived cached JWT is the cause
+  // of Apple returning 200 but device not receiving. Restore cache after fix.
+  if (false && cachedJwt && now - cachedJwt.issuedAt < 2700) return cachedJwt.token
 
   const header = Buffer.from(JSON.stringify({ alg: 'ES256', kid: keyId })).toString('base64url')
   const payload = Buffer.from(JSON.stringify({ iss: teamId, iat: now })).toString('base64url')
