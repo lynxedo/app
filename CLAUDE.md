@@ -10,9 +10,32 @@ This folder contains the source code for the Lynxedo platform at lynxedo.com.
 
 ## Deploying Code Changes
 
-**Edit files here → `git push origin main` → GitHub Actions auto-deploys to VPS in ~48 seconds.**
+**Two environments — always ask Ben which one to push to.**
 
-That's it. No copying files, no manual restarts, no deploy scripts. GitHub Actions handles: `git pull` → `npm ci` → `npm run build` → `pm2 restart lynxedo`.
+| Environment | URL | Branch | PM2 process | Port | VPS path |
+|---|---|---|---|---|---|
+| **Production** | lynxedo.com | `main` | `lynxedo` | 3000 | `/opt/lynxedo/app/` |
+| **Staging** | staging.lynxedo.com | `develop` | `lynxedo-staging` | 3002 | `/opt/lynxedo-staging/app/` |
+
+**Workflow:** Edit files here → `git push origin <branch>` → GitHub Actions auto-deploys in ~60 seconds.
+
+- Push to `develop` triggers `.github/workflows/deploy-staging.yml` → staging only
+- Push to `main` triggers `.github/workflows/deploy.yml` → prod only
+- The two deploys are completely isolated. Prod is never touched by a staging push.
+
+### Rule: ALWAYS ask "staging or prod?" before pushing.
+Heroes is live. Before pushing any code change — new feature, bug fix, tweak — ask Ben explicitly. Default for new/risky work is staging first; promote to prod only after he confirms.
+
+### Promoting staging → prod
+Once a feature is tested on staging and Ben says it's good:
+```
+git checkout main
+git merge develop
+git push origin main
+```
+
+### Important: staging shares the prod database
+Both environments read/write the SAME Supabase project. Staging is for testing UI/code changes against real data — NOT for schema migrations or destructive testing. A bad migration on staging hits prod data.
 
 `deploy.bat` is retired. Do not use it.
 
