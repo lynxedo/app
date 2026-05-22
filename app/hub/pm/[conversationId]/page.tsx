@@ -2,7 +2,7 @@ import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import RoomView from '@/components/hub/RoomView'
-import { StatusDot } from '@/components/hub/StatusPicker'
+import DMHeader from '@/components/hub/DMHeader'
 import type { HubUser } from '@/components/hub/MessageFeed'
 
 export default async function PMPage({
@@ -105,19 +105,25 @@ export default async function PMPage({
 
   return (
     <div className="flex flex-col h-full">
-      <header className="flex-none border-b border-gray-800 px-5 py-3 flex items-center gap-3">
-        {others.length === 1 ? (
-          <StatusDot status={others[0].effective_status ?? others[0].status ?? null} />
-        ) : others.length === 0 ? (
-          <StatusDot status={self?.effective_status ?? self?.status ?? null} />
-        ) : (
-          <span className="text-gray-400">💬</span>
-        )}
-        <h1 className="font-semibold text-white">{convTitle}</h1>
-        {others.length > 1 && (
-          <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">{others.length + 1} people</span>
-        )}
-      </header>
+      <DMHeader
+        solo={others.length === 1 ? { id: others[0].id } : others.length === 0 && self ? { id: self.id } : null}
+        initialEffectiveStatus={
+          others.length === 1
+            ? others[0].effective_status ?? others[0].status ?? null
+            : others.length === 0
+              ? self?.effective_status ?? self?.status ?? null
+              : null
+        }
+        initialManualStatus={
+          others.length === 1
+            ? others[0].status ?? null
+            : others.length === 0
+              ? self?.status ?? null
+              : null
+        }
+        convTitle={convTitle}
+        othersCount={others.length}
+      />
 
       <RoomView
         conversationId={conversationId}
