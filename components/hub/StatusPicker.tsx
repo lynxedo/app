@@ -62,11 +62,31 @@ export default function StatusPicker({
 
   async function setMyStatus(newStatus: Status) {
     setSaving(true)
-    await fetch('/api/hub/users/me', {
+    const res = await fetch('/api/hub/users/me', {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ status: newStatus }),
     })
+    if (res.ok) {
+      // Broadcast so other tabs / teammates' sidebars update without refresh.
+      // postgres_changes on hub_users wasn't delivering events through Supabase
+      // Realtime for unknown reasons; broadcast bypasses the RLS/publication path.
+      const supabase = createClient()
+      const data = await res.json().catch(() => null) as { id?: string } | null
+      const userId = data?.id
+      if (userId) {
+        const channel = supabase.channel('hub-status-broadcast')
+        channel.subscribe((s) => {
+          if (s === 'SUBSCRIBED') {
+            channel.send({
+              type: 'broadcast',
+              event: 'status-changed',
+              payload: { user_id: userId, status: newStatus },
+            }).finally(() => supabase.removeChannel(channel))
+          }
+        })
+      }
+    }
     setStatus(newStatus)
     setSaving(false)
     setOpen(false)

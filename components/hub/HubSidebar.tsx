@@ -282,29 +282,28 @@ export default function HubSidebar({
   }, [currentUserId, pathname, loadConversations])
 
   // Realtime: keep sidebar status dots in sync when teammates change status.
-  // Patches participants[] across all conversations so solo-DM dots flip live
-  // without a page refresh.
+  // Uses a Supabase broadcast channel rather than postgres_changes on hub_users.
+  // postgres_changes wasn't delivering events for that table for unknown reasons
+  // (publication, replica identity FULL, and RLS were all set correctly).
+  // The StatusPicker sends a broadcast on this channel whenever a user saves a
+  // new status; every Hub client listens and patches participants[] in place.
   useEffect(() => {
     const supabase = createClient()
     const channel = supabase
-      .channel('sidebar-status')
+      .channel('hub-status-broadcast')
       .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'hub_users' },
-        (payload) => {
-          console.log('[status-realtime] event received:', payload)
-          const u = payload.new as { id: string; status: string | null; status_until: string | null }
+        'broadcast',
+        { event: 'status-changed' },
+        ({ payload }: { payload: { user_id: string; status: string | null } }) => {
           setConversations(prev => prev.map(c => ({
             ...c,
             participants: c.participants.map(p =>
-              p.id === u.id ? { ...p, status: u.status } : p
+              p.id === payload.user_id ? { ...p, status: payload.status } : p
             ),
           })))
         }
       )
-      .subscribe((status) => {
-        console.log('[status-realtime] subscription status:', status)
-      })
+      .subscribe()
 
     return () => { supabase.removeChannel(channel) }
   }, [])
