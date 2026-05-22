@@ -105,17 +105,41 @@ async function handleEvent(event: SlackMessageEvent) {
     bridge = data as BridgeRow | null
   }
 
-  if (!bridge) return  // No bridge configured for this channel/user — drop silently
-  if (!bridge.hub_user_id) return  // Need a sender identity for the Hub message
+  if (!bridge) {
+    console.log(`[slack-bridge:events] no bridge for channel=${event.channel} channelType=${event.channel_type} user=${event.user}, dropping`)
+    return
+  }
+
+  // Resolve the Hub sender id.
+  // - For DM bridges: bridge.hub_user_id IS the sender (one-to-one mapping).
+  // - For room bridges: hub_user_id is null on the bridge row; look up the sender's Hub
+  //   identity by their Slack user id via the DM bridge table.
+  let senderHubId: string | null = bridge.hub_user_id ?? null
+  if (bridge.bridge_type === 'room' && event.user) {
+    const { data: senderBridge } = await admin
+      .from('slack_bridges')
+      .select('hub_user_id')
+      .eq('bridge_type', 'dm')
+      .eq('slack_user_id', event.user)
+      .eq('active', true)
+      .maybeSingle()
+    senderHubId = senderBridge?.hub_user_id ?? null
+  }
+  if (!senderHubId) {
+    console.log(`[slack-bridge:events] no Hub identity for Slack user=${event.user} (need an active DM bridge mapping their slack_user_id → a hub_user_id), dropping`)
+    return
+  }
 
   if (bridge.bridge_type === 'room' && bridge.hub_room_id) {
-    await admin.from('messages').insert({
+    const { error } = await admin.from('messages').insert({
       company_id: bridge.company_id,
       room_id: bridge.hub_room_id,
-      sender_id: bridge.hub_user_id,
+      sender_id: senderHubId,
       content: event.text.trim(),
       source: 'slack',
     })
+    if (error) console.warn(`[slack-bridge:events] room insert failed: ${error.message}`)
+    else console.log(`[slack-bridge:events] room message inserted room=${bridge.hub_room_id} sender=${senderHubId}`)
   } else if (bridge.bridge_type === 'dm' && bridge.hub_user_id) {
     // For DMs, find the conversation the bridged user is in that has the most recent
     // message activity. (1-on-1 DM with the admin who set up the bridge is the typical case.)
