@@ -12,10 +12,11 @@ export default async function AdminPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, can_admin_people')
     .eq('id', user.id)
     .single()
-  if (profile?.role !== 'admin') redirect('/dashboard')
+  const isSuperAdmin = profile?.role === 'admin'
+  if (!isSuperAdmin && !profile?.can_admin_people) redirect('/dashboard')
 
   const admin = createAdminClient()
 
@@ -39,6 +40,8 @@ export default async function AdminPage() {
     can_access_call_log: boolean; can_access_responder: boolean; can_access_timesheet: boolean;
     can_access_books: boolean; can_access_tracker: boolean; can_access_hub: boolean;
     can_access_fleet: boolean; can_post_shout_outs: boolean;
+    can_admin_people: boolean; can_admin_hub: boolean; can_admin_routing: boolean;
+    can_admin_timesheet: boolean; can_admin_fleet: boolean; can_admin_daily_log: boolean;
     display_name: string | null; avatar_url: string | null; invite_sent_at: string | null;
     full_name: string | null;
   }) => ({
@@ -63,8 +66,14 @@ export default async function AdminPage() {
       can_access_hub: r.can_access_hub,
       can_access_fleet: r.can_access_fleet,
       can_post_shout_outs: r.can_post_shout_outs,
+      can_admin_people: r.can_admin_people,
+      can_admin_hub: r.can_admin_hub,
+      can_admin_routing: r.can_admin_routing,
+      can_admin_timesheet: r.can_admin_timesheet,
+      can_admin_fleet: r.can_admin_fleet,
+      can_admin_daily_log: r.can_admin_daily_log,
     },
   }))
 
-  return <AdminPanel currentUserId={user.id} initialUsers={usersWithProfiles} initialEmployees={employeeRows ?? []} />
+  return <AdminPanel currentUserId={user.id} isSuperAdmin={isSuperAdmin} initialUsers={usersWithProfiles} initialEmployees={employeeRows ?? []} />
 }

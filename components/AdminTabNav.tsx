@@ -3,20 +3,37 @@
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 
-const TABS = [
-  { href: '/admin', label: 'People', exact: true },
-  { href: '/admin/hub', label: 'Hub', exact: false },
-  { href: '/admin/routing', label: 'Routing', exact: false },
-  { href: '/admin/timesheet', label: 'Time Records', exact: false },
-  { href: '/admin/fleet', label: 'Fleet', exact: false },
-  { href: '/admin/daily-log', label: 'Daily Log', exact: false },
+type Grants = {
+  people: boolean
+  hub: boolean
+  routing: boolean
+  timesheet: boolean
+  fleet: boolean
+  daily_log: boolean
+}
+
+const TABS: { href: string; label: string; exact: boolean; grantKey: keyof Grants }[] = [
+  { href: '/admin', label: 'People', exact: true, grantKey: 'people' },
+  { href: '/admin/hub', label: 'Hub', exact: false, grantKey: 'hub' },
+  { href: '/admin/routing', label: 'Routing', exact: false, grantKey: 'routing' },
+  { href: '/admin/timesheet', label: 'Time Records', exact: false, grantKey: 'timesheet' },
+  { href: '/admin/fleet', label: 'Fleet', exact: false, grantKey: 'fleet' },
+  { href: '/admin/daily-log', label: 'Daily Log', exact: false, grantKey: 'daily_log' },
 ]
 
-export default function AdminTabNav() {
+export default function AdminTabNav({
+  isSuperAdmin = true,
+  grants,
+}: {
+  isSuperAdmin?: boolean
+  grants?: Grants
+}) {
   const pathname = usePathname()
+  const visibleTabs = isSuperAdmin ? TABS : TABS.filter(t => grants?.[t.grantKey])
+
   return (
     <nav className="flex gap-0 -mb-px">
-      {TABS.map(tab => {
+      {visibleTabs.map(tab => {
         const isActive = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href)
         return (
           <Link

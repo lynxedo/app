@@ -31,10 +31,10 @@ export async function GET() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, can_admin_timesheet')
     .eq('id', user.id)
     .single()
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (profile?.role !== 'admin' && !profile?.can_admin_timesheet) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const token = process.env.GUSTO_ACCESS_TOKEN
   if (!token) {
@@ -150,10 +150,10 @@ export async function POST(req: NextRequest) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, can_admin_timesheet')
     .eq('id', user.id)
     .single()
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (profile?.role !== 'admin' && !profile?.can_admin_timesheet) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { changes } = await req.json()
   if (!Array.isArray(changes)) return NextResponse.json({ error: 'changes array required' }, { status: 400 })

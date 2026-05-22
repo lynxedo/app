@@ -11,10 +11,10 @@ export default async function AdminTimesheetTab() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, can_admin_timesheet')
     .eq('id', user.id)
     .single()
-  if (profile?.role !== 'admin') redirect('/admin')
+  if (profile?.role !== 'admin' && !profile?.can_admin_timesheet) redirect('/admin')
 
   return <AdminTimesheetPage />
 }

@@ -24,10 +24,11 @@ function mergeRules(raw: unknown): DurationRulesConfig {
 async function getAdminCompanyId(userId: string) {
   const supabase = await createClient()
   const [{ data: profile }, { data: hu }] = await Promise.all([
-    supabase.from('user_profiles').select('role').eq('id', userId).maybeSingle(),
+    supabase.from('user_profiles').select('role, can_admin_routing').eq('id', userId).maybeSingle(),
     supabase.from('hub_users').select('company_id').eq('id', userId).maybeSingle(),
   ])
-  if (profile?.role !== 'admin' || !hu?.company_id) return null
+  const ok = profile?.role === 'admin' || profile?.can_admin_routing === true
+  if (!ok || !hu?.company_id) return null
   return hu.company_id as string
 }
 

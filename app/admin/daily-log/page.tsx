@@ -14,10 +14,10 @@ export default async function AdminDailyLogPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, company_id')
+    .select('role, company_id, can_admin_daily_log')
     .eq('id', user.id)
     .single()
-  if (profile?.role !== 'admin' || !profile.company_id) redirect('/dashboard')
+  if ((profile?.role !== 'admin' && !profile?.can_admin_daily_log) || !profile?.company_id) redirect('/dashboard')
 
   const admin = createAdminClient()
 

@@ -724,6 +724,18 @@ function SettingsTab() {
         <p>Use at least 8 characters. You&apos;ll stay signed in on this device after the change. If you forget your password, sign out and use the &ldquo;forgot password&rdquo; flow on the login page.</p>
       </Section>
 
+      <Section title="Admin Access (Roles)">
+        <p>Lynxedo has three roles:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">User</strong> — everyday access. Uses Hub and whichever tools are enabled on their account.</li>
+          <li><strong className="text-white">Manager</strong> — gets access to specific admin areas. A manager only sees the admin tabs they&apos;ve been granted (e.g. just <em>Time Records</em>, or <em>Daily Log + Fleet</em>).</li>
+          <li><strong className="text-white">Admin</strong> — full access to every admin area. Admins are the only ones who can change roles or grant manager access.</li>
+        </ul>
+        <AdminOnly>
+          <p>To make someone a manager: in <strong className="text-white">Admin → People</strong>, change their role dropdown to <em>Manager</em>. An amber <strong className="text-white">Admin Access</strong> panel appears with toggles for each admin area — People, Hub, Routing, Time Records, Fleet, Daily Log. Flip on whichever areas they should be able to manage. Only true admins (role = Admin) see this panel, and only true admins can change role or grant access.</p>
+        </AdminOnly>
+      </Section>
+
       <Section title="Text Size (S / M / L)">
         <p>Open your account menu in the bottom-left of the Hub sidebar — there are three buttons labeled <strong className="text-white">S</strong>, <strong className="text-white">M</strong>, <strong className="text-white">L</strong> for text size.</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">

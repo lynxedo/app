@@ -10,9 +10,10 @@ export async function GET(req: NextRequest) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, can_admin_timesheet')
     .eq('id', user.id)
     .single()
+  const isTimesheetAdmin = profile?.role === 'admin' || profile?.can_admin_timesheet === true
 
   const params = req.nextUrl.searchParams
   let employee_id = params.get('employee_id')
@@ -20,7 +21,7 @@ export async function GET(req: NextRequest) {
   const end = params.get('end')
 
   // Non-admins can only see their own entries — ignore any employee_id passed in
-  if (profile?.role !== 'admin') {
+  if (!isTimesheetAdmin) {
     const { data: emp } = await supabase
       .from('employees')
       .select('id')
@@ -45,7 +46,7 @@ export async function GET(req: NextRequest) {
 
   // Also pull any open (clocked-in, no clock_out) punches
   let openPunches: Record<string, unknown>[] = []
-  if (profile?.role === 'admin' || employee_id) {
+  if (isTimesheetAdmin || employee_id) {
     let punchQuery = supabase
       .from('time_punches')
       .select('*, employees(first_name, last_name, preferred_name)')

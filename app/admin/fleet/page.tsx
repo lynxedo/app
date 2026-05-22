@@ -27,10 +27,10 @@ export default async function AdminFleetPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, company_id')
+    .select('role, company_id, can_admin_fleet')
     .eq('id', user.id)
     .single()
-  if (profile?.role !== 'admin' || !profile.company_id) redirect('/dashboard')
+  if ((profile?.role !== 'admin' && !profile?.can_admin_fleet) || !profile?.company_id) redirect('/dashboard')
 
   const admin = createAdminClient()
   const { data: row } = await admin

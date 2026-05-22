@@ -40,7 +40,7 @@ export async function proxy(request: NextRequest) {
     // Single fetch: profile + company — used for domain check and permission enforcement
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('role, company_id, landing_page, can_access_routing, can_access_lawn, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, companies(google_domain)')
+      .select('role, company_id, landing_page, can_access_routing, can_access_lawn, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, companies(google_domain)')
       .eq('id', user.id)
       .single()
 
@@ -88,17 +88,55 @@ export async function proxy(request: NextRequest) {
         }
       }
 
-      // /hub/timesheet is admin-only
-      if ((pathname === '/hub/timesheet' || pathname.startsWith('/hub/timesheet/')) && profile.role !== 'admin') {
+      // /hub/timesheet is admin or timesheet-manager only
+      if ((pathname === '/hub/timesheet' || pathname.startsWith('/hub/timesheet/')) && profile.role !== 'admin' && !profile.can_admin_timesheet) {
         const url = request.nextUrl.clone()
         url.pathname = '/hub'
         return NextResponse.redirect(url)
       }
 
-      if ((pathname === '/admin' || pathname.startsWith('/admin/')) && profile.role !== 'admin') {
-        const url = request.nextUrl.clone()
-        url.pathname = '/dashboard'
-        return NextResponse.redirect(url)
+      // Admin gate: super-admins (role=admin) get everything. Managers (role=manager) need
+      // at least one can_admin_* flag for /admin overall, and the specific flag for each subpath.
+      if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+        const isSuperAdmin = profile.role === 'admin'
+        const adminFlagMap: Record<string, keyof typeof profile> = {
+          '/admin/hub': 'can_admin_hub',
+          '/admin/routing': 'can_admin_routing',
+          '/admin/timesheet': 'can_admin_timesheet',
+          '/admin/fleet': 'can_admin_fleet',
+          '/admin/daily-log': 'can_admin_daily_log',
+        }
+        const anyAdminGrant =
+          profile.can_admin_people ||
+          profile.can_admin_hub ||
+          profile.can_admin_routing ||
+          profile.can_admin_timesheet ||
+          profile.can_admin_fleet ||
+          profile.can_admin_daily_log
+
+        if (!isSuperAdmin && !anyAdminGrant) {
+          const url = request.nextUrl.clone()
+          url.pathname = '/dashboard'
+          return NextResponse.redirect(url)
+        }
+
+        if (!isSuperAdmin) {
+          // /admin (People tab) requires can_admin_people specifically
+          if (pathname === '/admin' && !profile.can_admin_people) {
+            const url = request.nextUrl.clone()
+            // Send to whichever admin tab they DO have access to
+            const firstGrant = Object.entries(adminFlagMap).find(([, key]) => profile[key])
+            url.pathname = firstGrant ? firstGrant[0] : '/dashboard'
+            return NextResponse.redirect(url)
+          }
+          for (const [route, flagKey] of Object.entries(adminFlagMap)) {
+            if ((pathname === route || pathname.startsWith(route + '/')) && !profile[flagKey]) {
+              const url = request.nextUrl.clone()
+              url.pathname = profile.can_admin_people ? '/admin' : '/dashboard'
+              return NextResponse.redirect(url)
+            }
+          }
+        }
       }
     }
   }

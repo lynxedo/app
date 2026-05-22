@@ -25,10 +25,10 @@ export default async function AdminRoutingPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, company_id')
+    .select('role, company_id, can_admin_routing')
     .eq('id', user.id)
     .single()
-  if (profile?.role !== 'admin') redirect('/dashboard')
+  if (profile?.role !== 'admin' && !profile?.can_admin_routing) redirect('/dashboard')
 
   const { data: settingsRow } = await supabase
     .from('company_routing_settings')

@@ -1,28 +1,33 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireAdminArea } from '@/lib/admin-auth'
 
-async function requireAdmin() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return null
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('role')
-    .eq('id', user.id)
-    .single()
-  return profile?.role === 'admin' ? user : null
-}
+const RESTRICTED_FIELDS = new Set([
+  'role',
+  'can_admin_people',
+  'can_admin_hub',
+  'can_admin_routing',
+  'can_admin_timesheet',
+  'can_admin_fleet',
+  'can_admin_daily_log',
+])
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const adminUser = await requireAdmin()
-  if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const check = await requireAdminArea('people')
+  if (!check.ok || !check.user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { id } = await params
   const body = await request.json()
+
+  // Only super-admins can grant manager role or toggle can_admin_* flags
+  const touchesRestricted = Object.keys(body).some(k => RESTRICTED_FIELDS.has(k))
+  if (touchesRestricted && !check.isSuperAdmin) {
+    return NextResponse.json({ error: 'Only full admins can change role or admin access grants' }, { status: 403 })
+  }
+
   const admin = createAdminClient()
 
   // display_name lives on hub_users — pull it out and write separately
@@ -51,11 +56,11 @@ export async function DELETE(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const adminUser = await requireAdmin()
-  if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const check = await requireAdminArea('people')
+  if (!check.ok || !check.user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { id } = await params
-  if (adminUser.id === id) {
+  if (check.user.id === id) {
     return NextResponse.json({ error: 'Cannot remove your own account' }, { status: 400 })
   }
 

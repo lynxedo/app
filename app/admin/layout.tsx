@@ -10,10 +10,22 @@ export default async function AdminLayout({ children }: { children: React.ReactN
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log')
     .eq('id', user.id)
     .single()
-  if (profile?.role !== 'admin') redirect('/dashboard')
+
+  const isSuperAdmin = profile?.role === 'admin'
+  const hasAnyGrant = !!(
+    profile && (
+      profile.can_admin_people ||
+      profile.can_admin_hub ||
+      profile.can_admin_routing ||
+      profile.can_admin_timesheet ||
+      profile.can_admin_fleet ||
+      profile.can_admin_daily_log
+    )
+  )
+  if (!isSuperAdmin && !hasAnyGrant) redirect('/dashboard')
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
@@ -27,7 +39,17 @@ export default async function AdminLayout({ children }: { children: React.ReactN
         </div>
       </header>
       <div className="border-b border-gray-800 px-6">
-        <AdminTabNav />
+        <AdminTabNav
+          isSuperAdmin={isSuperAdmin}
+          grants={{
+            people: !!profile?.can_admin_people,
+            hub: !!profile?.can_admin_hub,
+            routing: !!profile?.can_admin_routing,
+            timesheet: !!profile?.can_admin_timesheet,
+            fleet: !!profile?.can_admin_fleet,
+            daily_log: !!profile?.can_admin_daily_log,
+          }}
+        />
       </div>
       <main className="max-w-4xl mx-auto px-6 py-10">
         {children}

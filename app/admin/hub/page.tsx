@@ -12,10 +12,10 @@ export default async function AdminHubPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, company_id')
+    .select('role, company_id, can_admin_hub')
     .eq('id', user.id)
     .single()
-  if (profile?.role !== 'admin') redirect('/dashboard')
+  if (profile?.role !== 'admin' && !profile?.can_admin_hub) redirect('/dashboard')
 
   const admin = createAdminClient()
 

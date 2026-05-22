@@ -68,14 +68,14 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'action must be "in" or "out"' }, { status: 400 })
   }
 
-  // Verify permission: admin can punch for anyone, employees only for themselves
+  // Verify permission: admin (or timesheet manager) can punch for anyone, employees only for themselves
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, can_admin_timesheet')
     .eq('id', user.id)
     .single()
 
-  if (profile?.role !== 'admin') {
+  if (profile?.role !== 'admin' && !profile?.can_admin_timesheet) {
     const { data: emp } = await supabase
       .from('employees')
       .select('id')

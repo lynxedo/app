@@ -15,6 +15,12 @@ type UserProfile = {
   can_access_hub: boolean
   can_access_fleet: boolean
   can_post_shout_outs: boolean
+  can_admin_people: boolean
+  can_admin_hub: boolean
+  can_admin_routing: boolean
+  can_admin_timesheet: boolean
+  can_admin_fleet: boolean
+  can_admin_daily_log: boolean
 }
 
 type User = {
@@ -54,6 +60,15 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_post_shout_outs', label: 'Post Shout Outs' },
 ]
 
+const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
+  { key: 'can_admin_people', label: 'People' },
+  { key: 'can_admin_hub', label: 'Hub' },
+  { key: 'can_admin_routing', label: 'Routing' },
+  { key: 'can_admin_timesheet', label: 'Time Records' },
+  { key: 'can_admin_fleet', label: 'Fleet' },
+  { key: 'can_admin_daily_log', label: 'Daily Log' },
+]
+
 function getInitials(name: string | null, email: string): string {
   if (name) {
     const parts = name.trim().split(/\s+/)
@@ -91,10 +106,12 @@ const inputCls = 'bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text
 
 export default function AdminPanel({
   currentUserId,
+  isSuperAdmin,
   initialUsers,
   initialEmployees,
 }: {
   currentUserId: string
+  isSuperAdmin: boolean
   initialUsers: User[]
   initialEmployees: RosterEmployee[]
 }) {
@@ -144,6 +161,12 @@ export default function AdminPanel({
             can_access_hub: false,
             can_access_fleet: false,
             can_post_shout_outs: false,
+            can_admin_people: false,
+            can_admin_hub: false,
+            can_admin_routing: false,
+            can_admin_timesheet: false,
+            can_admin_fleet: false,
+            can_admin_daily_log: false,
           },
         }
         setUsers(prev => [...prev, newUser])
@@ -253,6 +276,12 @@ export default function AdminPanel({
             can_access_hub: false,
             can_access_fleet: false,
             can_post_shout_outs: false,
+            can_admin_people: false,
+            can_admin_hub: false,
+            can_admin_routing: false,
+            can_admin_timesheet: false,
+            can_admin_fleet: false,
+            can_admin_daily_log: false,
           },
         }
         setUsers(prev => [...prev, newUser])
@@ -349,6 +378,7 @@ export default function AdminPanel({
               key={user.id}
               user={user}
               isSelf={user.id === currentUserId}
+              isSuperAdmin={isSuperAdmin}
               onChange={handleChange}
               onDelete={handleDelete}
               onSendInvite={handleSendInvite}
@@ -375,6 +405,7 @@ export default function AdminPanel({
 function UserRow({
   user,
   isSelf,
+  isSuperAdmin,
   onChange,
   onDelete,
   onSendInvite,
@@ -382,6 +413,7 @@ function UserRow({
 }: {
   user: User
   isSelf: boolean
+  isSuperAdmin: boolean
   onChange: (userId: string, field: string, value: boolean | string) => void
   onDelete: (userId: string, email: string) => void
   onSendInvite: (userId: string) => void
@@ -468,10 +500,11 @@ function UserRow({
           <select
             value={profile.role}
             onChange={e => onChange(user.id, 'role', e.target.value)}
-            disabled={isSelf}
+            disabled={isSelf || !isSuperAdmin}
             className="bg-gray-800 border border-gray-700 text-sm rounded-lg px-3 py-1.5 text-white focus:outline-none focus:border-blue-500 disabled:opacity-40 disabled:cursor-not-allowed"
           >
             <option value="user">User</option>
+            <option value="manager">Manager</option>
             <option value="admin">Admin</option>
           </select>
           {!isSelf && (
@@ -546,6 +579,40 @@ function UserRow({
           )
         })}
       </div>
+
+      {isSuperAdmin && (profile.role === 'manager' || profile.role === 'admin') && (
+        <div className="mt-4 p-3 bg-amber-500/5 border border-amber-500/20 rounded-xl">
+          <div className="flex items-center gap-2 mb-3">
+            <span className="text-xs font-semibold uppercase tracking-wider text-amber-400">Admin Access</span>
+            {profile.role === 'admin' && (
+              <span className="text-[11px] text-gray-500">Full admin — all areas granted automatically</span>
+            )}
+            {profile.role === 'manager' && (
+              <span className="text-[11px] text-gray-500">Pick which admin areas this manager can access</span>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-4">
+            {ADMIN_GRANTS.map(({ key, label }) => {
+              const isAdminRole = profile.role === 'admin'
+              const enabled = isAdminRole ? true : (profile[key] as boolean)
+              return (
+                <label key={key} className={`flex items-center gap-2 select-none ${isAdminRole ? 'cursor-default opacity-70' : 'cursor-pointer'}`}>
+                  <button
+                    role="switch"
+                    aria-checked={enabled}
+                    disabled={isAdminRole}
+                    onClick={() => !isAdminRole && onChange(user.id, key, !enabled)}
+                    className={`relative w-9 h-5 rounded-full transition-colors focus:outline-none ${enabled ? 'bg-amber-500' : 'bg-gray-700'} ${isAdminRole ? 'cursor-default' : ''}`}
+                  >
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                  </button>
+                  <span className="text-sm text-gray-300">{label}</span>
+                </label>
+              )
+            })}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
