@@ -29,13 +29,13 @@ export async function POST() {
   const apnsTokens = (apnsRes.data ?? []).map((r: { device_token: string }) => r.device_token)
   const fcmTokens = (fcmRes.data ?? []).map((r: { device_token: string }) => r.device_token)
 
+  const stamp = new Date().toISOString()
+
   const payload = {
-    title: 'Hub push test',
-    body: 'If you see this, push notifications are working on this device.',
+    title: `Hub push test ${stamp.slice(11, 19)}`,
+    body: `If you see this, push notifications are working on this device. (${stamp.slice(11, 19)} UTC)`,
     url: '/hub',
   }
-
-  const stamp = new Date().toISOString()
 
   // Web push
   let webSent = 0
