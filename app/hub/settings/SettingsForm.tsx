@@ -489,7 +489,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
           </a>
         )}
         <p className="text-xs text-gray-500 mt-4">
-          Routing settings (depot, duration rules, drive speed) live in <a href="/admin/routing" className="text-orange-400 hover:text-orange-300 underline">Admin → Routing</a>.
+          Routing settings (depot, duration rules, drive speed) live in <a href="/hub/admin/routing" className="text-orange-400 hover:text-orange-300 underline">Admin → Routing</a>.
         </p>
       </section>
 

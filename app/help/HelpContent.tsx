@@ -164,21 +164,38 @@ function HubTab() {
         <Note>Don&apos;t want to land on Home? You can change your default landing page under <strong className="text-white">Settings → Account → Default landing page</strong> (Hub or Dashboard).</Note>
       </Section>
 
-      <Section title="Sidebar Navigation">
-        <p>The sidebar on the left is how you get around Hub. Top to bottom you&apos;ll see:</p>
+      <Section title="Navigation — rail + sidebars">
+        <p>Hub is organized around a thin <strong className="text-white">icon rail</strong> on the left edge of the screen (or as a bottom tab bar on phones). Each icon opens its own sidebar with that section&apos;s contents — so the sidebar isn&apos;t one giant list anymore, it changes depending on what you&apos;re looking at.</p>
+        <p className="font-medium text-white mt-3">Desktop rail (top to bottom)</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">Home</strong> — announcements, shout outs, your starred rooms</li>
-          <li><strong className="text-white">Clients</strong> — SMS conversations with customers (Captivated)</li>
-          <li><strong className="text-white">Unread</strong> — any room or DM with unread messages, surfaced at the top so you don&apos;t miss them even if Rooms or DMs is collapsed. The section disappears when you&apos;re caught up.</li>
-          <li><strong className="text-white">Rooms</strong> — group conversations you belong to</li>
-          <li><strong className="text-white">Direct Messages</strong> — your one-on-ones. The colored dot next to each name is that person&apos;s current status: <span className="inline-block w-2 h-2 rounded-full bg-green-400 align-middle"></span> Available, <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 align-middle"></span> Busy, <span className="inline-block w-2 h-2 rounded-full bg-red-500 align-middle"></span> Do Not Disturb, or <span className="inline-block w-2 h-2 rounded-full bg-gray-500 align-middle"></span> Offline (clocked out for techs, or 2h Hub-idle for office). Group DMs show 💬 instead since multiple people don&apos;t share one status.</li>
-          <li><strong className="text-white">Boards</strong> — your saved-message boards</li>
-          <li><strong className="text-white">Tools</strong> — Daily Log, Tracker, Lawn Sizer, Call Log, Routing, Books, Time Records, Fleet</li>
-          <li><strong className="text-white">Pages</strong> — Company News, Files</li>
-          <li><strong className="text-white">Links</strong> — one-click shortcuts to external tools (Jobber, Gusto, QuickBooks, Captivated, etc.)</li>
+          <li><strong className="text-white">🔍 Search</strong> — opens the quick-jump palette (same as <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> / <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">Ctrl+K</kbd>).</li>
+          <li><strong className="text-white">🏠 Home</strong> — the landing screen with announcements, Time Clock card, and shout outs.</li>
+          <li><strong className="text-white">💬 Chat</strong> — team conversations. Sidebar lists Favorites, Rooms, DMs, Boards, and Daily Log.</li>
+          <li><strong className="text-white">📱 Txt</strong> — client SMS conversations (Captivated).</li>
+          <li><strong className="text-white">🔔 Activity</strong> — every place you were @mentioned or someone replied to a thread you started, last 30 days. The red badge shows how many you haven&apos;t seen yet.</li>
+          <li><strong className="text-white">🧰 Tools</strong> — Routing, Tracker, Fleet, Books, Lawn Sizer, Call Log, plus Company News and Files under Pages.</li>
+          <li><strong className="text-white">🔗 Links</strong> — one-tap shortcuts to external tools (Jobber, Gusto, QuickBooks, Captivated). Admins manage the list.</li>
+          <li><strong className="text-white">🛡️ Admin</strong> — only visible if you have admin access. Opens the admin pages.</li>
+          <li><strong className="text-white">⚙️ Settings</strong> — your account, notifications, and display preferences.</li>
+          <li><strong className="text-white">👤 You</strong> (at the bottom) — your avatar with status dot. Opens the profile sidebar where you set Available / Busy / DND, change text size, and sign out.</li>
         </ul>
-        <Note>📱 On mobile, the sidebar is hidden by default — tap the menu icon (top-left) to open it. Swiping right from the left edge also opens it.</Note>
-        <Note>🖥️ On desktop, click the small left-chevron at the top-right of the sidebar header to collapse it out of the way. A floating chevron appears on the left edge of the screen — click it to bring the sidebar back. Your choice is remembered.</Note>
+        <p className="font-medium text-white mt-3">Keyboard shortcuts</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘1</kbd> Home · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘2</kbd> Chat · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘3</kbd> Txt · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘4</kbd> Activity · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘5</kbd> Tools · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> Search (use Ctrl on Windows).</li>
+        </ul>
+        <p className="font-medium text-white mt-3">Mobile bottom bar</p>
+        <p>Five tabs always within thumb reach: <strong className="text-white">Home · Chat · Txt · Activity · More</strong>. Tap <strong className="text-white">More</strong> to get to Tools, Links, Settings, Admin (if you have it), and You.</p>
+        <p className="font-medium text-white mt-3">Chat sidebar contents</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Unread</strong> — any room or DM with unread messages, surfaced at the top. Disappears when you&apos;re caught up.</li>
+          <li><strong className="text-white">Favorites</strong> — your pinned rooms, DMs, and tools.</li>
+          <li><strong className="text-white">Rooms</strong> — group conversations you belong to.</li>
+          <li><strong className="text-white">Direct Messages</strong> — one-on-ones. The colored dot is the other person&apos;s status: <span className="inline-block w-2 h-2 rounded-full bg-green-400 align-middle"></span> Available, <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 align-middle"></span> Busy, <span className="inline-block w-2 h-2 rounded-full bg-red-500 align-middle"></span> DND, <span className="inline-block w-2 h-2 rounded-full bg-gray-500 align-middle"></span> Offline.</li>
+          <li><strong className="text-white">Boards</strong> — your saved-message boards.</li>
+          <li><strong className="text-white">Daily Log</strong> — jump to today&apos;s log.</li>
+        </ul>
+        <Note>🖥️ Click the active rail icon again to collapse the sidebar (Chat, Tools, Links). A small chevron appears at the left edge to bring it back. Useful when you want maximum room for a long message thread.</Note>
+        <Note>📱 On phones the sidebar is a drawer. Tap any rail tab and the matching list slides in.</Note>
       </Section>
 
       <Section title="Rooms">

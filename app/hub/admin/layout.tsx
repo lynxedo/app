@@ -1,9 +1,11 @@
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import AdminTabNav from '@/components/AdminTabNav'
 
-export default async function AdminLayout({ children }: { children: React.ReactNode }) {
+// Rendered inside the Hub shell (parent app/hub/layout.tsx provides the rail
+// and sidebar). We only render the AdminTabNav strip and the admin content —
+// no separate header.
+export default async function HubAdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
@@ -25,20 +27,11 @@ export default async function AdminLayout({ children }: { children: React.ReactN
       profile.can_admin_daily_log
     )
   )
-  if (!isSuperAdmin && !hasAnyGrant) redirect('/dashboard')
+  if (!isSuperAdmin && !hasAnyGrant) redirect('/hub/home')
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href="/hub" className="text-gray-400 hover:text-white text-sm transition-colors">
-            ← Hub
-          </Link>
-          <span className="text-gray-600">|</span>
-          <span className="text-xl font-bold tracking-tight">Admin</span>
-        </div>
-      </header>
-      <div className="border-b border-gray-800 px-6">
+    <div className="flex-1 min-h-0 overflow-y-auto bg-gray-950 text-white">
+      <div className="border-b border-gray-800 px-4 md:px-6">
         <AdminTabNav
           isSuperAdmin={isSuperAdmin}
           grants={{
@@ -51,7 +44,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
           }}
         />
       </div>
-      <main className="max-w-4xl mx-auto px-6 py-10">
+      <main className="max-w-4xl mx-auto px-4 md:px-6 py-6 md:py-10">
         {children}
       </main>
     </div>
