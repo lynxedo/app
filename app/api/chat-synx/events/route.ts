@@ -4,6 +4,7 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 import { slackToNative } from '@/lib/chat-synx-emoji'
+import { translateSlackToHub } from '@/lib/chat-synx-mentions'
 
 const BOT_TOKEN = process.env.CHAT_SYNX_BOT_TOKEN ?? ''
 const MAX_FILE_BYTES = 25 * 1024 * 1024 // 25 MB to match Hub upload caps for bridged files
@@ -218,6 +219,15 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
     }
   }
 
+  // Translate Slack-style mentions (<@U…>, <!channel>/<!here>/<!everyone>)
+  // into Hub-style @firstname / @room BEFORE insert and BEFORE the push
+  // fan-out below — the fan-out scans for @firstname / @room to decide who
+  // to notify, so translating up front is what makes inbound mentions
+  // actually trigger Hub notifications.
+  const translatedText = hasText
+    ? await translateSlackToHub(event.text!.trim(), bridge.company_id)
+    : ''
+
   const { data: inserted, error } = await admin
     .from('messages')
     .insert({
@@ -225,7 +235,7 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
       room_id: bridge.hub_room_id,
       parent_id: parentId,
       sender_id: link.hub_user_id,
-      content: hasText ? event.text!.trim() : '',
+      content: translatedText,
       source: 'chat-synx',
       slack_event_id: eventId,
       slack_ts: event.ts ?? null,
@@ -339,7 +349,10 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
     const senderName = senderProfile?.display_name ?? 'Someone'
     const roomName = roomMeta?.name ?? 'room'
     const allOthers = (members ?? []) as { id: string; display_name: string }[]
-    const text = (event.text ?? '').trim()
+    // Use the mention-translated text so @firstname / @room patterns get
+    // detected by the matchAll below (Slack-side <@U…> / <!channel> would
+    // never match the @firstname regex otherwise).
+    const text = translatedText.trim()
     const pushBody = text.length > 0 ? text.slice(0, 120) : '📎 Sent an attachment'
 
     // @mention push — first-name match, mirrors Hub messages route
@@ -401,7 +414,7 @@ async function handleEdit(event: SlackMessageEvent) {
   const admin = createAdminClient()
   const { data: msg } = await admin
     .from('messages')
-    .select('id, source')
+    .select('id, source, company_id')
     .eq('slack_ts', newTs)
     .maybeSingle()
   if (!msg) {
@@ -419,9 +432,12 @@ async function handleEdit(event: SlackMessageEvent) {
     return
   }
 
+  // Mention translation — same as initial inbound insert path.
+  const translated = await translateSlackToHub(trimmed, msg.company_id)
+
   const { error } = await admin
     .from('messages')
-    .update({ content: trimmed, edited_at: new Date().toISOString() })
+    .update({ content: translated, edited_at: new Date().toISOString() })
     .eq('id', msg.id)
   if (error) {
     console.warn(`[chat-synx:events] edit update failed: ${error.message}`)

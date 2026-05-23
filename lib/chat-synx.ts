@@ -1,6 +1,7 @@
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { nativeToSlack } from '@/lib/chat-synx-emoji'
+import { translateHubToSlack } from '@/lib/chat-synx-mentions'
 
 const BOT_TOKEN = process.env.CHAT_SYNX_BOT_TOKEN ?? ''
 
@@ -218,7 +219,7 @@ export async function bridgeHubMessageToChatSynx({
 
   const { data: bridge } = await admin
     .from('chat_synx_bridges')
-    .select('slack_channel_id')
+    .select('slack_channel_id, company_id')
     .eq('hub_room_id', roomId)
     .eq('active', true)
     .maybeSingle()
@@ -255,9 +256,12 @@ export async function bridgeHubMessageToChatSynx({
   // as the bot in the same thread.
   let postedTs: string | null = null
   if (hasContent) {
+    // Translate @firstname and @room into Slack syntax so mentions actually
+    // notify Slack-side recipients. Untranslatable mentions are left as-is.
+    const translated = await translateHubToSlack(content.trim(), bridge.company_id)
     const result = await postMessage({
       channel: bridge.slack_channel_id,
-      text: content.trim(),
+      text: translated,
       username,
       iconUrl,
       threadTs,
@@ -303,7 +307,7 @@ export async function bridgeHubMessageToChatSynx({
 // channel id from the room's bridge. Returns null when the message wasn't
 // bridged (no slack_ts), isn't in a room (DMs aren't bridged in v1), or the
 // room no longer has an active bridge.
-async function resolveBridgedSlackTarget(messageId: string): Promise<{ channel: string; ts: string } | null> {
+async function resolveBridgedSlackTarget(messageId: string): Promise<{ channel: string; ts: string; companyId: string } | null> {
   const admin = createAdminClient()
   const { data: msg } = await admin
     .from('messages')
@@ -314,13 +318,13 @@ async function resolveBridgedSlackTarget(messageId: string): Promise<{ channel: 
 
   const { data: bridge } = await admin
     .from('chat_synx_bridges')
-    .select('slack_channel_id')
+    .select('slack_channel_id, company_id')
     .eq('hub_room_id', msg.room_id)
     .eq('active', true)
     .maybeSingle()
   if (!bridge?.slack_channel_id) return null
 
-  return { channel: bridge.slack_channel_id, ts: msg.slack_ts }
+  return { channel: bridge.slack_channel_id, ts: msg.slack_ts, companyId: bridge.company_id }
 }
 
 // Update the bridged Slack message's text. chat.update preserves the original
@@ -337,6 +341,9 @@ export async function bridgeHubEditToChatSynx(messageId: string, newContent: str
     return
   }
 
+  // Translate mentions in the edited content the same way the initial post does.
+  const translated = await translateHubToSlack(trimmed, target.companyId)
+
   try {
     const res = await fetch('https://slack.com/api/chat.update', {
       method: 'POST',
@@ -344,7 +351,7 @@ export async function bridgeHubEditToChatSynx(messageId: string, newContent: str
         'Content-Type': 'application/json; charset=utf-8',
         Authorization: `Bearer ${BOT_TOKEN}`,
       },
-      body: JSON.stringify({ channel: target.channel, ts: target.ts, text: trimmed }),
+      body: JSON.stringify({ channel: target.channel, ts: target.ts, text: translated }),
       signal: AbortSignal.timeout(8000),
     })
     const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
