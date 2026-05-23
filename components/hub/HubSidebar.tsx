@@ -813,11 +813,11 @@ export default function HubSidebar({
             isActive ? 'bg-[#2E7EB8] text-white font-medium' : baseColor
           }`}
         >
-          {showPrefix && (
-            soloPerson
-              ? <StatusDot status={soloPerson.effective_status ?? soloPerson.status ?? null} />
-              : <span className={`text-xs flex-none ${muted ? 'text-white/20' : 'text-white/30'}`}>💬</span>
-          )}
+          {soloPerson ? (
+            <StatusDot status={soloPerson.effective_status ?? soloPerson.status ?? null} />
+          ) : showPrefix ? (
+            <span className={`text-xs flex-none ${muted ? 'text-white/20' : 'text-white/30'}`}>💬</span>
+          ) : null}
           <span className="truncate flex-1">{label}</span>
           {hasUnread && !isActive && (
             <span className="flex-none w-2 h-2 rounded-full bg-[#f97316]" />

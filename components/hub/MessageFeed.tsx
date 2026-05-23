@@ -150,6 +150,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
   const [pickerMsgId, setPickerMsgId] = useState<string | null>(null)
+  const [fullPickerMsgId, setFullPickerMsgId] = useState<string | null>(null)
   const [forwardingMsg, setForwardingMsg] = useState<HubMessage | null>(null)
   const [saveToFilesMsg, setSaveToFilesMsg] = useState<HubMessage | null>(null)
   const [addToBoardMsgId, setAddToBoardMsgId] = useState<string | null>(null)
@@ -243,9 +244,34 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   // Initial paint: jump to bottom instantly before the browser paints, so the
   // user never sees the list render from the top and animate down. Subsequent
   // message arrivals keep the smooth-scroll behavior below.
+  //
+  // Images load asynchronously and grow scrollHeight after our initial jump,
+  // landing the user above the true bottom on first entry. Re-pin via a
+  // ResizeObserver for ~2s after mount (covers image decode + layout), and
+  // also listen for image load events directly so we don't have to throttle.
   useLayoutEffect(() => {
     const el = scrollContainerRef.current
-    if (el) el.scrollTop = el.scrollHeight
+    if (!el) return
+    let pinning = true
+    const pin = () => { if (pinning) el.scrollTop = el.scrollHeight }
+    pin()
+    // Belt-and-suspenders: multiple async re-pins in case layout settles late.
+    const timers = [0, 50, 150, 400, 900, 1800].map(ms => setTimeout(pin, ms))
+    const ro = new ResizeObserver(pin)
+    ro.observe(el)
+    // Catch each image as it loads — the most common cause of "scrolled almost
+    // to the bottom but not quite" on first entry to a feed.
+    const imgs = el.querySelectorAll('img')
+    const onImg = () => pin()
+    imgs.forEach(img => img.addEventListener('load', onImg))
+    const stopAt = setTimeout(() => { pinning = false; ro.disconnect() }, 2500)
+    return () => {
+      pinning = false
+      timers.forEach(clearTimeout)
+      clearTimeout(stopAt)
+      ro.disconnect()
+      imgs.forEach(img => img.removeEventListener('load', onImg))
+    }
   }, [])
 
   useEffect(() => {
@@ -664,16 +690,46 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                     >
                       <div className="relative">
                         <button
-                          onClick={() => setPickerMsgId(pickerMsgId === msg.id ? null : msg.id)}
+                          onClick={() => {
+                            setFullPickerMsgId(null)
+                            setPickerMsgId(pickerMsgId === msg.id ? null : msg.id)
+                          }}
                           className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-sm md:px-1.5 md:py-0.5"
                           title="Add reaction"
                         >
                           😊
                         </button>
                         {pickerMsgId === msg.id && (
+                          <div
+                            className="absolute bottom-full right-0 mb-1 z-50 flex items-center gap-0.5 bg-gray-900 border border-gray-700 rounded-full shadow-2xl px-1 py-0.5"
+                            onClick={e => e.stopPropagation()}
+                          >
+                            {['✅', '👍', '👀'].map(emoji => (
+                              <button
+                                key={emoji}
+                                onClick={() => { toggleReaction(msg.id, emoji); setPickerMsgId(null) }}
+                                className="w-8 h-8 flex items-center justify-center text-base rounded-full hover:bg-gray-800"
+                                title={`React with ${emoji}`}
+                              >
+                                {emoji}
+                              </button>
+                            ))}
+                            <button
+                              onClick={() => { setPickerMsgId(null); setFullPickerMsgId(msg.id) }}
+                              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-800 text-gray-400"
+                              title="More reactions"
+                              aria-label="More reactions"
+                            >
+                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                              </svg>
+                            </button>
+                          </div>
+                        )}
+                        {fullPickerMsgId === msg.id && (
                           <EmojiPicker
                             onSelect={emoji => toggleReaction(msg.id, emoji)}
-                            onClose={() => setPickerMsgId(null)}
+                            onClose={() => setFullPickerMsgId(null)}
                           />
                         )}
                       </div>

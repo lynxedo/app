@@ -8,7 +8,7 @@ const EmojiMartPicker = dynamic(() => import('@emoji-mart/react').then(m => m.de
   ssr: false,
 })
 
-const QUICK_EMOJIS = ['👍', '❤️', '😂', '🎉', '😮', '🙏']
+const QUICK_EMOJIS = ['✅', '👍', '👀']
 
 type Action = {
   icon: string

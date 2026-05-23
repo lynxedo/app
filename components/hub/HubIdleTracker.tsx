@@ -8,6 +8,13 @@ import { usePathname, useRouter } from 'next/navigation'
 // a long lunch or meeting. Pure navigation reset — Supabase session is untouched.
 const IDLE_THRESHOLD_MS = 14 * 60 * 60 * 1000 // 14 hours
 const STORAGE_KEY = 'hub_last_active_at'
+const ROUTE_KEY = 'hub_last_route'
+
+// Routes we never save as "last route" because they are themselves landing /
+// redirect pages — saving them would defeat the restore on the next cold load.
+function isLandingRoute(path: string) {
+  return path === '/hub' || path === '/hub/home'
+}
 
 export default function HubIdleTracker() {
   const router = useRouter()
@@ -37,10 +44,15 @@ export default function HubIdleTracker() {
     }
   }, [pathname, router])
 
-  // Refresh the activity stamp on every route change inside Hub
+  // Refresh the activity stamp + last-route on every route change inside Hub.
+  // Landing pages are intentionally NOT saved as last route so the next cold
+  // load can restore to the user's actual previous destination.
   useEffect(() => {
     try {
       window.localStorage.setItem(STORAGE_KEY, String(Date.now()))
+      if (!isLandingRoute(pathname)) {
+        window.localStorage.setItem(ROUTE_KEY, pathname)
+      }
     } catch {
       // localStorage unavailable — ignore
     }

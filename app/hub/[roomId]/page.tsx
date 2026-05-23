@@ -81,9 +81,6 @@ export default async function RoomPage({
         <span className="text-gray-400 text-lg">{room.is_private ? '🔒' : '#'}</span>
         <div className="flex-1 min-w-0">
           <h1 className="font-semibold text-white leading-tight">{room.name}</h1>
-          {room.description && (
-            <p className="text-gray-500 text-xs mt-0.5">{room.description}</p>
-          )}
         </div>
         {room.is_private && (
           <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">Private</span>
