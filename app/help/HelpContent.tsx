@@ -354,13 +354,15 @@ function HubTab() {
         <p><strong className="text-white">How it appears in Hub:</strong> a message someone sends in the linked Slack channel shows up in the Hub room attributed to their Hub account — same name, same avatar, same as any other Hub message.</p>
         <p><strong className="text-white">Threads</strong> cross over both directions. Reply in a Hub thread → it lands in the same Slack thread. Reply in a Slack thread → it lands in the same Hub thread.</p>
         <p><strong className="text-white">Attachments</strong> cross over both directions, up to 25 MB per file. Drop an image or file in Slack → it appears in the Hub room. Attach a file to a Hub message → it appears in the linked Slack channel. <em>Note:</em> Slack file uploads always show as the <code className="text-green-400">@Chat Synx</code> bot (not as you) — that&apos;s a Slack API limitation. The text portion of the message still wears your name and avatar, so the file ends up posted right under it.</p>
+        <p><strong className="text-white">Edits and deletes</strong> cross over both directions. Edit a Hub message → the Slack mirror updates. Edit in Slack → Hub updates. Delete in Hub → Slack message is removed; delete in Slack → the Hub message is removed.</p>
+        <p><strong className="text-white">Emoji reactions</strong> cross over both directions. React in Hub → the reaction appears in Slack (attributed to <code className="text-green-400">@Chat Synx</code> — Slack&apos;s reactions API doesn&apos;t support per-user identities). React in Slack → it appears in Hub attributed to your Hub account. Custom Slack emoji (workspace-specific ones) don&apos;t cross over.</p>
         <p><strong className="text-white">Setup is in two parts, both in <code className="text-green-400">/admin/hub → Chat Synx</code>:</strong></p>
         <ul className="list-disc pl-5 space-y-1">
           <li><strong className="text-white">People</strong> — one row per teammate. Maps a Slack user ID to a Hub user. Without this mapping, that person&apos;s Slack messages won&apos;t reach Hub (and outbound messages will use their Hub name and avatar instead of their Slack name/avatar).</li>
           <li><strong className="text-white">Channels</strong> — one row per Hub room ↔ Slack channel pair. Each side can only be in one bridge at a time. <strong>You must invite <code className="text-green-400">@Chat Synx</code> to the Slack channel</strong> for events to reach us; type <code className="text-green-400">/invite @Chat Synx</code> in the channel.</li>
         </ul>
         <Note>
-          <strong className="text-white">Not yet supported:</strong> DM bridges (Hub ↔ Slack person-to-person), message edits and deletes, and emoji reactions. Text, threads, and attachments are v1. Everything else is a follow-up.
+          <strong className="text-white">Not yet supported:</strong> DM bridges (Hub ↔ Slack person-to-person). Rooms only for now.
         </Note>
       </Section>
 
