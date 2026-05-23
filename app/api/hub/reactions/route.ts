@@ -1,5 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import {
+  bridgeHubReactionAddToChatSynx,
+  bridgeHubReactionRemoveToChatSynx,
+} from '@/lib/chat-synx'
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -24,11 +28,17 @@ export async function POST(request: Request) {
       .eq('message_id', message_id)
       .eq('user_id', user.id)
       .eq('emoji', emoji)
+    bridgeHubReactionRemoveToChatSynx(message_id, emoji).catch(err =>
+      console.error('[chat-synx] bridge reaction remove failed:', err.message),
+    )
     return NextResponse.json({ action: 'removed' })
   } else {
     await supabase
       .from('reactions')
       .insert({ message_id, user_id: user.id, emoji })
+    bridgeHubReactionAddToChatSynx(message_id, emoji).catch(err =>
+      console.error('[chat-synx] bridge reaction add failed:', err.message),
+    )
     return NextResponse.json({ action: 'added' })
   }
 }

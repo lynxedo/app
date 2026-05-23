@@ -3,6 +3,7 @@ import crypto from 'crypto'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
+import { slackToNative } from '@/lib/chat-synx-emoji'
 
 const BOT_TOKEN = process.env.CHAT_SYNX_BOT_TOKEN ?? ''
 const MAX_FILE_BYTES = 25 * 1024 * 1024 // 25 MB to match Hub upload caps for bridged files
@@ -87,6 +88,10 @@ type SlackMessageEvent = {
   deleted_ts?: string
   // message_deleted / message_changed: prior state
   previous_message?: { ts?: string; bot_id?: string }
+  // reaction_added / reaction_removed
+  reaction?: string
+  item?: { type?: string; channel?: string; ts?: string }
+  item_user?: string
 }
 
 function getR2Client() {
@@ -152,6 +157,10 @@ async function ingestSlackFileToR2(file: SlackFile, companyId: string): Promise<
 }
 
 async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
+  // Reactions are top-level event types, not message subtypes.
+  if (event.type === 'reaction_added') return handleReactionAdded(event)
+  if (event.type === 'reaction_removed') return handleReactionRemoved(event)
+
   if (event.type !== 'message') return
 
   // Route edits and deletes to their own handlers before the regular insert path.
@@ -419,6 +428,78 @@ async function handleEdit(event: SlackMessageEvent) {
     return
   }
   console.log(`[chat-synx:events] edited Hub message=${msg.id} from slack_ts=${newTs}`)
+}
+
+// Mirror a Slack reaction add into Hub. Looks up the Hub message via
+// slack_ts and the reacting user via chat_synx_user_links. Loop prevention
+// is implicit: when our own bot reacts (as part of Hub→Slack mirroring),
+// Slack fires this event with event.user = bot_user_id, which has no user
+// link, so the event drops naturally with "unmapped user."
+async function handleReactionAdded(event: SlackMessageEvent) {
+  const slackTs = event.item?.ts
+  const slackUser = event.user
+  const reaction = event.reaction
+  if (!slackTs || !slackUser || !reaction) return
+
+  const native = slackToNative(reaction)
+  if (!native) {
+    console.log(`[chat-synx:events] reaction_added: no native for slack name=${reaction} (likely custom emoji) — dropping`)
+    return
+  }
+
+  const admin = createAdminClient()
+  const [{ data: msg }, { data: link }] = await Promise.all([
+    admin.from('messages').select('id').eq('slack_ts', slackTs).maybeSingle(),
+    admin.from('chat_synx_user_links').select('hub_user_id').eq('slack_user_id', slackUser).maybeSingle(),
+  ])
+  if (!msg) {
+    console.log(`[chat-synx:events] reaction_added: no Hub message for slack_ts=${slackTs}`)
+    return
+  }
+  if (!link?.hub_user_id) {
+    console.log(`[chat-synx:events] reaction_added: unmapped slack_user=${slackUser} (likely our own bot — loop prevented)`)
+    return
+  }
+
+  const { error } = await admin
+    .from('reactions')
+    .insert({ message_id: msg.id, user_id: link.hub_user_id, emoji: native })
+  // 23505 = unique violation; the reaction already exists on Hub (likely from
+  // a fast re-fire of the event). Safe to ignore.
+  if (error && error.code !== '23505') {
+    console.warn(`[chat-synx:events] reaction_added insert failed: ${error.message}`)
+    return
+  }
+  console.log(`[chat-synx:events] reaction added on Hub message=${msg.id} user=${link.hub_user_id} emoji=${native}`)
+}
+
+async function handleReactionRemoved(event: SlackMessageEvent) {
+  const slackTs = event.item?.ts
+  const slackUser = event.user
+  const reaction = event.reaction
+  if (!slackTs || !slackUser || !reaction) return
+
+  const native = slackToNative(reaction)
+  if (!native) return
+
+  const admin = createAdminClient()
+  const [{ data: msg }, { data: link }] = await Promise.all([
+    admin.from('messages').select('id').eq('slack_ts', slackTs).maybeSingle(),
+    admin.from('chat_synx_user_links').select('hub_user_id').eq('slack_user_id', slackUser).maybeSingle(),
+  ])
+  if (!msg || !link?.hub_user_id) return
+
+  const { error } = await admin
+    .from('reactions')
+    .delete()
+    .eq('message_id', msg.id)
+    .eq('user_id', link.hub_user_id)
+    .eq('emoji', native)
+  if (error) {
+    console.warn(`[chat-synx:events] reaction_removed delete failed: ${error.message}`)
+    return
+  }
+  console.log(`[chat-synx:events] reaction removed on Hub message=${msg.id} user=${link.hub_user_id} emoji=${native}`)
 }
 
 // Mirror a Slack delete (message_deleted) into the corresponding Hub message

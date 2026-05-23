@@ -1,5 +1,6 @@
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { nativeToSlack } from '@/lib/chat-synx-emoji'
 
 const BOT_TOKEN = process.env.CHAT_SYNX_BOT_TOKEN ?? ''
 
@@ -354,6 +355,73 @@ export async function bridgeHubEditToChatSynx(messageId: string, newContent: str
     console.log(`[chat-synx] edited ok channel=${target.channel} ts=${target.ts}`)
   } catch (e) {
     console.warn(`[chat-synx] chat.update threw: ${(e as Error).message}`)
+  }
+}
+
+// Add a reaction on the bridged Slack message. Slack reactions are always
+// attributed to the bot (chat:write.customize doesn't apply to reactions),
+// so the Slack channel will show "Chat Synx reacted 👍" rather than the
+// Hub user's name. Acceptable UX tradeoff; documented in Help.
+export async function bridgeHubReactionAddToChatSynx(messageId: string, native: string): Promise<void> {
+  if (!BOT_TOKEN) return
+  const name = nativeToSlack(native)
+  if (!name) {
+    console.log(`[chat-synx] reaction add skipped — no Slack name for ${native}`)
+    return
+  }
+  const target = await resolveBridgedSlackTarget(messageId)
+  if (!target) return
+
+  try {
+    const res = await fetch('https://slack.com/api/reactions.add', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        Authorization: `Bearer ${BOT_TOKEN}`,
+      },
+      body: JSON.stringify({ channel: target.channel, timestamp: target.ts, name }),
+      signal: AbortSignal.timeout(8000),
+    })
+    const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    // already_reacted is a no-op success; treat as ok.
+    if (!data?.ok && data?.error !== 'already_reacted') {
+      console.warn(`[chat-synx] reactions.add failed channel=${target.channel} ts=${target.ts} name=${name} error=${data?.error ?? 'unknown'}`)
+      return
+    }
+    console.log(`[chat-synx] reaction added ok channel=${target.channel} ts=${target.ts} name=${name}`)
+  } catch (e) {
+    console.warn(`[chat-synx] reactions.add threw: ${(e as Error).message}`)
+  }
+}
+
+// Remove the bot's reaction on the bridged Slack message. Note Slack scopes
+// reactions.remove to the bot's own reactions — if the bot wasn't the
+// reactor, this errors with no_reaction (we ignore that).
+export async function bridgeHubReactionRemoveToChatSynx(messageId: string, native: string): Promise<void> {
+  if (!BOT_TOKEN) return
+  const name = nativeToSlack(native)
+  if (!name) return
+  const target = await resolveBridgedSlackTarget(messageId)
+  if (!target) return
+
+  try {
+    const res = await fetch('https://slack.com/api/reactions.remove', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        Authorization: `Bearer ${BOT_TOKEN}`,
+      },
+      body: JSON.stringify({ channel: target.channel, timestamp: target.ts, name }),
+      signal: AbortSignal.timeout(8000),
+    })
+    const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    if (!data?.ok && data?.error !== 'no_reaction') {
+      console.warn(`[chat-synx] reactions.remove failed channel=${target.channel} ts=${target.ts} name=${name} error=${data?.error ?? 'unknown'}`)
+      return
+    }
+    console.log(`[chat-synx] reaction removed ok channel=${target.channel} ts=${target.ts} name=${name}`)
+  } catch (e) {
+    console.warn(`[chat-synx] reactions.remove threw: ${(e as Error).message}`)
   }
 }
 
