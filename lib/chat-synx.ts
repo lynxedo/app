@@ -297,3 +297,95 @@ export async function bridgeHubMessageToChatSynx({
     }
   }
 }
+
+// Look up the bridged Slack message for a Hub message id and resolve the
+// channel id from the room's bridge. Returns null when the message wasn't
+// bridged (no slack_ts), isn't in a room (DMs aren't bridged in v1), or the
+// room no longer has an active bridge.
+async function resolveBridgedSlackTarget(messageId: string): Promise<{ channel: string; ts: string } | null> {
+  const admin = createAdminClient()
+  const { data: msg } = await admin
+    .from('messages')
+    .select('slack_ts, room_id')
+    .eq('id', messageId)
+    .maybeSingle()
+  if (!msg?.slack_ts || !msg.room_id) return null
+
+  const { data: bridge } = await admin
+    .from('chat_synx_bridges')
+    .select('slack_channel_id')
+    .eq('hub_room_id', msg.room_id)
+    .eq('active', true)
+    .maybeSingle()
+  if (!bridge?.slack_channel_id) return null
+
+  return { channel: bridge.slack_channel_id, ts: msg.slack_ts }
+}
+
+// Update the bridged Slack message's text. chat.update preserves the original
+// chat:write.customize username + icon, so the edit keeps the original
+// sender's attribution on the Slack side.
+export async function bridgeHubEditToChatSynx(messageId: string, newContent: string): Promise<void> {
+  if (!BOT_TOKEN) return
+  const trimmed = newContent.trim()
+  if (!trimmed) return
+
+  const target = await resolveBridgedSlackTarget(messageId)
+  if (!target) {
+    console.log(`[chat-synx] edit skipped — not bridged or no active bridge message=${messageId}`)
+    return
+  }
+
+  try {
+    const res = await fetch('https://slack.com/api/chat.update', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        Authorization: `Bearer ${BOT_TOKEN}`,
+      },
+      body: JSON.stringify({ channel: target.channel, ts: target.ts, text: trimmed }),
+      signal: AbortSignal.timeout(8000),
+    })
+    const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    if (!data?.ok) {
+      console.warn(`[chat-synx] chat.update failed channel=${target.channel} ts=${target.ts} error=${data?.error ?? 'unknown'}`)
+      return
+    }
+    console.log(`[chat-synx] edited ok channel=${target.channel} ts=${target.ts}`)
+  } catch (e) {
+    console.warn(`[chat-synx] chat.update threw: ${(e as Error).message}`)
+  }
+}
+
+// Hard-delete the bridged Slack message. Hub keeps a soft-deleted row
+// (deleted_at set), but Slack only supports hard delete — fine, the bridge
+// is one-way symmetric for deletes.
+export async function bridgeHubDeleteToChatSynx(messageId: string): Promise<void> {
+  if (!BOT_TOKEN) return
+
+  const target = await resolveBridgedSlackTarget(messageId)
+  if (!target) {
+    console.log(`[chat-synx] delete skipped — not bridged or no active bridge message=${messageId}`)
+    return
+  }
+
+  try {
+    const res = await fetch('https://slack.com/api/chat.delete', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        Authorization: `Bearer ${BOT_TOKEN}`,
+      },
+      body: JSON.stringify({ channel: target.channel, ts: target.ts }),
+      signal: AbortSignal.timeout(8000),
+    })
+    const data = (await res.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    if (!data?.ok) {
+      console.warn(`[chat-synx] chat.delete failed channel=${target.channel} ts=${target.ts} error=${data?.error ?? 'unknown'}`)
+      return
+    }
+    console.log(`[chat-synx] deleted ok channel=${target.channel} ts=${target.ts}`)
+  } catch (e) {
+    console.warn(`[chat-synx] chat.delete threw: ${(e as Error).message}`)
+  }
+}

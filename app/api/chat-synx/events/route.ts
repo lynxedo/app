@@ -81,6 +81,12 @@ type SlackMessageEvent = {
   ts?: string
   thread_ts?: string
   files?: SlackFile[]
+  // message_changed: the new state of the edited message lives here
+  message?: { ts?: string; text?: string; user?: string; bot_id?: string }
+  // message_deleted: the ts of the deleted message
+  deleted_ts?: string
+  // message_deleted / message_changed: prior state
+  previous_message?: { ts?: string; bot_id?: string }
 }
 
 function getR2Client() {
@@ -147,7 +153,12 @@ async function ingestSlackFileToR2(file: SlackFile, companyId: string): Promise<
 
 async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
   if (event.type !== 'message') return
-  // Allow file_share through; everything else (joins, edits, deletes, etc.) is dropped.
+
+  // Route edits and deletes to their own handlers before the regular insert path.
+  if (event.subtype === 'message_changed') return handleEdit(event)
+  if (event.subtype === 'message_deleted') return handleDelete(event)
+
+  // Allow file_share through; everything else (joins, channel renames, etc.) is dropped.
   if (event.subtype && event.subtype !== 'file_share') return
   if (event.bot_id) return
   if (!event.channel || !event.user) return
@@ -361,4 +372,87 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
   } catch (err) {
     console.error('[chat-synx:events] push fan-out failed:', (err as Error).message)
   }
+}
+
+// Mirror a Slack edit (message_changed) into the corresponding Hub message.
+// Loop prevention: only propagate when the Hub message's source is
+// 'chat-synx' — i.e., it was originally inserted from a Slack event. If
+// source is 'hub' it means we posted to Slack via chat.postMessage, so any
+// edit event for that ts was triggered by our own chat.update and should
+// not be echoed back. Bot edits are also skipped as a belt-and-suspenders.
+async function handleEdit(event: SlackMessageEvent) {
+  const newTs = event.message?.ts
+  const newText = event.message?.text
+  if (!newTs) return
+  if (event.message?.bot_id) {
+    console.log(`[chat-synx:events] skipping edit on bot message ts=${newTs}`)
+    return
+  }
+
+  const admin = createAdminClient()
+  const { data: msg } = await admin
+    .from('messages')
+    .select('id, source')
+    .eq('slack_ts', newTs)
+    .maybeSingle()
+  if (!msg) {
+    console.log(`[chat-synx:events] edit dropped — no Hub message for slack_ts=${newTs}`)
+    return
+  }
+  if (msg.source !== 'chat-synx') {
+    console.log(`[chat-synx:events] edit ignored — source=${msg.source} (loop prevention) ts=${newTs}`)
+    return
+  }
+
+  const trimmed = (newText ?? '').trim()
+  if (!trimmed) {
+    console.log(`[chat-synx:events] edit dropped — empty text ts=${newTs}`)
+    return
+  }
+
+  const { error } = await admin
+    .from('messages')
+    .update({ content: trimmed, edited_at: new Date().toISOString() })
+    .eq('id', msg.id)
+  if (error) {
+    console.warn(`[chat-synx:events] edit update failed: ${error.message}`)
+    return
+  }
+  console.log(`[chat-synx:events] edited Hub message=${msg.id} from slack_ts=${newTs}`)
+}
+
+// Mirror a Slack delete (message_deleted) into the corresponding Hub message
+// via soft-delete. Same loop-prevention rule as edits.
+async function handleDelete(event: SlackMessageEvent) {
+  const deletedTs = event.deleted_ts
+  if (!deletedTs) return
+  if (event.previous_message?.bot_id) {
+    console.log(`[chat-synx:events] skipping delete on bot message ts=${deletedTs}`)
+    return
+  }
+
+  const admin = createAdminClient()
+  const { data: msg } = await admin
+    .from('messages')
+    .select('id, source')
+    .eq('slack_ts', deletedTs)
+    .maybeSingle()
+  if (!msg) {
+    console.log(`[chat-synx:events] delete dropped — no Hub message for slack_ts=${deletedTs}`)
+    return
+  }
+  if (msg.source !== 'chat-synx') {
+    console.log(`[chat-synx:events] delete ignored — source=${msg.source} (loop prevention) ts=${deletedTs}`)
+    return
+  }
+
+  const { error } = await admin
+    .from('messages')
+    .update({ deleted_at: new Date().toISOString() })
+    .eq('id', msg.id)
+  if (error) {
+    console.warn(`[chat-synx:events] delete update failed: ${error.message}`)
+    return
+  }
+  console.log(`[chat-synx:events] soft-deleted Hub message=${msg.id} from slack_ts=${deletedTs}`)
 }

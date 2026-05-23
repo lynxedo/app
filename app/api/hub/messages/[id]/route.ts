@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { bridgeHubEditToChatSynx, bridgeHubDeleteToChatSynx } from '@/lib/chat-synx'
 
 export async function PATCH(
   request: Request,
@@ -34,6 +35,13 @@ export async function PATCH(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Bridge the edit to Slack if this message was originally bridged. Fire-and-
+  // forget so the user's edit isn't blocked on Slack's API.
+  bridgeHubEditToChatSynx(id, content.trim()).catch(err =>
+    console.error('[chat-synx] bridge edit failed:', err.message),
+  )
+
   return NextResponse.json(data)
 }
 
@@ -65,5 +73,13 @@ export async function DELETE(
   const { error } = isAdmin ? await query : await query.eq('sender_id', user.id)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Bridge the delete to Slack if this message was originally bridged. Fire-
+  // and-forget; lookup of slack_ts happens inside the helper after the soft-
+  // delete row update (deleted_at doesn't affect the slack_ts column).
+  bridgeHubDeleteToChatSynx(id).catch(err =>
+    console.error('[chat-synx] bridge delete failed:', err.message),
+  )
+
   return NextResponse.json({ success: true })
 }
