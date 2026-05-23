@@ -165,37 +165,42 @@ function HubTab() {
       </Section>
 
       <Section title="Navigation — rail + sidebars">
-        <p>Hub is organized around a thin <strong className="text-white">icon rail</strong> on the left edge of the screen (or as a bottom tab bar on phones). Each icon opens its own sidebar with that section&apos;s contents — so the sidebar isn&apos;t one giant list anymore, it changes depending on what you&apos;re looking at.</p>
-        <p className="font-medium text-white mt-3">Desktop rail (top to bottom)</p>
+        <p>Hub is organized around a thin <strong className="text-white">icon rail</strong> on the left edge of the screen (or as a bottom tab bar on phones). Each icon opens its own sidebar with that section&apos;s contents.</p>
+        <p className="font-medium text-white mt-3">Desktop rail — fixed icons</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">🔍 Search</strong> — opens the quick-jump palette (same as <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> / <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">Ctrl+K</kbd>).</li>
-          <li><strong className="text-white">🏠 Home</strong> — the landing screen with announcements, Time Clock card, and shout outs.</li>
-          <li><strong className="text-white">💬 Chat</strong> — team conversations. Sidebar lists Favorites, Rooms, DMs, Boards, and Daily Log.</li>
+          <li><strong className="text-white">🕐 Clock</strong> — opens the Time Clock modal. A small green dot appears on the icon when you&apos;re punched in.</li>
+          <li><strong className="text-white">💬 Hub</strong> — team conversations. Sidebar lists My Time Clock · Daily Log · Unread · Favorites · Rooms · DMs · Boards.</li>
           <li><strong className="text-white">📱 Txt</strong> — client SMS conversations (Captivated).</li>
-          <li><strong className="text-white">🔔 Activity</strong> — every place you were @mentioned or someone replied to a thread you started, last 30 days. The red badge shows how many you haven&apos;t seen yet.</li>
-          <li><strong className="text-white">🧰 Tools</strong> — Routing, Tracker, Fleet, Books, Lawn Sizer, Call Log, plus Company News and Files under Pages.</li>
-          <li><strong className="text-white">🔗 Links</strong> — one-tap shortcuts to external tools (Jobber, Gusto, QuickBooks, Captivated). Admins manage the list.</li>
-          <li><strong className="text-white">🛡️ Admin</strong> — only visible if you have admin access. Opens the admin pages.</li>
-          <li><strong className="text-white">⚙️ Settings</strong> — your account, notifications, and display preferences.</li>
+          <li className="text-gray-300"><em>Then 4 user-configurable slots</em> (see &quot;My Hub&quot; below).</li>
+          <li><strong className="text-white">⚙️ Settings</strong> — your profile, notifications, integrations, and My Hub.</li>
+          <li><strong className="text-white">🛡️ Admin</strong> — only visible if you have admin access.</li>
           <li><strong className="text-white">👤 You</strong> (at the bottom) — your avatar with status dot. Opens the profile sidebar where you set Available / Busy / DND, change text size, and sign out.</li>
         </ul>
+        <p className="font-medium text-white mt-3">Activity bell</p>
+        <p>A small bell icon floats in the top-right of the main content area, anywhere inside Hub. The red badge shows how many @mentions or thread replies are waiting for you. Tap it to slide in a panel with the list — last 30 days. The bell hides when the keyboard is open on mobile so it doesn&apos;t cover the composer.</p>
         <p className="font-medium text-white mt-3">Keyboard shortcuts</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘1</kbd> Home · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘2</kbd> Chat · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘3</kbd> Txt · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘4</kbd> Activity · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘5</kbd> Tools · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> Search (use Ctrl on Windows).</li>
+          <li><kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘1</kbd> Time Clock · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘2</kbd> Hub · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘3</kbd> Txt · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘4</kbd> Activity · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘5</kbd> Tools · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> Search (use Ctrl on Windows).</li>
         </ul>
         <p className="font-medium text-white mt-3">Mobile bottom bar</p>
-        <p>Five tabs always within thumb reach: <strong className="text-white">Home · Chat · Txt · Activity · More</strong>. Tap <strong className="text-white">More</strong> to get to Tools, Links, Settings, Admin (if you have it), and You.</p>
-        <p className="font-medium text-white mt-3">Chat sidebar contents</p>
+        <p>Five tabs always within thumb reach: <strong className="text-white">Clock · Hub · Txt · [your pick] · More</strong>. The fourth slot is configurable in Settings → My Hub. Tap <strong className="text-white">More</strong> for everything else (Tools, Links, Settings, Admin if you have it, and your profile). A floating <strong className="text-white">+</strong> button in the bottom-right opens the quick compose / search palette.</p>
+        <Note>📱 The top bar is gone on phones — just tap the bottom tab for the section you want. When the keyboard pops up, the bottom bar and the floating <strong className="text-white">+</strong> button slide out of the way so you see the most messages possible.</Note>
+        <p className="font-medium text-white mt-3">My Hub — pick your own rail icons</p>
+        <p>In <strong className="text-white">Settings → My Hub</strong>, pick what fills the 4 user-configurable rail slots (desktop) and the 1 mobile slot. Options include Tools, Links, Activity, Daily Log, Tracker, Routing, Fleet, Books, Lawn Sizer, Call Log, Time Records (admins), Files, Company News, or a custom URL of your choosing. The defaults give everyone Activity, Tools, and Links with one slot empty — but if you live in Tracker, put it directly on the rail and skip a click.</p>
+        <p className="font-medium text-white mt-3">Hub sidebar contents</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">Unread</strong> — any room or DM with unread messages, surfaced at the top. Disappears when you&apos;re caught up.</li>
+          <li><strong className="text-white">My Time Clock</strong> — backup access to the clock-in modal (same as the rail icon).</li>
+          <li><strong className="text-white">Daily Log</strong> — jump to today&apos;s entry.</li>
+          <li><strong className="text-white">Unread</strong> — rooms or DMs with new messages, surfaced at the top. Disappears when you&apos;re caught up.</li>
           <li><strong className="text-white">Favorites</strong> — your pinned rooms, DMs, and tools.</li>
           <li><strong className="text-white">Rooms</strong> — group conversations you belong to.</li>
           <li><strong className="text-white">Direct Messages</strong> — one-on-ones. The colored dot is the other person&apos;s status: <span className="inline-block w-2 h-2 rounded-full bg-green-400 align-middle"></span> Available, <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 align-middle"></span> Busy, <span className="inline-block w-2 h-2 rounded-full bg-red-500 align-middle"></span> DND, <span className="inline-block w-2 h-2 rounded-full bg-gray-500 align-middle"></span> Offline.</li>
           <li><strong className="text-white">Boards</strong> — your saved-message boards.</li>
-          <li><strong className="text-white">Daily Log</strong> — jump to today&apos;s log.</li>
         </ul>
-        <Note>🖥️ Click the active rail icon again to collapse the sidebar (Chat, Tools, Links). A small chevron appears at the left edge to bring it back. Useful when you want maximum room for a long message thread.</Note>
-        <Note>📱 On phones the sidebar is a drawer. Tap any rail tab and the matching list slides in.</Note>
+        <p className="font-medium text-white mt-3">Landing page</p>
+        <p>When you first sign in for the day — or after a long stretch (14+ hours) away from Hub — you land on the Home screen. It shows your Time Clock card up top, then announcements and shout outs, then a focused list of <strong className="text-white">your unread DMs / rooms</strong> followed by <strong className="text-white">recent @mentions</strong>. It&apos;s the &quot;what do I care about right now&quot; screen. There&apos;s no permanent way back to it from the rail — once you move on, the Activity bell and the Hub sidebar handle everything.</p>
+        <Note>🖥️ Click the active rail icon again to collapse the sidebar in any section. A small chevron appears at the left edge to bring it back.</Note>
       </Section>
 
       <Section title="Rooms">

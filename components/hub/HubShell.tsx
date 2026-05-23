@@ -6,6 +6,7 @@ import HubSidebar from './HubSidebar'
 import HubRail, { railFromPath } from './HubRail'
 import HubMobileBar from './HubMobileBar'
 import HubMobileMore from './HubMobileMore'
+import HubActivityBell from './HubActivityBell'
 import ToolsSidebar from './sidebars/ToolsSidebar'
 import LinksSidebar from './sidebars/LinksSidebar'
 import AdminSidebar from './sidebars/AdminSidebar'
@@ -19,13 +20,15 @@ import TimesheetClockModal from './TimesheetClockModal'
 import NotifPrefsModal from './NotifPrefsModal'
 import { HubTextSizeContext } from './HubTextSizeContext'
 import type { HubUser } from './MessageFeed'
+import type { RailConfig, RailPermissions } from './railCatalog'
 
 type Room = { id: string; name: string; is_private: boolean }
 
-// Exposed so HubSidebar can call it from a custom event
 export const HUB_CONV_CREATED_EVENT = 'hub-conversation-created'
 
-type ManualRail = 'tools' | 'links' | 'profile' | null
+// Sections that have a sidebar of their own. Driven by a manual override
+// (rail click) for sections that have no URL (tools, links, profile).
+type ManualRail = 'tools' | 'links' | 'profile' | 'activity' | null
 
 export default function HubShell({
   rooms,
@@ -39,6 +42,8 @@ export default function HubShell({
   initialActiveAnnouncements,
   initialTextSize,
   initialPinnedIds,
+  initialIsClockedIn,
+  initialRailConfig,
   canAccessTracker,
   canAccessCallLog,
   canAccessLawn,
@@ -67,6 +72,8 @@ export default function HubShell({
   initialActiveAnnouncements?: Announcement[]
   initialTextSize?: string
   initialPinnedIds?: string[]
+  initialIsClockedIn?: boolean
+  initialRailConfig?: RailConfig | null
   canAccessTracker?: boolean
   canAccessCallLog?: boolean
   canAccessLawn?: boolean
@@ -80,17 +87,10 @@ export default function HubShell({
   const pathname = usePathname() ?? ''
   const pathRail = railFromPath(pathname)
 
-  // Manual rail overrides the path-derived rail for rail icons that don't have
-  // their own URL (Tools, Links, Profile). Cleared when the path changes back
-  // to a different rail.
   const [manualRail, setManualRail] = useState<ManualRail>(null)
-  useEffect(() => {
-    // Whenever the path changes, drop any manual override so the active rail
-    // reflects the URL again.
-    setManualRail(null)
-  }, [pathname])
+  useEffect(() => { setManualRail(null) }, [pathname])
 
-  const activeRail: ReturnType<typeof railFromPath> = manualRail ?? pathRail
+  const activeRail = manualRail ?? pathRail
 
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [showMobileMore, setShowMobileMore] = useState(false)
@@ -101,10 +101,72 @@ export default function HubShell({
   const [textSize, setTextSize] = useState(initialTextSize ?? 'default')
   const [liveStatus, setLiveStatus] = useState<string | null>(currentUserStatus ?? null)
   const [unreadActivity, setUnreadActivity] = useState<number>(0)
+  const [isClockedIn, setIsClockedIn] = useState<boolean>(!!initialIsClockedIn)
+  const [keyboardOpen, setKeyboardOpen] = useState(false)
 
-  // Poll the activity unread count. Resets to 0 when the user opens /hub/activity
-  // (the page's POST /api/hub/activity stamps last_activity_seen_at). 90s poll
-  // keeps it lightweight; the badge is best-effort, not real-time.
+  // Sidebar collapsed state — persisted.
+  useEffect(() => {
+    try { setSidebarCollapsed(localStorage.getItem('hub-sidebar-collapsed') === '1') } catch {}
+  }, [])
+  const toggleSidebarCollapsed = useCallback(() => {
+    setSidebarCollapsed(prev => {
+      const next = !prev
+      try { localStorage.setItem('hub-sidebar-collapsed', next ? '1' : '0') } catch {}
+      return next
+    })
+  }, [])
+
+  // Remember last chat path for the rail's Hub icon to jump back to.
+  useEffect(() => {
+    if (pathRail === 'hub' && pathname.startsWith('/hub') && !pathname.startsWith('/hub/home')) {
+      try { localStorage.setItem('hub_last_chat_route', pathname) } catch {}
+    }
+  }, [pathname, pathRail])
+
+  // Root font-size scaling sync.
+  useEffect(() => {
+    const html = document.documentElement
+    html.classList.remove('text-size-small', 'text-size-default', 'text-size-large')
+    html.classList.add(`text-size-${textSize}`)
+  }, [textSize])
+
+  // Visual Viewport: track scroll offset for iOS fixed-bar following AND
+  // detect keyboard-open (height shrink) so we can hide mobile chrome.
+  useEffect(() => {
+    const vv = typeof window !== 'undefined' ? window.visualViewport : null
+    if (!vv) return
+    const initialHeight = window.innerHeight
+    function update() {
+      document.documentElement.style.setProperty('--vv-top', `${vv!.offsetTop}px`)
+      // Keyboard open heuristic: visual viewport noticeably shorter than
+      // window inner height. Threshold 150px filters out toolbar collapse
+      // (Safari ~80px). 150px is a typical software keyboard floor.
+      const shrunk = (initialHeight - vv!.height) > 150
+      setKeyboardOpen(shrunk)
+    }
+    vv.addEventListener('scroll', update)
+    vv.addEventListener('resize', update)
+    update()
+    return () => {
+      vv.removeEventListener('scroll', update)
+      vv.removeEventListener('resize', update)
+      document.documentElement.style.removeProperty('--vv-top')
+    }
+  }, [])
+
+  // Cmd+K / Ctrl+K opens Quick Compose.
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setShowCompose(prev => !prev)
+      }
+    }
+    document.addEventListener('keydown', onKey)
+    return () => document.removeEventListener('keydown', onKey)
+  }, [])
+
+  // Activity unread count poll.
   useEffect(() => {
     let cancelled = false
     function tick() {
@@ -118,63 +180,19 @@ export default function HubShell({
     return () => { cancelled = true; clearInterval(id) }
   }, [pathname])
 
-  useEffect(() => {
-    try {
-      setSidebarCollapsed(localStorage.getItem('hub-sidebar-collapsed') === '1')
-    } catch {}
+  // Clocked-in status: refresh from API on focus + after Time Clock modal closes
+  // (the modal handles the punch itself). Initial value comes from server props.
+  const refreshClockedIn = useCallback(() => {
+    fetch('/api/timesheet/me', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : null)
+      .then(d => { if (d?.clocked_in != null) setIsClockedIn(!!d.clocked_in) })
+      .catch(() => {})
   }, [])
-  const toggleSidebarCollapsed = useCallback(() => {
-    setSidebarCollapsed(prev => {
-      const next = !prev
-      try { localStorage.setItem('hub-sidebar-collapsed', next ? '1' : '0') } catch {}
-      return next
-    })
-  }, [])
-
-  // Remember last chat path for the rail's "Chat" icon to jump back to.
   useEffect(() => {
-    if (pathRail === 'chat' && pathname.startsWith('/hub')) {
-      try { localStorage.setItem('hub_last_chat_route', pathname) } catch {}
-    }
-  }, [pathname, pathRail])
-
-  // Keep <html> class in sync with the user's selection so platform-wide
-  // root font-size scaling reflects S/M/L changes without a full reload.
-  useEffect(() => {
-    const html = document.documentElement
-    html.classList.remove('text-size-small', 'text-size-default', 'text-size-large')
-    html.classList.add(`text-size-${textSize}`)
-  }, [textSize])
-
-  // Track Visual Viewport offset so the position:fixed mobile top bar can
-  // follow the visible area on iOS Safari.
-  useEffect(() => {
-    const vv = typeof window !== 'undefined' ? window.visualViewport : null
-    if (!vv) return
-    function update() {
-      document.documentElement.style.setProperty('--vv-top', `${vv!.offsetTop}px`)
-    }
-    vv.addEventListener('scroll', update)
-    vv.addEventListener('resize', update)
-    update()
-    return () => {
-      vv.removeEventListener('scroll', update)
-      vv.removeEventListener('resize', update)
-      document.documentElement.style.removeProperty('--vv-top')
-    }
-  }, [])
-
-  // Cmd+K / Ctrl+K opens Quick Compose
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
-        e.preventDefault()
-        setShowCompose(prev => !prev)
-      }
-    }
-    document.addEventListener('keydown', onKey)
-    return () => document.removeEventListener('keydown', onKey)
-  }, [])
+    const onFocus = () => refreshClockedIn()
+    window.addEventListener('focus', onFocus)
+    return () => window.removeEventListener('focus', onFocus)
+  }, [refreshClockedIn])
 
   const handleConversationCreated = useCallback(() => {
     window.dispatchEvent(new CustomEvent(HUB_CONV_CREATED_EVENT))
@@ -191,34 +209,19 @@ export default function HubShell({
     isSuperAdmin || grants.people || grants.hub || grants.routing ||
     grants.timesheet || grants.fleet || grants.daily_log
 
-  // Pick the sidebar to render based on active rail.
+  const permissions: RailPermissions = {
+    isAdmin: !!isAdmin,
+    canAccessTracker: !!canAccessTracker,
+    canAccessRouting: !!canAccessRouting,
+    canAccessFleet: !!canAccessFleet,
+    canAccessBooks: !!canAccessBooks,
+    canAccessLawn: !!canAccessLawn,
+    canAccessCallLog: !!canAccessCallLog,
+    canAccessTimesheet: !!canAccessTimesheet,
+  }
+
   function renderSidebar() {
     switch (activeRail) {
-      case 'chat':
-        return (
-          <HubSidebar
-            rooms={rooms}
-            userEmail={userEmail}
-            currentUserId={currentUserId}
-            hubUsers={hubUsers}
-            currentUserStatus={liveStatus}
-            currentUserDisplayName={currentUserDisplayName}
-            isAdmin={isAdmin}
-            onClose={closeMobileDrawer}
-            textSize={textSize}
-            onTextSizeChange={setTextSize}
-            initialPinnedIds={initialPinnedIds ?? []}
-            canAccessTracker={canAccessTracker}
-            canAccessCallLog={canAccessCallLog}
-            canAccessLawn={canAccessLawn}
-            canAccessTimesheet={canAccessTimesheet}
-            canAccessRouting={canAccessRouting}
-            canAccessBooks={canAccessBooks}
-            canAccessFleet={canAccessFleet}
-            myPresenceMode={myPresenceMode}
-            onOpenTimeClock={() => { closeMobileDrawer(); setShowTimeClock(true) }}
-          />
-        )
       case 'txt':
         return <TxtSidebar onClose={closeMobileDrawer} />
       case 'tools':
@@ -256,9 +259,9 @@ export default function HubShell({
             onClose={closeMobileDrawer}
           />
         )
-      case 'home':
+      // hub + every other catalog id (tracker, routing, etc.) → Hub sidebar
+      case 'hub':
       default:
-        // Home has no dedicated sidebar — render chat sidebar as a useful default.
         return (
           <HubSidebar
             rooms={rooms}
@@ -286,36 +289,39 @@ export default function HubShell({
     }
   }
 
-  // Hide the in-flow sidebar entirely on Home (no useful list) and on
-  // collapsed-by-user state. Mobile drawer is independent.
-  const hideSidebarDesktop = activeRail === 'home' || sidebarCollapsed
+  // Landing page has no useful sidebar — hide the in-flow sidebar there.
+  // Otherwise show unless explicitly collapsed.
+  const hideSidebarDesktop = pathname.startsWith('/hub/home') || sidebarCollapsed
+
+  // Floating Activity bell visibility — anywhere inside /hub, except when
+  // keyboard is open on mobile (avoid covering the composer).
+  const showBell = pathname.startsWith('/hub') && !keyboardOpen
 
   return (
     <HubTextSizeContext.Provider value={textSize}>
     <div className="flex h-[100dvh] bg-gray-950 text-white overflow-hidden">
-      {/* Mobile drawer backdrop */}
       {mobileDrawerOpen && (
-        <div
-          className="fixed inset-0 z-40 bg-black/60 md:hidden"
-          onClick={closeMobileDrawer}
-        />
+        <div className="fixed inset-0 z-40 bg-black/60 md:hidden" onClick={closeMobileDrawer} />
       )}
 
-      {/* Desktop rail */}
       <HubRail
         showAdmin={showAdminRail}
         unreadActivity={unreadActivity}
+        isClockedIn={isClockedIn}
         onSearchClick={() => setShowCompose(true)}
         onProfileClick={() => setManualRail('profile')}
         onToolsClick={() => setManualRail('tools')}
         onLinksClick={() => setManualRail('links')}
+        onTimeClockClick={() => setShowTimeClock(true)}
+        onActivityClick={() => setManualRail('activity')}
         currentUserDisplayName={currentUserDisplayName}
         currentUserStatus={liveStatus}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={toggleSidebarCollapsed}
+        permissions={permissions}
+        railConfig={initialRailConfig ?? null}
       />
 
-      {/* Sidebar — drawer on mobile, in-flow column on desktop. */}
       <div className={`
         fixed inset-y-0 left-0 z-50 md:relative md:z-auto
         transform transition-transform duration-200 ease-in-out
@@ -325,9 +331,9 @@ export default function HubShell({
         {renderSidebar()}
       </div>
 
-      {/* Desktop-only reopen chevron — visible only when the desktop sidebar
-          is collapsed. */}
-      {hideSidebarDesktop && activeRail !== 'home' && (
+      {/* Desktop-only reopen chevron — visible whenever the sidebar is
+          collapsed (works in every section, not just chat/tools/links). */}
+      {sidebarCollapsed && !pathname.startsWith('/hub/home') && (
         <button
           onClick={toggleSidebarCollapsed}
           className="hidden md:flex fixed left-16 top-1/2 -translate-y-1/2 z-30 items-center justify-center w-5 h-12 bg-[#1A3D5C] hover:bg-[#22506F] border-y border-r border-white/10 rounded-r text-white/80 hover:text-white transition-colors"
@@ -341,45 +347,20 @@ export default function HubShell({
       )}
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
-        {/* Mobile top bar */}
+      <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+        {/* Mobile safe-area-top spacer — there is no top chrome anymore, so
+            content would otherwise bleed under the iOS notch / Dynamic Island. */}
         <div
-          className="fixed left-0 right-0 z-30 md:hidden flex items-center gap-3 px-4 py-3 border-b border-gray-800 bg-gray-950"
-          style={{
-            top: 'var(--vv-top, 0px)',
-            paddingTop: 'calc(env(safe-area-inset-top) + 12px)',
-          }}
-        >
-          <button
-            onClick={() => setMobileDrawerOpen(true)}
-            className="text-gray-300 hover:text-white transition-colors p-1.5 -ml-1.5 rounded hover:bg-gray-800"
-            aria-label="Open sidebar"
-          >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M4 6h16M4 12h16M4 18h16" />
-            </svg>
-          </button>
-          <span className="text-base font-semibold text-white flex-1">Heroes Lawn Care</span>
-          <button
-            onClick={() => setShowCompose(true)}
-            className="text-gray-300 hover:text-white transition-colors p-1.5 -mr-1.5 rounded hover:bg-gray-800"
-            aria-label="Search / new message"
-          >
-            <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-          </button>
-        </div>
-
-        {/* Spacer pushing flow content below the fixed top bar */}
-        <div
-          className="flex-none md:hidden"
-          style={{ height: 'calc(env(safe-area-inset-top) + 1.5rem + 37px)' }}
+          className="md:hidden flex-none"
+          style={{ height: 'env(safe-area-inset-top, 0)' }}
           aria-hidden="true"
         />
 
-        {/* Announcement ticker — Chat rail only, per spec */}
-        {activeRail === 'chat' && (
+        {/* Floating Activity bell (top-right) */}
+        {showBell && <HubActivityBell unreadCount={unreadActivity} />}
+
+        {/* Announcement ticker — Hub-section paths only. */}
+        {activeRail === 'hub' && !pathname.startsWith('/hub/home') && (
           <AnnouncementTicker
             currentUserId={currentUserId}
             isAdmin={isAdmin}
@@ -387,15 +368,42 @@ export default function HubShell({
           />
         )}
 
-        <div className="flex-1 min-h-0 overflow-hidden flex flex-col pb-[60px] md:pb-0">
+        <div
+          className="flex-1 min-h-0 overflow-hidden flex flex-col"
+          style={{
+            paddingBottom: keyboardOpen ? 'env(safe-area-inset-bottom, 0)' : 'calc(env(safe-area-inset-bottom, 0) + 56px)',
+          }}
+        >
           {children}
         </div>
       </div>
 
-      {/* Mobile bottom tab bar */}
+      {/* Mobile floating + (Quick Compose / Search) */}
+      {!keyboardOpen && pathname.startsWith('/hub') && (
+        <button
+          type="button"
+          onClick={() => setShowCompose(true)}
+          className="md:hidden fixed right-3 bottom-[68px] z-30 w-12 h-12 rounded-full bg-amber-500 hover:bg-amber-400 text-white flex items-center justify-center shadow-lg transition-colors"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0) + 68px)' }}
+          aria-label="Quick compose / search"
+        >
+          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
+          </svg>
+        </button>
+      )}
+
       <HubMobileBar
         onMoreClick={() => setShowMobileMore(true)}
-        onChatClick={() => setMobileDrawerOpen(true)}
+        onHubClick={() => setMobileDrawerOpen(true)}
+        onTimeClockClick={() => setShowTimeClock(true)}
+        onActivityClick={() => setManualRail('activity')}
+        onToolsClick={() => { setManualRail('tools'); setMobileDrawerOpen(true) }}
+        onLinksClick={() => { setManualRail('links'); setMobileDrawerOpen(true) }}
+        isClockedIn={isClockedIn}
+        permissions={permissions}
+        railConfig={initialRailConfig ?? null}
+        hidden={keyboardOpen}
       />
     </div>
 
@@ -408,7 +416,11 @@ export default function HubShell({
         onConversationCreated={handleConversationCreated}
       />
     )}
-    {showTimeClock && <TimesheetClockModal onClose={() => setShowTimeClock(false)} />}
+    {showTimeClock && (
+      <TimesheetClockModal
+        onClose={() => { setShowTimeClock(false); refreshClockedIn() }}
+      />
+    )}
     {showNotifPrefs && <NotifPrefsModal onClose={() => setShowNotifPrefs(false)} />}
     {showMobileMore && (
       <HubMobileMore

@@ -872,9 +872,41 @@ export default function HubSidebar({
 
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
 
-          {/* Unread — always-expanded section that surfaces any room or DM
-              with unread messages. Hides entirely when nothing is unread, so
-              it doesn't add clutter once you're caught up. */}
+          {/* My Time Clock — backup access in case the user bypassed the
+              landing page (where the full Time Clock card lives). */}
+          {(canAccessTimesheet || isAdmin) && (
+            <div className="space-y-0.5">
+              <button
+                onClick={() => onOpenTimeClock?.()}
+                className="w-full flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors text-white/70 hover:bg-white/10 hover:text-white"
+              >
+                <svg className="w-4 h-4 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 2M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                <span className="truncate flex-1 text-left">My Time Clock</span>
+              </button>
+            </div>
+          )}
+
+          {/* Daily Log — second priority entry, matches the rail's daily
+              workflow expectations. */}
+          <div className="space-y-0.5">
+            <Link
+              href="/hub/daily-log"
+              onClick={() => onClose?.()}
+              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+                pathname.startsWith('/hub/daily-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <svg className="w-4 h-4 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h6M9 16h6" />
+              </svg>
+              <span className="truncate flex-1">Daily Log</span>
+            </Link>
+          </div>
+
+          {/* Unread — surfaces any room or DM with unread messages. Hides
+              entirely when nothing is unread. */}
           {hasUnreadItems && (
             <div>
               <div className="px-2 mb-1">
@@ -1039,20 +1071,6 @@ export default function HubSidebar({
             })}
           </div>
 
-          {/* Daily Log — quick access from chat sidebar (full tool lives in Tools rail) */}
-          <div className="space-y-0.5">
-            <Link
-              href="/hub/daily-log"
-              onClick={() => onClose?.()}
-              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                pathname.startsWith('/hub/daily-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <span className="text-xs flex-none">📋</span>
-              <span className="truncate flex-1">Daily Log</span>
-            </Link>
-          </div>
-          {/* End Daily Log */}
 
         </nav>
       </aside>

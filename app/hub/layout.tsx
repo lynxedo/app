@@ -73,7 +73,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       .eq('user_id', user.id),
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
     supabase.from('hub_users').select('display_name, status').eq('id', user.id).single(),
-    supabase.from('user_profiles').select('role, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_lawn, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log').eq('id', user.id).single(),
+    supabase.from('user_profiles').select('role, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_lawn, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, rail_config').eq('id', user.id).single(),
     // Active rows for BOTH types — DB returns latest first; we keep newest per type below.
     supabase
       .from('hub_announcements')
@@ -85,6 +85,20 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     // client should run the 2h idle timer (only for activity-path users).
     admin.from('hub_users_with_presence').select('pay_type, employee_id').eq('id', user.id).single(),
   ])
+
+  // Server-side clocked-in lookup so the rail / mobile bar icon has the
+  // correct dot on first paint. Hourly users only.
+  let initialIsClockedIn = false
+  if (myPresenceResult.data?.employee_id) {
+    const { data: punch } = await admin
+      .from('time_punches')
+      .select('punch_type')
+      .eq('employee_id', myPresenceResult.data.employee_id)
+      .order('punched_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    initialIsClockedIn = punch?.punch_type === 'in'
+  }
 
   type RoomShape = { id: string; name: string; is_private: boolean; archived_at: string | null }
   const rooms = (memberRoomsResult.data ?? [])
@@ -106,6 +120,10 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   }
   const initialTextSize = profileResult.data?.hub_text_size ?? 'default'
   const initialPinnedIds: string[] = profileResult.data?.hub_pinned_ids ?? []
+  const initialRailConfig = (profileResult.data?.rail_config ?? null) as null | {
+    desktop?: (string | null)[]
+    mobile?: (string | null)[]
+  }
   const canAccessTracker = profileResult.data?.can_access_tracker ?? false
   const canAccessCallLog = profileResult.data?.can_access_call_log ?? false
   const canAccessLawn = profileResult.data?.can_access_lawn ?? false
@@ -162,6 +180,8 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         initialActiveAnnouncements={initialActiveAnnouncements}
         initialTextSize={initialTextSize}
         initialPinnedIds={initialPinnedIds}
+        initialIsClockedIn={initialIsClockedIn}
+        initialRailConfig={initialRailConfig as never}
         canAccessTracker={canAccessTracker}
         canAccessCallLog={canAccessCallLog}
         canAccessLawn={canAccessLawn}

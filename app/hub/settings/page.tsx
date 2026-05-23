@@ -19,7 +19,7 @@ export default async function SettingsPage() {
       .maybeSingle(),
     supabase
       .from('user_profiles')
-      .select('phone, full_name, landing_page')
+      .select('role, phone, full_name, landing_page, rail_config, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_call_log, can_access_timesheet')
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -46,6 +46,22 @@ export default async function SettingsPage() {
     dnd_enabled: notifPrefResult.data?.dnd_enabled ?? false,
     dnd_start: notifPrefResult.data?.dnd_start ?? null,
     dnd_end: notifPrefResult.data?.dnd_end ?? null,
+  }
+
+  const railConfig = (profileResult.data?.rail_config ?? null) as null | {
+    desktop?: (string | null)[]
+    mobile?: (string | null)[]
+  }
+
+  const railPermissions = {
+    isAdmin: profileResult.data?.role === 'admin',
+    canAccessTracker: !!profileResult.data?.can_access_tracker,
+    canAccessRouting: !!profileResult.data?.can_access_routing,
+    canAccessFleet: !!profileResult.data?.can_access_fleet,
+    canAccessBooks: !!profileResult.data?.can_access_books,
+    canAccessLawn: !!profileResult.data?.can_access_lawn,
+    canAccessCallLog: !!profileResult.data?.can_access_call_log,
+    canAccessTimesheet: !!profileResult.data?.can_access_timesheet,
   }
 
   return (
@@ -78,6 +94,8 @@ export default async function SettingsPage() {
           jobberConnected={jobberConnected}
           landingPage={landingPage}
           notifPref={notifPref}
+          railConfig={railConfig}
+          railPermissions={railPermissions}
         />
       </main>
     </div>
