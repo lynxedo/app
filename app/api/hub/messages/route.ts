@@ -349,7 +349,7 @@ export async function POST(request: Request) {
   }
 
   // Chat Synx bridge — mirror Hub room messages (incl. thread replies) to Slack if a bridge exists
-  if (room_id && hasContent && user.id !== CLAUDE_BOT_ID) {
+  if (room_id && (hasContent || hasFiles) && user.id !== CLAUDE_BOT_ID) {
     bridgeHubMessageToChatSynx({
       messageId: msg.id,
       roomId: room_id,
@@ -357,7 +357,8 @@ export async function POST(request: Request) {
       senderId: user.id,
       senderName,
       senderAvatarUrl: senderProfile?.avatar_url ?? null,
-      content: content.trim(),
+      content: hasContent ? content.trim() : '',
+      files: hasFiles ? files : undefined,
     }).catch(() => null)
   }
 

@@ -1,7 +1,11 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
+
+const BOT_TOKEN = process.env.CHAT_SYNX_BOT_TOKEN ?? ''
+const MAX_FILE_BYTES = 25 * 1024 * 1024 // 25 MB to match Hub upload caps for bridged files
 
 const SIGNING_SECRET = process.env.CHAT_SYNX_SIGNING_SECRET ?? ''
 
@@ -57,6 +61,15 @@ export async function POST(request: Request) {
   return NextResponse.json({ ok: true })
 }
 
+type SlackFile = {
+  id: string
+  name?: string
+  title?: string
+  mimetype?: string
+  size?: number
+  url_private?: string
+}
+
 type SlackMessageEvent = {
   type: string
   subtype?: string
@@ -67,14 +80,80 @@ type SlackMessageEvent = {
   text?: string
   ts?: string
   thread_ts?: string
+  files?: SlackFile[]
+}
+
+function getR2Client() {
+  return new S3Client({
+    region: 'auto',
+    endpoint: `https://${process.env.CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: process.env.CF_R2_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.CF_R2_SECRET_ACCESS_KEY!,
+    },
+  })
+}
+
+// Download a Slack-private file URL using the bot token, then upload the bytes
+// to R2 and return a row matching the shape of the `files` table.
+async function ingestSlackFileToR2(file: SlackFile, companyId: string): Promise<{
+  storage_path: string
+  filename: string
+  mime_type: string
+  size_bytes: number
+} | { skipped: 'too_large' | 'no_url' | 'download_failed' | 'upload_failed' }> {
+  if (!file.url_private) return { skipped: 'no_url' }
+  if (typeof file.size === 'number' && file.size > MAX_FILE_BYTES) return { skipped: 'too_large' }
+
+  let buffer: Buffer
+  try {
+    const res = await fetch(file.url_private, {
+      headers: { Authorization: `Bearer ${BOT_TOKEN}` },
+      signal: AbortSignal.timeout(30000),
+    })
+    if (!res.ok) {
+      console.warn(`[chat-synx:events] file download failed status=${res.status} file_id=${file.id}`)
+      return { skipped: 'download_failed' }
+    }
+    const arr = await res.arrayBuffer()
+    if (arr.byteLength > MAX_FILE_BYTES) return { skipped: 'too_large' }
+    buffer = Buffer.from(arr)
+  } catch (err) {
+    console.warn(`[chat-synx:events] file fetch threw: ${(err as Error).message} file_id=${file.id}`)
+    return { skipped: 'download_failed' }
+  }
+
+  const filename = file.name || file.title || `slack-${file.id}`
+  const ext = filename.includes('.') ? filename.split('.').pop() : 'bin'
+  const key = `hub/${companyId}/chat-synx/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+  const mime = file.mimetype || 'application/octet-stream'
+
+  try {
+    const r2 = getR2Client()
+    await r2.send(new PutObjectCommand({
+      Bucket: process.env.CF_R2_BUCKET_NAME!,
+      Key: key,
+      Body: buffer,
+      ContentType: mime,
+      ContentDisposition: `inline; filename="${encodeURIComponent(filename)}"`,
+    }))
+  } catch (err) {
+    console.warn(`[chat-synx:events] R2 upload failed: ${(err as Error).message} file_id=${file.id}`)
+    return { skipped: 'upload_failed' }
+  }
+
+  return { storage_path: key, filename, mime_type: mime, size_bytes: buffer.byteLength }
 }
 
 async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
   if (event.type !== 'message') return
-  if (event.subtype) return
+  // Allow file_share through; everything else (joins, edits, deletes, etc.) is dropped.
+  if (event.subtype && event.subtype !== 'file_share') return
   if (event.bot_id) return
-  if (!event.text || !event.text.trim()) return
   if (!event.channel || !event.user) return
+  const hasFiles = Array.isArray(event.files) && event.files.length > 0
+  const hasText = !!event.text && event.text.trim().length > 0
+  if (!hasText && !hasFiles) return
 
   const admin = createAdminClient()
 
@@ -96,7 +175,7 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
     .maybeSingle()
   if (!link?.hub_user_id) {
     console.log(
-      `[chat-synx:events] no person link for slack_user=${event.user} — add a mapping in Admin → Chat Synx → People. Dropping channel=${event.channel} text="${event.text.slice(0, 60)}…"`,
+      `[chat-synx:events] no person link for slack_user=${event.user} — add a mapping in Admin → Chat Synx → People. Dropping channel=${event.channel} text="${(event.text ?? '').slice(0, 60)}…"`,
     )
     return
   }
@@ -126,7 +205,7 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
       room_id: bridge.hub_room_id,
       parent_id: parentId,
       sender_id: link.hub_user_id,
-      content: event.text.trim(),
+      content: hasText ? event.text!.trim() : '',
       source: 'chat-synx',
       slack_event_id: eventId,
       slack_ts: event.ts ?? null,
@@ -145,6 +224,40 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
   console.log(
     `[chat-synx:events] inserted id=${inserted.id} room=${bridge.hub_room_id} sender=${link.hub_user_id} slack_ts=${event.ts} thread_ts=${event.thread_ts ?? '-'} event_id=${eventId}${parentId ? ` parent=${parentId}` : ''}`,
   )
+
+  // Ingest file attachments (if any) — download from Slack, upload to R2,
+  // insert files rows linked to the message we just created. Skipped files
+  // log a reason and are quietly dropped (no placeholder message — keeps the
+  // bridge clean).
+  if (hasFiles && event.files) {
+    const ingested: { storage_path: string; filename: string; mime_type: string; size_bytes: number }[] = []
+    for (const f of event.files) {
+      const result = await ingestSlackFileToR2(f, bridge.company_id)
+      if ('skipped' in result) {
+        console.warn(`[chat-synx:events] file skipped reason=${result.skipped} file_id=${f.id} name=${f.name ?? '-'}`)
+        continue
+      }
+      ingested.push(result)
+    }
+    if (ingested.length > 0) {
+      const { error: filesError } = await admin.from('files').insert(
+        ingested.map(f => ({
+          company_id: bridge.company_id,
+          message_id: inserted.id,
+          uploader_id: link.hub_user_id,
+          storage_path: f.storage_path,
+          filename: f.filename,
+          mime_type: f.mime_type,
+          size_bytes: f.size_bytes,
+        })),
+      )
+      if (filesError) {
+        console.warn(`[chat-synx:events] files insert failed: ${filesError.message}`)
+      } else {
+        console.log(`[chat-synx:events] ingested ${ingested.length} file(s) for message=${inserted.id}`)
+      }
+    }
+  }
 
   // Broadcast a hint to any open MessageFeed for this room AND the sidebar
   // unread indicator, as a fallback for postgres_changes (which sometimes
@@ -206,7 +319,8 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
     const senderName = senderProfile?.display_name ?? 'Someone'
     const roomName = roomMeta?.name ?? 'room'
     const allOthers = (members ?? []) as { id: string; display_name: string }[]
-    const text = event.text.trim()
+    const text = (event.text ?? '').trim()
+    const pushBody = text.length > 0 ? text.slice(0, 120) : '📎 Sent an attachment'
 
     // @mention push — first-name match, mirrors Hub messages route
     const mentioned = [...text.matchAll(/@(\w+)/g)].map(m => m[1].toLowerCase())
@@ -217,7 +331,7 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
       if (matchedIds.length > 0) {
         sendHubPush(
           matchedIds,
-          { title: `${senderName} mentioned you`, body: text.slice(0, 120), url: `/hub/${bridge.hub_room_id}` },
+          { title: `${senderName} mentioned you`, body: pushBody, url: `/hub/${bridge.hub_room_id}` },
           { isMention: true, roomId: bridge.hub_room_id },
         ).catch(err => console.error('[chat-synx:events] mention push failed:', err.message))
       }
@@ -229,7 +343,7 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
       if (ids.length > 0) {
         sendHubPush(
           ids,
-          { title: `📢 @room — #${roomName} — ${senderName}`, body: text.slice(0, 120), url: `/hub/${bridge.hub_room_id}` },
+          { title: `📢 @room — #${roomName} — ${senderName}`, body: pushBody, url: `/hub/${bridge.hub_room_id}` },
           { isMention: true, roomId: bridge.hub_room_id },
         ).catch(err => console.error('[chat-synx:events] @room push failed:', err.message))
       }
@@ -240,7 +354,7 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
     if (ids.length > 0) {
       sendHubPush(
         ids,
-        { title: `#${roomName} — ${senderName}`, body: text.slice(0, 120), url: `/hub/${bridge.hub_room_id}` },
+        { title: `#${roomName} — ${senderName}`, body: pushBody, url: `/hub/${bridge.hub_room_id}` },
         { roomId: bridge.hub_room_id },
       ).catch(err => console.error('[chat-synx:events] room push failed:', err.message))
     }

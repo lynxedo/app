@@ -1,6 +1,113 @@
+import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 const BOT_TOKEN = process.env.CHAT_SYNX_BOT_TOKEN ?? ''
+
+function getR2Client() {
+  return new S3Client({
+    region: 'auto',
+    endpoint: `https://${process.env.CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: process.env.CF_R2_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.CF_R2_SECRET_ACCESS_KEY!,
+    },
+  })
+}
+
+async function downloadFromR2(storagePath: string): Promise<Buffer | null> {
+  try {
+    const r2 = getR2Client()
+    const res = await r2.send(new GetObjectCommand({
+      Bucket: process.env.CF_R2_BUCKET_NAME!,
+      Key: storagePath,
+    }))
+    if (!res.Body) return null
+    const stream = res.Body as { transformToByteArray: () => Promise<Uint8Array> }
+    const bytes = await stream.transformToByteArray()
+    return Buffer.from(bytes)
+  } catch (err) {
+    console.warn(`[chat-synx] R2 download failed key=${storagePath}: ${(err as Error).message}`)
+    return null
+  }
+}
+
+// Upload one file to Slack via the 3-step external-upload flow (the old
+// files.upload was deprecated in March 2025). Returns the slack file id on
+// success, null on failure. Posts into the given channel optionally as a
+// thread reply, with an optional initial_comment (used when there is no
+// separate text message — keeps the post readable).
+async function uploadFileToSlack({
+  channel,
+  threadTs,
+  filename,
+  contentType,
+  bytes,
+  initialComment,
+}: {
+  channel: string
+  threadTs: string | null
+  filename: string
+  contentType: string
+  bytes: Buffer
+  initialComment?: string
+}): Promise<string | null> {
+  if (!BOT_TOKEN) return null
+
+  try {
+    // Step 1: getUploadURLExternal — returns a one-shot upload URL + file id.
+    const params = new URLSearchParams({ filename, length: String(bytes.byteLength) })
+    const getUrl = await fetch(`https://slack.com/api/files.getUploadURLExternal?${params.toString()}`, {
+      headers: { Authorization: `Bearer ${BOT_TOKEN}` },
+      signal: AbortSignal.timeout(15000),
+    })
+    const getData = (await getUrl.json().catch(() => null)) as { ok?: boolean; upload_url?: string; file_id?: string; error?: string } | null
+    if (!getData?.ok || !getData.upload_url || !getData.file_id) {
+      console.warn(`[chat-synx] files.getUploadURLExternal failed: ${getData?.error ?? 'unknown'}`)
+      return null
+    }
+
+    // Step 2: PUT the bytes to upload_url. Slack expects raw bytes, not multipart.
+    const put = await fetch(getData.upload_url, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType },
+      body: new Uint8Array(bytes),
+      signal: AbortSignal.timeout(60000),
+    })
+    if (!put.ok) {
+      console.warn(`[chat-synx] file PUT failed status=${put.status}`)
+      return null
+    }
+
+    // Step 3: completeUploadExternal — attaches the file to the channel/thread.
+    const completeBody: Record<string, unknown> = {
+      files: [{ id: getData.file_id, title: filename }],
+      channel_id: channel,
+    }
+    if (threadTs) completeBody.thread_ts = threadTs
+    if (initialComment) completeBody.initial_comment = initialComment
+
+    const complete = await fetch('https://slack.com/api/files.completeUploadExternal', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json; charset=utf-8',
+        Authorization: `Bearer ${BOT_TOKEN}`,
+      },
+      body: JSON.stringify(completeBody),
+      signal: AbortSignal.timeout(15000),
+    })
+    const completeData = (await complete.json().catch(() => null)) as { ok?: boolean; error?: string } | null
+    if (!completeData?.ok) {
+      console.warn(`[chat-synx] files.completeUploadExternal failed: ${completeData?.error ?? 'unknown'}`)
+      return null
+    }
+
+    console.log(`[chat-synx] uploaded file=${getData.file_id} name="${filename}" to channel=${channel}${threadTs ? ` thread=${threadTs}` : ''}`)
+    return getData.file_id
+  } catch (err) {
+    console.warn(`[chat-synx] uploadFileToSlack threw: ${(err as Error).message}`)
+    return null
+  }
+}
 
 type PostArgs = {
   channel: string
@@ -76,6 +183,12 @@ export async function fetchSlackUserProfile(slackUserId: string): Promise<{
   }
 }
 
+type BridgeFile = {
+  storage_path: string
+  filename: string
+  mime_type: string
+}
+
 export async function bridgeHubMessageToChatSynx({
   messageId,
   roomId,
@@ -84,6 +197,7 @@ export async function bridgeHubMessageToChatSynx({
   senderName,
   senderAvatarUrl,
   content,
+  files,
 }: {
   messageId: string
   roomId: string | null
@@ -92,8 +206,12 @@ export async function bridgeHubMessageToChatSynx({
   senderName: string
   senderAvatarUrl: string | null
   content: string
+  files?: BridgeFile[]
 }): Promise<void> {
-  if (!BOT_TOKEN || !content.trim() || !roomId) return
+  if (!BOT_TOKEN || !roomId) return
+  const hasContent = content.trim().length > 0
+  const hasFiles = Array.isArray(files) && files.length > 0
+  if (!hasContent && !hasFiles) return
 
   const admin = createAdminClient()
 
@@ -129,19 +247,53 @@ export async function bridgeHubMessageToChatSynx({
     threadTs = parent?.slack_ts ?? null
   }
 
-  const result = await postMessage({
-    channel: bridge.slack_channel_id,
-    text: content.trim(),
-    username,
-    iconUrl,
-    threadTs,
-  })
+  // Post the text first (if any). Slack file uploads always render as the
+  // bot, never with username/icon overrides — so the text post is the only
+  // way to attribute attribution. For text-only messages this is the whole
+  // story. For files+text, the text post lands as the user; the files land
+  // as the bot in the same thread.
+  let postedTs: string | null = null
+  if (hasContent) {
+    const result = await postMessage({
+      channel: bridge.slack_channel_id,
+      text: content.trim(),
+      username,
+      iconUrl,
+      threadTs,
+    })
+    if (result.ok && result.ts) {
+      postedTs = result.ts
+      await admin
+        .from('messages')
+        .update({ slack_ts: result.ts })
+        .eq('id', messageId)
+      console.log(`[chat-synx] saved slack_ts=${result.ts} on message=${messageId}`)
+    }
+  }
 
-  if (result.ok && result.ts) {
-    await admin
-      .from('messages')
-      .update({ slack_ts: result.ts })
-      .eq('id', messageId)
-    console.log(`[chat-synx] saved slack_ts=${result.ts} on message=${messageId}`)
+  // Upload each file. If a text post was made, files thread under it. If
+  // there was no text post (file-only message), files go directly into the
+  // channel (or under the parent thread if this is a reply). The first file
+  // also gets an initial_comment that names the sender so the bot-attribution
+  // isn't confusing to teammates.
+  if (hasFiles && files) {
+    const fileThreadTs = postedTs ?? threadTs
+    for (let i = 0; i < files.length; i++) {
+      const f = files[i]
+      const bytes = await downloadFromR2(f.storage_path)
+      if (!bytes) {
+        console.warn(`[chat-synx] skipping file (R2 download failed) name="${f.filename}"`)
+        continue
+      }
+      const initialComment = !postedTs && i === 0 ? `${username} sent an attachment` : undefined
+      await uploadFileToSlack({
+        channel: bridge.slack_channel_id,
+        threadTs: fileThreadTs,
+        filename: f.filename,
+        contentType: f.mime_type || 'application/octet-stream',
+        bytes,
+        initialComment,
+      })
+    }
   }
 }
