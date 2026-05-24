@@ -304,36 +304,67 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     let pinning = true
     const pin = () => { if (pinning) el.scrollTop = el.scrollHeight }
     pin()
-    // Reveal the container synchronously now that we're at the bottom — this
-    // re-render happens inside useLayoutEffect, so the browser's first paint
-    // shows the scrolled-to-bottom state, not the scrolled-to-top state.
-    setFeedReady(true)
+
+    // Reveal logic — keep visibility:hidden until either (a) all images
+    // in the visible message set have settled (warm cache resolves this
+    // synchronously, cold cache resolves it after network), or (b) a
+    // 1500ms cap fires so we never hang forever on a slow/broken image.
+    // This is what kills the "scroll jump as images load" glitch on
+    // cold-cache room entries.
+    let revealed = false
+    const reveal = () => {
+      if (revealed) return
+      revealed = true
+      pin() // one last pin right before the user sees anything
+      setFeedReady(true)
+    }
+
+    const imgs = Array.from(el.querySelectorAll('img'))
+    let pending = imgs.filter(img => !(img.complete && img.naturalHeight !== 0)).length
+    if (pending === 0) {
+      // Warm cache: every image is already decoded. Reveal now so React's
+      // re-render lands before the browser paints — first paint is correct.
+      reveal()
+    }
+    const onImgSettled = () => {
+      pin()
+      pending -= 1
+      if (pending <= 0) reveal()
+    }
+    imgs.forEach(img => {
+      if (img.complete && img.naturalHeight !== 0) return
+      img.addEventListener('load', onImgSettled, { once: true })
+      img.addEventListener('error', onImgSettled, { once: true })
+    })
+    // Cap: reveal no later than 1500ms regardless of image state so a slow
+    // attachment never blocks the whole feed from appearing.
+    const revealCap = setTimeout(reveal, 1500)
+
     // Belt-and-suspenders: multiple async re-pins in case layout settles late.
     const timers = [0, 50, 150, 400, 900, 1800].map(ms => setTimeout(pin, ms))
     const ro = new ResizeObserver(pin)
     ro.observe(el)
-    // Catch each image as it loads — the most common cause of "scrolled almost
-    // to the bottom but not quite" on first entry to a feed.
-    const imgs = el.querySelectorAll('img')
-    const onImg = () => pin()
-    imgs.forEach(img => img.addEventListener('load', onImg))
     const stopAt = setTimeout(() => { pinning = false; ro.disconnect() }, 2500)
     return () => {
       pinning = false
+      clearTimeout(revealCap)
       timers.forEach(clearTimeout)
       clearTimeout(stopAt)
       ro.disconnect()
-      imgs.forEach(img => img.removeEventListener('load', onImg))
+      imgs.forEach(img => {
+        img.removeEventListener('load', onImgSettled)
+        img.removeEventListener('error', onImgSettled)
+      })
     }
   }, [])
 
   useEffect(() => {
-    // Directly scroll the messages container instead of using scrollIntoView,
-    // which scrolls every ancestor scrollable element (including the outer
-    // hub shell with overflow-hidden — that's what was pushing the hamburger
-    // off screen on mobile when new messages arrived).
+    // Snap to bottom on new messages (own send or incoming). Direct scrollTop
+    // assignment is cheaper than scrollTo({behavior:'smooth'}) and feels
+    // snappier — the smooth-scroll animation cost ~16 frames per message,
+    // visible on slower devices when the room is busy.
     const el = scrollContainerRef.current
-    if (el) el.scrollTo({ top: el.scrollHeight, behavior: 'smooth' })
+    if (el) el.scrollTop = el.scrollHeight
   }, [messages.length])
 
   // Realtime: messages
