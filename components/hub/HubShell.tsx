@@ -21,6 +21,7 @@ import NotifPrefsModal from './NotifPrefsModal'
 import { HubTextSizeContext } from './HubTextSizeContext'
 import type { HubUser } from './MessageFeed'
 import type { RailConfig, RailPermissions } from './railCatalog'
+import { persistStorage } from '@/lib/hub-cache'
 
 type Room = { id: string; name: string; is_private: boolean }
 
@@ -94,6 +95,11 @@ export default function HubShell({
 
   const [manualRail, setManualRail] = useState<ManualRail>(null)
   useEffect(() => { setManualRail(null) }, [pathname])
+
+  // Ask the platform for durable IndexedDB storage so the Hub cache survives
+  // memory pressure on iOS WKWebView and other constrained environments.
+  // Idempotent; no UI prompt; safe to ignore the result.
+  useEffect(() => { void persistStorage() }, [])
 
   const activeRail = manualRail ?? pathRail
 
