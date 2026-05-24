@@ -165,21 +165,43 @@ function HubTab() {
         <Note>Don&apos;t want to land on Home? You can change your default landing page under <strong className="text-white">Settings → Account → Default landing page</strong> (Hub or Dashboard).</Note>
       </Section>
 
-      <Section title="Sidebar Navigation">
-        <p>The sidebar on the left is how you get around Hub. Top to bottom you&apos;ll see:</p>
+      <Section title="Navigation — rail + sidebars">
+        <p>Hub is organized around a thin <strong className="text-white">icon rail</strong> on the left edge of the screen (or as a bottom tab bar on phones). Each icon opens its own sidebar with that section&apos;s contents.</p>
+        <p className="font-medium text-white mt-3">Desktop rail — fixed icons</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">Home</strong> — announcements, shout outs, your starred rooms</li>
-          <li><strong className="text-white">Clients</strong> — SMS conversations with customers (Captivated)</li>
-          <li><strong className="text-white">Unread</strong> — any room or DM with unread messages, surfaced at the top so you don&apos;t miss them even if Rooms or DMs is collapsed. The section disappears when you&apos;re caught up.</li>
-          <li><strong className="text-white">Rooms</strong> — group conversations you belong to</li>
-          <li><strong className="text-white">Direct Messages</strong> — your one-on-ones. The colored dot next to each name is that person&apos;s current status: <span className="inline-block w-2 h-2 rounded-full bg-green-400 align-middle"></span> Available, <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 align-middle"></span> Busy, <span className="inline-block w-2 h-2 rounded-full bg-red-500 align-middle"></span> Do Not Disturb, or <span className="inline-block w-2 h-2 rounded-full bg-gray-500 align-middle"></span> Offline (clocked out for techs, or 2h Hub-idle for office). Group DMs show 💬 instead since multiple people don&apos;t share one status.</li>
-          <li><strong className="text-white">Boards</strong> — your saved-message boards</li>
-          <li><strong className="text-white">Tools</strong> — Daily Log, Tracker, Lawn Sizer, Call Log, Routing, Books, Time Records, Fleet</li>
-          <li><strong className="text-white">Pages</strong> — Company News, Files</li>
-          <li><strong className="text-white">Links</strong> — one-click shortcuts to external tools (Jobber, Gusto, QuickBooks, Captivated, etc.)</li>
+          <li><strong className="text-white">🔍 Search</strong> — opens the quick-jump palette (same as <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> / <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">Ctrl+K</kbd>).</li>
+          <li><strong className="text-white">🕐 Clock</strong> — opens the Time Clock modal. A small green dot appears on the icon when you&apos;re punched in.</li>
+          <li><strong className="text-white">💬 Hub</strong> — team conversations. Sidebar lists My Time Clock · Daily Log · Unread · Favorites · Rooms · DMs · Boards.</li>
+          <li><strong className="text-white">📱 Txt</strong> — client SMS conversations (Captivated).</li>
+          <li className="text-gray-300"><em>Then 4 user-configurable slots</em> (see &quot;My Hub&quot; below).</li>
+          <li><strong className="text-white">⚙️ Settings</strong> — your profile, notifications, integrations, and My Hub.</li>
+          <li><strong className="text-white">🛡️ Admin</strong> — only visible if you have admin access.</li>
+          <li><strong className="text-white">👤 You</strong> (at the bottom) — your avatar with status dot. Opens the profile sidebar where you set Available / Busy / DND, change text size, and sign out.</li>
         </ul>
-        <Note>📱 On mobile, the sidebar is hidden by default — tap the menu icon (top-left) to open it. Swiping right from the left edge also opens it.</Note>
-        <Note>🖥️ On desktop, click the small left-chevron at the top-right of the sidebar header to collapse it out of the way. A floating chevron appears on the left edge of the screen — click it to bring the sidebar back. Your choice is remembered.</Note>
+        <p className="font-medium text-white mt-3">Activity bell</p>
+        <p>A small bell icon floats in the top-right of the main content area, anywhere inside Hub. The red badge shows how many @mentions or thread replies are waiting for you. Tap it to slide in a panel with the list — last 30 days. The bell hides when the keyboard is open on mobile so it doesn&apos;t cover the composer.</p>
+        <p className="font-medium text-white mt-3">Keyboard shortcuts</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘1</kbd> Time Clock · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘2</kbd> Hub · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘3</kbd> Txt · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘4</kbd> Activity · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘5</kbd> Tools · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> Search (use Ctrl on Windows).</li>
+        </ul>
+        <p className="font-medium text-white mt-3">Mobile bottom bar</p>
+        <p>Five tabs always within thumb reach: <strong className="text-white">Clock · Hub · Txt · [your pick] · More</strong>. The fourth slot is configurable in Settings → My Hub. Tap <strong className="text-white">More</strong> for everything else (Tools, Links, Settings, Admin if you have it, and your profile). A floating <strong className="text-white">+</strong> button in the bottom-right opens the quick compose / search palette.</p>
+        <Note>📱 The top bar is gone on phones — just tap the bottom tab for the section you want. When the keyboard pops up, the bottom bar and the floating <strong className="text-white">+</strong> button slide out of the way so you see the most messages possible.</Note>
+        <p className="font-medium text-white mt-3">My Hub — pick your own rail icons</p>
+        <p>In <strong className="text-white">Settings → My Hub</strong>, pick what fills the 4 user-configurable rail slots (desktop) and the 1 mobile slot. Options include Tools, Links, Activity, Daily Log, Tracker, Routing, Fleet, Books, Lawn Sizer, Call Log, Time Records (admins), Files, Company News, or a custom URL of your choosing. The defaults give everyone Activity, Tools, and Links with one slot empty — but if you live in Tracker, put it directly on the rail and skip a click.</p>
+        <p className="font-medium text-white mt-3">Hub sidebar contents</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">My Time Clock</strong> — backup access to the clock-in modal (same as the rail icon).</li>
+          <li><strong className="text-white">Daily Log</strong> — jump to today&apos;s entry.</li>
+          <li><strong className="text-white">Unread</strong> — rooms or DMs with new messages, surfaced at the top. Disappears when you&apos;re caught up.</li>
+          <li><strong className="text-white">Favorites</strong> — your pinned rooms, DMs, and tools.</li>
+          <li><strong className="text-white">Rooms</strong> — group conversations you belong to.</li>
+          <li><strong className="text-white">Direct Messages</strong> — one-on-ones. The colored dot is the other person&apos;s status: <span className="inline-block w-2 h-2 rounded-full bg-green-400 align-middle"></span> Available, <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 align-middle"></span> Busy, <span className="inline-block w-2 h-2 rounded-full bg-red-500 align-middle"></span> DND, <span className="inline-block w-2 h-2 rounded-full bg-gray-500 align-middle"></span> Offline.</li>
+          <li><strong className="text-white">Boards</strong> — your saved-message boards.</li>
+        </ul>
+        <p className="font-medium text-white mt-3">Landing page</p>
+        <p>When you first sign in for the day — or after a long stretch (14+ hours) away from Hub — you land on the Home screen. It shows your Time Clock card up top, then announcements and shout outs, then a focused list of <strong className="text-white">your unread DMs / rooms</strong> followed by <strong className="text-white">recent @mentions</strong>. It&apos;s the &quot;what do I care about right now&quot; screen. There&apos;s no permanent way back to it from the rail — once you move on, the Activity bell and the Hub sidebar handle everything.</p>
+        <Note>🖥️ Click the active rail icon again to collapse the sidebar in any section. A small chevron appears at the left edge to bring it back.</Note>
       </Section>
 
       <Section title="Rooms">

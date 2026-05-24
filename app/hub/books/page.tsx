@@ -36,7 +36,6 @@ export default async function BooksPage() {
   if (!connected) {
     return (
       <main className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center gap-6 p-8">
-        <a href="/hub" className="absolute top-6 left-6 text-gray-400 hover:text-white text-sm transition-colors">← Hub</a>
         <div className="text-center">
           <h1 className="text-2xl font-bold mb-2">Heroes Lawn Care — Financial Dashboard</h1>
           <p className="text-gray-400 mb-6">Connect your QuickBooks account to get started.</p>
@@ -56,7 +55,6 @@ export default async function BooksPage() {
   if (!plData) {
     return (
       <main className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center gap-4 p-8">
-        <a href="/hub" className="absolute top-6 left-6 text-gray-400 hover:text-white text-sm transition-colors">← Hub</a>
         <h1 className="text-2xl font-bold">Heroes Lawn Care — Financial Dashboard</h1>
         <p className="text-red-400">Failed to load QuickBooks data. Check the PM2 logs.</p>
         <RefreshButton />
@@ -76,12 +74,9 @@ export default async function BooksPage() {
 
         {/* Header */}
         <div className="flex items-center justify-between flex-wrap gap-3">
-          <div className="flex items-center gap-4">
-            <a href="/hub" className="text-gray-400 hover:text-white text-sm transition-colors">← Hub</a>
-            <div>
-              <h1 className="text-2xl font-bold">Heroes Lawn Care — Financial Dashboard</h1>
-              <p className="text-gray-500 text-xs mt-0.5">Refreshed {fetchedAt} CT</p>
-            </div>
+          <div>
+            <h1 className="text-2xl font-bold">Books — Financial Dashboard</h1>
+            <p className="text-gray-500 text-xs mt-0.5">Refreshed {fetchedAt} CT</p>
           </div>
           <div className="flex gap-2 items-center">
             <RefreshButton />

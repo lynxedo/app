@@ -1,6 +1,17 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // Legacy URL redirects — Admin, Settings, Books, and other tools moved
+  // under /hub/* in the Hub UI refactor. Old paths and external/push-notif
+  // links keep working via these permanent redirects.
+  redirects: async () => [
+    { source: '/admin', destination: '/hub/admin', permanent: true },
+    { source: '/admin/:path*', destination: '/hub/admin/:path*', permanent: true },
+    { source: '/settings', destination: '/hub/settings', permanent: true },
+    { source: '/settings/:path*', destination: '/hub/settings/:path*', permanent: true },
+    { source: '/books', destination: '/hub/books', permanent: true },
+    { source: '/books/:path*', destination: '/hub/books/:path*', permanent: true },
+  ],
   headers: async () => [
     {
       source: '/(books|api/qbo)(.*)',

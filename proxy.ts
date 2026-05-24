@@ -26,7 +26,7 @@ export async function proxy(request: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
 
   const { pathname } = request.nextUrl
-  const protectedPaths = ['/dashboard', '/routing', '/lawn', '/responder', '/settings', '/call-log', '/admin', '/timesheet', '/books', '/tracker', '/hub']
+  const protectedPaths = ['/dashboard', '/routing', '/lawn', '/responder', '/call-log', '/timesheet', '/tracker', '/hub']
   const isProtected = protectedPaths.some(p => pathname === p || pathname.startsWith(p + '/'))
 
   // Redirect unauthenticated users to login
@@ -78,6 +78,7 @@ export async function proxy(request: NextRequest) {
         '/hub/lawn': 'can_access_lawn',
         '/hub/tracker': 'can_access_tracker',
         '/hub/routing': 'can_access_routing',
+        '/hub/books': 'can_access_books',
       }
 
       for (const [route, permKey] of Object.entries(permissionMap)) {
@@ -88,7 +89,7 @@ export async function proxy(request: NextRequest) {
         }
       }
 
-      // /hub/timesheet is admin or timesheet-manager only
+      // /hub/timesheet (personal admin timesheet view) is admin or timesheet-manager only
       if ((pathname === '/hub/timesheet' || pathname.startsWith('/hub/timesheet/')) && profile.role !== 'admin' && !profile.can_admin_timesheet) {
         const url = request.nextUrl.clone()
         url.pathname = '/hub'
@@ -96,15 +97,15 @@ export async function proxy(request: NextRequest) {
       }
 
       // Admin gate: super-admins (role=admin) get everything. Managers (role=manager) need
-      // at least one can_admin_* flag for /admin overall, and the specific flag for each subpath.
-      if (pathname === '/admin' || pathname.startsWith('/admin/')) {
+      // at least one can_admin_* flag for /hub/admin overall, and the specific flag for each subpath.
+      if (pathname === '/hub/admin' || pathname.startsWith('/hub/admin/')) {
         const isSuperAdmin = profile.role === 'admin'
         const adminFlagMap: Record<string, keyof typeof profile> = {
-          '/admin/hub': 'can_admin_hub',
-          '/admin/routing': 'can_admin_routing',
-          '/admin/timesheet': 'can_admin_timesheet',
-          '/admin/fleet': 'can_admin_fleet',
-          '/admin/daily-log': 'can_admin_daily_log',
+          '/hub/admin/hub': 'can_admin_hub',
+          '/hub/admin/routing': 'can_admin_routing',
+          '/hub/admin/timesheet': 'can_admin_timesheet',
+          '/hub/admin/fleet': 'can_admin_fleet',
+          '/hub/admin/daily-log': 'can_admin_daily_log',
         }
         const anyAdminGrant =
           profile.can_admin_people ||
@@ -116,23 +117,22 @@ export async function proxy(request: NextRequest) {
 
         if (!isSuperAdmin && !anyAdminGrant) {
           const url = request.nextUrl.clone()
-          url.pathname = '/dashboard'
+          url.pathname = '/hub/home'
           return NextResponse.redirect(url)
         }
 
         if (!isSuperAdmin) {
-          // /admin (People tab) requires can_admin_people specifically
-          if (pathname === '/admin' && !profile.can_admin_people) {
+          // /hub/admin (People tab) requires can_admin_people specifically
+          if (pathname === '/hub/admin' && !profile.can_admin_people) {
             const url = request.nextUrl.clone()
-            // Send to whichever admin tab they DO have access to
             const firstGrant = Object.entries(adminFlagMap).find(([, key]) => profile[key])
-            url.pathname = firstGrant ? firstGrant[0] : '/dashboard'
+            url.pathname = firstGrant ? firstGrant[0] : '/hub/home'
             return NextResponse.redirect(url)
           }
           for (const [route, flagKey] of Object.entries(adminFlagMap)) {
             if ((pathname === route || pathname.startsWith(route + '/')) && !profile[flagKey]) {
               const url = request.nextUrl.clone()
-              url.pathname = profile.can_admin_people ? '/admin' : '/dashboard'
+              url.pathname = profile.can_admin_people ? '/hub/admin' : '/hub/home'
               return NextResponse.redirect(url)
             }
           }
@@ -147,9 +147,9 @@ export async function proxy(request: NextRequest) {
 export const config = {
   matcher: [
     '/dashboard/:path*', '/routing/:path*', '/lawn/:path*', '/lawn',
-    '/responder/:path*', '/settings/:path*', '/call-log/:path*', '/call-log',
-    '/admin/:path*', '/timesheet/:path*', '/timesheet',
-    '/books/:path*', '/books', '/tracker/:path*', '/tracker',
+    '/responder/:path*', '/call-log/:path*', '/call-log',
+    '/timesheet/:path*', '/timesheet',
+    '/tracker/:path*', '/tracker',
     '/hub/:path*', '/hub', '/login',
   ],
 }

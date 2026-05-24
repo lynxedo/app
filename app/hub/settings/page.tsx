@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { isJobberConnected } from '@/lib/jobber'
 import SettingsForm from './SettingsForm'
@@ -19,7 +18,7 @@ export default async function SettingsPage() {
       .maybeSingle(),
     supabase
       .from('user_profiles')
-      .select('phone, full_name, landing_page')
+      .select('role, phone, full_name, landing_page, rail_config, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_call_log, can_access_timesheet')
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -48,29 +47,28 @@ export default async function SettingsPage() {
     dnd_end: notifPrefResult.data?.dnd_end ?? null,
   }
 
-  return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      {/* Nav */}
-      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link
-            href="/hub"
-            className="text-gray-400 hover:text-white text-sm transition-colors"
-          >
-            ← Hub
-          </Link>
-          <h1 className="text-xl font-bold tracking-tight">Settings</h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400">{user.email}</span>
-          <Link href="/help" className="text-gray-400 hover:text-white transition-colors text-lg leading-none font-bold" title="Help">
-            ?
-          </Link>
-        </div>
-      </header>
+  const railConfig = (profileResult.data?.rail_config ?? null) as null | {
+    desktop?: (string | null)[]
+    mobile?: (string | null)[]
+  }
 
-      {/* Main */}
-      <main className="max-w-2xl mx-auto px-6 py-10">
+  const railPermissions = {
+    isAdmin: profileResult.data?.role === 'admin',
+    canAccessTracker: !!profileResult.data?.can_access_tracker,
+    canAccessRouting: !!profileResult.data?.can_access_routing,
+    canAccessFleet: !!profileResult.data?.can_access_fleet,
+    canAccessBooks: !!profileResult.data?.can_access_books,
+    canAccessLawn: !!profileResult.data?.can_access_lawn,
+    canAccessCallLog: !!profileResult.data?.can_access_call_log,
+    canAccessTimesheet: !!profileResult.data?.can_access_timesheet,
+  }
+
+  return (
+    <div className="flex-1 min-h-0 overflow-y-auto bg-gray-950 text-white">
+      <header className="px-4 md:px-6 pt-4 pb-2">
+        <h1 className="text-xl md:text-2xl font-bold tracking-tight">Settings</h1>
+      </header>
+      <main className="max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-10">
         <SettingsForm
           email={user.email ?? ''}
           userId={user.id}
@@ -78,6 +76,8 @@ export default async function SettingsPage() {
           jobberConnected={jobberConnected}
           landingPage={landingPage}
           notifPref={notifPref}
+          railConfig={railConfig}
+          railPermissions={railPermissions}
         />
       </main>
     </div>

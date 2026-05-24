@@ -43,6 +43,19 @@ Both environments read/write the SAME Supabase project. Staging is for testing U
 
 ## Standing Rules — Always Follow These
 
+### Every new tool / page needs an SVG icon in railCatalog.tsx
+The Hub icon rail, mobile bottom bar, and Tools sidebar all pull their glyphs from a single catalog at `components/hub/railCatalog.tsx`. When you add a new tool, page, or anything else that users navigate to inside Hub:
+
+1. Add a `CatalogId` entry (snake-case kebab id) to the `CatalogId` union.
+2. Add an SVG path constant in `PATHS` — drawn in the same stroked-outline style (24×24, stroke-width 1.8). Heroicons outline is a good reference.
+3. Add the `CatalogIcon` case in the switch.
+4. Add a `CATALOG` row with `pickable: true` (and `requires:` if it's permission-gated) so it shows up in Settings → My Hub.
+5. Reference it everywhere — sidebars, the rail, anywhere a per-tool icon is shown. No emoji for tool glyphs; emoji are only OK for chat markers (`#` rooms, `🔒` private rooms, status dots, etc.).
+
+This keeps the rail visually consistent and lets users promote any tool to a rail slot via the picker.
+
+
+
 ### NEXT_PUBLIC_ env vars are baked at build time
 Changing `.env.local` alone does nothing. Must rebuild (i.e. push to GitHub and let Actions run).
 

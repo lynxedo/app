@@ -6,9 +6,8 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
 import StatusPicker, { StatusDot } from './StatusPicker'
-import NotifPrefsModal from './NotifPrefsModal'
 import ClientsSidebar from './ClientsSidebar'
-import HubSearchOverlay from './HubSearchOverlay'
+import { CatalogIcon } from './railCatalog'
 
 type Room = { id: string; name: string; is_private: boolean }
 
@@ -22,7 +21,6 @@ type Conversation = {
 
 type Board = { id: string; name: string; is_private: boolean; is_personal: boolean; created_by: string }
 
-type ExternalLink = { id: string; name: string; url: string; icon: string; sort_order: number }
 
 type ContextMenu = {
   x: number
@@ -111,14 +109,10 @@ export default function HubSidebar({
 }) {
   const pathname = usePathname()
   const router = useRouter()
-  const isClientsView = pathname.startsWith('/hub/clients')
-
   const [sidebarRooms, setSidebarRooms] = useState<Room[]>(rooms)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [boards, setBoards] = useState<Board[]>([])
-  const [externalLinks, setExternalLinks] = useState<ExternalLink[]>([])
   const [showNewPM, setShowNewPM] = useState(false)
-  const [showNotifPrefs, setShowNotifPrefs] = useState(false)
   const [showNewRoom, setShowNewRoom] = useState(false)
   const [showNewBoard, setShowNewBoard] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -159,9 +153,6 @@ export default function HubSidebar({
   // Favorites / pinning state
   const [pinnedIds, setPinnedIds] = useState<string[]>(initialPinnedIds)
 
-  // Search
-  const [showSearch, setShowSearch] = useState(false)
-
   // Collapsible sections — persisted per-user in localStorage so each section
   // (Favorites, Rooms, DMs, Boards, Tools subcategories, Pages, Links) remembers
   // its expand/collapse state across visits and across devices that share a browser.
@@ -181,10 +172,6 @@ export default function HubSidebar({
       return next
     })
   }
-
-  // Tracker sub-nav expansion (auto-expands when on a tracker page)
-  const [trackerManualOpen, setTrackerManualOpen] = useState(false)
-  const trackerOpen = pathname.startsWith('/hub/tracker') || trackerManualOpen
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
@@ -211,22 +198,6 @@ export default function HubSidebar({
   useEffect(() => { loadConversations() }, [loadConversations])
   useEffect(() => { loadBoards() }, [loadBoards])
 
-  useEffect(() => {
-    fetch('/api/hub/external-links')
-      .then(r => r.json())
-      .then(d => setExternalLinks(d.links ?? []))
-      .catch(() => {})
-  }, [])
-
-  // Refresh links when the admin tab updates them
-  useEffect(() => {
-    function reload() {
-      fetch('/api/hub/external-links').then(r => r.json()).then(d => setExternalLinks(d.links ?? [])).catch(() => {})
-    }
-    window.addEventListener('hub-external-links-changed', reload)
-    return () => window.removeEventListener('hub-external-links-changed', reload)
-  }, [])
-
   // Refresh conversations when Quick Compose creates a new one
   useEffect(() => {
     window.addEventListener('hub-conversation-created', loadConversations)
@@ -240,15 +211,26 @@ export default function HubSidebar({
       .catch(() => {})
   }, [])
 
-  // Load unread status on mount
+  // Load unread status on mount AND poll every 60s. Realtime is the primary
+  // path (postgres_changes on `messages`) but is known to drop silently in
+  // some cases (admin-client inserts, RLS edge cases — see CLAUDE.md
+  // Session 41.5 notes). The poll guarantees the per-row dots in the sidebar
+  // match the orange dot on the rail's Hub icon within a minute.
   useEffect(() => {
-    fetch('/api/hub/read-receipts')
-      .then(r => r.json())
-      .then(d => {
-        setUnreadRoomIds(new Set(d.unread_room_ids ?? []))
-        setUnreadConvIds(new Set(d.unread_conv_ids ?? []))
-      })
-      .catch(() => {})
+    let cancelled = false
+    function tick() {
+      fetch('/api/hub/read-receipts', { cache: 'no-store' })
+        .then(r => r.json())
+        .then(d => {
+          if (cancelled) return
+          setUnreadRoomIds(new Set(d.unread_room_ids ?? []))
+          setUnreadConvIds(new Set(d.unread_conv_ids ?? []))
+        })
+        .catch(() => {})
+    }
+    tick()
+    const id = setInterval(tick, 60_000)
+    return () => { cancelled = true; clearInterval(id) }
   }, [])
 
   // Realtime: mark rooms/convs unread when new messages arrive
@@ -662,25 +644,6 @@ export default function HubSidebar({
     loadConversations()
   }
 
-  // Star button for tool entries — pinned tools render filled and
-  // always-visible; unpinned render outline and only on hover of the
-  // surrounding `.group/tool` container.
-  function renderToolStar(toolId: string) {
-    const pinned = pinnedIds.includes(toolId)
-    return (
-      <button
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(toolId) }}
-        className={`p-1.5 transition-opacity flex-none ${pinned ? 'opacity-100 text-yellow-400 hover:text-yellow-300' : 'opacity-0 group-hover/tool:opacity-100 text-white/30 hover:text-white/60'}`}
-        title={pinned ? 'Unpin from Favorites' : 'Pin to Favorites'}
-        aria-label={pinned ? 'Unpin from Favorites' : 'Pin to Favorites'}
-      >
-        <svg className="w-3.5 h-3.5" fill={pinned ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-        </svg>
-      </button>
-    )
-  }
-
   // Context menu trigger
   function openContextMenu(e: React.MouseEvent, id: string, type: 'room' | 'conv') {
     e.preventDefault()
@@ -841,10 +804,10 @@ export default function HubSidebar({
 
   return (
     <>
-      <aside className="w-screen md:w-60 flex-none bg-[#1A3D5C] flex flex-col h-full h-[100dvh]">
+      <aside className="w-screen md:w-72 flex-none bg-[#1A3D5C] flex flex-col h-full">
         {/* Workspace header */}
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
-          <div className="font-bold text-white text-lg md:text-sm tracking-wide min-w-0 truncate">Heroes Lawn Care</div>
+          <div className="font-bold text-white text-lg md:text-sm tracking-wide min-w-0 truncate">Hub</div>
           <div className="flex items-center gap-1 flex-none">
             {onDesktopCollapse && (
               <button
@@ -870,74 +833,38 @@ export default function HubSidebar({
           </div>
         </div>
 
-        {/* Search bar */}
-        <div className="flex-none px-3 pt-2 pb-1">
-          <button
-            onClick={() => setShowSearch(true)}
-            className="w-full flex items-center gap-2 px-3 py-2 md:py-1.5 bg-white/10 hover:bg-white/15 rounded-lg text-base md:text-sm text-white/40 hover:text-white/60 transition-colors"
-          >
-            <svg className="w-3.5 h-3.5 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" />
-            </svg>
-            Search
-          </button>
-        </div>
-
-        {/* Teams / Clients switcher */}
-        <div className="flex-none px-3 py-2 border-b border-white/10">
-          <div className="flex bg-white/10 rounded-lg p-0.5 gap-0.5">
-            <Link
-              href="/hub"
-              className={`flex-1 text-center text-xs font-medium py-1.5 rounded-md transition-colors ${
-                !isClientsView ? 'bg-[#2E7EB8] text-white' : 'text-white/60 hover:text-white'
-              }`}
-            >
-              Teams
-            </Link>
-            <Link
-              href="/hub/clients"
-              className={`flex-1 text-center text-xs font-medium py-1.5 rounded-md transition-colors ${
-                isClientsView ? 'bg-[#2E7EB8] text-white' : 'text-white/60 hover:text-white'
-              }`}
-            >
-              Clients
-            </Link>
-          </div>
-        </div>
-
-        {/* Clients sidebar content */}
-        {isClientsView ? (
-          <ClientsSidebar onClose={onClose} />
-        ) : (
-
         <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
 
-          {/* Home + My Time Clock — always-visible top-level entries */}
-          <div className="space-y-0.5">
-            <Link
-              href="/hub/home"
-              onClick={() => onClose?.()}
-              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                pathname === '/hub/home' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <span className="text-xs flex-none">🏠</span>
-              <span className="truncate flex-1">Home</span>
-            </Link>
-            {(canAccessTimesheet || isAdmin) && (
+          {/* My Time Clock — backup access in case the user bypassed the
+              landing page (where the full Time Clock card lives). */}
+          {(canAccessTimesheet || isAdmin) && (
+            <div className="space-y-0.5">
               <button
                 onClick={() => onOpenTimeClock?.()}
-                className="w-full flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors text-white/70 hover:bg-white/10 hover:text-white"
+                className="w-full flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors text-white/70 hover:bg-white/10 hover:text-white"
               >
-                <span className="text-xs flex-none">⏱</span>
+                <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="time-clock" /></span>
                 <span className="truncate flex-1 text-left">My Time Clock</span>
               </button>
-            )}
+            </div>
+          )}
+
+          {/* Daily Log — second priority entry. */}
+          <div className="space-y-0.5">
+            <Link
+              href="/hub/daily-log"
+              onClick={() => onClose?.()}
+              className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+                pathname.startsWith('/hub/daily-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="daily-log" /></span>
+              <span className="truncate flex-1">Daily Log</span>
+            </Link>
           </div>
 
-          {/* Unread — always-expanded section that surfaces any room or DM
-              with unread messages. Hides entirely when nothing is unread, so
-              it doesn't add clutter once you're caught up. */}
+          {/* Unread — surfaces any room or DM with unread messages. Hides
+              entirely when nothing is unread. */}
           {hasUnreadItems && (
             <div>
               <div className="px-2 mb-1">
@@ -1102,317 +1029,9 @@ export default function HubSidebar({
             })}
           </div>
 
-          {/* Tools — categorized */}
-          {(() => {
-            const hasOperations = canAccessRouting || canAccessFleet || isAdmin // Daily Log + Time Records always available; Routing & Fleet gated
-            const hasSales = canAccessTracker || canAccessLawn
-            const hasComms = canAccessCallLog
-            const hasFinance = canAccessBooks
-            const showTools = hasOperations || hasSales || hasComms || hasFinance
-            if (!showTools) return null
-            return (
-              <div>
-                <button onClick={() => toggleSection('tools')} className="w-full flex items-center gap-1 px-2 mb-1 group">
-                  <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.tools ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                  <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Tools</span>
-                </button>
-                {!collapsed.tools && (
-                  <div className="space-y-3">
-                    {/* Operations */}
-                    {hasOperations && (
-                      <div>
-                        <button onClick={() => toggleSection('tools-operations')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
-                          <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-operations'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                          <span className="text-xs md:text-[11px] font-semibold text-emerald-300 uppercase tracking-wider group-hover:text-emerald-200">Operations</span>
-                        </button>
-                        {!collapsed['tools-operations'] && (
-                        <>
-                        {canAccessRouting && (
-                          <div className="group/tool flex items-center">
-                            <Link
-                              href="/hub/routing"
-                              onClick={() => onClose?.()}
-                              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
-                                pathname.startsWith('/hub/routing') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                              }`}
-                            >
-                              <span className="text-xs flex-none">⚡</span>
-                              <span className="truncate flex-1">Routing</span>
-                            </Link>
-                            {renderToolStar('tool:routing')}
-                          </div>
-                        )}
-                        <div className="group/tool flex items-center">
-                          <Link
-                            href="/hub/daily-log"
-                            onClick={() => onClose?.()}
-                            className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
-                              pathname.startsWith('/hub/daily-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                            }`}
-                          >
-                            <span className="text-xs flex-none">📋</span>
-                            <span className="truncate flex-1">Daily Log</span>
-                          </Link>
-                          {renderToolStar('tool:daily-log')}
-                        </div>
-                        {isAdmin && (
-                          <div className="group/tool flex items-center">
-                            <Link
-                              href="/admin/timesheet"
-                              onClick={() => onClose?.()}
-                              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
-                                pathname.startsWith('/admin/timesheet') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                              }`}
-                            >
-                              <span className="text-xs flex-none">🕐</span>
-                              <span className="truncate flex-1">Time Records</span>
-                            </Link>
-                            {renderToolStar('tool:time-records')}
-                          </div>
-                        )}
-                        {canAccessFleet && (
-                          <div className="group/tool flex items-center">
-                            <Link
-                              href="/hub/fleet"
-                              onClick={() => onClose?.()}
-                              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
-                                pathname.startsWith('/hub/fleet') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                              }`}
-                            >
-                              <span className="text-xs flex-none">🚛</span>
-                              <span className="truncate flex-1">Fleet</span>
-                            </Link>
-                            {renderToolStar('tool:fleet')}
-                          </div>
-                        )}
-                        </>
-                        )}
-                      </div>
-                    )}
 
-                    {/* Sales */}
-                    {hasSales && (
-                      <div>
-                        <button onClick={() => toggleSection('tools-sales')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
-                          <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-sales'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                          <span className="text-xs md:text-[11px] font-semibold text-emerald-300 uppercase tracking-wider group-hover:text-emerald-200">Sales</span>
-                        </button>
-                        {!collapsed['tools-sales'] && (
-                        <>
-                        {canAccessTracker && (
-                          <div>
-                            <div className="group/tool flex items-center">
-                              <Link
-                                href="/hub/tracker"
-                                onClick={() => { onClose?.(); setTrackerManualOpen(true) }}
-                                className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
-                                  pathname.startsWith('/hub/tracker') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                                }`}
-                              >
-                                <span className="text-xs flex-none">🎯</span>
-                                <span className="truncate flex-1">Tracker</span>
-                              </Link>
-                              {renderToolStar('tool:tracker')}
-                              <button
-                                onClick={() => setTrackerManualOpen(v => !v)}
-                                className="p-1.5 text-white/30 hover:text-white/60 transition-colors flex-none"
-                                title={trackerOpen ? 'Collapse' : 'Expand'}
-                              >
-                                <svg className={`w-3 h-3 transition-transform ${trackerOpen ? '' : '-rotate-90'}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                              </button>
-                            </div>
-                            {trackerOpen && (
-                              <div className="ml-4 mt-0.5 space-y-0.5">
-                                {[
-                                  { href: '/hub/tracker', label: 'Pipeline', exact: true },
-                                  { href: '/hub/tracker/dashboard', label: 'Dashboard', exact: false },
-                                  { href: '/hub/tracker/import', label: 'Import', exact: false },
-                                  ...(isAdmin ? [{ href: '/hub/tracker/settings', label: 'Settings', exact: false }] : []),
-                                ].map(tab => {
-                                  const isActive = tab.exact ? pathname === tab.href : pathname.startsWith(tab.href)
-                                  return (
-                                    <Link
-                                      key={tab.href}
-                                      href={tab.href}
-                                      onClick={() => onClose?.()}
-                                      className={`flex items-center gap-1.5 px-2 py-1 rounded text-xs transition-colors ${
-                                        isActive ? 'text-[#2E7EB8] font-medium' : 'text-white/50 hover:text-white hover:bg-white/10'
-                                      }`}
-                                    >
-                                      <span className="text-white/20 flex-none">›</span>
-                                      {tab.label}
-                                    </Link>
-                                  )
-                                })}
-                              </div>
-                            )}
-                          </div>
-                        )}
-                        {canAccessLawn && (
-                          <div className="group/tool flex items-center">
-                            <Link
-                              href="/hub/lawn"
-                              onClick={() => onClose?.()}
-                              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
-                                pathname === '/hub/lawn' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                              }`}
-                            >
-                              <span className="text-xs flex-none">🌿</span>
-                              <span className="truncate flex-1">Lawn Sizer</span>
-                            </Link>
-                            {renderToolStar('tool:lawn')}
-                          </div>
-                        )}
-                        </>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Communications */}
-                    {hasComms && (
-                      <div>
-                        <button onClick={() => toggleSection('tools-communications')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
-                          <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-communications'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                          <span className="text-xs md:text-[11px] font-semibold text-emerald-300 uppercase tracking-wider group-hover:text-emerald-200">Communications</span>
-                        </button>
-                        {!collapsed['tools-communications'] && (
-                        <>
-                        {canAccessCallLog && (
-                          <div className="group/tool flex items-center">
-                            <Link
-                              href="/hub/call-log"
-                              onClick={() => onClose?.()}
-                              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
-                                pathname.startsWith('/hub/call-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                              }`}
-                            >
-                              <span className="text-xs flex-none">📞</span>
-                              <span className="truncate flex-1">Call Log</span>
-                            </Link>
-                            {renderToolStar('tool:call-log')}
-                          </div>
-                        )}
-                        </>
-                        )}
-                      </div>
-                    )}
-
-                    {/* Finance */}
-                    {hasFinance && (
-                      <div>
-                        <button onClick={() => toggleSection('tools-finance')} className="w-full flex items-center gap-1 px-2 mb-0.5 group">
-                          <svg className={`w-2.5 h-2.5 text-white/20 transition-transform ${collapsed['tools-finance'] ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                          <span className="text-xs md:text-[11px] font-semibold text-emerald-300 uppercase tracking-wider group-hover:text-emerald-200">Finance</span>
-                        </button>
-                        {!collapsed['tools-finance'] && (
-                        <>
-                        {canAccessBooks && (
-                          <div className="group/tool flex items-center">
-                            <Link
-                              href="/books"
-                              onClick={() => onClose?.()}
-                              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
-                                pathname.startsWith('/books') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                              }`}
-                            >
-                              <span className="text-xs flex-none">📊</span>
-                              <span className="truncate flex-1">Books</span>
-                            </Link>
-                            {renderToolStar('tool:books')}
-                          </div>
-                        )}
-                        </>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-            )
-          })()}
-
-          {/* Pages */}
-          <div>
-            <button onClick={() => toggleSection('pages')} className="w-full flex items-center gap-1 px-2 mb-1 group">
-              <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.pages ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-              <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Pages</span>
-            </button>
-            {!collapsed.pages && (
-              <>
-                <Link
-                  href="/hub/pages/company-news"
-                  onClick={() => onClose?.()}
-                  className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                    pathname === '/hub/pages/company-news' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <span className="text-xs">📰</span>
-                  <span className="truncate">Company News</span>
-                </Link>
-                <Link
-                  href="/hub/files"
-                  onClick={() => onClose?.()}
-                  className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                    pathname === '/hub/files' ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-                  }`}
-                >
-                  <span className="text-xs">📁</span>
-                  <span className="truncate">Files</span>
-                </Link>
-              </>
-            )}
-          </div>
-
-          {/* External Links */}
-          {externalLinks.length > 0 && (
-            <div>
-              <button onClick={() => toggleSection('links')} className="w-full flex items-center gap-1 px-2 mb-1 group">
-                <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.links ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Links</span>
-              </button>
-              {!collapsed.links && externalLinks.map(link => (
-                <a
-                  key={link.id}
-                  href={link.url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors text-white/70 hover:bg-white/10 hover:text-white"
-                  title={link.url}
-                >
-                  <span className="text-xs">{link.icon}</span>
-                  <span className="truncate">{link.name}</span>
-                </a>
-              ))}
-            </div>
-          )}
         </nav>
-        )} {/* end teams-only block */}
-
-        {/* Footer: user status + account menu (Settings/Admin/Help/Logout/Text size/etc. all live in the dropdown) */}
-        <div className="flex-none border-t border-white/10">
-          <StatusPicker
-            currentStatus={currentUserStatus ?? null}
-            displayName={displayName}
-            userEmail={userEmail}
-            isAdmin={isAdmin}
-            textSize={textSize}
-            onTextSizeChange={onTextSizeChange}
-            onOpenNotifPrefs={() => setShowNotifPrefs(true)}
-            onStatusChanged={handleOwnStatusChanged}
-          />
-        </div>
       </aside>
-
-      {showNotifPrefs && <NotifPrefsModal onClose={() => setShowNotifPrefs(false)} />}
-
-      {showSearch && (
-        <HubSearchOverlay
-          onClose={() => setShowSearch(false)}
-          currentUserId={currentUserId}
-          hubUsers={hubUsers}
-          conversations={conversations}
-        />
-      )}
 
       {/* Context menu for pin/unpin */}
       {contextMenu && (

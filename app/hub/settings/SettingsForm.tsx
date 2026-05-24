@@ -6,6 +6,7 @@ import ReactCrop, { type Crop, centerCrop, makeAspectCrop } from 'react-image-cr
 import 'react-image-crop/dist/ReactCrop.css'
 import { createClient } from '@/lib/supabase/client'
 import NotificationDeviceControls from '@/components/hub/NotificationDeviceControls'
+import { CATALOG, CatalogIcon, type CatalogId, type RailPermissions, normalizeRailConfig } from '@/components/hub/railCatalog'
 
 interface HubProfile {
   full_name: string | null
@@ -28,10 +29,12 @@ interface Props {
   jobberConnected: boolean
   landingPage: 'hub' | 'dashboard'
   notifPref: NotifPref
+  railConfig: null | { desktop?: (string | null)[]; mobile?: (string | null)[] }
+  railPermissions: RailPermissions
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
-type Tab = 'profile' | 'integrations' | 'account'
+type Tab = 'profile' | 'my-hub' | 'integrations' | 'account'
 
 function getInitials(name: string | null, email: string): string {
   if (name) {
@@ -75,7 +78,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, jobberConnected, landingPage, notifPref }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, jobberConnected, landingPage, notifPref, railConfig, railPermissions }: Props) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>('profile')
 
@@ -305,9 +308,47 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
 
   const tabs: { id: Tab; label: string }[] = [
     { id: 'profile',      label: 'Profile' },
+    { id: 'my-hub',       label: 'My Hub' },
     { id: 'integrations', label: 'Integrations' },
     { id: 'account',      label: 'Account' },
   ]
+
+  // ── My Hub (rail config) state ─────────────────────────────────────────────
+  const normalized = normalizeRailConfig(railConfig ?? undefined)
+  const [desktopSlots, setDesktopSlots] = useState<(string | null)[]>(normalized.desktop)
+  const [mobileSlot, setMobileSlot] = useState<string | null>(normalized.mobile[0] ?? null)
+  const [railSave, setRailSave] = useState<SaveState>('idle')
+  const [railErr, setRailErr] = useState<string | null>(null)
+
+  const pickableCatalog = CATALOG
+    .filter(e => e.pickable)
+    .filter(e => !e.requires || railPermissions[e.requires])
+
+  async function saveRailConfig() {
+    setRailSave('saving'); setRailErr(null)
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          rail_config: {
+            desktop: desktopSlots,
+            mobile: [mobileSlot],
+          },
+        }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        throw new Error(d.error ?? 'Save failed')
+      }
+      setRailSave('saved')
+      // Reload so the rail re-renders with the new config server-side.
+      setTimeout(() => { router.refresh() }, 400)
+    } catch (e) {
+      setRailErr(e instanceof Error ? e.message : 'Save failed')
+      setRailSave('error')
+    }
+  }
 
   const initials = getInitials(hubName || null, email)
 
@@ -465,6 +506,55 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
       </section>
       )}
 
+      {/* ── MY HUB TAB ──────────────────────────────────────────────────── */}
+      {activeTab === 'my-hub' && (
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <h2 className="font-semibold text-lg mb-1">My Hub</h2>
+        <p className="text-gray-400 text-sm mb-6">
+          Customize the icon rail on the left (and the bottom tab bar on mobile). Time Clock, Hub, and Txt are always there — these slots are yours.
+        </p>
+
+        <h3 className="text-sm font-semibold text-white mb-2">Desktop rail — 4 slots</h3>
+        <p className="text-xs text-gray-500 mb-3">The 4 icons between Txt and Settings. Pick any combination, in any order.</p>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
+          {desktopSlots.map((value, i) => (
+            <div key={i} className="flex items-center gap-3">
+              <span className="text-xs text-gray-500 w-12 flex-none">Slot {i + 1}</span>
+              <SlotPicker
+                value={value}
+                onChange={v => setDesktopSlots(prev => prev.map((p, idx) => idx === i ? v : p))}
+                catalog={pickableCatalog}
+              />
+            </div>
+          ))}
+        </div>
+
+        <h3 className="text-sm font-semibold text-white mb-2">Mobile bottom bar — 1 slot</h3>
+        <p className="text-xs text-gray-500 mb-3">Between Txt and More.</p>
+        <div className="flex items-center gap-3 mb-6">
+          <span className="text-xs text-gray-500 w-12 flex-none">Slot 4</span>
+          <SlotPicker
+            value={mobileSlot}
+            onChange={setMobileSlot}
+            catalog={pickableCatalog}
+          />
+        </div>
+
+        <div className="flex items-center gap-3 mt-4">
+          <button
+            type="button"
+            onClick={saveRailConfig}
+            disabled={railSave === 'saving'}
+            className="bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm"
+          >
+            {railSave === 'saving' ? 'Saving…' : 'Save layout'}
+          </button>
+          {railSave === 'saved' && <span className="text-emerald-400 text-xs">Saved ✓</span>}
+          {railErr && <span className="text-rose-400 text-xs">{railErr}</span>}
+        </div>
+      </section>
+      )}
+
       {/* ── INTEGRATIONS TAB ────────────────────────────────────────────── */}
       {activeTab === 'integrations' && <>
 
@@ -489,7 +579,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
           </a>
         )}
         <p className="text-xs text-gray-500 mt-4">
-          Routing settings (depot, duration rules, drive speed) live in <a href="/admin/routing" className="text-orange-400 hover:text-orange-300 underline">Admin → Routing</a>.
+          Routing settings (depot, duration rules, drive speed) live in <a href="/hub/admin/routing" className="text-orange-400 hover:text-orange-300 underline">Admin → Routing</a>.
         </p>
       </section>
 
@@ -652,6 +742,55 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
       )}
 
     </div>
+    </div>
+  )
+}
+
+// ── SlotPicker ──────────────────────────────────────────────────────────────
+// Dropdown for a single rail slot. Value is either a catalog id, a "url:..."
+// string, or null (empty).
+
+function SlotPicker({
+  value,
+  onChange,
+  catalog,
+}: {
+  value: string | null
+  onChange: (v: string | null) => void
+  catalog: { id: CatalogId; label: string }[]
+}) {
+  const isUrl = typeof value === 'string' && value.startsWith('url:')
+  const url = isUrl ? value!.slice(4) : ''
+  return (
+    <div className="flex-1 flex items-center gap-2 min-w-0">
+      <div className="w-7 h-7 rounded bg-gray-800 flex items-center justify-center text-white/70 flex-none">
+        {value && !isUrl ? <CatalogIcon id={value as CatalogId} /> : isUrl ? <CatalogIcon id="links" /> : <span className="text-xs">—</span>}
+      </div>
+      <select
+        value={isUrl ? '__url__' : (value ?? '__none__')}
+        onChange={e => {
+          const v = e.target.value
+          if (v === '__none__') onChange(null)
+          else if (v === '__url__') onChange('url:https://')
+          else onChange(v)
+        }}
+        className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-orange-500"
+      >
+        <option value="__none__">— Empty —</option>
+        {catalog.map(e => (
+          <option key={e.id} value={e.id}>{e.label}</option>
+        ))}
+        <option value="__url__">Custom URL…</option>
+      </select>
+      {isUrl && (
+        <input
+          type="url"
+          value={url}
+          onChange={e => onChange(`url:${e.target.value}`)}
+          placeholder="https://example.com"
+          className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-orange-500 min-w-0"
+        />
+      )}
     </div>
   )
 }

@@ -1,8 +1,8 @@
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import HomeTimeClockCard, { type HomeTimeClockInitial } from '@/components/hub/home/HomeTimeClockCard'
+import LandingActivity from '@/components/hub/home/LandingActivity'
 
 export const metadata = { title: 'Home' }
 
@@ -37,14 +37,6 @@ type AnnouncementRow = {
   created_at: string
 }
 
-type RoomRow = {
-  id: string
-  name: string
-  description: string | null
-  is_private: boolean
-  archived_at: string | null
-}
-
 export default async function HubHomePage() {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -54,7 +46,7 @@ export default async function HubHomePage() {
   const now = new Date()
   const nowIso = now.toISOString()
 
-  const [meResult, announcementsResult, memberRoomsResult, profileResult, employeeResult] = await Promise.all([
+  const [meResult, announcementsResult, profileResult, employeeResult] = await Promise.all([
     supabase.from('hub_users').select('display_name').eq('id', user.id).single(),
     supabase
       .from('hub_announcements')
@@ -63,10 +55,6 @@ export default async function HubHomePage() {
       .gt('expires_at', nowIso)
       .order('created_at', { ascending: false })
       .limit(10),
-    admin
-      .from('room_members')
-      .select('room_id, rooms!inner(id, name, description, is_private, archived_at)')
-      .eq('user_id', user.id),
     supabase.from('user_profiles').select('can_access_timesheet').eq('id', user.id).single(),
     supabase
       .from('employees')
@@ -102,11 +90,6 @@ export default async function HubHomePage() {
   const allActive = (announcementsResult.data ?? []) as AnnouncementRow[]
   const announcements = allActive.filter(a => a.type === 'announcement').slice(0, 5)
   const shoutOuts = allActive.filter(a => a.type === 'shout_out').slice(0, 5)
-
-  const rooms = (memberRoomsResult.data ?? [])
-    .map((m: { rooms: RoomRow | RoomRow[] }) => (Array.isArray(m.rooms) ? m.rooms[0] : m.rooms))
-    .filter((r): r is RoomRow => !!r && !r.archived_at)
-    .sort((a, b) => a.name.localeCompare(b.name))
 
   return (
     <div className="flex-1 overflow-y-auto">
@@ -154,32 +137,7 @@ export default async function HubHomePage() {
           </section>
         )}
 
-        <section>
-          <h2 className="text-xs font-semibold text-white/40 uppercase tracking-wider mb-3">Jump back into</h2>
-          {rooms.length === 0 ? (
-            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 text-sm text-gray-500">
-              You&apos;re not in any rooms yet. Ask an admin to add you, or browse from the sidebar.
-            </div>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {rooms.slice(0, 8).map(room => (
-                <Link
-                  key={room.id}
-                  href={`/hub/${room.id}`}
-                  className="bg-gray-900 border border-gray-800 hover:border-[#2E7EB8] rounded-xl p-4 transition-colors block"
-                >
-                  <div className="flex items-center gap-2 mb-1">
-                    <span className="text-white/40 text-sm">{room.is_private ? '🔒' : '#'}</span>
-                    <span className="font-medium text-white">{room.name}</span>
-                  </div>
-                  {room.description && (
-                    <p className="text-xs text-gray-500 line-clamp-2">{room.description}</p>
-                  )}
-                </Link>
-              ))}
-            </div>
-          )}
-        </section>
+        <LandingActivity currentUserId={user.id} />
       </div>
     </div>
   )

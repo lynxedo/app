@@ -35,10 +35,25 @@ export async function PUT(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page } = await request.json()
+  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config } = await request.json()
 
   if (landing_page !== undefined && landing_page !== 'hub' && landing_page !== 'dashboard') {
     return NextResponse.json({ error: 'landing_page must be "hub" or "dashboard"' }, { status: 400 })
+  }
+
+  // Lightweight validation for rail_config — must be { desktop: [], mobile: [] }
+  // with entries that are either string (catalog id / "url:..."), or null.
+  if (rail_config !== undefined && rail_config !== null) {
+    const isStringOrNull = (v: unknown) => v === null || typeof v === 'string'
+    if (
+      typeof rail_config !== 'object' ||
+      !Array.isArray((rail_config as { desktop?: unknown }).desktop) ||
+      !Array.isArray((rail_config as { mobile?: unknown }).mobile) ||
+      !(rail_config as { desktop: unknown[] }).desktop.every(isStringOrNull) ||
+      !(rail_config as { mobile: unknown[] }).mobile.every(isStringOrNull)
+    ) {
+      return NextResponse.json({ error: 'invalid rail_config shape' }, { status: 400 })
+    }
   }
 
   if (display_name !== undefined) {
@@ -49,12 +64,13 @@ export async function PUT(request: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
-  const profileUpdates: Record<string, string | null | string[]> = {}
+  const profileUpdates: Record<string, unknown> = {}
   if (full_name !== undefined) profileUpdates.full_name = full_name || null
   if (phone !== undefined) profileUpdates.phone = phone || null
   if (hub_text_size !== undefined) profileUpdates.hub_text_size = hub_text_size
   if (hub_pinned_ids !== undefined) profileUpdates.hub_pinned_ids = hub_pinned_ids
   if (landing_page !== undefined) profileUpdates.landing_page = landing_page
+  if (rail_config !== undefined) profileUpdates.rail_config = rail_config
 
   if (Object.keys(profileUpdates).length > 0) {
     const { error } = await supabase

@@ -13,12 +13,12 @@ type Grants = {
 }
 
 const TABS: { href: string; label: string; exact: boolean; grantKey: keyof Grants }[] = [
-  { href: '/admin', label: 'People', exact: true, grantKey: 'people' },
-  { href: '/admin/hub', label: 'Hub', exact: false, grantKey: 'hub' },
-  { href: '/admin/routing', label: 'Routing', exact: false, grantKey: 'routing' },
-  { href: '/admin/timesheet', label: 'Time Records', exact: false, grantKey: 'timesheet' },
-  { href: '/admin/fleet', label: 'Fleet', exact: false, grantKey: 'fleet' },
-  { href: '/admin/daily-log', label: 'Daily Log', exact: false, grantKey: 'daily_log' },
+  { href: '/hub/admin', label: 'People', exact: true, grantKey: 'people' },
+  { href: '/hub/admin/hub', label: 'Hub', exact: false, grantKey: 'hub' },
+  { href: '/hub/admin/routing', label: 'Routing', exact: false, grantKey: 'routing' },
+  { href: '/hub/admin/timesheet', label: 'Time Records', exact: false, grantKey: 'timesheet' },
+  { href: '/hub/admin/fleet', label: 'Fleet', exact: false, grantKey: 'fleet' },
+  { href: '/hub/admin/daily-log', label: 'Daily Log', exact: false, grantKey: 'daily_log' },
 ]
 
 export default function AdminTabNav({
