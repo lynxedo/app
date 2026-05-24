@@ -743,6 +743,16 @@ export default function HubSidebar({
   const unreadConvsList = useMemo(() => sortedConvs.filter(c => unreadConvIds.has(c.id)), [sortedConvs, unreadConvIds])
   const hasUnreadItems = unreadRoomsList.length > 0 || unreadConvsList.length > 0
 
+  // Warm the Next.js router cache for the top unread rooms + DMs so the user's
+  // first click after a cold start lands instantly (no RSC fetch round-trip).
+  // router.prefetch is idempotent and Next dedupes — repeated calls are cheap.
+  // Capped at 5 each to avoid hammering the server with prefetches the user
+  // may never need.
+  useEffect(() => {
+    unreadRoomsList.slice(0, 5).forEach(r => router.prefetch(`/hub/${r.id}`))
+    unreadConvsList.slice(0, 5).forEach(c => router.prefetch(`/hub/pm/${c.id}`))
+  }, [unreadRoomsList, unreadConvsList, router])
+
   // Pinned tools — filter by current access so a tool the user lost
   // permission to doesn't render a dead link.
   const toolAccess: Record<string, boolean> = {
