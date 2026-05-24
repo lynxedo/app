@@ -201,7 +201,8 @@ function HubTab() {
         </ul>
         <p className="font-medium text-white mt-3">Landing page</p>
         <p>When you first sign in for the day — or after a long stretch (14+ hours) away from Hub — you land on the Home screen. It shows your Time Clock card up top, then announcements and shout outs, then a focused list of <strong className="text-white">your unread DMs / rooms</strong> followed by <strong className="text-white">recent @mentions</strong>. It&apos;s the &quot;what do I care about right now&quot; screen. There&apos;s no permanent way back to it from the rail — once you move on, the Activity bell and the Hub sidebar handle everything.</p>
-        <Note>🖥️ Click the active rail icon again to collapse the sidebar in any section. A small chevron appears at the left edge to bring it back.</Note>
+        <Note>🖥️ Click any rail icon to navigate — the sidebar always opens. Click the icon of the section you&apos;re already in to toggle the sidebar closed/open. A small chevron also appears at the left edge while collapsed to bring it back.</Note>
+        <Note>📱 On phone, when you tap the message box and the keyboard pops up, the room header hides to give the keyboard more room. A small <strong className="text-white">&lt;</strong> back button appears in the top-left so you can still get back to the sidebar with one tap. The header reappears after you send.</Note>
       </Section>
 
       <Section title="Rooms">
@@ -273,6 +274,15 @@ function HubTab() {
         </ul>
         <p className="font-medium text-white mt-3">Typing emoji by name</p>
         <p>Type <code className="bg-gray-800 px-1 rounded text-orange-300">:</code> followed by a name and a list of matches pops up. <code className="bg-gray-800 px-1 rounded">:smile</code> → 😄, <code className="bg-gray-800 px-1 rounded">:fire</code> → 🔥, <code className="bg-gray-800 px-1 rounded">:thumbsup</code> → 👍. Arrow keys to navigate the list, Enter or Tab to insert.</p>
+      </Section>
+
+      <Section title="Viewing photos, videos, and PDFs">
+        <p>Attachments open inside Hub — no new browser tab.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Photos</strong> — tap the thumbnail to open the full image in a dark lightbox. On desktop, use the ← / → buttons (or arrow keys) to flip between photos in the same message; Esc closes. On phone, swipe left/right to flip and pinch to zoom.</li>
+          <li><strong className="text-white">Videos</strong> — play right in the chat bubble with native controls (play, scrub, fullscreen, volume).</li>
+          <li><strong className="text-white">PDFs</strong> — tap the 📄 card to open the document in the lightbox. The ⬇ button in the top-right downloads the file.</li>
+        </ul>
       </Section>
 
       <Section title="Formatting Text">
