@@ -419,7 +419,7 @@ export default function HubShell({
           fixed top-0 left-0 z-50 md:relative md:z-auto md:inset-y-0 md:bottom-auto
           transform transition-transform duration-200 ease-in-out
           ${mobileDrawerOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-          md:overflow-hidden md:transition-[width] md:duration-200 md:ease-in-out
+          md:overflow-hidden
           ${hideSidebarDesktop ? 'md:w-0' : 'md:w-72'}
         `}
         style={{ bottom: 'calc(env(safe-area-inset-bottom, 0) + 56px)' }}

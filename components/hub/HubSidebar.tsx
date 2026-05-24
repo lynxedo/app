@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
@@ -184,6 +184,12 @@ export default function HubSidebar({
   const longPressTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const longPressTargetRef = useRef<{ id: string; type: 'room' | 'conv' } | null>(null)
 
+  // Hold the current pathname in a ref so the realtime-messages effect below
+  // doesn't re-subscribe its Supabase channel on every navigation. Re-subbing
+  // teardown/handshake is the single biggest source of sidebar nav lag.
+  const pathnameRef = useRef(pathname)
+  useEffect(() => { pathnameRef.current = pathname }, [pathname])
+
   const loadConversations = useCallback(() => {
     fetch('/api/hub/conversations')
       .then(r => r.json())
@@ -242,8 +248,9 @@ export default function HubSidebar({
     const handleInsert = (msg: { room_id: string | null; conversation_id: string | null; sender_id: string; parent_id: string | null }) => {
       // Ignore thread replies and messages sent by this user
       if (msg.parent_id || msg.sender_id === currentUserId) return
-      const activeRoomMatch = pathname.match(/^\/hub\/([^/]+)$/)
-      const activePmMatch = pathname.match(/^\/hub\/pm\/([^/]+)$/)
+      const currentPath = pathnameRef.current
+      const activeRoomMatch = currentPath.match(/^\/hub\/([^/]+)$/)
+      const activePmMatch = currentPath.match(/^\/hub\/pm\/([^/]+)$/)
       if (msg.room_id) {
         // Don't mark unread if user is currently viewing this room
         if (activeRoomMatch?.[1] === msg.room_id) return
@@ -289,7 +296,9 @@ export default function HubSidebar({
       supabase.removeChannel(channel)
       supabase.removeChannel(broadcastChannel)
     }
-  }, [currentUserId, pathname, loadConversations])
+    // Intentionally exclude pathname — we read it via pathnameRef so the
+    // channel doesn't tear down and re-subscribe on every navigation.
+  }, [currentUserId, loadConversations])
 
   // Realtime: keep sidebar status dots in sync when teammates change status.
   // Uses a Supabase broadcast channel rather than postgres_changes on hub_users.
@@ -310,17 +319,21 @@ export default function HubSidebar({
           // Manual dnd/busy always wins; available/null falls back to the
           // existing effective_status (which the next conversations refetch
           // will refresh based on clock-in / last_active_at).
-          setConversations(prev => prev.map(c => ({
-            ...c,
-            participants: c.participants.map(p => {
-              if (p.id !== payload.user_id) return p
-              const newStatus = payload.status
-              const newEffective = newStatus === 'dnd' || newStatus === 'busy'
-                ? newStatus
-                : p.effective_status ?? newStatus
-              return { ...p, status: newStatus, effective_status: newEffective }
-            }),
-          })))
+          // Preserve refs for conversations that don't include the changed
+          // user — keeps memoized rows from re-rendering for no reason.
+          setConversations(prev => prev.map(c => {
+            const i = c.participants.findIndex(p => p.id === payload.user_id)
+            if (i === -1) return c
+            const oldP = c.participants[i]
+            const newStatus = payload.status
+            const newEffective = newStatus === 'dnd' || newStatus === 'busy'
+              ? newStatus
+              : oldP.effective_status ?? newStatus
+            if (oldP.status === newStatus && oldP.effective_status === newEffective) return c
+            const newParticipants = c.participants.slice()
+            newParticipants[i] = { ...oldP, status: newStatus, effective_status: newEffective }
+            return { ...c, participants: newParticipants }
+          }))
         }
       )
       .on(
@@ -330,14 +343,15 @@ export default function HubSidebar({
           // Fires from: clock-in/out (timesheet), client-side 2h idle timer,
           // and the "going-online" page-load broadcast. Patches effective_status
           // only — manual status field is untouched.
-          setConversations(prev => prev.map(c => ({
-            ...c,
-            participants: c.participants.map(p =>
-              p.id === payload.user_id
-                ? { ...p, effective_status: payload.effective_status }
-                : p
-            ),
-          })))
+          setConversations(prev => prev.map(c => {
+            const i = c.participants.findIndex(p => p.id === payload.user_id)
+            if (i === -1) return c
+            const oldP = c.participants[i]
+            if (oldP.effective_status === payload.effective_status) return c
+            const newParticipants = c.participants.slice()
+            newParticipants[i] = { ...oldP, effective_status: payload.effective_status }
+            return { ...c, participants: newParticipants }
+          }))
         }
       )
       .subscribe()
@@ -355,15 +369,18 @@ export default function HubSidebar({
     if (myPresenceMode !== 'activity') return
     if (!currentUserStatus || currentUserStatus === 'available') {
       // Bump local effective_status to 'available' on every navigation since
-      // we know the server just wrote last_active_at.
-      setConversations(prev => prev.map(c => ({
-        ...c,
-        participants: c.participants.map(p =>
-          p.id === currentUserId
-            ? { ...p, effective_status: p.status === 'dnd' || p.status === 'busy' ? p.status : 'available' }
-            : p
-        ),
-      })))
+      // we know the server just wrote last_active_at. Preserve refs for
+      // conversations that don't include the user.
+      setConversations(prev => prev.map(c => {
+        const i = c.participants.findIndex(p => p.id === currentUserId)
+        if (i === -1) return c
+        const oldP = c.participants[i]
+        const next = oldP.status === 'dnd' || oldP.status === 'busy' ? oldP.status : 'available'
+        if (oldP.effective_status === next) return c
+        const newParticipants = c.participants.slice()
+        newParticipants[i] = { ...oldP, effective_status: next }
+        return { ...c, participants: newParticipants }
+      }))
     }
     const id = setTimeout(() => {
       // Don't override manual dnd/busy.
@@ -373,29 +390,35 @@ export default function HubSidebar({
         event: 'presence-changed',
         payload: { user_id: currentUserId, effective_status: 'offline' },
       })
-      setConversations(prev => prev.map(c => ({
-        ...c,
-        participants: c.participants.map(p =>
-          p.id === currentUserId ? { ...p, effective_status: 'offline' } : p
-        ),
-      })))
+      setConversations(prev => prev.map(c => {
+        const i = c.participants.findIndex(p => p.id === currentUserId)
+        if (i === -1) return c
+        const oldP = c.participants[i]
+        if (oldP.effective_status === 'offline') return c
+        const newParticipants = c.participants.slice()
+        newParticipants[i] = { ...oldP, effective_status: 'offline' }
+        return { ...c, participants: newParticipants }
+      }))
     }, 2 * 60 * 60 * 1000)
     return () => clearTimeout(id)
   }, [pathname, currentUserId, currentUserStatus, myPresenceMode])
 
   const handleOwnStatusChanged = useCallback((newStatus: string | null) => {
     // Patch own conversations state so the self-DM dot flips immediately —
-    // broadcasts skip the sender by default in Supabase Realtime.
-    setConversations(prev => prev.map(c => ({
-      ...c,
-      participants: c.participants.map(p => {
-        if (p.id !== currentUserId) return p
-        const newEffective = newStatus === 'dnd' || newStatus === 'busy'
-          ? newStatus
-          : p.effective_status ?? newStatus
-        return { ...p, status: newStatus, effective_status: newEffective }
-      }),
-    })))
+    // broadcasts skip the sender by default in Supabase Realtime. Preserve
+    // refs for conversations that don't include the user.
+    setConversations(prev => prev.map(c => {
+      const i = c.participants.findIndex(p => p.id === currentUserId)
+      if (i === -1) return c
+      const oldP = c.participants[i]
+      const newEffective = newStatus === 'dnd' || newStatus === 'busy'
+        ? newStatus
+        : oldP.effective_status ?? newStatus
+      if (oldP.status === newStatus && oldP.effective_status === newEffective) return c
+      const newParticipants = c.participants.slice()
+      newParticipants[i] = { ...oldP, status: newStatus, effective_status: newEffective }
+      return { ...c, participants: newParticipants }
+    }))
     // Fire-and-forget broadcast so other Hub clients update live.
     statusChannelRef.current?.send({
       type: 'broadcast',
@@ -638,24 +661,24 @@ export default function HubSidebar({
     loadConversations()
   }
 
-  async function unarchiveConversation(convId: string) {
+  const unarchiveConversation = useCallback(async (convId: string) => {
     setContextMenu(null)
     setConversations(prev => prev.map(c =>
       c.id === convId ? { ...c, archived: false, archived_at: null } : c
     ))
     await fetch(`/api/hub/conversations/${convId}/unarchive`, { method: 'POST' }).catch(() => {})
     loadConversations()
-  }
+  }, [loadConversations])
 
   // Context menu trigger
-  function openContextMenu(e: React.MouseEvent, id: string, type: 'room' | 'conv') {
+  const openContextMenu = useCallback((e: React.MouseEvent, id: string, type: 'room' | 'conv') => {
     e.preventDefault()
     e.stopPropagation()
     setContextMenu({ x: e.clientX, y: e.clientY, id, type })
-  }
+  }, [])
 
   // Long press handlers for mobile
-  function onTouchStart(id: string, type: 'room' | 'conv') {
+  const onTouchStart = useCallback((id: string, type: 'room' | 'conv') => {
     longPressTargetRef.current = { id, type }
     longPressTimerRef.current = setTimeout(() => {
       const target = longPressTargetRef.current
@@ -663,50 +686,61 @@ export default function HubSidebar({
       // Show context menu in center of screen for mobile
       setContextMenu({ x: window.innerWidth / 2 - 80, y: window.innerHeight / 2 - 40, id: target.id, type: target.type })
     }, 500)
-  }
+  }, [])
 
-  function onTouchEnd() {
+  const onTouchEnd = useCallback(() => {
     if (longPressTimerRef.current) clearTimeout(longPressTimerRef.current)
     longPressTargetRef.current = null
-  }
+  }, [])
 
   // Include self so the user can pick themselves to open the self-DM (a
   // single-member scratchpad). Bots remain hidden.
   const otherUsers = hubUsers.filter(u => !u.is_bot)
   const displayName = currentUserDisplayName ?? userEmail.split('@')[0]
 
-  // Sort rooms: unread first, then alpha
-  const sortedRooms = [...sidebarRooms].sort((a, b) => {
-    const aUnread = unreadRoomIds.has(a.id)
-    const bUnread = unreadRoomIds.has(b.id)
-    if (aUnread && !bUnread) return -1
-    if (!aUnread && bUnread) return 1
-    return a.name.localeCompare(b.name)
-  })
+  // Sort rooms: unread first, then alpha. Memoized so we don't re-sort on
+  // every render (status broadcasts, focus events, etc. fire constantly).
+  const sortedRooms = useMemo(() => {
+    return [...sidebarRooms].sort((a, b) => {
+      const aUnread = unreadRoomIds.has(a.id)
+      const bUnread = unreadRoomIds.has(b.id)
+      if (aUnread && !bUnread) return -1
+      if (!aUnread && bUnread) return 1
+      return a.name.localeCompare(b.name)
+    })
+  }, [sidebarRooms, unreadRoomIds])
 
   // Sort conversations: unread first. Then split into active vs archived.
   // A conv with unread messages always shows as active even if backend
   // computed it archived (auto-archive shouldn't hide something you haven't read).
-  const sortedConvs = [...conversations].sort((a, b) => {
-    const aUnread = unreadConvIds.has(a.id)
-    const bUnread = unreadConvIds.has(b.id)
-    if (aUnread && !bUnread) return -1
-    if (!aUnread && bUnread) return 1
-    return 0
-  })
-  const activeConvs = sortedConvs.filter(c => !c.archived || unreadConvIds.has(c.id))
-  const archivedConvs = sortedConvs.filter(c => c.archived && !unreadConvIds.has(c.id))
+  const sortedConvs = useMemo(() => {
+    return [...conversations].sort((a, b) => {
+      const aUnread = unreadConvIds.has(a.id)
+      const bUnread = unreadConvIds.has(b.id)
+      if (aUnread && !bUnread) return -1
+      if (!aUnread && bUnread) return 1
+      return 0
+    })
+  }, [conversations, unreadConvIds])
+  const activeConvs = useMemo(
+    () => sortedConvs.filter(c => !c.archived || unreadConvIds.has(c.id)),
+    [sortedConvs, unreadConvIds]
+  )
+  const archivedConvs = useMemo(
+    () => sortedConvs.filter(c => c.archived && !unreadConvIds.has(c.id)),
+    [sortedConvs, unreadConvIds]
+  )
 
   // Build favorites list
-  const pinnedSet = new Set(pinnedIds)
-  const favoriteRooms = sortedRooms.filter(r => pinnedSet.has(r.id))
-  const favoriteConvs = sortedConvs.filter(c => pinnedSet.has(c.id))
+  const pinnedSet = useMemo(() => new Set(pinnedIds), [pinnedIds])
+  const favoriteRooms = useMemo(() => sortedRooms.filter(r => pinnedSet.has(r.id)), [sortedRooms, pinnedSet])
+  const favoriteConvs = useMemo(() => sortedConvs.filter(c => pinnedSet.has(c.id)), [sortedConvs, pinnedSet])
 
   // Unread surfacing — rooms and DMs with unread messages also appear in a
   // dedicated section at the top of the sidebar, so they stay visible even
   // when the user has Rooms/DMs sections collapsed.
-  const unreadRoomsList = sortedRooms.filter(r => unreadRoomIds.has(r.id))
-  const unreadConvsList = sortedConvs.filter(c => unreadConvIds.has(c.id))
+  const unreadRoomsList = useMemo(() => sortedRooms.filter(r => unreadRoomIds.has(r.id)), [sortedRooms, unreadRoomIds])
+  const unreadConvsList = useMemo(() => sortedConvs.filter(c => unreadConvIds.has(c.id)), [sortedConvs, unreadConvIds])
   const hasUnreadItems = unreadRoomsList.length > 0 || unreadConvsList.length > 0
 
   // Pinned tools — filter by current access so a tool the user lost

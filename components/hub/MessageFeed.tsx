@@ -215,6 +215,12 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   })
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
+  // Hide the scroll container for the brief window between first render and
+  // the initial scroll-to-bottom pin. Without this, the user sees the list
+  // paint at scrollTop=0 and then jump down — the long-standing "scroll
+  // glitch." useLayoutEffect below flips ready=true synchronously before the
+  // browser paints, so the first visible paint is already pinned to the bottom.
+  const [feedReady, setFeedReady] = useState(false)
   const supabase = createClient()
 
   // Read receipts for other members of this DM (DMs only — rooms are
@@ -298,6 +304,10 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     let pinning = true
     const pin = () => { if (pinning) el.scrollTop = el.scrollHeight }
     pin()
+    // Reveal the container synchronously now that we're at the bottom — this
+    // re-render happens inside useLayoutEffect, so the browser's first paint
+    // shows the scrolled-to-bottom state, not the scrolled-to-top state.
+    setFeedReady(true)
     // Belt-and-suspenders: multiple async re-pins in case layout settles late.
     const timers = [0, 50, 150, 400, 900, 1800].map(ms => setTimeout(pin, ms))
     const ro = new ResizeObserver(pin)
@@ -583,7 +593,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
 
   return (
     <>
-      <div ref={scrollContainerRef} className="flex-1 overflow-y-auto w-full px-1 md:px-4 py-3 space-y-1">
+      <div ref={scrollContainerRef} style={{ visibility: feedReady ? 'visible' : 'hidden' }} className="flex-1 overflow-y-auto w-full px-1 md:px-4 py-3 space-y-1">
         {groups.map(group => (
           <div key={group.date}>
             <div className="flex items-center gap-3 my-4">
