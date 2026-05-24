@@ -30,6 +30,7 @@ export type RailId =
 // active accent bar regardless of which slot it occupies.
 const RAIL_BY_PREFIX: Array<[string, RailId]> = [
   ['/hub/home', 'hub'],          // landing page treated as hub-adjacent
+  ['/hub/txt', 'txt'],           // develop-only: new Twilio-backed Txt page
   ['/hub/clients', 'txt'],
   ['/hub/activity', 'activity'],
   ['/hub/admin', 'admin'],
@@ -178,7 +179,7 @@ export default function HubRail({
           router.push(last || '/hub')
           break
         }
-        case '3': e.preventDefault(); router.push('/hub/clients'); break
+        case '3': e.preventDefault(); router.push('/hub/txt'); break
         case '4': e.preventDefault(); onActivityClick(); break
         case '5': e.preventDefault(); onToolsClick(); break
       }
@@ -327,7 +328,7 @@ export default function HubRail({
         </button>
 
         <Link
-          href="/hub/clients"
+          href="/hub/txt"
           onClick={handleNavLinkClick('txt')}
           className={railBtnClass(active === 'txt')}
           aria-current={active === 'txt' ? 'page' : undefined}

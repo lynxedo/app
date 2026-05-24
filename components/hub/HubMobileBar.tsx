@@ -77,10 +77,10 @@ export default function HubMobileBar({
       return
     }
     onTxtClick()
-    // If already on /hub/clients/*, just open the drawer; don't re-navigate
+    // If already on /hub/txt/*, just open the drawer; don't re-navigate
     // (which would reset to the placeholder and drop the open conversation).
     if (active !== 'txt') {
-      router.push('/hub/clients')
+      router.push('/hub/txt')
     }
   }
 

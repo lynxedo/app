@@ -14,6 +14,7 @@ import SettingsSidebar from './sidebars/SettingsSidebar'
 import ProfileSidebar from './sidebars/ProfileSidebar'
 import ActivitySidebar from './sidebars/ActivitySidebar'
 import TxtSidebar from './sidebars/TxtSidebar'
+import TxtV2Sidebar from './sidebars/TxtV2Sidebar'
 import AnnouncementTicker, { type Announcement } from './AnnouncementTicker'
 import HubQuickCompose from './HubQuickCompose'
 import TimesheetClockModal from './TimesheetClockModal'
@@ -285,6 +286,17 @@ export default function HubShell({
     const collapseProps = { onDesktopCollapse: toggleSidebarCollapsed }
     switch (activeRail) {
       case 'txt':
+        // /hub/txt = develop-only new Twilio-backed view; /hub/clients = existing Captivated view
+        if (pathname === '/hub/txt' || pathname.startsWith('/hub/txt/')) {
+          return (
+            <TxtV2Sidebar
+              onClose={closeMobileDrawer}
+              {...collapseProps}
+              canAssign={!!isAdmin || !!adminGrants?.hub}
+              currentUserId={currentUserId}
+            />
+          )
+        }
         return <TxtSidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'tools':
         return (
@@ -427,6 +439,7 @@ export default function HubShell({
         const isChat =
           pathname.startsWith('/hub/pm/') ||
           (pathname.startsWith('/hub/clients/') && pathname !== '/hub/clients/') ||
+          (pathname.startsWith('/hub/txt/') && pathname !== '/hub/txt/') ||
           (r === 'hub' && pathname !== '/hub' && !pathname.startsWith('/hub/home'))
         if (!isChat) return null
         return (
