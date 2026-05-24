@@ -6,10 +6,8 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
 import StatusPicker, { StatusDot } from './StatusPicker'
-import NotifPrefsModal from './NotifPrefsModal'
 import ClientsSidebar from './ClientsSidebar'
 import { CatalogIcon } from './railCatalog'
-import HubSearchOverlay from './HubSearchOverlay'
 
 type Room = { id: string; name: string; is_private: boolean }
 
@@ -23,7 +21,6 @@ type Conversation = {
 
 type Board = { id: string; name: string; is_private: boolean; is_personal: boolean; created_by: string }
 
-type ExternalLink = { id: string; name: string; url: string; icon: string; sort_order: number }
 
 type ContextMenu = {
   x: number
@@ -112,14 +109,10 @@ export default function HubSidebar({
 }) {
   const pathname = usePathname()
   const router = useRouter()
-  const isClientsView = pathname.startsWith('/hub/clients')
-
   const [sidebarRooms, setSidebarRooms] = useState<Room[]>(rooms)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [boards, setBoards] = useState<Board[]>([])
-  const [externalLinks, setExternalLinks] = useState<ExternalLink[]>([])
   const [showNewPM, setShowNewPM] = useState(false)
-  const [showNotifPrefs, setShowNotifPrefs] = useState(false)
   const [showNewRoom, setShowNewRoom] = useState(false)
   const [showNewBoard, setShowNewBoard] = useState(false)
   const [selectedIds, setSelectedIds] = useState<string[]>([])
@@ -160,9 +153,6 @@ export default function HubSidebar({
   // Favorites / pinning state
   const [pinnedIds, setPinnedIds] = useState<string[]>(initialPinnedIds)
 
-  // Search
-  const [showSearch, setShowSearch] = useState(false)
-
   // Collapsible sections — persisted per-user in localStorage so each section
   // (Favorites, Rooms, DMs, Boards, Tools subcategories, Pages, Links) remembers
   // its expand/collapse state across visits and across devices that share a browser.
@@ -182,10 +172,6 @@ export default function HubSidebar({
       return next
     })
   }
-
-  // Tracker sub-nav expansion (auto-expands when on a tracker page)
-  const [trackerManualOpen, setTrackerManualOpen] = useState(false)
-  const trackerOpen = pathname.startsWith('/hub/tracker') || trackerManualOpen
 
   // Context menu
   const [contextMenu, setContextMenu] = useState<ContextMenu | null>(null)
@@ -212,22 +198,6 @@ export default function HubSidebar({
   useEffect(() => { loadConversations() }, [loadConversations])
   useEffect(() => { loadBoards() }, [loadBoards])
 
-  useEffect(() => {
-    fetch('/api/hub/external-links')
-      .then(r => r.json())
-      .then(d => setExternalLinks(d.links ?? []))
-      .catch(() => {})
-  }, [])
-
-  // Refresh links when the admin tab updates them
-  useEffect(() => {
-    function reload() {
-      fetch('/api/hub/external-links').then(r => r.json()).then(d => setExternalLinks(d.links ?? [])).catch(() => {})
-    }
-    window.addEventListener('hub-external-links-changed', reload)
-    return () => window.removeEventListener('hub-external-links-changed', reload)
-  }, [])
-
   // Refresh conversations when Quick Compose creates a new one
   useEffect(() => {
     window.addEventListener('hub-conversation-created', loadConversations)
@@ -241,15 +211,26 @@ export default function HubSidebar({
       .catch(() => {})
   }, [])
 
-  // Load unread status on mount
+  // Load unread status on mount AND poll every 60s. Realtime is the primary
+  // path (postgres_changes on `messages`) but is known to drop silently in
+  // some cases (admin-client inserts, RLS edge cases — see CLAUDE.md
+  // Session 41.5 notes). The poll guarantees the per-row dots in the sidebar
+  // match the orange dot on the rail's Hub icon within a minute.
   useEffect(() => {
-    fetch('/api/hub/read-receipts')
-      .then(r => r.json())
-      .then(d => {
-        setUnreadRoomIds(new Set(d.unread_room_ids ?? []))
-        setUnreadConvIds(new Set(d.unread_conv_ids ?? []))
-      })
-      .catch(() => {})
+    let cancelled = false
+    function tick() {
+      fetch('/api/hub/read-receipts', { cache: 'no-store' })
+        .then(r => r.json())
+        .then(d => {
+          if (cancelled) return
+          setUnreadRoomIds(new Set(d.unread_room_ids ?? []))
+          setUnreadConvIds(new Set(d.unread_conv_ids ?? []))
+        })
+        .catch(() => {})
+    }
+    tick()
+    const id = setInterval(tick, 60_000)
+    return () => { cancelled = true; clearInterval(id) }
   }, [])
 
   // Realtime: mark rooms/convs unread when new messages arrive
@@ -663,25 +644,6 @@ export default function HubSidebar({
     loadConversations()
   }
 
-  // Star button for tool entries — pinned tools render filled and
-  // always-visible; unpinned render outline and only on hover of the
-  // surrounding `.group/tool` container.
-  function renderToolStar(toolId: string) {
-    const pinned = pinnedIds.includes(toolId)
-    return (
-      <button
-        onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(toolId) }}
-        className={`p-1.5 transition-opacity flex-none ${pinned ? 'opacity-100 text-yellow-400 hover:text-yellow-300' : 'opacity-0 group-hover/tool:opacity-100 text-white/30 hover:text-white/60'}`}
-        title={pinned ? 'Unpin from Favorites' : 'Pin to Favorites'}
-        aria-label={pinned ? 'Unpin from Favorites' : 'Pin to Favorites'}
-      >
-        <svg className="w-3.5 h-3.5" fill={pinned ? 'currentColor' : 'none'} viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-        </svg>
-      </button>
-    )
-  }
-
   // Context menu trigger
   function openContextMenu(e: React.MouseEvent, id: string, type: 'room' | 'conv') {
     e.preventDefault()
@@ -1070,17 +1032,6 @@ export default function HubSidebar({
 
         </nav>
       </aside>
-
-      {showNotifPrefs && <NotifPrefsModal onClose={() => setShowNotifPrefs(false)} />}
-
-      {showSearch && (
-        <HubSearchOverlay
-          onClose={() => setShowSearch(false)}
-          currentUserId={currentUserId}
-          hubUsers={hubUsers}
-          conversations={conversations}
-        />
-      )}
 
       {/* Context menu for pin/unpin */}
       {contextMenu && (
