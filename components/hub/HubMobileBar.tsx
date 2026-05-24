@@ -17,7 +17,6 @@ export default function HubMobileBar({
   onMoreClick,
   onHubClick,
   onTimeClockClick,
-  onActivityClick,
   onToolsClick,
   onLinksClick,
   isClockedIn,
@@ -25,11 +24,13 @@ export default function HubMobileBar({
   permissions,
   railConfig,
   hidden,
+  drawerOpen,
+  activeManualRail,
+  onCloseDrawer,
 }: {
   onMoreClick: () => void
   onHubClick: () => void
   onTimeClockClick: () => void
-  onActivityClick: () => void
   onToolsClick: () => void
   onLinksClick: () => void
   isClockedIn?: boolean
@@ -37,6 +38,9 @@ export default function HubMobileBar({
   permissions: RailPermissions
   railConfig: RailConfig | null
   hidden?: boolean
+  drawerOpen?: boolean
+  activeManualRail?: string | null
+  onCloseDrawer?: () => void
 }) {
   const pathname = usePathname() ?? ''
   const router = useRouter()
@@ -46,6 +50,11 @@ export default function HubMobileBar({
 
   function handleHubClick(e: React.MouseEvent) {
     e.preventDefault()
+    // Tap-to-toggle: if the drawer is open showing the Hub sidebar, close it.
+    if (drawerOpen && active === 'hub' && !activeManualRail) {
+      onCloseDrawer?.()
+      return
+    }
     onHubClick()
     let last: string | null = null
     try {
@@ -55,6 +64,17 @@ export default function HubMobileBar({
       router.push(last)
     } else {
       router.push('/hub?source=push')
+    }
+  }
+
+  function wrapToggleable(slotId: string, openFn: () => void) {
+    return (e: React.MouseEvent) => {
+      e.preventDefault()
+      if (drawerOpen && activeManualRail === slotId) {
+        onCloseDrawer?.()
+        return
+      }
+      openFn()
     }
   }
 
@@ -90,13 +110,10 @@ export default function HubMobileBar({
       </>
     )
     if (entry.id === 'tools') {
-      return <button key="user" type="button" onClick={onToolsClick} className={cls}>{inner}</button>
+      return <button key="user" type="button" onClick={wrapToggleable('tools', onToolsClick)} className={cls}>{inner}</button>
     }
     if (entry.id === 'links') {
-      return <button key="user" type="button" onClick={onLinksClick} className={cls}>{inner}</button>
-    }
-    if (entry.id === 'activity') {
-      return <button key="user" type="button" onClick={onActivityClick} className={cls}>{inner}</button>
+      return <button key="user" type="button" onClick={wrapToggleable('links', onLinksClick)} className={cls}>{inner}</button>
     }
     if (entry.href) {
       return <Link key="user" href={entry.href} className={cls}>{inner}</Link>

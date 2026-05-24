@@ -16,22 +16,30 @@ const STATUS_OPTIONS: { value: Status; label: string; dot: string }[] = [
 ]
 
 export default function ProfileSidebar({
+  userId,
   displayName,
   userEmail,
+  avatarUrl,
   initialStatus,
   textSize,
   onTextSizeChange,
   onOpenNotifPrefs,
+  onOpenActivity,
+  unreadActivity,
   onStatusChanged,
   onClose,
   onDesktopCollapse,
 }: {
+  userId: string
   displayName: string
   userEmail: string
+  avatarUrl?: string | null
   initialStatus: string | null
   textSize?: string
   onTextSizeChange?: (size: string) => void
   onOpenNotifPrefs?: () => void
+  onOpenActivity?: () => void
+  unreadActivity?: number
   onStatusChanged?: (status: Status) => void
   onClose?: () => void
   onDesktopCollapse?: () => void
@@ -66,8 +74,13 @@ export default function ProfileSidebar({
     <SidebarShell title="You" onClose={onClose} onDesktopCollapse={onDesktopCollapse}>
       <div className="px-2 mb-2">
         <div className="flex items-center gap-3 px-2 py-3 rounded-lg bg-white/5">
-          <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-white text-lg font-bold flex-none">
-            {firstInitial}
+          <div className="w-12 h-12 rounded-full overflow-hidden bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-white text-lg font-bold flex-none">
+            {avatarUrl ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={`/api/profile/avatar/${userId}?v=${encodeURIComponent(avatarUrl)}`} alt="" className="w-full h-full object-cover" />
+            ) : (
+              firstInitial
+            )}
           </div>
           <div className="min-w-0 flex-1">
             <div className="font-semibold text-white truncate">{displayName}</div>
@@ -120,6 +133,21 @@ export default function ProfileSidebar({
 
       <div>
         <SidebarGroupHeader>Account</SidebarGroupHeader>
+        {onOpenActivity && (
+          <button
+            type="button"
+            onClick={onOpenActivity}
+            className="relative w-full flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors"
+          >
+            <span className="text-xs flex-none">🔔</span>
+            <span className="truncate flex-1 text-left">Activity</span>
+            {unreadActivity != null && unreadActivity > 0 && (
+              <span className="min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">
+                {unreadActivity > 99 ? '99+' : unreadActivity}
+              </span>
+            )}
+          </button>
+        )}
         <SidebarLinkRow href="/hub/settings" icon="⚙️" label="Settings" onClose={onClose} />
         <SidebarLinkRow href="/help" icon="❓" label="Help" onClose={onClose} />
         {onOpenNotifPrefs && (
@@ -128,8 +156,8 @@ export default function ProfileSidebar({
             onClick={onOpenNotifPrefs}
             className="w-full flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm text-white/70 hover:bg-white/10 hover:text-white transition-colors"
           >
-            <span className="text-xs flex-none">🔔</span>
-            <span className="truncate flex-1 text-left">Notifications</span>
+            <span className="text-xs flex-none">🛎️</span>
+            <span className="truncate flex-1 text-left">Notification settings</span>
           </button>
         )}
         <button

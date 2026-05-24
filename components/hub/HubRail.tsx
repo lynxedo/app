@@ -89,7 +89,9 @@ export default function HubRail({
   onLinksClick,
   onTimeClockClick,
   onActivityClick,
+  currentUserId,
   currentUserDisplayName,
+  currentUserAvatarUrl,
   currentUserStatus,
   collapsed,
   onToggleCollapsed,
@@ -108,7 +110,9 @@ export default function HubRail({
   onLinksClick: () => void
   onTimeClockClick: () => void
   onActivityClick: () => void
+  currentUserId?: string
   currentUserDisplayName?: string
+  currentUserAvatarUrl?: string | null
   currentUserStatus?: string | null
   collapsed: boolean
   onToggleCollapsed: () => void
@@ -404,8 +408,17 @@ export default function HubRail({
           title={currentUserDisplayName ?? 'You'}
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0) + 0.75rem)' }}
         >
-          <span className="relative w-7 h-7 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-white text-xs font-bold">
-            {firstInitial}
+          <span className="relative w-7 h-7 rounded-full overflow-hidden bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-white text-xs font-bold">
+            {currentUserAvatarUrl && currentUserId ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={`/api/profile/avatar/${currentUserId}?v=${encodeURIComponent(currentUserAvatarUrl)}`}
+                alt=""
+                className="w-full h-full object-cover"
+              />
+            ) : (
+              firstInitial
+            )}
             <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#0a1f33] ${statusColor}`} aria-hidden="true" />
           </span>
           <span>You</span>

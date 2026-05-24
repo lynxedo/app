@@ -72,7 +72,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       .select('room_id, rooms!inner(id, name, is_private, archived_at)')
       .eq('user_id', user.id),
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
-    supabase.from('hub_users').select('display_name, status').eq('id', user.id).single(),
+    supabase.from('hub_users').select('display_name, status, avatar_url').eq('id', user.id).single(),
     supabase.from('user_profiles').select('role, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_lawn, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, rail_config').eq('id', user.id).single(),
     // Active rows for BOTH types — DB returns latest first; we keep newest per type below.
     supabase
@@ -175,6 +175,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         hubUsers={(hubUsersResult.data ?? []) as never}
         currentUserStatus={meResult.data?.status ?? null}
         currentUserDisplayName={meResult.data?.display_name ?? undefined}
+        currentUserAvatarUrl={meResult.data?.avatar_url ?? null}
         isAdmin={isAdmin}
         adminGrants={adminGrants}
         initialActiveAnnouncements={initialActiveAnnouncements}

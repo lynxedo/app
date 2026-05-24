@@ -12,9 +12,11 @@ export async function GET(request: Request) {
   const limit = Math.min(parseInt(searchParams.get('limit') ?? '50'), 100)
   const offset = parseInt(searchParams.get('offset') ?? '0')
 
+  // 'estimated' count is much faster than 'exact' for large tables and is
+  // accurate enough for the "Showing N of M" hint in the sidebar.
   let query = supabase
     .from('hub_contacts')
-    .select('id, name, phone, email, jobber_client_id, do_not_text, updated_at', { count: 'exact' })
+    .select('id, name, phone, email, jobber_client_id, do_not_text, updated_at', { count: 'estimated' })
     .order('name', { ascending: true })
     .range(offset, offset + limit - 1)
 

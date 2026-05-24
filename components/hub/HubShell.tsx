@@ -6,7 +6,7 @@ import HubSidebar from './HubSidebar'
 import HubRail, { railFromPath } from './HubRail'
 import HubMobileBar from './HubMobileBar'
 import HubMobileMore from './HubMobileMore'
-import HubActivityBell from './HubActivityBell'
+import HubActivityPanel from './HubActivityBell'
 import ToolsSidebar from './sidebars/ToolsSidebar'
 import LinksSidebar from './sidebars/LinksSidebar'
 import AdminSidebar from './sidebars/AdminSidebar'
@@ -37,6 +37,7 @@ export default function HubShell({
   hubUsers,
   currentUserStatus,
   currentUserDisplayName,
+  currentUserAvatarUrl,
   isAdmin,
   adminGrants,
   initialActiveAnnouncements,
@@ -60,6 +61,7 @@ export default function HubShell({
   hubUsers: HubUser[]
   currentUserStatus?: string | null
   currentUserDisplayName?: string
+  currentUserAvatarUrl?: string | null
   isAdmin?: boolean
   adminGrants?: {
     people: boolean
@@ -102,6 +104,7 @@ export default function HubShell({
   const [liveStatus, setLiveStatus] = useState<string | null>(currentUserStatus ?? null)
   const [unreadActivity, setUnreadActivity] = useState<number>(0)
   const [unreadHub, setUnreadHub] = useState<boolean>(false)
+  const [showActivity, setShowActivity] = useState(false)
   const [isClockedIn, setIsClockedIn] = useState<boolean>(!!initialIsClockedIn)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
   // Viewport breakpoint detection — used to skip the mobile-bottom-bar
@@ -283,12 +286,16 @@ export default function HubShell({
       case 'profile':
         return (
           <ProfileSidebar
+            userId={currentUserId}
             displayName={currentUserDisplayName ?? userEmail.split('@')[0]}
             userEmail={userEmail}
+            avatarUrl={currentUserAvatarUrl ?? null}
             initialStatus={liveStatus}
             textSize={textSize}
             onTextSizeChange={setTextSize}
             onOpenNotifPrefs={() => setShowNotifPrefs(true)}
+            onOpenActivity={() => { closeMobileDrawer(); setShowActivity(true) }}
+            unreadActivity={unreadActivity}
             onStatusChanged={s => setLiveStatus(s ?? null)}
             onClose={closeMobileDrawer}
             {...collapseProps}
@@ -329,9 +336,6 @@ export default function HubShell({
   // Otherwise show unless explicitly collapsed.
   const hideSidebarDesktop = pathname.startsWith('/hub/home') || sidebarCollapsed
 
-  // Floating Activity bell visibility — anywhere inside /hub, except when
-  // keyboard is open on mobile (avoid covering the composer).
-  const showBell = pathname.startsWith('/hub') && !keyboardOpen
 
   return (
     <HubTextSizeContext.Provider value={textSize}>
@@ -354,8 +358,10 @@ export default function HubShell({
         onToolsClick={() => setManualRail('tools')}
         onLinksClick={() => setManualRail('links')}
         onTimeClockClick={() => setShowTimeClock(true)}
-        onActivityClick={() => setManualRail('activity')}
+        onActivityClick={() => setShowActivity(true)}
+        currentUserId={currentUserId}
         currentUserDisplayName={currentUserDisplayName}
+        currentUserAvatarUrl={currentUserAvatarUrl ?? null}
         currentUserStatus={liveStatus}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={toggleSidebarCollapsed}
@@ -400,9 +406,6 @@ export default function HubShell({
           aria-hidden="true"
         />
 
-        {/* Floating Activity bell (top-right) */}
-        {showBell && <HubActivityBell unreadCount={unreadActivity} />}
-
         {/* Announcement ticker — Hub-section paths only. */}
         {activeRail === 'hub' && !pathname.startsWith('/hub/home') && (
           <AnnouncementTicker
@@ -444,9 +447,8 @@ export default function HubShell({
 
       <HubMobileBar
         onMoreClick={() => setShowMobileMore(true)}
-        onHubClick={() => setMobileDrawerOpen(true)}
+        onHubClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
         onTimeClockClick={() => setShowTimeClock(true)}
-        onActivityClick={() => setManualRail('activity')}
         onToolsClick={() => { setManualRail('tools'); setMobileDrawerOpen(true) }}
         onLinksClick={() => { setManualRail('links'); setMobileDrawerOpen(true) }}
         isClockedIn={isClockedIn}
@@ -454,6 +456,9 @@ export default function HubShell({
         permissions={permissions}
         railConfig={initialRailConfig ?? null}
         hidden={keyboardOpen}
+        drawerOpen={mobileDrawerOpen}
+        activeManualRail={manualRail}
+        onCloseDrawer={closeMobileDrawer}
       />
     </div>
 
@@ -476,12 +481,15 @@ export default function HubShell({
       <HubMobileMore
         onClose={() => setShowMobileMore(false)}
         showAdmin={showAdminRail}
+        unreadActivity={unreadActivity}
         onSearchClick={() => { setShowMobileMore(false); setShowCompose(true) }}
         onToolsClick={() => { setShowMobileMore(false); setManualRail('tools'); setMobileDrawerOpen(true) }}
         onLinksClick={() => { setShowMobileMore(false); setManualRail('links'); setMobileDrawerOpen(true) }}
         onProfileClick={() => { setShowMobileMore(false); setManualRail('profile'); setMobileDrawerOpen(true) }}
+        onActivityClick={() => { setShowMobileMore(false); setShowActivity(true) }}
       />
     )}
+    <HubActivityPanel open={showActivity} onClose={() => setShowActivity(false)} />
     </HubTextSizeContext.Provider>
   )
 }
