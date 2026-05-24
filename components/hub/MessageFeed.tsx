@@ -6,6 +6,7 @@ import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
 import SaveToFilesModal from './SaveToFilesModal'
 import MessageActionsSheet from './MessageActionsSheet'
+import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { renderContent } from './renderContent'
 
 export type MessageFeedHandle = { addMessage: (msg: HubMessage) => void }
@@ -75,22 +76,63 @@ function Avatar({ sender }: { sender: Sender | null }) {
   )
 }
 
-function FileAttachment({ file }: { file: FileItem }) {
+function FileAttachment({ file, onOpenLightbox }: { file: FileItem; onOpenLightbox?: () => void }) {
   // Optimistic-send rows have a `localUrl` blob URL and a temp id; use
   // the blob URL until realtime delivers the row with a real DB id.
   const src = file.localUrl ?? `/api/hub/files/${file.id}`
   const size = formatBytes(file.size_bytes)
+
   if (file.mime_type.startsWith('image/')) {
     return (
-      <a href={src} target="_blank" rel="noopener">
-        <img src={src} alt={file.filename} className="max-w-xs max-h-64 rounded-lg mt-1.5 border border-gray-700 hover:border-gray-500 transition-colors cursor-pointer object-cover" />
-      </a>
+      <button
+        type="button"
+        onClick={onOpenLightbox}
+        className="block p-0 border-0 bg-transparent"
+        aria-label={`Open ${file.filename}`}
+      >
+        <img
+          src={src}
+          alt={file.filename}
+          className="max-w-xs max-h-64 rounded-lg mt-1.5 border border-gray-700 hover:border-gray-500 transition-colors cursor-pointer object-cover"
+        />
+      </button>
     )
   }
-  const icon = file.mime_type === 'application/pdf' ? '📄' : '📎'
+
+  if (file.mime_type.startsWith('video/')) {
+    return (
+      <video
+        src={src}
+        controls
+        preload="metadata"
+        playsInline
+        className="max-w-xs max-h-64 rounded-lg mt-1.5 border border-gray-700 bg-black"
+      >
+        {file.filename}
+      </video>
+    )
+  }
+
+  if (file.mime_type === 'application/pdf' && onOpenLightbox) {
+    return (
+      <button
+        type="button"
+        onClick={onOpenLightbox}
+        className="flex items-center gap-2.5 bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-lg px-3 py-2 mt-1.5 text-sm text-gray-300 max-w-xs transition-colors text-left"
+      >
+        <span className="text-xl">📄</span>
+        <div className="min-w-0">
+          <div className="truncate text-white text-xs font-medium">{file.filename}</div>
+          <div className="text-xs text-gray-500">{size}</div>
+        </div>
+      </button>
+    )
+  }
+
+  // Fallback: download link for any other file type
   return (
-    <a href={src} target="_blank" rel="noopener" className="flex items-center gap-2.5 bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-lg px-3 py-2 mt-1.5 text-sm text-gray-300 max-w-xs transition-colors">
-      <span className="text-xl">{icon}</span>
+    <a href={src} target="_blank" rel="noopener" download={file.filename} className="flex items-center gap-2.5 bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-lg px-3 py-2 mt-1.5 text-sm text-gray-300 max-w-xs transition-colors">
+      <span className="text-xl">📎</span>
       <div className="min-w-0">
         <div className="truncate text-white text-xs font-medium">{file.filename}</div>
         <div className="text-xs text-gray-500">{size}</div>
@@ -153,6 +195,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   const [fullPickerMsgId, setFullPickerMsgId] = useState<string | null>(null)
   const [forwardingMsg, setForwardingMsg] = useState<HubMessage | null>(null)
   const [saveToFilesMsg, setSaveToFilesMsg] = useState<HubMessage | null>(null)
+  const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null)
   const [addToBoardMsgId, setAddToBoardMsgId] = useState<string | null>(null)
   const [boardPickerBoards, setBoardPickerBoards] = useState<{ id: string; name: string }[]>([])
   const [addingToBoard, setAddingToBoard] = useState(false)
@@ -634,11 +677,43 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                     )}
 
                     {/* File attachments */}
-                    {files.length > 0 && (
-                      <div className="flex flex-wrap gap-2 mt-0.5">
-                        {files.map(f => <FileAttachment key={f.id} file={f} />)}
-                      </div>
-                    )}
+                    {files.length > 0 && (() => {
+                      // Pre-compute lightbox items (images + PDFs) and their indices so
+                      // clicking any image/PDF opens the lightbox at the right slot, with
+                      // prev/next flipping through all media in this message.
+                      const mediaItems: LightboxItem[] = []
+                      const mediaIdxByFileId: Record<string, number> = {}
+                      files.forEach(f => {
+                        const isImg = f.mime_type.startsWith('image/')
+                        const isPdf = f.mime_type === 'application/pdf'
+                        if (isImg || isPdf) {
+                          mediaIdxByFileId[f.id] = mediaItems.length
+                          mediaItems.push({
+                            type: isImg ? 'image' : 'pdf',
+                            src: f.localUrl ?? `/api/hub/files/${f.id}`,
+                            filename: f.filename,
+                          })
+                        }
+                      })
+                      return (
+                        <div className="flex flex-wrap gap-2 mt-0.5">
+                          {files.map(f => {
+                            const mIdx = mediaIdxByFileId[f.id]
+                            return (
+                              <FileAttachment
+                                key={f.id}
+                                file={f}
+                                onOpenLightbox={
+                                  mIdx !== undefined
+                                    ? () => setLightbox({ items: mediaItems, index: mIdx })
+                                    : undefined
+                                }
+                              />
+                            )
+                          })}
+                        </div>
+                      )
+                    })()}
 
                     {/* Reactions */}
                     {Object.keys(rxGroups).length > 0 && (
@@ -905,6 +980,14 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
         <SaveToFilesModal
           attachments={normFiles(saveToFilesMsg.files)}
           onClose={() => setSaveToFilesMsg(null)}
+        />
+      )}
+
+      {lightbox && (
+        <MediaLightbox
+          items={lightbox.items}
+          startIndex={lightbox.index}
+          onClose={() => setLightbox(null)}
         />
       )}
     </>
