@@ -17,7 +17,7 @@ export async function GET(
       id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from, source,
       sender:hub_users!sender_id (id, display_name, avatar_url, is_bot),
       reactions (message_id, user_id, emoji),
-      files (id, filename, mime_type, size_bytes, storage_path)
+      files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)
     `)
     .eq('conversation_id', id)
     .is('parent_id', null)

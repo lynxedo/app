@@ -19,7 +19,31 @@ type PendingFile = {
   filename: string
   mime_type: string
   size_bytes: number
+  width_px?: number | null
+  height_px?: number | null
   localUrl?: string
+}
+
+// Read intrinsic dimensions from an image File before upload so the chat
+// thumbnail can reserve the right aspect ratio when it renders. Returns
+// {width, height} on success, null for non-images or read failures.
+async function readImageDimensions(file: File): Promise<{ width: number; height: number } | null> {
+  if (!file.type.startsWith('image/')) return null
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const w = img.naturalWidth
+      const h = img.naturalHeight
+      URL.revokeObjectURL(url)
+      resolve(w > 0 && h > 0 ? { width: w, height: h } : null)
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      resolve(null)
+    }
+    img.src = url
+  })
 }
 
 type EmojiSuggestion = {
@@ -319,8 +343,13 @@ export default function MessageComposer({
 
   async function uploadFile(file: File) {
     setUploading(true)
+    const dims = await readImageDimensions(file)
     const form = new FormData()
     form.append('file', file)
+    if (dims) {
+      form.append('width_px', String(dims.width))
+      form.append('height_px', String(dims.height))
+    }
     const res = await fetch('/api/hub/upload', { method: 'POST', body: form })
     setUploading(false)
     if (!res.ok) {
@@ -378,6 +407,8 @@ export default function MessageComposer({
       mime_type: f.mime_type,
       size_bytes: f.size_bytes,
       storage_path: f.storage_path,
+      width_px: f.width_px ?? null,
+      height_px: f.height_px ?? null,
       localUrl: f.localUrl,
     }))
     setPendingFiles([])

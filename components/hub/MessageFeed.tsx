@@ -21,7 +21,7 @@ export type MessageFeedHandle = { addMessage: (msg: HubMessage) => void }
 
 export type HubUser = { id: string; display_name: string; avatar_url: string | null; is_bot?: boolean; status?: string | null; effective_status?: string | null }
 export type RxItem = { user_id: string; emoji: string }
-export type FileItem = { id: string; filename: string; mime_type: string; size_bytes: number; storage_path: string; localUrl?: string }
+export type FileItem = { id: string; filename: string; mime_type: string; size_bytes: number; storage_path: string; width_px?: number | null; height_px?: number | null; localUrl?: string }
 export type Sender = HubUser
 export type ForwardedOriginal = {
   id: string
@@ -84,6 +84,17 @@ function Avatar({ sender }: { sender: Sender | null }) {
   )
 }
 
+// Layout constraints for chat image thumbnails — must match the CSS below.
+const THUMB_MAX_W = 320 // max-w-xs = 20rem = 320px
+const THUMB_MAX_H = 256 // max-h-64 = 16rem = 256px
+
+// Compute the rendered box for a thumbnail given the source's intrinsic
+// dimensions. Preserves aspect ratio, fits inside (THUMB_MAX_W × THUMB_MAX_H).
+function fitThumbnail(w: number, h: number): { width: number; height: number } {
+  const ratio = Math.min(THUMB_MAX_W / w, THUMB_MAX_H / h, 1)
+  return { width: Math.round(w * ratio), height: Math.round(h * ratio) }
+}
+
 function FileAttachment({ file, onOpenLightbox }: { file: FileItem; onOpenLightbox?: () => void }) {
   // Optimistic-send rows have a `localUrl` blob URL and a temp id; use
   // the blob URL until realtime delivers the row with a real DB id.
@@ -91,17 +102,47 @@ function FileAttachment({ file, onOpenLightbox }: { file: FileItem; onOpenLightb
   const size = formatBytes(file.size_bytes)
 
   if (file.mime_type.startsWith('image/')) {
+    const hasDims = file.width_px != null && file.height_px != null && file.width_px > 0 && file.height_px > 0
+    const box = hasDims ? fitThumbnail(file.width_px!, file.height_px!) : null
+
+    // Lazy backfill: legacy image rows (uploaded before Session 47 image-dims
+    // shipped) have null width/height. Once the browser decodes the image we
+    // know the natural dimensions — PATCH them back to the DB so future
+    // renders see the right aspect ratio from the first paint. Skip for
+    // optimistic temp rows (no real DB id yet) and rows that already have
+    // dimensions stored.
+    const onImgLoad: React.ReactEventHandler<HTMLImageElement> = (e) => {
+      if (hasDims) return
+      if (file.id.startsWith('temp-')) return
+      const img = e.currentTarget
+      const w = img.naturalWidth
+      const h = img.naturalHeight
+      if (!w || !h) return
+      fetch(`/api/hub/files/${file.id}/dimensions`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ width_px: w, height_px: h }),
+      }).catch(() => {})
+    }
+
     return (
       <button
         type="button"
         onClick={onOpenLightbox}
         className="block p-0 border-0 bg-transparent"
         aria-label={`Open ${file.filename}`}
+        style={box ? { width: box.width, height: box.height } : undefined}
       >
         <img
           src={src}
           alt={file.filename}
-          className="max-w-xs max-h-64 rounded-lg mt-1.5 border border-gray-700 hover:border-gray-500 transition-colors cursor-pointer object-cover"
+          width={box?.width}
+          height={box?.height}
+          loading="lazy"
+          decoding="async"
+          onLoad={onImgLoad}
+          className="rounded-lg mt-1.5 border border-gray-700 hover:border-gray-500 transition-colors cursor-pointer object-cover max-w-xs max-h-64"
+          style={box ? { width: box.width, height: box.height } : undefined}
         />
       </button>
     )
@@ -465,7 +506,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           .select(`id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
             sender:hub_users!sender_id (id, display_name, avatar_url, is_bot),
             reactions (message_id, user_id, emoji),
-            files (id, filename, mime_type, size_bytes, storage_path)`)
+            files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)`)
           .eq('id', payload.new.id)
           .single()
         if (data) {
@@ -528,7 +569,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           .select(`id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
             sender:hub_users!sender_id (id, display_name, avatar_url, is_bot),
             reactions (message_id, user_id, emoji),
-            files (id, filename, mime_type, size_bytes, storage_path)`)
+            files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)`)
           .eq('id', p.id)
           .single()
         if (!data) return
