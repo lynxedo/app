@@ -8,6 +8,14 @@ import SaveToFilesModal from './SaveToFilesModal'
 import MessageActionsSheet from './MessageActionsSheet'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { renderContent } from './renderContent'
+import {
+  saveMessages,
+  getMessages,
+  patchMessage,
+  deleteMessage as cacheDeleteMessage,
+  saveMembers,
+  saveReadReceipts,
+} from '@/lib/hub-cache'
 
 export type MessageFeedHandle = { addMessage: (msg: HubMessage) => void }
 
@@ -287,6 +295,11 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
         return [...prev, msg]
       })
       setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
+      // Skip caching optimistic rows with temp file ids — realtime delivery
+      // of the real row will overwrite the cache moments later. Caching the
+      // temp row would persist blob URLs that won't resolve on next entry.
+      const hasTempFiles = (msg.files ?? []).some(f => f.id.startsWith('temp-'))
+      if (!hasTempFiles) patchMessage(msg)
     },
   }))
 
@@ -367,6 +380,58 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     if (el) el.scrollTop = el.scrollHeight
   }, [messages.length])
 
+  // Persist conversation members + initial read receipts (DMs only) to cache
+  // so the next entry can hydrate them instantly. The realtime receipts
+  // channel below keeps the cache current after that.
+  useEffect(() => {
+    if (!conversationId) return
+    if (conversationMembers && conversationMembers.length) {
+      saveMembers(conversationId, conversationMembers)
+    }
+    if (initialMemberReadReceipts && initialMemberReadReceipts.length) {
+      saveReadReceipts(conversationId, initialMemberReadReceipts)
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conversationId])
+
+  // Persist initialMessages (the server-rendered top-level set) to the Hub
+  // cache so the next entry into this scope can hydrate instantly. Best-effort.
+  // If initialMessages is empty (rare — server fetch returned nothing), try to
+  // hydrate from cache as a fallback so the user sees prior history while a
+  // background fetch is presumably running elsewhere.
+  useEffect(() => {
+    const scope: 'room' | 'conv' | null = roomId ? 'room' : conversationId ? 'conv' : null
+    const scopeId = roomId ?? conversationId ?? null
+    if (!scope || !scopeId) return
+    if (initialMessages.length > 0) {
+      saveMessages(scope, scopeId, initialMessages)
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      const cached = await getMessages(scope, scopeId)
+      if (cancelled || !cached || !cached.length) return
+      setMessages(prev => (prev.length === 0 ? cached : prev))
+      setRxMap(prev => {
+        if (Object.keys(prev).length > 0) return prev
+        const map: Record<string, RxItem[]> = {}
+        for (const m of cached) map[m.id] = normReactions(m.reactions)
+        return map
+      })
+      setReplyCounts(prev => {
+        if (Object.keys(prev).length > 0) return prev
+        const map: Record<string, number> = {}
+        for (const m of cached) map[m.id] = m.reply_count ?? 0
+        return map
+      })
+    })()
+    return () => { cancelled = true }
+    // initialMessages is captured by reference from the server fetch; it does
+    // not change for the lifetime of this scope. Intentionally exclude it from
+    // deps so we don't re-write the cache on every realtime state change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, conversationId])
+
   // Realtime: messages
   useEffect(() => {
     const filter = roomId
@@ -423,14 +488,21 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
             return [...prev, msg]
           })
           setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
+          patchMessage(msg)
         }
       })
       .on('postgres_changes', { event: 'UPDATE', schema: 'public', table: 'messages', filter }, (payload) => {
         const u = payload.new as { id: string; content: string; edited_at: string; deleted_at: string | null }
         if (u.deleted_at) {
           setMessages(prev => prev.filter(m => m.id !== u.id))
+          cacheDeleteMessage(u.id)
         } else {
-          setMessages(prev => prev.map(m => m.id === u.id ? { ...m, content: u.content, edited_at: u.edited_at } : m))
+          setMessages(prev => {
+            const next = prev.map(m => m.id === u.id ? { ...m, content: u.content, edited_at: u.edited_at } : m)
+            const updated = next.find(m => m.id === u.id)
+            if (updated) patchMessage(updated)
+            return next
+          })
         }
       })
       // Fallback path for INSERT — Chat Synx events route (and any other
@@ -467,6 +539,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           return [...prev, msg]
         })
         setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
+        patchMessage(msg)
       })
       .subscribe()
 
@@ -483,14 +556,29 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           if (!(r.message_id in prev)) return prev
           const existing = prev[r.message_id] ?? []
           if (existing.some(x => x.user_id === r.user_id && x.emoji === r.emoji)) return prev
-          return { ...prev, [r.message_id]: [...existing, { user_id: r.user_id, emoji: r.emoji }] }
+          const nextReactions = [...existing, { user_id: r.user_id, emoji: r.emoji }]
+          // Keep the cached message's embedded reactions in sync so the next
+          // entry into this scope sees the latest set without waiting for the
+          // server refetch.
+          setMessages(curr => {
+            const msg = curr.find(m => m.id === r.message_id)
+            if (msg) patchMessage({ ...msg, reactions: nextReactions })
+            return curr
+          })
+          return { ...prev, [r.message_id]: nextReactions }
         })
       })
       .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reactions' }, (payload) => {
         const r = payload.old as { message_id: string; user_id: string; emoji: string }
         setRxMap(prev => {
           if (!(r.message_id in prev)) return prev
-          return { ...prev, [r.message_id]: (prev[r.message_id] ?? []).filter(x => !(x.user_id === r.user_id && x.emoji === r.emoji)) }
+          const nextReactions = (prev[r.message_id] ?? []).filter(x => !(x.user_id === r.user_id && x.emoji === r.emoji))
+          setMessages(curr => {
+            const msg = curr.find(m => m.id === r.message_id)
+            if (msg) patchMessage({ ...msg, reactions: nextReactions })
+            return curr
+          })
+          return { ...prev, [r.message_id]: nextReactions }
         })
       })
       .subscribe()
@@ -516,10 +604,22 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
               if (!(row.user_id in prev)) return prev
               const next = { ...prev }
               delete next[row.user_id]
+              // Write through to cache so the next entry reflects this delete.
+              saveReadReceipts(
+                conversationId,
+                Object.entries(next).map(([user_id, last_read_at]) => ({ user_id, last_read_at })),
+              )
               return next
             })
           } else if (row.last_read_at) {
-            setMemberReceipts(prev => ({ ...prev, [row.user_id]: row.last_read_at! }))
+            setMemberReceipts(prev => {
+              const next = { ...prev, [row.user_id]: row.last_read_at! }
+              saveReadReceipts(
+                conversationId,
+                Object.entries(next).map(([user_id, last_read_at]) => ({ user_id, last_read_at })),
+              )
+              return next
+            })
           }
         }
       )
@@ -558,7 +658,10 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   const deleteMessage = useCallback(async (msgId: string) => {
     if (!confirm('Delete this message?')) return
     const res = await fetch(`/api/hub/messages/${msgId}`, { method: 'DELETE' })
-    if (res.ok) setMessages(prev => prev.filter(m => m.id !== msgId))
+    if (res.ok) {
+      setMessages(prev => prev.filter(m => m.id !== msgId))
+      cacheDeleteMessage(msgId)
+    }
   }, [])
 
   const handleForward = useCallback(async (target: ForwardTarget, comment: string) => {
