@@ -8,6 +8,16 @@ import type { HubUser } from './MessageFeed'
 import StatusPicker, { StatusDot } from './StatusPicker'
 import ClientsSidebar from './ClientsSidebar'
 import { CatalogIcon } from './railCatalog'
+import {
+  getConversationsList,
+  saveConversationsList,
+  getUnreadState,
+  saveUnreadState,
+  saveRoomsList,
+  saveHubUsers,
+  evictMissingConvs,
+  evictMissingRooms,
+} from '@/lib/hub-cache'
 
 type Room = { id: string; name: string; is_private: boolean }
 
@@ -193,7 +203,14 @@ export default function HubSidebar({
   const loadConversations = useCallback(() => {
     fetch('/api/hub/conversations')
       .then(r => r.json())
-      .then(d => setConversations(d.conversations ?? []))
+      .then(d => {
+        const fresh = (d.conversations ?? []) as Conversation[]
+        setConversations(fresh)
+        // Write through to cache, then evict any messages cached for convs
+        // that fell out of the fresh list (archived elsewhere, left a DM, etc.)
+        saveConversationsList(fresh)
+        evictMissingConvs(fresh.map(c => c.id))
+      })
       .catch(() => {})
   }, [])
 
@@ -203,6 +220,44 @@ export default function HubSidebar({
       .then(d => setBoards(d.boards ?? []))
       .catch(() => {})
   }, [])
+
+  // Hydrate sidebar from IndexedDB cache for an instant first paint on cold
+  // start, before the network fetches return. Best-effort: if the cache is
+  // empty/disabled/unavailable this no-ops and the empty initial state stays
+  // until the real fetch lands. Only seed state if it's still in the initial
+  // empty form so we don't clobber realtime updates that landed between mount
+  // and cache-read resolution.
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      const [cachedConvs, cachedUnread] = await Promise.all([
+        getConversationsList(),
+        getUnreadState(currentUserId),
+      ])
+      if (cancelled) return
+      if (cachedConvs && cachedConvs.length) {
+        setConversations(prev => (prev.length === 0 ? (cachedConvs as Conversation[]) : prev))
+      }
+      if (cachedUnread) {
+        setUnreadRoomIds(prev => (prev.size === 0 ? new Set(cachedUnread.unread_room_ids) : prev))
+        setUnreadConvIds(prev => (prev.size === 0 ? new Set(cachedUnread.unread_conv_ids) : prev))
+      }
+    })()
+    return () => { cancelled = true }
+  }, [currentUserId])
+
+  // Persist server-rendered rooms + hubUsers to cache. These come from the
+  // layout's SSR fetch, so the cache copy is for downstream consumers
+  // (MessageFeed mention rendering, future cold-start sidebar paint of rooms).
+  // Also evict messages for rooms the user is no longer a member of.
+  useEffect(() => {
+    saveRoomsList(rooms)
+    evictMissingRooms(rooms.map(r => r.id))
+  }, [rooms])
+
+  useEffect(() => {
+    saveHubUsers(hubUsers)
+  }, [hubUsers])
 
   useEffect(() => { loadConversations() }, [loadConversations])
   useEffect(() => { loadBoards() }, [loadBoards])
@@ -232,15 +287,18 @@ export default function HubSidebar({
         .then(r => r.json())
         .then(d => {
           if (cancelled) return
-          setUnreadRoomIds(new Set(d.unread_room_ids ?? []))
-          setUnreadConvIds(new Set(d.unread_conv_ids ?? []))
+          const roomIds = (d.unread_room_ids ?? []) as string[]
+          const convIds = (d.unread_conv_ids ?? []) as string[]
+          setUnreadRoomIds(new Set(roomIds))
+          setUnreadConvIds(new Set(convIds))
+          saveUnreadState(currentUserId, roomIds, convIds)
         })
         .catch(() => {})
     }
     tick()
     const id = setInterval(tick, 60_000)
     return () => { cancelled = true; clearInterval(id) }
-  }, [])
+  }, [currentUserId])
 
   // Realtime: mark rooms/convs unread when new messages arrive
   useEffect(() => {
