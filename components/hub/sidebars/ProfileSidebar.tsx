@@ -24,6 +24,7 @@ export default function ProfileSidebar({
   onOpenNotifPrefs,
   onStatusChanged,
   onClose,
+  onDesktopCollapse,
 }: {
   displayName: string
   userEmail: string
@@ -33,6 +34,7 @@ export default function ProfileSidebar({
   onOpenNotifPrefs?: () => void
   onStatusChanged?: (status: Status) => void
   onClose?: () => void
+  onDesktopCollapse?: () => void
 }) {
   const router = useRouter()
   const [status, setStatus] = useState<Status>(initialStatus as Status)
@@ -61,7 +63,7 @@ export default function ProfileSidebar({
   }
 
   return (
-    <SidebarShell title="You" onClose={onClose}>
+    <SidebarShell title="You" onClose={onClose} onDesktopCollapse={onDesktopCollapse}>
       <div className="px-2 mb-2">
         <div className="flex items-center gap-3 px-2 py-3 rounded-lg bg-white/5">
           <div className="w-12 h-12 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-white text-lg font-bold flex-none">

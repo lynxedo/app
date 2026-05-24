@@ -6,6 +6,7 @@ export default function AdminSidebar({
   grants,
   isSuperAdmin,
   onClose,
+  onDesktopCollapse,
 }: {
   grants: {
     people: boolean
@@ -17,9 +18,10 @@ export default function AdminSidebar({
   }
   isSuperAdmin: boolean
   onClose?: () => void
+  onDesktopCollapse?: () => void
 }) {
   return (
-    <SidebarShell title="Admin" onClose={onClose}>
+    <SidebarShell title="Admin" onClose={onClose} onDesktopCollapse={onDesktopCollapse}>
       {(isSuperAdmin || grants.people) && (
         <SidebarLinkRow href="/hub/admin" icon="👥" label="People" onClose={onClose} />
       )}

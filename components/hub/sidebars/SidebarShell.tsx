@@ -13,12 +13,35 @@ export type SidebarItem = {
   badge?: string | number
 }
 
-export function SidebarHeader({ title, action, onClose }: { title: string; action?: React.ReactNode; onClose?: () => void }) {
+export function SidebarHeader({
+  title,
+  action,
+  onClose,
+  onDesktopCollapse,
+}: {
+  title: string
+  action?: React.ReactNode
+  onClose?: () => void
+  onDesktopCollapse?: () => void
+}) {
   return (
     <div className="flex-none px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2">
       <h2 className="text-base font-bold text-white truncate">{title}</h2>
       <div className="flex items-center gap-1 flex-none">
         {action}
+        {onDesktopCollapse && (
+          <button
+            type="button"
+            onClick={onDesktopCollapse}
+            className="hidden md:flex items-center justify-center text-white/40 hover:text-white/80 transition-colors p-1 rounded"
+            aria-label="Collapse sidebar"
+            title="Collapse sidebar"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        )}
         {onClose && (
           <button
             type="button"
@@ -85,11 +108,13 @@ export default function SidebarShell({
   title,
   action,
   onClose,
+  onDesktopCollapse,
   children,
 }: {
   title: string
   action?: React.ReactNode
   onClose?: () => void
+  onDesktopCollapse?: () => void
   children: React.ReactNode
 }) {
   return (
@@ -97,7 +122,7 @@ export default function SidebarShell({
       className="h-full w-72 bg-[#0F2E47] text-white flex flex-col flex-none border-r border-white/5"
       aria-label={`${title} sidebar`}
     >
-      <SidebarHeader title={title} action={action} onClose={onClose} />
+      <SidebarHeader title={title} action={action} onClose={onClose} onDesktopCollapse={onDesktopCollapse} />
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
         {children}
       </nav>

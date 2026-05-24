@@ -2,7 +2,7 @@
 
 import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
-import { useEffect } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import {
   CatalogIcon,
   SearchIcon,
@@ -81,6 +81,7 @@ export default function HubRail({
   unreadActivity: _unreadActivity, // unused — Activity is now a floating bell
   unreadChat: _unreadChat,
   unreadTxt: _unreadTxt,
+  unreadHub,
   isClockedIn,
   onSearchClick,
   onProfileClick,
@@ -99,6 +100,7 @@ export default function HubRail({
   unreadActivity?: number
   unreadChat?: number
   unreadTxt?: number
+  unreadHub?: boolean
   isClockedIn?: boolean
   onSearchClick: () => void
   onProfileClick: () => void
@@ -119,6 +121,37 @@ export default function HubRail({
 
   const config = normalizeRailConfig(railConfig)
   const slots = config.desktop.map(v => resolveSlot(v, permissions))
+
+  // Scroll-affordance state for the configurable middle section. Updated on
+  // scroll/resize so the up/down chevrons only render when there's actual
+  // overflow to scroll through.
+  const slotsScrollRef = useRef<HTMLDivElement | null>(null)
+  const [canScrollUp, setCanScrollUp] = useState(false)
+  const [canScrollDown, setCanScrollDown] = useState(false)
+  useEffect(() => {
+    const el = slotsScrollRef.current
+    if (!el) return
+    function update() {
+      if (!el) return
+      setCanScrollUp(el.scrollTop > 2)
+      setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 2)
+    }
+    update()
+    el.addEventListener('scroll', update, { passive: true })
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null
+    ro?.observe(el)
+    window.addEventListener('resize', update)
+    return () => {
+      el.removeEventListener('scroll', update)
+      ro?.disconnect()
+      window.removeEventListener('resize', update)
+    }
+  }, [slots.length])
+  function scrollSlots(direction: 'up' | 'down') {
+    const el = slotsScrollRef.current
+    if (!el) return
+    el.scrollBy({ top: direction === 'up' ? -80 : 80, behavior: 'smooth' })
+  }
 
   // Cmd/Ctrl + 1..5 keyboard shortcuts for the fixed primary sections.
   useEffect(() => {
@@ -146,15 +179,27 @@ export default function HubRail({
 
   function handleHubClick(e: React.MouseEvent) {
     e.preventDefault()
-    // If already inside Hub (not on the landing page) AND the sidebar is
-    // open → toggle collapse. Otherwise navigate to last room / DM.
+    // If already inside Hub (not on landing) AND the sidebar is open →
+    // toggle collapse. Otherwise navigate.
     if (active === 'hub' && !collapsed && !isOnLanding) {
       onToggleCollapsed()
       return
     }
+    // Read both keys: hub_last_chat_route (set by HubShell on chat paths)
+    // and hub_last_route (set by HubIdleTracker on every hub route load).
+    // Either one means we can jump directly to a real room/DM.
     let last: string | null = null
-    try { last = localStorage.getItem('hub_last_chat_route') } catch {}
-    router.push(last || '/hub')
+    try {
+      last = localStorage.getItem('hub_last_chat_route') || localStorage.getItem('hub_last_route')
+    } catch {}
+    if (last && last.startsWith('/hub/') && last !== '/hub/home') {
+      router.push(last)
+      return
+    }
+    // Nothing saved — go to /hub with ?source=push to bypass the 14h-idle
+    // redirect (which would send us right back to /hub/home and look like
+    // the click did nothing).
+    router.push('/hub?source=push')
   }
 
   function handleToolsClick(e: React.MouseEvent) {
@@ -232,7 +277,15 @@ export default function HubRail({
           title="Hub"
         >
           <ActiveBar show={active === 'hub'} />
-          <span className={active === 'hub' ? 'text-amber-300' : ''}><CatalogIcon id="hub" /></span>
+          <span className={`relative ${active === 'hub' ? 'text-amber-300' : ''}`}>
+            <CatalogIcon id="hub" />
+            {unreadHub && (
+              <span
+                className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]"
+                aria-label="Unread messages"
+              />
+            )}
+          </span>
           <span>Hub</span>
         </button>
 
@@ -248,10 +301,34 @@ export default function HubRail({
         </Link>
       </div>
 
-      {/* User-configurable slots — scrollable if they overflow. Fade
-          gradients at top and bottom hint at scrollability. */}
+      {/* User-configurable slots — scrollable if they overflow. Explicit
+          up/down chevrons appear only when overflow exists. */}
       <div className="flex-1 min-h-0 relative">
-        <div className="absolute inset-0 overflow-y-auto py-1 flex flex-col">
+        {canScrollUp && (
+          <button
+            type="button"
+            onClick={() => scrollSlots('up')}
+            className="absolute top-0 left-0 right-0 z-10 flex items-center justify-center h-5 bg-gradient-to-b from-[#0a1f33] via-[#0a1f33]/95 to-transparent text-white/60 hover:text-white"
+            aria-label="Scroll rail up"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+            </svg>
+          </button>
+        )}
+        {canScrollDown && (
+          <button
+            type="button"
+            onClick={() => scrollSlots('down')}
+            className="absolute bottom-0 left-0 right-0 z-10 flex items-center justify-center h-5 bg-gradient-to-t from-[#0a1f33] via-[#0a1f33]/95 to-transparent text-white/60 hover:text-white"
+            aria-label="Scroll rail down"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+        )}
+        <div ref={slotsScrollRef} className="absolute inset-0 overflow-y-auto py-1 flex flex-col">
           {slots.map((slot, idx) => {
             if (slot.kind === 'empty') return null
             const isActiveSlot = slot.kind === 'catalog' && active === slot.id
@@ -294,9 +371,6 @@ export default function HubRail({
             )
           })}
         </div>
-        {/* Fade gradients (top/bottom) to hint scrollability */}
-        <div className="pointer-events-none absolute top-0 left-0 right-0 h-3 bg-gradient-to-b from-[#0a1f33] to-transparent" aria-hidden="true" />
-        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-3 bg-gradient-to-t from-[#0a1f33] to-transparent" aria-hidden="true" />
       </div>
 
       {/* Fixed footer: Settings, Admin (gated), You */}

@@ -1,7 +1,45 @@
 'use client'
 
 import { useState } from 'react'
-import SidebarShell, { SidebarLinkRow } from './SidebarShell'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import SidebarShell from './SidebarShell'
+import { CatalogIcon, type CatalogId } from '../railCatalog'
+
+// Single row helper — renders the catalog SVG glyph + a label, with
+// active-state highlighting that matches the Hub sidebar's link rows.
+function ToolRow({
+  href,
+  iconId,
+  label,
+  prefixMatch,
+  onClose,
+}: {
+  href: string
+  iconId: CatalogId
+  label: string
+  prefixMatch?: boolean
+  onClose?: () => void
+}) {
+  const pathname = usePathname() ?? ''
+  const isActive = prefixMatch ? pathname.startsWith(href) : pathname === href
+  return (
+    <Link
+      href={href}
+      onClick={() => onClose?.()}
+      className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+        isActive
+          ? 'bg-[#2E7EB8] text-white font-medium'
+          : 'text-white/70 hover:bg-white/10 hover:text-white'
+      }`}
+    >
+      <span className="text-white/70 flex-none w-5 h-5 flex items-center justify-center">
+        <CatalogIcon id={iconId} />
+      </span>
+      <span className="truncate flex-1">{label}</span>
+    </Link>
+  )
+}
 
 export default function ToolsSidebar({
   isAdmin,
@@ -13,6 +51,7 @@ export default function ToolsSidebar({
   canAccessFleet,
   canAccessTimesheet,
   onClose,
+  onDesktopCollapse,
 }: {
   isAdmin: boolean
   canAccessRouting: boolean
@@ -23,6 +62,7 @@ export default function ToolsSidebar({
   canAccessFleet: boolean
   canAccessTimesheet: boolean
   onClose?: () => void
+  onDesktopCollapse?: () => void
 }) {
   const [open, setOpen] = useState<Record<string, boolean>>({
     operations: true,
@@ -39,7 +79,7 @@ export default function ToolsSidebar({
   const hasFinance = canAccessBooks
 
   return (
-    <SidebarShell title="Tools" onClose={onClose}>
+    <SidebarShell title="Tools" onClose={onClose} onDesktopCollapse={onDesktopCollapse}>
       {hasOperations && (
         <div>
           <button onClick={() => toggle('operations')} className="w-full flex items-center gap-1 px-2 mb-1 group">
@@ -48,9 +88,9 @@ export default function ToolsSidebar({
           </button>
           {open.operations && (
             <>
-              {canAccessRouting && <SidebarLinkRow href="/hub/routing" icon="⚡" label="Routing" prefixMatch onClose={onClose} />}
-              {canAccessTimesheet && <SidebarLinkRow href="/hub/timesheet" icon="⏱" label="Timesheet" prefixMatch onClose={onClose} />}
-              {canAccessFleet && <SidebarLinkRow href="/hub/fleet" icon="🚛" label="Fleet" prefixMatch onClose={onClose} />}
+              {canAccessRouting && <ToolRow href="/hub/routing" iconId="routing" label="Routing" prefixMatch onClose={onClose} />}
+              {canAccessTimesheet && <ToolRow href="/hub/timesheet" iconId="time-records" label="Timesheet" prefixMatch onClose={onClose} />}
+              {canAccessFleet && <ToolRow href="/hub/fleet" iconId="fleet" label="Fleet" prefixMatch onClose={onClose} />}
             </>
           )}
         </div>
@@ -64,8 +104,8 @@ export default function ToolsSidebar({
           </button>
           {open.sales && (
             <>
-              {canAccessTracker && <SidebarLinkRow href="/hub/tracker" icon="🎯" label="Tracker" prefixMatch onClose={onClose} />}
-              {canAccessLawn && <SidebarLinkRow href="/hub/lawn" icon="🌿" label="Lawn Sizer" onClose={onClose} />}
+              {canAccessTracker && <ToolRow href="/hub/tracker" iconId="tracker" label="Tracker" prefixMatch onClose={onClose} />}
+              {canAccessLawn && <ToolRow href="/hub/lawn" iconId="lawn" label="Lawn Sizer" onClose={onClose} />}
             </>
           )}
         </div>
@@ -79,7 +119,7 @@ export default function ToolsSidebar({
           </button>
           {open.communications && (
             <>
-              {canAccessCallLog && <SidebarLinkRow href="/hub/call-log" icon="📞" label="Call Log" prefixMatch onClose={onClose} />}
+              {canAccessCallLog && <ToolRow href="/hub/call-log" iconId="call-log" label="Call Log" prefixMatch onClose={onClose} />}
             </>
           )}
         </div>
@@ -93,7 +133,7 @@ export default function ToolsSidebar({
           </button>
           {open.finance && (
             <>
-              {canAccessBooks && <SidebarLinkRow href="/hub/books" icon="📊" label="Books" prefixMatch onClose={onClose} />}
+              {canAccessBooks && <ToolRow href="/hub/books" iconId="books" label="Books" prefixMatch onClose={onClose} />}
             </>
           )}
         </div>
@@ -106,8 +146,8 @@ export default function ToolsSidebar({
         </button>
         {open.pages && (
           <>
-            <SidebarLinkRow href="/hub/pages/company-news" icon="📰" label="Company News" onClose={onClose} />
-            <SidebarLinkRow href="/hub/files" icon="📁" label="Files" onClose={onClose} />
+            <ToolRow href="/hub/pages/company-news" iconId="company-news" label="Company News" onClose={onClose} />
+            <ToolRow href="/hub/files" iconId="files" label="Files" onClose={onClose} />
           </>
         )}
       </div>

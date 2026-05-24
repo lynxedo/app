@@ -101,8 +101,19 @@ export default function HubShell({
   const [textSize, setTextSize] = useState(initialTextSize ?? 'default')
   const [liveStatus, setLiveStatus] = useState<string | null>(currentUserStatus ?? null)
   const [unreadActivity, setUnreadActivity] = useState<number>(0)
+  const [unreadHub, setUnreadHub] = useState<boolean>(false)
   const [isClockedIn, setIsClockedIn] = useState<boolean>(!!initialIsClockedIn)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
+  // Viewport breakpoint detection — used to skip the mobile-bottom-bar
+  // padding on desktop (no tab bar there).
+  const [isMobile, setIsMobile] = useState(false)
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const update = () => setIsMobile(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
 
   // Sidebar collapsed state — persisted.
   useEffect(() => {
@@ -180,6 +191,27 @@ export default function HubShell({
     return () => { cancelled = true; clearInterval(id) }
   }, [pathname])
 
+  // Any-unread-DM/room poll for the Hub rail icon dot. Reads the same
+  // read-receipts endpoint the sidebar uses; we just collapse to a boolean.
+  useEffect(() => {
+    let cancelled = false
+    function tick() {
+      fetch('/api/hub/read-receipts', { cache: 'no-store' })
+        .then(r => r.ok ? r.json() : { unread_room_ids: [], unread_conv_ids: [] })
+        .then(d => {
+          if (cancelled) return
+          const any =
+            (Array.isArray(d.unread_room_ids) && d.unread_room_ids.length > 0) ||
+            (Array.isArray(d.unread_conv_ids) && d.unread_conv_ids.length > 0)
+          setUnreadHub(any)
+        })
+        .catch(() => {})
+    }
+    tick()
+    const id = setInterval(tick, 60_000)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [pathname])
+
   // Clocked-in status: refresh from API on focus + after Time Clock modal closes
   // (the modal handles the punch itself). Initial value comes from server props.
   const refreshClockedIn = useCallback(() => {
@@ -221,9 +253,10 @@ export default function HubShell({
   }
 
   function renderSidebar() {
+    const collapseProps = { onDesktopCollapse: toggleSidebarCollapsed }
     switch (activeRail) {
       case 'txt':
-        return <TxtSidebar onClose={closeMobileDrawer} />
+        return <TxtSidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'tools':
         return (
           <ToolsSidebar
@@ -236,16 +269,17 @@ export default function HubShell({
             canAccessFleet={!!canAccessFleet}
             canAccessTimesheet={!!canAccessTimesheet}
             onClose={closeMobileDrawer}
+            {...collapseProps}
           />
         )
       case 'links':
-        return <LinksSidebar onClose={closeMobileDrawer} />
+        return <LinksSidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'activity':
-        return <ActivitySidebar onClose={closeMobileDrawer} />
+        return <ActivitySidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'admin':
-        return <AdminSidebar grants={grants} isSuperAdmin={isSuperAdmin} onClose={closeMobileDrawer} />
+        return <AdminSidebar grants={grants} isSuperAdmin={isSuperAdmin} onClose={closeMobileDrawer} {...collapseProps} />
       case 'settings':
-        return <SettingsSidebar onClose={closeMobileDrawer} />
+        return <SettingsSidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'profile':
         return (
           <ProfileSidebar
@@ -257,6 +291,7 @@ export default function HubShell({
             onOpenNotifPrefs={() => setShowNotifPrefs(true)}
             onStatusChanged={s => setLiveStatus(s ?? null)}
             onClose={closeMobileDrawer}
+            {...collapseProps}
           />
         )
       // hub + every other catalog id (tracker, routing, etc.) → Hub sidebar
@@ -272,6 +307,7 @@ export default function HubShell({
             currentUserDisplayName={currentUserDisplayName}
             isAdmin={isAdmin}
             onClose={closeMobileDrawer}
+            onDesktopCollapse={toggleSidebarCollapsed}
             textSize={textSize}
             onTextSizeChange={setTextSize}
             initialPinnedIds={initialPinnedIds ?? []}
@@ -311,6 +347,7 @@ export default function HubShell({
       <HubRail
         showAdmin={showAdminRail}
         unreadActivity={unreadActivity}
+        unreadHub={unreadHub}
         isClockedIn={isClockedIn}
         onSearchClick={() => setShowCompose(true)}
         onProfileClick={() => setManualRail('profile')}
@@ -378,7 +415,12 @@ export default function HubShell({
         <div
           className="flex-1 min-h-0 overflow-hidden flex flex-col"
           style={{
-            paddingBottom: keyboardOpen ? 'env(safe-area-inset-bottom, 0)' : 'calc(env(safe-area-inset-bottom, 0) + 56px)',
+            // Mobile: leave room for the bottom tab bar (~56px + safe area).
+            // Desktop: no bottom bar, no padding — otherwise the composer
+            // would have a huge gap below it.
+            paddingBottom: isMobile
+              ? (keyboardOpen ? 'env(safe-area-inset-bottom, 0)' : 'calc(env(safe-area-inset-bottom, 0) + 56px)')
+              : 0,
           }}
         >
           {children}
@@ -408,6 +450,7 @@ export default function HubShell({
         onToolsClick={() => { setManualRail('tools'); setMobileDrawerOpen(true) }}
         onLinksClick={() => { setManualRail('links'); setMobileDrawerOpen(true) }}
         isClockedIn={isClockedIn}
+        unreadHub={unreadHub}
         permissions={permissions}
         railConfig={initialRailConfig ?? null}
         hidden={keyboardOpen}

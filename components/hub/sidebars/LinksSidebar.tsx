@@ -5,7 +5,7 @@ import SidebarShell, { SidebarLinkRow } from './SidebarShell'
 
 type ExternalLink = { id: string; name: string; url: string; icon: string; sort_order: number }
 
-export default function LinksSidebar({ onClose }: { onClose?: () => void }) {
+export default function LinksSidebar({ onClose, onDesktopCollapse }: { onClose?: () => void; onDesktopCollapse?: () => void }) {
   const [links, setLinks] = useState<ExternalLink[]>([])
   const [loading, setLoading] = useState(true)
 
@@ -19,7 +19,7 @@ export default function LinksSidebar({ onClose }: { onClose?: () => void }) {
   }, [])
 
   return (
-    <SidebarShell title="Links" onClose={onClose}>
+    <SidebarShell title="Links" onClose={onClose} onDesktopCollapse={onDesktopCollapse}>
       {loading && <p className="text-xs text-white/30 px-2 py-1">Loading…</p>}
       {!loading && links.length === 0 && (
         <p className="text-xs text-white/30 px-2 py-1">No external links yet. Admins can add them in Admin → Hub.</p>

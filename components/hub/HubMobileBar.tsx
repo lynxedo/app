@@ -21,6 +21,7 @@ export default function HubMobileBar({
   onToolsClick,
   onLinksClick,
   isClockedIn,
+  unreadHub,
   permissions,
   railConfig,
   hidden,
@@ -32,6 +33,7 @@ export default function HubMobileBar({
   onToolsClick: () => void
   onLinksClick: () => void
   isClockedIn?: boolean
+  unreadHub?: boolean
   permissions: RailPermissions
   railConfig: RailConfig | null
   hidden?: boolean
@@ -42,20 +44,18 @@ export default function HubMobileBar({
   const config = normalizeRailConfig(railConfig)
   const userSlot = config.mobile[0] ?? null
 
-  function chatHref(): string {
-    if (typeof window !== 'undefined') {
-      try {
-        const last = window.localStorage.getItem('hub_last_chat_route')
-        if (last) return last
-      } catch {}
-    }
-    return '/hub'
-  }
-
   function handleHubClick(e: React.MouseEvent) {
     e.preventDefault()
     onHubClick()
-    router.push(chatHref())
+    let last: string | null = null
+    try {
+      last = window.localStorage.getItem('hub_last_chat_route') || window.localStorage.getItem('hub_last_route')
+    } catch {}
+    if (last && last.startsWith('/hub/') && last !== '/hub/home') {
+      router.push(last)
+    } else {
+      router.push('/hub?source=push')
+    }
   }
 
   function renderUserSlot() {
@@ -134,7 +134,15 @@ export default function HubMobileBar({
           active === 'hub' ? 'text-amber-300' : 'text-white/60 hover:text-white'
         }`}
       >
-        <CatalogIcon id="hub" />
+        <span className="relative">
+          <CatalogIcon id="hub" />
+          {unreadHub && (
+            <span
+              className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border border-gray-950"
+              aria-label="Unread messages"
+            />
+          )}
+        </span>
         <span>Hub</span>
       </button>
 

@@ -8,6 +8,7 @@ import type { HubUser } from './MessageFeed'
 import StatusPicker, { StatusDot } from './StatusPicker'
 import NotifPrefsModal from './NotifPrefsModal'
 import ClientsSidebar from './ClientsSidebar'
+import { CatalogIcon } from './railCatalog'
 import HubSearchOverlay from './HubSearchOverlay'
 
 type Room = { id: string; name: string; is_private: boolean }
@@ -878,29 +879,24 @@ export default function HubSidebar({
             <div className="space-y-0.5">
               <button
                 onClick={() => onOpenTimeClock?.()}
-                className="w-full flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors text-white/70 hover:bg-white/10 hover:text-white"
+                className="w-full flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors text-white/70 hover:bg-white/10 hover:text-white"
               >
-                <svg className="w-4 h-4 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 2M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
+                <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="time-clock" /></span>
                 <span className="truncate flex-1 text-left">My Time Clock</span>
               </button>
             </div>
           )}
 
-          {/* Daily Log — second priority entry, matches the rail's daily
-              workflow expectations. */}
+          {/* Daily Log — second priority entry. */}
           <div className="space-y-0.5">
             <Link
               href="/hub/daily-log"
               onClick={() => onClose?.()}
-              className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+              className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
                 pathname.startsWith('/hub/daily-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
               }`}
             >
-              <svg className="w-4 h-4 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h6M9 16h6" />
-              </svg>
+              <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="daily-log" /></span>
               <span className="truncate flex-1">Daily Log</span>
             </Link>
           </div>

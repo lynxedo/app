@@ -2,9 +2,9 @@
 
 import SidebarShell from './SidebarShell'
 
-export default function ActivitySidebar({ onClose }: { onClose?: () => void }) {
+export default function ActivitySidebar({ onClose, onDesktopCollapse }: { onClose?: () => void; onDesktopCollapse?: () => void }) {
   return (
-    <SidebarShell title="Activity" onClose={onClose}>
+    <SidebarShell title="Activity" onClose={onClose} onDesktopCollapse={onDesktopCollapse}>
       <div className="px-2 text-xs text-white/50 leading-relaxed">
         Messages where you were <span className="text-amber-300">@mentioned</span> or replied to in a thread.
       </div>
