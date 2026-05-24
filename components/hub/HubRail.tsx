@@ -95,6 +95,8 @@ export default function HubRail({
   currentUserStatus,
   collapsed,
   onToggleCollapsed,
+  onOpenSidebar,
+  activeManualRail,
   permissions,
   railConfig,
 }: {
@@ -116,12 +118,18 @@ export default function HubRail({
   currentUserStatus?: string | null
   collapsed: boolean
   onToggleCollapsed: () => void
+  onOpenSidebar: () => void
+  activeManualRail?: 'tools' | 'links' | 'profile' | 'activity' | null
   permissions: RailPermissions
   railConfig: RailConfig | null
 }) {
   const pathname = usePathname()
   const router = useRouter()
   const active = railFromPath(pathname)
+  // Effective rail for active-icon detection — manual overrides win for the
+  // pathless rails (tools, links, profile). Means clicking the same icon
+  // again can toggle collapse even when the section has no URL of its own.
+  const effectiveActive: RailId = (activeManualRail as RailId) ?? active
 
   const config = normalizeRailConfig(railConfig)
   const slots = config.desktop.map(v => resolveSlot(v, permissions))
@@ -183,12 +191,14 @@ export default function HubRail({
 
   function handleHubClick(e: React.MouseEvent) {
     e.preventDefault()
-    // If already inside Hub (not on landing) AND the sidebar is open →
-    // toggle collapse. Otherwise navigate.
-    if (active === 'hub' && !collapsed && !isOnLanding) {
+    // Already inside Hub (not on landing) → toggle. Covers both directions:
+    // open → close, AND close → open. Used to only collapse when open.
+    if (active === 'hub' && !isOnLanding) {
       onToggleCollapsed()
       return
     }
+    // Navigating to a different section: always ensure sidebar is visible.
+    onOpenSidebar()
     // Read both keys: hub_last_chat_route (set by HubShell on chat paths)
     // and hub_last_route (set by HubIdleTracker on every hub route load).
     // Either one means we can jump directly to a real room/DM.
@@ -208,14 +218,37 @@ export default function HubRail({
 
   function handleToolsClick(e: React.MouseEvent) {
     e.preventDefault()
-    if (active === 'tools' && !collapsed) { onToggleCollapsed(); return }
+    if (effectiveActive === 'tools') { onToggleCollapsed(); return }
+    onOpenSidebar()
     onToolsClick()
   }
 
   function handleLinksClick(e: React.MouseEvent) {
     e.preventDefault()
-    if (active === 'links' && !collapsed) { onToggleCollapsed(); return }
+    if (effectiveActive === 'links') { onToggleCollapsed(); return }
+    onOpenSidebar()
     onLinksClick()
+  }
+
+  function handleProfileClick(_e: React.MouseEvent) {
+    if (effectiveActive === 'profile') { onToggleCollapsed(); return }
+    onOpenSidebar()
+    onProfileClick()
+  }
+
+  // Used for any nav item that links elsewhere (Txt, Settings, Admin, catalog
+  // slots). Same icon clicked while already on it → toggle collapse and stop
+  // the navigation. Different section → force the sidebar open and let the
+  // Link navigate normally.
+  function handleNavLinkClick(thisRail: RailId) {
+    return (e: React.MouseEvent) => {
+      if (active === thisRail) {
+        e.preventDefault()
+        onToggleCollapsed()
+        return
+      }
+      onOpenSidebar()
+    }
   }
 
   const statusColor =
@@ -295,6 +328,7 @@ export default function HubRail({
 
         <Link
           href="/hub/clients"
+          onClick={handleNavLinkClick('txt')}
           className={railBtnClass(active === 'txt')}
           aria-current={active === 'txt' ? 'page' : undefined}
           title="Client texts"
@@ -341,6 +375,8 @@ export default function HubRail({
                 if (slot.id === 'tools') { handleToolsClick(e); return }
                 if (slot.id === 'links') { handleLinksClick(e); return }
                 if (slot.id === 'activity') { e.preventDefault(); onActivityClick(); return }
+                // Generic navigable slot: same icon → toggle collapse; else open.
+                handleNavLinkClick(slot.id)(e)
               }
               const cls = railBtnClass(isActiveSlot)
               const body = (
@@ -381,6 +417,7 @@ export default function HubRail({
       <div className="flex-none flex flex-col border-t border-white/5">
         <Link
           href="/hub/settings"
+          onClick={handleNavLinkClick('settings')}
           className={railBtnClass(active === 'settings')}
           aria-current={active === 'settings' ? 'page' : undefined}
           title="Settings"
@@ -392,6 +429,7 @@ export default function HubRail({
         {showAdmin && (
           <Link
             href="/hub/admin"
+            onClick={handleNavLinkClick('admin')}
             className={railBtnClass(active === 'admin')}
             aria-current={active === 'admin' ? 'page' : undefined}
             title="Admin"
@@ -403,7 +441,7 @@ export default function HubRail({
         )}
         <button
           type="button"
-          onClick={onProfileClick}
+          onClick={handleProfileClick}
           className="relative flex flex-col items-center justify-center gap-0.5 py-3 text-[10px] font-medium text-white/55 hover:text-white hover:bg-white/5 transition-colors"
           title={currentUserDisplayName ?? 'You'}
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0) + 0.75rem)' }}

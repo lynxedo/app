@@ -54,15 +54,6 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Smart presence: bump last_active_at on every Hub route load (fire-and-forget).
-  // Drives the salaried/unlinked path of hub_users_with_presence.effective_status.
-  markActive(user.id)
-  // Fire a going-online broadcast so other clients' sidebars flip live without
-  // waiting for their next conversations refetch (the "Kathryn never opens a
-  // DM" case). Awaited because Realtime channel send must complete before the
-  // server response teardown.
-  await broadcastPresenceForUser(user.id)
-
   const admin = createAdminClient()
   const now = new Date().toISOString()
   const [memberRoomsResult, hubUsersResult, meResult, profileResult, announcementsResult, myPresenceResult] = await Promise.all([
@@ -72,7 +63,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       .select('room_id, rooms!inner(id, name, is_private, archived_at)')
       .eq('user_id', user.id),
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
-    supabase.from('hub_users').select('display_name, status, avatar_url').eq('id', user.id).single(),
+    supabase.from('hub_users').select('display_name, status, avatar_url, last_active_at').eq('id', user.id).single(),
     supabase.from('user_profiles').select('role, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_lawn, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, rail_config').eq('id', user.id).single(),
     // Active rows for BOTH types — DB returns latest first; we keep newest per type below.
     supabase
@@ -85,6 +76,23 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     // client should run the 2h idle timer (only for activity-path users).
     admin.from('hub_users_with_presence').select('pay_type, employee_id').eq('id', user.id).single(),
   ])
+
+  // Smart presence: bump last_active_at on every Hub route load (fire-and-forget).
+  // Drives the salaried/unlinked path of hub_users_with_presence.effective_status.
+  markActive(user.id)
+  // Going-online broadcast — only fire when the user has actually crossed an
+  // inactivity threshold (i.e. their effective_status likely changed from
+  // offline → available). Within an active session this is a no-op, which
+  // matters because the broadcast does multiple Realtime round-trips and
+  // adds noticeable latency to every Hub page navigation (especially on
+  // mobile cellular). 5-minute threshold matches typical "still around" feel.
+  {
+    const prev = meResult.data?.last_active_at
+    const wasIdle = !prev || (Date.now() - new Date(prev).getTime()) > 5 * 60 * 1000
+    if (wasIdle) {
+      await broadcastPresenceForUser(user.id)
+    }
+  }
 
   // Server-side clocked-in lookup so the rail / mobile bar icon has the
   // correct dot on first paint. Hourly users only.

@@ -60,7 +60,7 @@ export default function DMHeader({
   }, [solo])
 
   return (
-    <header className="flex-none border-b border-gray-800 px-5 py-3 flex items-center gap-3">
+    <header data-hide-on-keyboard className="flex-none border-b border-gray-800 px-5 py-3 flex items-center gap-3">
       {solo ? (
         <StatusDot status={effectiveStatus ?? manualStatus ?? null} />
       ) : (

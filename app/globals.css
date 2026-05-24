@@ -67,3 +67,14 @@ html.text-size-large  { font-size: 19px; }
 .no-scrollbar::-webkit-scrollbar {
   display: none;
 }
+
+/* Mobile composer-focus: when the soft keyboard is open, hide chrome that
+   competes for screen space (room/DM/client header). HubShell toggles the
+   body attribute via the Visual Viewport API; HubShell also renders the
+   floating < back button that replaces the hidden header for one-tap
+   access back to the sidebar. Desktop is unaffected. */
+@media (max-width: 767px) {
+  body[data-keyboard-open="true"] [data-hide-on-keyboard] {
+    display: none !important;
+  }
+}

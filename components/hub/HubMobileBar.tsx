@@ -16,6 +16,7 @@ import {
 export default function HubMobileBar({
   onMoreClick,
   onHubClick,
+  onTxtClick,
   onTimeClockClick,
   onToolsClick,
   onLinksClick,
@@ -30,6 +31,7 @@ export default function HubMobileBar({
 }: {
   onMoreClick: () => void
   onHubClick: () => void
+  onTxtClick: () => void
   onTimeClockClick: () => void
   onToolsClick: () => void
   onLinksClick: () => void
@@ -64,6 +66,21 @@ export default function HubMobileBar({
       router.push(last)
     } else {
       router.push('/hub?source=push')
+    }
+  }
+
+  function handleTxtClick(e: React.MouseEvent) {
+    e.preventDefault()
+    // Tap-to-toggle: if already on a txt path with drawer open, close it.
+    if (drawerOpen && active === 'txt' && !activeManualRail) {
+      onCloseDrawer?.()
+      return
+    }
+    onTxtClick()
+    // If already on /hub/clients/*, just open the drawer; don't re-navigate
+    // (which would reset to the placeholder and drop the open conversation).
+    if (active !== 'txt') {
+      router.push('/hub/clients')
     }
   }
 
@@ -164,15 +181,16 @@ export default function HubMobileBar({
       </button>
 
       {/* Txt */}
-      <Link
-        href="/hub/clients"
+      <button
+        type="button"
+        onClick={handleTxtClick}
         className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors ${
           active === 'txt' ? 'text-amber-300' : 'text-white/60 hover:text-white'
         }`}
       >
         <CatalogIcon id="txt" />
         <span>Txt</span>
-      </Link>
+      </button>
 
       {/* User-configurable slot */}
       {renderUserSlot()}

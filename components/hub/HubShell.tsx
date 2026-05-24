@@ -129,6 +129,16 @@ export default function HubShell({
       return next
     })
   }, [])
+  // Force the sidebar open (no toggle). Used when rail icons navigate to a
+  // different section — Ben's UX rule: clicking a nav icon should make the
+  // sidebar visible regardless of its prior collapsed state.
+  const openSidebar = useCallback(() => {
+    setSidebarCollapsed(prev => {
+      if (!prev) return prev
+      try { localStorage.setItem('hub-sidebar-collapsed', '0') } catch {}
+      return false
+    })
+  }, [])
 
   // Remember last chat path for the rail's Hub icon to jump back to.
   useEffect(() => {
@@ -143,6 +153,18 @@ export default function HubShell({
     html.classList.remove('text-size-small', 'text-size-default', 'text-size-large')
     html.classList.add(`text-size-${textSize}`)
   }, [textSize])
+
+  // Mirror keyboardOpen onto the body so CSS can react. Headers tagged with
+  // data-hide-on-keyboard collapse on mobile when the composer is focused.
+  useEffect(() => {
+    if (typeof document === 'undefined') return
+    if (keyboardOpen) {
+      document.body.setAttribute('data-keyboard-open', 'true')
+    } else {
+      document.body.removeAttribute('data-keyboard-open')
+    }
+    return () => { document.body.removeAttribute('data-keyboard-open') }
+  }, [keyboardOpen])
 
   // Visual Viewport: track scroll offset for iOS fixed-bar following AND
   // detect keyboard-open (height shrink) so we can hide mobile chrome.
@@ -335,6 +357,9 @@ export default function HubShell({
   // Landing page has no useful sidebar — hide the in-flow sidebar there.
   // Otherwise show unless explicitly collapsed.
   const hideSidebarDesktop = pathname.startsWith('/hub/home') || sidebarCollapsed
+  // Inert when sidebar is collapsed on desktop, so its inner buttons aren't
+  // focusable / hit-testable while it's at 0 width.
+  const sidebarInert = hideSidebarDesktop && !mobileDrawerOpen
 
 
   return (
@@ -365,6 +390,8 @@ export default function HubShell({
         currentUserStatus={liveStatus}
         collapsed={sidebarCollapsed}
         onToggleCollapsed={toggleSidebarCollapsed}
+        onOpenSidebar={openSidebar}
+        activeManualRail={manualRail}
         permissions={permissions}
         railConfig={initialRailConfig ?? null}
       />
@@ -374,12 +401,43 @@ export default function HubShell({
           fixed top-0 left-0 z-50 md:relative md:z-auto md:inset-y-0 md:bottom-auto
           transform transition-transform duration-200 ease-in-out
           ${mobileDrawerOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-          ${hideSidebarDesktop ? 'md:hidden' : ''}
+          md:overflow-hidden md:transition-[width] md:duration-200 md:ease-in-out
+          ${hideSidebarDesktop ? 'md:w-0' : 'md:w-72'}
         `}
         style={{ bottom: 'calc(env(safe-area-inset-bottom, 0) + 56px)' }}
+        aria-hidden={sidebarInert ? true : undefined}
+        inert={sidebarInert ? true : undefined}
       >
         {renderSidebar()}
       </div>
+
+      {/* Mobile: floating < back chevron shown while the soft keyboard is up
+          on a chat path. Replaces the hidden room/DM/client header so the
+          user can still get back to the sidebar one-handed without dismissing
+          the keyboard. CSS in globals.css hides the headers via
+          data-hide-on-keyboard. */}
+      {keyboardOpen && (() => {
+        const r = railFromPath(pathname)
+        const isChat =
+          pathname.startsWith('/hub/pm/') ||
+          (pathname.startsWith('/hub/clients/') && pathname !== '/hub/clients/') ||
+          (r === 'hub' && pathname !== '/hub' && !pathname.startsWith('/hub/home'))
+        if (!isChat) return null
+        return (
+          <button
+            type="button"
+            onClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
+            className="md:hidden fixed left-2 z-40 w-9 h-9 rounded-full bg-gray-900/80 backdrop-blur border border-white/10 text-white/80 hover:text-white flex items-center justify-center shadow-lg"
+            style={{ top: 'calc(env(safe-area-inset-top, 0) + 6px)' }}
+            aria-label="Back to sidebar"
+            title="Back"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+            </svg>
+          </button>
+        )
+      })()}
 
       {/* Desktop-only reopen chevron — visible whenever the sidebar is
           collapsed (works in every section, not just chat/tools/links). */}
@@ -448,6 +506,7 @@ export default function HubShell({
       <HubMobileBar
         onMoreClick={() => setShowMobileMore(true)}
         onHubClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
+        onTxtClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
         onTimeClockClick={() => setShowTimeClock(true)}
         onToolsClick={() => { setManualRail('tools'); setMobileDrawerOpen(true) }}
         onLinksClick={() => { setManualRail('links'); setMobileDrawerOpen(true) }}

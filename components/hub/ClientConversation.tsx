@@ -112,7 +112,7 @@ export default function ClientConversation({
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex-none px-4 py-3 border-b border-gray-800 flex items-center gap-3">
+      <div data-hide-on-keyboard className="flex-none px-4 py-3 border-b border-gray-800 flex items-center gap-3">
         <div className="w-9 h-9 rounded-full bg-[#1A3D5C] flex items-center justify-center text-sm font-bold text-white flex-none">
           {initialContact.name.slice(0, 1).toUpperCase()}
         </div>

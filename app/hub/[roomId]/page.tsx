@@ -77,7 +77,7 @@ export default async function RoomPage({
 
   return (
     <div className="flex flex-col flex-1 min-h-0">
-      <header className="flex-none border-b border-gray-800 px-5 py-3 flex items-center gap-3">
+      <header data-hide-on-keyboard className="flex-none border-b border-gray-800 px-5 py-3 flex items-center gap-3">
         <span className="text-gray-400 text-lg">{room.is_private ? '🔒' : '#'}</span>
         <div className="flex-1 min-w-0">
           <h1 className="font-semibold text-white leading-tight">{room.name}</h1>
