@@ -12,7 +12,7 @@ export default async function HubAdminLayout({ children }: { children: React.Rea
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log')
+    .select('role, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer')
     .eq('id', user.id)
     .single()
 
@@ -24,7 +24,8 @@ export default async function HubAdminLayout({ children }: { children: React.Rea
       profile.can_admin_routing ||
       profile.can_admin_timesheet ||
       profile.can_admin_fleet ||
-      profile.can_admin_daily_log
+      profile.can_admin_daily_log ||
+      profile.can_admin_zone_sizer
     )
   )
   if (!isSuperAdmin && !hasAnyGrant) redirect('/hub/home')
@@ -41,6 +42,7 @@ export default async function HubAdminLayout({ children }: { children: React.Rea
             timesheet: !!profile?.can_admin_timesheet,
             fleet: !!profile?.can_admin_fleet,
             daily_log: !!profile?.can_admin_daily_log,
+            zone_sizer: !!profile?.can_admin_zone_sizer,
           }}
         />
       </div>

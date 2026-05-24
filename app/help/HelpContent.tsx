@@ -53,6 +53,7 @@ const TABS = [
   { id: 'hub',          icon: '💬', label: 'Hub' },
   { id: 'routing',      icon: '⚡', label: 'Route Optimizer' },
   { id: 'lawn-sizer',   icon: '🌿', label: 'Lawn Sizer' },
+  { id: 'zone-sizer',   icon: '💧', label: 'Zone Sizer' },
   { id: 'call-log',     icon: '📞', label: 'Call Log' },
   { id: 'books',        icon: '📊', label: 'Books' },
   { id: 'timesheet',    icon: '🕐', label: 'Timesheet' },
@@ -126,6 +127,7 @@ export default function HelpContent() {
         {activeTab === 'hub'        && <HubTab />}
         {activeTab === 'routing'    && <RoutingTab />}
         {activeTab === 'lawn-sizer' && <LawnSizerTab />}
+        {activeTab === 'zone-sizer' && <ZoneSizerTab />}
         {activeTab === 'call-log'   && <CallLogTab />}
         {activeTab === 'books'      && <BooksTab />}
         {activeTab === 'timesheet'  && <TimesheetTab />}
@@ -598,6 +600,45 @@ function LawnSizerTab() {
         </ul>
         <Note>Pool presence is detected. If a pool is found, it&apos;s noted in the result — pools affect hardscape area and shift the lawn estimate.</Note>
       </Section>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// ZONE SIZER
+// ──────────────────────────────────────────────────────────────────────────
+
+function ZoneSizerTab() {
+  return (
+    <>
+      <Section title="What It Does">
+        <p>Zone Sizer estimates how many irrigation zones a residential property needs. It uses the same satellite imagery and Claude Vision analysis as Lawn Sizer, plus auto-detection of landscape beds, and converts those areas into zone counts using your company&apos;s configured square-feet-per-zone rates.</p>
+        <Note>Zone Sizer always runs in <strong className="text-white">Advanced mode</strong> (3 AI analyses averaged). Each estimate takes 15–30 seconds — accuracy matters more than speed for irrigation quoting.</Note>
+      </Section>
+
+      <Section title="How to Use It">
+        <Step n={1}><strong className="text-white">Enter the property address</strong> and tap <strong className="text-white">Estimate zones</strong>.</Step>
+        <Step n={2}>Wait 15–30 seconds while Lynxedo pulls the satellite imagery, identifies turf and landscape beds, and computes zone counts.</Step>
+        <Step n={3}>Review the result panel: turf square footage and lawn zones, beds square footage and bed zones, plus a confidence badge.</Step>
+        <Step n={4}>If the auto-detected bed area looks wrong, tap the bed number and edit it. The bed zone count recalculates as you type. Tap <strong className="text-white">reset</strong> to go back to the auto value.</Step>
+      </Section>
+
+      <Section title="Reading the Results">
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Turf sq ft</strong> — the area a mowing crew would service, after subtracting hardscape and heavy canopy</li>
+          <li><strong className="text-white">Lawn zones</strong> — turf sq ft divided by the configured turf-per-zone rate (default 1,000), rounded up</li>
+          <li><strong className="text-white">Beds sq ft</strong> — landscape bed area (mulched/planted) detected from above</li>
+          <li><strong className="text-white">Bed zones</strong> — bed sq ft divided by the configured bed-per-zone rate (default 1,000), rounded up</li>
+          <li><strong className="text-white">Total zones</strong> — lawn zones + bed zones, highlighted in the blue summary band</li>
+          <li><strong className="text-white">Confidence</strong> — HIGH ✅, MEDIUM ⚠️, or FLAG 🚩, same scale as Lawn Sizer</li>
+        </ul>
+        <Note>Obstacles like driveways and sidewalks are already excluded by Claude Vision when it identifies turf and beds — the numbers you see are net.</Note>
+      </Section>
+
+      <AdminOnly>
+        <p>Admins configure the per-zone square footage under <strong className="text-white">/admin/zone-sizer</strong>. Defaults are 1,000 sq ft per zone for both turf and beds. Raise the bed rate if you use drip or microspray that covers more area per zone.</p>
+        <p>Each user must have the <em>Zone Sizer</em> permission enabled in Admin → People to use the tool.</p>
+      </AdminOnly>
     </>
   )
 }

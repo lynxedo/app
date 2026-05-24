@@ -10,6 +10,7 @@ type Grants = {
   timesheet: boolean
   fleet: boolean
   daily_log: boolean
+  zone_sizer: boolean
 }
 
 const TABS: { href: string; label: string; exact: boolean; grantKey: keyof Grants }[] = [
@@ -19,6 +20,7 @@ const TABS: { href: string; label: string; exact: boolean; grantKey: keyof Grant
   { href: '/hub/admin/timesheet', label: 'Time Records', exact: false, grantKey: 'timesheet' },
   { href: '/hub/admin/fleet', label: 'Fleet', exact: false, grantKey: 'fleet' },
   { href: '/hub/admin/daily-log', label: 'Daily Log', exact: false, grantKey: 'daily_log' },
+  { href: '/hub/admin/zone-sizer', label: 'Zone Sizer', exact: false, grantKey: 'zone_sizer' },
 ]
 
 export default function AdminTabNav({

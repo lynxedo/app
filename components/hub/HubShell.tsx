@@ -52,6 +52,7 @@ export default function HubShell({
   canAccessRouting,
   canAccessBooks,
   canAccessFleet,
+  canAccessZoneSizer,
   myPresenceMode,
   children,
 }: {
@@ -70,6 +71,7 @@ export default function HubShell({
     timesheet: boolean
     fleet: boolean
     daily_log: boolean
+    zone_sizer: boolean
   }
   initialActiveAnnouncements?: Announcement[]
   initialTextSize?: string
@@ -83,6 +85,7 @@ export default function HubShell({
   canAccessRouting?: boolean
   canAccessBooks?: boolean
   canAccessFleet?: boolean
+  canAccessZoneSizer?: boolean
   myPresenceMode?: 'clock' | 'activity'
   children: React.ReactNode
 }) {
@@ -237,12 +240,12 @@ export default function HubShell({
 
   const grants = adminGrants ?? {
     people: !!isAdmin, hub: !!isAdmin, routing: !!isAdmin,
-    timesheet: !!isAdmin, fleet: !!isAdmin, daily_log: !!isAdmin,
+    timesheet: !!isAdmin, fleet: !!isAdmin, daily_log: !!isAdmin, zone_sizer: !!isAdmin,
   }
   const isSuperAdmin = !!isAdmin
   const showAdminRail =
     isSuperAdmin || grants.people || grants.hub || grants.routing ||
-    grants.timesheet || grants.fleet || grants.daily_log
+    grants.timesheet || grants.fleet || grants.daily_log || grants.zone_sizer
 
   const permissions: RailPermissions = {
     isAdmin: !!isAdmin,
@@ -253,6 +256,7 @@ export default function HubShell({
     canAccessLawn: !!canAccessLawn,
     canAccessCallLog: !!canAccessCallLog,
     canAccessTimesheet: !!canAccessTimesheet,
+    canAccessZoneSizer: !!canAccessZoneSizer,
   }
 
   function renderSidebar() {
@@ -267,6 +271,7 @@ export default function HubShell({
             canAccessRouting={!!canAccessRouting}
             canAccessTracker={!!canAccessTracker}
             canAccessLawn={!!canAccessLawn}
+            canAccessZoneSizer={!!canAccessZoneSizer}
             canAccessCallLog={!!canAccessCallLog}
             canAccessBooks={!!canAccessBooks}
             canAccessFleet={!!canAccessFleet}
@@ -321,6 +326,7 @@ export default function HubShell({
             canAccessTracker={canAccessTracker}
             canAccessCallLog={canAccessCallLog}
             canAccessLawn={canAccessLawn}
+            canAccessZoneSizer={canAccessZoneSizer}
             canAccessTimesheet={canAccessTimesheet}
             canAccessRouting={canAccessRouting}
             canAccessBooks={canAccessBooks}

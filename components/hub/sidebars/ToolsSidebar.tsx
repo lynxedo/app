@@ -46,6 +46,7 @@ export default function ToolsSidebar({
   canAccessRouting,
   canAccessTracker,
   canAccessLawn,
+  canAccessZoneSizer,
   canAccessCallLog,
   canAccessBooks,
   canAccessFleet,
@@ -57,6 +58,7 @@ export default function ToolsSidebar({
   canAccessRouting: boolean
   canAccessTracker: boolean
   canAccessLawn: boolean
+  canAccessZoneSizer: boolean
   canAccessCallLog: boolean
   canAccessBooks: boolean
   canAccessFleet: boolean
@@ -74,7 +76,7 @@ export default function ToolsSidebar({
   const toggle = (k: string) => setOpen(p => ({ ...p, [k]: !p[k] }))
 
   const hasOperations = canAccessRouting || canAccessFleet || canAccessTimesheet || isAdmin
-  const hasSales = canAccessTracker || canAccessLawn
+  const hasSales = canAccessTracker || canAccessLawn || canAccessZoneSizer
   const hasComms = canAccessCallLog
   const hasFinance = canAccessBooks
 
@@ -106,6 +108,7 @@ export default function ToolsSidebar({
             <>
               {canAccessTracker && <ToolRow href="/hub/tracker" iconId="tracker" label="Tracker" prefixMatch onClose={onClose} />}
               {canAccessLawn && <ToolRow href="/hub/lawn" iconId="lawn" label="Lawn Sizer" onClose={onClose} />}
+              {canAccessZoneSizer && <ToolRow href="/hub/zone-sizer" iconId="zone-sizer" label="Zone Sizer" onClose={onClose} />}
             </>
           )}
         </div>
