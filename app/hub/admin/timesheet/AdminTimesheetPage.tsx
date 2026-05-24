@@ -391,19 +391,7 @@ export default function AdminTimesheetPage() {
   const isCurrentWeek = toDateStr(weekStart) === toDateStr(getWeekStart())
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      {/* Header */}
-      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-3">
-          <Link href="/hub/admin" className="text-gray-500 hover:text-white transition-colors text-sm">← Admin</Link>
-          <span className="text-gray-700">/</span>
-          <span className="font-semibold">Timesheet</span>
-        </div>
-        <Link href="/timesheet" className="text-sm text-gray-400 hover:text-white transition-colors">
-          My Clock →
-        </Link>
-      </header>
-
+    <div className="bg-gray-950 text-white">
       <main className="max-w-5xl mx-auto px-4 py-6">
 
         {/* Week nav + tabs */}

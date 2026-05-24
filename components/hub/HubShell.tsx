@@ -301,7 +301,11 @@ export default function HubShell({
     <HubTextSizeContext.Provider value={textSize}>
     <div className="flex h-[100dvh] bg-gray-950 text-white overflow-hidden">
       {mobileDrawerOpen && (
-        <div className="fixed inset-0 z-40 bg-black/60 md:hidden" onClick={closeMobileDrawer} />
+        <div
+          className="fixed left-0 right-0 top-0 z-40 bg-black/60 md:hidden"
+          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0) + 56px)' }}
+          onClick={closeMobileDrawer}
+        />
       )}
 
       <HubRail
@@ -322,12 +326,15 @@ export default function HubShell({
         railConfig={initialRailConfig ?? null}
       />
 
-      <div className={`
-        fixed inset-y-0 left-0 z-50 md:relative md:z-auto
-        transform transition-transform duration-200 ease-in-out
-        ${mobileDrawerOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
-        ${hideSidebarDesktop ? 'md:hidden' : ''}
-      `}>
+      <div
+        className={`
+          fixed top-0 left-0 z-50 md:relative md:z-auto md:inset-y-0 md:bottom-auto
+          transform transition-transform duration-200 ease-in-out
+          ${mobileDrawerOpen ? 'translate-x-0' : '-translate-x-full md:translate-x-0'}
+          ${hideSidebarDesktop ? 'md:hidden' : ''}
+        `}
+        style={{ bottom: 'calc(env(safe-area-inset-bottom, 0) + 56px)' }}
+      >
         {renderSidebar()}
       </div>
 

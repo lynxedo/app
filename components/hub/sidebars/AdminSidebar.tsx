@@ -19,7 +19,7 @@ export default function AdminSidebar({
   onClose?: () => void
 }) {
   return (
-    <SidebarShell title="Admin">
+    <SidebarShell title="Admin" onClose={onClose}>
       {(isSuperAdmin || grants.people) && (
         <SidebarLinkRow href="/hub/admin" icon="👥" label="People" onClose={onClose} />
       )}

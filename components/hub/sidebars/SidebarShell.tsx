@@ -13,11 +13,23 @@ export type SidebarItem = {
   badge?: string | number
 }
 
-export function SidebarHeader({ title, action }: { title: string; action?: React.ReactNode }) {
+export function SidebarHeader({ title, action, onClose }: { title: string; action?: React.ReactNode; onClose?: () => void }) {
   return (
-    <div className="flex-none px-4 py-3 border-b border-white/10 flex items-center justify-between">
+    <div className="flex-none px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2">
       <h2 className="text-base font-bold text-white truncate">{title}</h2>
-      {action}
+      <div className="flex items-center gap-1 flex-none">
+        {action}
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="md:hidden text-white/50 hover:text-white p-1 rounded"
+            aria-label="Close sidebar"
+          >
+            ✕
+          </button>
+        )}
+      </div>
     </div>
   )
 }
@@ -72,10 +84,12 @@ export function SidebarLinkRow({
 export default function SidebarShell({
   title,
   action,
+  onClose,
   children,
 }: {
   title: string
   action?: React.ReactNode
+  onClose?: () => void
   children: React.ReactNode
 }) {
   return (
@@ -83,7 +97,7 @@ export default function SidebarShell({
       className="h-full w-72 bg-[#0F2E47] text-white flex flex-col flex-none border-r border-white/5"
       aria-label={`${title} sidebar`}
     >
-      <SidebarHeader title={title} action={action} />
+      <SidebarHeader title={title} action={action} onClose={onClose} />
       <nav className="flex-1 overflow-y-auto py-3 px-2 space-y-4">
         {children}
       </nav>

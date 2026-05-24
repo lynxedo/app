@@ -1,5 +1,4 @@
 import { redirect } from 'next/navigation'
-import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 import { isJobberConnected } from '@/lib/jobber'
 import SettingsForm from './SettingsForm'
@@ -65,28 +64,11 @@ export default async function SettingsPage() {
   }
 
   return (
-    <div className="min-h-screen bg-gray-950 text-white">
-      {/* Nav */}
-      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link
-            href="/hub"
-            className="text-gray-400 hover:text-white text-sm transition-colors"
-          >
-            ← Hub
-          </Link>
-          <h1 className="text-xl font-bold tracking-tight">Settings</h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <span className="text-sm text-gray-400">{user.email}</span>
-          <Link href="/help" className="text-gray-400 hover:text-white transition-colors text-lg leading-none font-bold" title="Help">
-            ?
-          </Link>
-        </div>
+    <div className="flex-1 min-h-0 overflow-y-auto bg-gray-950 text-white">
+      <header className="px-4 md:px-6 pt-4 pb-2">
+        <h1 className="text-xl md:text-2xl font-bold tracking-tight">Settings</h1>
       </header>
-
-      {/* Main */}
-      <main className="max-w-2xl mx-auto px-6 py-10">
+      <main className="max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-10">
         <SettingsForm
           email={user.email ?? ''}
           userId={user.id}

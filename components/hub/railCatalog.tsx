@@ -115,10 +115,12 @@ export function SettingsIcon() { return <I d={PATHS.settings} /> }
 export function AdminIcon() { return <I d={PATHS.admin} /> }
 
 // Catalog definition. Order is the order they appear in the picker.
+// Note: 'activity' is NOT pickable — the floating bell in the top-right is
+// always present and is the only Activity entry point.
 export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'tools',        label: 'Tools',         pickable: true },
   { id: 'links',        label: 'Links',         pickable: true },
-  { id: 'activity',     label: 'Activity',      pickable: true },
+  { id: 'activity',     label: 'Activity',      pickable: false },
   { id: 'daily-log',    label: 'Daily Log',     href: '/hub/daily-log', prefixMatch: true, pickable: true },
   { id: 'tracker',      label: 'Tracker',       href: '/hub/tracker', prefixMatch: true, pickable: true, requires: 'canAccessTracker' },
   { id: 'routing',      label: 'Routing',       href: '/hub/routing', prefixMatch: true, pickable: true, requires: 'canAccessRouting' },
@@ -146,7 +148,7 @@ export function catalogById(id: CatalogId, perms: RailPermissions): CatalogEntry
 
 // Default rail config when the user hasn't set one yet.
 export const DEFAULT_RAIL_CONFIG: { desktop: (CatalogId | null)[]; mobile: (CatalogId | null)[] } = {
-  desktop: ['activity', 'tools', 'links', null],
+  desktop: ['tools', 'links', 'daily-log', null],
   mobile:  ['tools'],
 }
 

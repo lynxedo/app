@@ -62,6 +62,9 @@ type SlotItem =
 
 function resolveSlot(value: CatalogId | string | null, perms: RailPermissions): SlotItem {
   if (!value) return { kind: 'empty' }
+  // Activity is always the floating bell now — silently ignore old configs
+  // that still have 'activity' in a rail slot.
+  if (value === 'activity') return { kind: 'empty' }
   if (typeof value === 'string' && value.startsWith('url:')) {
     const url = value.slice(4)
     let label = url
@@ -139,9 +142,16 @@ export default function HubRail({
     return () => document.removeEventListener('keydown', onKey)
   }, [router, onTimeClockClick, onActivityClick, onToolsClick])
 
+  const isOnLanding = !!pathname && pathname.startsWith('/hub/home')
+
   function handleHubClick(e: React.MouseEvent) {
     e.preventDefault()
-    if (active === 'hub' && !collapsed) { onToggleCollapsed(); return }
+    // If already inside Hub (not on the landing page) AND the sidebar is
+    // open → toggle collapse. Otherwise navigate to last room / DM.
+    if (active === 'hub' && !collapsed && !isOnLanding) {
+      onToggleCollapsed()
+      return
+    }
     let last: string | null = null
     try { last = localStorage.getItem('hub_last_chat_route') } catch {}
     router.push(last || '/hub')
@@ -197,8 +207,8 @@ export default function HubRail({
 
       <div className="h-px bg-white/5 mx-3" />
 
-      <div className="flex-1 flex flex-col py-1 overflow-y-auto">
-        {/* Fixed: Time Clock */}
+      {/* Fixed primary section — Clock, Hub, Txt never scroll */}
+      <div className="flex-none flex flex-col py-1">
         <button
           type="button"
           onClick={onTimeClockClick}
@@ -214,7 +224,6 @@ export default function HubRail({
           <span>Clock</span>
         </button>
 
-        {/* Fixed: Hub */}
         <button
           type="button"
           onClick={handleHubClick}
@@ -227,7 +236,6 @@ export default function HubRail({
           <span>Hub</span>
         </button>
 
-        {/* Fixed: Txt */}
         <Link
           href="/hub/clients"
           className={railBtnClass(active === 'txt')}
@@ -238,53 +246,61 @@ export default function HubRail({
           <span className={active === 'txt' ? 'text-amber-300' : ''}><CatalogIcon id="txt" /></span>
           <span>Txt</span>
         </Link>
+      </div>
 
-        {/* User-configurable slots */}
-        {slots.map((slot, idx) => {
-          if (slot.kind === 'empty') return null
-          const isActiveSlot = slot.kind === 'catalog' && active === slot.id
-          if (slot.kind === 'catalog') {
-            const onClick = (e: React.MouseEvent) => {
-              if (slot.id === 'tools') { handleToolsClick(e); return }
-              if (slot.id === 'links') { handleLinksClick(e); return }
-              if (slot.id === 'activity') { e.preventDefault(); onActivityClick(); return }
-            }
-            const cls = railBtnClass(isActiveSlot)
-            const body = (
-              <>
-                <ActiveBar show={isActiveSlot} />
-                <span className={isActiveSlot ? 'text-amber-300' : ''}>{slot.icon}</span>
-                <span className="truncate max-w-[58px]">{slot.label}</span>
-              </>
-            )
-            if (slot.href) {
+      {/* User-configurable slots — scrollable if they overflow. Fade
+          gradients at top and bottom hint at scrollability. */}
+      <div className="flex-1 min-h-0 relative">
+        <div className="absolute inset-0 overflow-y-auto py-1 flex flex-col">
+          {slots.map((slot, idx) => {
+            if (slot.kind === 'empty') return null
+            const isActiveSlot = slot.kind === 'catalog' && active === slot.id
+            if (slot.kind === 'catalog') {
+              const onClick = (e: React.MouseEvent) => {
+                if (slot.id === 'tools') { handleToolsClick(e); return }
+                if (slot.id === 'links') { handleLinksClick(e); return }
+                if (slot.id === 'activity') { e.preventDefault(); onActivityClick(); return }
+              }
+              const cls = railBtnClass(isActiveSlot)
+              const body = (
+                <>
+                  <ActiveBar show={isActiveSlot} />
+                  <span className={isActiveSlot ? 'text-amber-300' : ''}>{slot.icon}</span>
+                  <span className="truncate max-w-[58px]">{slot.label}</span>
+                </>
+              )
+              if (slot.href) {
+                return (
+                  <Link key={idx} href={slot.href} onClick={onClick} className={cls} title={slot.label}>{body}</Link>
+                )
+              }
               return (
-                <Link key={idx} href={slot.href} onClick={onClick} className={cls} title={slot.label}>{body}</Link>
+                <button key={idx} type="button" onClick={onClick} className={cls} title={slot.label}>{body}</button>
               )
             }
+            // url
             return (
-              <button key={idx} type="button" onClick={onClick} className={cls} title={slot.label}>{body}</button>
+              <a
+                key={idx}
+                href={slot.url}
+                target="_blank"
+                rel="noopener noreferrer"
+                className={railBtnClass(false)}
+                title={slot.url}
+              >
+                {slot.icon}
+                <span className="truncate max-w-[58px]">{slot.label}</span>
+              </a>
             )
-          }
-          // url
-          return (
-            <a
-              key={idx}
-              href={slot.url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className={railBtnClass(false)}
-              title={slot.url}
-            >
-              {slot.icon}
-              <span className="truncate max-w-[58px]">{slot.label}</span>
-            </a>
-          )
-        })}
+          })}
+        </div>
+        {/* Fade gradients (top/bottom) to hint scrollability */}
+        <div className="pointer-events-none absolute top-0 left-0 right-0 h-3 bg-gradient-to-b from-[#0a1f33] to-transparent" aria-hidden="true" />
+        <div className="pointer-events-none absolute bottom-0 left-0 right-0 h-3 bg-gradient-to-t from-[#0a1f33] to-transparent" aria-hidden="true" />
       </div>
 
       {/* Fixed footer: Settings, Admin (gated), You */}
-      <div className="flex flex-col">
+      <div className="flex-none flex flex-col border-t border-white/5">
         <Link
           href="/hub/settings"
           className={railBtnClass(active === 'settings')}

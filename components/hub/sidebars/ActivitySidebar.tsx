@@ -4,7 +4,7 @@ import SidebarShell from './SidebarShell'
 
 export default function ActivitySidebar({ onClose }: { onClose?: () => void }) {
   return (
-    <SidebarShell title="Activity">
+    <SidebarShell title="Activity" onClose={onClose}>
       <div className="px-2 text-xs text-white/50 leading-relaxed">
         Messages where you were <span className="text-amber-300">@mentioned</span> or replied to in a thread.
       </div>

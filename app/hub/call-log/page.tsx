@@ -257,21 +257,8 @@ export default function CallLogPage() {
   return (
     <div className="flex-1 flex flex-col bg-gray-950 text-white overflow-hidden">
       {/* Header */}
-      <header className="shrink-0 border-b border-gray-800 px-6 py-4 flex items-center justify-between">
-        <div className="flex items-center gap-4">
-          <Link href="/hub" className="text-gray-400 hover:text-white text-sm transition-colors">
-            ← Hub
-          </Link>
-          <h1 className="text-xl font-bold tracking-tight">📞 Call Log</h1>
-        </div>
-        <div className="flex items-center gap-4">
-          <Link href="/help" className="text-gray-400 hover:text-white transition-colors text-lg leading-none font-bold" title="Help">
-            ?
-          </Link>
-          <Link href="/settings" aria-label="Settings" className="text-gray-400 hover:text-white transition-colors" title="Settings">
-            <SettingsIcon />
-          </Link>
-        </div>
+      <header className="shrink-0 px-4 md:px-6 pt-4 pb-2">
+        <h1 className="text-xl md:text-2xl font-bold tracking-tight">Call Log</h1>
       </header>
 
       {/* Filter bar */}

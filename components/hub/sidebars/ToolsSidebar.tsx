@@ -39,7 +39,7 @@ export default function ToolsSidebar({
   const hasFinance = canAccessBooks
 
   return (
-    <SidebarShell title="Tools">
+    <SidebarShell title="Tools" onClose={onClose}>
       {hasOperations && (
         <div>
           <button onClick={() => toggle('operations')} className="w-full flex items-center gap-1 px-2 mb-1 group">
