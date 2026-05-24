@@ -294,12 +294,22 @@ export default function TxtConversationView({
           </div>
           <button
             onClick={() => setShowNotes((v) => !v)}
-            className={`text-xs px-2 py-1 rounded-md ${
-              showNotes ? 'bg-amber-500/20 text-amber-300' : 'bg-white/10 hover:bg-white/20'
+            className={`text-xs px-2 py-1 rounded-md flex items-center gap-1 ${
+              showNotes
+                ? 'bg-amber-500/20 text-amber-300'
+                : notes.length > 0
+                ? 'bg-amber-500/10 text-amber-200 hover:bg-amber-500/20'
+                : 'bg-white/10 hover:bg-white/20'
             }`}
-            title="Internal notes"
+            title={notes.length > 0 ? `${notes.length} internal note${notes.length === 1 ? '' : 's'}` : 'Add internal note'}
+            aria-label="Internal notes"
           >
-            📝 {notes.length > 0 && <span>{notes.length}</span>}
+            <span>📝</span>
+            {notes.length > 0 && (
+              <span className="inline-flex items-center justify-center min-w-[1.25rem] px-1 rounded-full bg-amber-400/30 text-amber-100 text-[10px] font-semibold leading-none py-0.5">
+                {notes.length}
+              </span>
+            )}
           </button>
           <button
             onClick={toggleArchive}

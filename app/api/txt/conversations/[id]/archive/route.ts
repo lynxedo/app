@@ -43,8 +43,11 @@ export async function POST(
 
   const admin = createAdminClient()
   const update = archived
-    ? { status: 'archived' as const }
-    : { status: (conv?.assigned_to ? 'assigned' : 'unassigned') as 'assigned' | 'unassigned' }
+    ? { status: 'archived' as const, archived_by: user.id }
+    : {
+        status: (conv?.assigned_to ? 'assigned' : 'unassigned') as 'assigned' | 'unassigned',
+        archived_by: null,
+      }
 
   const { data: updated, error } = await admin
     .from('txt_conversations')

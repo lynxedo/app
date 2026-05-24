@@ -54,6 +54,7 @@ export default function TxtV2Sidebar({
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [newOpen, setNewOpen] = useState(false)
+  const [claimingId, setClaimingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -88,6 +89,25 @@ export default function TxtV2Sidebar({
           c.contact?.phone?.toLowerCase().includes(search.toLowerCase())
       )
     : conversations
+
+  async function claim(id: string, e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (claimingId) return
+    setClaimingId(id)
+    try {
+      const res = await fetch(`/api/txt/conversations/${id}/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assigned_to: currentUserId }),
+      })
+      if (res.ok) {
+        await load()
+      }
+    } finally {
+      setClaimingId(null)
+    }
+  }
 
   const tabs: { id: Scope; label: string; show: boolean }[] = [
     { id: 'unassigned', label: 'Queue', show: canAssign },
@@ -179,9 +199,20 @@ export default function TxtV2Sidebar({
                     </span>
                     <span className="flex items-center gap-1 text-[10px] flex-none">
                       {isUnassigned && (
-                        <span className="px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300">
-                          new
-                        </span>
+                        <>
+                          <span className="px-1.5 py-0.5 rounded bg-orange-500/20 text-orange-300">
+                            new
+                          </span>
+                          <button
+                            type="button"
+                            onClick={(e) => claim(c.id, e)}
+                            disabled={claimingId === c.id}
+                            className="px-1.5 py-0.5 rounded bg-emerald-600/80 hover:bg-emerald-600 text-white text-[10px] font-medium disabled:opacity-50"
+                            title="Assign this to me"
+                          >
+                            {claimingId === c.id ? '…' : 'Claim'}
+                          </button>
+                        </>
                       )}
                       {c.status === 'assigned' && c.assignee && (
                         <span className="text-emerald-300">
