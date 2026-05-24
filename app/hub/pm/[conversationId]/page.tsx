@@ -34,7 +34,7 @@ export default async function PMPage({
       .select(`id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
         sender:hub_users!sender_id (id, display_name, avatar_url, is_bot),
         reactions (message_id, user_id, emoji),
-        files (id, filename, mime_type, size_bytes, storage_path)`)
+        files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)`)
       .eq('conversation_id', conversationId)
       .is('parent_id', null)
       .is('deleted_at', null)

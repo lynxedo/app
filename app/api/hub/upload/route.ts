@@ -26,6 +26,15 @@ export async function POST(request: Request) {
   const file = formData.get('file') as File | null
   if (!file) return NextResponse.json({ error: 'No file provided' }, { status: 400 })
 
+  // Optional image dimensions captured client-side via image.naturalWidth/Height
+  // before upload. Lets the chat thumbnail reserve the right aspect ratio
+  // before the image decodes, eliminating the scroll-jump glitch in
+  // photo-heavy rooms. Non-image uploads omit these.
+  const widthRaw = formData.get('width_px')
+  const heightRaw = formData.get('height_px')
+  const width_px = typeof widthRaw === 'string' && /^\d+$/.test(widthRaw) ? parseInt(widthRaw, 10) : null
+  const height_px = typeof heightRaw === 'string' && /^\d+$/.test(heightRaw) ? parseInt(heightRaw, 10) : null
+
   const maxBytes = 100 * 1024 * 1024
   if (file.size > maxBytes) return NextResponse.json({ error: 'File exceeds 100 MB limit' }, { status: 400 })
 
@@ -67,5 +76,7 @@ export async function POST(request: Request) {
     filename: file.name,
     mime_type: file.type || 'application/octet-stream',
     size_bytes: file.size,
+    width_px,
+    height_px,
   })
 }
