@@ -765,14 +765,14 @@ export default function MessageComposer({
           </button>
 
           {showScheduler && (
-            <div className="absolute bottom-full left-0 mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-3 z-50 w-64">
+            <div className="absolute bottom-full mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-3 z-50 w-64 max-w-[calc(100vw-1rem)] left-1/2 -translate-x-1/2 md:left-0 md:translate-x-0">
               <p className="text-xs text-gray-400 mb-2 font-medium">Schedule for later</p>
               <input
                 type="datetime-local"
                 min={minDateTime}
                 value={scheduledAt}
                 onChange={e => setScheduledAt(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-base md:text-sm text-white outline-none focus:border-[#2E7EB8]"
               />
               {scheduledAt && (
                 <button
