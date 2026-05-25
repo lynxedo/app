@@ -24,7 +24,7 @@ export default async function TxtConversationPage({
     profile?.can_admin_hub === true ||
     profile?.can_assign_txt_threads === true
 
-  const [convResult, messagesResult, notesResult, usersResult] = await Promise.all([
+  const [convResult, messagesResult, notesResult, usersResult, meResult, companyResult] = await Promise.all([
     supabase
       .from('txt_conversations')
       .select(
@@ -52,6 +52,12 @@ export default async function TxtConversationPage({
       .eq('company_id', profile?.company_id || '')
       .eq('is_bot', false)
       .order('display_name'),
+    supabase.from('hub_users').select('display_name').eq('id', user.id).maybeSingle(),
+    supabase
+      .from('companies')
+      .select('name')
+      .eq('id', profile?.company_id || '')
+      .maybeSingle(),
   ])
 
   if (convResult.error || !convResult.data) {
@@ -65,6 +71,8 @@ export default async function TxtConversationPage({
       initialNotes={(notesResult.data ?? []) as never}
       hubUsers={(usersResult.data ?? []) as never}
       currentUserId={user.id}
+      currentUserName={meResult.data?.display_name || null}
+      companyName={companyResult.data?.name || null}
       canAssign={!!canAssign}
     />
   )

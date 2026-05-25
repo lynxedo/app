@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import ContactModal, { type ContactForModal } from './ContactModal'
+import TemplatePicker, { filterTemplates, type PickerTemplate } from './TemplatePicker'
 
 type Message = {
   id: string
@@ -80,6 +81,8 @@ export default function TxtConversationView({
   initialNotes,
   hubUsers,
   currentUserId,
+  currentUserName,
+  companyName,
   canAssign,
 }: {
   initialConversation: Conversation
@@ -87,6 +90,8 @@ export default function TxtConversationView({
   initialNotes: Note[]
   hubUsers: HubUser[]
   currentUserId: string
+  currentUserName: string | null
+  companyName: string | null
   canAssign: boolean
 }) {
   const [conversation, setConversation] = useState(initialConversation)
@@ -101,6 +106,23 @@ export default function TxtConversationView({
   const [editContactOpen, setEditContactOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  // Templates: loaded once on mount. The picker opens on `/` trigger (parsed
+  // from the textarea content) or via the dedicated 📋 toolbar button.
+  // selectedTemplateId is tracked from pick → send so the server-side renderer
+  // knows this was a template-driven send and runs {field} substitution.
+  const [templates, setTemplates] = useState<PickerTemplate[]>([])
+  const [pickerOpen, setPickerOpen] = useState(false)
+  const [pickerQuery, setPickerQuery] = useState('')
+  const [pickerIndex, setPickerIndex] = useState(0)
+  const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/txt/templates')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => setTemplates(data.templates || []))
+      .catch(() => setTemplates([]))
+  }, [])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -124,8 +146,12 @@ export default function TxtConversationView({
     if (!body || sending) return
     setSending(true)
     setSendError('')
+    closePicker()
 
     const tempId = `temp-${Date.now()}`
+    // Optimistic body is whatever the user sees — the server will render
+    // {first_name} etc. on its end, so the optimistic bubble may briefly show
+    // raw tokens. The poll fetch (8s) reconciles to the rendered body.
     const optimistic: Message = {
       id: tempId,
       direction: 'outbound',
@@ -139,12 +165,14 @@ export default function TxtConversationView({
       sender: null,
     }
     setMessages((prev) => [...prev, optimistic])
+    const templateIdForSend = selectedTemplateId
     setText('')
+    setSelectedTemplateId(null)
 
     const res = await fetch(`/api/txt/conversations/${conversation.id}/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body }),
+      body: JSON.stringify({ body, template_id: templateIdForSend }),
     })
     const data = await res.json()
     setSending(false)
@@ -207,6 +235,56 @@ export default function TxtConversationView({
       const data = await res.json()
       setConversation({ ...conversation, status: data.conversation.status })
     }
+  }
+
+  function closePicker() {
+    setPickerOpen(false)
+    setPickerQuery('')
+    setPickerIndex(0)
+  }
+
+  // The `/` trigger fires only when the entire composer body is `/` or `/<chars>`
+  // (no whitespace). This matches the Slack convention and keeps mid-message
+  // slashes from accidentally popping the picker.
+  function detectSlashTrigger(value: string) {
+    const m = value.match(/^\/([a-zA-Z0-9_-]*)$/)
+    if (m) {
+      setPickerOpen(true)
+      setPickerQuery(m[1])
+      setPickerIndex(0)
+    } else if (pickerOpen) {
+      closePicker()
+    }
+  }
+
+  function handleTextChange(value: string) {
+    setText(value)
+    // If the user is editing in a way that no longer matches the picked
+    // template's body, drop the template_id flag so substitution doesn't
+    // run on unrelated text. We keep template_id set only when the current
+    // text still contains the picked template's body (or part of it).
+    if (selectedTemplateId) {
+      const picked = templates.find((t) => t.id === selectedTemplateId)
+      if (!picked || !value.includes(picked.body.slice(0, 20))) {
+        setSelectedTemplateId(null)
+      }
+    }
+    detectSlashTrigger(value)
+  }
+
+  function pickTemplate(t: PickerTemplate) {
+    setText(t.body)
+    setSelectedTemplateId(t.id)
+    closePicker()
+    // Defer focus to next tick so the textarea has the new value.
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
+
+  function openPickerManually() {
+    setPickerOpen(true)
+    setPickerQuery('')
+    setPickerIndex(0)
+    textareaRef.current?.focus()
   }
 
   async function addNote() {
@@ -429,12 +507,47 @@ export default function TxtConversationView({
               ⚠ This contact is marked do-not-text
             </div>
           )}
-          <div className="flex gap-2">
+          <div className="flex gap-2 relative">
+            <button
+              type="button"
+              onClick={openPickerManually}
+              disabled={sending || !!conversation.contact?.do_not_text}
+              className="self-start mt-1 px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-sm disabled:opacity-50"
+              title="Insert template (or type / in the composer)"
+              aria-label="Insert template"
+            >
+              📋
+            </button>
             <textarea
               ref={textareaRef}
               value={text}
-              onChange={(e) => setText(e.target.value)}
+              onChange={(e) => handleTextChange(e.target.value)}
               onKeyDown={(e) => {
+                const filtered = filterTemplates(templates, pickerQuery)
+                // Picker keyboard navigation takes priority when open.
+                if (pickerOpen && filtered.length > 0) {
+                  if (e.key === 'ArrowDown') {
+                    e.preventDefault()
+                    setPickerIndex((i) => (i + 1) % filtered.length)
+                    return
+                  }
+                  if (e.key === 'ArrowUp') {
+                    e.preventDefault()
+                    setPickerIndex((i) => (i - 1 + filtered.length) % filtered.length)
+                    return
+                  }
+                  if (e.key === 'Enter' || e.key === 'Tab') {
+                    e.preventDefault()
+                    const t = filtered[Math.min(pickerIndex, filtered.length - 1)]
+                    if (t) pickTemplate(t)
+                    return
+                  }
+                  if (e.key === 'Escape') {
+                    e.preventDefault()
+                    closePicker()
+                    return
+                  }
+                }
                 // Desktop: Enter sends, Shift+Enter newline. Mobile: Enter newline.
                 const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone/i.test(navigator.userAgent)
                 if (e.key === 'Enter' && !e.shiftKey && !isMobile) {
@@ -442,7 +555,7 @@ export default function TxtConversationView({
                   sendMessage()
                 }
               }}
-              placeholder="Type a text…"
+              placeholder="Type a text… (/ for templates)"
               rows={1}
               className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm resize-none"
               style={{ minHeight: 36, maxHeight: 120, fontSize: 16 }}
@@ -455,10 +568,26 @@ export default function TxtConversationView({
             >
               {sending ? '…' : 'Send'}
             </button>
+            {pickerOpen && (
+              <TemplatePicker
+                templates={templates}
+                query={pickerQuery}
+                contactName={conversation.contact?.name || null}
+                senderName={currentUserName}
+                companyName={companyName}
+                selectedIndex={pickerIndex}
+                onIndexChange={setPickerIndex}
+                onPick={pickTemplate}
+                onClose={closePicker}
+              />
+            )}
           </div>
           <div className="flex items-center justify-between mt-1 px-1 text-[10px] text-white/40">
             <span>
               {text.length > 0 && `${text.length} char${text.length === 1 ? '' : 's'}`}
+              {selectedTemplateId && (
+                <span className="ml-2 text-emerald-300">· template applied</span>
+              )}
             </span>
             <span>Mobile: tap Send. Desktop: Enter to send.</span>
           </div>

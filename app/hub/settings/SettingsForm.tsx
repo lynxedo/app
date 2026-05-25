@@ -7,6 +7,7 @@ import 'react-image-crop/dist/ReactCrop.css'
 import { createClient } from '@/lib/supabase/client'
 import NotificationDeviceControls from '@/components/hub/NotificationDeviceControls'
 import { CATALOG, CatalogIcon, type CatalogId, type RailPermissions, normalizeRailConfig } from '@/components/hub/railCatalog'
+import TxtPersonalTemplates from './TxtPersonalTemplates'
 
 interface HubProfile {
   full_name: string | null
@@ -759,6 +760,8 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
             {saveBtn('Save signature', sigSave, saveSignature)}
           </div>
         </div>
+
+        <TxtPersonalTemplates />
       </section>
 
       {/* Change password */}

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendSms, twilioConfigured } from '@/lib/twilio'
+import { renderTemplate } from '@/lib/txt-templates'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -18,17 +19,21 @@ export async function POST(
 
   const { id: conversationId } = await params
   const body = await request.json().catch(() => ({}))
-  const text: string = (body.body || '').trim()
+  let text: string = (body.body || '').trim()
   const mediaUrls: string[] = Array.isArray(body.media_urls) ? body.media_urls : []
+  const templateId: string | null =
+    typeof body.template_id === 'string' && body.template_id ? body.template_id : null
 
   if (!text && mediaUrls.length === 0) {
     return NextResponse.json({ error: 'Empty message' }, { status: 400 })
   }
 
-  // Load conversation + contact for the To number
+  // Load conversation + contact for the To number AND the contact name (for template render).
   const { data: conv, error: convErr } = await supabase
     .from('txt_conversations')
-    .select('id, contact_id, status, contact:txt_contacts ( id, phone, do_not_text )')
+    .select(
+      'id, contact_id, status, contact:txt_contacts ( id, name, phone, do_not_text )'
+    )
     .eq('id', conversationId)
     .single()
   if (convErr || !conv) {
@@ -46,6 +51,21 @@ export async function POST(
   }
 
   const admin = createAdminClient()
+
+  // Template render: when the caller flagged this send as template-driven,
+  // resolve {first_name}, {company}, etc. server-side. Runs BEFORE the
+  // signature auto-append so signature logic still sees the rendered body.
+  if (templateId && text) {
+    const [{ data: sender }, { data: company }] = await Promise.all([
+      admin.from('hub_users').select('display_name').eq('id', user.id).maybeSingle(),
+      admin.from('companies').select('name').eq('id', HEROES_COMPANY_ID).maybeSingle(),
+    ])
+    text = renderTemplate(text, {
+      contactName: contact.name,
+      senderName: sender?.display_name || null,
+      companyName: company?.name || null,
+    })
+  }
 
   // Signature auto-append: tack on the sender's txt_signature when (a) the
   // message has text, (b) the user has a signature set, and (c) this is the
