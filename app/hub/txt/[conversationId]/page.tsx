@@ -24,11 +24,20 @@ export default async function TxtConversationPage({
     profile?.can_admin_hub === true ||
     profile?.can_assign_txt_threads === true
 
-  const [convResult, messagesResult, notesResult, usersResult, meResult, companyResult] = await Promise.all([
+  const [
+    convResult,
+    messagesResult,
+    notesResult,
+    usersResult,
+    meResult,
+    companyResult,
+    membersResult,
+    groupContactsResult,
+  ] = await Promise.all([
     supabase
       .from('txt_conversations')
       .select(
-        `id, status, assigned_to, last_message_at, last_inbound_at, created_at,
+        `id, kind, status, assigned_to, last_message_at, last_inbound_at, created_at,
          contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, email, do_not_text, jobber_client_id, notes ),
          assignee:hub_users!assigned_to ( id, display_name )`
       )
@@ -58,6 +67,14 @@ export default async function TxtConversationPage({
       .select('name')
       .eq('id', profile?.company_id || '')
       .maybeSingle(),
+    supabase
+      .from('txt_conversation_members')
+      .select('user_id, role, added_at, user:hub_users!user_id ( id, display_name )')
+      .eq('conversation_id', conversationId),
+    supabase
+      .from('txt_conversation_contacts')
+      .select('contact:txt_contacts!txt_conversation_contacts_contact_id_fkey ( id, name, phone, email, do_not_text )')
+      .eq('conversation_id', conversationId),
   ])
 
   if (convResult.error || !convResult.data) {
@@ -69,6 +86,8 @@ export default async function TxtConversationPage({
       initialConversation={convResult.data as never}
       initialMessages={(messagesResult.data ?? []) as never}
       initialNotes={(notesResult.data ?? []) as never}
+      initialMembers={(membersResult.data ?? []) as never}
+      initialGroupContacts={(groupContactsResult.data ?? []) as never}
       hubUsers={(usersResult.data ?? []) as never}
       currentUserId={user.id}
       currentUserName={meResult.data?.display_name || null}

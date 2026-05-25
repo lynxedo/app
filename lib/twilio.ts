@@ -107,6 +107,104 @@ export async function downloadTwilioMedia(
   }
 }
 
+// ---------------------------------------------------------------------------
+// Conversations API (used for group SMS). Separate Twilio product from
+// Programmable Messaging. Group conversations are first-class Twilio resources:
+// you create a Conversation, add Participants (each with their phone +
+// proxy_address = our Twilio number), then send Messages on the Conversation.
+// Inbound + status events fire on the Conversations Service webhook,
+// not the per-number SMS webhook.
+//
+// All helpers below no-op safely when creds are empty — same pattern as
+// sendSms — so the code paths can run on staging without configured creds.
+// ---------------------------------------------------------------------------
+
+export type TwilioConvCreateResult =
+  | { ok: true; sid: string }
+  | { ok: false; error: string; code?: number }
+
+async function twilioConvFetch(path: string, init: RequestInit) {
+  const auth = Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString('base64')
+  return fetch(`https://conversations.twilio.com/v1${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      ...(init.headers || {}),
+    },
+  })
+}
+
+export async function twilioConvCreate(opts: {
+  friendlyName?: string
+}): Promise<TwilioConvCreateResult> {
+  if (!twilioConfigured()) return { ok: false, error: 'twilio_not_configured' }
+  const form = new URLSearchParams()
+  if (opts.friendlyName) form.set('FriendlyName', opts.friendlyName)
+  const res = await twilioConvFetch('/Conversations', {
+    method: 'POST',
+    body: form.toString(),
+  })
+  const payload = (await res.json().catch(() => null)) as
+    | { sid?: string; message?: string; code?: number }
+    | null
+  if (!res.ok || !payload?.sid) {
+    return {
+      ok: false,
+      error: payload?.message || `twilio_http_${res.status}`,
+      code: payload?.code,
+    }
+  }
+  return { ok: true, sid: payload.sid }
+}
+
+export async function twilioConvAddSmsParticipant(opts: {
+  conversationSid: string
+  contactPhone: string // E.164
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!twilioConfigured()) return { ok: false, error: 'twilio_not_configured' }
+  const form = new URLSearchParams()
+  form.set('MessagingBinding.Address', opts.contactPhone)
+  form.set('MessagingBinding.ProxyAddress', FROM_NUMBER)
+  const res = await twilioConvFetch(
+    `/Conversations/${opts.conversationSid}/Participants`,
+    { method: 'POST', body: form.toString() }
+  )
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => null)) as
+      | { message?: string }
+      | null
+    return { ok: false, error: payload?.message || `twilio_http_${res.status}` }
+  }
+  return { ok: true }
+}
+
+export async function twilioConvSendMessage(opts: {
+  conversationSid: string
+  body: string
+  author?: string
+}): Promise<TwilioSendResult> {
+  if (!twilioConfigured()) return { ok: false, error: 'twilio_not_configured' }
+  const form = new URLSearchParams()
+  form.set('Body', opts.body)
+  if (opts.author) form.set('Author', opts.author)
+  const res = await twilioConvFetch(
+    `/Conversations/${opts.conversationSid}/Messages`,
+    { method: 'POST', body: form.toString() }
+  )
+  const payload = (await res.json().catch(() => null)) as
+    | { sid?: string; message?: string; code?: number }
+    | null
+  if (!res.ok || !payload?.sid) {
+    return {
+      ok: false,
+      error: payload?.message || `twilio_http_${res.status}`,
+      code: payload?.code,
+    }
+  }
+  return { ok: true, sid: payload.sid, status: 'queued' }
+}
+
 // E.164 normalizer for US numbers — Twilio requires E.164 (+1...).
 // Accepts (281) 555-1234, 281-555-1234, 12815551234, +12815551234, etc.
 export function toE164(raw: string): string | null {

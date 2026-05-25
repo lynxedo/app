@@ -171,12 +171,15 @@ export async function POST(req: NextRequest) {
     contactId = created.id
   }
 
-  // Find or create conversation; reopen archived → unassigned
+  // Find or create direct conversation; reopen archived → unassigned.
+  // Inbound SMS only matches direct threads — group conversations are
+  // identified by their Twilio Conversations SID in a separate webhook.
   const { data: existingConv } = await supabase
     .from('txt_conversations')
     .select('id, status')
     .eq('company_id', HEROES_COMPANY_ID)
     .eq('contact_id', contactId)
+    .eq('kind', 'direct')
     .maybeSingle()
 
   let conversationId: string
@@ -195,6 +198,7 @@ export async function POST(req: NextRequest) {
         company_id: HEROES_COMPANY_ID,
         contact_id: contactId,
         status: 'unassigned',
+        kind: 'direct',
       })
       .select('id')
       .single()

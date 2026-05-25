@@ -1,8 +1,12 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getTxtConvPermissions } from '@/lib/txt-permissions'
 
 // POST /api/txt/conversations/[id]/archive — body { archived: true|false }
+//
+// Only the owner or a Txt manager can archive. Members and read-only
+// teammates cannot — archiving for everyone is owner-level.
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -17,29 +21,16 @@ export async function POST(
   const body = await request.json().catch(() => ({}))
   const archived: boolean = body.archived !== false
 
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('role, can_admin_hub, can_assign_txt_threads')
-    .eq('id', user.id)
-    .single()
+  const perms = await getTxtConvPermissions(supabase, id, user.id)
+  if (!perms.canArchive) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
-  // Anyone in the company can archive/unarchive a thread they own or any thread
-  // if they have the manage permission. Plain users can also archive their own.
   const { data: conv } = await supabase
     .from('txt_conversations')
     .select('assigned_to, status')
     .eq('id', id)
     .single()
-
-  const isManager =
-    profile?.role === 'admin' ||
-    profile?.can_admin_hub === true ||
-    profile?.can_assign_txt_threads === true
-  const isOwner = conv?.assigned_to === user.id
-
-  if (!isManager && !isOwner) {
-    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-  }
 
   const admin = createAdminClient()
   const update = archived

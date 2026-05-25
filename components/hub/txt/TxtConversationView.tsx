@@ -36,6 +36,7 @@ type Contact = {
 
 type Conversation = {
   id: string
+  kind?: 'direct' | 'group'
   status: 'unassigned' | 'assigned' | 'archived'
   assigned_to: string | null
   last_message_at: string | null
@@ -44,6 +45,22 @@ type Conversation = {
 }
 
 type HubUser = { id: string; display_name: string }
+
+type Member = {
+  user_id: string
+  role: 'owner' | 'member'
+  added_at?: string
+  user?: { id: string; display_name: string } | { id: string; display_name: string }[] | null
+}
+
+type GroupContactRow = {
+  contact: Contact | Contact[] | null
+}
+
+function unwrap<T>(value: T | T[] | null | undefined): T | null {
+  if (!value) return null
+  return Array.isArray(value) ? value[0] || null : value
+}
 
 function formatPhone(phone: string) {
   const digits = phone.replace(/\D/g, '')
@@ -79,6 +96,8 @@ export default function TxtConversationView({
   initialConversation,
   initialMessages,
   initialNotes,
+  initialMembers = [],
+  initialGroupContacts = [],
   hubUsers,
   currentUserId,
   currentUserName,
@@ -88,6 +107,8 @@ export default function TxtConversationView({
   initialConversation: Conversation
   initialMessages: Message[]
   initialNotes: Note[]
+  initialMembers?: Member[]
+  initialGroupContacts?: GroupContactRow[]
   hubUsers: HubUser[]
   currentUserId: string
   currentUserName: string | null
@@ -97,15 +118,31 @@ export default function TxtConversationView({
   const [conversation, setConversation] = useState(initialConversation)
   const [messages, setMessages] = useState(initialMessages)
   const [notes, setNotes] = useState(initialNotes)
+  const [members, setMembers] = useState<Member[]>(initialMembers)
+  const groupContacts = initialGroupContacts
+    .map((row) => unwrap(row.contact))
+    .filter((c): c is Contact => Boolean(c))
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
   const [showNotes, setShowNotes] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [assignOpen, setAssignOpen] = useState(false)
+  const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [editContactOpen, setEditContactOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+
+  const isGroup = conversation.kind === 'group'
+  const ownerId = conversation.assigned_to
+  const memberRows = members.filter((m) => m.role === 'member')
+  const isOwnerMe = ownerId === currentUserId
+  const isMemberMe = members.some((m) => m.user_id === currentUserId)
+  const canManageMembers = isOwnerMe || canAssign
+
+  const memberCandidates = hubUsers.filter(
+    (u) => u.id !== currentUserId && !members.some((m) => m.user_id === u.id)
+  )
 
   // Templates: loaded once on mount. The picker opens on `/` trigger (parsed
   // from the textarea content) or via the dedicated 📋 toolbar button.
@@ -137,9 +174,38 @@ export default function TxtConversationView({
       setConversation(data.conversation)
       setMessages(data.messages || [])
       setNotes(data.notes || [])
+      setMembers(data.members || [])
     }, 8000)
     return () => clearInterval(t)
   }, [conversation.id])
+
+  async function addMember(userId: string) {
+    setAddMemberOpen(false)
+    const res = await fetch(`/api/txt/conversations/${conversation.id}/members`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId }),
+    })
+    if (res.ok) {
+      const u = hubUsers.find((x) => x.id === userId)
+      if (u) {
+        setMembers((prev) => [
+          ...prev,
+          { user_id: userId, role: 'member', user: { id: u.id, display_name: u.display_name } },
+        ])
+      }
+    }
+  }
+
+  async function removeMember(userId: string) {
+    const res = await fetch(
+      `/api/txt/conversations/${conversation.id}/members?user_id=${encodeURIComponent(userId)}`,
+      { method: 'DELETE' }
+    )
+    if (res.ok) {
+      setMembers((prev) => prev.filter((m) => !(m.user_id === userId && m.role === 'member')))
+    }
+  }
 
   async function sendMessage() {
     const body = text.trim()
@@ -312,18 +378,38 @@ export default function TxtConversationView({
         data-hide-on-keyboard
         className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2 bg-[#0B2237]"
       >
-        <button
-          type="button"
-          onClick={() => conversation.contact && setEditContactOpen(true)}
-          disabled={!conversation.contact}
-          className="min-w-0 text-left -ml-1 px-1 py-0.5 rounded hover:bg-white/5 disabled:cursor-default disabled:hover:bg-transparent"
-          title={conversation.contact ? 'Edit contact' : undefined}
-        >
-          <div className="font-medium truncate">
-            {conversation.contact?.name || 'Unknown'}
+        {isGroup ? (
+          <div className="min-w-0 text-left">
+            <div className="font-medium truncate flex items-center gap-1.5">
+              <span>👥</span>
+              <span>
+                {groupContacts.length === 0
+                  ? 'Group'
+                  : groupContacts
+                      .slice(0, 3)
+                      .map((c) => c.name.split(' ')[0])
+                      .join(', ') +
+                    (groupContacts.length > 3 ? ` +${groupContacts.length - 3}` : '')}
+              </span>
+            </div>
+            <div className="text-xs text-white/50 truncate">
+              {groupContacts.length} participant{groupContacts.length === 1 ? '' : 's'}
+            </div>
           </div>
-          <div className="text-xs text-white/50 truncate">{phoneDisplay}</div>
-        </button>
+        ) : (
+          <button
+            type="button"
+            onClick={() => conversation.contact && setEditContactOpen(true)}
+            disabled={!conversation.contact}
+            className="min-w-0 text-left -ml-1 px-1 py-0.5 rounded hover:bg-white/5 disabled:cursor-default disabled:hover:bg-transparent"
+            title={conversation.contact ? 'Edit contact' : undefined}
+          >
+            <div className="font-medium truncate">
+              {conversation.contact?.name || 'Unknown'}
+            </div>
+            <div className="text-xs text-white/50 truncate">{phoneDisplay}</div>
+          </button>
+        )}
         <div className="flex items-center gap-2 flex-none">
           {/* Assignment chip */}
           <div className="relative">
@@ -378,6 +464,67 @@ export default function TxtConversationView({
               </div>
             )}
           </div>
+          {/* Member chips — separate from the owner/assignee. Owner can
+              add/remove, managers can too. Members can self-remove. */}
+          {memberRows.map((m) => {
+            const u = unwrap(m.user)
+            const label = u?.display_name?.split(' ')[0] || 'user'
+            const canRemoveThis = canManageMembers || m.user_id === currentUserId
+            return (
+              <span
+                key={m.user_id}
+                className="text-[11px] px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-200 inline-flex items-center gap-1"
+                title={u?.display_name || 'member'}
+              >
+                {label}
+                {canRemoveThis && (
+                  <button
+                    type="button"
+                    onClick={() => removeMember(m.user_id)}
+                    className="text-sky-200 hover:text-white"
+                    aria-label={`Remove ${label}`}
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            )
+          })}
+          {canManageMembers && memberCandidates.length > 0 && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setAddMemberOpen((v) => !v)}
+                className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 text-white/60"
+                title="Add a teammate to this thread"
+              >
+                + member
+              </button>
+              {addMemberOpen && (
+                <div className="absolute right-0 mt-1 w-48 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 max-h-60 overflow-y-auto">
+                  {memberCandidates.map((u) => (
+                    <button
+                      key={u.id}
+                      onClick={() => addMember(u.id)}
+                      className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
+                    >
+                      {u.display_name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+          {isMemberMe && !isOwnerMe && !canManageMembers && (
+            <button
+              type="button"
+              onClick={() => removeMember(currentUserId)}
+              className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 text-white/60"
+              title="Leave this thread"
+            >
+              Leave
+            </button>
+          )}
           <button
             onClick={() => setShowNotes((v) => !v)}
             className={`text-xs px-2 py-1 rounded-md flex items-center gap-1 ${

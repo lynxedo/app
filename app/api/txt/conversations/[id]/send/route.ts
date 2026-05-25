@@ -1,8 +1,13 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendSms, twilioConfigured } from '@/lib/twilio'
+import {
+  sendSms,
+  twilioConfigured,
+  twilioConvSendMessage,
+} from '@/lib/twilio'
 import { renderTemplate } from '@/lib/txt-templates'
+import { getTxtConvPermissions } from '@/lib/txt-permissions'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -28,49 +33,76 @@ export async function POST(
     return NextResponse.json({ error: 'Empty message' }, { status: 400 })
   }
 
-  // Load conversation + contact for the To number AND the contact name (for template render).
   const { data: conv, error: convErr } = await supabase
     .from('txt_conversations')
     .select(
-      'id, contact_id, status, contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, do_not_text )'
+      `id, kind, contact_id, status, twilio_conversation_sid,
+       contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, do_not_text )`
     )
     .eq('id', conversationId)
     .single()
   if (convErr || !conv) {
     return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
   }
-  const contact = Array.isArray(conv.contact) ? conv.contact[0] : conv.contact
-  if (!contact?.phone) {
-    return NextResponse.json({ error: 'Contact has no phone' }, { status: 400 })
+
+  const isGroup = conv.kind === 'group'
+
+  // For group conversations we need the participant list to:
+  //   (a) display the body to the right contact name on template render and
+  //   (b) gate do-not-text — if ANY participant is do-not-text we still send
+  //       to the rest, but we surface a warning. v1: just skip do-not-text.
+  let groupContacts: Array<{ id: string; name: string; phone: string; do_not_text: boolean }> = []
+  if (isGroup) {
+    const { data: gc } = await supabase
+      .from('txt_conversation_contacts')
+      .select('contact:txt_contacts!txt_conversation_contacts_contact_id_fkey ( id, name, phone, do_not_text )')
+      .eq('conversation_id', conversationId)
+    groupContacts = (gc ?? [])
+      .map((row) => {
+        const inner = Array.isArray(row.contact) ? row.contact[0] : row.contact
+        return inner as { id: string; name: string; phone: string; do_not_text: boolean } | null
+      })
+      .filter(Boolean) as typeof groupContacts
+  } else {
+    const contact = Array.isArray(conv.contact) ? conv.contact[0] : conv.contact
+    if (!contact?.phone) {
+      return NextResponse.json({ error: 'Contact has no phone' }, { status: 400 })
+    }
+    if (contact.do_not_text) {
+      return NextResponse.json(
+        { error: 'Contact is marked do-not-text' },
+        { status: 400 }
+      )
+    }
   }
-  if (contact.do_not_text) {
-    return NextResponse.json(
-      { error: 'Contact is marked do-not-text' },
-      { status: 400 }
-    )
+
+  // Permission: caller must be a member, the owner, or a Txt manager.
+  const perms = await getTxtConvPermissions(supabase, conversationId, user.id)
+  const canReplyHere = perms.canReply || conv.status === 'unassigned'
+  if (!canReplyHere) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   const admin = createAdminClient()
 
-  // Template render: when the caller flagged this send as template-driven,
-  // resolve {first_name}, {company}, etc. server-side. Runs BEFORE the
-  // signature auto-append so signature logic still sees the rendered body.
+  // Template render. For groups, use the first participant's name for {first_name}
+  // (good enough for v1; group templates usually skip per-contact fields).
   if (templateId && text) {
     const [{ data: sender }, { data: company }] = await Promise.all([
       admin.from('hub_users').select('display_name').eq('id', user.id).maybeSingle(),
       admin.from('companies').select('name').eq('id', HEROES_COMPANY_ID).maybeSingle(),
     ])
+    const contactName = isGroup
+      ? groupContacts[0]?.name || null
+      : (Array.isArray(conv.contact) ? conv.contact[0] : conv.contact)?.name || null
     text = renderTemplate(text, {
-      contactName: contact.name,
+      contactName,
       senderName: sender?.display_name || null,
       companyName: company?.name || null,
     })
   }
 
-  // Signature auto-append: tack on the sender's txt_signature when (a) the
-  // message has text, (b) the user has a signature set, and (c) this is the
-  // first time anyone has texted from this conversation OR a different user
-  // is jumping in after someone else. Keeps clients aware of handoffs.
+  // Signature auto-append (same logic as before — applies in groups too).
   let finalText = text
   if (text) {
     const { data: profile } = await supabase
@@ -95,13 +127,16 @@ export async function POST(
     }
   }
 
-  // Insert the outbound row first with status='sending', then call Twilio
+  const directContact = isGroup
+    ? null
+    : (Array.isArray(conv.contact) ? conv.contact[0] : conv.contact)
+
   const { data: inserted, error: insertErr } = await admin
     .from('txt_messages')
     .insert({
       company_id: HEROES_COMPANY_ID,
       conversation_id: conversationId,
-      contact_id: contact.id,
+      contact_id: directContact?.id ?? null,
       direction: 'outbound',
       body: finalText || null,
       media_urls: mediaUrls,
@@ -115,12 +150,24 @@ export async function POST(
     return NextResponse.json({ error: 'Insert failed' }, { status: 500 })
   }
 
-  // Auto-assign if currently unassigned (Slack-like: replying claims it)
-  if (conv.status === 'unassigned') {
+  // Auto-claim on first reply (direct conversations only — group ownership is
+  // set at creation and never auto-transferred).
+  if (!isGroup && conv.status === 'unassigned') {
     await admin
       .from('txt_conversations')
       .update({ assigned_to: user.id, status: 'assigned' })
       .eq('id', conversationId)
+    // Promote sender to owner via members table too.
+    await admin.from('txt_conversation_members').delete().match({
+      conversation_id: conversationId,
+      user_id: user.id,
+    })
+    await admin.from('txt_conversation_members').insert({
+      conversation_id: conversationId,
+      user_id: user.id,
+      role: 'owner',
+      added_by: user.id,
+    })
   }
 
   await admin
@@ -128,7 +175,6 @@ export async function POST(
     .update({ last_message_at: new Date().toISOString() })
     .eq('id', conversationId)
 
-  // Try Twilio
   if (!twilioConfigured()) {
     await admin
       .from('txt_messages')
@@ -149,8 +195,60 @@ export async function POST(
     (process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com') +
     '/api/txt/twilio/sms/status'
 
+  if (isGroup) {
+    if (!conv.twilio_conversation_sid) {
+      // Conversation was created in staging-only mode (no Twilio resource).
+      // Mark this attempt failed clearly so it shows in history.
+      await admin
+        .from('txt_messages')
+        .update({
+          status: 'failed',
+          error_message: 'Group conversation has no Twilio Conversations SID — not provisioned',
+        })
+        .eq('id', inserted.id)
+      return NextResponse.json({
+        ok: false,
+        message_id: inserted.id,
+        error: 'group_not_provisioned',
+        status: 'failed',
+      })
+    }
+    const senderName = perms.role
+      ? (await admin.from('hub_users').select('display_name').eq('id', user.id).maybeSingle())
+          .data?.display_name || undefined
+      : undefined
+    const result = await twilioConvSendMessage({
+      conversationSid: conv.twilio_conversation_sid,
+      body: finalText,
+      author: senderName,
+    })
+    if (!result.ok) {
+      await admin
+        .from('txt_messages')
+        .update({ status: 'failed', error_message: result.error })
+        .eq('id', inserted.id)
+      return NextResponse.json({
+        ok: false,
+        message_id: inserted.id,
+        error: result.error,
+        code: result.code,
+      })
+    }
+    await admin
+      .from('txt_messages')
+      .update({ twilio_sid: result.sid, status: 'sent' })
+      .eq('id', inserted.id)
+    return NextResponse.json({
+      ok: true,
+      message_id: inserted.id,
+      twilio_sid: result.sid,
+      status: result.status,
+    })
+  }
+
+  // Direct 1-to-1
   const result = await sendSms({
-    to: contact.phone,
+    to: directContact!.phone,
     body: finalText,
     mediaUrls: mediaUrls.length ? mediaUrls : undefined,
     statusCallback,

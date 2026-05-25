@@ -66,21 +66,34 @@ export async function POST(request: Request) {
     }
   }
 
-  // Find or create conversation
+  // Find or create conversation (direct 1-to-1 only; groups go through
+  // /api/txt/conversations/start-group).
   const { data: existingConv } = await admin
     .from('txt_conversations')
     .select('id, status')
     .eq('company_id', HEROES_COMPANY_ID)
     .eq('contact_id', contactId)
+    .eq('kind', 'direct')
     .maybeSingle()
 
   if (existingConv) {
-    // If archived, reopen to assigned (the user is starting it)
     if (existingConv.status === 'archived') {
       await admin
         .from('txt_conversations')
-        .update({ status: 'assigned', assigned_to: user.id })
+        .update({ status: 'assigned', assigned_to: user.id, archived_by: null })
         .eq('id', existingConv.id)
+      // Reopening transfers ownership to whoever's restarting the thread.
+      await admin
+        .from('txt_conversation_members')
+        .delete()
+        .eq('conversation_id', existingConv.id)
+        .eq('role', 'owner')
+      await admin.from('txt_conversation_members').insert({
+        conversation_id: existingConv.id,
+        user_id: user.id,
+        role: 'owner',
+        added_by: user.id,
+      })
     }
     return NextResponse.json({ conversation_id: existingConv.id })
   }
@@ -92,12 +105,20 @@ export async function POST(request: Request) {
       contact_id: contactId,
       assigned_to: user.id,
       status: 'assigned',
+      kind: 'direct',
     })
     .select('id')
     .single()
   if (convErr || !createdConv) {
     return NextResponse.json({ error: convErr?.message || 'Conversation insert failed' }, { status: 500 })
   }
+
+  await admin.from('txt_conversation_members').insert({
+    conversation_id: createdConv.id,
+    user_id: user.id,
+    role: 'owner',
+    added_by: user.id,
+  })
 
   return NextResponse.json({ conversation_id: createdConv.id })
 }

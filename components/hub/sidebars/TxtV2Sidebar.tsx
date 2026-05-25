@@ -5,9 +5,12 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
 import ContactModal from '@/components/hub/txt/ContactModal'
+import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
+import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
 
 type Conversation = {
   id: string
+  kind?: 'direct' | 'group'
   status: 'unassigned' | 'assigned' | 'archived'
   assigned_to: string | null
   last_message_at: string | null
@@ -15,6 +18,7 @@ type Conversation = {
   created_at: string
   contact: { id: string; name: string; phone: string; do_not_text: boolean } | null
   assignee: { id: string; display_name: string } | null
+  group_contacts?: Array<{ contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null }>
 }
 
 type Scope = 'unassigned' | 'mine' | 'all' | 'archived'
@@ -56,6 +60,8 @@ export default function TxtV2Sidebar({
   const [search, setSearch] = useState('')
   const [newOpen, setNewOpen] = useState(false)
   const [addContactOpen, setAddContactOpen] = useState(false)
+  const [groupOpen, setGroupOpen] = useState(false)
+  const [broadcastOpen, setBroadcastOpen] = useState(false)
   const [claimingId, setClaimingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -140,6 +146,26 @@ export default function TxtV2Sidebar({
         >
           + Add contact
         </button>
+        {canAssign && (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setGroupOpen(true)}
+              className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
+              title="New group conversation"
+            >
+              + Group
+            </button>
+            <button
+              type="button"
+              onClick={() => setBroadcastOpen(true)}
+              className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
+              title="Send 1-to-many broadcast"
+            >
+              📣 Broadcast
+            </button>
+          </div>
+        )}
         <input
           type="text"
           value={search}
@@ -183,6 +209,27 @@ export default function TxtV2Sidebar({
           {filtered.map((c) => {
             const active = pathname === `/hub/txt/${c.id}`
             const isUnassigned = c.status === 'unassigned'
+            const isGroup = c.kind === 'group'
+            const groupNames = isGroup
+              ? (c.group_contacts ?? [])
+                  .map((gc) => {
+                    const inner = Array.isArray(gc.contact) ? gc.contact[0] : gc.contact
+                    return inner?.name || null
+                  })
+                  .filter(Boolean)
+              : []
+            const displayName = isGroup
+              ? groupNames.length > 0
+                ? `👥 ${groupNames.slice(0, 2).join(', ')}${
+                    groupNames.length > 2 ? ` +${groupNames.length - 2}` : ''
+                  }`
+                : '👥 Group'
+              : c.contact?.name || 'Unknown'
+            const subline = isGroup
+              ? `${groupNames.length} people`
+              : c.contact?.phone
+              ? formatPhone(c.contact.phone)
+              : ''
             return (
               <li key={c.id}>
                 <Link
@@ -196,7 +243,7 @@ export default function TxtV2Sidebar({
                 >
                   <div className="flex items-center justify-between gap-2">
                     <span className="font-medium text-sm truncate">
-                      {c.contact?.name || 'Unknown'}
+                      {displayName}
                     </span>
                     <span className="text-[10px] text-white/40 flex-none">
                       {formatRelative(c.last_message_at || c.created_at)}
@@ -204,7 +251,7 @@ export default function TxtV2Sidebar({
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-0.5">
                     <span className="text-[11px] text-white/40 truncate">
-                      {c.contact?.phone ? formatPhone(c.contact.phone) : ''}
+                      {subline}
                     </span>
                     <span className="flex items-center gap-1 text-[10px] flex-none">
                       {isUnassigned && (
@@ -239,8 +286,19 @@ export default function TxtV2Sidebar({
         </ul>
       </div>
 
-      <div className="px-3 py-2 text-[10px] text-white/30 border-t border-white/5">
-        <span>Staging only · isolated from /hub/clients</span>
+      <div className="px-3 py-2 border-t border-white/5 flex items-center justify-between">
+        {canAssign ? (
+          <Link
+            href="/hub/txt/broadcasts"
+            onClick={onClose}
+            className="text-[11px] text-white/60 hover:text-white"
+          >
+            📣 Broadcasts ›
+          </Link>
+        ) : (
+          <span />
+        )}
+        <span className="text-[10px] text-white/30">Staging</span>
       </div>
 
       {newOpen && (
@@ -258,6 +316,10 @@ export default function TxtV2Sidebar({
           }}
         />
       )}
+
+      {groupOpen && <TxtGroupComposer onClose={() => setGroupOpen(false)} />}
+
+      {broadcastOpen && <TxtBroadcastComposer onClose={() => setBroadcastOpen(false)} />}
     </aside>
   )
 }
