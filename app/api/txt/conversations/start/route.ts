@@ -23,6 +23,7 @@ export async function POST(request: Request) {
   }
   const name: string = (body.name || phoneE164).trim()
   const email: string | null = body.email || null
+  const notes: string | null = body.notes || null
   const jobberClientId: string | null = body.jobber_client_id || null
 
   const admin = createAdminClient()
@@ -44,6 +45,7 @@ export async function POST(request: Request) {
         phone: phoneE164,
         name,
         email,
+        notes,
         jobber_client_id: jobberClientId,
       })
       .select('id')
@@ -53,11 +55,12 @@ export async function POST(request: Request) {
     }
     contactId = created.id
   } else {
-    // Update name/email/jobber_id if newly known
-    if (name || email || jobberClientId) {
+    // Update name/email/notes/jobber_id if newly known
+    if (name || email || notes || jobberClientId) {
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
       if (name) patch.name = name
       if (email) patch.email = email
+      if (notes) patch.notes = notes
       if (jobberClientId) patch.jobber_client_id = jobberClientId
       await admin.from('txt_contacts').update(patch).eq('id', contactId)
     }

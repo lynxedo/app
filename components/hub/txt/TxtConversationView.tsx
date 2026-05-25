@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import ContactModal, { type ContactForModal } from './ContactModal'
 
 type Message = {
   id: string
@@ -97,6 +98,7 @@ export default function TxtConversationView({
   const [showNotes, setShowNotes] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [assignOpen, setAssignOpen] = useState(false)
+  const [editContactOpen, setEditContactOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -232,12 +234,18 @@ export default function TxtConversationView({
         data-hide-on-keyboard
         className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2 bg-[#0B2237]"
       >
-        <div className="min-w-0">
+        <button
+          type="button"
+          onClick={() => conversation.contact && setEditContactOpen(true)}
+          disabled={!conversation.contact}
+          className="min-w-0 text-left -ml-1 px-1 py-0.5 rounded hover:bg-white/5 disabled:cursor-default disabled:hover:bg-transparent"
+          title={conversation.contact ? 'Edit contact' : undefined}
+        >
           <div className="font-medium truncate">
             {conversation.contact?.name || 'Unknown'}
           </div>
           <div className="text-xs text-white/50 truncate">{phoneDisplay}</div>
-        </div>
+        </button>
         <div className="flex items-center gap-2 flex-none">
           {/* Assignment chip */}
           <div className="relative">
@@ -461,6 +469,18 @@ export default function TxtConversationView({
         <div className="border-t border-white/10 px-4 py-3 bg-amber-500/5 text-amber-200 text-sm text-center">
           This conversation is archived. Tap ↺ above to reopen.
         </div>
+      )}
+
+      {editContactOpen && conversation.contact && (
+        <ContactModal
+          mode="edit"
+          contact={conversation.contact as ContactForModal}
+          onClose={() => setEditContactOpen(false)}
+          onSaved={(updated) => {
+            setConversation({ ...conversation, contact: updated })
+            setEditContactOpen(false)
+          }}
+        />
       )}
     </div>
   )

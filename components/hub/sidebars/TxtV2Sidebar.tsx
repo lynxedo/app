@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
+import ContactModal from '@/components/hub/txt/ContactModal'
 
 type Conversation = {
   id: string
@@ -54,6 +55,7 @@ export default function TxtV2Sidebar({
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [newOpen, setNewOpen] = useState(false)
+  const [addContactOpen, setAddContactOpen] = useState(false)
   const [claimingId, setClaimingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
@@ -130,6 +132,13 @@ export default function TxtV2Sidebar({
           className="w-full px-3 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium"
         >
           + New conversation
+        </button>
+        <button
+          type="button"
+          onClick={() => setAddContactOpen(true)}
+          className="w-full px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 text-sm font-medium border border-white/10"
+        >
+          + Add contact
         </button>
         <input
           type="text"
@@ -236,6 +245,18 @@ export default function TxtV2Sidebar({
 
       {newOpen && (
         <NewConversationModal onClose={() => setNewOpen(false)} onCreated={load} />
+      )}
+
+      {addContactOpen && (
+        <ContactModal
+          mode="create"
+          onClose={() => setAddContactOpen(false)}
+          onCreated={(conversationId) => {
+            setAddContactOpen(false)
+            load()
+            window.location.href = `/hub/txt/${conversationId}`
+          }}
+        />
       )}
     </aside>
   )

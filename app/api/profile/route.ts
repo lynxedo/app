@@ -35,7 +35,7 @@ export async function PUT(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config } = await request.json()
+  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, txt_signature } = await request.json()
 
   if (landing_page !== undefined && landing_page !== 'hub' && landing_page !== 'dashboard') {
     return NextResponse.json({ error: 'landing_page must be "hub" or "dashboard"' }, { status: 400 })
@@ -71,6 +71,15 @@ export async function PUT(request: Request) {
   if (hub_pinned_ids !== undefined) profileUpdates.hub_pinned_ids = hub_pinned_ids
   if (landing_page !== undefined) profileUpdates.landing_page = landing_page
   if (rail_config !== undefined) profileUpdates.rail_config = rail_config
+  if (txt_signature !== undefined) {
+    if (txt_signature !== null && typeof txt_signature !== 'string') {
+      return NextResponse.json({ error: 'txt_signature must be a string or null' }, { status: 400 })
+    }
+    if (typeof txt_signature === 'string' && txt_signature.length > 500) {
+      return NextResponse.json({ error: 'txt_signature too long (max 500 chars)' }, { status: 400 })
+    }
+    profileUpdates.txt_signature = txt_signature ? txt_signature : null
+  }
 
   if (Object.keys(profileUpdates).length > 0) {
     const { error } = await supabase

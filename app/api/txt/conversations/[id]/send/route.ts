@@ -47,6 +47,34 @@ export async function POST(
 
   const admin = createAdminClient()
 
+  // Signature auto-append: tack on the sender's txt_signature when (a) the
+  // message has text, (b) the user has a signature set, and (c) this is the
+  // first time anyone has texted from this conversation OR a different user
+  // is jumping in after someone else. Keeps clients aware of handoffs.
+  let finalText = text
+  if (text) {
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('txt_signature')
+      .eq('id', user.id)
+      .maybeSingle()
+    const signature = (profile?.txt_signature || '').trim()
+    if (signature) {
+      const { data: lastOut } = await admin
+        .from('txt_messages')
+        .select('sent_by')
+        .eq('conversation_id', conversationId)
+        .eq('direction', 'outbound')
+        .neq('status', 'failed')
+        .order('created_at', { ascending: false })
+        .limit(1)
+        .maybeSingle()
+      if (!lastOut || lastOut.sent_by !== user.id) {
+        finalText = `${text}\n\n${signature}`
+      }
+    }
+  }
+
   // Insert the outbound row first with status='sending', then call Twilio
   const { data: inserted, error: insertErr } = await admin
     .from('txt_messages')
@@ -55,7 +83,7 @@ export async function POST(
       conversation_id: conversationId,
       contact_id: contact.id,
       direction: 'outbound',
-      body: text || null,
+      body: finalText || null,
       media_urls: mediaUrls,
       sent_by: user.id,
       status: 'sending',
@@ -103,7 +131,7 @@ export async function POST(
 
   const result = await sendSms({
     to: contact.phone,
-    body: text,
+    body: finalText,
     mediaUrls: mediaUrls.length ? mediaUrls : undefined,
     statusCallback,
   })

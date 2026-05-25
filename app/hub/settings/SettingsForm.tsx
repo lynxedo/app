@@ -31,6 +31,7 @@ interface Props {
   notifPref: NotifPref
   railConfig: null | { desktop?: (string | null)[]; mobile?: (string | null)[] }
   railPermissions: RailPermissions
+  txtSignature: string
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
@@ -78,7 +79,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, jobberConnected, landingPage, notifPref, railConfig, railPermissions }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, jobberConnected, landingPage, notifPref, railConfig, railPermissions, txtSignature }: Props) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>('profile')
 
@@ -174,6 +175,33 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
     } catch (e) {
       setNotifErr(e instanceof Error ? e.message : 'Network error')
       setNotifSave('error')
+    }
+  }
+
+  // ── Text signature (Txt v2) ───────────────────────────────────────────────
+  const [signature, setSignature] = useState(txtSignature)
+  const [sigSave, setSigSave] = useState<SaveState>('idle')
+  const [sigErr, setSigErr] = useState<string | null>(null)
+  const saveSignature = async () => {
+    setSigSave('saving')
+    setSigErr(null)
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ txt_signature: signature.trim() || null }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setSigErr(d.error ?? 'Save failed')
+        setSigSave('error')
+        return
+      }
+      setSigSave('saved')
+      setTimeout(() => setSigSave('idle'), 2000)
+    } catch (e) {
+      setSigErr(e instanceof Error ? e.message : 'Network error')
+      setSigSave('error')
     }
   }
 
@@ -706,6 +734,31 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
         {notifSave === 'saved' && <p className="text-green-400 text-xs mt-3">Saved.</p>}
 
         <NotificationDeviceControls />
+      </section>
+
+      {/* Communications */}
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <h2 className="font-semibold text-lg mb-1">Communications</h2>
+        <p className="text-gray-400 text-sm mb-5">Per-user settings for customer texting (Txt).</p>
+
+        <div>
+          <label className="block text-xs text-gray-400 mb-1.5">Text signature</label>
+          <textarea
+            value={signature}
+            onChange={e => setSignature(e.target.value)}
+            placeholder="— Ben, Heroes Lawn Care"
+            rows={3}
+            maxLength={500}
+            className={inputCls + ' resize-none'}
+          />
+          <p className="text-xs text-gray-500 mt-1.5">
+            Auto-appended (with a blank line above it) when you're the first to text a client, or when a different teammate jumps into a conversation. Won't repeat back-to-back from the same sender. Leave blank to disable.
+          </p>
+          {sigErr && <p className="text-red-400 text-sm mt-2">{sigErr}</p>}
+          <div className="mt-3">
+            {saveBtn('Save signature', sigSave, saveSignature)}
+          </div>
+        </div>
       </section>
 
       {/* Change password */}
