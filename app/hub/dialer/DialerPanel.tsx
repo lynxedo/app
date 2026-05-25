@@ -5,6 +5,7 @@ import { useTwilioDevice } from '@/hooks/use-twilio-device'
 import Dialpad from '@/components/hub/dialer/Dialpad'
 import ActiveCall from '@/components/hub/dialer/ActiveCall'
 import IncomingCall from '@/components/hub/dialer/IncomingCall'
+import { useDialerContext } from '@/components/hub/dialer/DialerProvider'
 
 export default function DialerPanel({
   isAdmin,
@@ -17,7 +18,14 @@ export default function DialerPanel({
   txtConversationId?: string | null
   txtContactId?: string | null
 }) {
-  const device = useTwilioDevice({ autoRegister: true })
+  // Session 58.5: consume the lifted Device from HubShell when available so
+  // the same Twilio Voice connection is reused instead of spinning up a second
+  // one on this page. When the provider isn't mounted (user opted out of
+  // dialer_global_ring, or this page is rendered outside HubShell), fall back
+  // to a local autoRegister instance — original Session 56 behavior.
+  const ctxDevice = useDialerContext()
+  const localDevice = useTwilioDevice({ autoRegister: !ctxDevice })
+  const device = ctxDevice ?? localDevice
   const [injecting, setInjecting] = useState(false)
   const [injectError, setInjectError] = useState<string | null>(null)
 
@@ -42,7 +50,9 @@ export default function DialerPanel({
   }
 
   const showActiveCall = device.state === 'placing' || device.state === 'in-call'
-  const showIncoming = device.state === 'incoming'
+  // When the provider is mounted, DialerProvider already renders the
+  // IncomingCall overlay at shell level — don't double-render here.
+  const showIncoming = !ctxDevice && device.state === 'incoming'
 
   return (
     <div className="h-full flex flex-col">

@@ -31,6 +31,7 @@ interface Props {
   notifPref: NotifPref
   railConfig: null | { desktop?: (string | null)[]; mobile?: (string | null)[] }
   railPermissions: RailPermissions
+  dialerGlobalRing: boolean
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
@@ -78,7 +79,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, jobberConnected, landingPage, notifPref, railConfig, railPermissions }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, jobberConnected, landingPage, notifPref, railConfig, railPermissions, dialerGlobalRing }: Props) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>('profile')
 
@@ -174,6 +175,37 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
     } catch (e) {
       setNotifErr(e instanceof Error ? e.message : 'Network error')
       setNotifSave('error')
+    }
+  }
+
+  // ── Dialer: ring on every Hub page (Session 58.5) ─────────────────────────
+  const [globalRing, setGlobalRing] = useState(dialerGlobalRing)
+  const [ringSave, setRingSave] = useState<SaveState>('idle')
+  const [ringErr, setRingErr] = useState<string | null>(null)
+  const toggleGlobalRing = async (next: boolean) => {
+    const prev = globalRing
+    setGlobalRing(next)
+    setRingSave('saving')
+    setRingErr(null)
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dialer_global_ring: next }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setRingErr(d.error ?? 'Save failed')
+        setGlobalRing(prev)
+        setRingSave('error')
+        return
+      }
+      setRingSave('saved')
+      setTimeout(() => setRingSave('idle'), 1500)
+    } catch (e) {
+      setRingErr(e instanceof Error ? e.message : 'Network error')
+      setGlobalRing(prev)
+      setRingSave('error')
     }
   }
 
@@ -707,6 +739,31 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
 
         <NotificationDeviceControls />
       </section>
+
+      {/* Dialer (Session 58.5) — global ring toggle */}
+      {railPermissions.canAccessDialer && (
+        <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          <h2 className="font-semibold text-lg mb-1">Dialer</h2>
+          <p className="text-gray-400 text-sm mb-5">Per-user call settings.</p>
+          <label className="flex items-start gap-3 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={globalRing}
+              onChange={e => toggleGlobalRing(e.target.checked)}
+              className="mt-0.5 w-4 h-4 rounded border-gray-700 bg-gray-950 text-orange-500 focus:ring-orange-500 focus:ring-offset-0"
+            />
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-medium">Ring me on every Hub page</div>
+              <p className="text-xs text-gray-500 mt-1">
+                When on, incoming calls pop a ringing overlay anywhere in Hub — even if you're not on the Dialer page. Turn off if you'd rather only receive calls while you're actively viewing the Dialer.
+              </p>
+              {ringErr && <p className="text-red-400 text-xs mt-1.5">{ringErr}</p>}
+              {ringSave === 'saved' && <p className="text-green-400 text-xs mt-1.5">Saved.</p>}
+            </div>
+          </label>
+        </section>
+      )}
+
 
       {/* Change password */}
       <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">

@@ -83,6 +83,7 @@ export default function HubRail({
   unreadChat: _unreadChat,
   unreadTxt: _unreadTxt,
   unreadHub,
+  unheardVoicemails = 0,
   isClockedIn,
   onSearchClick,
   onProfileClick,
@@ -106,6 +107,8 @@ export default function HubRail({
   unreadChat?: number
   unreadTxt?: number
   unreadHub?: boolean
+  /** Session 58.5: red badge with count on the rail Dialer icon. */
+  unheardVoicemails?: number
   isClockedIn?: boolean
   onSearchClick: () => void
   onProfileClick: () => void
@@ -345,10 +348,20 @@ export default function HubRail({
             onClick={handleNavLinkClick('dialer')}
             className={railBtnClass(active === 'dialer')}
             aria-current={active === 'dialer' ? 'page' : undefined}
-            title="Dialer"
+            title={unheardVoicemails > 0 ? `Dialer — ${unheardVoicemails} unheard voicemail${unheardVoicemails === 1 ? '' : 's'}` : 'Dialer'}
           >
             <ActiveBar show={active === 'dialer'} />
-            <span className={active === 'dialer' ? 'text-amber-300' : ''}><CatalogIcon id="dialer" /></span>
+            <span className={`relative ${active === 'dialer' ? 'text-amber-300' : ''}`}>
+              <CatalogIcon id="dialer" />
+              {unheardVoicemails > 0 && (
+                <span
+                  className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 border-2 border-[#0a1f33] text-[9px] font-bold text-white flex items-center justify-center leading-none"
+                  aria-label={`${unheardVoicemails} unheard voicemail${unheardVoicemails === 1 ? '' : 's'}`}
+                >
+                  {unheardVoicemails > 9 ? '9+' : unheardVoicemails}
+                </span>
+              )}
+            </span>
             <span>Dialer</span>
           </Link>
         )}

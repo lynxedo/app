@@ -18,7 +18,7 @@ export default async function SettingsPage() {
       .maybeSingle(),
     supabase
       .from('user_profiles')
-      .select('role, phone, full_name, landing_page, rail_config, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_timesheet, can_access_dialer')
+      .select('role, phone, full_name, landing_page, rail_config, dialer_global_ring, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_timesheet, can_access_dialer')
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -65,6 +65,9 @@ export default async function SettingsPage() {
     canAccessTimesheet: !!profileResult.data?.can_access_timesheet,
   }
 
+  const dialerGlobalRing = profileResult.data?.dialer_global_ring ?? true
+
+
   return (
     <div className="flex-1 min-h-0 overflow-y-auto bg-gray-950 text-white">
       <header className="px-4 md:px-6 pt-4 pb-2">
@@ -80,6 +83,7 @@ export default async function SettingsPage() {
           notifPref={notifPref}
           railConfig={railConfig}
           railPermissions={railPermissions}
+          dialerGlobalRing={dialerGlobalRing}
         />
       </main>
     </div>

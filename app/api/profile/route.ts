@@ -35,7 +35,7 @@ export async function PUT(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config } = await request.json()
+  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, dialer_global_ring } = await request.json()
 
   if (landing_page !== undefined && landing_page !== 'hub' && landing_page !== 'dashboard') {
     return NextResponse.json({ error: 'landing_page must be "hub" or "dashboard"' }, { status: 400 })
@@ -71,6 +71,12 @@ export async function PUT(request: Request) {
   if (hub_pinned_ids !== undefined) profileUpdates.hub_pinned_ids = hub_pinned_ids
   if (landing_page !== undefined) profileUpdates.landing_page = landing_page
   if (rail_config !== undefined) profileUpdates.rail_config = rail_config
+  if (dialer_global_ring !== undefined) {
+    if (typeof dialer_global_ring !== 'boolean') {
+      return NextResponse.json({ error: 'dialer_global_ring must be a boolean' }, { status: 400 })
+    }
+    profileUpdates.dialer_global_ring = dialer_global_ring
+  }
 
   if (Object.keys(profileUpdates).length > 0) {
     const { error } = await supabase
