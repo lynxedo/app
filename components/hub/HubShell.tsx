@@ -15,6 +15,7 @@ import ProfileSidebar from './sidebars/ProfileSidebar'
 import ActivitySidebar from './sidebars/ActivitySidebar'
 import TxtSidebar from './sidebars/TxtSidebar'
 import TxtV2Sidebar from './sidebars/TxtV2Sidebar'
+import DialerSidebar from './sidebars/DialerSidebar'
 import AnnouncementTicker, { type Announcement } from './AnnouncementTicker'
 import HubQuickCompose from './HubQuickCompose'
 import TimesheetClockModal from './TimesheetClockModal'
@@ -55,6 +56,7 @@ export default function HubShell({
   canAccessBooks,
   canAccessFleet,
   canAccessZoneSizer,
+  canAccessDialer,
   myPresenceMode,
   children,
 }: {
@@ -88,6 +90,7 @@ export default function HubShell({
   canAccessBooks?: boolean
   canAccessFleet?: boolean
   canAccessZoneSizer?: boolean
+  canAccessDialer?: boolean
   myPresenceMode?: 'clock' | 'activity'
   children: React.ReactNode
 }) {
@@ -286,11 +289,20 @@ export default function HubShell({
     canAccessCallLog: !!canAccessCallLog,
     canAccessTimesheet: !!canAccessTimesheet,
     canAccessZoneSizer: !!canAccessZoneSizer,
+    canAccessDialer: !!canAccessDialer,
   }
 
   function renderSidebar() {
     const collapseProps = { onDesktopCollapse: toggleSidebarCollapsed }
     switch (activeRail) {
+      case 'dialer':
+        return (
+          <DialerSidebar
+            onClose={closeMobileDrawer}
+            canSeeAll={!!isAdmin || !!adminGrants?.hub}
+            {...collapseProps}
+          />
+        )
       case 'txt':
         // /hub/txt = develop-only new Twilio-backed view; /hub/clients = existing Captivated view
         if (pathname === '/hub/txt' || pathname.startsWith('/hub/txt/')) {
@@ -316,6 +328,7 @@ export default function HubShell({
             canAccessBooks={!!canAccessBooks}
             canAccessFleet={!!canAccessFleet}
             canAccessTimesheet={!!canAccessTimesheet}
+            canAccessDialer={!!canAccessDialer}
             onClose={closeMobileDrawer}
             {...collapseProps}
           />
@@ -367,6 +380,7 @@ export default function HubShell({
             canAccessCallLog={canAccessCallLog}
             canAccessLawn={canAccessLawn}
             canAccessZoneSizer={canAccessZoneSizer}
+            canAccessDialer={canAccessDialer}
             canAccessTimesheet={canAccessTimesheet}
             canAccessRouting={canAccessRouting}
             canAccessBooks={canAccessBooks}

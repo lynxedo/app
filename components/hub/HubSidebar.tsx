@@ -59,6 +59,7 @@ const TOOL_CATALOG: Record<string, ToolDef> = {
   'tool:tracker':       { id: 'tool:tracker',       label: 'Tracker',         icon: '🎯', href: '/hub/tracker',      prefixMatch: true },
   'tool:lawn':          { id: 'tool:lawn',          label: 'Lawn Sizer',      icon: '🌿', href: '/hub/lawn',         prefixMatch: false },
   'tool:zone-sizer':    { id: 'tool:zone-sizer',    label: 'Zone Sizer',      icon: '💧', href: '/hub/zone-sizer',   prefixMatch: false },
+  'tool:dialer':        { id: 'tool:dialer',        label: 'Dialer',          icon: '☎️', href: '/hub/dialer',       prefixMatch: true },
   'tool:call-log':      { id: 'tool:call-log',      label: 'Call Log',        icon: '📞', href: '/hub/call-log',     prefixMatch: true },
   'tool:books':         { id: 'tool:books',         label: 'Books',           icon: '📊', href: '/books',            prefixMatch: true },
   'tool:fleet':         { id: 'tool:fleet',         label: 'Fleet',           icon: '🚛', href: '/hub/fleet',        prefixMatch: true },
@@ -90,6 +91,7 @@ export default function HubSidebar({
   canAccessCallLog = false,
   canAccessLawn = false,
   canAccessZoneSizer = false,
+  canAccessDialer = false,
   canAccessTimesheet = false,
   canAccessRouting = false,
   canAccessBooks = false,
@@ -113,6 +115,7 @@ export default function HubSidebar({
   canAccessCallLog?: boolean
   canAccessLawn?: boolean
   canAccessZoneSizer?: boolean
+  canAccessDialer?: boolean
   canAccessTimesheet?: boolean
   canAccessRouting?: boolean
   canAccessBooks?: boolean
@@ -820,6 +823,7 @@ export default function HubSidebar({
     'tool:tracker':      canAccessTracker,
     'tool:lawn':         canAccessLawn,
     'tool:zone-sizer':   canAccessZoneSizer,
+    'tool:dialer':       canAccessDialer,
     'tool:call-log':     canAccessCallLog,
     'tool:books':        canAccessBooks,
     'tool:fleet':        canAccessFleet,

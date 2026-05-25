@@ -54,6 +54,7 @@ const TABS = [
   { id: 'routing',      icon: '⚡', label: 'Route Optimizer' },
   { id: 'lawn-sizer',   icon: '🌿', label: 'Lawn Sizer' },
   { id: 'zone-sizer',   icon: '💧', label: 'Zone Sizer' },
+  { id: 'dialer',       icon: '☎️', label: 'Dialer' },
   { id: 'call-log',     icon: '📞', label: 'Call Log' },
   { id: 'books',        icon: '📊', label: 'Books' },
   { id: 'timesheet',    icon: '🕐', label: 'Timesheet' },
@@ -128,6 +129,7 @@ export default function HelpContent() {
         {activeTab === 'routing'    && <RoutingTab />}
         {activeTab === 'lawn-sizer' && <LawnSizerTab />}
         {activeTab === 'zone-sizer' && <ZoneSizerTab />}
+        {activeTab === 'dialer'     && <DialerTab />}
         {activeTab === 'call-log'   && <CallLogTab />}
         {activeTab === 'books'      && <BooksTab />}
         {activeTab === 'timesheet'  && <TimesheetTab />}
@@ -653,6 +655,54 @@ function ZoneSizerTab() {
       <AdminOnly>
         <p>Admins configure the per-zone square footage under <strong className="text-white">/admin/zone-sizer</strong>. Defaults are 1,000 sq ft per zone for both turf and beds. Raise the bed rate if you use drip or microspray that covers more area per zone.</p>
         <p>Each user must have the <em>Zone Sizer</em> permission enabled in Admin → People to use the tool.</p>
+      </AdminOnly>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// DIALER
+// ──────────────────────────────────────────────────────────────────────────
+
+function DialerTab() {
+  return (
+    <>
+      <Section title="What It Does">
+        <p>Dialer is the in-browser softphone — place and receive phone calls from any Hub device without a separate calling app. Calls go through Heroes&apos; Twilio number, so anyone you reach sees a single consistent business number.</p>
+        <Note>Dialer is currently <strong className="text-white">on staging only</strong>. It&apos;s wired and ready for real Twilio voice setup. Once Heroes&apos; Twilio number is live, the dialpad starts placing real calls. Until then it shows a &quot;Not configured&quot; pill and call attempts fail cleanly.</Note>
+      </Section>
+
+      <Section title="Placing a Call">
+        <Step n={1}>Open <strong className="text-white">Dialer</strong> from the sidebar under Tools → Communications, or from your favorites if you&apos;ve pinned it.</Step>
+        <Step n={2}>Tap digits on the keypad or type a phone number directly into the field.</Step>
+        <Step n={3}>Tap the green <strong className="text-white">Call</strong> button. The browser asks for microphone access the first time — say yes.</Step>
+        <Step n={4}>While the call is connecting, the screen switches to the active-call view with caller info, a mute button, a keypad for tone entry (e.g. menu choices), and a red hang-up button.</Step>
+      </Section>
+
+      <Section title="Receiving a Call">
+        <p>When an inbound call comes in, a full-screen ringing overlay shows the caller&apos;s number (and contact name if you&apos;ve texted them before from Txt). Tap green to accept, red to reject.</p>
+        <Note>In v1 inbound calls only ring on Ben&apos;s account. IVR (auto-attendant) and ring groups land in a follow-up session. Until those ship, all incoming calls route to Ben — anyone else with Dialer access can still place outbound calls.</Note>
+      </Section>
+
+      <Section title="Recent Calls">
+        <p>The Dialer sidebar shows three tabs: <strong className="text-white">Recent</strong> (your own calls — inbound and outbound), <strong className="text-white">Missed</strong> (inbound calls that didn&apos;t connect), and <strong className="text-white">All</strong> (managers only — every call on Heroes&apos; line). Tap any row to pre-fill the dialpad with that number for a callback.</p>
+      </Section>
+
+      <Section title="What&apos;s Coming">
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Mobile native dialer</strong> — built into the existing iOS/Android Hub app. Calls ring with native iOS CallKit / Android ConnectionService, work from lock screen + Bluetooth + CarPlay.</li>
+          <li><strong className="text-white">Click-to-call from Txt</strong> — phone icon in every Txt conversation header to call the contact with one tap.</li>
+          <li><strong className="text-white">Auto-attendant (IVR)</strong> — &quot;Press 1 for scheduling, 2 for billing&quot; menu builder.</li>
+          <li><strong className="text-white">Ring groups</strong> — inbound calls ring multiple people simultaneously or in sequence.</li>
+          <li><strong className="text-white">Voicemail</strong> — per-user voicemail with greetings, transcripts, and visual inbox.</li>
+          <li><strong className="text-white">Call recording + AI summary</strong> — opt-in recording with Deepgram transcription + Claude bullet-point summary, all in Call Log.</li>
+        </ul>
+      </Section>
+
+      <AdminOnly>
+        <p>Each user must have the <em>Dialer</em> permission enabled in Admin → People to access <code>/hub/dialer</code> and receive a Twilio Voice access token. Setting <em>Admin → Dialer</em> as a manager grant lets that user see <strong className="text-white">All</strong> calls (not just their own) and inject test calls.</p>
+        <p>v1 inbound routing is configured per company in <code>dialer_settings.inbound_route_user_id</code>. Until an admin UI for this lands, it&apos;s set directly in the database.</p>
+        <p>Required env vars when going live: <code>TWILIO_API_KEY_SID</code>, <code>TWILIO_API_KEY_SECRET</code>, <code>TWILIO_TWIML_APP_SID</code>. Voice does NOT need A2P 10DLC approval — that&apos;s SMS-only. Dialer can launch before Txt v2.</p>
       </AdminOnly>
     </>
   )

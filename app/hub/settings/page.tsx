@@ -18,7 +18,7 @@ export default async function SettingsPage() {
       .maybeSingle(),
     supabase
       .from('user_profiles')
-      .select('role, phone, full_name, landing_page, rail_config, txt_signature, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_timesheet')
+      .select('role, phone, full_name, landing_page, rail_config, txt_signature, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_timesheet, can_access_dialer')
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -60,6 +60,7 @@ export default async function SettingsPage() {
     canAccessBooks: !!profileResult.data?.can_access_books,
     canAccessLawn: !!profileResult.data?.can_access_lawn,
     canAccessZoneSizer: !!profileResult.data?.can_access_zone_sizer,
+    canAccessDialer: !!profileResult.data?.can_access_dialer,
     canAccessCallLog: !!profileResult.data?.can_access_call_log,
     canAccessTimesheet: !!profileResult.data?.can_access_timesheet,
   }
