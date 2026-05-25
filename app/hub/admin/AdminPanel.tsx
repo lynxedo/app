@@ -15,6 +15,7 @@ type UserProfile = {
   can_access_hub: boolean
   can_access_fleet: boolean
   can_access_zone_sizer: boolean
+  can_access_dialer: boolean
   can_post_shout_outs: boolean
   can_admin_people: boolean
   can_admin_hub: boolean
@@ -23,6 +24,7 @@ type UserProfile = {
   can_admin_fleet: boolean
   can_admin_daily_log: boolean
   can_admin_zone_sizer: boolean
+  can_admin_dialer: boolean
 }
 
 type User = {
@@ -60,6 +62,7 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_access_hub', label: 'Hub' },
   { key: 'can_access_fleet', label: 'Fleet Tracker' },
   { key: 'can_access_zone_sizer', label: 'Zone Sizer' },
+  { key: 'can_access_dialer', label: 'Dialer' },
   { key: 'can_post_shout_outs', label: 'Post Shout Outs' },
 ]
 
@@ -71,6 +74,7 @@ const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_admin_fleet', label: 'Fleet' },
   { key: 'can_admin_daily_log', label: 'Daily Log' },
   { key: 'can_admin_zone_sizer', label: 'Zone Sizer' },
+  { key: 'can_admin_dialer', label: 'Dialer' },
 ]
 
 function getInitials(name: string | null, email: string): string {
@@ -165,6 +169,7 @@ export default function AdminPanel({
             can_access_hub: false,
             can_access_fleet: false,
             can_access_zone_sizer: false,
+            can_access_dialer: false,
             can_post_shout_outs: false,
             can_admin_people: false,
             can_admin_hub: false,
@@ -173,6 +178,7 @@ export default function AdminPanel({
             can_admin_fleet: false,
             can_admin_daily_log: false,
             can_admin_zone_sizer: false,
+            can_admin_dialer: false,
           },
         }
         setUsers(prev => [...prev, newUser])
@@ -282,6 +288,7 @@ export default function AdminPanel({
             can_access_hub: false,
             can_access_fleet: false,
             can_access_zone_sizer: false,
+            can_access_dialer: false,
             can_post_shout_outs: false,
             can_admin_people: false,
             can_admin_hub: false,
@@ -290,6 +297,7 @@ export default function AdminPanel({
             can_admin_fleet: false,
             can_admin_daily_log: false,
             can_admin_zone_sizer: false,
+            can_admin_dialer: false,
           },
         }
         setUsers(prev => [...prev, newUser])

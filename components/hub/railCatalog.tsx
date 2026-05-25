@@ -17,6 +17,7 @@ export type CatalogId =
   | 'books'
   | 'lawn'
   | 'zone-sizer'
+  | 'dialer'
   | 'call-log'
   | 'time-records'  // admin-only
   | 'daily-log'
@@ -43,6 +44,7 @@ export type RailPermissions = {
   canAccessBooks: boolean
   canAccessLawn: boolean
   canAccessZoneSizer: boolean
+  canAccessDialer: boolean
   canAccessCallLog: boolean
   canAccessTimesheet: boolean
 }
@@ -77,6 +79,7 @@ const PATHS = {
   books: 'M3 6a2 2 0 012-2h4l2 2h8a2 2 0 012 2v10a2 2 0 01-2 2H5a2 2 0 01-2-2V6z',
   lawn: 'M12 22V8M12 8c0-3 2-5 5-5-1 3-2 5-5 5zm0 0c0-3-2-5-5-5 1 3 2 5 5 5zM5 15c2.5 0 5 1.5 5 4M19 15c-2.5 0-5 1.5-5 4',
   zoneSizer: 'M4 14C4 8 8 4 12 4S20 8 20 14M12 14V20M8 20H16',
+  dialer: 'M6 4h3l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v3a2 2 0 01-2 2A14 14 0 014 6a2 2 0 012-2z',
   callLog: 'M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.37 1.9.72 2.8a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.9.35 1.84.59 2.8.72A2 2 0 0122 16.92z',
   timeRecords: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
   dailyLog: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h6M9 16h6',
@@ -104,6 +107,7 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
     case 'books':       return <I d={PATHS.books} />
     case 'lawn':        return <I d={PATHS.lawn} />
     case 'zone-sizer':  return <I d={PATHS.zoneSizer} />
+    case 'dialer':      return <I d={PATHS.dialer} />
     case 'call-log':    return <I d={PATHS.callLog} />
     case 'time-records':return <I d={PATHS.timeRecords} />
     case 'daily-log':   return <I d={PATHS.dailyLog} />
@@ -132,6 +136,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'books',        label: 'Books',         href: '/hub/books', prefixMatch: true, pickable: true, requires: 'canAccessBooks' },
   { id: 'lawn',         label: 'Lawn Sizer',    href: '/hub/lawn', pickable: true, requires: 'canAccessLawn' },
   { id: 'zone-sizer',   label: 'Zone Sizer',    href: '/hub/zone-sizer', pickable: true, requires: 'canAccessZoneSizer' },
+  { id: 'dialer',       label: 'Dialer',        href: '/hub/dialer', prefixMatch: true, pickable: true, requires: 'canAccessDialer' },
   { id: 'call-log',     label: 'Call Log',      href: '/hub/call-log', prefixMatch: true, pickable: true, requires: 'canAccessCallLog' },
   { id: 'time-records', label: 'Time Records',  href: '/hub/admin/timesheet', prefixMatch: true, pickable: true, requires: 'isAdmin' },
   { id: 'files',        label: 'Files',         href: '/hub/files', pickable: true },

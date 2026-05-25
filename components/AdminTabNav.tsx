@@ -11,6 +11,7 @@ type Grants = {
   fleet: boolean
   daily_log: boolean
   zone_sizer: boolean
+  dialer: boolean
 }
 
 const TABS: { href: string; label: string; exact: boolean; grantKey: keyof Grants }[] = [
