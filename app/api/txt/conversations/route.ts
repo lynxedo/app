@@ -38,7 +38,7 @@ export async function GET(request: Request) {
     .from('txt_conversations')
     .select(
       `id, status, assigned_to, archived_by, last_message_at, last_inbound_at, created_at,
-       contact:txt_contacts ( id, name, phone, do_not_text ),
+       contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, do_not_text ),
        assignee:hub_users!assigned_to ( id, display_name )`
     )
     .order('last_message_at', { ascending: false, nullsFirst: false })

@@ -32,7 +32,7 @@ export async function POST(
   const { data: conv, error: convErr } = await supabase
     .from('txt_conversations')
     .select(
-      'id, contact_id, status, contact:txt_contacts ( id, name, phone, do_not_text )'
+      'id, contact_id, status, contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, do_not_text )'
     )
     .eq('id', conversationId)
     .single()

@@ -18,7 +18,7 @@ export async function GET(
       .from('txt_conversations')
       .select(
         `id, status, assigned_to, last_message_at, last_inbound_at, created_at,
-         contact:txt_contacts ( id, name, phone, email, do_not_text, jobber_client_id, notes ),
+         contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, email, do_not_text, jobber_client_id, notes ),
          assignee:hub_users!assigned_to ( id, display_name )`
       )
       .eq('id', id)
