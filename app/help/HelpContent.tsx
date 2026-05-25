@@ -688,10 +688,13 @@ function DialerTab() {
         <p>The Dialer sidebar shows three tabs: <strong className="text-white">Recent</strong> (your own calls — inbound and outbound), <strong className="text-white">Missed</strong> (inbound calls that didn&apos;t connect), and <strong className="text-white">All</strong> (managers only — every call on Heroes&apos; line). Tap any row to pre-fill the dialpad with that number for a callback.</p>
       </Section>
 
+      <Section title="Click-to-call from Txt">
+        <p>Every direct Txt conversation header has a green <strong className="text-white">📞</strong> button next to Notes and Archive. Tap it to jump to the Dialer with the contact&apos;s number already filled in — tap the green Call button there to actually dial. The resulting call gets linked back to the Txt thread so Call Log can show the conversation it came from. Group Txt threads don&apos;t show the button (no single contact to call).</p>
+      </Section>
+
       <Section title="What&apos;s Coming">
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Mobile native dialer</strong> — built into the existing iOS/Android Hub app. Calls ring with native iOS CallKit / Android ConnectionService, work from lock screen + Bluetooth + CarPlay.</li>
-          <li><strong className="text-white">Click-to-call from Txt</strong> — phone icon in every Txt conversation header to call the contact with one tap.</li>
           <li><strong className="text-white">Auto-attendant (IVR)</strong> — &quot;Press 1 for scheduling, 2 for billing&quot; menu builder.</li>
           <li><strong className="text-white">Ring groups</strong> — inbound calls ring multiple people simultaneously or in sequence.</li>
           <li><strong className="text-white">Voicemail</strong> — per-user voicemail with greetings, transcripts, and visual inbox.</li>

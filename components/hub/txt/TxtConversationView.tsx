@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useRef, useState } from 'react'
+import { useRouter } from 'next/navigation'
 import ContactModal, { type ContactForModal } from './ContactModal'
 import TemplatePicker, { filterTemplates, type PickerTemplate } from './TemplatePicker'
 
@@ -111,6 +112,7 @@ export default function TxtConversationView({
   currentUserName,
   companyName,
   canAssign,
+  canAccessDialer,
 }: {
   initialConversation: Conversation
   initialMessages: Message[]
@@ -122,7 +124,9 @@ export default function TxtConversationView({
   currentUserName: string | null
   companyName: string | null
   canAssign: boolean
+  canAccessDialer: boolean
 }) {
+  const router = useRouter()
   const [conversation, setConversation] = useState(initialConversation)
   const [messages, setMessages] = useState(initialMessages)
   const [notes, setNotes] = useState(initialNotes)
@@ -374,6 +378,17 @@ export default function TxtConversationView({
       setConversation((prev) => ({ ...prev, phone_number_id: conversation.phone_number_id }))
       setSendError(data.error || 'Failed to change from-number')
     }
+  }
+
+  function startCall() {
+    const phone = conversation.contact?.phone
+    if (!phone) return
+    const qs = new URLSearchParams({
+      number: phone,
+      conversation_id: conversation.id,
+    })
+    if (conversation.contact?.id) qs.set('contact_id', conversation.contact.id)
+    router.push(`/hub/dialer?${qs.toString()}`)
   }
 
   async function toggleArchive() {
@@ -654,6 +669,21 @@ export default function TxtConversationView({
               title="Leave this thread"
             >
               Leave
+            </button>
+          )}
+          {/* Call button — Session 57. Direct DMs only, contact has a phone,
+              user has Dialer access. Navigates to /hub/dialer with the number
+              pre-filled and conversation_id + contact_id passed through so the
+              resulting calls row links back to this Txt thread. User taps the
+              green Call button in the Dialer themselves to actually dial. */}
+          {canAccessDialer && !isGroup && conversation.contact?.phone && (
+            <button
+              onClick={startCall}
+              className="text-xs px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+              title="Call this contact in the Dialer"
+              aria-label="Call"
+            >
+              📞
             </button>
           )}
           <button
