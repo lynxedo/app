@@ -180,12 +180,41 @@ export function twimlDialClient(opts: {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial ${attrs.join(' ')}><Client>${escapeXmlText(opts.identity)}</Client></Dial></Response>`
 }
 
-// Inbound fallback: no agent available, play a message and send to voicemail.
-// v1 of the dialer doesn't have voicemail recording yet, so this just says a
-// message and hangs up — the missed call still lands in the calls table for
-// the Recent tab.
+// Polite hangup with a spoken message. Used as a last-resort fallback when
+// voicemail isn't configured or the recording webhook fails.
 export function twimlSayAndHangup(message: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">${escapeXmlText(message)}</Say></Response>`
+}
+
+// Voicemail recording flow. Plays the configured greeting (audio URL) or
+// falls back to a spoken default, then records up to maxLength seconds and
+// POSTs to the action URL when finished. action is hit twice by Twilio:
+// once after the recording is finalized (with RecordingSid/RecordingUrl
+// populated) and once if the caller hangs up before recording finishes.
+export function twimlRecordVoicemail(opts: {
+  action: string
+  greetingUrl?: string | null
+  spokenFallback?: string
+  maxLengthSec?: number
+}): string {
+  const maxLen = Math.max(15, Math.min(300, opts.maxLengthSec ?? 180))
+  const fallback = opts.spokenFallback ||
+    "Please leave a message after the beep. Press pound when finished."
+
+  const intro = opts.greetingUrl
+    ? `<Play>${escapeXmlText(opts.greetingUrl)}</Play>`
+    : `<Say voice="alice">${escapeXmlText(fallback)}</Say>`
+
+  const recordAttrs = [
+    `action="${escapeXmlAttr(opts.action)}"`,
+    'method="POST"',
+    `maxLength="${maxLen}"`,
+    'playBeep="true"',
+    'trim="trim-silence"',
+    'finishOnKey="#"',
+  ].join(' ')
+
+  return `<?xml version="1.0" encoding="UTF-8"?><Response>${intro}<Record ${recordAttrs}/><Say voice="alice">We didn't catch that. Goodbye.</Say></Response>`
 }
 
 // ---------------------------------------------------------------------------

@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import {
   EMPTY_VOICE_TWIML,
   twimlDialClient,
-  twimlSayAndHangup,
+  twimlRecordVoicemail,
   validateTwilioVoiceSignature,
   voiceConfigured,
 } from '@/lib/twilio-voice'
@@ -22,10 +22,15 @@ function twimlResponse(body: string, status = 200) {
 // phone number's Voice webhook. When PSTN dials our Twilio number, Twilio
 // POSTs here.
 //
-// v1 routing (per Ben): route to a single configured user
-// (dialer_settings.inbound_route_user_id). IVR + ring groups land in a
-// follow-up session. If no user is configured or that user isn't reachable,
-// fall back to a polite hangup so missed calls still log.
+// v1 routing (per Ben): try to route to a single configured user
+// (dialer_settings.inbound_route_user_id) for ring_timeout_sec seconds. If
+// unanswered OR no user configured, fall through to general voicemail. IVR +
+// ring groups + per-user boxes land in Sessions 59–60.
+//
+// <Dial action="..."> is hit by Twilio when the dial finishes — with
+// DialCallStatus indicating answered/no-answer/busy/failed/etc. The
+// /voice/twiml/voicemail render endpoint reads that status and either ends
+// the call cleanly (answered) or records a voicemail (everything else).
 export async function POST(request: NextRequest) {
   const raw = await request.text()
   const params = new URLSearchParams(raw)
@@ -44,10 +49,11 @@ export async function POST(request: NextRequest) {
   const toNumber = params.get('To') || ''
   const callSid = params.get('CallSid') || ''
 
-  // Log the inbound call up front. Status updates land later via /voice/status.
+  // Log the inbound call up front. Status updates land later via /voice/status
+  // (Twilio's separate Status Callback on the parent call) and the voicemail
+  // render route (Dial action).
   const admin = createAdminClient()
   try {
-    // Look up contact if we have one
     let contactId: string | null = null
     if (fromNumber) {
       const { data: contact } = await admin
@@ -72,36 +78,43 @@ export async function POST(request: NextRequest) {
     // swallow — call still proceeds
   }
 
-  // Pull routing target. v1: single user.
   const { data: settings } = await admin
     .from('dialer_settings')
-    .select('inbound_route_user_id, fallback_voicemail_url')
+    .select('inbound_route_user_id, ring_timeout_sec')
     .eq('company_id', HEROES_COMPANY_ID)
     .single()
 
   const routeToUserId = settings?.inbound_route_user_id
+  const ringTimeout = settings?.ring_timeout_sec ?? 20
 
-  const statusCb = `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/status`
-  const recordingCb = `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/recording`
+  const voicemailRender = `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/twiml/voicemail`
 
   if (routeToUserId) {
     return twimlResponse(
       twimlDialClient({
         identity: routeToUserId,
         callerId: fromNumber || undefined,
-        timeoutSeconds: 30,
-        recordCalls: false,
-        recordingStatusCallback: recordingCb,
-        statusCallback: statusCb,
+        timeoutSeconds: ringTimeout,
+        statusCallback: voicemailRender,
       })
     )
   }
 
-  // No route configured yet — polite hangup, call still logged
+  // No route configured — go straight to general voicemail. We need to fetch
+  // the greeting URL here since this branch skips the Dial-then-render path.
+  const { data: vmSettings } = await admin
+    .from('dialer_settings')
+    .select('fallback_voicemail_url')
+    .eq('company_id', HEROES_COMPANY_ID)
+    .single()
+
   return twimlResponse(
-    twimlSayAndHangup(
-      "Thank you for calling. We're not able to take your call right now. Please try again later."
-    )
+    twimlRecordVoicemail({
+      action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,
+      greetingUrl: vmSettings?.fallback_voicemail_url || null,
+      spokenFallback:
+        "Thanks for calling. Please leave a message after the beep and we'll get back to you. Press pound when finished.",
+    })
   )
 }
 

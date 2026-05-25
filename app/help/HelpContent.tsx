@@ -685,27 +685,35 @@ function DialerTab() {
       </Section>
 
       <Section title="Recent Calls">
-        <p>The Dialer sidebar shows three tabs: <strong className="text-white">Recent</strong> (your own calls — inbound and outbound), <strong className="text-white">Missed</strong> (inbound calls that didn&apos;t connect), and <strong className="text-white">All</strong> (managers only — every call on Heroes&apos; line). Tap any row to pre-fill the dialpad with that number for a callback.</p>
+        <p>The Dialer sidebar shows four tabs: <strong className="text-white">Recent</strong> (your own calls — inbound and outbound), <strong className="text-white">Missed</strong> (inbound calls that didn&apos;t connect), <strong className="text-white">All</strong> (managers only — every call on Heroes&apos; line), and <strong className="text-white">Voicemail</strong>. Tap any call row to pre-fill the dialpad with that number for a callback.</p>
       </Section>
 
       <Section title="Click-to-call from Txt">
         <p>Every direct Txt conversation header has a green <strong className="text-white">📞</strong> button next to Notes and Archive. Tap it to jump to the Dialer with the contact&apos;s number already filled in — tap the green Call button there to actually dial. The resulting call gets linked back to the Txt thread so Call Log can show the conversation it came from. Group Txt threads don&apos;t show the button (no single contact to call).</p>
       </Section>
 
+      <Section title="Voicemail">
+        <p>If an inbound call rings out without being answered, the caller is sent to the company voicemail. The <strong className="text-white">Voicemail</strong> tab in the Dialer sidebar lists every message. The tab label shows a red badge with the unheard count.</p>
+        <p>Each voicemail row shows the caller (name if the number matches a Txt contact, otherwise the formatted phone number), the time it came in, and the recording length. Tap <strong className="text-white">Play</strong> to hear it inline — playing it once marks it as heard. <strong className="text-white">Mark heard</strong> / <strong className="text-white">Mark unheard</strong> lets you toggle without playing. <strong className="text-white">Delete</strong> removes it from the inbox (soft-deleted; admins can recover it from the database for 90 days if needed).</p>
+        <p>Tapping the caller name pre-fills the dialpad with their number so you can call back in one tap.</p>
+        <p>Voicemail recipients (the people who get a push notification when a new voicemail lands) are configured in <strong className="text-white">Admin → Dialer</strong>. Push notifications respect each recipient&apos;s Do Not Disturb settings.</p>
+      </Section>
+
       <Section title="What&apos;s Coming">
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Mobile native dialer</strong> — built into the existing iOS/Android Hub app. Calls ring with native iOS CallKit / Android ConnectionService, work from lock screen + Bluetooth + CarPlay.</li>
           <li><strong className="text-white">Auto-attendant (IVR)</strong> — &quot;Press 1 for scheduling, 2 for billing&quot; menu builder.</li>
-          <li><strong className="text-white">Ring groups</strong> — inbound calls ring multiple people simultaneously or in sequence.</li>
-          <li><strong className="text-white">Voicemail</strong> — per-user voicemail with greetings, transcripts, and visual inbox.</li>
+          <li><strong className="text-white">Ring groups + extensions</strong> — inbound calls ring multiple people simultaneously or in sequence; per-person 3-digit extensions.</li>
+          <li><strong className="text-white">Per-user voicemail boxes</strong> — alongside the company general box, with per-person greetings.</li>
+          <li><strong className="text-white">Voicemail transcription + AI summary</strong> — Deepgram transcripts + bullet-point summaries.</li>
           <li><strong className="text-white">Call recording + AI summary</strong> — opt-in recording with Deepgram transcription + Claude bullet-point summary, all in Call Log.</li>
         </ul>
       </Section>
 
       <AdminOnly>
-        <p>Each user must have the <em>Dialer</em> permission enabled in Admin → People to access <code>/hub/dialer</code> and receive a Twilio Voice access token. Setting <em>Admin → Dialer</em> as a manager grant lets that user see <strong className="text-white">All</strong> calls (not just their own) and inject test calls.</p>
-        <p>v1 inbound routing is configured per company in <code>dialer_settings.inbound_route_user_id</code>. Until an admin UI for this lands, it&apos;s set directly in the database.</p>
-        <p>Required env vars when going live: <code>TWILIO_API_KEY_SID</code>, <code>TWILIO_API_KEY_SECRET</code>, <code>TWILIO_TWIML_APP_SID</code>. Voice does NOT need A2P 10DLC approval — that&apos;s SMS-only. Dialer can launch before Txt v2.</p>
+        <p>Each user must have the <em>Dialer</em> permission enabled in Admin → People to access <code>/hub/dialer</code> and receive a Twilio Voice access token. Setting <em>Admin → Dialer</em> as a manager grant lets that user see <strong className="text-white">All</strong> calls (not just their own), inject test calls, and configure inbound routing / voicemail at <code>/hub/admin/dialer</code>.</p>
+        <p>Inbound routing, ring timeout (5–120 seconds, default 20), the company voicemail greeting (MP3 or WAV, 2 MB max), and the voicemail recipient list are all configured in <strong className="text-white">Admin → Dialer</strong>. If no inbound routing person is set, every call goes straight to voicemail.</p>
+        <p>Required env vars when going live: <code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code>, <code>TWILIO_API_KEY_SID</code>, <code>TWILIO_API_KEY_SECRET</code>, <code>TWILIO_TWIML_APP_SID</code>, <code>TWILIO_PHONE_NUMBER</code>. Voice does NOT need A2P 10DLC approval — that&apos;s SMS-only. Dialer can launch before Txt v2.</p>
       </AdminOnly>
     </>
   )
