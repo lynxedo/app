@@ -45,9 +45,13 @@ export async function POST(request: NextRequest) {
 
   // The SDK's `device.connect({ params: { To: '+1...' } })` flows To: into
   // this webhook. Identity is the user's hub_users.id from the access token.
+  // Session 57: click-to-call from Txt passes txt_conversation_id +
+  // txt_contact_id through the same params dict so the row links back.
   const toRaw = params.get('To') || ''
   const identity = params.get('From') || params.get('Caller') || ''
   const callSid = params.get('CallSid') || ''
+  const txtConversationId = params.get('txt_conversation_id') || null
+  const txtContactId = params.get('txt_contact_id') || null
 
   const to = toE164(toRaw)
   if (!to) {
@@ -68,6 +72,8 @@ export async function POST(request: NextRequest) {
       status: 'initiated',
       initiated_by: identity || null,
       handled_by: identity || null,
+      conversation_id: txtConversationId,
+      contact_id: txtContactId,
     })
   } catch {
     // swallow — call still proceeds

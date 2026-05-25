@@ -6,7 +6,17 @@ import Dialpad from '@/components/hub/dialer/Dialpad'
 import ActiveCall from '@/components/hub/dialer/ActiveCall'
 import IncomingCall from '@/components/hub/dialer/IncomingCall'
 
-export default function DialerPanel({ isAdmin }: { isAdmin: boolean }) {
+export default function DialerPanel({
+  isAdmin,
+  initialNumber = null,
+  txtConversationId = null,
+  txtContactId = null,
+}: {
+  isAdmin: boolean
+  initialNumber?: string | null
+  txtConversationId?: string | null
+  txtContactId?: string | null
+}) {
   const device = useTwilioDevice({ autoRegister: true })
   const [injecting, setInjecting] = useState(false)
   const [injectError, setInjectError] = useState<string | null>(null)
@@ -61,7 +71,18 @@ export default function DialerPanel({ isAdmin }: { isAdmin: boolean }) {
           />
         ) : (
           <Dialpad
-            onCall={(num) => device.placeCall(num)}
+            // key forces a remount when the user arrives via click-to-call
+            // with a different number (e.g. swaps Txt threads then re-clicks
+            // 📞). Keeps the rest of DialerPanel — and the Twilio Device —
+            // alive across that nav.
+            key={initialNumber ?? 'manual'}
+            initialValue={initialNumber ?? undefined}
+            onCall={(num) =>
+              device.placeCall(num, {
+                conversationId: txtConversationId,
+                contactId: txtContactId,
+              })
+            }
             disabled={device.state === 'not-configured' || device.state === 'connecting'}
           />
         )}

@@ -37,8 +37,14 @@ export type UseTwilioDevice = {
   incomingFrom: string | null
   acceptIncoming: () => void
   rejectIncoming: () => void
-  // Outbound
-  placeCall: (number: string) => Promise<void>
+  // Outbound. Optional extras travel through the Twilio Voice JS SDK's
+  // `device.connect({ params })` as form fields on the TwiML outbound
+  // webhook — used by Session 57 click-to-call to stamp the resulting
+  // calls row with the originating txt_conversation + txt_contact ids.
+  placeCall: (
+    number: string,
+    extras?: { conversationId?: string | null; contactId?: string | null }
+  ) => Promise<void>
   // Active call surface
   inCallWith: string | null
   callStartedAt: number | null
@@ -177,7 +183,10 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     incomingCallRef.current?.reject()
   }, [])
 
-  const placeCall = useCallback(async (number: string) => {
+  const placeCall = useCallback(async (
+    number: string,
+    extras?: { conversationId?: string | null; contactId?: string | null }
+  ) => {
     if (!deviceRef.current) {
       await ensureRegistered()
     }
@@ -190,9 +199,10 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     setState('placing')
     setMuted(false)
     try {
-      const call = await device.connect({
-        params: { To: number },
-      })
+      const params: Record<string, string> = { To: number }
+      if (extras?.conversationId) params.txt_conversation_id = extras.conversationId
+      if (extras?.contactId) params.txt_contact_id = extras.contactId
+      const call = await device.connect({ params })
       activeCallRef.current = call
       setInCallWith(number)
       call.on('accept', () => {
