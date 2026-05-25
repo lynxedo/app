@@ -24,6 +24,9 @@ type DailyLogEntry = {
   completer: HubUser | null
   completed_at: string | null
   completed_by: string | null
+  closer: HubUser | null
+  closed_at: string | null
+  closed_by: string | null
   secondary_tech_user_ids: string[]
   secondary_techs: HubUser[]
   updates: DailyLogUpdate[]
@@ -155,6 +158,7 @@ function EntryCard({
   const [isSubscribed, setIsSubscribed] = useState(entry.subscriber_ids.includes(currentUserId))
   const [togglingSubscribe, setTogglingSubscribe] = useState(false)
   const [togglingComplete, setTogglingComplete] = useState(false)
+  const [togglingClose, setTogglingClose] = useState(false)
   const [addingSecondary, setAddingSecondary] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const updatesBottomRef = useRef<HTMLDivElement>(null)
@@ -164,7 +168,9 @@ function EntryCard({
     entry.tech?.id === currentUserId ||
     entry.secondary_tech_user_ids.includes(currentUserId)
   const canToggleComplete = isAdmin || isOnEntry
+  const canToggleClose = isAdmin // gated to admin / can_admin_daily_log (resolved upstream)
   const isComplete = Boolean(entry.completed_at)
+  const isClosed = Boolean(entry.closed_at)
 
   async function toggleComplete() {
     if (togglingComplete) return
@@ -182,6 +188,26 @@ function EntryCard({
         completed_at: now,
         completed_by: currentUserId,
         completer: { id: currentUserId, display_name: 'You' },
+      })
+    }
+  }
+
+  async function toggleClose() {
+    if (togglingClose) return
+    setTogglingClose(true)
+    const method = isClosed ? 'DELETE' : 'POST'
+    const res = await fetch(`/api/hub/daily-log/${entry.id}/close`, { method })
+    setTogglingClose(false)
+    if (!res.ok) return
+    if (isClosed) {
+      onUpdated({ ...entry, closed_at: null, closed_by: null, closer: null })
+    } else {
+      const now = new Date().toISOString()
+      onUpdated({
+        ...entry,
+        closed_at: now,
+        closed_by: currentUserId,
+        closer: { id: currentUserId, display_name: 'You' },
       })
     }
   }
@@ -296,103 +322,69 @@ function EntryCard({
   ])
 
   return (
-    <div className={`bg-gray-900 border rounded-2xl overflow-hidden transition-colors ${
+    <div className={`bg-gray-900 border rounded-2xl overflow-hidden transition-all ${
       isComplete ? 'border-emerald-700/50' : 'border-gray-700/60'
-    }`}>
+    } ${isClosed ? 'opacity-60' : ''}`}>
       {/* Card header */}
-      <div className={`flex items-center justify-between px-4 py-3 border-b ${
+      <div className={`border-b ${
         isComplete ? 'bg-emerald-900/20 border-emerald-700/40' : 'bg-gray-800/60 border-gray-700/50'
       }`}>
-        <div className="flex items-center gap-2.5 flex-wrap min-w-0">
-          <label
-            className={`flex items-center justify-center w-6 h-6 rounded-md border cursor-pointer transition-colors flex-none ${
-              canToggleComplete ? 'hover:border-emerald-400' : 'cursor-not-allowed opacity-40'
-            } ${
-              isComplete
-                ? 'bg-emerald-600 border-emerald-500 text-white'
-                : 'bg-gray-900 border-gray-600 text-transparent'
-            }`}
-            title={
-              !canToggleComplete
-                ? 'Only the techs on this route or an admin can mark it complete'
-                : isComplete
-                  ? 'Click to unmark — clears completion status'
-                  : 'Click to mark this route complete'
-            }
-          >
-            <input
-              type="checkbox"
-              checked={isComplete}
-              onChange={toggleComplete}
-              disabled={!canToggleComplete || togglingComplete}
-              className="sr-only"
-            />
-            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
-            </svg>
-          </label>
-          <UserAvatar user={entry.tech} size={8} />
-          <span className="font-semibold text-white text-sm">
-            {entry.tech?.display_name ?? 'Unknown Tech'}
-          </span>
-          {/* Secondary techs as chips */}
-          {entry.secondary_techs.map(t => (
-            <span
-              key={t.id}
-              className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-700/60 text-xs text-gray-300"
-              title="Secondary tech"
-            >
-              + {t.display_name}
-              {canEdit && (
-                <button
-                  onClick={() => removeSecondaryTech(t.id)}
-                  className="text-gray-500 hover:text-red-400 ml-0.5"
-                  title="Remove"
+        {/* Row 1 — tech info + actions */}
+        <div className="flex items-center justify-between px-4 pt-3">
+          <div className="flex items-center gap-2.5 flex-wrap min-w-0">
+            <UserAvatar user={entry.tech} size={8} />
+            <span className="font-semibold text-white text-sm">
+              {entry.tech?.display_name ?? 'Unknown Tech'}
+            </span>
+            {/* Secondary techs as chips */}
+            {entry.secondary_techs.map(t => (
+              <span
+                key={t.id}
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-gray-700/60 text-xs text-gray-300"
+                title="Secondary tech"
+              >
+                + {t.display_name}
+                {canEdit && (
+                  <button
+                    onClick={() => removeSecondaryTech(t.id)}
+                    className="text-gray-500 hover:text-red-400 ml-0.5"
+                    title="Remove"
+                  >
+                    ×
+                  </button>
+                )}
+              </span>
+            ))}
+            {/* Add second tech */}
+            {canEdit && (
+              addingSecondary ? (
+                <select
+                  autoFocus
+                  onBlur={() => setAddingSecondary(false)}
+                  onChange={e => addSecondaryTech(e.target.value)}
+                  defaultValue=""
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-0.5 text-xs text-white outline-none focus:border-[#2E7EB8]"
                 >
-                  ×
+                  <option value="" disabled>+ Add tech…</option>
+                  {hubUsers
+                    .filter(u => !u.is_bot && !onEntryIds.has(u.id))
+                    .sort((a, b) => a.display_name.localeCompare(b.display_name))
+                    .map(u => (
+                      <option key={u.id} value={u.id}>{u.display_name}</option>
+                    ))}
+                </select>
+              ) : (
+                <button
+                  onClick={() => setAddingSecondary(true)}
+                  className="text-xs text-gray-500 hover:text-[#2E7EB8] transition-colors"
+                  title="Add a second tech who rode on this route"
+                >
+                  + tech
                 </button>
-              )}
-            </span>
-          ))}
-          {/* Add second tech */}
-          {canEdit && (
-            addingSecondary ? (
-              <select
-                autoFocus
-                onBlur={() => setAddingSecondary(false)}
-                onChange={e => addSecondaryTech(e.target.value)}
-                defaultValue=""
-                className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-0.5 text-xs text-white outline-none focus:border-[#2E7EB8]"
-              >
-                <option value="" disabled>+ Add tech…</option>
-                {hubUsers
-                  .filter(u => !u.is_bot && !onEntryIds.has(u.id))
-                  .sort((a, b) => a.display_name.localeCompare(b.display_name))
-                  .map(u => (
-                    <option key={u.id} value={u.id}>{u.display_name}</option>
-                  ))}
-              </select>
-            ) : (
-              <button
-                onClick={() => setAddingSecondary(true)}
-                className="text-xs text-gray-500 hover:text-[#2E7EB8] transition-colors"
-                title="Add a second tech who rode on this route"
-              >
-                + tech
-              </button>
-            )
-          )}
-          {isComplete && entry.completer && (
-            <span className="text-xs text-emerald-400 ml-1" title={
-              entry.completed_at
-                ? `Completed at ${new Date(entry.completed_at).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}`
-                : ''
-            }>
-              ✓ by {entry.completer.display_name}
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-1.5 flex-none">
+              )
+            )}
+          </div>
+          <div className="flex items-center gap-1.5 flex-none">
           {/* Follow / Unfollow */}
           <button
             onClick={toggleSubscribe}
@@ -440,6 +432,88 @@ function EntryCard({
               </button>
             )
           )}
+          </div>
+        </div>
+
+        {/* Row 2 — status checkboxes */}
+        <div className="flex flex-wrap items-center gap-x-5 gap-y-2 px-4 pb-3 pt-2">
+          {/* Route Completed (tech) */}
+          <label
+            className={`flex items-center gap-2 text-xs transition-colors ${
+              canToggleComplete ? 'cursor-pointer hover:text-emerald-300' : 'cursor-not-allowed opacity-50'
+            } ${isComplete ? 'text-emerald-300' : 'text-gray-400'}`}
+            title={
+              !canToggleComplete
+                ? 'Only the techs on this route or an admin can mark it complete'
+                : isComplete
+                  ? 'Click to unmark'
+                  : 'Tech: mark when the route is finished'
+            }
+          >
+            <span
+              className={`flex items-center justify-center w-5 h-5 rounded border flex-none ${
+                isComplete
+                  ? 'bg-emerald-600 border-emerald-500 text-white'
+                  : 'bg-gray-900 border-gray-600 text-transparent'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </span>
+            <input
+              type="checkbox"
+              checked={isComplete}
+              onChange={toggleComplete}
+              disabled={!canToggleComplete || togglingComplete}
+              className="sr-only"
+            />
+            <span className="font-medium">
+              Route Completed
+              {isComplete && entry.completer && (
+                <span className="text-gray-500 font-normal"> · by {entry.completer.display_name}</span>
+              )}
+            </span>
+          </label>
+
+          {/* Closed (office) */}
+          <label
+            className={`flex items-center gap-2 text-xs transition-colors ${
+              canToggleClose ? 'cursor-pointer hover:text-sky-300' : 'cursor-not-allowed opacity-50'
+            } ${isClosed ? 'text-sky-300' : 'text-gray-400'}`}
+            title={
+              !canToggleClose
+                ? 'Only admins or daily-log managers can close entries'
+                : isClosed
+                  ? 'Click to reopen — clears closed status'
+                  : 'Office: mark when you have reviewed updates and handled anything required'
+            }
+          >
+            <span
+              className={`flex items-center justify-center w-5 h-5 rounded border flex-none ${
+                isClosed
+                  ? 'bg-sky-600 border-sky-500 text-white'
+                  : 'bg-gray-900 border-gray-600 text-transparent'
+              }`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" />
+              </svg>
+            </span>
+            <input
+              type="checkbox"
+              checked={isClosed}
+              onChange={toggleClose}
+              disabled={!canToggleClose || togglingClose}
+              className="sr-only"
+            />
+            <span className="font-medium">
+              Closed
+              {isClosed && entry.closer && (
+                <span className="text-gray-500 font-normal"> · by {entry.closer.display_name}</span>
+              )}
+            </span>
+          </label>
         </div>
       </div>
 

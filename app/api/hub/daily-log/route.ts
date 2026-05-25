@@ -23,10 +23,11 @@ export async function GET(request: Request) {
     .from('daily_log_entries')
     .select(`
       id, log_date, office_notes, route_sheet_url, route_sheet_name, created_at,
-      secondary_tech_user_ids, completed_at, completed_by,
+      secondary_tech_user_ids, completed_at, completed_by, closed_at, closed_by,
       tech:hub_users!tech_user_id(id, display_name, avatar_url),
       creator:hub_users!created_by(id, display_name),
       completer:hub_users!completed_by(id, display_name),
+      closer:hub_users!closed_by(id, display_name),
       updates:daily_log_updates(id, content, created_at, created_by, creator:hub_users!created_by(id, display_name, avatar_url)),
       subscribers:daily_log_subscribers(user_id)
     `)
@@ -99,7 +100,7 @@ export async function POST(request: Request) {
     })
     .select(`
       id, log_date, office_notes, route_sheet_url, route_sheet_name, created_at,
-      secondary_tech_user_ids, completed_at, completed_by,
+      secondary_tech_user_ids, completed_at, completed_by, closed_at, closed_by,
       tech:hub_users!tech_user_id(id, display_name, avatar_url),
       creator:hub_users!created_by(id, display_name)
     `)

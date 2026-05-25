@@ -12,7 +12,7 @@ export default async function DailyLogPage() {
   const [profileResult, hubUsersResult] = await Promise.all([
     supabase
       .from('user_profiles')
-      .select('role')
+      .select('role, can_admin_daily_log')
       .eq('id', user.id)
       .single(),
     supabase
@@ -21,7 +21,9 @@ export default async function DailyLogPage() {
       .order('display_name'),
   ])
 
-  const isAdmin = profileResult.data?.role === 'admin'
+  const isAdmin =
+    profileResult.data?.role === 'admin' ||
+    profileResult.data?.can_admin_daily_log === true
   const isTech = !isAdmin
 
   const hubUsers = (hubUsersResult.data ?? []) as {
