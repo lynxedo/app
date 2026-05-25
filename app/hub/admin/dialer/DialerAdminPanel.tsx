@@ -1,12 +1,15 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import IvrEditor, { type IvrConfig } from './IvrEditor'
 
 type Settings = {
   inbound_route_user_id: string | null
   ring_timeout_sec: number
   voicemail_recipient_user_ids: string[]
   fallback_voicemail_url: string | null
+  ivr_enabled: boolean
+  ivr_config: IvrConfig
 }
 
 type HubUser = { id: string; display_name: string }
@@ -36,6 +39,8 @@ export default function DialerAdminPanel({
           inbound_route_user_id: s.inbound_route_user_id,
           ring_timeout_sec: s.ring_timeout_sec,
           voicemail_recipient_user_ids: s.voicemail_recipient_user_ids,
+          ivr_enabled: s.ivr_enabled,
+          ivr_config: s.ivr_config,
         }),
       })
       if (!res.ok) {
@@ -219,6 +224,31 @@ export default function DialerAdminPanel({
           items={hubUsers.map((u) => ({ id: u.id, label: u.display_name }))}
           selected={s.voicemail_recipient_user_ids}
           onToggle={(id) => toggleId('voicemail_recipient_user_ids', id)}
+        />
+      </section>
+
+      <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
+        <header>
+          <h2 className="font-semibold">Auto-attendant (IVR)</h2>
+          <p className="text-xs text-white/50 mt-1">
+            Optional menu that greets callers and routes them based on keypresses
+            (e.g. "press 1 for scheduling"). When off, calls follow the
+            "ring this person → voicemail" flow above.
+          </p>
+          <p className="text-xs text-white/40 mt-1">
+            Tip: TTS prompts ("type text") let Twilio read your menu in a synthetic
+            voice — fast to iterate. Swap to "upload audio" once you've finalized
+            wording and want a human voice.
+          </p>
+        </header>
+
+        <IvrEditor
+          enabled={s.ivr_enabled}
+          config={s.ivr_config}
+          onChange={({ enabled, config }) =>
+            setS((prev) => ({ ...prev, ivr_enabled: enabled, ivr_config: config }))
+          }
+          hubUsers={hubUsers}
         />
       </section>
 

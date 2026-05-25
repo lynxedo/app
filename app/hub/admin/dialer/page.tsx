@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import DialerAdminPanel from './DialerAdminPanel'
+import type { IvrConfig } from './IvrEditor'
 
 export const metadata = { title: 'Dialer Admin' }
 
@@ -10,6 +11,8 @@ const DEFAULTS = {
   ring_timeout_sec: 20,
   voicemail_recipient_user_ids: [] as string[],
   fallback_voicemail_url: null as string | null,
+  ivr_enabled: false,
+  ivr_config: { trees: {} } as IvrConfig,
 }
 
 export default async function AdminDialerPage() {
@@ -45,6 +48,8 @@ export default async function AdminDialerPage() {
     ...DEFAULTS,
     ...(row ?? {}),
     voicemail_recipient_user_ids: row?.voicemail_recipient_user_ids ?? [],
+    ivr_enabled: row?.ivr_enabled ?? false,
+    ivr_config: (row?.ivr_config ?? { trees: {} }) as IvrConfig,
   }
 
   return (

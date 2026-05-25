@@ -270,6 +270,285 @@ export async function downloadTwilioRecording(
   }
 }
 
+// ---------------------------------------------------------------------------
+// IVR (Auto-Attendant) — Session 59
+//
+// ivr_config jsonb shape on dialer_settings:
+//   {
+//     trees: {
+//       default:    { root_node_id, nodes: { [id]: IvrNode } },
+//       after_hours?: { ... },   // Session 61
+//       holiday?:     { ... },   // Session 61
+//     }
+//   }
+//
+// Node kinds (v1):
+//   say              — speak text or play audio, then hang up
+//   submenu          — prompt + Gather, route on keypress
+//   voicemail        — fall through to the general voicemail flow
+//   transfer_user    — Dial <Client>identity</Client> (specific Hub user)
+//   transfer_pstn    — Dial <Number>+1...</Number>
+//   hangup           — bare hangup
+//   repeat           — re-render the current node (used only as a no_input/invalid action)
+//
+// Scaffolded for Session 60 (returns voicemail fallback for now):
+//   extension, ring_group
+// ---------------------------------------------------------------------------
+
+export type IvrPrompt =
+  | { kind: 'tts'; text: string }
+  | { kind: 'audio'; audio_url: string }
+
+export type IvrAction =
+  | { kind: 'submenu'; target_node_id: string }
+  | { kind: 'voicemail' }
+  | { kind: 'transfer_user'; user_id: string; identity: string; timeout_sec?: number }
+  | { kind: 'transfer_pstn'; number: string; timeout_sec?: number }
+  | { kind: 'hangup' }
+  | { kind: 'say'; prompt: IvrPrompt }
+  | { kind: 'repeat'; max_repeats?: number; then?: IvrAction }
+  // Disabled v1 — Session 60:
+  | { kind: 'extension'; extension: string }
+  | { kind: 'ring_group'; ring_group_id: string }
+
+export type IvrNode = {
+  id: string
+  label?: string
+  prompt: IvrPrompt
+  keypresses: Partial<Record<'0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '*' | '#', IvrAction>>
+  no_input?: IvrAction
+  invalid_input?: IvrAction
+  gather_timeout_sec?: number
+}
+
+export type IvrTree = {
+  root_node_id: string
+  nodes: Record<string, IvrNode>
+}
+
+export type IvrConfig = {
+  trees: {
+    default?: IvrTree
+    after_hours?: IvrTree
+    holiday?: IvrTree
+  }
+}
+
+export type IvrTreeName = 'default' | 'after_hours' | 'holiday'
+
+function renderPrompt(p: IvrPrompt | undefined | null): string {
+  if (!p) return ''
+  if (p.kind === 'audio' && p.audio_url) {
+    return `<Play>${escapeXmlText(p.audio_url)}</Play>`
+  }
+  if (p.kind === 'tts' && p.text) {
+    return `<Say voice="alice">${escapeXmlText(p.text)}</Say>`
+  }
+  return ''
+}
+
+function safeUrl(s: string): string {
+  return escapeXmlAttr(s)
+}
+
+// Render TwiML for a terminal/leaf action (everything except 'submenu' and 'repeat').
+// `baseUrl` is the absolute origin (e.g. https://staging.lynxedo.com) used to build
+// action callback URLs. `actionUrls` provides the voicemail render route + status callback.
+function renderTerminalAction(
+  action: IvrAction,
+  opts: {
+    baseUrl: string
+    voicemailRouteUrl: string  // /api/dialer/voice/twiml/ivr-voicemail
+    statusCallback?: string
+    callerId?: string
+  }
+): string {
+  switch (action.kind) {
+    case 'voicemail':
+      // Redirect into the voicemail render route (mirrors the inbound no-answer
+      // flow from Session 58 — that route renders twimlRecordVoicemail).
+      return `<Redirect method="POST">${safeUrl(opts.voicemailRouteUrl)}</Redirect>`
+
+    case 'transfer_user': {
+      // <Dial action="..."> handles fall-through on no-answer/busy/failed by
+      // POSTing to the action URL with DialCallStatus. We point that at the
+      // existing voicemail render route, which returns empty TwiML when the
+      // call was answered (cleanly hangs up) or renders the record flow when
+      // it wasn't.
+      const attrs: string[] = []
+      if (opts.callerId) attrs.push(`callerId="${safeUrl(opts.callerId)}"`)
+      attrs.push(`timeout="${action.timeout_sec ?? 20}"`)
+      attrs.push(`action="${safeUrl(opts.voicemailRouteUrl)}"`)
+      attrs.push('method="POST"')
+      return `<Dial ${attrs.join(' ')}><Client>${escapeXmlText(action.identity)}</Client></Dial>`
+    }
+
+    case 'transfer_pstn': {
+      const attrs: string[] = []
+      if (opts.callerId) attrs.push(`callerId="${safeUrl(opts.callerId)}"`)
+      attrs.push(`timeout="${action.timeout_sec ?? 25}"`)
+      attrs.push(`action="${safeUrl(opts.voicemailRouteUrl)}"`)
+      attrs.push('method="POST"')
+      return `<Dial ${attrs.join(' ')}><Number>${escapeXmlText(action.number)}</Number></Dial>`
+    }
+
+    case 'say': {
+      // Speak the prompt then hang up.
+      return `${renderPrompt(action.prompt)}<Hangup/>`
+    }
+
+    case 'hangup':
+      return `<Hangup/>`
+
+    // Scaffolded — Session 60 will replace these. For now both fall through to voicemail.
+    case 'extension':
+    case 'ring_group':
+      return `<Redirect method="POST">${safeUrl(opts.voicemailRouteUrl)}</Redirect>`
+
+    // Submenu and repeat are not terminal — caller should handle them upstream.
+    case 'submenu':
+    case 'repeat':
+      return `<Redirect method="POST">${safeUrl(opts.voicemailRouteUrl)}</Redirect>`
+
+    default:
+      return `<Redirect method="POST">${safeUrl(opts.voicemailRouteUrl)}</Redirect>`
+  }
+}
+
+// Render TwiML for a node. If the node has any keypresses defined, wraps the
+// prompt in a <Gather>; otherwise just plays the prompt and hangs up.
+//
+// The Gather's action URL points back at the IVR handler so Twilio POSTs the
+// caller's keypress (Digits param) and we can render the matching child node.
+//
+// `repeatCount` is read from the inbound request (query param `r`) so we can
+// enforce no_input.max_repeats — the gather handler increments it on each
+// retry and falls through to no_input.then once the limit is hit.
+export function twimlRenderIvrNode(opts: {
+  config: IvrConfig
+  treeName: IvrTreeName
+  nodeId: string
+  baseUrl: string
+  // /api/dialer/voice/twiml/ivr — handler that processes Digits and routes
+  gatherActionUrlFor: (treeName: IvrTreeName, nodeId: string, repeatCount: number) => string
+  voicemailRouteUrl: string
+  statusCallback?: string
+  callerId?: string
+  repeatCount?: number
+}): string {
+  const tree = opts.config.trees?.[opts.treeName]
+  if (!tree) {
+    // Misconfigured — bail to voicemail.
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${safeUrl(opts.voicemailRouteUrl)}</Redirect></Response>`
+  }
+  const node = tree.nodes?.[opts.nodeId]
+  if (!node) {
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${safeUrl(opts.voicemailRouteUrl)}</Redirect></Response>`
+  }
+
+  const keypresses = Object.entries(node.keypresses || {})
+  const repeatCount = opts.repeatCount ?? 0
+
+  // No keypresses defined → terminal node, just play the prompt and stop.
+  if (keypresses.length === 0) {
+    return `<?xml version="1.0" encoding="UTF-8"?><Response>${renderPrompt(node.prompt)}<Hangup/></Response>`
+  }
+
+  // Build the Gather. numDigits=1 since all our actions are single-digit.
+  const gatherTimeout = node.gather_timeout_sec ?? 6
+  const actionUrl = opts.gatherActionUrlFor(opts.treeName, node.id, repeatCount)
+  const gatherAttrs = [
+    'input="dtmf"',
+    'numDigits="1"',
+    `timeout="${gatherTimeout}"`,
+    `action="${safeUrl(actionUrl)}"`,
+    'method="POST"',
+    'actionOnEmptyResult="true"',
+  ].join(' ')
+
+  // The no_input fallback fires when Twilio POSTs to the action URL with an
+  // empty `Digits` param (caller didn't press anything). We handle that in the
+  // gather handler route, not inline here.
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Gather ${gatherAttrs}>${renderPrompt(node.prompt)}</Gather><Redirect method="POST">${safeUrl(actionUrl)}</Redirect></Response>`
+}
+
+// Render the result of a single keypress — used by the gather handler route.
+export function twimlRenderIvrAction(opts: {
+  action: IvrAction
+  config: IvrConfig
+  treeName: IvrTreeName
+  baseUrl: string
+  gatherActionUrlFor: (treeName: IvrTreeName, nodeId: string, repeatCount: number) => string
+  voicemailRouteUrl: string
+  statusCallback?: string
+  callerId?: string
+}): string {
+  // Submenu → render the target node (with a fresh Gather).
+  if (opts.action.kind === 'submenu') {
+    return twimlRenderIvrNode({
+      config: opts.config,
+      treeName: opts.treeName,
+      nodeId: opts.action.target_node_id,
+      baseUrl: opts.baseUrl,
+      gatherActionUrlFor: opts.gatherActionUrlFor,
+      voicemailRouteUrl: opts.voicemailRouteUrl,
+      statusCallback: opts.statusCallback,
+      callerId: opts.callerId,
+      repeatCount: 0,
+    })
+  }
+
+  // Everything else is a terminal action.
+  const inner = renderTerminalAction(opts.action, {
+    baseUrl: opts.baseUrl,
+    voicemailRouteUrl: opts.voicemailRouteUrl,
+    statusCallback: opts.statusCallback,
+    callerId: opts.callerId,
+  })
+  return `<?xml version="1.0" encoding="UTF-8"?><Response>${inner}</Response>`
+}
+
+// Re-render the current node with an incremented repeat counter. Used when
+// the caller hits no_input or invalid_input and the action is 'repeat'.
+export function twimlRenderIvrRepeat(opts: {
+  config: IvrConfig
+  treeName: IvrTreeName
+  nodeId: string
+  baseUrl: string
+  gatherActionUrlFor: (treeName: IvrTreeName, nodeId: string, repeatCount: number) => string
+  voicemailRouteUrl: string
+  statusCallback?: string
+  callerId?: string
+  repeatCount: number
+  maxRepeats: number
+  fallback: IvrAction | undefined
+}): string {
+  if (opts.repeatCount >= opts.maxRepeats) {
+    const fallback = opts.fallback ?? { kind: 'voicemail' as const }
+    return twimlRenderIvrAction({
+      action: fallback,
+      config: opts.config,
+      treeName: opts.treeName,
+      baseUrl: opts.baseUrl,
+      gatherActionUrlFor: opts.gatherActionUrlFor,
+      voicemailRouteUrl: opts.voicemailRouteUrl,
+      statusCallback: opts.statusCallback,
+      callerId: opts.callerId,
+    })
+  }
+  return twimlRenderIvrNode({
+    config: opts.config,
+    treeName: opts.treeName,
+    nodeId: opts.nodeId,
+    baseUrl: opts.baseUrl,
+    gatherActionUrlFor: opts.gatherActionUrlFor,
+    voicemailRouteUrl: opts.voicemailRouteUrl,
+    statusCallback: opts.statusCallback,
+    callerId: opts.callerId,
+    repeatCount: opts.repeatCount + 1,
+  })
+}
+
 // E.164 normalizer — re-exported here so dialer code doesn't have to import
 // from lib/twilio.ts. Same implementation.
 export function toE164(raw: string): string | null {
