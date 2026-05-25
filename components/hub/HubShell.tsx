@@ -513,21 +513,6 @@ export default function HubShell({
         </div>
       </div>
 
-      {/* Mobile floating + (Quick Compose / Search) */}
-      {!keyboardOpen && pathname.startsWith('/hub') && (
-        <button
-          type="button"
-          onClick={() => setShowCompose(true)}
-          className="md:hidden fixed right-3 bottom-[68px] z-30 w-12 h-12 rounded-full bg-amber-500 hover:bg-amber-400 text-white flex items-center justify-center shadow-lg transition-colors"
-          style={{ bottom: 'calc(env(safe-area-inset-bottom, 0) + 68px)' }}
-          aria-label="Quick compose / search"
-        >
-          <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 5v14M5 12h14" />
-          </svg>
-        </button>
-      )}
-
       <HubMobileBar
         onMoreClick={() => setShowMobileMore(true)}
         onHubClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
