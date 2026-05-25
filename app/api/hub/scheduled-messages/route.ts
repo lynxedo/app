@@ -14,7 +14,48 @@ export async function GET() {
     .order('send_at', { ascending: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ scheduled: data ?? [] })
+
+  const rows = data ?? []
+  const roomIds = Array.from(new Set(rows.map(r => r.room_id).filter((id): id is string => !!id)))
+  const convIds = Array.from(new Set(rows.map(r => r.conversation_id).filter((id): id is string => !!id)))
+
+  const roomNames = new Map<string, string>()
+  if (roomIds.length > 0) {
+    const { data: rooms } = await supabase.from('rooms').select('id, name').in('id', roomIds)
+    rooms?.forEach(r => roomNames.set(r.id, r.name))
+  }
+
+  const convLabels = new Map<string, string>()
+  if (convIds.length > 0) {
+    const { data: members } = await supabase
+      .from('conversation_members')
+      .select('conversation_id, user_id, hub_users:user_id(display_name)')
+      .in('conversation_id', convIds)
+    const byConv = new Map<string, { user_id: string; display_name: string | null }[]>()
+    members?.forEach((m: { conversation_id: string; user_id: string; hub_users: { display_name: string | null } | { display_name: string | null }[] | null }) => {
+      const hu = Array.isArray(m.hub_users) ? m.hub_users[0] : m.hub_users
+      const arr = byConv.get(m.conversation_id) ?? []
+      arr.push({ user_id: m.user_id, display_name: hu?.display_name ?? null })
+      byConv.set(m.conversation_id, arr)
+    })
+    for (const [convId, arr] of byConv.entries()) {
+      const others = arr.filter(a => a.user_id !== user.id)
+      const target = others.length > 0 ? others : arr
+      const names = target.map(t => t.display_name?.split(/\s+/)[0] ?? 'Unknown')
+      convLabels.set(convId, names.length === 0 ? 'Me' : names.length <= 3 ? names.join(', ') : `${names.slice(0, 2).join(', ')} & ${names.length - 2} more`)
+    }
+  }
+
+  const enriched = rows.map(r => ({
+    ...r,
+    target_label: r.room_id
+      ? `#${roomNames.get(r.room_id) ?? 'room'}`
+      : r.conversation_id
+        ? convLabels.get(r.conversation_id) ?? 'DM'
+        : 'Unknown',
+  }))
+
+  return NextResponse.json({ scheduled: enriched })
 }
 
 export async function POST(request: Request) {

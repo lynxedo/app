@@ -5,6 +5,7 @@ import dynamic from 'next/dynamic'
 import data from '@emoji-mart/data'
 import { init, SearchIndex } from 'emoji-mart'
 import type { HubMessage, HubUser } from './MessageFeed'
+import ScheduledMessagesModal from './ScheduledMessagesModal'
 
 // emoji-mart needs its data registered once before SearchIndex.search() works.
 // Calling init() multiple times is a no-op, so module-load is fine.
@@ -83,6 +84,7 @@ export default function MessageComposer({
   // Scheduled send
   const [scheduledAt, setScheduledAt] = useState<string>('') // ISO datetime-local string
   const [showScheduler, setShowScheduler] = useState(false)
+  const [showScheduledModal, setShowScheduledModal] = useState(false)
   const schedulerRef = useRef<HTMLDivElement>(null)
   // Emoji picker popover (toolbar 😀 button)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
@@ -780,6 +782,13 @@ export default function MessageComposer({
                   Clear schedule
                 </button>
               )}
+              <button
+                type="button"
+                onClick={() => { setShowScheduler(false); setShowScheduledModal(true) }}
+                className="mt-2 w-full text-xs text-[#2E7EB8] hover:text-[#5aa3d4] transition-colors border-t border-gray-700 pt-2"
+              >
+                View scheduled messages
+              </button>
             </div>
           )}
         </div>
@@ -815,6 +824,10 @@ export default function MessageComposer({
       </div>
 
       <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileChange} />
+
+      {showScheduledModal && (
+        <ScheduledMessagesModal onClose={() => setShowScheduledModal(false)} />
+      )}
     </div>
   )
 }
