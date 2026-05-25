@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { SidebarHeader } from './SidebarShell'
 
 type CallRow = {
@@ -20,9 +20,21 @@ type CallRow = {
   conversation_id: string | null
 }
 
-type Scope = 'mine' | 'missed' | 'all'
+type VoicemailRow = {
+  id: string
+  created_at: string
+  from_number: string | null
+  recording_duration_sec: number | null
+  heard_at: string | null
+  heard_by: string | null
+  call_id: string | null
+  contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null
+}
 
-function formatPhone(raw: string): string {
+type Scope = 'mine' | 'missed' | 'all' | 'voicemail'
+
+function formatPhone(raw: string | null): string {
+  if (!raw) return ''
   const digits = raw.replace(/\D/g, '')
   if (digits.length === 11 && digits[0] === '1') {
     return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
@@ -64,31 +76,86 @@ export default function DialerSidebar({
 }) {
   const [scope, setScope] = useState<Scope>('mine')
   const [calls, setCalls] = useState<CallRow[]>([])
+  const [voicemails, setVoicemails] = useState<VoicemailRow[]>([])
+  const [unheardCount, setUnheardCount] = useState(0)
   const [loading, setLoading] = useState(false)
+  const [playingId, setPlayingId] = useState<string | null>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
-    const res = await fetch(`/api/dialer/calls?scope=${scope}&limit=100`)
-    if (res.ok) {
-      const data = await res.json()
-      setCalls(data.calls ?? [])
+    if (scope === 'voicemail') {
+      const res = await fetch('/api/dialer/voicemails?scope=all&limit=100')
+      if (res.ok) {
+        const data = await res.json()
+        setVoicemails(data.voicemails ?? [])
+        setUnheardCount(data.unheard_count ?? 0)
+      }
+    } else {
+      const res = await fetch(`/api/dialer/calls?scope=${scope}&limit=100`)
+      if (res.ok) {
+        const data = await res.json()
+        setCalls(data.calls ?? [])
+      }
     }
     setLoading(false)
   }, [scope])
 
+  // Always keep unheard count fresh for the tab badge, even when on a different tab.
+  const loadUnheardCount = useCallback(async () => {
+    const res = await fetch('/api/dialer/voicemails?scope=unheard&limit=1')
+    if (res.ok) {
+      const data = await res.json()
+      setUnheardCount(data.unheard_count ?? 0)
+    }
+  }, [])
+
   useEffect(() => { load() }, [load])
+  useEffect(() => { loadUnheardCount() }, [loadUnheardCount])
 
   // Light polling — replaces a realtime channel until we wire one in a follow-up
   useEffect(() => {
-    const t = setInterval(load, 15000)
+    const t = setInterval(() => {
+      load()
+      loadUnheardCount()
+    }, 15000)
     return () => clearInterval(t)
-  }, [load])
+  }, [load, loadUnheardCount])
 
-  const tabs: { id: Scope; label: string; show: boolean }[] = [
+  const tabs: { id: Scope; label: string; show: boolean; badge?: number }[] = [
     { id: 'mine', label: 'Recent', show: true },
     { id: 'missed', label: 'Missed', show: true },
     { id: 'all', label: 'All', show: canSeeAll },
+    { id: 'voicemail', label: 'Voicemail', show: true, badge: unheardCount },
   ]
+
+  async function markHeard(id: string, heard: boolean) {
+    await fetch(`/api/dialer/voicemails/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ heard }),
+    })
+    setVoicemails((prev) =>
+      prev.map((v) =>
+        v.id === id ? { ...v, heard_at: heard ? new Date().toISOString() : null } : v,
+      ),
+    )
+    loadUnheardCount()
+  }
+
+  async function deleteVm(id: string) {
+    if (!confirm('Delete this voicemail?')) return
+    await fetch(`/api/dialer/voicemails/${id}`, { method: 'DELETE' })
+    setVoicemails((prev) => prev.filter((v) => v.id !== id))
+    if (playingId === id) setPlayingId(null)
+    loadUnheardCount()
+  }
+
+  function onPlay(id: string) {
+    setPlayingId(id)
+    // First play auto-marks as heard.
+    const vm = voicemails.find((v) => v.id === id)
+    if (vm && !vm.heard_at) markHeard(id, true)
+  }
 
   return (
     <aside
@@ -105,72 +172,236 @@ export default function DialerSidebar({
               <button
                 key={t.id}
                 onClick={() => setScope(t.id)}
-                className={`flex-1 px-2 py-1 rounded-md transition ${
+                className={`flex-1 px-2 py-1 rounded-md transition relative ${
                   scope === t.id
                     ? 'bg-white/10 text-white'
                     : 'text-white/50 hover:text-white/80'
                 }`}
               >
                 {t.label}
+                {t.badge != null && t.badge > 0 && (
+                  <span className="ml-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-[9px] font-semibold text-white">
+                    {t.badge > 99 ? '99+' : t.badge}
+                  </span>
+                )}
               </button>
             ))}
         </div>
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
-        {loading && calls.length === 0 && (
-          <div className="px-4 py-6 text-sm text-white/40">Loading…</div>
+        {scope === 'voicemail' ? (
+          <VoicemailList
+            voicemails={voicemails}
+            loading={loading}
+            playingId={playingId}
+            onPlay={onPlay}
+            onStop={() => setPlayingId(null)}
+            onDelete={deleteVm}
+            onMarkHeard={markHeard}
+            onSelectNumber={onSelectNumber}
+          />
+        ) : (
+          <CallList
+            calls={calls}
+            loading={loading}
+            scope={scope}
+            onSelectNumber={onSelectNumber}
+          />
         )}
-        {!loading && calls.length === 0 && (
-          <div className="px-4 py-6 text-sm text-white/40">
-            {scope === 'missed' ? 'No missed calls.' : 'No calls yet.'}
-          </div>
-        )}
-        <ul>
-          {calls.map((c) => {
-            const peerNumber = c.direction === 'inbound' ? c.from_number : c.to_number
-            const inner = Array.isArray(c.contact) ? c.contact[0] : c.contact
-            const displayName = inner?.name ?? null
-            const isMissed = ['no-answer', 'busy', 'failed', 'canceled'].includes(c.status) && c.direction === 'inbound'
-            return (
-              <li key={c.id}>
-                <button
-                  type="button"
-                  onClick={() => onSelectNumber?.(peerNumber)}
-                  className="w-full text-left px-4 py-2 border-l-2 border-transparent hover:bg-white/5"
-                  title={`${c.status} · ${c.direction}`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <span className={`font-medium text-sm truncate ${isMissed ? 'text-red-300' : ''}`}>
-                      {displayName || formatPhone(peerNumber) || 'Unknown'}
-                    </span>
-                    <span className="text-[10px] text-white/40 flex-none">
-                      {formatRelative(c.created_at)}
-                    </span>
-                  </div>
-                  <div className="flex items-center justify-between gap-2 mt-0.5">
-                    <span className="text-[11px] text-white/40 truncate flex items-center gap-1">
-                      <DirectionIcon direction={c.direction} missed={isMissed} />
-                      {displayName ? formatPhone(peerNumber) : c.status}
-                    </span>
-                    {c.duration_seconds > 0 && (
-                      <span className="text-[10px] text-white/40 flex-none">
-                        {formatDuration(c.duration_seconds)}
-                      </span>
-                    )}
-                  </div>
-                </button>
-              </li>
-            )
-          })}
-        </ul>
       </div>
 
-      <div className="px-3 py-2 border-t border-white/5 flex items-center justify-between">
-        <span className="text-[11px] text-white/50">Voicemail coming soon</span>
+      <div className="px-3 py-2 border-t border-white/5 flex items-center justify-end">
         <span className="text-[10px] text-white/30">Staging</span>
       </div>
     </aside>
+  )
+}
+
+function CallList({
+  calls,
+  loading,
+  scope,
+  onSelectNumber,
+}: {
+  calls: CallRow[]
+  loading: boolean
+  scope: Scope
+  onSelectNumber?: (phone: string) => void
+}) {
+  if (loading && calls.length === 0) {
+    return <div className="px-4 py-6 text-sm text-white/40">Loading…</div>
+  }
+  if (!loading && calls.length === 0) {
+    return (
+      <div className="px-4 py-6 text-sm text-white/40">
+        {scope === 'missed' ? 'No missed calls.' : 'No calls yet.'}
+      </div>
+    )
+  }
+  return (
+    <ul>
+      {calls.map((c) => {
+        const peerNumber = c.direction === 'inbound' ? c.from_number : c.to_number
+        const inner = Array.isArray(c.contact) ? c.contact[0] : c.contact
+        const displayName = inner?.name ?? null
+        const isMissed = ['no-answer', 'busy', 'failed', 'canceled', 'voicemail'].includes(c.status) && c.direction === 'inbound'
+        return (
+          <li key={c.id}>
+            <button
+              type="button"
+              onClick={() => onSelectNumber?.(peerNumber)}
+              className="w-full text-left px-4 py-2 border-l-2 border-transparent hover:bg-white/5"
+              title={`${c.status} · ${c.direction}`}
+            >
+              <div className="flex items-center justify-between gap-2">
+                <span className={`font-medium text-sm truncate ${isMissed ? 'text-red-300' : ''}`}>
+                  {displayName || formatPhone(peerNumber) || 'Unknown'}
+                </span>
+                <span className="text-[10px] text-white/40 flex-none">
+                  {formatRelative(c.created_at)}
+                </span>
+              </div>
+              <div className="flex items-center justify-between gap-2 mt-0.5">
+                <span className="text-[11px] text-white/40 truncate flex items-center gap-1">
+                  <DirectionIcon direction={c.direction} missed={isMissed} />
+                  {displayName ? formatPhone(peerNumber) : c.status}
+                </span>
+                {c.duration_seconds > 0 && (
+                  <span className="text-[10px] text-white/40 flex-none">
+                    {formatDuration(c.duration_seconds)}
+                  </span>
+                )}
+              </div>
+            </button>
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function VoicemailList({
+  voicemails,
+  loading,
+  playingId,
+  onPlay,
+  onStop,
+  onDelete,
+  onMarkHeard,
+  onSelectNumber,
+}: {
+  voicemails: VoicemailRow[]
+  loading: boolean
+  playingId: string | null
+  onPlay: (id: string) => void
+  onStop: () => void
+  onDelete: (id: string) => void
+  onMarkHeard: (id: string, heard: boolean) => void
+  onSelectNumber?: (phone: string) => void
+}) {
+  if (loading && voicemails.length === 0) {
+    return <div className="px-4 py-6 text-sm text-white/40">Loading…</div>
+  }
+  if (!loading && voicemails.length === 0) {
+    return <div className="px-4 py-6 text-sm text-white/40">No voicemails yet.</div>
+  }
+  return (
+    <ul className="divide-y divide-white/5">
+      {voicemails.map((v) => {
+        const inner = Array.isArray(v.contact) ? v.contact[0] : v.contact
+        const displayName = inner?.name ?? null
+        const phone = v.from_number || inner?.phone || ''
+        const isPlaying = playingId === v.id
+        const unheard = !v.heard_at
+        return (
+          <li key={v.id} className={`px-3 py-2.5 ${unheard ? 'bg-white/[0.03]' : ''}`}>
+            <div className="flex items-start gap-2">
+              <div className="flex-1 min-w-0">
+                <div className="flex items-center gap-1.5">
+                  {unheard && (
+                    <span className="w-1.5 h-1.5 rounded-full bg-sky-400 flex-none" aria-label="unheard" />
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => phone && onSelectNumber?.(phone)}
+                    className="text-sm font-medium truncate hover:underline text-left flex-1"
+                  >
+                    {displayName || formatPhone(phone) || 'Unknown'}
+                  </button>
+                  <span className="text-[10px] text-white/40 flex-none">
+                    {formatRelative(v.created_at)}
+                  </span>
+                </div>
+                <div className="flex items-center justify-between gap-2 mt-0.5">
+                  <span className="text-[11px] text-white/40 truncate">
+                    {displayName ? formatPhone(phone) : null}
+                  </span>
+                  {v.recording_duration_sec ? (
+                    <span className="text-[10px] text-white/40 flex-none">
+                      {formatDuration(v.recording_duration_sec)}
+                    </span>
+                  ) : null}
+                </div>
+              </div>
+            </div>
+
+            {isPlaying ? (
+              <div className="mt-2">
+                <VoicemailPlayer voicemailId={v.id} onEnded={onStop} />
+              </div>
+            ) : (
+              <div className="mt-2 flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onPlay(v.id)}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-sky-700/30 hover:bg-sky-700/50 text-sky-100"
+                  aria-label="Play voicemail"
+                >
+                  <svg className="w-3 h-3" viewBox="0 0 24 24" fill="currentColor">
+                    <path d="M8 5v14l11-7z" />
+                  </svg>
+                  Play
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onMarkHeard(v.id, !v.heard_at)}
+                  className="px-2 py-1 rounded text-xs text-white/60 hover:bg-white/5 hover:text-white"
+                >
+                  {v.heard_at ? 'Mark unheard' : 'Mark heard'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onDelete(v.id)}
+                  className="ml-auto px-2 py-1 rounded text-xs text-red-300/70 hover:bg-red-900/30 hover:text-red-300"
+                  aria-label="Delete voicemail"
+                >
+                  Delete
+                </button>
+              </div>
+            )}
+          </li>
+        )
+      })}
+    </ul>
+  )
+}
+
+function VoicemailPlayer({ voicemailId, onEnded }: { voicemailId: string; onEnded: () => void }) {
+  const audioRef = useRef<HTMLAudioElement>(null)
+
+  useEffect(() => {
+    audioRef.current?.play().catch(() => { /* autoplay blocked — user must press play */ })
+  }, [])
+
+  return (
+    <audio
+      ref={audioRef}
+      src={`/api/dialer/voicemails/${voicemailId}/audio`}
+      controls
+      onEnded={onEnded}
+      className="w-full h-8"
+    />
   )
 }
 
