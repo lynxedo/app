@@ -7,6 +7,7 @@ import 'react-image-crop/dist/ReactCrop.css'
 import { createClient } from '@/lib/supabase/client'
 import NotificationDeviceControls from '@/components/hub/NotificationDeviceControls'
 import { CATALOG, CatalogIcon, type CatalogId, type RailPermissions, normalizeRailConfig } from '@/components/hub/railCatalog'
+import DialerPersonalSettings from './DialerPersonalSettings'
 
 interface HubProfile {
   full_name: string | null
@@ -764,6 +765,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
         </section>
       )}
 
+      {railPermissions.canAccessDialer && <DialerPersonalSettings />}
 
       {/* Change password */}
       <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">

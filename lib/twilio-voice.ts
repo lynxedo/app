@@ -191,6 +191,10 @@ export function twimlSayAndHangup(message: string): string {
 // POSTs to the action URL when finished. action is hit twice by Twilio:
 // once after the recording is finalized (with RecordingSid/RecordingUrl
 // populated) and once if the caller hangs up before recording finishes.
+//
+// Session 60: callers can append `owner_user_id` to the action URL via query
+// param so /voicemail/complete knows which user's box this lands in. The
+// greetingUrl can also be per-user (resolved by the caller).
 export function twimlRecordVoicemail(opts: {
   action: string
   greetingUrl?: string | null
@@ -291,8 +295,9 @@ export async function downloadTwilioRecording(
 //   hangup           — bare hangup
 //   repeat           — re-render the current node (used only as a no_input/invalid action)
 //
-// Scaffolded for Session 60 (returns voicemail fallback for now):
-//   extension, ring_group
+// Session 60 (now enabled):
+//   extension     — dial a specific user's <Client>identity</Client> looked up by extension
+//   ring_group    — dial a configured ring group (simultaneous or sequential)
 // ---------------------------------------------------------------------------
 
 export type IvrPrompt =
@@ -354,13 +359,20 @@ function safeUrl(s: string): string {
 // Render TwiML for a terminal/leaf action (everything except 'submenu' and 'repeat').
 // `baseUrl` is the absolute origin (e.g. https://staging.lynxedo.com) used to build
 // action callback URLs. `actionUrls` provides the voicemail render route + status callback.
+//
+// Session 60: `extensionResolver` and `ringGroupUrlFor` let us turn the
+// scaffolded extension + ring_group actions into real TwiML. Both fall through
+// to the company general voicemail on miss (caller passes the URL).
 function renderTerminalAction(
   action: IvrAction,
   opts: {
     baseUrl: string
-    voicemailRouteUrl: string  // /api/dialer/voice/twiml/ivr-voicemail
+    voicemailRouteUrl: string  // company general voicemail render
     statusCallback?: string
     callerId?: string
+    extensionResolver?: (ext: string) => { identity: string; ownerUserId: string } | null
+    ringGroupUrlFor?: (groupId: string, index: number) => string
+    perUserVoicemailUrlFor?: (ownerUserId: string) => string
   }
 ): string {
   switch (action.kind) {
@@ -372,13 +384,15 @@ function renderTerminalAction(
     case 'transfer_user': {
       // <Dial action="..."> handles fall-through on no-answer/busy/failed by
       // POSTing to the action URL with DialCallStatus. We point that at the
-      // existing voicemail render route, which returns empty TwiML when the
-      // call was answered (cleanly hangs up) or renders the record flow when
-      // it wasn't.
+      // per-user voicemail render route so unanswered calls land in that
+      // user's box (falls back to general if no per-user route fn).
+      const fallback = opts.perUserVoicemailUrlFor
+        ? opts.perUserVoicemailUrlFor(action.user_id)
+        : opts.voicemailRouteUrl
       const attrs: string[] = []
       if (opts.callerId) attrs.push(`callerId="${safeUrl(opts.callerId)}"`)
       attrs.push(`timeout="${action.timeout_sec ?? 20}"`)
-      attrs.push(`action="${safeUrl(opts.voicemailRouteUrl)}"`)
+      attrs.push(`action="${safeUrl(fallback)}"`)
       attrs.push('method="POST"')
       return `<Dial ${attrs.join(' ')}><Client>${escapeXmlText(action.identity)}</Client></Dial>`
     }
@@ -400,10 +414,36 @@ function renderTerminalAction(
     case 'hangup':
       return `<Hangup/>`
 
-    // Scaffolded — Session 60 will replace these. For now both fall through to voicemail.
-    case 'extension':
-    case 'ring_group':
-      return `<Redirect method="POST">${safeUrl(opts.voicemailRouteUrl)}</Redirect>`
+    // Session 60: extension — look up which user owns the extension, dial them
+    // by Client identity. Fall through to that user's voicemail on no-answer
+    // (or company general if no per-user route fn or no resolver hit).
+    case 'extension': {
+      const resolved = opts.extensionResolver?.(action.extension)
+      if (!resolved) {
+        // Extension not assigned — bail to general voicemail.
+        return `<Redirect method="POST">${safeUrl(opts.voicemailRouteUrl)}</Redirect>`
+      }
+      const fallback = opts.perUserVoicemailUrlFor
+        ? opts.perUserVoicemailUrlFor(resolved.ownerUserId)
+        : opts.voicemailRouteUrl
+      const attrs: string[] = []
+      if (opts.callerId) attrs.push(`callerId="${safeUrl(opts.callerId)}"`)
+      attrs.push('timeout="20"')
+      attrs.push(`action="${safeUrl(fallback)}"`)
+      attrs.push('method="POST"')
+      return `<Dial ${attrs.join(' ')}><Client>${escapeXmlText(resolved.identity)}</Client></Dial>`
+    }
+
+    // Session 60: ring_group — redirect to the dedicated ring-group handler.
+    // That route owns the simultaneous vs sequential branching since
+    // sequential needs multi-step <Dial action=...> step-through.
+    case 'ring_group': {
+      if (!opts.ringGroupUrlFor) {
+        return `<Redirect method="POST">${safeUrl(opts.voicemailRouteUrl)}</Redirect>`
+      }
+      const url = opts.ringGroupUrlFor(action.ring_group_id, 0)
+      return `<Redirect method="POST">${safeUrl(url)}</Redirect>`
+    }
 
     // Submenu and repeat are not terminal — caller should handle them upstream.
     case 'submenu':
@@ -435,6 +475,10 @@ export function twimlRenderIvrNode(opts: {
   statusCallback?: string
   callerId?: string
   repeatCount?: number
+  // Session 60: optional resolvers for the new extension + ring_group + per-user VM actions.
+  extensionResolver?: (ext: string) => { identity: string; ownerUserId: string } | null
+  ringGroupUrlFor?: (groupId: string, index: number) => string
+  perUserVoicemailUrlFor?: (ownerUserId: string) => string
 }): string {
   const tree = opts.config.trees?.[opts.treeName]
   if (!tree) {
@@ -482,6 +526,9 @@ export function twimlRenderIvrAction(opts: {
   voicemailRouteUrl: string
   statusCallback?: string
   callerId?: string
+  extensionResolver?: (ext: string) => { identity: string; ownerUserId: string } | null
+  ringGroupUrlFor?: (groupId: string, index: number) => string
+  perUserVoicemailUrlFor?: (ownerUserId: string) => string
 }): string {
   // Submenu → render the target node (with a fresh Gather).
   if (opts.action.kind === 'submenu') {
@@ -495,6 +542,9 @@ export function twimlRenderIvrAction(opts: {
       statusCallback: opts.statusCallback,
       callerId: opts.callerId,
       repeatCount: 0,
+      extensionResolver: opts.extensionResolver,
+      ringGroupUrlFor: opts.ringGroupUrlFor,
+      perUserVoicemailUrlFor: opts.perUserVoicemailUrlFor,
     })
   }
 
@@ -504,6 +554,9 @@ export function twimlRenderIvrAction(opts: {
     voicemailRouteUrl: opts.voicemailRouteUrl,
     statusCallback: opts.statusCallback,
     callerId: opts.callerId,
+    extensionResolver: opts.extensionResolver,
+    ringGroupUrlFor: opts.ringGroupUrlFor,
+    perUserVoicemailUrlFor: opts.perUserVoicemailUrlFor,
   })
   return `<?xml version="1.0" encoding="UTF-8"?><Response>${inner}</Response>`
 }
@@ -522,6 +575,9 @@ export function twimlRenderIvrRepeat(opts: {
   repeatCount: number
   maxRepeats: number
   fallback: IvrAction | undefined
+  extensionResolver?: (ext: string) => { identity: string; ownerUserId: string } | null
+  ringGroupUrlFor?: (groupId: string, index: number) => string
+  perUserVoicemailUrlFor?: (ownerUserId: string) => string
 }): string {
   if (opts.repeatCount >= opts.maxRepeats) {
     const fallback = opts.fallback ?? { kind: 'voicemail' as const }
@@ -534,6 +590,9 @@ export function twimlRenderIvrRepeat(opts: {
       voicemailRouteUrl: opts.voicemailRouteUrl,
       statusCallback: opts.statusCallback,
       callerId: opts.callerId,
+      extensionResolver: opts.extensionResolver,
+      ringGroupUrlFor: opts.ringGroupUrlFor,
+      perUserVoicemailUrlFor: opts.perUserVoicemailUrlFor,
     })
   }
   return twimlRenderIvrNode({
@@ -546,7 +605,171 @@ export function twimlRenderIvrRepeat(opts: {
     statusCallback: opts.statusCallback,
     callerId: opts.callerId,
     repeatCount: opts.repeatCount + 1,
+    extensionResolver: opts.extensionResolver,
+    ringGroupUrlFor: opts.ringGroupUrlFor,
+    perUserVoicemailUrlFor: opts.perUserVoicemailUrlFor,
   })
+}
+
+// ---------------------------------------------------------------------------
+// Session 60 — Ring groups + DND
+// ---------------------------------------------------------------------------
+
+// Simultaneous ring: one <Dial> with multiple <Client> children. Whichever
+// answers first connects; the rest get cancelled. <Dial action=> handles
+// fall-through to the group's no-answer destination.
+export function twimlRingGroupSimultaneous(opts: {
+  identities: string[]
+  callerId?: string
+  timeoutSec: number
+  actionUrl: string
+}): string {
+  if (opts.identities.length === 0) {
+    return `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${safeUrl(opts.actionUrl)}</Redirect></Response>`
+  }
+  const attrs: string[] = []
+  if (opts.callerId) attrs.push(`callerId="${safeUrl(opts.callerId)}"`)
+  attrs.push(`timeout="${opts.timeoutSec}"`)
+  attrs.push(`action="${safeUrl(opts.actionUrl)}"`)
+  attrs.push('method="POST"')
+  const clients = opts.identities
+    .map((id) => `<Client>${escapeXmlText(id)}</Client>`)
+    .join('')
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial ${attrs.join(' ')}>${clients}</Dial></Response>`
+}
+
+// Sequential ring: dial ONE member, with <Dial action=> pointing back at the
+// ring-group route with index incremented. That route checks DialCallStatus —
+// if answered, returns empty TwiML; if not, dials the next member, and so on
+// until the list is exhausted (then falls through to the group's fallback).
+export function twimlRingGroupSequentialStep(opts: {
+  identity: string
+  callerId?: string
+  timeoutSec: number
+  nextStepUrl: string
+}): string {
+  const attrs: string[] = []
+  if (opts.callerId) attrs.push(`callerId="${safeUrl(opts.callerId)}"`)
+  attrs.push(`timeout="${opts.timeoutSec}"`)
+  attrs.push(`action="${safeUrl(opts.nextStepUrl)}"`)
+  attrs.push('method="POST"')
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial ${attrs.join(' ')}><Client>${escapeXmlText(opts.identity)}</Client></Dial></Response>`
+}
+
+// ---------------------------------------------------------------------------
+// DND scheduling
+//
+// dialer_dnd_schedule jsonb shape:
+//   {
+//     enabled: boolean,                        // master toggle for schedule
+//     tz?: string,                              // IANA tz, default America/Chicago
+//     days: {
+//       mon?: Array<{from: 'HH:mm', to: 'HH:mm'}>,
+//       tue?: ..., wed?: ..., thu?: ..., fri?: ..., sat?: ..., sun?: ...
+//     }
+//   }
+//
+// A window with from > to wraps midnight (e.g. {from: '18:00', to: '08:00'}
+// means 6pm to 8am the next day). Multiple windows per day are OR'd.
+// ---------------------------------------------------------------------------
+
+export type DndWindow = { from: string; to: string }
+export type DndSchedule = {
+  enabled?: boolean
+  tz?: string
+  days?: Partial<Record<'mon'|'tue'|'wed'|'thu'|'fri'|'sat'|'sun', DndWindow[]>>
+}
+
+const DAY_KEYS: Array<DndSchedule['days'] extends infer X ? keyof NonNullable<X> : never> =
+  ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
+
+function parseHm(s: string): number | null {
+  const m = /^(\d{1,2}):(\d{2})$/.exec(s)
+  if (!m) return null
+  const h = parseInt(m[1], 10)
+  const min = parseInt(m[2], 10)
+  if (h < 0 || h > 23 || min < 0 || min > 59) return null
+  return h * 60 + min
+}
+
+// Returns true if `now` falls inside any window for the local day in `schedule.tz`.
+// Tolerant of malformed entries (silently skips). v1 keeps the math simple by
+// formatting `now` to the schedule's timezone via Intl.DateTimeFormat — Node 20+
+// has full ICU bundled, so America/Chicago etc. work out of the box on the VPS.
+export function isInDndSchedule(schedule: DndSchedule | null | undefined, now: Date = new Date()): boolean {
+  if (!schedule || !schedule.enabled || !schedule.days) return false
+  const tz = schedule.tz || 'America/Chicago'
+
+  let dayKey: typeof DAY_KEYS[number]
+  let nowMin: number
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    const parts = fmt.formatToParts(now)
+    const wd = parts.find((p) => p.type === 'weekday')?.value || ''
+    const hourStr = parts.find((p) => p.type === 'hour')?.value || '0'
+    const minStr = parts.find((p) => p.type === 'minute')?.value || '0'
+    const map: Record<string, typeof DAY_KEYS[number]> = {
+      Sun: 'sun', Mon: 'mon', Tue: 'tue', Wed: 'wed', Thu: 'thu', Fri: 'fri', Sat: 'sat',
+    }
+    dayKey = map[wd] || 'mon'
+    // Intl can render hour as "24" for midnight; normalize to 0.
+    const h = parseInt(hourStr, 10) % 24
+    const m = parseInt(minStr, 10)
+    nowMin = h * 60 + m
+  } catch {
+    return false
+  }
+
+  function dayInWindow(windows: DndWindow[] | undefined, atMin: number): boolean {
+    if (!windows) return false
+    for (const w of windows) {
+      const from = parseHm(w.from)
+      const to = parseHm(w.to)
+      if (from === null || to === null) continue
+      if (from === to) continue
+      if (from < to) {
+        if (atMin >= from && atMin < to) return true
+      } else {
+        // Wraps midnight — match if at >= from OR at < to.
+        if (atMin >= from || atMin < to) return true
+      }
+    }
+    return false
+  }
+
+  if (dayInWindow(schedule.days[dayKey], nowMin)) return true
+
+  // Wrap-overnight windows on the PREVIOUS day also keep us in DND in the early
+  // morning hours of `today`. Check yesterday's wrapping windows specifically.
+  const yesterdayIdx = (DAY_KEYS.indexOf(dayKey) + 6) % 7
+  const yesterdayKey = DAY_KEYS[yesterdayIdx]
+  const yWindows = schedule.days[yesterdayKey]
+  if (yWindows) {
+    for (const w of yWindows) {
+      const from = parseHm(w.from)
+      const to = parseHm(w.to)
+      if (from === null || to === null) continue
+      if (from > to && nowMin < to) return true
+    }
+  }
+  return false
+}
+
+// Combined helper: a user is DND-now if their manual dnd toggle is on OR
+// they're inside their scheduled DND window.
+export function userIsDndNow(opts: {
+  manualEnabled: boolean
+  schedule: DndSchedule | null | undefined
+  now?: Date
+}): boolean {
+  if (opts.manualEnabled) return true
+  return isInDndSchedule(opts.schedule, opts.now)
 }
 
 // E.164 normalizer — re-exported here so dialer code doesn't have to import

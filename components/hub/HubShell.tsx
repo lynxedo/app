@@ -79,6 +79,7 @@ export default function HubShell({
     fleet: boolean
     daily_log: boolean
     zone_sizer: boolean
+    dialer: boolean
   }
   initialActiveAnnouncements?: Announcement[]
   initialTextSize?: string
@@ -288,11 +289,13 @@ export default function HubShell({
   const grants = adminGrants ?? {
     people: !!isAdmin, hub: !!isAdmin, routing: !!isAdmin,
     timesheet: !!isAdmin, fleet: !!isAdmin, daily_log: !!isAdmin, zone_sizer: !!isAdmin,
+    dialer: !!isAdmin,
   }
   const isSuperAdmin = !!isAdmin
   const showAdminRail =
     isSuperAdmin || grants.people || grants.hub || grants.routing ||
-    grants.timesheet || grants.fleet || grants.daily_log || grants.zone_sizer
+    grants.timesheet || grants.fleet || grants.daily_log || grants.zone_sizer ||
+    grants.dialer
 
   const permissions: RailPermissions = {
     isAdmin: !!isAdmin,
@@ -314,7 +317,7 @@ export default function HubShell({
         return (
           <DialerSidebar
             onClose={closeMobileDrawer}
-            canSeeAll={!!isAdmin || !!adminGrants?.hub}
+            canSeeAll={!!isAdmin || !!adminGrants?.dialer}
             {...collapseProps}
           />
         )

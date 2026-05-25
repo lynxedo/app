@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import DialerAdminPanel from './DialerAdminPanel'
 import type { IvrConfig } from './IvrEditor'
+import type { ExtensionRow } from './ExtensionsPanel'
+import type { RingGroup } from './RingGroupsPanel'
 
 export const metadata = { title: 'Dialer Admin' }
 
@@ -30,7 +32,13 @@ export default async function AdminDialerPage() {
   }
 
   const admin = createAdminClient()
-  const [{ data: row }, { data: hubUsersRaw }] = await Promise.all([
+  const [
+    { data: row },
+    { data: hubUsersRaw },
+    { data: extProfiles },
+    { data: ringGroupRows },
+    { data: ringMemberRows },
+  ] = await Promise.all([
     admin
       .from('dialer_settings')
       .select('*')
@@ -42,6 +50,19 @@ export default async function AdminDialerPage() {
       .eq('company_id', profile.company_id)
       .eq('is_bot', false)
       .order('display_name'),
+    admin
+      .from('user_profiles')
+      .select('id, dialer_extension')
+      .eq('company_id', profile.company_id),
+    admin
+      .from('dialer_ring_groups')
+      .select('id, name, ring_mode, ring_timeout_sec')
+      .eq('company_id', profile.company_id)
+      .order('name'),
+    admin
+      .from('dialer_ring_group_members')
+      .select('group_id, user_id, position, member_timeout_sec')
+      .order('position'),
   ])
 
   const settings = {
@@ -52,10 +73,39 @@ export default async function AdminDialerPage() {
     ivr_config: (row?.ivr_config ?? { trees: {} }) as IvrConfig,
   }
 
+  // Build the extension grid (every hub_user + their current extension).
+  const extByUser = new Map<string, string | null>()
+  for (const p of extProfiles ?? []) extByUser.set(p.id, p.dialer_extension)
+  const extensions: ExtensionRow[] = (hubUsersRaw ?? []).map((u) => ({
+    user_id: u.id,
+    display_name: u.display_name,
+    extension: extByUser.get(u.id) ?? null,
+  }))
+
+  // Filter ring-group members down to this company's groups (since the
+  // members fetch above didn't join on company_id — RLS would, but we use
+  // the admin client; cheap filter by groupId set).
+  const groupIdsInCompany = new Set((ringGroupRows ?? []).map((g) => g.id))
+  const ringGroups: RingGroup[] = (ringGroupRows ?? []).map((g) => ({
+    id: g.id,
+    name: g.name,
+    ring_mode: g.ring_mode as 'simultaneous' | 'sequential',
+    ring_timeout_sec: g.ring_timeout_sec,
+    members: (ringMemberRows ?? [])
+      .filter((m) => groupIdsInCompany.has(m.group_id) && m.group_id === g.id)
+      .map((m) => ({
+        user_id: m.user_id,
+        position: m.position,
+        member_timeout_sec: m.member_timeout_sec,
+      })),
+  }))
+
   return (
     <DialerAdminPanel
       initial={settings}
       hubUsers={hubUsersRaw ?? []}
+      initialExtensions={extensions}
+      initialRingGroups={ringGroups}
     />
   )
 }

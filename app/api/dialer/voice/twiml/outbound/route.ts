@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import {
   EMPTY_VOICE_TWIML,
   toE164,
+  twimlDialClient,
   twimlDialPstn,
   twimlSayAndHangup,
   validateTwilioVoiceSignature,
@@ -47,11 +48,57 @@ export async function POST(request: NextRequest) {
   // this webhook. Identity is the user's hub_users.id from the access token.
   // Session 57: click-to-call from Txt passes txt_conversation_id +
   // txt_contact_id through the same params dict so the row links back.
-  const toRaw = params.get('To') || ''
+  const toRaw = (params.get('To') || '').trim()
   const identity = params.get('From') || params.get('Caller') || ''
   const callSid = params.get('CallSid') || ''
   const txtConversationId = params.get('txt_conversation_id') || null
   const txtContactId = params.get('txt_contact_id') || null
+
+  // Session 60: 3-digit extension dialing. If To is exactly a 3-digit numeric
+  // string in the 100-999 range, look up the user that owns that extension
+  // and connect via <Client>identity</Client>. Falls through to "extension not
+  // assigned" hangup if no match.
+  if (/^[1-9][0-9]{2}$/.test(toRaw)) {
+    const admin = createAdminClient()
+    const { data: owner } = await admin
+      .from('user_profiles')
+      .select('id')
+      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('dialer_extension', toRaw)
+      .maybeSingle()
+
+    if (!owner) {
+      return twimlResponse(
+        twimlSayAndHangup(`Extension ${toRaw} is not assigned. Goodbye.`),
+        200
+      )
+    }
+
+    try {
+      await admin.from('calls').insert({
+        company_id: HEROES_COMPANY_ID,
+        twilio_call_sid: callSid || null,
+        direction: 'outbound',
+        from_number: voiceCallerId() || 'app',
+        to_number: toRaw, // store the 3-digit extension, not a phone number
+        status: 'initiated',
+        initiated_by: identity || null,
+        handled_by: identity || null,
+      })
+    } catch {
+      // swallow — call still proceeds
+    }
+
+    const statusCb = `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/status`
+    return twimlResponse(
+      twimlDialClient({
+        identity: owner.id,
+        callerId: identity || undefined, // caller's own identity for internal calls
+        timeoutSeconds: 25,
+        statusCallback: statusCb,
+      })
+    )
+  }
 
   const to = toE164(toRaw)
   if (!to) {

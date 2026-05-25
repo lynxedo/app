@@ -10,6 +10,7 @@ import {
   validateTwilioVoiceSignature,
   voiceConfigured,
 } from '@/lib/twilio-voice'
+import { buildIvrContext } from '@/lib/dialer-ivr-context'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -101,6 +102,7 @@ export async function POST(request: NextRequest) {
     const treeName: IvrTreeName = 'default'
     const tree = config.trees?.[treeName]
     if (tree?.root_node_id && tree.nodes?.[tree.root_node_id]) {
+      const ctx = await buildIvrContext(admin, HEROES_COMPANY_ID)
       const gatherActionUrlFor = (t: IvrTreeName, n: string, r: number) =>
         `${baseUrl}/api/dialer/voice/twiml/ivr?tree=${encodeURIComponent(t)}&node=${encodeURIComponent(n)}&r=${r}`
       return twimlResponse(
@@ -112,6 +114,9 @@ export async function POST(request: NextRequest) {
           gatherActionUrlFor,
           voicemailRouteUrl: voicemailRender,
           callerId: fromNumber || undefined,
+          extensionResolver: ctx.extensionResolver,
+          ringGroupUrlFor: ctx.ringGroupUrlFor,
+          perUserVoicemailUrlFor: ctx.perUserVoicemailUrlFor,
         })
       )
     }

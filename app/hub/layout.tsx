@@ -126,6 +126,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     fleet: !!profileResult.data?.can_admin_fleet,
     daily_log: !!profileResult.data?.can_admin_daily_log,
     zone_sizer: !!profileResult.data?.can_admin_zone_sizer,
+    dialer: !!profileResult.data?.can_admin_dialer,
   }
   const initialTextSize = profileResult.data?.hub_text_size ?? 'default'
   const initialPinnedIds: string[] = profileResult.data?.hub_pinned_ids ?? []

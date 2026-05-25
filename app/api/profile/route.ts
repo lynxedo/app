@@ -35,7 +35,7 @@ export async function PUT(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, dialer_global_ring } = await request.json()
+  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, dialer_global_ring, dialer_dnd_enabled, dialer_dnd_schedule } = await request.json()
 
   if (landing_page !== undefined && landing_page !== 'hub' && landing_page !== 'dashboard') {
     return NextResponse.json({ error: 'landing_page must be "hub" or "dashboard"' }, { status: 400 })
@@ -76,6 +76,18 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'dialer_global_ring must be a boolean' }, { status: 400 })
     }
     profileUpdates.dialer_global_ring = dialer_global_ring
+  }
+  if (dialer_dnd_enabled !== undefined) {
+    if (typeof dialer_dnd_enabled !== 'boolean') {
+      return NextResponse.json({ error: 'dialer_dnd_enabled must be a boolean' }, { status: 400 })
+    }
+    profileUpdates.dialer_dnd_enabled = dialer_dnd_enabled
+  }
+  if (dialer_dnd_schedule !== undefined) {
+    if (dialer_dnd_schedule !== null && (typeof dialer_dnd_schedule !== 'object' || Array.isArray(dialer_dnd_schedule))) {
+      return NextResponse.json({ error: 'dialer_dnd_schedule must be an object or null' }, { status: 400 })
+    }
+    profileUpdates.dialer_dnd_schedule = dialer_dnd_schedule ?? {}
   }
 
   if (Object.keys(profileUpdates).length > 0) {

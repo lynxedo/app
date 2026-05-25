@@ -29,8 +29,11 @@ export async function POST(request: NextRequest) {
   const paramObj: Record<string, string> = {}
   for (const [k, v] of params.entries()) paramObj[k] = v
 
+  const reqUrl = new URL(request.url)
+  const ownerUserId = reqUrl.searchParams.get('owner') || null
+
   const signature = request.headers.get('x-twilio-signature')
-  const url = `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`
+  const url = `${process.env.NEXT_PUBLIC_APP_URL}${reqUrl.pathname}${reqUrl.search}`
   if (voiceConfigured() && signature) {
     if (!validateTwilioVoiceSignature(url, paramObj, signature)) {
       return twimlResponse(EMPTY_VOICE_TWIML, 403)
@@ -119,6 +122,7 @@ export async function POST(request: NextRequest) {
     .insert({
       company_id: HEROES_COMPANY_ID,
       call_id: callId,
+      owner_user_id: ownerUserId,
       from_number: fromNumber || null,
       contact_id: contactId,
       twilio_recording_sid: recordingSid,
@@ -143,13 +147,20 @@ export async function POST(request: NextRequest) {
       .in('status', ['ringing', 'no-answer', 'busy', 'failed', 'canceled'])
   }
 
-  // Push fan-out to configured recipients.
-  const { data: settings } = await admin
-    .from('dialer_settings')
-    .select('voicemail_recipient_user_ids')
-    .eq('company_id', HEROES_COMPANY_ID)
-    .single()
-  const recipients = settings?.voicemail_recipient_user_ids ?? []
+  // Push fan-out:
+  //   - Per-user voicemail (owner set) → push to that owner only.
+  //   - General voicemail (no owner)   → push to configured recipient list.
+  let recipients: string[] = []
+  if (ownerUserId) {
+    recipients = [ownerUserId]
+  } else {
+    const { data: settings } = await admin
+      .from('dialer_settings')
+      .select('voicemail_recipient_user_ids')
+      .eq('company_id', HEROES_COMPANY_ID)
+      .single()
+    recipients = settings?.voicemail_recipient_user_ids ?? []
+  }
   if (recipients.length > 0) {
     let contactName: string | null = null
     if (contactId) {
