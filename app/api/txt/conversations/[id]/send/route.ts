@@ -255,10 +255,19 @@ export async function POST(
     userId: user.id,
     companyId: HEROES_COMPANY_ID,
   })
+  // Session 54.5: convert R2 storage keys to public /api/txt/media URLs so
+  // Twilio can fetch them. mediaUrls coming from the client are storage_path
+  // values returned by /api/txt/upload (e.g. "txt/{company}/12345-abc.jpg").
+  // Anything that already looks like an http(s) URL passes through unchanged
+  // (useful for testing or for future direct-link sends).
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
+  const publicMediaUrls = mediaUrls.map((m) =>
+    /^https?:\/\//i.test(m) ? m : `${baseUrl}/api/txt/media/${m}`
+  )
   const result = await sendSms({
     to: directContact!.phone,
     body: finalText,
-    mediaUrls: mediaUrls.length ? mediaUrls : undefined,
+    mediaUrls: publicMediaUrls.length ? publicMediaUrls : undefined,
     statusCallback,
     fromNumber: fromNumber || undefined,
   })

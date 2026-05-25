@@ -140,6 +140,14 @@ export default function TxtConversationView({
   const [editContactOpen, setEditContactOpen] = useState(false)
   const [numbers, setNumbers] = useState<PhoneNumberOption[]>([])
   const [numberPickerOpen, setNumberPickerOpen] = useState(false)
+  // Pending MMS attachments — staged client-side via the 📎 button, sent in
+  // media_urls on next sendMessage(). Each item is the storage_path returned
+  // by /api/txt/upload (Twilio fetches via /api/txt/media/[...key]).
+  const [pendingAttachments, setPendingAttachments] = useState<
+    { storage_path: string; filename: string; preview: string }[]
+  >([])
+  const [uploadingAttachment, setUploadingAttachment] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -223,7 +231,9 @@ export default function TxtConversationView({
 
   async function sendMessage() {
     const body = text.trim()
-    if (!body || sending) return
+    const attachmentsSnapshot = pendingAttachments
+    // Allow attachment-only sends (body can be empty if there's at least one media).
+    if ((!body && attachmentsSnapshot.length === 0) || sending) return
     setSending(true)
     setSendError('')
     closePicker()
@@ -236,7 +246,7 @@ export default function TxtConversationView({
       id: tempId,
       direction: 'outbound',
       body,
-      media_urls: [],
+      media_urls: attachmentsSnapshot.map((a) => a.storage_path),
       status: 'sending',
       error_message: null,
       twilio_sid: null,
@@ -248,11 +258,19 @@ export default function TxtConversationView({
     const templateIdForSend = selectedTemplateId
     setText('')
     setSelectedTemplateId(null)
+    setPendingAttachments([])
+    // Free blob URLs now that they've left the composer; the bubble renders
+    // via /api/txt/media which serves from R2.
+    attachmentsSnapshot.forEach((a) => URL.revokeObjectURL(a.preview))
 
     const res = await fetch(`/api/txt/conversations/${conversation.id}/send`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ body, template_id: templateIdForSend }),
+      body: JSON.stringify({
+        body,
+        template_id: templateIdForSend,
+        media_urls: attachmentsSnapshot.map((a) => a.storage_path),
+      }),
     })
     const data = await res.json()
     setSending(false)
@@ -302,6 +320,43 @@ export default function TxtConversationView({
       })
     }
     setAssignOpen(false)
+  }
+
+  async function pickAttachments() {
+    fileInputRef.current?.click()
+  }
+
+  async function handleFilesSelected(files: FileList | null) {
+    if (!files || files.length === 0) return
+    setSendError('')
+    setUploadingAttachment(true)
+    for (const file of Array.from(files)) {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/txt/upload', { method: 'POST', body: form })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setSendError(data.error || `Upload failed for ${file.name}`)
+        continue
+      }
+      // Local object URL for the chip preview — never persisted, freed on send.
+      const preview = URL.createObjectURL(file)
+      setPendingAttachments((prev) => [
+        ...prev,
+        { storage_path: data.storage_path, filename: data.filename, preview },
+      ])
+    }
+    setUploadingAttachment(false)
+    // Reset input so re-selecting the same file fires onChange.
+    if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  function removeAttachment(storage_path: string) {
+    setPendingAttachments((prev) => {
+      const target = prev.find((p) => p.storage_path === storage_path)
+      if (target) URL.revokeObjectURL(target.preview)
+      return prev.filter((p) => p.storage_path !== storage_path)
+    })
   }
 
   async function setFromNumber(phoneNumberId: string | null) {
@@ -658,8 +713,53 @@ export default function TxtConversationView({
                     <div className="text-sm whitespace-pre-wrap break-words">{m.body}</div>
                   )}
                   {m.media_urls?.length > 0 && (
-                    <div className="text-xs text-white/60 mt-1">
-                      {m.media_urls.length} attachment(s)
+                    <div className={`grid gap-1 ${m.body ? 'mt-2' : ''} ${
+                      m.media_urls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
+                    }`}>
+                      {m.media_urls.map((mu, i) => {
+                        // mu can be a raw storage_path (current format from
+                        // /api/txt/upload + inbound webhook) or, rarely, an
+                        // already-fully-qualified URL.
+                        const src = /^https?:\/\//i.test(mu)
+                          ? mu
+                          : `/api/txt/media/${mu}`
+                        // Guess image-vs-other by extension; current upload
+                        // route only accepts images so this is almost always
+                        // an image, but inbound MMS could in theory carry
+                        // non-image types.
+                        const isImage = /\.(jpe?g|png|gif|webp)$/i.test(mu) ||
+                          /\.(jpe?g|png|gif|webp)(?:[?#]|$)/i.test(mu)
+                        if (isImage) {
+                          return (
+                            <a
+                              key={i}
+                              href={src}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="block rounded-md overflow-hidden bg-black/20"
+                            >
+                              {/* eslint-disable-next-line @next/next/no-img-element */}
+                              <img
+                                src={src}
+                                alt="attachment"
+                                loading="lazy"
+                                className="w-full max-h-64 object-cover"
+                              />
+                            </a>
+                          )
+                        }
+                        return (
+                          <a
+                            key={i}
+                            href={src}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="text-xs underline text-white/80 hover:text-white"
+                          >
+                            📎 attachment {i + 1}
+                          </a>
+                        )
+                      })}
                     </div>
                   )}
                   <div className="flex items-center gap-1.5 mt-1 text-[10px] text-white/60">
@@ -730,7 +830,52 @@ export default function TxtConversationView({
               ⚠ This contact is marked do-not-text
             </div>
           )}
+          {/* Pending attachment chips */}
+          {pendingAttachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2 px-1">
+              {pendingAttachments.map((a) => (
+                <div
+                  key={a.storage_path}
+                  className="relative group rounded-md overflow-hidden bg-white/5 border border-white/10"
+                >
+                  {/* eslint-disable-next-line @next/next/no-img-element */}
+                  <img src={a.preview} alt={a.filename} className="w-16 h-16 object-cover" />
+                  <button
+                    type="button"
+                    onClick={() => removeAttachment(a.storage_path)}
+                    className="absolute top-0 right-0 w-5 h-5 bg-black/60 hover:bg-black/80 text-white text-xs leading-none rounded-bl-md"
+                    aria-label={`Remove ${a.filename}`}
+                  >
+                    ×
+                  </button>
+                </div>
+              ))}
+              {uploadingAttachment && (
+                <div className="w-16 h-16 flex items-center justify-center text-xs text-white/60 bg-white/5 rounded-md">
+                  …
+                </div>
+              )}
+            </div>
+          )}
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept="image/jpeg,image/png,image/gif,image/webp"
+            multiple
+            className="hidden"
+            onChange={(e) => handleFilesSelected(e.target.files)}
+          />
           <div className="flex gap-2 relative">
+            <button
+              type="button"
+              onClick={pickAttachments}
+              disabled={sending || uploadingAttachment || !!conversation.contact?.do_not_text}
+              className="self-start mt-1 px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-sm disabled:opacity-50"
+              title="Attach an image (JPEG/PNG/GIF/WebP, up to 5 MB)"
+              aria-label="Attach image"
+            >
+              📎
+            </button>
             <button
               type="button"
               onClick={openPickerManually}
@@ -786,7 +931,11 @@ export default function TxtConversationView({
             />
             <button
               onClick={sendMessage}
-              disabled={sending || !text.trim() || !!conversation.contact?.do_not_text}
+              disabled={
+                sending ||
+                (!text.trim() && pendingAttachments.length === 0) ||
+                !!conversation.contact?.do_not_text
+              }
               className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {sending ? '…' : 'Send'}

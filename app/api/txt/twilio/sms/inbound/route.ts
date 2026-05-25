@@ -7,6 +7,7 @@ import {
   toE164,
   twilioConfigured,
 } from '@/lib/twilio'
+import { sendHubPush } from '@/lib/hub-push'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -284,6 +285,77 @@ export async function POST(req: NextRequest) {
       .from('txt_contacts')
       .update({ do_not_text: false })
       .eq('id', contactId)
+  }
+
+  // Push notification fan-out — same machinery Hub messages use.
+  // Recipients:
+  //   - unassigned: all Txt managers in the company (queue audience)
+  //   - assigned:   owner (assigned_to) + every member on txt_conversation_members
+  // `isDm: true` keeps the push from being filtered by the global "mentions only"
+  // pref level; respects DND, muted, and scheduled-DND windows.
+  try {
+    const { data: convForPush } = await supabase
+      .from('txt_conversations')
+      .select('status, assigned_to')
+      .eq('id', conversationId)
+      .maybeSingle()
+
+    let recipients: string[] = []
+    if (convForPush?.status === 'unassigned') {
+      // Anyone who could pick this up from the Queue tab.
+      const { data: managers } = await supabase
+        .from('user_profiles')
+        .select('id, role, can_admin_hub, can_assign_txt_threads')
+        .eq('company_id', HEROES_COMPANY_ID)
+      recipients = (managers ?? [])
+        .filter(
+          (m) =>
+            m.role === 'admin' ||
+            m.can_admin_hub === true ||
+            m.can_assign_txt_threads === true
+        )
+        .map((m) => m.id)
+    } else {
+      const ids = new Set<string>()
+      if (convForPush?.assigned_to) ids.add(convForPush.assigned_to)
+      const { data: members } = await supabase
+        .from('txt_conversation_members')
+        .select('user_id')
+        .eq('conversation_id', conversationId)
+      for (const m of members ?? []) ids.add(m.user_id)
+      recipients = Array.from(ids)
+    }
+
+    if (recipients.length > 0) {
+      // Look up contact name for nicer push title (Heroes' contacts typically
+      // start as the phone number until enriched, so this gracefully degrades).
+      const { data: contactRow } = await supabase
+        .from('txt_contacts')
+        .select('name')
+        .eq('id', contactId)
+        .maybeSingle()
+      const displayName = contactRow?.name?.trim() || from
+      const preview = body
+        ? body.length > 100
+          ? body.slice(0, 97) + '…'
+          : body
+        : mediaUrls.length > 0
+        ? `📎 ${mediaUrls.length} attachment${mediaUrls.length === 1 ? '' : 's'}`
+        : '(empty message)'
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
+      // Fire-and-forget; don't block the Twilio response on push delivery.
+      sendHubPush(
+        recipients,
+        {
+          title: displayName,
+          body: preview,
+          url: `${baseUrl}/hub/txt/${conversationId}?source=push`,
+        },
+        { isDm: true }
+      ).catch((err) => console.warn('[txt:inbound] push fan-out failed', err))
+    }
+  } catch (err) {
+    console.warn('[txt:inbound] push lookup failed', err)
   }
 
   // Broadcast for realtime UI updates
