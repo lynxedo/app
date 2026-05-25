@@ -755,10 +755,27 @@ function DialerTab() {
         <p>The company-wide general greeting (heard when calls aren&apos;t routed to a specific person) is configured separately in <strong className="text-white">Admin → Dialer → Voicemail greeting</strong>.</p>
       </Section>
 
+      <Section title="Business hours &amp; holidays (which menu plays when)">
+        <p>The auto-attendant supports three separate menu trees that run automatically depending on the time of day:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Default</strong> — runs during business hours and any time no other tree applies. Required if the auto-attendant is on.</li>
+          <li><strong className="text-white">After-hours</strong> — runs when business hours are configured and the call lands outside them. Skip building this tree and after-hours calls fall back to the Default tree.</li>
+          <li><strong className="text-white">Holiday</strong> — runs on dates listed in the Holidays section. Overrides After-hours when both would apply (e.g. a holiday that falls on a weekend).</li>
+        </ul>
+        <p>Switch between trees using the <strong className="text-white">Default / After-hours / Holiday</strong> tab strip inside the Auto-attendant editor. A small dot next to each tab name shows whether you&apos;ve built that tree yet (green = configured, grey = empty).</p>
+        <p><strong className="text-white">Business hours</strong> are configured in <strong className="text-white">Admin → Dialer → Business hours</strong> as per-day-of-week windows — for example, Mon–Fri 8 AM to 6 PM, Sat 9 AM to 12 PM, Sun closed. Multiple windows per day work too (handy for a midday closure). Times are in America/Chicago by default. Calls outside any window for the current day count as &quot;after hours&quot;.</p>
+        <p><strong className="text-white">Holidays</strong> are configured in <strong className="text-white">Admin → Dialer → Holidays</strong>. Two kinds:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">One-off date</strong> — a specific calendar date (e.g. 2026-11-26 for this year&apos;s Thanksgiving). Re-add it next year.</li>
+          <li><strong className="text-white">Recurring</strong> — every year on the same month + day (e.g. December 25 — Christmas). Useful for fixed-date holidays.</li>
+        </ul>
+        <p>You can leave a holiday tree empty and just use Holidays as a way to fall back to After-hours behavior on those days — the Holiday tree only activates when it has at least one menu built.</p>
+        <p>The Admin → Dialer page shows a small green &quot;<em>Right now: using …</em>&quot; banner so you can see which tree would run if a call landed right now.</p>
+      </Section>
+
       <Section title="What&apos;s Coming">
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Mobile native dialer</strong> — built into the existing iOS/Android Hub app. Calls ring with native iOS CallKit / Android ConnectionService, work from lock screen + Bluetooth + CarPlay.</li>
-          <li><strong className="text-white">After-hours / holiday IVR trees</strong> — separate menus for business hours vs. after hours vs. holiday closures, with the right one picked automatically based on the time of day.</li>
           <li><strong className="text-white">Voicemail transcription + AI summary</strong> — Deepgram transcripts + bullet-point summaries.</li>
           <li><strong className="text-white">Call recording + AI summary</strong> — opt-in recording with Deepgram transcription + Claude bullet-point summary, all in Call Log.</li>
         </ul>

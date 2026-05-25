@@ -15,6 +15,8 @@ const DEFAULTS = {
   fallback_voicemail_url: null as string | null,
   ivr_enabled: false,
   ivr_config: { trees: {} } as IvrConfig,
+  business_hours: {} as Record<string, unknown>,
+  holidays: [] as unknown[],
 }
 
 export default async function AdminDialerPage() {
@@ -71,6 +73,8 @@ export default async function AdminDialerPage() {
     voicemail_recipient_user_ids: row?.voicemail_recipient_user_ids ?? [],
     ivr_enabled: row?.ivr_enabled ?? false,
     ivr_config: (row?.ivr_config ?? { trees: {} }) as IvrConfig,
+    business_hours: (row?.business_hours ?? {}) as Record<string, unknown>,
+    holidays: (Array.isArray(row?.holidays) ? row!.holidays : []) as unknown[],
   }
 
   // Build the extension grid (every hub_user + their current extension).
@@ -102,7 +106,8 @@ export default async function AdminDialerPage() {
 
   return (
     <DialerAdminPanel
-      initial={settings}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      initial={settings as any}
       hubUsers={hubUsersRaw ?? []}
       initialExtensions={extensions}
       initialRingGroups={ringGroups}

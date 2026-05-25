@@ -1,9 +1,12 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
+  BusinessHoursSchedule,
   EMPTY_VOICE_TWIML,
+  HolidayEntry,
   IvrConfig,
   IvrTreeName,
+  pickIvrTree,
   twimlDialClient,
   twimlRecordVoicemail,
   twimlRenderIvrNode,
@@ -84,7 +87,7 @@ export async function POST(request: NextRequest) {
 
   const { data: settings } = await admin
     .from('dialer_settings')
-    .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number')
+    .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays')
     .eq('company_id', HEROES_COMPANY_ID)
     .single()
 
@@ -94,13 +97,22 @@ export async function POST(request: NextRequest) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   const voicemailRender = `${baseUrl}/api/dialer/voice/twiml/voicemail`
 
-  // IVR takes precedence when enabled and a default tree with a root node exists.
-  // Session 61 will pick which tree (default/after_hours/holiday) based on time of day;
-  // for now we always run 'default'.
+  // IVR takes precedence when enabled and the picked tree has a root node.
+  // Session 61 picks default/after_hours/holiday based on business_hours +
+  // holidays config. If the picked tree is misconfigured, fall back to default.
   if (settings?.ivr_enabled && settings.ivr_config) {
     const config = settings.ivr_config as IvrConfig
-    const treeName: IvrTreeName = 'default'
-    const tree = config.trees?.[treeName]
+    const businessHours = (settings.business_hours as BusinessHoursSchedule | null) || null
+    const holidays = (settings.holidays as HolidayEntry[] | null) || null
+    let treeName: IvrTreeName = pickIvrTree({ config, businessHours, holidays })
+    let tree = config.trees?.[treeName]
+    // Fallback if picked tree is missing or has no root (shouldn't normally happen
+    // — pickIvrTree only returns non-default when those trees have root_node_id —
+    // but defensive against jsonb shape drift).
+    if (!tree?.root_node_id || !tree.nodes?.[tree.root_node_id]) {
+      treeName = 'default'
+      tree = config.trees?.default
+    }
     if (tree?.root_node_id && tree.nodes?.[tree.root_node_id]) {
       const ctx = await buildIvrContext(admin, HEROES_COMPANY_ID)
       const gatherActionUrlFor = (t: IvrTreeName, n: string, r: number) =>
