@@ -14,9 +14,22 @@ type Settings = {
   work_hours_start: string
   work_hours_end: string
   work_tz: string
+  alert_recipient_user_ids: string[]
+  alert_recipient_room_ids: string[]
 }
 
-export default function FleetAdminPanel({ initial }: { initial: Settings }) {
+type HubUser = { id: string; display_name: string }
+type Room = { id: string; name: string }
+
+export default function FleetAdminPanel({
+  initial,
+  hubUsers,
+  rooms,
+}: {
+  initial: Settings
+  hubUsers: HubUser[]
+  rooms: Room[]
+}) {
   const [s, setS] = useState<Settings>(initial)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
@@ -54,6 +67,15 @@ export default function FleetAdminPanel({ initial }: { initial: Settings }) {
   function setNum<K extends keyof Settings>(key: K, raw: string) {
     const v = parseInt(raw, 10)
     setS((prev) => ({ ...prev, [key]: (Number.isFinite(v) ? v : prev[key]) as Settings[K] }))
+  }
+
+  function toggleId(field: 'alert_recipient_user_ids' | 'alert_recipient_room_ids', id: string) {
+    setS((prev) => {
+      const set = new Set(prev[field])
+      if (set.has(id)) set.delete(id)
+      else set.add(id)
+      return { ...prev, [field]: [...set] }
+    })
   }
 
   return (
@@ -132,6 +154,32 @@ export default function FleetAdminPanel({ initial }: { initial: Settings }) {
           </div>
         </section>
 
+        <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
+          <header>
+            <h2 className="font-semibold">Notify</h2>
+            <p className="text-xs text-white/50 mt-1">
+              Pick where each alert should go. @Guardian DMs the selected users and posts in
+              the selected rooms. You can pick any combination.
+            </p>
+          </header>
+
+          <RecipientGrid
+            title="DM these users"
+            empty="No users in this company yet."
+            items={hubUsers.map((u) => ({ id: u.id, label: u.display_name }))}
+            selected={s.alert_recipient_user_ids}
+            onToggle={(id) => toggleId('alert_recipient_user_ids', id)}
+          />
+
+          <RecipientGrid
+            title="Post in these rooms"
+            empty="No active rooms to choose from."
+            items={rooms.map((r) => ({ id: r.id, label: `#${r.name}` }))}
+            selected={s.alert_recipient_room_ids}
+            onToggle={(id) => toggleId('alert_recipient_room_ids', id)}
+          />
+        </section>
+
         {error && (
           <div className="rounded-md border border-red-700 bg-red-900/30 text-red-200 px-3 py-2 text-sm">
             {error}
@@ -176,6 +224,57 @@ function ToggleRow({
           className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${on ? 'translate-x-6' : 'translate-x-1'}`}
         />
       </button>
+    </div>
+  )
+}
+
+function RecipientGrid({
+  title,
+  empty,
+  items,
+  selected,
+  onToggle,
+}: {
+  title: string
+  empty: string
+  items: { id: string; label: string }[]
+  selected: string[]
+  onToggle: (id: string) => void
+}) {
+  const selectedSet = new Set(selected)
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-sm font-medium">{title}</span>
+        <span className="text-xs text-white/40">{selectedSet.size} selected</span>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-sm text-white/50">{empty}</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {items.map((it) => {
+            const on = selectedSet.has(it.id)
+            return (
+              <label
+                key={it.id}
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${
+                  on
+                    ? 'bg-[#2E7EB8]/20 border-[#2E7EB8]/40'
+                    : 'bg-white/5 border-white/10 hover:bg-white/10'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() => onToggle(it.id)}
+                  className="accent-[#2E7EB8]"
+                />
+                <span className="text-sm">{it.label}</span>
+              </label>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

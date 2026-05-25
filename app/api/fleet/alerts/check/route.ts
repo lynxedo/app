@@ -1,13 +1,9 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getFleetDevices, type FleetDevice } from '@/lib/onestepgps'
+import { fanoutGuardianNotification } from '@/lib/guardian-post'
 
 export const dynamic = 'force-dynamic'
-
-const GUARDIAN_HUB_USER_ID = '00000000-0000-0000-0001-000000000001'
-// TODO(multi-recipient): replace this hardcoded list with a query against
-// user_profiles where can_access_fleet = true once we want alerts broader than Ben.
-const ALERT_RECIPIENT_HUB_USER_IDS = ['6939b706-5135-448d-a28a-7674ba17974e']
 
 type AlertType = 'speeding' | 'after_hours' | 'low_fuel' | 'offline'
 
@@ -23,6 +19,8 @@ type FleetSettingsRow = {
   work_hours_start: string
   work_hours_end: string
   work_tz: string
+  alert_recipient_user_ids: string[]
+  alert_recipient_room_ids: string[]
 }
 
 type SupabaseAdmin = ReturnType<typeof createAdminClient>
@@ -102,7 +100,7 @@ export async function POST(request: Request) {
               continue
             }
             opened++
-            await sendAlertDms(admin, settings.company_id, dev, c.type, c.payload)
+            await sendAlertNotifications(admin, settings, dev, c.type, c.payload)
           }
         }
       }
@@ -205,81 +203,21 @@ function isOffline(dev: FleetDevice, settings: FleetSettingsRow): boolean {
   return inWorkHours
 }
 
-async function findOrCreateDmConversation(
+async function sendAlertNotifications(
   admin: SupabaseAdmin,
-  companyId: string,
-  recipientHubUserId: string,
-): Promise<string | null> {
-  const { data: guardianMemberships } = await admin
-    .from('conversation_members')
-    .select('conversation_id')
-    .eq('user_id', GUARDIAN_HUB_USER_ID)
-  const guardianConvIds = (guardianMemberships ?? []).map(
-    (m: { conversation_id: string }) => m.conversation_id,
-  )
-
-  if (guardianConvIds.length > 0) {
-    const { data: candidates } = await admin
-      .from('conversation_members')
-      .select('conversation_id')
-      .eq('user_id', recipientHubUserId)
-      .in('conversation_id', guardianConvIds)
-    for (const cand of candidates ?? []) {
-      const { count } = await admin
-        .from('conversation_members')
-        .select('user_id', { count: 'exact', head: true })
-        .eq('conversation_id', cand.conversation_id)
-      if (count === 2) return cand.conversation_id as string
-    }
-  }
-
-  const { data: conv, error } = await admin
-    .from('conversations')
-    .insert({ company_id: companyId })
-    .select('id')
-    .single()
-  if (error || !conv) {
-    console.error('[fleet-alerts] conversation create failed:', error)
-    return null
-  }
-  await admin.from('conversation_members').insert([
-    { conversation_id: conv.id, user_id: GUARDIAN_HUB_USER_ID },
-    { conversation_id: conv.id, user_id: recipientHubUserId },
-  ])
-  return conv.id as string
-}
-
-async function sendAlertDms(
-  admin: SupabaseAdmin,
-  companyId: string,
+  settings: FleetSettingsRow,
   dev: FleetDevice,
   type: AlertType,
   payload: Record<string, unknown>,
 ) {
   const content = formatAlertBody(dev, type, payload)
-  for (const recipientId of ALERT_RECIPIENT_HUB_USER_IDS) {
-    const conversationId = await findOrCreateDmConversation(
-      admin,
-      companyId,
-      recipientId,
-    )
-    if (!conversationId) continue
-    const { error: msgErr } = await admin.from('messages').insert({
-      company_id: companyId,
-      conversation_id: conversationId,
-      sender_id: GUARDIAN_HUB_USER_ID,
-      content,
-    })
-    if (msgErr) {
-      console.error('[fleet-alerts] DM insert failed:', msgErr)
-      continue
-    }
-    await admin
-      .from('conversation_members')
-      .update({ archived_at: null })
-      .eq('conversation_id', conversationId)
-      .not('archived_at', 'is', null)
-  }
+  await fanoutGuardianNotification({
+    admin,
+    companyId: settings.company_id,
+    userIds: settings.alert_recipient_user_ids ?? [],
+    roomIds: settings.alert_recipient_room_ids ?? [],
+    body: content,
+  })
 }
 
 function formatAlertBody(

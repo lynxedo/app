@@ -16,6 +16,8 @@ const DEFAULTS = {
   work_hours_start: '06:00',
   work_hours_end: '19:00',
   work_tz: 'America/Chicago',
+  alert_recipient_user_ids: [] as string[],
+  alert_recipient_room_ids: [] as string[],
 }
 
 export default async function AdminFleetPage() {
@@ -33,11 +35,25 @@ export default async function AdminFleetPage() {
   if ((profile?.role !== 'admin' && !profile?.can_admin_fleet) || !profile?.company_id) redirect('/dashboard')
 
   const admin = createAdminClient()
-  const { data: row } = await admin
-    .from('fleet_settings')
-    .select('*')
-    .eq('company_id', profile.company_id)
-    .maybeSingle()
+  const [{ data: row }, { data: hubUsersRaw }, { data: roomsRaw }] = await Promise.all([
+    admin
+      .from('fleet_settings')
+      .select('*')
+      .eq('company_id', profile.company_id)
+      .maybeSingle(),
+    admin
+      .from('hub_users')
+      .select('id, display_name')
+      .eq('company_id', profile.company_id)
+      .eq('is_bot', false)
+      .order('display_name'),
+    admin
+      .from('rooms')
+      .select('id, name')
+      .eq('company_id', profile.company_id)
+      .is('archived_at', null)
+      .order('name'),
+  ])
 
   const settings = {
     ...DEFAULTS,
@@ -45,7 +61,15 @@ export default async function AdminFleetPage() {
     // Trim seconds off time fields so HTML <input type="time"> accepts them
     work_hours_start: (row?.work_hours_start ?? DEFAULTS.work_hours_start).slice(0, 5),
     work_hours_end: (row?.work_hours_end ?? DEFAULTS.work_hours_end).slice(0, 5),
+    alert_recipient_user_ids: row?.alert_recipient_user_ids ?? [],
+    alert_recipient_room_ids: row?.alert_recipient_room_ids ?? [],
   }
 
-  return <FleetAdminPanel initial={settings} />
+  return (
+    <FleetAdminPanel
+      initial={settings}
+      hubUsers={hubUsersRaw ?? []}
+      rooms={roomsRaw ?? []}
+    />
+  )
 }
