@@ -50,6 +50,11 @@ export type IvrConfig = {
 
 type HubUser = { id: string; display_name: string }
 
+// Session 60: passed in from DialerAdminPanel so IvrEditor can show pickers
+// for the new extension + ring_group action kinds.
+export type ExtensionAssignment = { extension: string; user_id: string; display_name: string }
+export type RingGroupSummary = { id: string; name: string }
+
 const DIGITS: DigitKey[] = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '#']
 
 // Generate a short unique node id within an existing tree. `n1`, `n2`, ...
@@ -88,11 +93,15 @@ export default function IvrEditor({
   config,
   onChange,
   hubUsers,
+  extensions = [],
+  ringGroups = [],
 }: {
   enabled: boolean
   config: IvrConfig
   onChange: (next: { enabled: boolean; config: IvrConfig }) => void
   hubUsers: HubUser[]
+  extensions?: ExtensionAssignment[]
+  ringGroups?: RingGroupSummary[]
 }) {
   const tree: IvrTree = config.trees?.default ?? { root_node_id: '', nodes: {} }
   const nodes = tree.nodes ?? {}
@@ -251,6 +260,8 @@ export default function IvrEditor({
                 isRoot={selected.id === tree.root_node_id}
                 allNodes={nodeList}
                 hubUsers={hubUsers}
+                extensions={extensions}
+                ringGroups={ringGroups}
                 onChange={(next) => patchNode(selected.id, next)}
                 onDelete={() => deleteNode(selected.id)}
                 onPromoteToRoot={() => promoteToRoot(selected.id)}
@@ -276,6 +287,8 @@ function NodeEditor({
   isRoot,
   allNodes,
   hubUsers,
+  extensions,
+  ringGroups,
   onChange,
   onDelete,
   onPromoteToRoot,
@@ -284,6 +297,8 @@ function NodeEditor({
   isRoot: boolean
   allNodes: IvrNode[]
   hubUsers: HubUser[]
+  extensions: ExtensionAssignment[]
+  ringGroups: RingGroupSummary[]
   onChange: (next: IvrNode) => void
   onDelete: () => void
   onPromoteToRoot: () => void
@@ -357,6 +372,8 @@ function NodeEditor({
               allNodes={allNodes}
               currentNodeId={node.id}
               hubUsers={hubUsers}
+              extensions={extensions}
+              ringGroups={ringGroups}
               onChange={(a) => setKeypress(d as DigitKey, a)}
               onRemove={() => setKeypress(d as DigitKey, undefined)}
             />
@@ -383,6 +400,8 @@ function NodeEditor({
           allNodes={allNodes}
           currentNodeId={node.id}
           hubUsers={hubUsers}
+          extensions={extensions}
+          ringGroups={ringGroups}
           onChange={(a) => onChange({ ...node, no_input: a })}
         />
         <FallbackEditor
@@ -391,6 +410,8 @@ function NodeEditor({
           allNodes={allNodes}
           currentNodeId={node.id}
           hubUsers={hubUsers}
+          extensions={extensions}
+          ringGroups={ringGroups}
           onChange={(a) => onChange({ ...node, invalid_input: a })}
         />
       </div>
@@ -526,11 +547,11 @@ const ACTION_KINDS: { value: IvrAction['kind']; label: string; disabled?: boolea
   { value: 'submenu', label: 'Go to another menu' },
   { value: 'voicemail', label: 'Send to voicemail' },
   { value: 'transfer_user', label: 'Ring a person' },
+  { value: 'extension', label: 'Ring an extension' },
+  { value: 'ring_group', label: 'Ring a group' },
   { value: 'transfer_pstn', label: 'Forward to a phone number' },
   { value: 'say', label: 'Say a message, then hang up' },
   { value: 'hangup', label: 'Hang up' },
-  { value: 'extension', label: 'Ring an extension (Session 60)', disabled: true },
-  { value: 'ring_group', label: 'Ring a group (Session 60)', disabled: true },
 ]
 
 function KeypressRow({
@@ -539,6 +560,8 @@ function KeypressRow({
   allNodes,
   currentNodeId,
   hubUsers,
+  extensions,
+  ringGroups,
   onChange,
   onRemove,
 }: {
@@ -547,6 +570,8 @@ function KeypressRow({
   allNodes: IvrNode[]
   currentNodeId: string
   hubUsers: HubUser[]
+  extensions: ExtensionAssignment[]
+  ringGroups: RingGroupSummary[]
   onChange: (a: IvrAction) => void
   onRemove: () => void
 }) {
@@ -561,6 +586,8 @@ function KeypressRow({
           allNodes={allNodes}
           currentNodeId={currentNodeId}
           hubUsers={hubUsers}
+          extensions={extensions}
+          ringGroups={ringGroups}
           onChange={onChange}
         />
       </div>
@@ -623,6 +650,8 @@ function FallbackEditor({
   allNodes,
   currentNodeId,
   hubUsers,
+  extensions,
+  ringGroups,
   onChange,
 }: {
   label: string
@@ -630,6 +659,8 @@ function FallbackEditor({
   allNodes: IvrNode[]
   currentNodeId: string
   hubUsers: HubUser[]
+  extensions: ExtensionAssignment[]
+  ringGroups: RingGroupSummary[]
   onChange: (a: IvrAction) => void
 }) {
   return (
@@ -640,6 +671,8 @@ function FallbackEditor({
         allNodes={allNodes}
         currentNodeId={currentNodeId}
         hubUsers={hubUsers}
+        extensions={extensions}
+        ringGroups={ringGroups}
         onChange={onChange}
         allowRepeat
       />
@@ -656,6 +689,8 @@ function ActionEditor({
   allNodes,
   currentNodeId,
   hubUsers,
+  extensions,
+  ringGroups,
   onChange,
   allowRepeat = false,
 }: {
@@ -663,6 +698,8 @@ function ActionEditor({
   allNodes: IvrNode[]
   currentNodeId: string
   hubUsers: HubUser[]
+  extensions: ExtensionAssignment[]
+  ringGroups: RingGroupSummary[]
   onChange: (a: IvrAction) => void
   allowRepeat?: boolean
 }) {
@@ -696,8 +733,10 @@ function ActionEditor({
         onChange({ kind: 'repeat', max_repeats: 2, then: { kind: 'voicemail' } })
         break
       case 'extension':
+        onChange({ kind: 'extension', extension: extensions[0]?.extension ?? '' })
+        break
       case 'ring_group':
-        // Disabled in v1 — ignore.
+        onChange({ kind: 'ring_group', ring_group_id: ringGroups[0]?.id ?? '' })
         break
     }
   }
@@ -763,6 +802,50 @@ function ActionEditor({
           placeholder="+12815551234"
           className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm w-full"
         />
+      )}
+
+      {action.kind === 'extension' && (
+        extensions.length === 0 ? (
+          <p className="text-[11px] text-amber-300">
+            No extensions assigned yet. Assign one in the Extensions section below.
+          </p>
+        ) : (
+          <select
+            value={action.extension}
+            onChange={(e) =>
+              onChange({ kind: 'extension', extension: e.target.value })
+            }
+            className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm w-full"
+          >
+            <option value="">— pick an extension —</option>
+            {extensions.map((x) => (
+              <option key={x.extension} value={x.extension}>
+                {x.extension} · {x.display_name}
+              </option>
+            ))}
+          </select>
+        )
+      )}
+
+      {action.kind === 'ring_group' && (
+        ringGroups.length === 0 ? (
+          <p className="text-[11px] text-amber-300">
+            No ring groups yet. Create one in the Ring Groups section below.
+          </p>
+        ) : (
+          <select
+            value={action.ring_group_id}
+            onChange={(e) =>
+              onChange({ kind: 'ring_group', ring_group_id: e.target.value })
+            }
+            className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm w-full"
+          >
+            <option value="">— pick a group —</option>
+            {ringGroups.map((g) => (
+              <option key={g.id} value={g.id}>{g.name}</option>
+            ))}
+          </select>
+        )
       )}
 
       {action.kind === 'say' && (

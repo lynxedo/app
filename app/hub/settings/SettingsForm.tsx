@@ -8,6 +8,7 @@ import { createClient } from '@/lib/supabase/client'
 import NotificationDeviceControls from '@/components/hub/NotificationDeviceControls'
 import { CATALOG, CatalogIcon, type CatalogId, type RailPermissions, normalizeRailConfig } from '@/components/hub/railCatalog'
 import TxtPersonalTemplates from './TxtPersonalTemplates'
+import DialerPersonalSettings from './DialerPersonalSettings'
 
 interface HubProfile {
   full_name: string | null
@@ -815,6 +816,8 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
             </label>
           </div>
         )}
+
+        {railPermissions.canAccessDialer && <DialerPersonalSettings />}
       </section>
 
       {/* Change password */}

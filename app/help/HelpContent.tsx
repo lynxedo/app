@@ -713,7 +713,9 @@ function DialerTab() {
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Go to another menu</strong> — branch into a submenu (nested menus are fully supported)</li>
           <li><strong className="text-white">Send to voicemail</strong> — caller leaves a message in the company voicemail box</li>
-          <li><strong className="text-white">Ring a person</strong> — rings that user&apos;s Dialer until they answer; falls through to voicemail if they don&apos;t</li>
+          <li><strong className="text-white">Ring a person</strong> — rings that user&apos;s Dialer until they answer; falls through to their voicemail if they don&apos;t</li>
+          <li><strong className="text-white">Ring an extension</strong> — same as &quot;ring a person&quot; but referenced by 3-digit extension (handy when you want the menu to read &quot;Press 1 for Ben, extension 101&quot;)</li>
+          <li><strong className="text-white">Ring a group</strong> — rings a named group of people (simultaneous or sequential)</li>
           <li><strong className="text-white">Forward to a phone number</strong> — bridges to an external number (e.g. forwarding to a cell)</li>
           <li><strong className="text-white">Say a message, then hang up</strong> — speaks a closing message and ends the call (useful for &quot;we&apos;re closed&quot; trees)</li>
           <li><strong className="text-white">Hang up</strong> — ends the call cleanly</li>
@@ -724,12 +726,39 @@ function DialerTab() {
         <p>Turn the auto-attendant off and inbound calls go straight to the &quot;ring this person → voicemail&quot; flow. Turn it back on and the menu picks up again. You can leave a draft menu built but disabled at any time.</p>
       </Section>
 
+      <Section title="Extensions (3-digit dialing)">
+        <p>Every Hub user can be assigned a 3-digit extension (100–999) in <strong className="text-white">Admin → Dialer → Extensions</strong>. Once assigned, anyone on the Dialer can punch the 3 digits into the dialpad, tap Call, and it rings that person directly — no phone number needed.</p>
+        <p>Extensions also show up in the IVR action picker, so you can build a menu like &quot;Press 1 for sales (ext 101), press 2 for billing (ext 102)&quot; without re-picking the person each time.</p>
+        <p>Extensions are unique within a company. Use the <em>Suggest</em> button to grab the next free number (101, 102, ...).</p>
+      </Section>
+
+      <Section title="Ring groups">
+        <p>Named groups of people that an IVR menu can ring as one action. Configured in <strong className="text-white">Admin → Dialer → Ring groups</strong>.</p>
+        <p>Two ring modes:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Simultaneous</strong> — everyone&apos;s phone rings at once. Whoever picks up first connects; the others stop ringing. Good for &quot;ring the whole sales team&quot;.</li>
+          <li><strong className="text-white">Sequential</strong> — rings one member at a time in the order shown, falling through to the next on no-answer. Good for &quot;try Ben first, then Zac, then Kathryn&quot;.</li>
+        </ul>
+        <p>Members with Do Not Disturb on are skipped automatically. If a sequential group runs out of available members (or a simultaneous group is empty after DND filtering), the call falls through to the company general voicemail.</p>
+      </Section>
+
+      <Section title="Do Not Disturb (DND)">
+        <p>Each user can turn DND on in <strong className="text-white">Settings → Account → Communications</strong>. With DND on, IVR transfers and ring groups skip you — calls go to other group members or to voicemail.</p>
+        <p>You can also schedule auto-DND windows per day of week — e.g. 6 PM to 8 AM every weekday. Wrap-overnight ranges work (set &quot;from&quot; later than &quot;to&quot;). Times are interpreted in your local time zone.</p>
+        <p>Dialer DND is separate from your Hub status dot — flipping your status to &quot;DND&quot; doesn&apos;t auto-mute the phone, and vice versa. Toggle each on its own.</p>
+      </Section>
+
+      <Section title="Voicemail (per-user boxes + greetings)">
+        <p>Inbound calls that ring a specific person (via direct routing, extension dial, IVR transfer, or ring group fall-through) land in <strong className="text-white">that person&apos;s</strong> voicemail box instead of the company general inbox. Push notifications go only to them; the unheard count on the rail badge reflects what they can see.</p>
+        <p>The Voicemail tab has a <strong className="text-white">Mine / All</strong> sub-toggle for managers. <em>Mine</em> shows the general inbox plus voicemails directed at you; <em>All</em> shows every voicemail in the company (manager-only).</p>
+        <p>Upload your personal greeting in <strong className="text-white">Settings → Account → Communications</strong>. MP3 or WAV, 2 MB max. Without one, callers hear a spoken default that names you (&quot;You&apos;ve reached Ben…&quot;). Remove the greeting at any time to revert to the spoken default.</p>
+        <p>The company-wide general greeting (heard when calls aren&apos;t routed to a specific person) is configured separately in <strong className="text-white">Admin → Dialer → Voicemail greeting</strong>.</p>
+      </Section>
+
       <Section title="What&apos;s Coming">
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Mobile native dialer</strong> — built into the existing iOS/Android Hub app. Calls ring with native iOS CallKit / Android ConnectionService, work from lock screen + Bluetooth + CarPlay.</li>
-          <li><strong className="text-white">Ring groups + extensions</strong> — inbound calls ring multiple people simultaneously or in sequence; per-person 3-digit extensions. Will plug into IVR as new keypress actions.</li>
           <li><strong className="text-white">After-hours / holiday IVR trees</strong> — separate menus for business hours vs. after hours vs. holiday closures, with the right one picked automatically based on the time of day.</li>
-          <li><strong className="text-white">Per-user voicemail boxes</strong> — alongside the company general box, with per-person greetings.</li>
           <li><strong className="text-white">Voicemail transcription + AI summary</strong> — Deepgram transcripts + bullet-point summaries.</li>
           <li><strong className="text-white">Call recording + AI summary</strong> — opt-in recording with Deepgram transcription + Claude bullet-point summary, all in Call Log.</li>
         </ul>

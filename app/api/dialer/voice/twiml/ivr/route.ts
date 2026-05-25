@@ -11,6 +11,7 @@ import {
   validateTwilioVoiceSignature,
   voiceConfigured,
 } from '@/lib/twilio-voice'
+import { buildIvrContext } from '@/lib/dialer-ivr-context'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -65,6 +66,7 @@ export async function POST(request: NextRequest) {
   const voicemailRouteUrl = `${baseUrl}/api/dialer/voice/twiml/voicemail`
   const gatherActionUrlFor = (t: IvrTreeName, n: string, r: number) =>
     `${baseUrl}/api/dialer/voice/twiml/ivr?tree=${encodeURIComponent(t)}&node=${encodeURIComponent(n)}&r=${r}`
+  const ctx = await buildIvrContext(admin, HEROES_COMPANY_ID)
 
   if (!settings?.ivr_enabled || !settings.ivr_config) {
     // IVR turned off mid-call — bail to voicemail rather than loop.
@@ -111,6 +113,9 @@ export async function POST(request: NextRequest) {
         repeatCount,
         maxRepeats: action.max_repeats ?? 2,
         fallback: action.then,
+        extensionResolver: ctx.extensionResolver,
+        ringGroupUrlFor: ctx.ringGroupUrlFor,
+        perUserVoicemailUrlFor: ctx.perUserVoicemailUrlFor,
       })
     )
   }
@@ -127,6 +132,9 @@ export async function POST(request: NextRequest) {
         voicemailRouteUrl,
         callerId: fromNumber,
         repeatCount: 0,
+        extensionResolver: ctx.extensionResolver,
+        ringGroupUrlFor: ctx.ringGroupUrlFor,
+        perUserVoicemailUrlFor: ctx.perUserVoicemailUrlFor,
       })
     )
   }
@@ -141,6 +149,9 @@ export async function POST(request: NextRequest) {
       gatherActionUrlFor,
       voicemailRouteUrl,
       callerId: fromNumber,
+      extensionResolver: ctx.extensionResolver,
+      ringGroupUrlFor: ctx.ringGroupUrlFor,
+      perUserVoicemailUrlFor: ctx.perUserVoicemailUrlFor,
     })
   )
 }

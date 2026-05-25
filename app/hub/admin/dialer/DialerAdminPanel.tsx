@@ -1,7 +1,9 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useMemo, useState, useRef } from 'react'
 import IvrEditor, { type IvrConfig } from './IvrEditor'
+import ExtensionsPanel, { type ExtensionRow } from './ExtensionsPanel'
+import RingGroupsPanel, { type RingGroup } from './RingGroupsPanel'
 
 type Settings = {
   inbound_route_user_id: string | null
@@ -17,11 +19,17 @@ type HubUser = { id: string; display_name: string }
 export default function DialerAdminPanel({
   initial,
   hubUsers,
+  initialExtensions,
+  initialRingGroups,
 }: {
   initial: Settings
   hubUsers: HubUser[]
+  initialExtensions: ExtensionRow[]
+  initialRingGroups: RingGroup[]
 }) {
   const [s, setS] = useState<Settings>(initial)
+  const [extensions, setExtensions] = useState<ExtensionRow[]>(initialExtensions)
+  const [ringGroups, setRingGroups] = useState<RingGroup[]>(initialRingGroups)
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -98,6 +106,19 @@ export default function DialerAdminPanel({
       setUploading(false)
     }
   }
+
+  const ivrExtensionList = useMemo(
+    () =>
+      extensions
+        .filter((e) => e.extension)
+        .map((e) => ({
+          extension: e.extension!,
+          user_id: e.user_id,
+          display_name: e.display_name,
+        }))
+        .sort((a, b) => a.extension.localeCompare(b.extension)),
+    [extensions]
+  )
 
   function toggleId(field: 'voicemail_recipient_user_ids', id: string) {
     setS((prev) => {
@@ -249,6 +270,32 @@ export default function DialerAdminPanel({
             setS((prev) => ({ ...prev, ivr_enabled: enabled, ivr_config: config }))
           }
           hubUsers={hubUsers}
+          extensions={ivrExtensionList}
+          ringGroups={ringGroups.map((g) => ({ id: g.id, name: g.name }))}
+        />
+      </section>
+
+      <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
+        <header>
+          <h2 className="font-semibold">Extensions</h2>
+          <p className="text-xs text-white/50 mt-1">
+            3-digit codes (100–999) any user can dial from the keypad to reach a coworker directly.
+          </p>
+        </header>
+        <ExtensionsPanel initial={extensions} onChange={setExtensions} />
+      </section>
+
+      <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
+        <header>
+          <h2 className="font-semibold">Ring groups</h2>
+          <p className="text-xs text-white/50 mt-1">
+            Named groups that an IVR menu can ring. Wire them into the auto-attendant above.
+          </p>
+        </header>
+        <RingGroupsPanel
+          initial={ringGroups}
+          hubUsers={hubUsers}
+          onChange={setRingGroups}
         />
       </section>
 

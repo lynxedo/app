@@ -27,6 +27,7 @@ type VoicemailRow = {
   recording_duration_sec: number | null
   heard_at: string | null
   heard_by: string | null
+  owner_user_id: string | null
   call_id: string | null
   contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null
 }
@@ -75,16 +76,23 @@ export default function DialerSidebar({
   onSelectNumber?: (phone: string) => void
 }) {
   const [scope, setScope] = useState<Scope>('mine')
+  const [vmScope, setVmScope] = useState<'mine' | 'all'>('mine')
   const [calls, setCalls] = useState<CallRow[]>([])
   const [voicemails, setVoicemails] = useState<VoicemailRow[]>([])
   const [unheardCount, setUnheardCount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [playingId, setPlayingId] = useState<string | null>(null)
 
+  // Effective voicemail scope: non-managers (no canSeeAll) are always on 'mine';
+  // managers honor the Mine/All sub-toggle.
+  const effectiveVmScope: 'mine' | 'all' = canSeeAll ? vmScope : 'mine'
+
   const load = useCallback(async () => {
     setLoading(true)
     if (scope === 'voicemail') {
-      const res = await fetch('/api/dialer/voicemails?scope=all&limit=100')
+      const res = await fetch(
+        `/api/dialer/voicemails?scope=${effectiveVmScope}&limit=100`
+      )
       if (res.ok) {
         const data = await res.json()
         setVoicemails(data.voicemails ?? [])
@@ -98,16 +106,19 @@ export default function DialerSidebar({
       }
     }
     setLoading(false)
-  }, [scope])
+  }, [scope, effectiveVmScope])
 
   // Always keep unheard count fresh for the tab badge, even when on a different tab.
+  // The /voicemails endpoint downgrades unheard → mine_unheard for non-managers,
+  // so the badge always shows the count the user can actually see.
   const loadUnheardCount = useCallback(async () => {
-    const res = await fetch('/api/dialer/voicemails?scope=unheard&limit=1')
+    const which = effectiveVmScope === 'all' ? 'unheard' : 'mine_unheard'
+    const res = await fetch(`/api/dialer/voicemails?scope=${which}&limit=1`)
     if (res.ok) {
       const data = await res.json()
       setUnheardCount(data.unheard_count ?? 0)
     }
-  }, [])
+  }, [effectiveVmScope])
 
   useEffect(() => { load() }, [load])
   useEffect(() => { loadUnheardCount() }, [loadUnheardCount])
@@ -191,16 +202,47 @@ export default function DialerSidebar({
 
       <div className="flex-1 overflow-y-auto min-h-0">
         {scope === 'voicemail' ? (
-          <VoicemailList
-            voicemails={voicemails}
-            loading={loading}
-            playingId={playingId}
-            onPlay={onPlay}
-            onStop={() => setPlayingId(null)}
-            onDelete={deleteVm}
-            onMarkHeard={markHeard}
-            onSelectNumber={onSelectNumber}
-          />
+          <>
+            {canSeeAll && (
+              <div className="px-3 pt-2 pb-1 flex items-center gap-1 text-[11px]">
+                <button
+                  type="button"
+                  onClick={() => setVmScope('mine')}
+                  className={`px-2 py-0.5 rounded ${
+                    effectiveVmScope === 'mine'
+                      ? 'bg-white/10 text-white'
+                      : 'text-white/50 hover:text-white/80'
+                  }`}
+                >
+                  Mine
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setVmScope('all')}
+                  className={`px-2 py-0.5 rounded ${
+                    effectiveVmScope === 'all'
+                      ? 'bg-white/10 text-white'
+                      : 'text-white/50 hover:text-white/80'
+                  }`}
+                >
+                  All
+                </button>
+                <span className="ml-auto text-white/30">
+                  {effectiveVmScope === 'mine' ? 'General + assigned to you' : 'Everyone'}
+                </span>
+              </div>
+            )}
+            <VoicemailList
+              voicemails={voicemails}
+              loading={loading}
+              playingId={playingId}
+              onPlay={onPlay}
+              onStop={() => setPlayingId(null)}
+              onDelete={deleteVm}
+              onMarkHeard={markHeard}
+              onSelectNumber={onSelectNumber}
+            />
+          </>
         ) : (
           <CallList
             calls={calls}
