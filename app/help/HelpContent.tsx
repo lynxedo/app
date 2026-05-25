@@ -411,8 +411,13 @@ function HubTab() {
         <p>Daily Log is a running log of operational notes for the day — who&apos;s on what crew, what went wrong, what got finished. Anyone can post.</p>
         <p>Posts are organized by date. Scrolling back through old days is how you reconstruct what happened the week of a callback.</p>
         <p><strong className="text-white">Two techs on one route:</strong> when creating an entry you can pick a primary tech plus one or more secondary techs (the second person riding the route). The entry shows up on every tech&apos;s <em>My Day</em> view, and either tech can post updates or mark it complete.</p>
-        <p><strong className="text-white">Marking a route complete:</strong> tap the checkbox next to the tech name at the top of the entry card when the route is done. The card turns green and shows who marked it complete. Unchecking clears it.</p>
-        <p>When a route is marked complete, a DM goes out via @Guardian to the people configured in <em>Admin → Daily Log</em>. The DM contains that day&apos;s office notes, route sheet name, and every update that was posted — so you can read the whole day at a glance instead of opening the log. If anything changes after the route is marked complete (a new update gets posted, notes get edited), the DM resends with the updated info.</p>
+        <p><strong className="text-white">Two checkboxes — one for the tech, one for the office:</strong></p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-emerald-300">Route Completed</strong> — the tech (primary or secondary) checks this when the route is done. The card turns green and a DM goes out to the people configured in <em>Admin → Daily Log</em>.</li>
+          <li><strong className="text-sky-300">Closed</strong> — the office checks this once they&apos;ve reviewed the day&apos;s updates and handled anything that needed handling. The card dims so you can tell at a glance which entries are still waiting on office review. Only admins and anyone with the Daily Log admin grant can check this — and no DM fires (silent close).</li>
+        </ul>
+        <p>The two boxes are independent — you can close an entry before it&apos;s marked complete, or mark complete without closing. Unchecking either box reverses it.</p>
+        <p>The Route Completed DM contains that day&apos;s office notes, route sheet name, and every update that was posted — so you can read the whole day at a glance instead of opening the log. If anything changes after the route is marked complete (a new update gets posted, notes get edited), the DM resends with the updated info.</p>
         <AdminOnly>
           <p>Admins pick who receives completion DMs under <strong className="text-white">/admin/daily-log</strong>. Pick as many users as you want; leave it empty to disable completion DMs entirely.</p>
         </AdminOnly>
