@@ -6,6 +6,7 @@ import {
   twilioConvAddSmsParticipant,
   twilioConfigured,
 } from '@/lib/twilio'
+import { resolveFromNumber } from '@/lib/txt-numbers'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -72,6 +73,14 @@ export async function POST(request: Request) {
     )
   }
 
+  // Resolve the from-number once up front (Twilio Conversations binds the
+  // proxy address per-participant at provisioning time — can't be changed
+  // later without re-creating the Conversation resource).
+  const fromNumber = await resolveFromNumber(admin, {
+    userId: user.id,
+    companyId: HEROES_COMPANY_ID,
+  })
+
   // Optional: provision the Twilio Conversation up front. If creds aren't
   // there, leave twilio_conversation_sid null — the send route will surface
   // a clear error rather than try to fake it.
@@ -94,6 +103,7 @@ export async function POST(request: Request) {
       const addRes = await twilioConvAddSmsParticipant({
         conversationSid: twilioConversationSid,
         contactPhone: c.phone,
+        proxyNumber: fromNumber || undefined,
       })
       if (!addRes.ok) {
         return NextResponse.json(

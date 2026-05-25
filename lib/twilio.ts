@@ -21,13 +21,15 @@ export async function sendSms(opts: {
   body: string
   mediaUrls?: string[]
   statusCallback?: string
+  fromNumber?: string
 }): Promise<TwilioSendResult> {
   if (!twilioConfigured()) {
     return { ok: false, error: 'twilio_not_configured' }
   }
 
+  const from = opts.fromNumber || FROM_NUMBER
   const form = new URLSearchParams()
-  form.set('From', FROM_NUMBER)
+  form.set('From', from)
   form.set('To', opts.to)
   if (opts.body) form.set('Body', opts.body)
   if (opts.mediaUrls?.length) {
@@ -161,11 +163,12 @@ export async function twilioConvCreate(opts: {
 export async function twilioConvAddSmsParticipant(opts: {
   conversationSid: string
   contactPhone: string // E.164
+  proxyNumber?: string // overrides env default; for Session 54 multi-number
 }): Promise<{ ok: boolean; error?: string }> {
   if (!twilioConfigured()) return { ok: false, error: 'twilio_not_configured' }
   const form = new URLSearchParams()
   form.set('MessagingBinding.Address', opts.contactPhone)
-  form.set('MessagingBinding.ProxyAddress', FROM_NUMBER)
+  form.set('MessagingBinding.ProxyAddress', opts.proxyNumber || FROM_NUMBER)
   const res = await twilioConvFetch(
     `/Conversations/${opts.conversationSid}/Participants`,
     { method: 'POST', body: form.toString() }

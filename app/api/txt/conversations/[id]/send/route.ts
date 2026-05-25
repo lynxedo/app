@@ -8,6 +8,7 @@ import {
 } from '@/lib/twilio'
 import { renderTemplate } from '@/lib/txt-templates'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
+import { resolveFromNumber } from '@/lib/txt-numbers'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -247,11 +248,19 @@ export async function POST(
   }
 
   // Direct 1-to-1
+  // Session 54: resolve the From number for this send. Per-conversation override
+  // → user default → company default. sendSms falls back to env if null.
+  const fromNumber = await resolveFromNumber(admin, {
+    conversationId,
+    userId: user.id,
+    companyId: HEROES_COMPANY_ID,
+  })
   const result = await sendSms({
     to: directContact!.phone,
     body: finalText,
     mediaUrls: mediaUrls.length ? mediaUrls : undefined,
     statusCallback,
+    fromNumber: fromNumber || undefined,
   })
 
   if (!result.ok) {

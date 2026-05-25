@@ -42,6 +42,14 @@ type Conversation = {
   last_message_at: string | null
   contact: Contact | null
   assignee: { id: string; display_name: string } | null
+  phone_number_id?: string | null
+}
+
+type PhoneNumberOption = {
+  id: string
+  twilio_number: string
+  label: string | null
+  is_default: boolean
 }
 
 type HubUser = { id: string; display_name: string }
@@ -130,6 +138,8 @@ export default function TxtConversationView({
   const [assignOpen, setAssignOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [editContactOpen, setEditContactOpen] = useState(false)
+  const [numbers, setNumbers] = useState<PhoneNumberOption[]>([])
+  const [numberPickerOpen, setNumberPickerOpen] = useState(false)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
 
@@ -159,6 +169,10 @@ export default function TxtConversationView({
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((data) => setTemplates(data.templates || []))
       .catch(() => setTemplates([]))
+    fetch('/api/txt/numbers')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => setNumbers(data.numbers || []))
+      .catch(() => setNumbers([]))
   }, [])
 
   useEffect(() => {
@@ -288,6 +302,23 @@ export default function TxtConversationView({
       })
     }
     setAssignOpen(false)
+  }
+
+  async function setFromNumber(phoneNumberId: string | null) {
+    setNumberPickerOpen(false)
+    // Optimistic flip — patch will reload on next poll if it fails.
+    setConversation((prev) => ({ ...prev, phone_number_id: phoneNumberId }))
+    const res = await fetch(`/api/txt/conversations/${conversation.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ phone_number_id: phoneNumberId }),
+    })
+    if (!res.ok) {
+      // Revert + surface
+      const data = await res.json().catch(() => ({}))
+      setConversation((prev) => ({ ...prev, phone_number_id: conversation.phone_number_id }))
+      setSendError(data.error || 'Failed to change from-number')
+    }
   }
 
   async function toggleArchive() {
@@ -464,6 +495,51 @@ export default function TxtConversationView({
               </div>
             )}
           </div>
+          {/* From-number chip (Session 54). Only shows when 2+ numbers exist so
+              single-number setups stay clean. Owner / member / manager can change. */}
+          {numbers.length >= 2 && (isOwnerMe || isMemberMe || canAssign) && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setNumberPickerOpen((v) => !v)}
+                className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 text-white/70"
+                title="Change which number this conversation sends from"
+              >
+                {(() => {
+                  const current = numbers.find((n) => n.id === conversation.phone_number_id)
+                  if (current) return `From: ${current.label || formatPhone(current.twilio_number)}`
+                  const def = numbers.find((n) => n.is_default)
+                  return def ? `From: ${def.label || formatPhone(def.twilio_number)} (default)` : 'From: —'
+                })()}
+              </button>
+              {numberPickerOpen && (
+                <div className="absolute right-0 mt-1 w-60 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 max-h-72 overflow-y-auto">
+                  <button
+                    type="button"
+                    onClick={() => setFromNumber(null)}
+                    className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5 border-b border-white/10"
+                  >
+                    Use my default
+                  </button>
+                  {numbers.map((n) => (
+                    <button
+                      key={n.id}
+                      type="button"
+                      onClick={() => setFromNumber(n.id)}
+                      className={`block w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${
+                        n.id === conversation.phone_number_id ? 'bg-white/5 text-emerald-300' : ''
+                      }`}
+                    >
+                      <div className="text-sm">{n.label || formatPhone(n.twilio_number)}</div>
+                      {n.label && (
+                        <div className="text-[10px] text-white/40">{formatPhone(n.twilio_number)}</div>
+                      )}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
           {/* Member chips — separate from the owner/assignee. Owner can
               add/remove, managers can too. Members can self-remove. */}
           {memberRows.map((m) => {

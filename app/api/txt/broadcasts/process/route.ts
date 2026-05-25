@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendSms, twilioConfigured } from '@/lib/twilio'
+import { resolveFromNumber } from '@/lib/txt-numbers'
 
 // Called by VPS cron every minute:
 //   curl -s -X POST https://staging.lynxedo.com/api/txt/broadcasts/process \
@@ -66,6 +67,14 @@ export async function POST(request: Request) {
 
     const finalBody = bc.apply_signature && signature ? `${bc.body}\n\n${signature}` : bc.body
 
+    // Resolve the from-number once per broadcast (sender is constant).
+    // No per-conversation override for broadcast sends — each recipient gets
+    // a fresh direct conversation, so falls through user-default → company-default.
+    const fromNumber = await resolveFromNumber(admin, {
+      userId: bc.created_by,
+      companyId: bc.company_id,
+    })
+
     const interMessageDelayMs = Math.max(50, Math.floor(1000 / Math.max(1, bc.throttle_mps || 8)))
 
     while (Date.now() - startedAt <= BATCH_MAX_MS && totalProcessed < PROCESS_MAX_PER_TICK) {
@@ -88,6 +97,7 @@ export async function POST(request: Request) {
           contactId: recipient.contact_id,
           senderId: bc.created_by,
           body: finalBody,
+          fromNumber,
         })
         perBroadcast[bc.id] = perBroadcast[bc.id] || { sent: 0, failed: 0 }
         if (sendOutcome === 'sent') perBroadcast[bc.id].sent++
@@ -144,8 +154,9 @@ async function sendOneRecipient(opts: {
   contactId: string
   senderId: string
   body: string
+  fromNumber: string | null
 }): Promise<SendOutcome> {
-  const { admin, companyId, broadcastId, recipientId, contactId, senderId, body } = opts
+  const { admin, companyId, broadcastId, recipientId, contactId, senderId, body, fromNumber } = opts
 
   const { data: contact } = await admin
     .from('txt_contacts')
@@ -282,6 +293,7 @@ async function sendOneRecipient(opts: {
     to: contact.phone,
     body,
     statusCallback,
+    fromNumber: fromNumber || undefined,
   })
 
   if (!result.ok) {

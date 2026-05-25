@@ -171,12 +171,26 @@ export async function POST(req: NextRequest) {
     contactId = created.id
   }
 
+  // Session 54: look up our local txt_phone_numbers row matching the inbound
+  // `To` so we can stamp it on the conversation (and use it to route outbound
+  // replies back through the right number). null is fine — old/single-number
+  // setups still work via the env-default fallback in sendSms.
+  let toNumberId: string | null = null
+  if (to) {
+    const { data: numberRow } = await supabase
+      .from('txt_phone_numbers')
+      .select('id')
+      .eq('twilio_number', to)
+      .maybeSingle()
+    toNumberId = numberRow?.id || null
+  }
+
   // Find or create direct conversation; reopen archived → unassigned.
   // Inbound SMS only matches direct threads — group conversations are
   // identified by their Twilio Conversations SID in a separate webhook.
   const { data: existingConv } = await supabase
     .from('txt_conversations')
-    .select('id, status')
+    .select('id, status, phone_number_id')
     .eq('company_id', HEROES_COMPANY_ID)
     .eq('contact_id', contactId)
     .eq('kind', 'direct')
@@ -185,10 +199,20 @@ export async function POST(req: NextRequest) {
   let conversationId: string
   if (existingConv) {
     conversationId = existingConv.id
+    const reopenPatch: Record<string, unknown> = {}
     if (existingConv.status === 'archived') {
+      reopenPatch.status = 'unassigned'
+      reopenPatch.archived_by = null
+    }
+    // Stamp the inbound number if we don't have one yet — never overwrite an
+    // explicit override that was set later.
+    if (toNumberId && !existingConv.phone_number_id) {
+      reopenPatch.phone_number_id = toNumberId
+    }
+    if (Object.keys(reopenPatch).length > 0) {
       await supabase
         .from('txt_conversations')
-        .update({ status: 'unassigned', archived_by: null })
+        .update(reopenPatch)
         .eq('id', conversationId)
     }
   } else {
@@ -199,6 +223,7 @@ export async function POST(req: NextRequest) {
         contact_id: contactId,
         status: 'unassigned',
         kind: 'direct',
+        phone_number_id: toNumberId,
       })
       .select('id')
       .single()
