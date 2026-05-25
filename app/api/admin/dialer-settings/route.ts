@@ -31,6 +31,8 @@ const ALLOWED_FIELDS = [
   'inbound_route_user_id',
   'ivr_enabled',
   'ivr_config',
+  'business_hours',
+  'holidays',
 ] as const
 
 function sanitizeUuidArray(raw: unknown): string[] | null {
@@ -104,6 +106,57 @@ export async function POST(request: Request) {
         )
       }
       patch[k] = cfg
+    } else if (k === 'business_hours') {
+      // Shape mirrors dialer_dnd_schedule: {enabled, tz, days: {mon:[{from,to}],...}}
+      const bh = body[k]
+      if (bh === null) {
+        patch[k] = {}
+      } else if (typeof bh !== 'object' || Array.isArray(bh)) {
+        return NextResponse.json(
+          { error: 'business_hours must be an object' },
+          { status: 400 },
+        )
+      } else {
+        patch[k] = bh
+      }
+    } else if (k === 'holidays') {
+      // Array of {kind:'date',date} or {kind:'recurring',month,day} entries.
+      const list = body[k]
+      if (list === null) {
+        patch[k] = []
+      } else if (!Array.isArray(list)) {
+        return NextResponse.json(
+          { error: 'holidays must be an array' },
+          { status: 400 },
+        )
+      } else {
+        const sanitized: unknown[] = []
+        for (const entry of list) {
+          if (!entry || typeof entry !== 'object') continue
+          const e = entry as Record<string, unknown>
+          if (e.kind === 'date') {
+            if (typeof e.date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(e.date)) {
+              sanitized.push({
+                kind: 'date',
+                date: e.date,
+                ...(typeof e.label === 'string' && e.label.trim() ? { label: e.label.trim().slice(0, 80) } : {}),
+              })
+            }
+          } else if (e.kind === 'recurring') {
+            const month = Number(e.month)
+            const day = Number(e.day)
+            if (Number.isInteger(month) && month >= 1 && month <= 12 && Number.isInteger(day) && day >= 1 && day <= 31) {
+              sanitized.push({
+                kind: 'recurring',
+                month,
+                day,
+                ...(typeof e.label === 'string' && e.label.trim() ? { label: e.label.trim().slice(0, 80) } : {}),
+              })
+            }
+          }
+        }
+        patch[k] = sanitized
+      }
     }
   }
 

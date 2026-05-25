@@ -772,6 +772,142 @@ export function userIsDndNow(opts: {
   return isInDndSchedule(opts.schedule, opts.now)
 }
 
+// ---------------------------------------------------------------------------
+// Session 61 — After-hours / holiday IVR tree picker
+//
+// business_hours jsonb shape (same as DndSchedule above so we can reuse parsing):
+//   { enabled: bool, tz: 'America/Chicago', days: { mon: [{from:'08:00', to:'18:00'}], ... } }
+// "Inside business hours" = now falls in any listed window for today's local day.
+// Outside business hours + an `after_hours` IVR tree exists => run after_hours.
+//
+// holidays jsonb shape (array):
+//   [ { kind: 'date', date: 'YYYY-MM-DD', label?: string },
+//     { kind: 'recurring', month: 1-12, day: 1-31, label?: string } ]
+// Today is a holiday + a `holiday` IVR tree exists => run holiday (overrides after_hours).
+//
+// Picker order: holiday > after_hours > default. If the chosen tree is missing
+// or has no root_node_id we fall back to default so calls don't die.
+// ---------------------------------------------------------------------------
+
+export type BusinessHoursSchedule = DndSchedule // identical shape, reuse the parser
+
+export type HolidayEntry =
+  | { kind: 'date'; date: string; label?: string }       // YYYY-MM-DD
+  | { kind: 'recurring'; month: number; day: number; label?: string }
+
+// True if `now` is inside any window for today's local day in `schedule.tz`.
+// Mirrors isInDndSchedule but doesn't consider yesterday's wrap-overnight
+// windows — business hours don't realistically span midnight.
+export function isWithinBusinessHours(
+  schedule: BusinessHoursSchedule | null | undefined,
+  now: Date = new Date(),
+): boolean {
+  if (!schedule || !schedule.enabled || !schedule.days) return false
+  const tz = schedule.tz || 'America/Chicago'
+
+  let dayKey: typeof DAY_KEYS[number]
+  let nowMin: number
+  try {
+    const fmt = new Intl.DateTimeFormat('en-US', {
+      timeZone: tz,
+      weekday: 'short',
+      hour: '2-digit',
+      minute: '2-digit',
+      hour12: false,
+    })
+    const parts = fmt.formatToParts(now)
+    const wd = parts.find((p) => p.type === 'weekday')?.value || ''
+    const hourStr = parts.find((p) => p.type === 'hour')?.value || '0'
+    const minStr = parts.find((p) => p.type === 'minute')?.value || '0'
+    const map: Record<string, typeof DAY_KEYS[number]> = {
+      Sun: 'sun', Mon: 'mon', Tue: 'tue', Wed: 'wed', Thu: 'thu', Fri: 'fri', Sat: 'sat',
+    }
+    dayKey = map[wd] || 'mon'
+    const h = parseInt(hourStr, 10) % 24
+    const m = parseInt(minStr, 10)
+    nowMin = h * 60 + m
+  } catch {
+    return false
+  }
+
+  const windows = schedule.days[dayKey]
+  if (!windows) return false
+  for (const w of windows) {
+    const from = parseHm(w.from)
+    const to = parseHm(w.to)
+    if (from === null || to === null) continue
+    if (from === to) continue
+    if (from < to) {
+      if (nowMin >= from && nowMin < to) return true
+    } else {
+      // Wrap-overnight (unusual for business hours but support it).
+      if (nowMin >= from || nowMin < to) return true
+    }
+  }
+  return false
+}
+
+// True if today's local date (in `tz`) matches any entry in `holidays`.
+export function isHolidayToday(
+  holidays: HolidayEntry[] | null | undefined,
+  tz: string = 'America/Chicago',
+  now: Date = new Date(),
+): boolean {
+  if (!Array.isArray(holidays) || holidays.length === 0) return false
+
+  let ymd: string
+  let month: number
+  let day: number
+  try {
+    const fmt = new Intl.DateTimeFormat('en-CA', {
+      timeZone: tz,
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    })
+    const parts = fmt.formatToParts(now)
+    const y = parts.find((p) => p.type === 'year')?.value || ''
+    const mo = parts.find((p) => p.type === 'month')?.value || ''
+    const d = parts.find((p) => p.type === 'day')?.value || ''
+    if (!y || !mo || !d) return false
+    ymd = `${y}-${mo}-${d}`
+    month = parseInt(mo, 10)
+    day = parseInt(d, 10)
+  } catch {
+    return false
+  }
+
+  for (const h of holidays) {
+    if (!h || typeof h !== 'object') continue
+    if (h.kind === 'date' && typeof h.date === 'string' && h.date === ymd) return true
+    if (h.kind === 'recurring' && h.month === month && h.day === day) return true
+  }
+  return false
+}
+
+// Decide which IVR tree to run for a given call right now.
+// Returns 'holiday' | 'after_hours' | 'default'. The caller is responsible
+// for falling back to 'default' if the picked tree is misconfigured.
+export function pickIvrTree(opts: {
+  config: IvrConfig
+  businessHours?: BusinessHoursSchedule | null
+  holidays?: HolidayEntry[] | null
+  now?: Date
+}): IvrTreeName {
+  const now = opts.now ?? new Date()
+  const tz = opts.businessHours?.tz || 'America/Chicago'
+
+  const hasHoliday = !!opts.config.trees?.holiday?.root_node_id
+  if (hasHoliday && isHolidayToday(opts.holidays, tz, now)) return 'holiday'
+
+  const hasAfterHours = !!opts.config.trees?.after_hours?.root_node_id
+  if (hasAfterHours && opts.businessHours?.enabled && !isWithinBusinessHours(opts.businessHours, now)) {
+    return 'after_hours'
+  }
+
+  return 'default'
+}
+
 // E.164 normalizer — re-exported here so dialer code doesn't have to import
 // from lib/twilio.ts. Same implementation.
 export function toE164(raw: string): string | null {

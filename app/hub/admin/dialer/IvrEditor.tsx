@@ -25,6 +25,14 @@ export type IvrAction =
 
 type DigitKey = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '*' | '#'
 
+export type IvrTreeName = 'default' | 'after_hours' | 'holiday'
+
+const TREE_TABS: { name: IvrTreeName; label: string; hint: string }[] = [
+  { name: 'default', label: 'Default', hint: 'Runs during business hours and any time no other tree applies.' },
+  { name: 'after_hours', label: 'After-hours', hint: 'Runs when business hours are configured and the call is outside them.' },
+  { name: 'holiday', label: 'Holiday', hint: 'Runs on dates that match an entry in the Holidays list. Overrides After-hours.' },
+]
+
 export type IvrNode = {
   id: string
   label?: string
@@ -103,18 +111,53 @@ export default function IvrEditor({
   extensions?: ExtensionAssignment[]
   ringGroups?: RingGroupSummary[]
 }) {
-  const tree: IvrTree = config.trees?.default ?? { root_node_id: '', nodes: {} }
+  const [activeTree, setActiveTree] = useState<IvrTreeName>('default')
+  const tree: IvrTree = config.trees?.[activeTree] ?? { root_node_id: '', nodes: {} }
   const nodes = tree.nodes ?? {}
   const nodeList = useMemo(() => Object.values(nodes).sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true })), [nodes])
 
   const [selectedId, setSelectedId] = useState<string>(tree.root_node_id || nodeList[0]?.id || '')
+  // When the user switches tabs, jump the selection to that tree's root (or
+  // first node, or empty). Avoid carrying a stale id from another tree.
+  function switchTree(name: IvrTreeName) {
+    setActiveTree(name)
+    const t = config.trees?.[name]
+    setSelectedId(t?.root_node_id || (t ? Object.keys(t.nodes ?? {})[0] || '' : ''))
+  }
+
   const selected: IvrNode | undefined = selectedId ? nodes[selectedId] : undefined
 
   function patchTree(next: IvrTree) {
     onChange({
       enabled,
-      config: { ...config, trees: { ...config.trees, default: next } },
+      config: { ...config, trees: { ...config.trees, [activeTree]: next } },
     })
+  }
+
+  function createTreeForActive() {
+    const rootId = 'n1'
+    const label = activeTree === 'default' ? 'Main menu' : activeTree === 'after_hours' ? 'After-hours menu' : 'Holiday menu'
+    const fresh: IvrTree = {
+      root_node_id: rootId,
+      nodes: { [rootId]: blankNode(rootId, label) },
+    }
+    onChange({
+      enabled,
+      config: { ...config, trees: { ...config.trees, [activeTree]: fresh } },
+    })
+    setSelectedId(rootId)
+  }
+
+  function deleteActiveTree() {
+    if (activeTree === 'default') {
+      alert("Can't delete the Default tree. Edit it instead.")
+      return
+    }
+    if (!confirm(`Remove the entire ${activeTree.replace('_', '-')} tree? You can rebuild it later.`)) return
+    const nextTrees = { ...config.trees }
+    delete nextTrees[activeTree]
+    onChange({ enabled, config: { ...config, trees: nextTrees } })
+    setSelectedId('')
   }
 
   function patchNode(id: string, next: IvrNode) {
@@ -126,9 +169,13 @@ export default function IvrEditor({
 
   function initializeIfEmpty() {
     if (!tree.root_node_id || Object.keys(nodes).length === 0) {
-      const fresh = blankConfig()
-      onChange({ enabled, config: fresh })
-      setSelectedId(fresh.trees.default!.root_node_id)
+      if (activeTree === 'default') {
+        const fresh = blankConfig()
+        onChange({ enabled, config: { ...config, trees: { ...config.trees, default: fresh.trees.default } } })
+        setSelectedId(fresh.trees.default!.root_node_id)
+      } else {
+        createTreeForActive()
+      }
     }
   }
 
@@ -176,10 +223,15 @@ export default function IvrEditor({
             checked={enabled}
             onChange={(e) => {
               const nowEnabled = e.target.checked
-              if (nowEnabled && Object.keys(nodes).length === 0) {
-                // First-time enable on an empty config — seed a blank menu.
+              const defaultEmpty = !config.trees?.default || Object.keys(config.trees.default.nodes ?? {}).length === 0
+              if (nowEnabled && defaultEmpty) {
+                // First-time enable — seed a blank Default tree.
                 const fresh = blankConfig()
-                onChange({ enabled: true, config: fresh })
+                onChange({
+                  enabled: true,
+                  config: { ...config, trees: { ...config.trees, default: fresh.trees.default } },
+                })
+                setActiveTree('default')
                 setSelectedId(fresh.trees.default!.root_node_id)
               } else {
                 onChange({ enabled: nowEnabled, config })
@@ -196,18 +248,57 @@ export default function IvrEditor({
         </span>
       </div>
 
+      {/* Tree tabs */}
+      <div className="flex items-center gap-1 border-b border-white/10">
+        {TREE_TABS.map((t) => {
+          const active = activeTree === t.name
+          const hasTree = !!config.trees?.[t.name]?.root_node_id
+          return (
+            <button
+              key={t.name}
+              type="button"
+              onClick={() => switchTree(t.name)}
+              className={`px-3 py-2 text-sm border-b-2 -mb-px flex items-center gap-2 ${
+                active
+                  ? 'border-[#2E7EB8] text-white'
+                  : 'border-transparent text-white/60 hover:text-white'
+              }`}
+            >
+              <span>{t.label}</span>
+              {hasTree ? (
+                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+              ) : (
+                <span className="w-1.5 h-1.5 rounded-full bg-white/20" />
+              )}
+            </button>
+          )
+        })}
+        {activeTree !== 'default' && config.trees?.[activeTree] && (
+          <button
+            type="button"
+            onClick={deleteActiveTree}
+            className="ml-auto text-xs px-2 py-1 text-red-300/80 hover:text-red-300"
+          >
+            Remove this tree
+          </button>
+        )}
+      </div>
+
+      <p className="text-xs text-white/40 -mt-2">{TREE_TABS.find((t) => t.name === activeTree)?.hint}</p>
+
       {Object.keys(nodes).length === 0 ? (
         <div className="rounded-md border border-white/10 bg-white/5 p-4">
           <p className="text-sm text-white/60 mb-3">
-            No menus yet. Enable the toggle above to start, or click below to create
-            an empty menu without enabling it (handy for drafting).
+            {activeTree === 'default'
+              ? 'No Default menu yet. Enable the toggle above to start, or click below to create an empty menu without enabling it (handy for drafting).'
+              : `No ${activeTree.replace('_', '-')} menu yet. Build one to override the Default tree on matching calls.`}
           </p>
           <button
             type="button"
             onClick={initializeIfEmpty}
             className="text-sm px-3 py-1.5 rounded border border-white/15 hover:bg-white/10"
           >
-            Create empty menu
+            {activeTree === 'default' ? 'Create empty menu' : `Create ${activeTree.replace('_', '-')} menu`}
           </button>
         </div>
       ) : (
