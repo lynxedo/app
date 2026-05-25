@@ -20,6 +20,9 @@ import AnnouncementTicker, { type Announcement } from './AnnouncementTicker'
 import HubQuickCompose from './HubQuickCompose'
 import TimesheetClockModal from './TimesheetClockModal'
 import NotifPrefsModal from './NotifPrefsModal'
+import DialerProvider from './dialer/DialerProvider'
+import ActiveCallBanner from './dialer/ActiveCallBanner'
+import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
 import { HubTextSizeContext } from './HubTextSizeContext'
 import type { HubUser } from './MessageFeed'
 import type { RailConfig, RailPermissions } from './railCatalog'
@@ -57,6 +60,7 @@ export default function HubShell({
   canAccessFleet,
   canAccessZoneSizer,
   canAccessDialer,
+  dialerGlobalRing,
   myPresenceMode,
   children,
 }: {
@@ -91,6 +95,9 @@ export default function HubShell({
   canAccessFleet?: boolean
   canAccessZoneSizer?: boolean
   canAccessDialer?: boolean
+  /** Session 58.5: when true (default) AND canAccessDialer, the Twilio
+   *  Device registers on every Hub page so IncomingCall pops anywhere. */
+  dialerGlobalRing?: boolean
   myPresenceMode?: 'clock' | 'activity'
   children: React.ReactNode
 }) {
@@ -250,6 +257,15 @@ export default function HubShell({
     return () => { cancelled = true; clearInterval(id) }
   }, [pathname])
 
+  // Session 58.5: poll unheard voicemail count for the rail badge. Gated on
+  // canAccessDialer so non-dialer users don't hit the endpoint.
+  const unheardVoicemails = useHubVoicemailCount(!!canAccessDialer)
+
+  // Whether to lift the Twilio Device registration up to shell level. When
+  // false, IncomingCall only renders on /hub/dialer (original Session 56
+  // behavior, e.g. user opted out via Settings or doesn't have dialer access).
+  const liftDialerDevice = !!canAccessDialer && (dialerGlobalRing !== false)
+
   // Clocked-in status: refresh from API on focus + after Time Clock modal closes
   // (the modal handles the punch itself). Initial value comes from server props.
   const refreshClockedIn = useCallback(() => {
@@ -400,7 +416,7 @@ export default function HubShell({
   const sidebarInert = hideSidebarDesktop && !mobileDrawerOpen
 
 
-  return (
+  const shell = (
     <HubTextSizeContext.Provider value={textSize}>
     <div className="flex h-[100dvh] bg-gray-950 text-white overflow-hidden">
       {mobileDrawerOpen && (
@@ -415,6 +431,7 @@ export default function HubShell({
         showAdmin={showAdminRail}
         unreadActivity={unreadActivity}
         unreadHub={unreadHub}
+        unheardVoicemails={unheardVoicemails}
         isClockedIn={isClockedIn}
         onSearchClick={() => setShowCompose(true)}
         onProfileClick={() => setManualRail('profile')}
@@ -503,6 +520,10 @@ export default function HubShell({
           aria-hidden="true"
         />
 
+        {/* Session 58.5: active-call banner. No-ops when no provider context
+            or no in-progress call OR we're already on /hub/dialer. */}
+        <ActiveCallBanner />
+
         {/* Announcement ticker — Hub-section paths only. */}
         {activeRail === 'hub' && !pathname.startsWith('/hub/home') && (
           <AnnouncementTicker
@@ -575,4 +596,10 @@ export default function HubShell({
     <HubActivityPanel open={showActivity} onClose={() => setShowActivity(false)} />
     </HubTextSizeContext.Provider>
   )
+
+  // Lift the Twilio Voice Device + IncomingCall overlay to shell level when
+  // the user has dialer access AND hasn't opted out via Settings. Anyone else
+  // gets the original Session 56 behavior: Device only registers when
+  // DialerPanel mounts on /hub/dialer.
+  return liftDialerDevice ? <DialerProvider>{shell}</DialerProvider> : shell
 }

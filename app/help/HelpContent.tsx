@@ -699,6 +699,12 @@ function DialerTab() {
         <p>Voicemail recipients (the people who get a push notification when a new voicemail lands) are configured in <strong className="text-white">Admin → Dialer</strong>. Push notifications respect each recipient&apos;s Do Not Disturb settings.</p>
       </Section>
 
+      <Section title="Ring anywhere in Hub">
+        <p>By default, incoming calls pop a ringing overlay no matter what page of Hub you&apos;re on — a room, a DM, Tracker, Settings, anywhere. Accept or reject from the overlay; if you accept and then navigate away from the Dialer page, a thin green banner at the top of Hub keeps the call timer visible with a one-tap return to Dialer. The banner has a <strong className="text-white">×</strong> to dismiss it if it&apos;s in the way (it&apos;ll come back on the next call).</p>
+        <p>The rail Dialer icon also shows a red badge with your unheard voicemail count — so a missed-call voicemail is visible from any Hub page, not just from inside the Dialer sidebar.</p>
+        <p>To turn off cross-page ringing — for example, if you don&apos;t want your browser holding an open phone connection while you&apos;re heads-down on something else — open <strong className="text-white">Settings → Account → Communications</strong> and uncheck <em>Ring me on every Hub page</em>. With the toggle off, calls only ring you while you&apos;re on the Dialer page itself.</p>
+      </Section>
+
       <Section title="What&apos;s Coming">
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Mobile native dialer</strong> — built into the existing iOS/Android Hub app. Calls ring with native iOS CallKit / Android ConnectionService, work from lock screen + Bluetooth + CarPlay.</li>
