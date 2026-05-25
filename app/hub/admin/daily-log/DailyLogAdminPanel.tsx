@@ -4,21 +4,36 @@ import { useState } from 'react'
 import AdminTabNav from '@/components/AdminTabNav'
 
 type HubUser = { id: string; display_name: string }
+type Room = { id: string; name: string }
 
 export default function DailyLogAdminPanel({
   initialRecipientIds,
+  initialRoomIds,
   users,
+  rooms,
 }: {
   initialRecipientIds: string[]
+  initialRoomIds: string[]
   users: HubUser[]
+  rooms: Room[]
 }) {
-  const [selected, setSelected] = useState<Set<string>>(new Set(initialRecipientIds))
+  const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set(initialRecipientIds))
+  const [selectedRooms, setSelectedRooms] = useState<Set<string>>(new Set(initialRoomIds))
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  function toggle(id: string) {
-    setSelected((prev) => {
+  function toggleUser(id: string) {
+    setSelectedUsers((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  function toggleRoom(id: string) {
+    setSelectedRooms((prev) => {
       const next = new Set(prev)
       if (next.has(id)) next.delete(id)
       else next.add(id)
@@ -33,7 +48,10 @@ export default function DailyLogAdminPanel({
       const res = await fetch('/api/admin/daily-log-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ completion_notify_user_ids: [...selected] }),
+        body: JSON.stringify({
+          completion_notify_user_ids: [...selectedUsers],
+          completion_notify_room_ids: [...selectedRooms],
+        }),
       })
       if (!res.ok) {
         const body = await res.json().catch(() => null)
@@ -58,45 +76,29 @@ export default function DailyLogAdminPanel({
         <header>
           <h1 className="text-xl font-semibold">Daily Log</h1>
           <p className="text-sm text-white/60 mt-1">
-            When a tech marks a route complete, @Guardian DMs the selected users a summary of
-            that day&apos;s log — office notes, route sheet, and every update posted.
+            When a tech marks a route complete, @Guardian sends a summary of that day&apos;s
+            log — office notes, route sheet, and every update posted. Pick any combination of
+            DMs and room posts.
           </p>
         </header>
 
-        <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-3">
-          <div className="flex items-center justify-between">
-            <h2 className="font-semibold">Completion notification recipients</h2>
-            <span className="text-xs text-white/40">{selected.size} selected</span>
-          </div>
+        <PickerSection
+          title="DM these users"
+          subtitle="@Guardian DMs each selected user a one-on-one summary."
+          empty="No users in this company yet."
+          items={users.map((u) => ({ id: u.id, label: u.display_name }))}
+          selected={selectedUsers}
+          onToggle={toggleUser}
+        />
 
-          {users.length === 0 ? (
-            <p className="text-sm text-white/50">No users in this company yet.</p>
-          ) : (
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              {users.map((u) => {
-                const on = selected.has(u.id)
-                return (
-                  <label
-                    key={u.id}
-                    className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${
-                      on
-                        ? 'bg-[#2E7EB8]/20 border-[#2E7EB8]/40'
-                        : 'bg-white/5 border-white/10 hover:bg-white/10'
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={on}
-                      onChange={() => toggle(u.id)}
-                      className="accent-[#2E7EB8]"
-                    />
-                    <span className="text-sm">{u.display_name}</span>
-                  </label>
-                )
-              })}
-            </div>
-          )}
-        </section>
+        <PickerSection
+          title="Post in these rooms"
+          subtitle="@Guardian posts the summary in each selected room (auto-joins if needed)."
+          empty="No active rooms to choose from."
+          items={rooms.map((r) => ({ id: r.id, label: `#${r.name}` }))}
+          selected={selectedRooms}
+          onToggle={toggleRoom}
+        />
 
         <div className="flex items-center gap-3">
           <button
@@ -113,5 +115,61 @@ export default function DailyLogAdminPanel({
         </div>
       </div>
     </div>
+  )
+}
+
+function PickerSection({
+  title,
+  subtitle,
+  empty,
+  items,
+  selected,
+  onToggle,
+}: {
+  title: string
+  subtitle: string
+  empty: string
+  items: { id: string; label: string }[]
+  selected: Set<string>
+  onToggle: (id: string) => void
+}) {
+  return (
+    <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-3">
+      <div className="flex items-center justify-between">
+        <div>
+          <h2 className="font-semibold">{title}</h2>
+          <p className="text-xs text-white/50 mt-0.5">{subtitle}</p>
+        </div>
+        <span className="text-xs text-white/40">{selected.size} selected</span>
+      </div>
+
+      {items.length === 0 ? (
+        <p className="text-sm text-white/50">{empty}</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          {items.map((it) => {
+            const on = selected.has(it.id)
+            return (
+              <label
+                key={it.id}
+                className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${
+                  on
+                    ? 'bg-[#2E7EB8]/20 border-[#2E7EB8]/40'
+                    : 'bg-white/5 border-white/10 hover:bg-white/10'
+                }`}
+              >
+                <input
+                  type="checkbox"
+                  checked={on}
+                  onChange={() => onToggle(it.id)}
+                  className="accent-[#2E7EB8]"
+                />
+                <span className="text-sm">{it.label}</span>
+              </label>
+            )
+          })}
+        </div>
+      )}
+    </section>
   )
 }

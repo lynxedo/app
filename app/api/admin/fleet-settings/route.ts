@@ -36,7 +36,19 @@ const ALLOWED_FIELDS = [
   'work_hours_start',
   'work_hours_end',
   'work_tz',
+  'alert_recipient_user_ids',
+  'alert_recipient_room_ids',
 ] as const
+
+function sanitizeUuidArray(raw: unknown): string[] | null {
+  if (raw === undefined) return null
+  if (!Array.isArray(raw)) return null
+  const out: string[] = []
+  for (const v of raw) {
+    if (typeof v === 'string' && /^[0-9a-f-]{36}$/i.test(v)) out.push(v)
+  }
+  return [...new Set(out)]
+}
 
 export async function POST(request: Request) {
   const ctx = await requireAdmin()
@@ -51,7 +63,19 @@ export async function POST(request: Request) {
 
   const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
   for (const k of ALLOWED_FIELDS) {
-    if (k in body) patch[k] = body[k]
+    if (!(k in body)) continue
+    if (k === 'alert_recipient_user_ids' || k === 'alert_recipient_room_ids') {
+      const arr = sanitizeUuidArray(body[k])
+      if (arr === null) {
+        return NextResponse.json(
+          { error: `${k} must be an array of uuid strings` },
+          { status: 400 },
+        )
+      }
+      patch[k] = arr
+    } else {
+      patch[k] = body[k]
+    }
   }
 
   const admin = createAdminClient()

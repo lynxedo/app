@@ -413,13 +413,13 @@ function HubTab() {
         <p><strong className="text-white">Two techs on one route:</strong> when creating an entry you can pick a primary tech plus one or more secondary techs (the second person riding the route). The entry shows up on every tech&apos;s <em>My Day</em> view, and either tech can post updates or mark it complete.</p>
         <p><strong className="text-white">Two checkboxes — one for the tech, one for the office:</strong></p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-emerald-300">Route Completed</strong> — the tech (primary or secondary) checks this when the route is done. The card turns green and a DM goes out to the people configured in <em>Admin → Daily Log</em>.</li>
+          <li><strong className="text-emerald-300">Route Completed</strong> — the tech (primary or secondary) checks this when the route is done. The card turns green and a notification goes out from @Guardian to the users and rooms configured in <em>Admin → Daily Log</em>.</li>
           <li><strong className="text-sky-300">Closed</strong> — the office checks this once they&apos;ve reviewed the day&apos;s updates and handled anything that needed handling. The card dims so you can tell at a glance which entries are still waiting on office review. Only admins and anyone with the Daily Log admin grant can check this — and no DM fires (silent close).</li>
         </ul>
         <p>The two boxes are independent — you can close an entry before it&apos;s marked complete, or mark complete without closing. Unchecking either box reverses it.</p>
         <p>The Route Completed DM contains that day&apos;s office notes, route sheet name, and every update that was posted — so you can read the whole day at a glance instead of opening the log. If anything changes after the route is marked complete (a new update gets posted, notes get edited), the DM resends with the updated info.</p>
         <AdminOnly>
-          <p>Admins pick who receives completion DMs under <strong className="text-white">/admin/daily-log</strong>. Pick as many users as you want; leave it empty to disable completion DMs entirely.</p>
+          <p>Admins pick where completion notifications go under <strong className="text-white">/admin/daily-log</strong> — any combination of DMs (each selected user gets a one-on-one DM from @Guardian) and rooms (the summary is posted in each selected room, where @Guardian auto-joins if it&apos;s not already a member). Leave both empty to disable the notification entirely.</p>
         </AdminOnly>
       </Section>
 
@@ -440,9 +440,9 @@ function HubTab() {
           <li><strong className="text-white">⛽ Low fuel</strong> — fuel is below the configured threshold</li>
           <li><strong className="text-white">📡 Offline</strong> — vehicle hasn&apos;t reported in past the configured timeout (suppressed outside work hours so parked-overnight trucks don&apos;t spam)</li>
         </ul>
-        <Note>Alerts are evaluated server-side every 5 minutes and delivered as a Hub DM. You don&apos;t need to be looking at the map for alerts to fire.</Note>
+        <Note>Alerts are evaluated server-side every 5 minutes. Each alert is delivered by @Guardian to whoever is configured in <em>Admin → Fleet → Notify</em> — any combination of DMs and room posts. You don&apos;t need to be looking at the map for alerts to fire.</Note>
         <AdminOnly>
-          <p>Admins configure which alerts fire and the thresholds under <strong className="text-white">/admin/fleet</strong>. Each user must have the <em>Fleet Tracker</em> permission enabled in Admin → People to see the map.</p>
+          <p>Admins configure which alerts fire, the thresholds, and where alerts go (DM specific users, post in specific rooms, or both) under <strong className="text-white">/admin/fleet</strong>. Each user must have the <em>Fleet Tracker</em> permission enabled in Admin → People to see the map.</p>
         </AdminOnly>
       </Section>
 

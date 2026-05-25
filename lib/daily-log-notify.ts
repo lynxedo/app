@@ -1,8 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-
-const GUARDIAN_HUB_USER_ID = '00000000-0000-0000-0001-000000000001'
-
-type SupabaseAdmin = ReturnType<typeof createAdminClient>
+import { GUARDIAN_HUB_USER_ID, fanoutGuardianNotification } from '@/lib/guardian-post'
 
 type EntryRow = {
   id: string
@@ -42,14 +39,18 @@ export async function notifyDailyLogComplete(entryId: string): Promise<void> {
 
   const { data: settings } = await admin
     .from('daily_log_settings')
-    .select('completion_notify_user_ids')
+    .select('completion_notify_user_ids, completion_notify_room_ids')
     .eq('company_id', entry.company_id)
-    .single<{ completion_notify_user_ids: string[] }>()
+    .single<{
+      completion_notify_user_ids: string[]
+      completion_notify_room_ids: string[]
+    }>()
 
-  const recipients = (settings?.completion_notify_user_ids ?? []).filter(
+  const recipientUserIds = (settings?.completion_notify_user_ids ?? []).filter(
     (id) => id !== GUARDIAN_HUB_USER_ID,
   )
-  if (recipients.length === 0) return
+  const recipientRoomIds = settings?.completion_notify_room_ids ?? []
+  if (recipientUserIds.length === 0 && recipientRoomIds.length === 0) return
 
   const { data: updates } = await admin
     .from('daily_log_updates')
@@ -85,73 +86,13 @@ export async function notifyDailyLogComplete(entryId: string): Promise<void> {
 
   const body = formatBody(entry, updates ?? [], secondaryNames, completerName)
 
-  for (const recipientId of recipients) {
-    const conversationId = await findOrCreateDmConversation(
-      admin,
-      entry.company_id,
-      recipientId,
-    )
-    if (!conversationId) continue
-    const { error: msgErr } = await admin.from('messages').insert({
-      company_id: entry.company_id,
-      conversation_id: conversationId,
-      sender_id: GUARDIAN_HUB_USER_ID,
-      content: body,
-    })
-    if (msgErr) {
-      console.error('[daily-log-notify] DM insert failed:', msgErr)
-      continue
-    }
-    await admin
-      .from('conversation_members')
-      .update({ archived_at: null })
-      .eq('conversation_id', conversationId)
-      .not('archived_at', 'is', null)
-  }
-}
-
-async function findOrCreateDmConversation(
-  admin: SupabaseAdmin,
-  companyId: string,
-  recipientHubUserId: string,
-): Promise<string | null> {
-  const { data: guardianMemberships } = await admin
-    .from('conversation_members')
-    .select('conversation_id')
-    .eq('user_id', GUARDIAN_HUB_USER_ID)
-  const guardianConvIds = (guardianMemberships ?? []).map(
-    (m: { conversation_id: string }) => m.conversation_id,
-  )
-
-  if (guardianConvIds.length > 0) {
-    const { data: candidates } = await admin
-      .from('conversation_members')
-      .select('conversation_id')
-      .eq('user_id', recipientHubUserId)
-      .in('conversation_id', guardianConvIds)
-    for (const cand of candidates ?? []) {
-      const { count } = await admin
-        .from('conversation_members')
-        .select('user_id', { count: 'exact', head: true })
-        .eq('conversation_id', cand.conversation_id)
-      if (count === 2) return cand.conversation_id as string
-    }
-  }
-
-  const { data: conv, error } = await admin
-    .from('conversations')
-    .insert({ company_id: companyId })
-    .select('id')
-    .single()
-  if (error || !conv) {
-    console.error('[daily-log-notify] conversation create failed:', error)
-    return null
-  }
-  await admin.from('conversation_members').insert([
-    { conversation_id: conv.id, user_id: GUARDIAN_HUB_USER_ID },
-    { conversation_id: conv.id, user_id: recipientHubUserId },
-  ])
-  return conv.id as string
+  await fanoutGuardianNotification({
+    admin,
+    companyId: entry.company_id,
+    userIds: recipientUserIds,
+    roomIds: recipientRoomIds,
+    body,
+  })
 }
 
 function formatDate(dateStr: string): string {

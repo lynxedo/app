@@ -21,10 +21,10 @@ export default async function AdminDailyLogPage() {
 
   const admin = createAdminClient()
 
-  const [settingsRes, usersRes] = await Promise.all([
+  const [settingsRes, usersRes, roomsRes] = await Promise.all([
     admin
       .from('daily_log_settings')
-      .select('completion_notify_user_ids')
+      .select('completion_notify_user_ids, completion_notify_room_ids')
       .eq('company_id', profile.company_id)
       .maybeSingle(),
     admin
@@ -32,10 +32,25 @@ export default async function AdminDailyLogPage() {
       .select('id, display_name, is_bot')
       .eq('company_id', profile.company_id)
       .order('display_name'),
+    admin
+      .from('rooms')
+      .select('id, name')
+      .eq('company_id', profile.company_id)
+      .is('archived_at', null)
+      .order('name'),
   ])
 
-  const recipientIds: string[] = settingsRes.data?.completion_notify_user_ids ?? []
+  const recipientUserIds: string[] = settingsRes.data?.completion_notify_user_ids ?? []
+  const recipientRoomIds: string[] = settingsRes.data?.completion_notify_room_ids ?? []
   const users = (usersRes.data ?? []).filter((u: { is_bot: boolean }) => !u.is_bot)
+  const rooms = roomsRes.data ?? []
 
-  return <DailyLogAdminPanel initialRecipientIds={recipientIds} users={users} />
+  return (
+    <DailyLogAdminPanel
+      initialRecipientIds={recipientUserIds}
+      initialRoomIds={recipientRoomIds}
+      users={users}
+      rooms={rooms}
+    />
+  )
 }

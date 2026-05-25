@@ -36,14 +36,30 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  const raw = body.completion_notify_user_ids
-  if (!Array.isArray(raw)) {
+  const rawUsers = body.completion_notify_user_ids
+  const rawRooms = body.completion_notify_room_ids
+  if (!Array.isArray(rawUsers)) {
     return NextResponse.json(
       { error: 'completion_notify_user_ids must be an array' },
       { status: 400 },
     )
   }
-  const ids = [...new Set(raw.filter((v): v is string => typeof v === 'string' && v.length > 0))]
+  if (rawRooms !== undefined && !Array.isArray(rawRooms)) {
+    return NextResponse.json(
+      { error: 'completion_notify_room_ids must be an array' },
+      { status: 400 },
+    )
+  }
+  const userIds = [
+    ...new Set(rawUsers.filter((v): v is string => typeof v === 'string' && v.length > 0)),
+  ]
+  const roomIds = [
+    ...new Set(
+      ((rawRooms as unknown[]) ?? []).filter(
+        (v): v is string => typeof v === 'string' && v.length > 0,
+      ),
+    ),
+  ]
 
   const admin = createAdminClient()
   const { data, error } = await admin
@@ -51,7 +67,8 @@ export async function POST(request: Request) {
     .upsert(
       {
         company_id: ctx.companyId,
-        completion_notify_user_ids: ids,
+        completion_notify_user_ids: userIds,
+        completion_notify_room_ids: roomIds,
         updated_at: new Date().toISOString(),
       },
       { onConflict: 'company_id' },
