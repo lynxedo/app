@@ -705,11 +705,30 @@ function DialerTab() {
         <p>To turn off cross-page ringing — for example, if you don&apos;t want your browser holding an open phone connection while you&apos;re heads-down on something else — open <strong className="text-white">Settings → Account → Communications</strong> and uncheck <em>Ring me on every Hub page</em>. With the toggle off, calls only ring you while you&apos;re on the Dialer page itself.</p>
       </Section>
 
+      <Section title="Auto-attendant (IVR)">
+        <p>Set up a phone menu callers hear before reaching anyone — &quot;Thank you for calling Heroes Lawn Care. Press 1 for scheduling, press 2 for billing.&quot; Configure it in <strong className="text-white">Admin → Dialer</strong> under the <em>Auto-attendant</em> section.</p>
+        <p>The menu is a tree of <strong className="text-white">menus</strong> (nodes). Each menu has a <strong className="text-white">prompt</strong> the caller hears and a set of <strong className="text-white">keypress actions</strong> (what happens when they press 0–9, *, or #).</p>
+        <p><strong className="text-white">Prompts</strong> can be either typed text (Twilio reads it aloud in a synthetic voice — fast to draft and edit) or an uploaded MP3/WAV file (a human recording — sounds professional but you have to re-record to change wording). Most people start with typed prompts to dial in the menu structure, then upload audio recordings for the prompts callers hear most often.</p>
+        <p><strong className="text-white">Keypress actions</strong> you can use today:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Go to another menu</strong> — branch into a submenu (nested menus are fully supported)</li>
+          <li><strong className="text-white">Send to voicemail</strong> — caller leaves a message in the company voicemail box</li>
+          <li><strong className="text-white">Ring a person</strong> — rings that user&apos;s Dialer until they answer; falls through to voicemail if they don&apos;t</li>
+          <li><strong className="text-white">Forward to a phone number</strong> — bridges to an external number (e.g. forwarding to a cell)</li>
+          <li><strong className="text-white">Say a message, then hang up</strong> — speaks a closing message and ends the call (useful for &quot;we&apos;re closed&quot; trees)</li>
+          <li><strong className="text-white">Hang up</strong> — ends the call cleanly</li>
+        </ul>
+        <p>Each menu also has two <strong className="text-white">fallbacks</strong> — &quot;if no input&quot; (caller didn&apos;t press anything within ~6 seconds) and &quot;if invalid input&quot; (they pressed a digit you haven&apos;t mapped). Both default to <em>repeat the menu twice, then voicemail</em>, which is what you want most of the time.</p>
+        <p>The <strong className="text-white">root menu</strong> is the first one callers hear. The one labeled &quot;root&quot; in the menu list is the entry point — use &quot;Set as root&quot; on any menu to make it the new starting point.</p>
+        <p><strong className="text-white">To test:</strong> save your changes, then call your Heroes business number. Changes take effect immediately on the next inbound call — no deploy or restart needed.</p>
+        <p>Turn the auto-attendant off and inbound calls go straight to the &quot;ring this person → voicemail&quot; flow. Turn it back on and the menu picks up again. You can leave a draft menu built but disabled at any time.</p>
+      </Section>
+
       <Section title="What&apos;s Coming">
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Mobile native dialer</strong> — built into the existing iOS/Android Hub app. Calls ring with native iOS CallKit / Android ConnectionService, work from lock screen + Bluetooth + CarPlay.</li>
-          <li><strong className="text-white">Auto-attendant (IVR)</strong> — &quot;Press 1 for scheduling, 2 for billing&quot; menu builder.</li>
-          <li><strong className="text-white">Ring groups + extensions</strong> — inbound calls ring multiple people simultaneously or in sequence; per-person 3-digit extensions.</li>
+          <li><strong className="text-white">Ring groups + extensions</strong> — inbound calls ring multiple people simultaneously or in sequence; per-person 3-digit extensions. Will plug into IVR as new keypress actions.</li>
+          <li><strong className="text-white">After-hours / holiday IVR trees</strong> — separate menus for business hours vs. after hours vs. holiday closures, with the right one picked automatically based on the time of day.</li>
           <li><strong className="text-white">Per-user voicemail boxes</strong> — alongside the company general box, with per-person greetings.</li>
           <li><strong className="text-white">Voicemail transcription + AI summary</strong> — Deepgram transcripts + bullet-point summaries.</li>
           <li><strong className="text-white">Call recording + AI summary</strong> — opt-in recording with Deepgram transcription + Claude bullet-point summary, all in Call Log.</li>

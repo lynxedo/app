@@ -2,8 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   EMPTY_VOICE_TWIML,
+  IvrConfig,
+  IvrTreeName,
   twimlDialClient,
   twimlRecordVoicemail,
+  twimlRenderIvrNode,
   validateTwilioVoiceSignature,
   voiceConfigured,
 } from '@/lib/twilio-voice'
@@ -80,14 +83,41 @@ export async function POST(request: NextRequest) {
 
   const { data: settings } = await admin
     .from('dialer_settings')
-    .select('inbound_route_user_id, ring_timeout_sec')
+    .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number')
     .eq('company_id', HEROES_COMPANY_ID)
     .single()
 
   const routeToUserId = settings?.inbound_route_user_id
   const ringTimeout = settings?.ring_timeout_sec ?? 20
 
-  const voicemailRender = `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/twiml/voicemail`
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+  const voicemailRender = `${baseUrl}/api/dialer/voice/twiml/voicemail`
+
+  // IVR takes precedence when enabled and a default tree with a root node exists.
+  // Session 61 will pick which tree (default/after_hours/holiday) based on time of day;
+  // for now we always run 'default'.
+  if (settings?.ivr_enabled && settings.ivr_config) {
+    const config = settings.ivr_config as IvrConfig
+    const treeName: IvrTreeName = 'default'
+    const tree = config.trees?.[treeName]
+    if (tree?.root_node_id && tree.nodes?.[tree.root_node_id]) {
+      const gatherActionUrlFor = (t: IvrTreeName, n: string, r: number) =>
+        `${baseUrl}/api/dialer/voice/twiml/ivr?tree=${encodeURIComponent(t)}&node=${encodeURIComponent(n)}&r=${r}`
+      return twimlResponse(
+        twimlRenderIvrNode({
+          config,
+          treeName,
+          nodeId: tree.root_node_id,
+          baseUrl,
+          gatherActionUrlFor,
+          voicemailRouteUrl: voicemailRender,
+          callerId: fromNumber || undefined,
+        })
+      )
+    }
+    // IVR enabled but misconfigured (no default tree) — fall through to the
+    // legacy ring-Ben-then-voicemail path so calls don't die in dead air.
+  }
 
   if (routeToUserId) {
     return twimlResponse(

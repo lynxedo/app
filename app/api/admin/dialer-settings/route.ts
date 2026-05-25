@@ -29,6 +29,8 @@ const ALLOWED_FIELDS = [
   'ring_timeout_sec',
   'voicemail_recipient_user_ids',
   'inbound_route_user_id',
+  'ivr_enabled',
+  'ivr_config',
 ] as const
 
 function sanitizeUuidArray(raw: unknown): string[] | null {
@@ -81,6 +83,27 @@ export async function POST(request: Request) {
         )
       }
       patch[k] = n
+    } else if (k === 'ivr_enabled') {
+      patch[k] = Boolean(body[k])
+    } else if (k === 'ivr_config') {
+      const cfg = body[k]
+      // Light-touch validation: must be an object with a `trees` object inside.
+      // The admin UI is the source of truth for shape; deeper validation here
+      // would just duplicate that effort and make schema evolution harder.
+      if (cfg === null || typeof cfg !== 'object' || Array.isArray(cfg)) {
+        return NextResponse.json(
+          { error: 'ivr_config must be an object' },
+          { status: 400 },
+        )
+      }
+      const trees = (cfg as { trees?: unknown }).trees
+      if (trees !== undefined && (typeof trees !== 'object' || Array.isArray(trees) || trees === null)) {
+        return NextResponse.json(
+          { error: 'ivr_config.trees must be an object' },
+          { status: 400 },
+        )
+      }
+      patch[k] = cfg
     }
   }
 
