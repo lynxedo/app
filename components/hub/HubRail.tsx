@@ -339,6 +339,20 @@ export default function HubRail({
           <span className={active === 'txt' ? 'text-amber-300' : ''}><CatalogIcon id="txt" /></span>
           <span>Txt</span>
         </Link>
+
+        {permissions.canAccessDialer && (
+          <Link
+            href="/hub/dialer"
+            onClick={handleNavLinkClick('dialer')}
+            className={railBtnClass(active === 'dialer')}
+            aria-current={active === 'dialer' ? 'page' : undefined}
+            title="Dialer"
+          >
+            <ActiveBar show={active === 'dialer'} />
+            <span className={active === 'dialer' ? 'text-amber-300' : ''}><CatalogIcon id="dialer" /></span>
+            <span>Dialer</span>
+          </Link>
+        )}
       </div>
 
       {/* User-configurable slots — scrollable if they overflow. Explicit
