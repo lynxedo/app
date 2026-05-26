@@ -1,6 +1,5 @@
 'use client'
 
-import { useState } from 'react'
 import { useTwilioDevice } from '@/hooks/use-twilio-device'
 import Dialpad from '@/components/hub/dialer/Dialpad'
 import ActiveCall from '@/components/hub/dialer/ActiveCall'
@@ -8,12 +7,10 @@ import IncomingCall from '@/components/hub/dialer/IncomingCall'
 import { useDialerContext } from '@/components/hub/dialer/DialerProvider'
 
 export default function DialerPanel({
-  isAdmin,
   initialNumber = null,
   txtConversationId = null,
   txtContactId = null,
 }: {
-  isAdmin: boolean
   initialNumber?: string | null
   txtConversationId?: string | null
   txtContactId?: string | null
@@ -26,28 +23,6 @@ export default function DialerPanel({
   const ctxDevice = useDialerContext()
   const localDevice = useTwilioDevice({ autoRegister: !ctxDevice })
   const device = ctxDevice ?? localDevice
-  const [injecting, setInjecting] = useState(false)
-  const [injectError, setInjectError] = useState<string | null>(null)
-
-  async function injectTestCall(direction: 'inbound' | 'outbound') {
-    setInjecting(true)
-    setInjectError(null)
-    try {
-      const res = await fetch('/api/dialer/dev/inject-call', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ direction }),
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}))
-        setInjectError(body.error || `inject_failed_${res.status}`)
-      }
-    } catch (err) {
-      setInjectError(err instanceof Error ? err.message : 'inject_failed')
-    } finally {
-      setInjecting(false)
-    }
-  }
 
   const showActiveCall = device.state === 'placing' || device.state === 'in-call'
   // When the provider is mounted, DialerProvider already renders the
@@ -56,7 +31,7 @@ export default function DialerPanel({
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex-none px-4 py-3 border-b border-white/5">
+      <div className="flex-none px-4 py-2 md:py-3 border-b border-white/5">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-semibold">Dialer</h1>
           <StatusPill state={device.state} />
@@ -68,7 +43,7 @@ export default function DialerPanel({
         )}
       </div>
 
-      <div className="flex-1 overflow-y-auto px-4 py-6 flex flex-col items-center justify-center">
+      <div className="flex-1 overflow-y-auto px-4 py-3 md:py-6 flex flex-col items-center justify-center">
         {showActiveCall ? (
           <ActiveCall
             status={device.state === 'placing' ? 'placing' : 'in-call'}
@@ -103,33 +78,6 @@ export default function DialerPanel({
             Calls won&apos;t connect until <code className="font-mono text-amber-300">TWILIO_API_KEY_SID</code>,
             {' '}<code className="font-mono text-amber-300">TWILIO_API_KEY_SECRET</code>, and
             {' '}<code className="font-mono text-amber-300">TWILIO_TWIML_APP_SID</code> are set.
-          </div>
-        )}
-
-        {isAdmin && (
-          <div className="mt-10 pt-6 border-t border-white/5 w-full max-w-sm mx-auto">
-            <div className="text-xs text-white/50 uppercase tracking-wider mb-3 text-center">
-              Dev — inject test call
-            </div>
-            <div className="flex gap-2 justify-center">
-              <button
-                type="button"
-                onClick={() => injectTestCall('inbound')}
-                disabled={injecting}
-                className="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs disabled:opacity-50"
-              >
-                + Inbound (missed)
-              </button>
-              <button
-                type="button"
-                onClick={() => injectTestCall('outbound')}
-                disabled={injecting}
-                className="px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs disabled:opacity-50"
-              >
-                + Outbound (completed)
-              </button>
-            </div>
-            {injectError && <div className="text-[11px] text-red-300 mt-2 text-center">{injectError}</div>}
           </div>
         )}
       </div>
