@@ -40,7 +40,7 @@ export async function proxy(request: NextRequest) {
     // Single fetch: profile + company — used for domain check and permission enforcement
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('role, company_id, landing_page, can_access_routing, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, can_access_dialer, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, companies(google_domain)')
+      .select('role, company_id, landing_page, can_access_routing, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, can_access_dialer, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, companies(google_domain)')
       .eq('id', user.id)
       .single()
 
@@ -110,6 +110,7 @@ export async function proxy(request: NextRequest) {
           '/hub/admin/daily-log': 'can_admin_daily_log',
           '/hub/admin/zone-sizer': 'can_admin_zone_sizer',
           '/hub/admin/dialer': 'can_admin_dialer',
+          '/hub/admin/contacts': 'can_admin_contacts',
         }
         const anyAdminGrant =
           profile.can_admin_people ||
@@ -119,7 +120,8 @@ export async function proxy(request: NextRequest) {
           profile.can_admin_fleet ||
           profile.can_admin_daily_log ||
           profile.can_admin_zone_sizer ||
-          profile.can_admin_dialer
+          profile.can_admin_dialer ||
+          profile.can_admin_contacts
 
         if (!isSuperAdmin && !anyAdminGrant) {
           const url = request.nextUrl.clone()

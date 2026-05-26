@@ -79,7 +79,7 @@ export default function ToolsSidebar({
 
   const hasOperations = canAccessRouting || canAccessFleet || canAccessTimesheet || isAdmin
   const hasSales = canAccessTracker || canAccessLawn || canAccessZoneSizer
-  const hasComms = canAccessCallLog || canAccessDialer
+  const hasComms = true // Contacts is always shown under Communications; Dialer + Call Log gated below
   const hasFinance = canAccessBooks
 
   return (
@@ -126,6 +126,7 @@ export default function ToolsSidebar({
             <>
               {canAccessDialer && <ToolRow href="/hub/dialer" iconId="dialer" label="Dialer" prefixMatch onClose={onClose} />}
               {canAccessCallLog && <ToolRow href="/hub/call-log" iconId="call-log" label="Call Log" prefixMatch onClose={onClose} />}
+              <ToolRow href="/hub/contacts" iconId="contacts" label="Contacts" prefixMatch onClose={onClose} />
             </>
           )}
         </div>

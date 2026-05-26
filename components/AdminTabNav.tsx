@@ -12,11 +12,13 @@ type Grants = {
   daily_log: boolean
   zone_sizer: boolean
   dialer: boolean
+  contacts: boolean
 }
 
 const TABS: { href: string; label: string; exact: boolean; grantKey: keyof Grants }[] = [
   { href: '/hub/admin', label: 'People', exact: true, grantKey: 'people' },
   { href: '/hub/admin/hub', label: 'Hub', exact: false, grantKey: 'hub' },
+  { href: '/hub/admin/contacts', label: 'Contacts', exact: false, grantKey: 'contacts' },
   { href: '/hub/admin/routing', label: 'Routing', exact: false, grantKey: 'routing' },
   { href: '/hub/admin/timesheet', label: 'Time Records', exact: false, grantKey: 'timesheet' },
   { href: '/hub/admin/fleet', label: 'Fleet', exact: false, grantKey: 'fleet' },

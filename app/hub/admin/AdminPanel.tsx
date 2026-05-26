@@ -25,6 +25,7 @@ type UserProfile = {
   can_admin_daily_log: boolean
   can_admin_zone_sizer: boolean
   can_admin_dialer: boolean
+  can_admin_contacts: boolean
 }
 
 type User = {
@@ -75,6 +76,7 @@ const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_admin_daily_log', label: 'Daily Log' },
   { key: 'can_admin_zone_sizer', label: 'Zone Sizer' },
   { key: 'can_admin_dialer', label: 'Dialer' },
+  { key: 'can_admin_contacts', label: 'Contacts' },
 ]
 
 function getInitials(name: string | null, email: string): string {
@@ -179,6 +181,7 @@ export default function AdminPanel({
             can_admin_daily_log: false,
             can_admin_zone_sizer: false,
             can_admin_dialer: false,
+            can_admin_contacts: false,
           },
         }
         setUsers(prev => [...prev, newUser])
@@ -298,6 +301,7 @@ export default function AdminPanel({
             can_admin_daily_log: false,
             can_admin_zone_sizer: false,
             can_admin_dialer: false,
+            can_admin_contacts: false,
           },
         }
         setUsers(prev => [...prev, newUser])

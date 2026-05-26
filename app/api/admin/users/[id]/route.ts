@@ -12,6 +12,7 @@ const RESTRICTED_FIELDS = new Set([
   'can_admin_daily_log',
   'can_admin_zone_sizer',
   'can_admin_dialer',
+  'can_admin_contacts',
 ])
 
 export async function PATCH(
