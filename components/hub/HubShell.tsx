@@ -555,11 +555,14 @@ export default function HubShell({
         onMoreClick={() => setShowMobileMore(true)}
         onHubClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
         onTxtClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
+        onPhoneClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
         onTimeClockClick={() => setShowTimeClock(true)}
         onToolsClick={() => { setManualRail('tools'); setMobileDrawerOpen(true) }}
         onLinksClick={() => { setManualRail('links'); setMobileDrawerOpen(true) }}
         isClockedIn={isClockedIn}
         unreadHub={unreadHub}
+        unheardVoicemails={unheardVoicemails}
+        canAccessDialer={!!canAccessDialer}
         permissions={permissions}
         railConfig={initialRailConfig ?? null}
         hidden={keyboardOpen}

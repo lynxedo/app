@@ -17,11 +17,14 @@ export default function HubMobileBar({
   onMoreClick,
   onHubClick,
   onTxtClick,
+  onPhoneClick,
   onTimeClockClick,
   onToolsClick,
   onLinksClick,
   isClockedIn,
   unreadHub,
+  unheardVoicemails,
+  canAccessDialer,
   permissions,
   railConfig,
   hidden,
@@ -32,11 +35,14 @@ export default function HubMobileBar({
   onMoreClick: () => void
   onHubClick: () => void
   onTxtClick: () => void
+  onPhoneClick: () => void
   onTimeClockClick: () => void
   onToolsClick: () => void
   onLinksClick: () => void
   isClockedIn?: boolean
   unreadHub?: boolean
+  unheardVoicemails?: number
+  canAccessDialer?: boolean
   permissions: RailPermissions
   railConfig: RailConfig | null
   hidden?: boolean
@@ -81,6 +87,19 @@ export default function HubMobileBar({
     // (which would reset to the placeholder and drop the open conversation).
     if (active !== 'txt') {
       router.push('/hub/txt')
+    }
+  }
+
+  function handlePhoneClick(e: React.MouseEvent) {
+    e.preventDefault()
+    // Tap-to-toggle: if already on dialer with drawer open, close it.
+    if (drawerOpen && active === 'dialer' && !activeManualRail) {
+      onCloseDrawer?.()
+      return
+    }
+    onPhoneClick()
+    if (active !== 'dialer') {
+      router.push('/hub/dialer')
     }
   }
 
@@ -144,22 +163,6 @@ export default function HubMobileBar({
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
       aria-label="Hub bottom navigation"
     >
-      {/* Time Clock — quick action, opens modal */}
-      <button
-        type="button"
-        onClick={onTimeClockClick}
-        className="flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-white/60 hover:text-white"
-        aria-label="Time clock"
-      >
-        <span className="relative">
-          <CatalogIcon id="time-clock" />
-          {isClockedIn && (
-            <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-gray-950 bg-emerald-500" aria-hidden="true" />
-          )}
-        </span>
-        <span>Clock</span>
-      </button>
-
       {/* Hub */}
       <button
         type="button"
@@ -190,6 +193,47 @@ export default function HubMobileBar({
       >
         <CatalogIcon id="txt" />
         <span>Txt</span>
+      </button>
+
+      {/* Phone (Dialer) — only when user has access */}
+      {canAccessDialer && (
+        <button
+          type="button"
+          onClick={handlePhoneClick}
+          className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors ${
+            active === 'dialer' ? 'text-amber-300' : 'text-white/60 hover:text-white'
+          }`}
+          aria-label="Phone"
+        >
+          <span className="relative">
+            <CatalogIcon id="dialer" />
+            {unheardVoicemails != null && unheardVoicemails > 0 && (
+              <span
+                className="absolute -top-0.5 -right-1.5 min-w-[16px] h-[16px] px-0.5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center border border-gray-950"
+                aria-label={`${unheardVoicemails} unheard voicemails`}
+              >
+                {unheardVoicemails > 9 ? '9+' : unheardVoicemails}
+              </span>
+            )}
+          </span>
+          <span>Phone</span>
+        </button>
+      )}
+
+      {/* Time Clock — quick action, opens modal */}
+      <button
+        type="button"
+        onClick={onTimeClockClick}
+        className="flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-white/60 hover:text-white"
+        aria-label="Time clock"
+      >
+        <span className="relative">
+          <CatalogIcon id="time-clock" />
+          {isClockedIn && (
+            <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-gray-950 bg-emerald-500" aria-hidden="true" />
+          )}
+        </span>
+        <span>Clock</span>
       </button>
 
       {/* User-configurable slot */}
