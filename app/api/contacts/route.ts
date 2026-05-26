@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { toE164 } from '@/lib/twilio'
+import { toE164 } from '@/lib/phone'
 
 // GET /api/contacts
 //   ?search=...
