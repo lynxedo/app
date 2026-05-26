@@ -55,6 +55,7 @@ const TABS = [
   { id: 'lawn-sizer',   icon: '🌿', label: 'Lawn Sizer' },
   { id: 'zone-sizer',   icon: '💧', label: 'Zone Sizer' },
   { id: 'dialer',       icon: '☎️', label: 'Dialer' },
+  { id: 'contacts',     icon: '👤', label: 'Contacts' },
   { id: 'call-log',     icon: '📞', label: 'Call Log' },
   { id: 'books',        icon: '📊', label: 'Books' },
   { id: 'timesheet',    icon: '🕐', label: 'Timesheet' },
@@ -130,6 +131,7 @@ export default function HelpContent() {
         {activeTab === 'lawn-sizer' && <LawnSizerTab />}
         {activeTab === 'zone-sizer' && <ZoneSizerTab />}
         {activeTab === 'dialer'     && <DialerTab />}
+        {activeTab === 'contacts'   && <ContactsTab />}
         {activeTab === 'call-log'   && <CallLogTab />}
         {activeTab === 'books'      && <BooksTab />}
         {activeTab === 'timesheet'  && <TimesheetTab />}
@@ -786,6 +788,45 @@ function DialerTab() {
         <p>Inbound routing, ring timeout (5–120 seconds, default 20), the company voicemail greeting (MP3 or WAV, 2 MB max), and the voicemail recipient list are all configured in <strong className="text-white">Admin → Dialer</strong>. If no inbound routing person is set, every call goes straight to voicemail.</p>
         <p>Required env vars when going live: <code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code>, <code>TWILIO_API_KEY_SID</code>, <code>TWILIO_API_KEY_SECRET</code>, <code>TWILIO_TWIML_APP_SID</code>, <code>TWILIO_PHONE_NUMBER</code>. Voice does NOT need A2P 10DLC approval — that&apos;s SMS-only. Dialer can launch before Txt v2.</p>
       </AdminOnly>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// CONTACTS
+// ──────────────────────────────────────────────────────────────────────────
+
+function ContactsTab() {
+  return (
+    <>
+      <Section title="Contacts">
+        <p>The Contacts page is your company-wide address book. Anyone you call from the Dialer, anyone who texts in through Txt, plus customers we&apos;ve pulled from Jobber — they all live in one searchable list at <strong className="text-white">Tools → Communications → Contacts</strong>.</p>
+        <p>Search by name or phone number from the top bar. Tap any contact to see their details, call them (Dialer), or edit their info.</p>
+      </Section>
+
+      <Section title="Tags">
+        <p>Tags are how you carve up the contact list so it&apos;s useful day-to-day. Customer, Vendor, Subcontractor, HOA, VIP — whatever categories matter for your business. Each contact can have any number of tags.</p>
+        <Step n={1}>Tap any tag chip below the search bar to filter — pick multiple to narrow further (contact must have ALL selected tags).</Step>
+        <Step n={2}>Tap <strong className="text-white">Untagged</strong> to see only contacts with no tags yet (good for cleanup).</Step>
+        <Step n={3}>Tap <strong className="text-white">Clear</strong> to reset filters.</Step>
+        <p>Tag chips appear inline on each contact row so you can see categorization at a glance.</p>
+      </Section>
+
+      <Section title="Adding & editing contacts">
+        <p>The <strong className="text-white">+ Add</strong> button at the top creates a new contact (name + phone required). You can tag the contact on the same form.</p>
+        <p>Tap any existing contact to open its detail sheet. <strong className="text-white">Edit</strong> lets you change name, phone, email, notes, and tags. The <strong className="text-white">Do not text</strong> toggle blocks outbound SMS to this contact from Txt and broadcasts — useful when someone replies STOP or asks to be left alone (Twilio also auto-flips this when they text STOP).</p>
+        <Note>Inbound calls and texts auto-create contacts on first contact, so the list grows organically. The initial population came from Jobber (85 customers as of launch) plus anyone who&apos;s already texted in.</Note>
+      </Section>
+
+      <Section title="Calling from Contacts">
+        <p>The detail sheet has a green <strong className="text-white">📞 Call</strong> button that jumps to the Dialer with the number pre-filled. Tap the green Call button there to actually dial. The call gets logged with the contact&apos;s name attached so it shows up nicely in Recent and Call Log later.</p>
+      </Section>
+
+      <Section title="Managing tags (admin)">
+        <p>Tag definitions live at <strong className="text-white">Admin → Contacts</strong>. Only admins (or anyone with the <strong className="text-white">Contacts</strong> admin grant) can create, rename, recolor, or delete tags.</p>
+        <p>Each tag has a label and a color. The color shows up everywhere the tag does — filter chips, contact rows, the edit sheet. Pick from the suggested swatches or use the custom color picker.</p>
+        <p>Deleting a tag that&apos;s in use shows a confirmation with the count of affected contacts. It removes the tag from those contacts but doesn&apos;t delete the contacts themselves.</p>
+      </Section>
     </>
   )
 }
