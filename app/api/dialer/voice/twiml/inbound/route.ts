@@ -59,7 +59,21 @@ export async function POST(request: NextRequest) {
   // Log the inbound call up front. Status updates land later via /voice/status
   // (Twilio's separate Status Callback on the parent call) and the voicemail
   // render route (Dial action).
+  //
+  // Stamp handled_by = inbound_route_user_id so the routed user sees the call
+  // in their Recent (scope=mine) tab — otherwise inbound rows have no owner
+  // and only surface in All / Missed. When ring groups / IVR route to multiple
+  // users in later sessions, this will need to widen to a per-leg attribution.
   const admin = createAdminClient()
+  const { data: settings } = await admin
+    .from('dialer_settings')
+    .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays')
+    .eq('company_id', HEROES_COMPANY_ID)
+    .single()
+
+  const routeToUserId = settings?.inbound_route_user_id
+  const ringTimeout = settings?.ring_timeout_sec ?? 20
+
   try {
     let contactId: string | null = null
     if (fromNumber) {
@@ -80,19 +94,11 @@ export async function POST(request: NextRequest) {
       to_number: toNumber || 'unknown',
       status: 'ringing',
       contact_id: contactId,
+      handled_by: routeToUserId || null,
     })
   } catch {
     // swallow — call still proceeds
   }
-
-  const { data: settings } = await admin
-    .from('dialer_settings')
-    .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays')
-    .eq('company_id', HEROES_COMPANY_ID)
-    .single()
-
-  const routeToUserId = settings?.inbound_route_user_id
-  const ringTimeout = settings?.ring_timeout_sec ?? 20
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   const voicemailRender = `${baseUrl}/api/dialer/voice/twiml/voicemail`

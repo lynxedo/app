@@ -13,16 +13,11 @@ export default async function DialerIndexPage({
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_access_dialer, can_admin_dialer, can_admin_hub')
+    .select('can_access_dialer')
     .eq('id', user.id)
     .single()
 
   if (!profile?.can_access_dialer) redirect('/hub')
-
-  const isAdmin =
-    profile.role === 'admin' ||
-    !!profile.can_admin_dialer ||
-    !!profile.can_admin_hub
 
   // Session 57 — click-to-call from Txt. The 📞 button in TxtConversationView
   // navigates here with ?number=&conversation_id=&contact_id=. DialerPanel
@@ -36,7 +31,6 @@ export default async function DialerIndexPage({
 
   return (
     <DialerPanel
-      isAdmin={isAdmin}
       initialNumber={initialNumber}
       txtConversationId={txtConversationId}
       txtContactId={txtContactId}
