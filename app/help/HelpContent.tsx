@@ -462,7 +462,14 @@ function HubTab() {
           <li><strong className="text-white">My notes</strong> — a per-stop notes field for what the tech actually did or saw. Saves automatically when you tap away.</li>
         </ul>
 
-        <p className="mt-4"><strong className="text-white">Mark Complete</strong> — at the bottom of the expanded panel. Marks the stop done in v2 <strong className="text-white">and</strong> marks the matching Jobber visit complete (via Jobber&apos;s API). The stop&apos;s number badge flips to a green ✓, the row dims, and the entry header&apos;s &ldquo;done&rdquo; count ticks up. Tap <strong className="text-white">Reopen</strong> to undo — also reverses the Jobber visit.</p>
+        <p className="mt-4"><strong className="text-white">Timing each stop:</strong> the expanded panel has two buttons.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-amber-300">▶ Arrived at property</strong> — tap when you pull up. Stamps an arrival timestamp and starts a live ticking timer in the panel. The stop&apos;s number badge turns amber.</li>
+          <li><strong className="text-emerald-300">✓ Mark Complete</strong> — tap when you&apos;re done. Stamps a completion timestamp, stops the timer, and flips the number badge to green ✓. <strong className="text-white">Also marks the Jobber visit complete via the API.</strong></li>
+        </ul>
+        <p>Once complete, the panel shows the duration and both timestamps: <em className="text-gray-300">&ldquo;24 min · 2:15 PM – 2:39 PM&rdquo;</em>. The entry header&apos;s &ldquo;done&rdquo; count ticks up. The arrival timestamp is the data we&apos;ll use for pesticide application records later.</p>
+        <p>You can skip the timer — tap <strong className="text-white">Mark Complete (skip timer)</strong> directly to mark done without capturing arrival time. Useful when you forgot to tap Arrived earlier.</p>
+        <p>Tap <strong className="text-white">Reopen</strong> on a complete stop to undo — the Jobber visit also flips back. Reopen keeps the original arrival time so the timer picks up where it left off; tap <em>Reset arrival time</em> to clear it entirely.</p>
         <p>If the Jobber push fails (offline, expired token), the local complete still works — you&apos;ll see an amber warning in the detail panel telling you what went wrong. The stop stays marked complete; the office can manually mark the Jobber visit later if needed.</p>
 
         <p className="mt-4 text-xs text-gray-500"><strong className="text-gray-400">Coming in later phases:</strong> &ldquo;On my way&rdquo; text to the customer, navigate button (opens Google Maps), automatic weather capture at completion, pesticide records.</p>

@@ -28,6 +28,7 @@ type Stop = {
   scheduled_end_at: string | null
   duration_minutes: number | null
   status: 'pending' | 'in_progress' | 'complete' | 'skipped'
+  arrived_at: string | null
   completed_at: string | null
   notes: string | null
   // Transient client-side: set when a Complete/Reopen call returns a warning
@@ -143,9 +144,35 @@ export default function DailyLogV2View({
         throw new Error(data.error || `Failed (${res.status})`)
       }
       patchStop(stopId, {
-        status: data.stop?.status ?? (undo ? 'pending' : 'complete'),
+        status: data.stop?.status,
+        arrived_at: data.stop?.arrived_at ?? null,
         completed_at: data.stop?.completed_at ?? null,
         _jobber_warning: data.jobber_warning ?? null,
+      })
+    } catch (e) {
+      patchStop(stopId, {
+        _jobber_warning: e instanceof Error ? e.message : 'Action failed',
+      })
+    } finally {
+      setPendingActionStopId(null)
+    }
+  }, [patchStop])
+
+  const handleArrive = useCallback(async (stopId: string, undo: boolean) => {
+    setPendingActionStopId(stopId)
+    try {
+      const res = await fetch(`/api/hub/daily-log/stops/${stopId}/arrive`, {
+        method: undo ? 'DELETE' : 'POST',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.error || `Failed (${res.status})`)
+      }
+      patchStop(stopId, {
+        status: data.stop?.status,
+        arrived_at: data.stop?.arrived_at ?? null,
+        completed_at: data.stop?.completed_at ?? null,
+        _jobber_warning: null,
       })
     } catch (e) {
       patchStop(stopId, {
@@ -302,6 +329,7 @@ export default function DailyLogV2View({
                 expandedStopId={expandedStopId}
                 pendingActionStopId={pendingActionStopId}
                 onToggleExpand={handleToggleExpand}
+                onArrive={handleArrive}
                 onComplete={handleComplete}
                 onNotesSave={handleNotesSave}
               />
@@ -321,6 +349,7 @@ function EntryCard({
   expandedStopId,
   pendingActionStopId,
   onToggleExpand,
+  onArrive,
   onComplete,
   onNotesSave,
 }: {
@@ -331,6 +360,7 @@ function EntryCard({
   expandedStopId: string | null
   pendingActionStopId: string | null
   onToggleExpand: (stopId: string) => void
+  onArrive: (stopId: string, undo: boolean) => void | Promise<void>
   onComplete: (stopId: string, undo: boolean) => void | Promise<void>
   onNotesSave: (stopId: string, notes: string) => Promise<{ ok: true } | { ok: false; error: string }>
 }) {
@@ -463,11 +493,24 @@ function formatMoney(n: number): string {
   return `$${n.toFixed(2)}`
 }
 
+// Formats a duration in milliseconds as "Xh Ym" / "Xm Ys" / "Ys"
+function formatDuration(ms: number): string {
+  if (ms < 0) ms = 0
+  const totalSec = Math.floor(ms / 1000)
+  const h = Math.floor(totalSec / 3600)
+  const m = Math.floor((totalSec % 3600) / 60)
+  const s = totalSec % 60
+  if (h > 0) return `${h}h ${m}m`
+  if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`
+  return `${s}s`
+}
+
 function StopRow({
   stop,
   expanded,
   pending,
   onToggleExpand,
+  onArrive,
   onComplete,
   onNotesSave,
 }: {
@@ -475,6 +518,7 @@ function StopRow({
   expanded: boolean
   pending: boolean
   onToggleExpand: (stopId: string) => void
+  onArrive: (stopId: string, undo: boolean) => void | Promise<void>
   onComplete: (stopId: string, undo: boolean) => void | Promise<void>
   onNotesSave: (stopId: string, notes: string) => Promise<{ ok: true } | { ok: false; error: string }>
 }) {
@@ -486,6 +530,16 @@ function StopRow({
       : `${lineItemNames.slice(0, 2).join(' · ')} +${lineItemNames.length - 2} more`
 
   const isComplete = stop.status === 'complete'
+  const isInProgress = stop.status === 'in_progress'
+
+  // Live ticking timer — only ticks when in_progress AND expanded.
+  // Re-renders once per second; lightweight (one stop expanded at a time).
+  const [now, setNow] = useState(() => Date.now())
+  useEffect(() => {
+    if (!expanded || !isInProgress || !stop.arrived_at) return
+    const t = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(t)
+  }, [expanded, isInProgress, stop.arrived_at])
 
   // Local notes state — synced from server but edited locally; save on blur.
   const [notesDraft, setNotesDraft] = useState(stop.notes ?? '')
@@ -526,7 +580,9 @@ function StopRow({
       >
         <div
           className={`w-8 h-8 rounded-full flex-none flex items-center justify-center text-sm font-semibold ${
-            isComplete ? 'bg-emerald-700 text-emerald-100' : 'bg-red-900/40 text-red-300'
+            isComplete ? 'bg-emerald-700 text-emerald-100'
+            : isInProgress ? 'bg-amber-500 text-amber-50'
+            : 'bg-red-900/40 text-red-300'
           }`}
         >
           {isComplete ? '✓' : pinLabel(stop.ord)}
@@ -645,9 +701,87 @@ function StopRow({
             </div>
           )}
 
-          {/* Action button */}
-          <div className="pt-1">
-            {isComplete ? (
+          {/* Time on property — live timer / arrival info / final duration */}
+          <div className="bg-gray-900/40 border border-gray-800 rounded px-3 py-2.5">
+            <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Time on property</div>
+            {isComplete && stop.arrived_at && stop.completed_at && (
+              <div className="text-gray-200">
+                <span className="font-medium">{formatDuration(new Date(stop.completed_at).getTime() - new Date(stop.arrived_at).getTime())}</span>
+                <span className="text-gray-500 text-xs ml-2">
+                  {formatTime(stop.arrived_at)} – {formatTime(stop.completed_at)}
+                </span>
+              </div>
+            )}
+            {isComplete && (!stop.arrived_at || !stop.completed_at) && (
+              <div className="text-gray-500 text-xs">
+                {stop.completed_at ? `Completed at ${formatTime(stop.completed_at)} (no arrival time recorded)` : 'No timestamps'}
+              </div>
+            )}
+            {isInProgress && stop.arrived_at && (
+              <div className="text-gray-200">
+                <span className="font-mono text-lg font-semibold text-amber-300">
+                  {formatDuration(now - new Date(stop.arrived_at).getTime())}
+                </span>
+                <span className="text-gray-500 text-xs ml-2">
+                  since {formatTime(stop.arrived_at)}
+                </span>
+              </div>
+            )}
+            {!isComplete && !isInProgress && (
+              <div className="text-gray-500 text-xs">
+                Not started — tap <strong>Arrived</strong> below to start the timer.
+              </div>
+            )}
+          </div>
+
+          {/* Jobber warning (if a Complete/Reopen call had an issue) */}
+          {stop._jobber_warning && (
+            <div className="bg-amber-900/30 border border-amber-700/50 text-amber-200 rounded px-2.5 py-2 text-xs">
+              ⚠ {stop._jobber_warning}
+            </div>
+          )}
+
+          {/* Action buttons — state machine */}
+          <div className="pt-1 space-y-2">
+            {!isComplete && !isInProgress && (
+              <>
+                <button
+                  onClick={() => onArrive(stop.id, false)}
+                  disabled={pending}
+                  className="w-full px-3 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-white rounded font-semibold text-base transition-colors"
+                >
+                  {pending ? 'Starting…' : '▶ Arrived at property'}
+                </button>
+                <button
+                  onClick={() => onComplete(stop.id, false)}
+                  disabled={pending}
+                  className="w-full px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded font-medium text-sm transition-colors"
+                >
+                  {pending ? 'Marking complete…' : '✓ Mark Complete (skip timer)'}
+                </button>
+              </>
+            )}
+
+            {isInProgress && (
+              <>
+                <button
+                  onClick={() => onComplete(stop.id, false)}
+                  disabled={pending}
+                  className="w-full px-3 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded font-semibold text-base transition-colors"
+                >
+                  {pending ? 'Marking complete…' : '✓ Mark Complete'}
+                </button>
+                <button
+                  onClick={() => onArrive(stop.id, true)}
+                  disabled={pending}
+                  className="w-full px-3 py-1.5 text-xs text-gray-400 hover:text-white transition-colors"
+                >
+                  ↺ Reset arrival time
+                </button>
+              </>
+            )}
+
+            {isComplete && (
               <button
                 onClick={() => onComplete(stop.id, true)}
                 disabled={pending}
@@ -655,18 +789,11 @@ function StopRow({
               >
                 {pending ? 'Reopening…' : '↩ Reopen this stop'}
               </button>
-            ) : (
-              <button
-                onClick={() => onComplete(stop.id, false)}
-                disabled={pending}
-                className="w-full px-3 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded font-semibold text-base transition-colors"
-              >
-                {pending ? 'Marking complete…' : '✓ Mark Complete'}
-              </button>
             )}
+
             {stop.jobber_visit_id && (
-              <p className="text-[10px] text-gray-500 text-center mt-1.5">
-                {isComplete ? 'Reopening also flips the visit back in Jobber.' : 'Also marks the visit complete in Jobber.'}
+              <p className="text-[10px] text-gray-500 text-center">
+                {isComplete ? 'Reopening also flips the visit back in Jobber.' : !isInProgress ? 'Mark Complete also marks the visit done in Jobber.' : 'Mark Complete also marks the visit done in Jobber.'}
               </p>
             )}
           </div>
