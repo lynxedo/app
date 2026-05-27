@@ -411,9 +411,16 @@ export default function ThreadPanel({
     // immediately for this sender — the realtime path that should do this
     // can drop events under iOS webview suspension and the broadcast
     // subscribe-vs-send race.
+    console.log('[thread-reply] res.ok=', res.ok, 'hasCallback=', !!onReplyPosted)
     if (res.ok && onReplyPosted) {
       const data = await res.clone().json().catch(() => null) as { id?: string } | null
-      if (data?.id) onReplyPosted(parentMessage.id, data.id)
+      console.log('[thread-reply] parsed response data=', data)
+      if (data?.id) {
+        console.log('[thread-reply] calling onReplyPosted parentId=', parentMessage.id, 'replyId=', data.id)
+        onReplyPosted(parentMessage.id, data.id)
+      } else {
+        console.warn('[thread-reply] no data.id in response — cannot bump')
+      }
     }
 
     // Refetch all replies to replace the optimistic entry with the real one

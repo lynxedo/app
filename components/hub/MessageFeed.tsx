@@ -270,9 +270,14 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   // each try to increment for the same reply, which would double-count.
   const seenReplyIds = useRef<Set<string>>(new Set())
   const incrementReplyCount = useCallback((parentId: string, replyId: string) => {
+    console.log('[feed] incrementReplyCount parentId=', parentId, 'replyId=', replyId, 'alreadySeen=', seenReplyIds.current.has(replyId))
     if (seenReplyIds.current.has(replyId)) return
     seenReplyIds.current.add(replyId)
-    setReplyCounts(prev => ({ ...prev, [parentId]: (prev[parentId] ?? 0) + 1 }))
+    setReplyCounts(prev => {
+      const next = { ...prev, [parentId]: (prev[parentId] ?? 0) + 1 }
+      console.log('[feed] replyCounts before=', prev[parentId], 'after=', next[parentId])
+      return next
+    })
   }, [])
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
