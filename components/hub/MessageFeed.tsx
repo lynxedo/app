@@ -17,7 +17,10 @@ import {
   saveReadReceipts,
 } from '@/lib/hub-cache'
 
-export type MessageFeedHandle = { addMessage: (msg: HubMessage) => void }
+export type MessageFeedHandle = {
+  addMessage: (msg: HubMessage) => void
+  bumpReplyCount: (parentId: string, replyId: string) => void
+}
 
 export type HubUser = { id: string; display_name: string; avatar_url: string | null; is_bot?: boolean; status?: string | null; effective_status?: string | null }
 export type RxItem = { user_id: string; emoji: string }
@@ -262,6 +265,15 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     for (const m of initialMessages) map[m.id] = m.reply_count ?? 0
     return map
   })
+  // Dedupe reply-count bumps by reply id — the sender's own local bump
+  // (from the imperative handle) and the realtime/broadcast paths can
+  // each try to increment for the same reply, which would double-count.
+  const seenReplyIds = useRef<Set<string>>(new Set())
+  const incrementReplyCount = useCallback((parentId: string, replyId: string) => {
+    if (seenReplyIds.current.has(replyId)) return
+    seenReplyIds.current.add(replyId)
+    setReplyCounts(prev => ({ ...prev, [parentId]: (prev[parentId] ?? 0) + 1 }))
+  }, [])
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   // Hide the scroll container for the brief window between first render and
@@ -341,6 +353,14 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       // temp row would persist blob URLs that won't resolve on next entry.
       const hasTempFiles = (msg.files ?? []).some(f => f.id.startsWith('temp-'))
       if (!hasTempFiles) patchMessage(msg)
+    },
+    // Called by ThreadPanel right after a thread reply lands, so the
+    // sender sees the parent's "N replies" indicator update immediately
+    // without waiting on the (sometimes flaky) postgres_changes/broadcast
+    // paths. The dedupe ref ensures the same reply id can't double-count
+    // when realtime also delivers it later.
+    bumpReplyCount(parentId: string, replyId: string) {
+      incrementReplyCount(parentId, replyId)
     },
   }))
 
@@ -483,10 +503,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       .channel(`feed:${roomId ?? conversationId}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter }, async (payload) => {
         if (payload.new.parent_id) {
-          setReplyCounts(prev => ({
-            ...prev,
-            [payload.new.parent_id]: (prev[payload.new.parent_id] ?? 0) + 1,
-          }))
+          incrementReplyCount(payload.new.parent_id, payload.new.id)
           return
         }
         // If someone else just sent a message into the conversation
@@ -554,7 +571,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
         const p = (payload.payload ?? {}) as { id?: string; parent_id?: string | null; sender_id?: string }
         if (!p.id) return
         if (p.parent_id) {
-          setReplyCounts(prev => ({ ...prev, [p.parent_id!]: (prev[p.parent_id!] ?? 0) + 1 }))
+          incrementReplyCount(p.parent_id, p.id)
           return
         }
         if (p.sender_id && p.sender_id !== currentUserId) {

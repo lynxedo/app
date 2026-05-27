@@ -87,11 +87,18 @@ export default function ThreadPanel({
   currentUserId,
   hubUsers,
   onClose,
+  onReplyPosted,
 }: {
   parentMessage: HubMessage
   currentUserId: string
   hubUsers: HubUser[]
   onClose: () => void
+  // Fired right after a thread reply lands in the DB so the main feed
+  // can bump the parent's "N replies" indicator immediately. The realtime
+  // path also bumps, but it's flaky enough that the local notify is the
+  // reliable signal for the sender's own view. The dedupe ref on the
+  // receiving side prevents double-counting when realtime ALSO delivers.
+  onReplyPosted?: (parentId: string, replyId: string) => void
 }) {
   const [replies, setReplies] = useState<Reply[]>([])
   const [replyContent, setReplyContent] = useState('')
@@ -388,7 +395,7 @@ export default function ThreadPanel({
       files: optimisticFiles,
     }])
 
-    await fetch('/api/hub/messages', {
+    const res = await fetch('/api/hub/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -399,6 +406,15 @@ export default function ThreadPanel({
         files: filesPayload.length > 0 ? filesPayload : undefined,
       }),
     })
+
+    // Notify the main feed so the parent's "N replies" indicator updates
+    // immediately for this sender — the realtime path that should do this
+    // can drop events under iOS webview suspension and the broadcast
+    // subscribe-vs-send race.
+    if (res.ok && onReplyPosted) {
+      const data = await res.clone().json().catch(() => null) as { id?: string } | null
+      if (data?.id) onReplyPosted(parentMessage.id, data.id)
+    }
 
     // Refetch all replies to replace the optimistic entry with the real one
     const { data: refreshed } = await supabase
