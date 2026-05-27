@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 interface JobberUser {
   id: string
@@ -28,6 +28,10 @@ interface Visit {
   instructions: string | null
   startAt: string | null
   type: 'visit' | 'assessment'
+  // Originating Jobber user the visit was assigned to. Decorated client-side
+  // during loadVisits so multi-tech routes can show which tech each stop
+  // came from. May be empty for legacy data.
+  techId?: string
 }
 
 interface OptimizedVisit extends Visit {
@@ -112,7 +116,11 @@ export default function RouteBuilder() {
   const [usersError, setUsersError] = useState<string | null>(null)
 
   const [date, setDate] = useState(todayLocal())
-  const [selectedUserId, setSelectedUserId] = useState('')
+  // Multi-select: array of Jobber user IDs whose visits to load. Order
+  // doesn't matter; visits get tagged with their originating tech.
+  const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
+  const [techPickerOpen, setTechPickerOpen] = useState(false)
+  const techPickerRef = useRef<HTMLDivElement>(null)
   const [startTime, setStartTime] = useState('08:00')  // HH:MM
 
   const [visits, setVisits] = useState<Visit[] | null>(null)
@@ -216,11 +224,42 @@ export default function RouteBuilder() {
       .then(data => {
         if (data.error) { setUsersError(data.error); return }
         setUsers(data.users)
-        if (data.users.length > 0) setSelectedUserId(data.users[0].id)
+        if (data.users.length > 0) setSelectedUserIds([data.users[0].id])
       })
       .catch(e => setUsersError(e.message))
       .finally(() => setUsersLoading(false))
   }, [])
+
+  // Close tech picker on outside click
+  useEffect(() => {
+    if (!techPickerOpen) return
+    const handler = (e: MouseEvent) => {
+      if (techPickerRef.current && !techPickerRef.current.contains(e.target as Node)) {
+        setTechPickerOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [techPickerOpen])
+
+  function toggleTech(id: string) {
+    setSelectedUserIds(curr =>
+      curr.includes(id) ? curr.filter(x => x !== id) : [...curr, id],
+    )
+  }
+  const techLabel = (() => {
+    if (selectedUserIds.length === 0) return 'Select team member'
+    if (selectedUserIds.length === 1) {
+      return users.find(u => u.id === selectedUserIds[0])?.name ?? '1 selected'
+    }
+    if (selectedUserIds.length === 2) {
+      return selectedUserIds
+        .map(id => users.find(u => u.id === id)?.name)
+        .filter(Boolean)
+        .join(' + ')
+    }
+    return `${selectedUserIds.length} team members`
+  })()
 
   async function geocodeVisits(loadedVisits: Visit[]) {
     const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
@@ -248,7 +287,7 @@ export default function RouteBuilder() {
   }
 
   async function loadVisits() {
-    if (!selectedUserId) return
+    if (selectedUserIds.length === 0) return
     setVisitsLoading(true)
     setVisitsError(null)
     setVisits(null)
@@ -266,12 +305,27 @@ export default function RouteBuilder() {
     setSelectedIds(new Set())
     setSentIds(new Set())
     try {
-      const res = await fetch(`/api/visits?date=${date}&userId=${encodeURIComponent(selectedUserId)}`)
-      const data = await res.json()
-      if (data.error) { setVisitsError(data.error); return }
-      setVisits(data.visits)
-      setSelectedIds(new Set((data.visits as Visit[]).map(v => v.id)))
-      geocodeVisits(data.visits)  // async — updates visitCoords as pins load
+      // Fan out one /api/visits call per selected tech, tagging each returned
+      // visit with the originating techId so the UI can show who it came from.
+      const settled = await Promise.all(
+        selectedUserIds.map(async uid => {
+          const res = await fetch(`/api/visits?date=${date}&userId=${encodeURIComponent(uid)}`)
+          const data = await res.json()
+          if (data.error) throw new Error(data.error)
+          return (data.visits as Visit[]).map(v => ({ ...v, techId: uid }))
+        }),
+      )
+      const merged: Visit[] = settled.flat()
+      // Stable: sort by tech first (in selection order), then preserve API order within each tech.
+      const order = new Map(selectedUserIds.map((id, i) => [id, i]))
+      merged.sort((a, b) => {
+        const ai = order.get(a.techId ?? '') ?? 99
+        const bi = order.get(b.techId ?? '') ?? 99
+        return ai - bi
+      })
+      setVisits(merged)
+      setSelectedIds(new Set(merged.map(v => v.id)))
+      geocodeVisits(merged)  // async — updates visitCoords as pins load
     } catch (e) {
       setVisitsError(e instanceof Error ? e.message : 'Unknown error')
     } finally {
@@ -371,6 +425,16 @@ export default function RouteBuilder() {
 
   async function sendToJobber() {
     if (!optimizedVisits) return
+
+    // Multi-tech routes need a reassign target — appointment times computed
+    // from a single optimized sequence don't make sense if half the stops stay
+    // with Tech A and half with Tech B.
+    if (selectedUserIds.length > 1 && reassignUserId === '__keep__') {
+      setSendError('Multiple techs were loaded. Pick a target tech in "Reassign to" before sending times.')
+      setSendMode('times')
+      return
+    }
+
     setSending(true)
     setSendError(null)
     setSendResults(null)
@@ -408,6 +472,16 @@ export default function RouteBuilder() {
 
   async function sendOrderOnly() {
     if (!optimizedVisits || optimizedVisits.length === 0) return
+
+    // Multi-tech routes MUST be reassigned to a single tech first — Jobber's
+    // anytime stop order is per-tech, so chaining editAppointment mutations
+    // across multiple techs is meaningless.
+    if (selectedUserIds.length > 1 && reassignUserId === '__keep__') {
+      setSendError('Multiple techs were loaded. Pick a target tech in "Reassign to" before sending the order.')
+      setSendMode('order')
+      return
+    }
+
     setSending(true)
     setSendError(null)
     setSendResults(null)
@@ -419,7 +493,10 @@ export default function RouteBuilder() {
       const res = await fetch('/api/reorder-jobber', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ visit_ids: visitIds }),
+        body: JSON.stringify({
+          visit_ids: visitIds,
+          assigned_user_id: reassignUserId !== '__keep__' ? reassignUserId : null,
+        }),
       })
       const data: { results: SendResult[]; allOk: boolean; error?: string } = await res.json()
       if (data.error) { setSendError(data.error); return }
@@ -473,7 +550,14 @@ export default function RouteBuilder() {
 
   async function printRouteSheet() {
     if (!optimizedVisits || optimizedVisits.length === 0) return
-    const techName = users.find(u => u.id === selectedUserId)?.name ?? 'Unknown Tech'
+    const techName = selectedUserIds.length === 0
+      ? 'Unknown Tech'
+      : selectedUserIds.length === 1
+        ? (users.find(u => u.id === selectedUserIds[0])?.name ?? 'Unknown Tech')
+        : selectedUserIds
+            .map(id => users.find(u => u.id === id)?.name)
+            .filter(Boolean)
+            .join(' + ')
     const dateFormatted = new Date(date + 'T12:00:00').toLocaleDateString('en-US', {
       weekday: 'long', year: 'numeric', month: 'long', day: 'numeric',
     })
@@ -622,8 +706,11 @@ export default function RouteBuilder() {
     .print-btn { background: #f97316; color: #fff; border: none; padding: 10px 22px;
       border-radius: 8px; font-size: 14px; cursor: pointer; margin: 16px 24px; display: block; }
 
-    /* Static route map — used on screen and in print (no GL JS, no tile API). */
-    .route-map-img { display: block; width: 100%; height: 100%; object-fit: cover; }
+    /* Static route map — used on screen and in print (no GL JS, no tile API).
+       object-fit:contain shows the full Mapbox image (with letterboxing if the
+       container aspect doesn't match) so users always see the entire route +
+       basemap, never a cropped slice. */
+    .route-map-img { display: block; width: 100%; height: 100%; object-fit: contain; background: #f3f4f6; }
 
     @media print {
       .print-btn { display: none !important; }
@@ -802,9 +889,9 @@ export default function RouteBuilder() {
             />
           </div>
 
-          {/* Tech dropdown */}
-          <div className="flex-1">
-            <label className="block text-xs text-gray-400 mb-1">Team Member</label>
+          {/* Tech multi-select */}
+          <div className="flex-1 relative" ref={techPickerRef}>
+            <label className="block text-xs text-gray-400 mb-1">Team Member(s)</label>
             {usersLoading ? (
               <div className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-500">
                 Loading users…
@@ -812,15 +899,61 @@ export default function RouteBuilder() {
             ) : usersError ? (
               <div className="text-red-400 text-sm py-2">Error: {usersError}</div>
             ) : (
-              <select
-                value={selectedUserId}
-                onChange={e => setSelectedUserId(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500"
-              >
-                {users.map(u => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
-                ))}
-              </select>
+              <>
+                <button
+                  type="button"
+                  onClick={() => setTechPickerOpen(v => !v)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500 text-left flex items-center justify-between gap-2"
+                >
+                  <span className="truncate">{techLabel}</span>
+                  <span className="text-gray-500 text-xs">{techPickerOpen ? '▲' : '▼'}</span>
+                </button>
+                {techPickerOpen && (
+                  <div className="absolute z-20 top-full left-0 right-0 mt-1 bg-gray-900 border border-gray-700 rounded-lg shadow-lg max-h-80 overflow-y-auto">
+                    <div className="flex items-center gap-3 px-3 py-2 border-b border-gray-800 text-xs">
+                      <button
+                        type="button"
+                        onClick={() => setSelectedUserIds(users.map(u => u.id))}
+                        className="text-orange-400 hover:text-orange-300"
+                      >
+                        Select all
+                      </button>
+                      <span className="text-gray-700">·</span>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedUserIds([])}
+                        className="text-orange-400 hover:text-orange-300"
+                      >
+                        Clear
+                      </button>
+                      <span className="ml-auto text-gray-500">
+                        {selectedUserIds.length} / {users.length}
+                      </span>
+                    </div>
+                    {users.length === 0 ? (
+                      <div className="px-3 py-3 text-xs text-gray-500">
+                        No team members available. Set the allowlist in <em>Admin → Routing</em>.
+                      </div>
+                    ) : users.map(u => {
+                      const checked = selectedUserIds.includes(u.id)
+                      return (
+                        <label
+                          key={u.id}
+                          className="flex items-center gap-3 px-3 py-2 cursor-pointer hover:bg-gray-800"
+                        >
+                          <input
+                            type="checkbox"
+                            checked={checked}
+                            onChange={() => toggleTech(u.id)}
+                            className="w-4 h-4 accent-orange-500"
+                          />
+                          <span className="text-sm text-white">{u.name}</span>
+                        </label>
+                      )
+                    })}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -852,7 +985,7 @@ export default function RouteBuilder() {
           <div className="flex items-end">
             <button
               onClick={loadVisits}
-              disabled={visitsLoading || !selectedUserId}
+              disabled={visitsLoading || selectedUserIds.length === 0}
               className="w-full sm:w-auto px-5 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
             >
               {visitsLoading ? 'Loading…' : 'Load Visits'}
@@ -1098,6 +1231,11 @@ export default function RouteBuilder() {
                                 📋 Assessment
                               </span>
                             )}
+                            {selectedUserIds.length > 1 && v.techId && (
+                              <span className="shrink-0 text-xs bg-purple-900/40 text-purple-300 border border-purple-800 px-1.5 py-0.5 rounded">
+                                {users.find(u => u.id === v.techId)?.name?.split(' ')[0] ?? 'tech'}
+                              </span>
+                            )}
                             {isSent && (
                               <span className="shrink-0 text-xs bg-green-900/30 text-green-600 border border-green-900 px-1.5 py-0.5 rounded">
                                 ✓ Sent
@@ -1226,18 +1364,27 @@ export default function RouteBuilder() {
           )}
 
           <div className="mb-4">
-            <label className="block text-xs text-gray-400 mb-1">Reassign to (Send with Times only)</label>
+            <label className="block text-xs text-gray-400 mb-1">
+              Reassign to{selectedUserIds.length > 1 && <span className="text-orange-400"> (required — multiple techs loaded)</span>}
+            </label>
             <select
               value={reassignUserId}
               onChange={e => setReassignUserId(e.target.value)}
               disabled={sending}
               className="w-full sm:w-72 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500 disabled:opacity-50"
             >
-              <option value="__keep__">Keep current assignment</option>
+              <option value="__keep__" disabled={selectedUserIds.length > 1}>
+                {selectedUserIds.length > 1 ? '— choose a tech —' : 'Keep current assignment'}
+              </option>
               {users.map(u => (
                 <option key={u.id} value={u.id}>{u.name}</option>
               ))}
             </select>
+            {selectedUserIds.length === 1 && (
+              <p className="text-xs text-gray-500 mt-1">
+                Applies to both Send Order Only and Send with Times.
+              </p>
+            )}
           </div>
 
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">

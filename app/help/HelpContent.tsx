@@ -496,10 +496,10 @@ function RoutingTab() {
       </Section>
 
       <Section title="Building a Route">
-        <Step n={1}><strong className="text-white">Select a tech</strong> — choose the team member whose visits you&apos;re routing. The list pulls from your Jobber users.</Step>
+        <Step n={1}><strong className="text-white">Pick team member(s)</strong> — click the Team Member(s) dropdown and check one or more techs. The list comes from the allowlist your admin set at <Link href="/admin/routing" className="text-orange-400 hover:text-orange-300">Admin → Routing → Team Members</Link>. Selecting multiple combines their visits into one route — useful for consolidating two routes onto one tech when someone&apos;s out.</Step>
         <Step n={2}><strong className="text-white">Pick a date</strong> — defaults to today.</Step>
         <Step n={3}><strong className="text-white">Set a start time</strong> — when the tech leaves the depot. Used to calculate ETAs.</Step>
-        <Step n={4}><strong className="text-white">Load Stops</strong> — fetches all visits and assessments scheduled for that tech on that date.</Step>
+        <Step n={4}><strong className="text-white">Load Stops</strong> — fetches all visits and assessments scheduled for the selected tech(s) on that date. When multiple techs are loaded, each stop shows a small purple chip with the originating tech&apos;s first name.</Step>
         <Step n={5}><strong className="text-white">Optimize</strong> — reorders the stops to minimize total drive time. The depot is always locked first and last.</Step>
         <p className="mt-2">After optimizing, each stop shows:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
@@ -507,6 +507,7 @@ function RoutingTab() {
           <li>Drive time from the previous stop</li>
           <li>Client name, address, and job details</li>
           <li>📋 badge = assessment/request stop</li>
+          <li>Purple tech-name chip = originating tech (multi-tech routes only)</li>
           <li>🗺 badge = real road times used (vs straight-line estimate)</li>
           <li>Yellow banner = duration fell back to default (no matching line items)</li>
         </ul>
@@ -531,7 +532,7 @@ function RoutingTab() {
           <p className="mt-2 text-xs text-gray-500">Use this when you want appointments shown to customers in Jobber notifications, or when techs need fixed time slots.</p>
         </div>
 
-        <p className="mt-3"><strong className="text-white">Reassign to</strong> (above the two buttons) only applies when you use <em>Send with Times</em>. Order-Only sends don&apos;t change tech assignments.</p>
+        <p className="mt-3"><strong className="text-white">Reassign to</strong> (above the two buttons) picks which tech all the visits should end up assigned to in Jobber. Applies to both Send modes. <strong className="text-amber-300">Required when multiple techs were loaded</strong> — Jobber&apos;s anytime stop order is per-tech, so consolidating to one tech is mandatory before sending.</p>
 
         <Note>⚠️ Send with Times overwrites any existing appointment times on those visits. Send Order Only just sets the stop sequence.</Note>
       </Section>
