@@ -101,6 +101,13 @@ function StatusIcon({ status }: { status: string }) {
   }
 }
 
+type SuggestTone = 'professional' | 'friendly' | 'brief'
+const SUGGEST_TONES: { value: SuggestTone; label: string }[] = [
+  { value: 'professional', label: 'Professional' },
+  { value: 'friendly', label: 'Friendly' },
+  { value: 'brief', label: 'Brief' },
+]
+
 export default function TxtConversationView({
   initialConversation,
   initialMessages,
@@ -113,6 +120,7 @@ export default function TxtConversationView({
   companyName,
   canAssign,
   canAccessDialer,
+  hasGuardian = false,
 }: {
   initialConversation: Conversation
   initialMessages: Message[]
@@ -125,6 +133,7 @@ export default function TxtConversationView({
   companyName: string | null
   canAssign: boolean
   canAccessDialer: boolean
+  hasGuardian?: boolean
 }) {
   const router = useRouter()
   const [conversation, setConversation] = useState(initialConversation)
@@ -175,6 +184,54 @@ export default function TxtConversationView({
   const [pickerQuery, setPickerQuery] = useState('')
   const [pickerIndex, setPickerIndex] = useState(0)
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
+
+  // Suggest Reply (Guardian) — Session 3. Dual-gated by canReply (server-side)
+  // and hasGuardian (prop from page). Header button opens a tone popover;
+  // picking a tone fires /suggest-reply and inserts the response in the
+  // composer, prompting before clobbering an existing draft.
+  const [suggestOpen, setSuggestOpen] = useState(false)
+  const [suggestLoading, setSuggestLoading] = useState(false)
+  const canReplyHere = isOwnerMe || isMemberMe || canAssign
+
+  async function runSuggestReply(tone: SuggestTone) {
+    setSuggestOpen(false)
+    if (suggestLoading) return
+    setSuggestLoading(true)
+    setSendError('')
+    try {
+      const res = await fetch(
+        `/api/txt/conversations/${conversation.id}/suggest-reply`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ tone }),
+        }
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data.error || !data.suggestion) {
+        setSendError(data.error || "Couldn't generate suggestion — try again")
+        return
+      }
+      const suggestion: string = data.suggestion
+      const existing = text.trim()
+      if (existing.length > 5) {
+        const ok =
+          typeof window !== 'undefined' &&
+          window.confirm('Replace your current draft with the suggestion?')
+        if (!ok) return
+      }
+      setText(suggestion)
+      // Drop the template flag — suggestion replaces any in-flight template
+      // pick so the server-side template renderer doesn't try to substitute
+      // fields into a body that was never one of our templates.
+      setSelectedTemplateId(null)
+      setTimeout(() => textareaRef.current?.focus(), 0)
+    } catch {
+      setSendError("Couldn't generate suggestion — try again")
+    } finally {
+      setSuggestLoading(false)
+    }
+  }
 
   useEffect(() => {
     fetch('/api/txt/templates')
@@ -686,6 +743,51 @@ export default function TxtConversationView({
               📞
             </button>
           )}
+          {/* Suggest Reply (Guardian) — Guardian Session 3. Dual-gated:
+              hasGuardian (user has any guardian_tier) AND canReply on this
+              thread AND at least one message exists AND not archived AND not
+              do-not-text. Click → tone popover → /suggest-reply call → insert
+              into composer. */}
+          {hasGuardian &&
+            canReplyHere &&
+            !isArchived &&
+            messages.length > 0 &&
+            !conversation.contact?.do_not_text && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setSuggestOpen((v) => !v)}
+                  disabled={suggestLoading}
+                  className="text-xs px-2 py-1 rounded-md bg-violet-500/15 text-violet-200 hover:bg-violet-500/25 disabled:opacity-60 inline-flex items-center gap-1"
+                  title="Suggest a reply with Guardian"
+                  aria-label="Suggest reply"
+                >
+                  {suggestLoading ? (
+                    <span className="inline-block w-3 h-3 border-2 border-violet-200 border-t-transparent rounded-full animate-spin" />
+                  ) : (
+                    <span>✨</span>
+                  )}
+                  <span className="hidden sm:inline">Suggest</span>
+                </button>
+                {suggestOpen && !suggestLoading && (
+                  <div className="absolute right-0 mt-1 w-44 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30">
+                    <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-white/40 border-b border-white/10">
+                      Tone
+                    </div>
+                    {SUGGEST_TONES.map((t) => (
+                      <button
+                        key={t.value}
+                        type="button"
+                        onClick={() => runSuggestReply(t.value)}
+                        className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
+                      >
+                        {t.label}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           <button
             onClick={() => setShowNotes((v) => !v)}
             className={`text-xs px-2 py-1 rounded-md flex items-center gap-1 ${
