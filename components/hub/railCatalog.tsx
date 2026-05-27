@@ -21,6 +21,7 @@ export type CatalogId =
   | 'call-log'
   | 'time-records'  // admin-only
   | 'daily-log'
+  | 'daily-log-v2'
   | 'files'
   | 'company-news'
   | 'contacts'
@@ -86,6 +87,7 @@ const PATHS = {
   callLog: 'M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.37 1.9.72 2.8a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.9.35 1.84.59 2.8.72A2 2 0 0122 16.92z',
   timeRecords: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4',
   dailyLog: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h6M9 16h6',
+  dailyLogV2: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 11l1.5 1.5L13 10M9 16l1.5 1.5L13 14.5',
   files: 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z',
   companyNews: 'M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l6 6v8a2 2 0 01-2 2zM15 4v5h5M8 13h8M8 17h5',
   contacts: 'M16 11a4 4 0 10-8 0 4 4 0 008 0zM3 21v-2a6 6 0 016-6h6a6 6 0 016 6v2M19 8h3m-1.5-1.5v3',
@@ -116,6 +118,7 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
     case 'call-log':    return <I d={PATHS.callLog} />
     case 'time-records':return <I d={PATHS.timeRecords} />
     case 'daily-log':   return <I d={PATHS.dailyLog} />
+    case 'daily-log-v2': return <I d={PATHS.dailyLogV2} />
     case 'files':       return <I d={PATHS.files} />
     case 'company-news':return <I d={PATHS.companyNews} />
     case 'contacts':    return <I d={PATHS.contacts} />
@@ -137,6 +140,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'links',        label: 'Links',         pickable: true },
   { id: 'activity',     label: 'Activity',      pickable: false },
   { id: 'daily-log',    label: 'Daily Log',     href: '/hub/daily-log', prefixMatch: true, pickable: true },
+  { id: 'daily-log-v2', label: 'Daily Log v2',  href: '/hub/daily-log-v2', prefixMatch: true, pickable: true },
   { id: 'tracker',      label: 'Tracker',       href: '/hub/tracker', prefixMatch: true, pickable: true, requires: 'canAccessTracker' },
   { id: 'routing',      label: 'Routing',       href: '/hub/routing', prefixMatch: true, pickable: true, requires: 'canAccessRouting' },
   { id: 'fleet',        label: 'Fleet',         href: '/hub/fleet', prefixMatch: true, pickable: true, requires: 'canAccessFleet' },
