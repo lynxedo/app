@@ -513,8 +513,18 @@ function RoutingTab() {
         </ul>
       </Section>
 
+      <Section title="Pinning a First or Last Stop">
+        <p>Before optimizing, click the small <strong className="text-white">1st</strong> or <strong className="text-white">Last</strong> button on a stop to lock it in place. The optimizer then finds the best order of the middle stops <em>flowing out of</em> your pinned first stop and <em>into</em> your pinned last stop — not just optimized around the depot. Useful when you want to start near a specific customer (early appointment) or end near home/depot/lunch.</p>
+        <p className="mt-2 text-xs text-gray-500">Pin both for a fully constrained route, or just one if only one anchor matters.</p>
+      </Section>
+
       <Section title="Reordering Stops Manually">
         <p>After loading or optimizing, drag stops up or down to adjust the order manually. Click <strong className="text-white">Recalculate</strong> to update all ETAs and drive times for the new sequence. The depot stays locked first and last.</p>
+      </Section>
+
+      <Section title="The Preview Map">
+        <p>The Route Preview map is fully interactive — pinch/scroll to zoom, drag to pan, and click the full-screen button (top-right) for a bigger view. Pins are numbered in route order; the depot shows as a green <strong className="text-white">D</strong>.</p>
+        <p className="mt-2">After optimizing, the blue line follows <strong className="text-white">actual driving roads</strong> via Mapbox Directions — not straight lines. When you drag a stop to reorder, the line updates automatically after a brief pause. If the road path can&apos;t be fetched, a yellow note appears in the corner and the map falls back to straight lines.</p>
       </Section>
 
       <Section title="Sending Back to Jobber">
