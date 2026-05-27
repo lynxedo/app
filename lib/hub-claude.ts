@@ -3,15 +3,23 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import {
   estimateTokens,
   getAlwaysIncludedDocs,
-  getGuardianModel,
+  getGuardianSettings,
   resolveReadKnowledgeDoc,
 } from '@/lib/guardian-knowledge'
+import { getMcpToolFilter, type GuardianTier } from '@/lib/guardian-permissions'
+import {
+  getTodayWebSearchCount,
+  incrementWebSearchUsage,
+  writeAuditLog,
+} from '@/lib/guardian-audit'
 
 const MCP_URL = 'https://mcp.lynxedo.com/mcp'
 const MAX_TOOL_ITERATIONS = 6
 const TOOLS_CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
 const PROMPT_CACHE_MIN_TOKENS = 1024 // Anthropic's activation floor
 const DEFAULT_MODEL = 'claude-sonnet-4-6'
+const WEB_SEARCH_TOOL_TYPE = 'web_search_20250305'
+const PER_QUESTION_SEARCH_BUDGET = 3
 
 // ---------------------------------------------------------------------------
 // MCP transport
@@ -167,85 +175,177 @@ export async function askClaude({
   systemPrompt,
   userMessage,
   companyId,
+  userId,
+  tier,
+  roomId,
+  conversationId,
+  isTest,
 }: {
   systemPrompt: string
   userMessage: string
   companyId: string
+  userId?: string | null
+  tier: GuardianTier
+  roomId?: string | null
+  conversationId?: string | null
+  isTest?: boolean
 }): Promise<string> {
   const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const adminClient = createAdminClient()
 
-  const [mcpTools, system, model] = await Promise.all([
+  const [mcpTools, system, settings, todayUsedCount] = await Promise.all([
     getHeroesTools(),
     buildSystemPrompt(systemPrompt, companyId),
-    getGuardianModel(createAdminClient(), companyId).catch(() => DEFAULT_MODEL),
+    getGuardianSettings(adminClient, companyId).catch(() => ({
+      model: DEFAULT_MODEL,
+      web_search_daily_cap: 30,
+    })),
+    getTodayWebSearchCount(adminClient, companyId).catch(() => 0),
   ])
+
+  const { model, web_search_daily_cap: dailyCap } = settings
+
+  // Filter MCP tools by tier. Basic users see only read-only tools; full users see all.
+  const toolFilter = getMcpToolFilter(tier)
+  const filteredMcpTools = mcpTools.filter(t => toolFilter(t.name))
 
   // Local tools (read_knowledge_doc) come BEFORE MCP tools so the dispatcher
   // checks them first. Same name conflicts would resolve in our favor.
-  const allTools: Anthropic.Tool[] = [READ_KNOWLEDGE_DOC_TOOL, ...mcpTools]
-  const adminClient = createAdminClient()
+  const baseTools: Anthropic.Tool[] = [READ_KNOWLEDGE_DOC_TOOL, ...filteredMcpTools]
 
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userMessage }]
 
-  for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
-    const response = await anthropic.messages.create({
-      model,
-      max_tokens: 1024,
-      system,
-      messages,
-      ...(allTools.length > 0 ? { tools: allTools } : {}),
-    })
+  // Tracks all tool calls Claude made across iterations for the audit log.
+  const allToolCalls: string[] = []
+  // Tracks server-side web searches Anthropic ran across iterations — declared
+  // OUTSIDE the iteration loop so the per-question budget AND daily cap apply
+  // across the whole agentic turn, not per-call.
+  let searchesUsed = 0
+  // Carries the final response usage block for the audit log.
+  let lastUsage: { input_tokens?: number; output_tokens?: number } | null = null
+  // Sentinel for the final answer Guardian returns.
+  let finalAnswer = ''
 
-    const hasToolUse = response.content.some(b => b.type === 'tool_use')
+  try {
+    for (let i = 0; i < MAX_TOOL_ITERATIONS; i++) {
+      // Compute remaining web-search budget for THIS iteration. Anthropic
+      // enforces max_uses per API call, so set it to the smaller of
+      // (per-question remaining) and (daily-cap remaining).
+      const questionRemaining = PER_QUESTION_SEARCH_BUDGET - searchesUsed
+      const dailyRemaining = dailyCap - todayUsedCount - searchesUsed
+      const iterationSearchBudget = Math.max(0, Math.min(questionRemaining, dailyRemaining))
+      const includeWebSearch = tier === 'full' && iterationSearchBudget > 0
 
-    if (!hasToolUse || response.stop_reason === 'end_turn') {
-      return response.content
-        .filter((b): b is Anthropic.TextBlock => b.type === 'text')
-        .map(b => b.text)
-        .join('')
-        .trim()
-    }
+      // Build the per-iteration tool array. We loosen the type with `unknown[]`
+      // because Anthropic's web_search server tool has a different shape than
+      // Anthropic.Tool (custom tool) — both are accepted by the API.
+      const iterationTools: unknown[] = [...baseTools]
+      if (includeWebSearch) {
+        iterationTools.push({
+          type: WEB_SEARCH_TOOL_TYPE,
+          name: 'web_search',
+          max_uses: iterationSearchBudget,
+        })
+      }
 
-    messages.push({ role: 'assistant', content: response.content })
+      const response = await anthropic.messages.create({
+        model,
+        max_tokens: 1024,
+        system,
+        messages,
+        ...(iterationTools.length > 0 ? { tools: iterationTools as Anthropic.Tool[] } : {}),
+      })
 
-    const toolUseBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
-    const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
-      toolUseBlocks.map(async block => {
-        // Local tool dispatch — must run BEFORE the MCP call. If we let
-        // read_knowledge_doc fall through to MCP, it would fail with
-        // "unknown tool" and Guardian would never see the doc body.
-        if (isLocalToolName(block.name)) {
-          if (block.name === 'read_knowledge_doc') {
-            const slugInput = (block.input as { slug?: unknown })?.slug
-            const slug = typeof slugInput === 'string' ? slugInput : ''
-            try {
-              const result = await resolveReadKnowledgeDoc(adminClient, companyId, slug)
-              return {
-                type: 'tool_result' as const,
-                tool_use_id: block.id,
-                content: JSON.stringify(result),
-              }
-            } catch (e) {
-              return {
-                type: 'tool_result' as const,
-                tool_use_id: block.id,
-                content: `Error reading knowledge doc: ${e instanceof Error ? e.message : String(e)}`,
-                is_error: true,
+      lastUsage = response.usage as { input_tokens?: number; output_tokens?: number }
+
+      // Anthropic ran some web searches server-side — record them for daily cap.
+      const serverToolUse = (response.usage as unknown as {
+        server_tool_use?: { web_search_requests?: number }
+      } | undefined)?.server_tool_use
+      const newSearches = serverToolUse?.web_search_requests ?? 0
+      if (newSearches > 0) {
+        searchesUsed += newSearches
+        // Fire-and-forget — daily counter is advisory; one extra search at the
+        // boundary is acceptable per the spec.
+        void incrementWebSearchUsage(adminClient, companyId, newSearches).catch(e =>
+          console.warn('[guardian] web search usage increment failed:', e)
+        )
+      }
+
+      const hasToolUse = response.content.some(b => b.type === 'tool_use')
+
+      if (!hasToolUse || response.stop_reason === 'end_turn') {
+        finalAnswer = response.content
+          .filter((b): b is Anthropic.TextBlock => b.type === 'text')
+          .map(b => b.text)
+          .join('')
+          .trim()
+        return finalAnswer
+      }
+
+      messages.push({ role: 'assistant', content: response.content })
+
+      const toolUseBlocks = response.content.filter((b): b is Anthropic.ToolUseBlock => b.type === 'tool_use')
+      // Track tool calls for the audit log.
+      for (const block of toolUseBlocks) allToolCalls.push(block.name)
+
+      const toolResults: Anthropic.ToolResultBlockParam[] = await Promise.all(
+        toolUseBlocks.map(async block => {
+          // Local tool dispatch — must run BEFORE the MCP call. If we let
+          // read_knowledge_doc fall through to MCP, it would fail with
+          // "unknown tool" and Guardian would never see the doc body.
+          if (isLocalToolName(block.name)) {
+            if (block.name === 'read_knowledge_doc') {
+              const slugInput = (block.input as { slug?: unknown })?.slug
+              const slug = typeof slugInput === 'string' ? slugInput : ''
+              try {
+                const result = await resolveReadKnowledgeDoc(adminClient, companyId, slug)
+                return {
+                  type: 'tool_result' as const,
+                  tool_use_id: block.id,
+                  content: JSON.stringify(result),
+                }
+              } catch (e) {
+                return {
+                  type: 'tool_result' as const,
+                  tool_use_id: block.id,
+                  content: `Error reading knowledge doc: ${e instanceof Error ? e.message : String(e)}`,
+                  is_error: true,
+                }
               }
             }
           }
-        }
-        // Otherwise route through MCP.
-        return {
-          type: 'tool_result' as const,
-          tool_use_id: block.id,
-          content: await callHeroesTool(block.name, block.input),
-        }
-      })
-    )
+          // Otherwise route through MCP.
+          return {
+            type: 'tool_result' as const,
+            tool_use_id: block.id,
+            content: await callHeroesTool(block.name, block.input),
+          }
+        })
+      )
 
-    messages.push({ role: 'user', content: toolResults })
+      messages.push({ role: 'user', content: toolResults })
+    }
+
+    finalAnswer = "I wasn't able to complete that request."
+    return finalAnswer
+  } finally {
+    // Audit log — fire-and-forget. Runs whether the call succeeded, hit the
+    // iteration cap, or threw. Never blocks the response.
+    writeAuditLog(adminClient, {
+      companyId,
+      userId: userId ?? null,
+      question: userMessage,
+      answer: finalAnswer || null,
+      model,
+      toolsCalled: allToolCalls,
+      webSearchesUsed: searchesUsed,
+      inputTokens: lastUsage?.input_tokens ?? null,
+      outputTokens: lastUsage?.output_tokens ?? null,
+      isTest: isTest ?? false,
+      guardianTier: tier,
+      roomId: roomId ?? null,
+      conversationId: conversationId ?? null,
+    })
   }
-
-  return "I wasn't able to complete that request."
 }

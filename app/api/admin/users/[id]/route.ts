@@ -13,6 +13,7 @@ const RESTRICTED_FIELDS = new Set([
   'can_admin_zone_sizer',
   'can_admin_dialer',
   'can_admin_contacts',
+  'guardian_tier',
 ])
 
 export async function PATCH(

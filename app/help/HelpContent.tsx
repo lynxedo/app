@@ -387,6 +387,16 @@ function HubTab() {
       <Section title="@Guardian Bot">
         <p>Guardian is an AI helper that lives in Hub. @mention <strong className="text-orange-300">@Guardian</strong> in any room or DM and ask it questions about Lynxedo or the business — it has context on your data and replies in-thread.</p>
         <p className="text-gray-400 text-xs">Examples: <em>&ldquo;@Guardian how many visits do we have tomorrow?&rdquo;</em> · <em>&ldquo;@Guardian who&apos;s clocked in right now?&rdquo;</em></p>
+        <p><strong className="text-white">What Guardian can do depends on your tier:</strong></p>
+        <ul className="list-disc pl-5 space-y-1">
+          <li><strong className="text-white">Basic</strong> (default) — read-only Jobber/Captivated lookups (clients, jobs, visits, quotes, invoices) and questions about the company knowledge base. Most office staff and field techs are here.</li>
+          <li><strong className="text-emerald-300">Manager</strong> — everything Basic does, plus scheduling visits, editing visit times, marking visits complete, and creating notes on clients/jobs.</li>
+          <li><strong className="text-amber-300">Full</strong> — everything Manager does, plus live web search for current information. There&apos;s a daily company-wide cap (default 30 searches/day) so costs stay predictable.</li>
+        </ul>
+        <p><strong className="text-white">Tier resolution:</strong> if you&apos;re a super-admin you always get Full. Otherwise, if the room you&apos;re asking in has &ldquo;Full access&rdquo; turned on, you get Full there regardless of your personal tier. Otherwise you get your personal tier.</p>
+        <AdminOnly>
+          <p>Set tiers per-person under <strong className="text-white">/admin/guardian → People</strong>. Turn on per-room Full access under <strong className="text-white">/admin/guardian → Rooms</strong> — useful for an &ldquo;office&rdquo; or &ldquo;leadership&rdquo; room where anyone asking should get full capabilities. Every Guardian reply is recorded in <strong className="text-white">/admin/guardian → Audit</strong> (last 100 entries, click to expand the full question + answer + tools used + tokens). Only super-admins can change tiers; managers with Hub admin access can view them.</p>
+        </AdminOnly>
       </Section>
 
       <Section title="Chat Synx (Slack bridge)">
