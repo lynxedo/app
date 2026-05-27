@@ -156,6 +156,46 @@ export async function POST(request: Request) {
     )
   }
 
+  // Realtime fallback. Supabase postgres_changes on `messages` sometimes
+  // silently drops INSERT events (especially for iOS webviews where the
+  // realtime websocket gets suspended). Fire the same broadcast pattern
+  // chat-synx/events uses so MessageFeed (`feed:` channel) and HubSidebar
+  // (`hub-sidebar-messages` channel) pick the message up either way.
+  // Both clients dedupe by id so receiving via both paths is harmless.
+  void (async () => {
+    const broadcastAdmin = createAdminClient()
+    try {
+      const feedChannel = broadcastAdmin.channel(`feed:${room_id ?? conversation_id}`)
+      await feedChannel.subscribe()
+      await feedChannel.send({
+        type: 'broadcast',
+        event: 'message-inserted',
+        payload: { id: msg.id, parent_id: parent_id ?? null, sender_id: user.id },
+      })
+      await broadcastAdmin.removeChannel(feedChannel)
+    } catch (err) {
+      console.warn('[messages] feed broadcast failed:', (err as Error).message)
+    }
+    try {
+      const sidebarChannel = broadcastAdmin.channel('hub-sidebar-messages')
+      await sidebarChannel.subscribe()
+      await sidebarChannel.send({
+        type: 'broadcast',
+        event: 'message-inserted',
+        payload: {
+          id: msg.id,
+          room_id: room_id ?? null,
+          conversation_id: conversation_id ?? null,
+          parent_id: parent_id ?? null,
+          sender_id: user.id,
+        },
+      })
+      await broadcastAdmin.removeChannel(sidebarChannel)
+    } catch (err) {
+      console.warn('[messages] sidebar broadcast failed:', (err as Error).message)
+    }
+  })()
+
   // All push recipient lookups use adminClient to bypass RLS
   const pushAdmin = createAdminClient()
 
