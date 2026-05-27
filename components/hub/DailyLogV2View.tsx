@@ -30,6 +30,9 @@ type Stop = {
   status: 'pending' | 'in_progress' | 'complete' | 'skipped'
   completed_at: string | null
   notes: string | null
+  // Transient client-side: set when a Complete/Reopen call returns a warning
+  // (e.g. Jobber push failed). Not stored on server. Cleared on next action.
+  _jobber_warning?: string | null
 }
 
 type Entry = {
@@ -104,6 +107,8 @@ export default function DailyLogV2View({
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
   const [isMobile, setIsMobile] = useState(false)
+  const [expandedStopId, setExpandedStopId] = useState<string | null>(null)
+  const [pendingActionStopId, setPendingActionStopId] = useState<string | null>(null)
 
   useEffect(() => {
     const mq = window.matchMedia('(max-width: 767px)')
@@ -112,6 +117,62 @@ export default function DailyLogV2View({
     mq.addEventListener('change', sync)
     return () => mq.removeEventListener('change', sync)
   }, [])
+
+  // Local patch helper — surgical edits to entries[] without refetching.
+  const patchStop = useCallback((stopId: string, fields: Partial<Stop>) => {
+    setEntries(prev =>
+      prev.map(e => ({
+        ...e,
+        stops: e.stops.map(s => s.id === stopId ? { ...s, ...fields } : s),
+      })),
+    )
+  }, [])
+
+  const handleToggleExpand = useCallback((stopId: string) => {
+    setExpandedStopId(curr => curr === stopId ? null : stopId)
+  }, [])
+
+  const handleComplete = useCallback(async (stopId: string, undo: boolean) => {
+    setPendingActionStopId(stopId)
+    try {
+      const res = await fetch(`/api/hub/daily-log/stops/${stopId}/complete`, {
+        method: undo ? 'DELETE' : 'POST',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.error || `Failed (${res.status})`)
+      }
+      patchStop(stopId, {
+        status: data.stop?.status ?? (undo ? 'pending' : 'complete'),
+        completed_at: data.stop?.completed_at ?? null,
+        _jobber_warning: data.jobber_warning ?? null,
+      })
+    } catch (e) {
+      patchStop(stopId, {
+        _jobber_warning: e instanceof Error ? e.message : 'Action failed',
+      })
+    } finally {
+      setPendingActionStopId(null)
+    }
+  }, [patchStop])
+
+  const handleNotesSave = useCallback(async (stopId: string, notes: string) => {
+    try {
+      const res = await fetch(`/api/hub/daily-log/stops/${stopId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ notes }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        throw new Error(data.error || `Failed (${res.status})`)
+      }
+      patchStop(stopId, { notes: data.stop?.notes ?? notes })
+      return { ok: true as const }
+    } catch (e) {
+      return { ok: false as const, error: e instanceof Error ? e.message : 'Save failed' }
+    }
+  }, [patchStop])
 
   const load = useCallback(async (d: string) => {
     setLoading(true)
@@ -238,6 +299,11 @@ export default function DailyLogV2View({
                 depot={depot}
                 isAdmin={isAdmin}
                 mapHeight={isMobile ? 240 : 360}
+                expandedStopId={expandedStopId}
+                pendingActionStopId={pendingActionStopId}
+                onToggleExpand={handleToggleExpand}
+                onComplete={handleComplete}
+                onNotesSave={handleNotesSave}
               />
             ))}
           </div>
@@ -252,11 +318,21 @@ function EntryCard({
   depot,
   isAdmin,
   mapHeight,
+  expandedStopId,
+  pendingActionStopId,
+  onToggleExpand,
+  onComplete,
+  onNotesSave,
 }: {
   entry: Entry
   depot: { lat: number; lng: number } | null
   isAdmin: boolean
   mapHeight: number
+  expandedStopId: string | null
+  pendingActionStopId: string | null
+  onToggleExpand: (stopId: string) => void
+  onComplete: (stopId: string, undo: boolean) => void | Promise<void>
+  onNotesSave: (stopId: string, notes: string) => Promise<{ ok: true } | { ok: false; error: string }>
 }) {
   const stopsWithCoords = entry.stops.filter(s => s.lat != null && s.lng != null)
   const hasMap = stopsWithCoords.length > 0
@@ -272,11 +348,13 @@ function EntryCard({
 
   const isCompleted = entry.completed_at != null
   const isClosed = entry.closed_at != null
+  const totalStops = entry.stops.length
+  const completedStops = entry.stops.filter(s => s.status === 'complete').length
 
   return (
     <div className={`bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden ${isClosed ? 'opacity-60' : ''}`}>
       {/* Header */}
-      <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between gap-3">
+      <div className="px-4 md:px-5 py-3 md:py-4 border-b border-gray-800 flex items-center justify-between gap-3">
         <div className="flex items-center gap-3 min-w-0">
           <UserAvatar user={entry.tech} />
           <div className="min-w-0">
@@ -291,6 +369,11 @@ function EntryCard({
           </div>
         </div>
         <div className="flex items-center gap-2 flex-none">
+          {totalStops > 0 && (
+            <span className="text-xs text-gray-300 bg-gray-800 px-2 py-1 rounded">
+              {completedStops}/{totalStops} done
+            </span>
+          )}
           {isCompleted && (
             <span className="text-xs bg-emerald-500/20 text-emerald-300 px-2 py-1 rounded">
               ✓ Route Completed
@@ -331,7 +414,17 @@ function EntryCard({
             No stops attached yet. Send a route from the Route Optimizer to populate.
           </div>
         ) : (
-          entry.stops.map(s => <StopRow key={s.id} stop={s} />)
+          entry.stops.map(s => (
+            <StopRow
+              key={s.id}
+              stop={s}
+              expanded={expandedStopId === s.id}
+              pending={pendingActionStopId === s.id}
+              onToggleExpand={onToggleExpand}
+              onComplete={onComplete}
+              onNotesSave={onNotesSave}
+            />
+          ))
         )}
       </div>
 
@@ -351,14 +444,40 @@ function EntryCard({
 
       {isAdmin && (
         <div className="px-5 py-2 bg-gray-900/30 border-t border-gray-800 text-[10px] text-gray-600 uppercase tracking-wide">
-          Phase 1 preview — tech actions (complete, navigate, on-my-way SMS, notes) ship in Phase 2+
+          v2 preview — Navigate, On-My-Way SMS, weather, and pesticide records ship in later phases
         </div>
       )}
     </div>
   )
 }
 
-function StopRow({ stop }: { stop: Stop }) {
+function formatPhone(p: string): string {
+  // Strip non-digits, format as (XXX) XXX-XXXX for US 10-digit numbers
+  const digits = p.replace(/\D/g, '')
+  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+  if (digits.length === 11 && digits.startsWith('1')) return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
+  return p
+}
+
+function formatMoney(n: number): string {
+  return `$${n.toFixed(2)}`
+}
+
+function StopRow({
+  stop,
+  expanded,
+  pending,
+  onToggleExpand,
+  onComplete,
+  onNotesSave,
+}: {
+  stop: Stop
+  expanded: boolean
+  pending: boolean
+  onToggleExpand: (stopId: string) => void
+  onComplete: (stopId: string, undo: boolean) => void | Promise<void>
+  onNotesSave: (stopId: string, notes: string) => Promise<{ ok: true } | { ok: false; error: string }>
+}) {
   const lineItemNames = stop.line_items.map(li => li.name).filter(Boolean)
   const lineItemsSummary = lineItemNames.length === 0
     ? null
@@ -366,49 +485,193 @@ function StopRow({ stop }: { stop: Stop }) {
       ? lineItemNames.join(' · ')
       : `${lineItemNames.slice(0, 2).join(' · ')} +${lineItemNames.length - 2} more`
 
-  const statusColor =
-    stop.status === 'complete' ? 'bg-emerald-500/20 text-emerald-300' :
-    stop.status === 'in_progress' ? 'bg-amber-500/20 text-amber-300' :
-    stop.status === 'skipped' ? 'bg-gray-500/20 text-gray-400' :
-    'bg-gray-800 text-gray-400'
+  const isComplete = stop.status === 'complete'
+
+  // Local notes state — synced from server but edited locally; save on blur.
+  const [notesDraft, setNotesDraft] = useState(stop.notes ?? '')
+  const [notesStatus, setNotesStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const [notesError, setNotesError] = useState<string | null>(null)
+
+  // Reset draft when the underlying server-state notes value changes (e.g.
+  // after another device updates). Only reset if no unsaved local edit.
+  useEffect(() => {
+    setNotesDraft(prev => (notesStatus === 'idle' ? (stop.notes ?? '') : prev))
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [stop.notes])
+
+  async function saveNotes() {
+    if ((notesDraft ?? '') === (stop.notes ?? '')) return
+    setNotesStatus('saving')
+    setNotesError(null)
+    const result = await onNotesSave(stop.id, notesDraft)
+    if (result.ok) {
+      setNotesStatus('saved')
+      setTimeout(() => setNotesStatus('idle'), 1500)
+    } else {
+      setNotesStatus('error')
+      setNotesError(result.error)
+    }
+  }
+
+  const lineItemTotal = stop.line_items.reduce((s, li) => s + (li.totalPrice ?? 0), 0)
 
   return (
-    <div className="px-5 py-3 flex items-start gap-3">
-      <div
-        className={`w-8 h-8 rounded-full flex-none flex items-center justify-center text-sm font-semibold ${
-          stop.status === 'complete' ? 'bg-gray-700 text-gray-400' : 'bg-red-900/40 text-red-300'
-        }`}
+    <div>
+      {/* Compact row — entire button toggles expansion */}
+      <button
+        onClick={() => onToggleExpand(stop.id)}
+        className={`w-full text-left px-4 md:px-5 py-3 flex items-start gap-3 hover:bg-gray-800/40 transition-colors ${
+          isComplete ? 'opacity-60' : ''
+        } ${expanded ? 'bg-gray-800/30' : ''}`}
       >
-        {pinLabel(stop.ord)}
-      </div>
-      <div className="flex-1 min-w-0">
-        <div className="flex items-center gap-2 flex-wrap">
-          <div className="font-medium text-white">{stop.client_name}</div>
-          {stop.scheduled_start_at && (
-            <div className="text-xs text-gray-400">{formatTime(stop.scheduled_start_at)}</div>
+        <div
+          className={`w-8 h-8 rounded-full flex-none flex items-center justify-center text-sm font-semibold ${
+            isComplete ? 'bg-emerald-700 text-emerald-100' : 'bg-red-900/40 text-red-300'
+          }`}
+        >
+          {isComplete ? '✓' : pinLabel(stop.ord)}
+        </div>
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <div className={`font-medium ${isComplete ? 'text-gray-400 line-through' : 'text-white'}`}>{stop.client_name}</div>
+            {stop.scheduled_start_at && (
+              <div className="text-xs text-gray-400">{formatTime(stop.scheduled_start_at)}</div>
+            )}
+            {stop.duration_minutes && !isComplete && (
+              <div className="text-xs text-gray-500">~{stop.duration_minutes} min</div>
+            )}
+          </div>
+          <div className="text-sm text-gray-400 truncate">{stop.address}</div>
+          {stop.job_title && !expanded && (
+            <div className="text-xs text-gray-500 mt-0.5">{stop.job_title}</div>
           )}
-          {stop.duration_minutes && (
-            <div className="text-xs text-gray-500">~{stop.duration_minutes} min</div>
-          )}
-          {stop.status !== 'pending' && (
-            <span className={`text-[10px] px-1.5 py-0.5 rounded uppercase tracking-wide ${statusColor}`}>
-              {stop.status}
-            </span>
+          {lineItemsSummary && !expanded && (
+            <div className="text-xs text-gray-500 mt-0.5">{lineItemsSummary}</div>
           )}
         </div>
-        <div className="text-sm text-gray-400 truncate">{stop.address}</div>
-        {stop.job_title && (
-          <div className="text-xs text-gray-500 mt-0.5">{stop.job_title}</div>
-        )}
-        {lineItemsSummary && (
-          <div className="text-xs text-gray-500 mt-0.5">{lineItemsSummary}</div>
-        )}
-        {stop.instructions && (
-          <div className="text-xs text-amber-300/80 mt-1 italic">
-            Note: {stop.instructions}
+        <div className="flex-none self-center text-gray-500 text-lg">
+          {expanded ? '▾' : '▸'}
+        </div>
+      </button>
+
+      {/* Detail panel — only when expanded */}
+      {expanded && (
+        <div className="px-4 md:px-5 pb-4 pt-1 bg-gray-800/20 border-t border-gray-800/50 space-y-3 text-sm">
+          {/* Contact */}
+          {stop.client_phone && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Contact</div>
+              <a
+                href={`tel:${stop.client_phone}`}
+                onClick={e => e.stopPropagation()}
+                className="text-sky-400 hover:underline"
+              >
+                📞 {formatPhone(stop.client_phone)}
+              </a>
+            </div>
+          )}
+
+          {/* Job title */}
+          {stop.job_title && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Job</div>
+              <div className="text-gray-200">{stop.job_title}</div>
+            </div>
+          )}
+
+          {/* Line items */}
+          {stop.line_items.length > 0 && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Line items</div>
+              <div className="bg-gray-900/40 rounded border border-gray-800 overflow-hidden">
+                <table className="w-full text-xs">
+                  <tbody>
+                    {stop.line_items.map((li, i) => (
+                      <tr key={i} className="border-b border-gray-800 last:border-b-0">
+                        <td className="px-2 py-1.5 text-gray-200">{li.name}</td>
+                        <td className="px-2 py-1.5 text-right text-gray-400 w-12">{li.qty}×</td>
+                        <td className="px-2 py-1.5 text-right text-gray-200 w-20">{formatMoney(li.totalPrice ?? 0)}</td>
+                      </tr>
+                    ))}
+                    {lineItemTotal > 0 && (
+                      <tr className="bg-gray-900/60">
+                        <td className="px-2 py-1.5 text-right text-gray-400 text-[10px] uppercase tracking-wide" colSpan={2}>Total</td>
+                        <td className="px-2 py-1.5 text-right text-white font-medium">{formatMoney(lineItemTotal)}</td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Visit instructions */}
+          {stop.instructions && (
+            <div>
+              <div className="text-[10px] uppercase tracking-wide text-amber-300 mb-1">Visit instructions</div>
+              <div className="bg-amber-500/5 border border-amber-500/20 rounded px-2.5 py-2 text-gray-200 whitespace-pre-wrap">
+                {stop.instructions}
+              </div>
+            </div>
+          )}
+
+          {/* Tech notes */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <div className="text-[10px] uppercase tracking-wide text-gray-500">My notes</div>
+              <div className="text-[10px] text-gray-500 h-3">
+                {notesStatus === 'saving' && 'Saving…'}
+                {notesStatus === 'saved' && <span className="text-emerald-400">✓ Saved</span>}
+                {notesStatus === 'error' && <span className="text-red-400">⚠ {notesError}</span>}
+              </div>
+            </div>
+            <textarea
+              value={notesDraft}
+              onChange={e => {
+                setNotesDraft(e.target.value)
+                if (notesStatus !== 'idle') setNotesStatus('idle')
+              }}
+              onBlur={saveNotes}
+              placeholder="Notes from this stop (saves when you tap away)"
+              rows={2}
+              className="w-full bg-gray-900 border border-gray-700 rounded px-2.5 py-2 text-base md:text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500 resize-y min-h-[60px]"
+            />
           </div>
-        )}
-      </div>
+
+          {/* Jobber warning (if a Complete/Reopen call had an issue) */}
+          {stop._jobber_warning && (
+            <div className="bg-amber-900/30 border border-amber-700/50 text-amber-200 rounded px-2.5 py-2 text-xs">
+              ⚠ {stop._jobber_warning}
+            </div>
+          )}
+
+          {/* Action button */}
+          <div className="pt-1">
+            {isComplete ? (
+              <button
+                onClick={() => onComplete(stop.id, true)}
+                disabled={pending}
+                className="w-full px-3 py-2.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-white rounded font-medium text-sm transition-colors"
+              >
+                {pending ? 'Reopening…' : '↩ Reopen this stop'}
+              </button>
+            ) : (
+              <button
+                onClick={() => onComplete(stop.id, false)}
+                disabled={pending}
+                className="w-full px-3 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded font-semibold text-base transition-colors"
+              >
+                {pending ? 'Marking complete…' : '✓ Mark Complete'}
+              </button>
+            )}
+            {stop.jobber_visit_id && (
+              <p className="text-[10px] text-gray-500 text-center mt-1.5">
+                {isComplete ? 'Reopening also flips the visit back in Jobber.' : 'Also marks the visit complete in Jobber.'}
+              </p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
