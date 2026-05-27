@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 import { askClaude } from '@/lib/hub-claude'
+import { resolveGuardianTier } from '@/lib/guardian-permissions'
 import { markActive } from '@/lib/hub-activity'
 import { bridgeHubMessageToChatSynx } from '@/lib/chat-synx'
 
@@ -556,12 +557,17 @@ async function handleClaudeReplyDM({
     content: 'On it! Please stand by…',
   })
 
+  const tier = await resolveGuardianTier(admin, userId, { conversationId })
+
   let claudeText = ''
   try {
     claudeText = await askClaude({
       systemPrompt,
       userMessage: `[${senderName}]: ${triggeringContent}`,
       companyId,
+      userId,
+      tier,
+      conversationId,
     })
   } catch {
     claudeText = "Sorry, I couldn't process that request right now."
@@ -665,12 +671,17 @@ async function handleClaudeReply({
     content: 'On it! Please stand by…',
   })
 
+  const tier = await resolveGuardianTier(admin, userId, { roomId })
+
   let claudeText = ''
   try {
     claudeText = await askClaude({
       systemPrompt,
       userMessage: `[${senderName}]: ${triggeringContent}`,
       companyId,
+      userId,
+      tier,
+      roomId,
     })
   } catch {
     claudeText = "Sorry, I couldn't process that request right now."

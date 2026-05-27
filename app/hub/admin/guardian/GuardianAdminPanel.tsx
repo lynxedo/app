@@ -35,13 +35,45 @@ type ModelOption = {
   flag: string | null
 }
 
-type Tab = 'knowledge' | 'settings'
+type Person = {
+  id: string
+  display_name: string
+  guardian_tier: string
+}
+
+type Room = {
+  id: string
+  name: string
+  is_private: boolean
+  guardian_full_access: boolean
+}
+
+type AuditRow = {
+  id: string
+  created_at: string
+  user_id: string | null
+  user_display_name: string | null
+  question: string
+  answer: string | null
+  model: string | null
+  tools_called: string[]
+  web_searches_used: number
+  input_tokens: number | null
+  output_tokens: number | null
+  is_test: boolean
+  guardian_tier: string | null
+  room_id: string | null
+  conversation_id: string | null
+}
+
+type Tab = 'knowledge' | 'settings' | 'people' | 'rooms' | 'audit'
 
 const ROUTER_SLUG = 'router'
 const TOKEN_AMBER = 2000
 const TOKEN_RED = 4000
 const DAILY_CALL_EST = 100 // hardcoded heuristic for cost warning
 const COST_PER_TOKEN = 0.000003 // ~ Sonnet input price; display-only
+const TIERS = ['basic', 'manager', 'full'] as const
 
 function estimateTokens(text: string): number {
   return Math.ceil(text.length / 4)
@@ -55,6 +87,12 @@ function formatTimestamp(iso: string): string {
   }
 }
 
+function truncate(text: string, max: number): string {
+  if (!text) return ''
+  if (text.length <= max) return text
+  return text.slice(0, max - 1) + '…'
+}
+
 function isRouter(slug: string) {
   return slug === ROUTER_SLUG
 }
@@ -62,13 +100,21 @@ function isRouter(slug: string) {
 export default function GuardianAdminPanel({
   initialDocs,
   initialSettings,
+  initialPeople,
+  initialRooms,
+  isSuperAdmin,
 }: {
   initialDocs: Doc[]
   initialSettings: Settings
+  initialPeople: Person[]
+  initialRooms: Room[]
+  isSuperAdmin: boolean
 }) {
   const [tab, setTab] = useState<Tab>('knowledge')
   const [docs, setDocs] = useState<Doc[]>(initialDocs)
   const [settings, setSettings] = useState<Settings>(initialSettings)
+  const [people, setPeople] = useState<Person[]>(initialPeople)
+  const [rooms, setRooms] = useState<Room[]>(initialRooms)
   const [selectedId, setSelectedId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -79,6 +125,10 @@ export default function GuardianAdminPanel({
   const [refreshToolsMsg, setRefreshToolsMsg] = useState<string | null>(null)
   const [savingSettings, setSavingSettings] = useState(false)
   const [settingsSavedAt, setSettingsSavedAt] = useState<number | null>(null)
+  const [auditRows, setAuditRows] = useState<AuditRow[] | null>(null)
+  const [auditLoading, setAuditLoading] = useState(false)
+  const [auditError, setAuditError] = useState<string | null>(null)
+  const [auditIncludeTest, setAuditIncludeTest] = useState(false)
 
   // Fetch models when Settings tab opens.
   useEffect(() => {
@@ -94,6 +144,23 @@ export default function GuardianAdminPanel({
       .catch(e => setModelsError(e instanceof Error ? e.message : String(e)))
       .finally(() => setModelsLoading(false))
   }, [tab, models.length, modelsLoading])
+
+  // Fetch audit log when Audit tab opens or filter toggles.
+  useEffect(() => {
+    if (tab !== 'audit') return
+    setAuditLoading(true)
+    setAuditError(null)
+    const params = new URLSearchParams()
+    if (auditIncludeTest) params.set('is_test', 'true')
+    fetch(`/api/admin/guardian/audit?${params.toString()}`)
+      .then(r => r.json().then(b => ({ ok: r.ok, body: b })))
+      .then(({ ok, body }) => {
+        if (!ok) throw new Error(body?.error ?? 'Failed to load audit log')
+        setAuditRows(body.rows ?? [])
+      })
+      .catch(e => setAuditError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setAuditLoading(false))
+  }, [tab, auditIncludeTest])
 
   const selectedDoc = useMemo(
     () => docs.find(d => d.id === selectedId) ?? null,
@@ -182,16 +249,26 @@ export default function GuardianAdminPanel({
       <header>
         <h1 className="text-xl font-semibold">Guardian</h1>
         <p className="text-sm text-white/60 mt-1">
-          Editable knowledge base + model settings. Changes take effect on Guardian's next reply.
+          Knowledge base, model, permission tiers, and audit log. Changes take effect on Guardian's
+          next reply.
         </p>
       </header>
 
-      <div className="flex gap-1 border-b border-white/10">
+      <div className="flex gap-1 border-b border-white/10 overflow-x-auto">
         <TabButton active={tab === 'knowledge'} onClick={() => setTab('knowledge')}>
           Knowledge
         </TabButton>
         <TabButton active={tab === 'settings'} onClick={() => setTab('settings')}>
           Settings
+        </TabButton>
+        <TabButton active={tab === 'people'} onClick={() => setTab('people')}>
+          People
+        </TabButton>
+        <TabButton active={tab === 'rooms'} onClick={() => setTab('rooms')}>
+          Rooms
+        </TabButton>
+        <TabButton active={tab === 'audit'} onClick={() => setTab('audit')}>
+          Audit
         </TabButton>
       </div>
 
@@ -315,7 +392,9 @@ export default function GuardianAdminPanel({
             <div>
               <h2 className="font-semibold">Web search</h2>
               <p className="text-xs text-white/50 mt-1">
-                Daily company-wide cap on web searches (used once Guardian Session 2 ships the full-tier web search tool). 0 disables web search entirely.
+                Daily company-wide cap on live web searches. Web search runs only when the asker's
+                effective tier is <span className="text-emerald-300">full</span>. 0 disables web
+                search entirely. Each search is ~$0.01.
               </p>
             </div>
             <div>
@@ -369,6 +448,31 @@ export default function GuardianAdminPanel({
           </div>
         </div>
       )}
+
+      {tab === 'people' && (
+        <PeopleTab
+          people={people}
+          setPeople={setPeople}
+          isSuperAdmin={isSuperAdmin}
+        />
+      )}
+
+      {tab === 'rooms' && (
+        <RoomsTab
+          rooms={rooms}
+          setRooms={setRooms}
+        />
+      )}
+
+      {tab === 'audit' && (
+        <AuditTab
+          rows={auditRows}
+          loading={auditLoading}
+          error={auditError}
+          includeTest={auditIncludeTest}
+          setIncludeTest={setAuditIncludeTest}
+        />
+      )}
     </div>
   )
 }
@@ -385,7 +489,7 @@ function TabButton({
   return (
     <button
       onClick={onClick}
-      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors ${
+      className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
         active
           ? 'border-[#2E7EB8] text-white'
           : 'border-transparent text-gray-400 hover:text-white hover:border-gray-600'
@@ -395,6 +499,326 @@ function TabButton({
     </button>
   )
 }
+
+// ---------------------------------------------------------------------------
+// People tab
+// ---------------------------------------------------------------------------
+
+function PeopleTab({
+  people,
+  setPeople,
+  isSuperAdmin,
+}: {
+  people: Person[]
+  setPeople: (next: Person[] | ((prev: Person[]) => Person[])) => void
+  isSuperAdmin: boolean
+}) {
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [errorId, setErrorId] = useState<{ id: string; msg: string } | null>(null)
+  const [savedId, setSavedId] = useState<string | null>(null)
+
+  async function setTier(userId: string, tier: string) {
+    setSavingId(userId)
+    setErrorId(null)
+    setSavedId(null)
+    const prevTier = people.find(p => p.id === userId)?.guardian_tier
+    // Optimistic update
+    setPeople(prev => prev.map(p => p.id === userId ? { ...p, guardian_tier: tier } : p))
+    try {
+      const res = await fetch(`/api/admin/guardian/users/${userId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guardian_tier: tier }),
+      })
+      if (!res.ok) {
+        const b = await res.json().catch(() => null)
+        throw new Error(b?.error ?? `Save failed (${res.status})`)
+      }
+      setSavedId(userId)
+      setTimeout(() => setSavedId(s => s === userId ? null : s), 2000)
+    } catch (e) {
+      // Revert
+      setPeople(prev => prev.map(p => p.id === userId ? { ...p, guardian_tier: prevTier ?? 'basic' } : p))
+      setErrorId({ id: userId, msg: e instanceof Error ? e.message : String(e) })
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="font-semibold">Guardian tiers by person</h2>
+        <p className="text-xs text-white/50 mt-1">
+          <span className="text-white/70">Basic:</span> read-only Jobber/Captivated lookups + knowledge base.{' '}
+          <span className="text-white/70">Manager:</span> + scheduling, visit edits, notes.{' '}
+          <span className="text-white/70">Full:</span> + live web search.
+        </p>
+        <p className="text-xs text-white/50 mt-1">
+          Tier resolution order: admin role &gt; room full-access &gt; user tier.
+        </p>
+        {!isSuperAdmin && (
+          <p className="text-xs text-amber-300 mt-2">
+            Only full admins can change tiers. You can view current assignments here.
+          </p>
+        )}
+      </div>
+
+      <div className="rounded-lg border border-white/10 bg-white/5 overflow-hidden">
+        {people.length === 0 ? (
+          <p className="px-4 py-6 text-sm text-white/50">No people in this company yet.</p>
+        ) : (
+          <ul className="divide-y divide-white/10">
+            {people.map(p => (
+              <li key={p.id} className="px-4 py-3 flex items-center gap-3">
+                <span className="flex-1 text-sm">{p.display_name}</span>
+                <select
+                  value={p.guardian_tier}
+                  onChange={e => setTier(p.id, e.target.value)}
+                  disabled={!isSuperAdmin || savingId === p.id}
+                  className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm disabled:opacity-60"
+                >
+                  {TIERS.map(t => (
+                    <option key={t} value={t}>
+                      {t}
+                    </option>
+                  ))}
+                </select>
+                <span className="w-16 text-xs text-right">
+                  {savingId === p.id && <span className="text-white/50">Saving…</span>}
+                  {savedId === p.id && <span className="text-emerald-300">Saved ✓</span>}
+                </span>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {errorId && (
+        <div className="rounded-md border border-red-700 bg-red-900/30 text-red-200 px-3 py-2 text-sm">
+          {errorId.msg}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Rooms tab
+// ---------------------------------------------------------------------------
+
+function RoomsTab({
+  rooms,
+  setRooms,
+}: {
+  rooms: Room[]
+  setRooms: (next: Room[] | ((prev: Room[]) => Room[])) => void
+}) {
+  const [savingId, setSavingId] = useState<string | null>(null)
+  const [errorMsg, setErrorMsg] = useState<string | null>(null)
+
+  async function toggle(roomId: string, next: boolean) {
+    setSavingId(roomId)
+    setErrorMsg(null)
+    const prev = rooms.find(r => r.id === roomId)?.guardian_full_access ?? false
+    setRooms(rs => rs.map(r => r.id === roomId ? { ...r, guardian_full_access: next } : r))
+    try {
+      const res = await fetch(`/api/admin/guardian/rooms/${roomId}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ guardian_full_access: next }),
+      })
+      if (!res.ok) {
+        const b = await res.json().catch(() => null)
+        throw new Error(b?.error ?? `Save failed (${res.status})`)
+      }
+    } catch (e) {
+      setRooms(rs => rs.map(r => r.id === roomId ? { ...r, guardian_full_access: prev } : r))
+      setErrorMsg(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSavingId(null)
+    }
+  }
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="font-semibold">Per-room Guardian access</h2>
+        <p className="text-xs text-white/50 mt-1">
+          Turn on <span className="text-emerald-300">Full access</span> for a room and Guardian
+          gets full-tier capabilities for anyone asking inside that room — regardless of their
+          personal tier. Useful for an &ldquo;office&rdquo; or &ldquo;leadership&rdquo; room.
+        </p>
+      </div>
+
+      <div className="rounded-lg border border-white/10 bg-white/5 overflow-hidden">
+        {rooms.length === 0 ? (
+          <p className="px-4 py-6 text-sm text-white/50">No rooms in this company.</p>
+        ) : (
+          <ul className="divide-y divide-white/10">
+            {rooms.map(r => (
+              <li key={r.id} className="px-4 py-3 flex items-center gap-3">
+                <span className="flex-1 text-sm flex items-center gap-2">
+                  <span className="text-white/40">{r.is_private ? '🔒' : '#'}</span>
+                  {r.name}
+                </span>
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={r.guardian_full_access}
+                    onChange={e => toggle(r.id, e.target.checked)}
+                    disabled={savingId === r.id}
+                    className="accent-emerald-500"
+                  />
+                  <span className="text-white/70">Full access</span>
+                </label>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+
+      {errorMsg && (
+        <div className="rounded-md border border-red-700 bg-red-900/30 text-red-200 px-3 py-2 text-sm">
+          {errorMsg}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// Audit tab
+// ---------------------------------------------------------------------------
+
+function AuditTab({
+  rows,
+  loading,
+  error,
+  includeTest,
+  setIncludeTest,
+}: {
+  rows: AuditRow[] | null
+  loading: boolean
+  error: string | null
+  includeTest: boolean
+  setIncludeTest: (v: boolean) => void
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
+  return (
+    <div className="space-y-4">
+      <div className="flex items-center justify-between flex-wrap gap-2">
+        <div>
+          <h2 className="font-semibold">Audit log</h2>
+          <p className="text-xs text-white/50 mt-1">
+            Last 100 Guardian replies. Click a row to expand and see the full question + answer.
+          </p>
+        </div>
+        <label className="flex items-center gap-2 text-sm">
+          <input
+            type="checkbox"
+            checked={includeTest}
+            onChange={e => setIncludeTest(e.target.checked)}
+            className="accent-emerald-500"
+          />
+          <span>Include test runs</span>
+        </label>
+      </div>
+
+      {loading && <p className="text-sm text-white/50">Loading…</p>}
+      {error && (
+        <div className="rounded-md border border-red-700 bg-red-900/30 text-red-200 px-3 py-2 text-sm">
+          {error}
+        </div>
+      )}
+
+      {!loading && !error && rows && (
+        <div className="rounded-lg border border-white/10 bg-white/5 overflow-hidden">
+          {rows.length === 0 ? (
+            <p className="px-4 py-6 text-sm text-white/50">No entries yet.</p>
+          ) : (
+            <ul className="divide-y divide-white/10">
+              {rows.map(r => {
+                const isOpen = expandedId === r.id
+                return (
+                  <li key={r.id}>
+                    <button
+                      onClick={() => setExpandedId(isOpen ? null : r.id)}
+                      className="w-full text-left px-4 py-3 hover:bg-white/5 flex items-center gap-3 text-sm"
+                    >
+                      <span className="text-xs text-white/40 w-32 shrink-0 hidden md:inline">
+                        {formatTimestamp(r.created_at)}
+                      </span>
+                      <span className="text-xs text-white/60 w-20 shrink-0 hidden md:inline truncate">
+                        {r.user_display_name ?? '—'}
+                      </span>
+                      <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${
+                        r.guardian_tier === 'full'
+                          ? 'bg-emerald-900/40 text-emerald-300'
+                          : r.guardian_tier === 'manager'
+                          ? 'bg-amber-900/40 text-amber-300'
+                          : 'bg-white/10 text-white/60'
+                      }`}>
+                        {r.guardian_tier ?? '—'}
+                      </span>
+                      <span className="flex-1 truncate">{truncate(r.question, 60)}</span>
+                      {r.is_test && (
+                        <span className="text-xs px-1.5 py-0.5 rounded bg-purple-900/40 text-purple-300 shrink-0">
+                          test
+                        </span>
+                      )}
+                      {r.web_searches_used > 0 && (
+                        <span className="text-xs text-white/50 shrink-0">🔍{r.web_searches_used}</span>
+                      )}
+                      <span className="text-xs text-white/40 shrink-0 hidden md:inline">
+                        {(r.input_tokens ?? 0)} in · {(r.output_tokens ?? 0)} out
+                      </span>
+                    </button>
+                    {isOpen && (
+                      <div className="px-4 pb-4 pt-1 space-y-3 text-sm bg-black/20">
+                        <div>
+                          <div className="text-xs text-white/40 uppercase tracking-wide mb-1">Question</div>
+                          <pre className="whitespace-pre-wrap font-sans text-white/80">{r.question}</pre>
+                        </div>
+                        {r.answer && (
+                          <div>
+                            <div className="text-xs text-white/40 uppercase tracking-wide mb-1">Answer</div>
+                            <pre className="whitespace-pre-wrap font-sans text-white/80">{r.answer}</pre>
+                          </div>
+                        )}
+                        {r.tools_called.length > 0 && (
+                          <div>
+                            <div className="text-xs text-white/40 uppercase tracking-wide mb-1">
+                              Tools called ({r.tools_called.length})
+                            </div>
+                            <div className="text-xs text-white/70 font-mono">
+                              {r.tools_called.join(', ')}
+                            </div>
+                          </div>
+                        )}
+                        <div className="text-xs text-white/40">
+                          Model: {r.model ?? '—'} · Web searches: {r.web_searches_used}
+                          {r.room_id ? ` · Room: ${r.room_id.slice(0, 8)}…` : ''}
+                          {r.conversation_id ? ` · DM: ${r.conversation_id.slice(0, 8)}…` : ''}
+                        </div>
+                      </div>
+                    )}
+                  </li>
+                )
+              })}
+            </ul>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// DocEditor — unchanged from Session 1 except for the Session 1 follow-up
+// fix: refresh version history in-place after save when accordion is open.
+// ---------------------------------------------------------------------------
 
 function DocEditor({
   doc,
@@ -419,7 +843,6 @@ function DocEditor({
   const [error, setError] = useState<string | null>(null)
   const [versions, setVersions] = useState<Version[]>([])
   const [versionsOpen, setVersionsOpen] = useState(false)
-  const [versionsLoaded, setVersionsLoaded] = useState(false)
 
   const tokens = estimateTokens(body)
   const estDaily = (tokens * COST_PER_TOKEN * DAILY_CALL_EST).toFixed(2)
@@ -427,13 +850,12 @@ function DocEditor({
     tokens > TOKEN_RED ? 'text-red-300' : tokens > TOKEN_AMBER ? 'text-amber-300' : 'text-white/60'
 
   async function loadVersions() {
-    if (!doc || versionsLoaded) return
+    if (!doc) return
     try {
       const res = await fetch(`/api/admin/guardian/knowledge/${doc.id}`)
       if (!res.ok) return
       const body = await res.json()
       setVersions(body.versions ?? [])
-      setVersionsLoaded(true)
     } catch {
       // non-fatal
     }
@@ -469,8 +891,10 @@ function DocEditor({
       }
       const result = await res.json()
       onSaved(result.doc)
-      // Reset version cache so the next open re-fetches.
-      setVersionsLoaded(false)
+      // Session 1 follow-up: if the version-history accordion is already open
+      // when the user saves, re-fetch versions in place so the new snapshot
+      // appears without requiring a refresh or accordion toggle.
+      if (versionsOpen) await loadVersions()
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
