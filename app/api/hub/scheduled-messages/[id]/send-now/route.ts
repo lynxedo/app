@@ -10,7 +10,7 @@ export async function POST(_request: Request, ctx: { params: Promise<{ id: strin
 
   const { data: sm, error: lookupErr } = await supabase
     .from('scheduled_messages')
-    .select('id, company_id, room_id, conversation_id, sender_id, content, files, sent_at')
+    .select('id, company_id, room_id, conversation_id, parent_id, sender_id, content, files, sent_at')
     .eq('id', id)
     .single()
   if (lookupErr || !sm) return NextResponse.json({ error: 'Not found' }, { status: 404 })
@@ -28,14 +28,15 @@ export async function POST(_request: Request, ctx: { params: Promise<{ id: strin
       conversation_id: sm.conversation_id ?? null,
       sender_id: sm.sender_id,
       content: sm.content,
-      parent_id: null,
+      parent_id: sm.parent_id ?? null,
       forwarded_from: null,
     })
     .select('id')
     .single()
   if (insertErr || !inserted) return NextResponse.json({ error: insertErr?.message ?? 'insert failed' }, { status: 500 })
 
-  if (sm.conversation_id) {
+  // Auto-unarchive only for top-level messages, matches the live POST path.
+  if (sm.conversation_id && !sm.parent_id) {
     await admin
       .from('conversation_members')
       .update({ archived_at: null })

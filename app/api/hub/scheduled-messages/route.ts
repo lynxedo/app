@@ -8,7 +8,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('scheduled_messages')
-    .select('id, content, send_at, sent_at, room_id, conversation_id, files')
+    .select('id, content, send_at, sent_at, room_id, conversation_id, parent_id, files')
     .eq('sender_id', user.id)
     .is('sent_at', null)
     .order('send_at', { ascending: true })
@@ -71,7 +71,7 @@ export async function POST(request: Request) {
   if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
 
   const body = await request.json()
-  const { room_id, conversation_id, content, files, send_at } = body
+  const { room_id, conversation_id, parent_id, content, files, send_at } = body
 
   if (!content?.trim() && (!Array.isArray(files) || files.length === 0)) {
     return NextResponse.json({ error: 'content or files required' }, { status: 400 })
@@ -92,6 +92,7 @@ export async function POST(request: Request) {
       company_id: profile.company_id,
       room_id: room_id ?? null,
       conversation_id: conversation_id ?? null,
+      parent_id: parent_id ?? null,
       sender_id: user.id,
       content: content?.trim() ?? '',
       files: files ?? null,
