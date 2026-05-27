@@ -13,9 +13,10 @@ const DEFAULTS = {
   default_drive_mph:       25,
   duration_method:         'default' as string,
   duration_rules:          DEFAULT_DURATION_RULES as DurationRulesConfig,
+  visible_tech_ids:        null as string[] | null,
 }
 
-const DB_SELECT = 'display_name, depot_address, depot_lat, depot_lng, default_service_minutes, default_drive_mph, duration_method, duration_rules'
+const DB_SELECT = 'display_name, depot_address, depot_lat, depot_lng, default_service_minutes, default_drive_mph, duration_method, duration_rules, visible_tech_ids'
 
 function mergeRules(raw: unknown): DurationRulesConfig {
   return { ...DEFAULT_DURATION_RULES, ...((raw as Partial<DurationRulesConfig>) ?? {}) }
@@ -57,6 +58,7 @@ type PatchBody = Partial<{
   default_drive_mph: number
   duration_method: string
   duration_rules: DurationRulesConfig
+  visible_tech_ids: string[] | null
 }>
 
 export async function POST(req: NextRequest) {
@@ -89,6 +91,16 @@ export async function POST(req: NextRequest) {
   if ('default_drive_mph' in body)       patch.default_drive_mph       = body.default_drive_mph
   if ('duration_method' in body)         patch.duration_method         = body.duration_method
   if ('duration_rules' in body)          patch.duration_rules          = body.duration_rules
+  if ('visible_tech_ids' in body) {
+    const raw = body.visible_tech_ids
+    if (raw === null) {
+      patch.visible_tech_ids = null
+    } else if (Array.isArray(raw) && raw.every(v => typeof v === 'string' && v.length > 0)) {
+      patch.visible_tech_ids = raw
+    } else {
+      return NextResponse.json({ error: 'visible_tech_ids must be null or string[]' }, { status: 400 })
+    }
+  }
 
   let geocodeFailed = false
   if ('depot_address' in body) {

@@ -516,9 +516,24 @@ function RoutingTab() {
         <p>After loading or optimizing, drag stops up or down to adjust the order manually. Click <strong className="text-white">Recalculate</strong> to update all ETAs and drive times for the new sequence. The depot stays locked first and last.</p>
       </Section>
 
-      <Section title="Sending Times to Jobber">
-        <p>Click <strong className="text-white">Send to Jobber</strong>. The calculated ETA is written as the scheduled appointment time for each visit (and each assessment). Each stop shows a ✓ or an error after sending.</p>
-        <Note>⚠️ Sending overwrites any existing appointment times on those visits.</Note>
+      <Section title="Sending Back to Jobber">
+        <p>After optimizing you have <strong className="text-white">two ways</strong> to push the order back to Jobber — pick one each time you send. Each stop shows a ✓ or an error after sending.</p>
+
+        <div className="border border-gray-700 rounded-xl p-4 mt-3">
+          <p className="text-white font-medium mb-2">Send Order Only (green button)</p>
+          <p>Keeps visits as &ldquo;anytime&rdquo; in Jobber but sets the stop order so the Jobber mobile app and printed route sheet follow the optimized sequence. Techs stay flexible on timing — no appointment times are written.</p>
+          <p className="mt-2 text-xs text-gray-500">Behind the scenes this uses Jobber&apos;s internal &ldquo;anytime route order&rdquo; controls. Changes apply live in Jobber — no page refresh needed.</p>
+        </div>
+
+        <div className="border border-gray-700 rounded-xl p-4 mt-3">
+          <p className="text-white font-medium mb-2">Send with Times (orange button)</p>
+          <p>Writes the calculated ETA as the scheduled appointment time for each visit (and each assessment). This converts anytime visits to scheduled visits in Jobber.</p>
+          <p className="mt-2 text-xs text-gray-500">Use this when you want appointments shown to customers in Jobber notifications, or when techs need fixed time slots.</p>
+        </div>
+
+        <p className="mt-3"><strong className="text-white">Reassign to</strong> (above the two buttons) only applies when you use <em>Send with Times</em>. Order-Only sends don&apos;t change tech assignments.</p>
+
+        <Note>⚠️ Send with Times overwrites any existing appointment times on those visits. Send Order Only just sets the stop sequence.</Note>
       </Section>
 
       <Section title="Printing the Route Sheet">
@@ -532,7 +547,13 @@ function RoutingTab() {
 
       <Section title="Admin — Routing Settings">
         <AdminOnly>
-          <p>Routing settings are now <strong className="text-white">company-wide</strong> (Session 34) — one admin configures them once and everyone uses the same depot, duration rules, and defaults. Open them at <Link href="/admin/routing" className="text-orange-400 hover:text-orange-300">Admin → Routing</Link>.</p>
+          <p>Routing settings are <strong className="text-white">company-wide</strong> — one admin configures them once and everyone uses the same depot, team-member list, duration rules, and defaults. Open them at <Link href="/admin/routing" className="text-orange-400 hover:text-orange-300">Admin → Routing</Link>.</p>
+
+          <div className="border border-gray-700 rounded-xl p-4 mt-3">
+            <p className="text-white font-medium mb-2">Team Members</p>
+            <p>Choose which Jobber users show up in the Quick Route tech dropdown. Click <strong className="text-white">↻ Refresh from Jobber</strong> to pull the current user list, then check the names you want visible. Use <em>Select all</em> / <em>Clear all</em> as shortcuts.</p>
+            <p className="mt-2 text-xs text-gray-500">Leave everyone unchecked to show all active Jobber users (default). Re-refresh whenever you hire new techs or want to hide someone who&apos;s left.</p>
+          </div>
 
           <div className="border border-gray-700 rounded-xl p-4 mt-3">
             <p className="text-white font-medium mb-2">Depot</p>

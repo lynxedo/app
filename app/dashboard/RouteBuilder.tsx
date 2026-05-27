@@ -159,6 +159,7 @@ export default function RouteBuilder() {
   const [sending, setSending] = useState(false)
   const [sendResults, setSendResults] = useState<SendResult[] | null>(null)
   const [sendError, setSendError] = useState<string | null>(null)
+  const [sendMode, setSendMode] = useState<'times' | 'order' | null>(null)
 
   // ── Computed map URL ──────────────────────────────────────────────────────
   const pinMapUrl = useMemo(() => {
@@ -356,11 +357,24 @@ export default function RouteBuilder() {
     }
   }
 
+  function markSentLocal(results: SendResult[]) {
+    const newlySentIds = new Set(results.filter(r => r.success).map(r => r.visitId))
+    if (newlySentIds.size > 0) {
+      setSentIds(prev => new Set([...prev, ...newlySentIds]))
+      setSelectedIds(prev => {
+        const next = new Set(prev)
+        newlySentIds.forEach(id => next.delete(id))
+        return next
+      })
+    }
+  }
+
   async function sendToJobber() {
     if (!optimizedVisits) return
     setSending(true)
     setSendError(null)
     setSendResults(null)
+    setSendMode('times')
 
     const visitsPayload = optimizedVisits
       .filter(v => v.startAtISO && v.endAtISO)
@@ -384,21 +398,35 @@ export default function RouteBuilder() {
       const data: { results: SendResult[]; allOk: boolean; error?: string } = await res.json()
       if (data.error) { setSendError(data.error); return }
       setSendResults(data.results)
-
-      // Mark successfully sent stops; remove them from selection
-      if (data.results) {
-        const newlySentIds = new Set(data.results.filter(r => r.success).map(r => r.visitId))
-        if (newlySentIds.size > 0) {
-          setSentIds(prev => new Set([...prev, ...newlySentIds]))
-          setSelectedIds(prev => {
-            const next = new Set(prev)
-            newlySentIds.forEach(id => next.delete(id))
-            return next
-          })
-        }
-      }
+      if (data.results) markSentLocal(data.results)
     } catch (e) {
       setSendError(e instanceof Error ? e.message : 'Failed to send to Jobber')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  async function sendOrderOnly() {
+    if (!optimizedVisits || optimizedVisits.length === 0) return
+    setSending(true)
+    setSendError(null)
+    setSendResults(null)
+    setSendMode('order')
+
+    const visitIds = optimizedVisits.map(v => v.id)
+
+    try {
+      const res = await fetch('/api/reorder-jobber', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visit_ids: visitIds }),
+      })
+      const data: { results: SendResult[]; allOk: boolean; error?: string } = await res.json()
+      if (data.error) { setSendError(data.error); return }
+      setSendResults(data.results)
+      if (data.results) markSentLocal(data.results)
+    } catch (e) {
+      setSendError(e instanceof Error ? e.message : 'Failed to send order to Jobber')
     } finally {
       setSending(false)
     }
@@ -780,11 +808,24 @@ ${mapScripts}
 </body>
 </html>`
 
-    const blob = new Blob([html], { type: 'text/html' })
-    const blobUrl = URL.createObjectURL(blob)
-    window.open(blobUrl, '_blank')
-    // Revoke after enough time for the page to load
-    setTimeout(() => URL.revokeObjectURL(blobUrl), 30000)
+    // Hand off via localStorage to /hub/routing/print, which replaces its own
+    // document with the HTML. The blob: URL approach used previously failed to
+    // load Mapbox tiles because the public Mapbox token's URL restrictions
+    // don't match the blob: origin — pins and the route line still drew
+    // (they're DOM elements) but the basemap stayed blank. Loading the sheet
+    // from a real lynxedo.com route fixes the referer check.
+    try {
+      const key = `hub_print_sheet_${Math.random().toString(36).slice(2)}_${Date.now()}`
+      localStorage.setItem(key, JSON.stringify({ html, t: Date.now() }))
+      window.open(`/hub/routing/print?k=${encodeURIComponent(key)}`, '_blank')
+    } catch {
+      // localStorage full or disabled — fall back to the legacy blob path so
+      // the user at least gets a sheet (just without the basemap).
+      const blob = new Blob([html], { type: 'text/html' })
+      const blobUrl = URL.createObjectURL(blob)
+      window.open(blobUrl, '_blank')
+      setTimeout(() => URL.revokeObjectURL(blobUrl), 30000)
+    }
   }
 
   const displayVisits = optimizedVisits ?? visits
@@ -1232,17 +1273,17 @@ ${mapScripts}
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
           <h3 className="font-semibold text-lg mb-1">Send to Jobber</h3>
           <p className="text-sm text-gray-400 mb-4">
-            Sets appointment times on each visit in Jobber based on the optimized order.
+            Push the optimized route back to Jobber. Pick one of two modes below.
           </p>
 
           {sendAllOk && (
             <div className="mb-4 bg-green-900/40 border border-green-700 text-green-300 rounded-lg px-4 py-3 text-sm">
-              ✓ {sendSuccessCount}/{sendResults!.length} visits updated in Jobber — click Reset Order to select your next batch
+              ✓ {sendSuccessCount}/{sendResults!.length} {sendMode === 'order' ? 'visits reordered in Jobber' : 'visits updated in Jobber'} — click Reset Order to select your next batch
             </div>
           )}
           {sendResults && !sendAllOk && (
             <div className="mb-4 bg-yellow-900/40 border border-yellow-700 text-yellow-300 rounded-lg px-4 py-3 text-sm">
-              {sendSuccessCount}/{sendResults.length} updated — {sendResults.length - sendSuccessCount} failed (see stops above)
+              {sendSuccessCount}/{sendResults.length} {sendMode === 'order' ? 'reordered' : 'updated'} — {sendResults.length - sendSuccessCount} failed (see stops above)
             </div>
           )}
           {sendError && (
@@ -1251,28 +1292,48 @@ ${mapScripts}
             </div>
           )}
 
-          <div className="flex flex-col sm:flex-row gap-3 items-end">
-            <div className="flex-1">
-              <label className="block text-xs text-gray-400 mb-1">Reassign to</label>
-              <select
-                value={reassignUserId}
-                onChange={e => setReassignUserId(e.target.value)}
-                disabled={sending}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500 disabled:opacity-50"
-              >
-                <option value="__keep__">Keep current assignment</option>
-                {users.map(u => (
-                  <option key={u.id} value={u.id}>{u.name}</option>
-                ))}
-              </select>
-            </div>
+          <div className="mb-4">
+            <label className="block text-xs text-gray-400 mb-1">Reassign to (Send with Times only)</label>
+            <select
+              value={reassignUserId}
+              onChange={e => setReassignUserId(e.target.value)}
+              disabled={sending}
+              className="w-full sm:w-72 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-orange-500 disabled:opacity-50"
+            >
+              <option value="__keep__">Keep current assignment</option>
+              {users.map(u => (
+                <option key={u.id} value={u.id}>{u.name}</option>
+              ))}
+            </select>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+            <button
+              onClick={sendOrderOnly}
+              disabled={sending}
+              title="Sets the stop order in Jobber without assigning appointment times — visits stay as anytime."
+              className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors text-left"
+            >
+              <div className="font-semibold">
+                {sending && sendMode === 'order' ? 'Sending Order…' : 'Send Order Only →'}
+              </div>
+              <div className="text-xs font-normal opacity-90 mt-0.5">
+                Keep visits as anytime, set the stop order
+              </div>
+            </button>
 
             <button
               onClick={sendToJobber}
               disabled={sending}
-              className="px-6 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors whitespace-nowrap"
+              title="Sets appointment times on each visit, converting anytime visits to scheduled."
+              className="px-4 py-3 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors text-left"
             >
-              {sending ? 'Sending…' : sendResults ? 'Retry Failed' : 'Send to Jobber →'}
+              <div className="font-semibold">
+                {sending && sendMode === 'times' ? 'Sending Times…' : 'Send with Times →'}
+              </div>
+              <div className="text-xs font-normal opacity-90 mt-0.5">
+                Convert to scheduled visits with appointment times
+              </div>
             </button>
           </div>
         </div>
