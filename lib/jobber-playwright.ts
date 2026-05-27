@@ -19,7 +19,7 @@
 //   - 2FA disabled
 //   - access to the visits being reordered
 
-import { chromium, type Browser, type BrowserContext, type Page } from 'playwright'
+import { chromium, type Browser, type BrowserContext, type Locator, type Page } from 'playwright'
 
 const JOBBER_BASE = 'https://secure.getjobber.com'
 const JOBBER_LOGIN_URL = `${JOBBER_BASE}/login`
@@ -67,6 +67,67 @@ async function ensureBrowser(): Promise<Browser> {
   return browser
 }
 
+// Wide selector fallback chains — Jobber's login form has been tweaked over
+// time and we don't want a small DOM change to take us out. Each selector is
+// tried in order until one finds a visible element.
+const EMAIL_SELECTORS = [
+  'input[type="email"]',
+  'input[autocomplete="email"]',
+  'input[autocomplete="username"]',
+  'input[name="user[email]"]',
+  'input[name="email"]',
+  '#user_email',
+  '#email',
+  'input[name*="email" i]',
+  'input[id*="email" i]',
+]
+const PASSWORD_SELECTORS = [
+  'input[type="password"]',
+  'input[autocomplete="current-password"]',
+  'input[name="user[password]"]',
+  'input[name="password"]',
+  '#user_password',
+  '#password',
+]
+const SUBMIT_SELECTORS = [
+  'button[type="submit"]',
+  'input[type="submit"][name="commit"]',
+  'button[data-test="login"]',
+  'button:has-text("Log in")',
+  'button:has-text("Sign in")',
+  'button:has-text("Continue")',
+]
+
+async function firstVisible(
+  page: Page,
+  selectors: string[],
+  timeoutMs: number,
+): Promise<Locator | null> {
+  const deadline = Date.now() + timeoutMs
+  while (Date.now() < deadline) {
+    for (const sel of selectors) {
+      try {
+        const loc = page.locator(sel).first()
+        if ((await loc.count()) > 0 && (await loc.isVisible())) {
+          return loc
+        }
+      } catch {
+        // selector parse error or detached node — try next
+      }
+    }
+    await page.waitForTimeout(250)
+  }
+  return null
+}
+
+async function captureLoginDebug(page: Page, label: string): Promise<string> {
+  const path = `/tmp/jobber-login-debug-${label}-${Date.now()}.png`
+  try {
+    await page.screenshot({ path, fullPage: true })
+  } catch { /* ignore */ }
+  return path
+}
+
 async function login(): Promise<BrowserContext> {
   const email = process.env.JOBBER_BOT_EMAIL
   const password = process.env.JOBBER_BOT_PASSWORD
@@ -88,19 +149,53 @@ async function login(): Promise<BrowserContext> {
   const page = await context.newPage()
   try {
     await page.goto(JOBBER_LOGIN_URL, { waitUntil: 'domcontentloaded', timeout: 30_000 })
+    // Give any framework-driven (React/Stimulus/etc.) form rendering time to
+    // settle before we go hunting for inputs.
+    await page.waitForLoadState('networkidle', { timeout: 15_000 }).catch(() => {})
 
-    // Login form selectors — Jobber is a Rails app; common selector patterns
-    const emailSel = 'input[type="email"], input[name="user[email]"], #user_email'
-    const passSel = 'input[type="password"], input[name="user[password]"], #user_password'
-    const submitSel =
-      'button[type="submit"], input[type="submit"][name="commit"], button[data-test="login"]'
+    const emailField = await firstVisible(page, EMAIL_SELECTORS, 20_000)
+    if (!emailField) {
+      const shot = await captureLoginDebug(page, 'no-email-field')
+      throw new Error(
+        `Login email field not found on ${page.url()} (debug screenshot at ${shot})`,
+      )
+    }
+    await emailField.fill(email)
 
-    await page.locator(emailSel).first().fill(email)
-    await page.locator(passSel).first().fill(password)
-    await page.locator(submitSel).first().click()
+    // Try password field. If not visible yet, this might be a two-step flow
+    // (Jobber may show email then password on the next screen — Google/Okta
+    // style). Click Continue/Submit and look again.
+    let passwordField = await firstVisible(page, PASSWORD_SELECTORS, 2_000)
+    if (!passwordField) {
+      const continueBtn = await firstVisible(page, SUBMIT_SELECTORS, 2_000)
+      if (continueBtn) await continueBtn.click().catch(() => {})
+      passwordField = await firstVisible(page, PASSWORD_SELECTORS, 15_000)
+    }
+    if (!passwordField) {
+      const shot = await captureLoginDebug(page, 'no-password-field')
+      throw new Error(
+        `Login password field not found on ${page.url()} (debug screenshot at ${shot})`,
+      )
+    }
+    await passwordField.fill(password)
 
-    // Wait for navigation away from /login
-    await page.waitForURL(url => !url.toString().includes('/login'), { timeout: 30_000 })
+    const submit = await firstVisible(page, SUBMIT_SELECTORS, 5_000)
+    if (!submit) {
+      const shot = await captureLoginDebug(page, 'no-submit-button')
+      throw new Error(`Login submit button not found (debug screenshot at ${shot})`)
+    }
+    await submit.click()
+
+    // Wait for navigation away from /login. If we stay, creds are bad OR
+    // Jobber is blocking us (rare — anti-bot interstitial, MFA prompt, etc.).
+    try {
+      await page.waitForURL(url => !url.toString().includes('/login'), { timeout: 30_000 })
+    } catch (err) {
+      const shot = await captureLoginDebug(page, 'still-on-login')
+      throw new Error(
+        `Login did not leave /login after submit — check creds, 2FA, or anti-bot block (debug screenshot at ${shot}). Underlying: ${err instanceof Error ? err.message : err}`,
+      )
+    }
   } finally {
     await page.close().catch(() => {})
   }

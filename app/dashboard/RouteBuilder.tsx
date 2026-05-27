@@ -499,10 +499,13 @@ export default function RouteBuilder() {
       ? `${driveHours} hr ${driveRemMin} min (${totalDriveMin} min)`
       : `${totalDriveMin} min`
 
-    // ── Mapbox GL JS map (embedded in the route sheet HTML) ──
+    // ── Mapbox Static Image URL (used both on screen and in print) ──
+    // We deliberately do NOT use Mapbox GL JS here because GL JS tile requests
+    // get blocked by the public token's URL restrictions on certain origins,
+    // while the Static Images API works everywhere the token is enabled
+    // (confirmed: the Quick Route preview map uses the same API and renders
+    // fine on staging + prod).
     const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
-
-    // ── Mapbox Static Image URL (for @media print — GL JS canvas doesn't print) ──
     let staticMapUrl = ''
     if (mapboxToken && depotCoord) {
       const waypoints = [depotCoord, ...optimizedVisits.map(v => ({ lat: v.lat, lng: v.lng }))]
@@ -514,77 +517,12 @@ export default function RouteBuilder() {
         return `pin-s-${label}+c0392b(${v.lng.toFixed(6)},${v.lat.toFixed(6)})`
       })
       const overlays = [pathOverlay, depotMarker, ...stopMarkers].join(',')
-      staticMapUrl = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${overlays}/auto/800x460@2x?padding=40&access_token=${mapboxToken}`
+      staticMapUrl = `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${overlays}/auto/1200x700@2x?padding=40&access_token=${mapboxToken}`
     }
 
-    // Screen: GL JS container + hidden static image (shown only for print)
-    const mapHtml = (mapboxToken && depotCoord)
-      ? `<div id="route-map" style="width:100%;height:460px;"></div>
-         ${staticMapUrl ? `<img class="print-map-img" src="${staticMapUrl}" alt="Route map">` : ''}`
+    const mapHtml = staticMapUrl
+      ? `<img class="route-map-img" src="${staticMapUrl}" alt="Route map">`
       : `<div class="map-unavailable">Configure depot in Settings to enable map</div>`
-
-    // Fetch actual road geometry from Mapbox Directions API (falls back to straight line)
-    let roadCoords: number[][] | null = null
-    if (mapboxToken && depotCoord) {
-      try {
-        const allPts = [depotCoord, ...optimizedVisits.map(v => ({ lng: v.lng, lat: v.lat }))]
-        if (allPts.length <= 25) {
-          const coordStr = allPts.map(p => `${p.lng},${p.lat}`).join(';')
-          const dirUrl = `https://api.mapbox.com/directions/v5/mapbox/driving/${coordStr}?geometries=geojson&overview=full&access_token=${mapboxToken}`
-          const dirRes = await fetch(dirUrl, { signal: AbortSignal.timeout(8000) })
-          const dirData = await dirRes.json() as { code: string; routes?: Array<{ geometry: { coordinates: number[][] } }> }
-          if (dirData.code === 'Ok' && dirData.routes?.[0]?.geometry?.coordinates) {
-            roadCoords = dirData.routes[0].geometry.coordinates
-          }
-        }
-      } catch {
-        // fall through to straight-line
-      }
-    }
-
-    // Scripts placed at bottom of body so #route-map is in the DOM with full dimensions
-    const mapScripts = (mapboxToken && depotCoord) ? (() => {
-      const depot = [depotCoord.lng, depotCoord.lat]
-      const stops = optimizedVisits.map(v => [v.lng, v.lat])
-      // Use road geometry if available, otherwise fall back to straight waypoints
-      const routeCoords = roadCoords ? JSON.stringify(roadCoords) : JSON.stringify([depot, ...stops])
-      const lngs = [depot[0], ...stops.map((s: number[]) => s[0])]
-      const lats = [depot[1], ...stops.map((s: number[]) => s[1])]
-      const bbox = JSON.stringify([
-        [Math.min(...lngs) - 0.005, Math.min(...lats) - 0.005],
-        [Math.max(...lngs) + 0.005, Math.max(...lats) + 0.005],
-      ])
-      return `
-  <link href="https://api.mapbox.com/mapbox-gl-js/v3.0.0/mapbox-gl.css" rel="stylesheet">
-  <script src="https://api.mapbox.com/mapbox-gl-js/v3.0.0/mapbox-gl.js"><\/script>
-  <script>
-    mapboxgl.accessToken = '${mapboxToken}';
-    var map = new mapboxgl.Map({
-      container: 'route-map',
-      style: 'mapbox://styles/mapbox/streets-v12',
-      bounds: ${bbox},
-      fitBoundsOptions: { padding: 55 }
-    });
-    map.addControl(new mapboxgl.NavigationControl(), 'top-right');
-    map.on('load', function() {
-      map.addSource('route', { type: 'geojson', data: {
-        type: 'Feature', geometry: { type: 'LineString', coordinates: ${routeCoords} }
-      }});
-      map.addLayer({ id: 'route-line', type: 'line', source: 'route',
-        paint: { 'line-color': '#1f77b4', 'line-width': 3, 'line-opacity': 0.85 }
-      });
-      var depotEl = document.createElement('div');
-      depotEl.innerHTML = '<div style="background:#16a34a;color:white;width:30px;height:30px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:14px;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">D<\\/div>';
-      new mapboxgl.Marker({ element: depotEl, anchor: 'center' }).setLngLat(${JSON.stringify(depot)}).addTo(map);
-      ${stops.map((s: number[], i: number) => {
-        const label = i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9))
-        return `var el${i} = document.createElement('div');
-      el${i}.innerHTML = '<div style="background:#c0392b;color:white;width:28px;height:28px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-weight:bold;font-size:13px;border:2px solid white;box-shadow:0 2px 6px rgba(0,0,0,0.35)">${label}<\\/div>';
-      new mapboxgl.Marker({ element: el${i}, anchor: 'center' }).setLngLat(${JSON.stringify(s)}).addTo(map);`
-      }).join('\n      ')}
-    });
-  <\/script>`
-    })() : ''
 
     // Page 1: summary stop list
     const returnRow = sheetReturnMin > 0
@@ -684,8 +622,8 @@ export default function RouteBuilder() {
     .print-btn { background: #f97316; color: #fff; border: none; padding: 10px 22px;
       border-radius: 8px; font-size: 14px; cursor: pointer; margin: 16px 24px; display: block; }
 
-    /* Static map image: hidden on screen, shown only for print */
-    .print-map-img { display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+    /* Static route map — used on screen and in print (no GL JS, no tile API). */
+    .route-map-img { display: block; width: 100%; height: 100%; object-fit: cover; }
 
     @media print {
       .print-btn { display: none !important; }
@@ -699,10 +637,6 @@ export default function RouteBuilder() {
       /* Allow stop list to expand beyond fixed height when printing */
       .summary-body { height: auto; }
       .stoplist-panel { overflow: visible; }
-
-      /* Swap GL JS canvas (can't print) for static image */
-      #route-map { display: none !important; }
-      .print-map-img { display: block; }
     }
 
     /* ── Page 1: Summary ── */
@@ -804,7 +738,6 @@ export default function RouteBuilder() {
 
   <!-- Pages 2+: Stop cards -->
   <div class="cards">${cardHtml}</div>
-${mapScripts}
 </body>
 </html>`
 
