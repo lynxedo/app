@@ -1,20 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import dynamic from 'next/dynamic'
-import type { RoutePreviewPin } from '@/components/RoutePreviewMap'
-
-// Mapbox GL JS is browser-only — evaluating it during SSR crashes the page
-// with a Turbopack module-factory error. Dynamic-import so it only loads
-// on the client; SSR renders the lightweight loading placeholder below.
-const RoutePreviewMap = dynamic(() => import('@/components/RoutePreviewMap'), {
-  ssr: false,
-  loading: () => (
-    <div className="w-full h-[520px] flex items-center justify-center text-gray-600 text-sm">
-      Loading map…
-    </div>
-  ),
-})
+import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
 
 interface JobberUser {
   id: string
@@ -1050,7 +1037,6 @@ export default function RouteBuilder() {
                   depotCoord={depotCoord}
                   pins={previewPins}
                   drawDrivePath={!!optimizedVisits && optimizedVisits.length > 0}
-                  className="w-full h-[520px]"
                 />
               ) : (
                 <div className="px-4 py-12 text-gray-600 text-sm text-center">
