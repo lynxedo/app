@@ -444,7 +444,19 @@ function HubTab() {
         <p>What&apos;s different: instead of one text-based card with office instructions and tech updates, v2 shows the day&apos;s <strong className="text-white">stops as an ordered list</strong> with customer names, addresses, scheduled times, and line items. A map at the top of each entry shows the route with numbered pins.</p>
         <p><strong className="text-white">How stops get there:</strong> open the <Link href="/hub/routing" className="text-orange-400 hover:text-orange-300">Route Optimizer</Link>, build a route, then click the new <strong className="text-sky-300">Send to Daily Log</strong> button (blue, next to Send Order Only and Send with Times). The stops queue up under the target tech&apos;s entry for that day. If an entry doesn&apos;t exist yet it&apos;s created; if one already exists with office instructions, those stay — only stops get added or replaced.</p>
         <p>You can run <em>Send to Daily Log</em> independently of the Jobber sends. Sending it doesn&apos;t change anything in Jobber. Re-running it after re-optimizing replaces the stops list with the new order.</p>
-        <p className="text-xs text-gray-500"><strong className="text-gray-400">Coming in later phases:</strong> tap a stop to see full details, mark complete (pushes back to Jobber), &ldquo;On my way&rdquo; text to the customer, navigate button (opens Google Maps), automatic weather capture at completion, pesticide records.</p>
+
+        <p className="mt-4"><strong className="text-white">Tap a stop</strong> to expand it. The detail panel shows:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Customer phone</strong> — tap to call (opens your dialer / phone app)</li>
+          <li><strong className="text-white">Line items</strong> — full list with quantities and prices, plus the total</li>
+          <li><strong className="text-white">Visit instructions</strong> — the same instructions stored on the Jobber visit (gate codes, dog warnings, etc.)</li>
+          <li><strong className="text-white">My notes</strong> — a per-stop notes field for what the tech actually did or saw. Saves automatically when you tap away.</li>
+        </ul>
+
+        <p className="mt-4"><strong className="text-white">Mark Complete</strong> — at the bottom of the expanded panel. Marks the stop done in v2 <strong className="text-white">and</strong> marks the matching Jobber visit complete (via Jobber&apos;s API). The stop&apos;s number badge flips to a green ✓, the row dims, and the entry header&apos;s &ldquo;done&rdquo; count ticks up. Tap <strong className="text-white">Reopen</strong> to undo — also reverses the Jobber visit.</p>
+        <p>If the Jobber push fails (offline, expired token), the local complete still works — you&apos;ll see an amber warning in the detail panel telling you what went wrong. The stop stays marked complete; the office can manually mark the Jobber visit later if needed.</p>
+
+        <p className="mt-4 text-xs text-gray-500"><strong className="text-gray-400">Coming in later phases:</strong> &ldquo;On my way&rdquo; text to the customer, navigate button (opens Google Maps), automatic weather capture at completion, pesticide records.</p>
       </Section>
 
       <Section title="Fleet Tracker">
