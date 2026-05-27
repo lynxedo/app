@@ -72,7 +72,10 @@ export default function RoomView({
             currentUserId={currentUserId}
             hubUsers={hubUsers}
             onClose={() => setOpenThreadMsg(null)}
-            onReplyPosted={(parentId, replyId) => feedRef.current?.bumpReplyCount(parentId, replyId)}
+            onReplyPosted={(parentId, replyId) => {
+              console.log('[roomview] onReplyPosted parentId=', parentId, 'replyId=', replyId, 'feedRefIsSet=', !!feedRef.current)
+              feedRef.current?.bumpReplyCount(parentId, replyId)
+            }}
           />
         </div>
       )}
