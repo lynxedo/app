@@ -2,6 +2,7 @@ import webpush from 'web-push'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendApnsPush } from '@/lib/hub-apns'
 import { sendFcmPush } from '@/lib/hub-fcm'
+import { computeUnreadCount } from '@/lib/hub-badges'
 
 let vapidConfigured = false
 
@@ -37,21 +38,30 @@ export async function sendHubPush(
   const admin = createAdminClient()
   const { isMention = false, isDm = false, roomId = null } = options
 
-  // Fetch DND status + notification prefs for all target users
-  const [statusResult, prefsResult] = await Promise.all([
+  // Fetch DND status + notification prefs + company_id for all target users
+  const [statusResult, prefsResult, profilesResult] = await Promise.all([
     admin
       .from('hub_users')
-      .select('id, status, status_until')
+      .select('id, status, status_until, company_id')
       .in('id', userIds),
     admin
       .from('notification_prefs')
       .select('user_id, room_id, level, dnd_enabled, dnd_start, dnd_end')
       .in('user_id', userIds),
+    admin
+      .from('user_profiles')
+      .select('id, company_id')
+      .in('id', userIds),
   ])
 
   const statusMap: Record<string, { status: string | null; status_until: string | null }> = {}
-  for (const u of statusResult.data ?? []) {
+  const companyMap: Record<string, string> = {}
+  for (const u of (statusResult.data ?? []) as { id: string; status: string | null; status_until: string | null; company_id: string }[]) {
     statusMap[u.id] = { status: u.status, status_until: u.status_until }
+    if (u.company_id) companyMap[u.id] = u.company_id
+  }
+  for (const p of (profilesResult.data ?? []) as { id: string; company_id: string }[]) {
+    if (p.company_id && !companyMap[p.id]) companyMap[p.id] = p.company_id
   }
 
   // Compute current Texas-local time as HH:MM:SS once per send.
@@ -114,6 +124,19 @@ export async function sendHubPush(
 
   if (eligibleIds.length === 0) return
 
+  // Per-user unread count for badge display. Computed in parallel across all
+  // eligible users; each call is two cheap queries (RPC + receipts SELECT).
+  const badgeMap: Record<string, number> = {}
+  await Promise.all(eligibleIds.map(async (uid) => {
+    const companyId = companyMap[uid]
+    if (!companyId) return
+    try {
+      badgeMap[uid] = await computeUnreadCount(admin, uid, companyId)
+    } catch (err) {
+      console.error('[hub-push] badge count failed for', uid, (err as Error).message)
+    }
+  }))
+
   // Web Push (VAPID) — browser / PWA subscribers
   const { data: subs } = await admin
     .from('push_subscriptions')
@@ -147,15 +170,22 @@ export async function sendHubPush(
       .then(({ error }) => { if (error) console.error('[hub-push] delete stale web subs failed:', error.message) })
   }
 
-  // APNs — native iOS app subscribers
+  // APNs — native iOS app subscribers. Group by user_id so each device gets
+  // a payload carrying its owner's actual unread count.
   const { data: apnsRows } = await admin
     .from('apns_tokens')
-    .select('device_token')
+    .select('device_token, user_id')
     .in('user_id', eligibleIds)
 
-  const deviceTokens = (apnsRows ?? []).map((r: { device_token: string }) => r.device_token)
-  if (deviceTokens.length > 0) {
-    sendApnsPush(deviceTokens, payload)
+  const apnsByUser: Record<string, string[]> = {}
+  for (const r of (apnsRows ?? []) as { device_token: string; user_id: string }[]) {
+    if (!apnsByUser[r.user_id]) apnsByUser[r.user_id] = []
+    apnsByUser[r.user_id].push(r.device_token)
+  }
+
+  for (const [uid, tokens] of Object.entries(apnsByUser)) {
+    const badge = badgeMap[uid]
+    sendApnsPush(tokens, { ...payload, ...(typeof badge === 'number' ? { badge } : {}) })
       .then(({ staleTokens }) => {
         if (staleTokens.length > 0) {
           return admin.from('apns_tokens').delete().in('device_token', staleTokens)
@@ -164,15 +194,21 @@ export async function sendHubPush(
       .catch((err: Error) => console.error('[hub-push] apns failed:', err.message))
   }
 
-  // FCM — native Android app subscribers
+  // FCM — native Android app subscribers. Same per-user grouping.
   const { data: fcmRows } = await admin
     .from('fcm_tokens')
-    .select('device_token')
+    .select('device_token, user_id')
     .in('user_id', eligibleIds)
 
-  const fcmTokens = (fcmRows ?? []).map((r: { device_token: string }) => r.device_token)
-  if (fcmTokens.length > 0) {
-    sendFcmPush(fcmTokens, payload)
+  const fcmByUser: Record<string, string[]> = {}
+  for (const r of (fcmRows ?? []) as { device_token: string; user_id: string }[]) {
+    if (!fcmByUser[r.user_id]) fcmByUser[r.user_id] = []
+    fcmByUser[r.user_id].push(r.device_token)
+  }
+
+  for (const [uid, tokens] of Object.entries(fcmByUser)) {
+    const badge = badgeMap[uid]
+    sendFcmPush(tokens, { ...payload, ...(typeof badge === 'number' ? { badge } : {}) })
       .then(({ staleTokens }) => {
         if (staleTokens.length > 0) {
           return admin.from('fcm_tokens').delete().in('device_token', staleTokens)

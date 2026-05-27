@@ -39,9 +39,81 @@ async function getFcmAccessToken(): Promise<string> {
   return cachedToken.value
 }
 
+async function postFcm(
+  endpoint: string,
+  accessToken: string,
+  message: Record<string, unknown>,
+): Promise<{ ok: boolean; stale: boolean }> {
+  const res = await fetch(endpoint, {
+    method: 'POST',
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      'Content-Type': 'application/json',
+    },
+    body: JSON.stringify({ message }),
+  })
+  if (res.ok) return { ok: true, stale: false }
+  const text = await res.text()
+  console.error('[hub-fcm] send failed:', res.status, text)
+  // Only treat UNREGISTERED (uninstalled app / refreshed token) as terminal.
+  // 5xx, 429, and INVALID_ARGUMENT on other fields are transient.
+  try {
+    const parsed = JSON.parse(text) as { error?: { details?: Array<{ errorCode?: string }> } }
+    const code = parsed?.error?.details?.find(d => d.errorCode)?.errorCode
+    return { ok: false, stale: code === 'UNREGISTERED' }
+  } catch {
+    return { ok: false, stale: false }
+  }
+}
+
 export async function sendFcmPush(
   tokens: string[],
-  payload: { title: string; body: string; url: string }
+  payload: { title: string; body: string; url: string; badge?: number }
+): Promise<{ staleTokens: string[] }> {
+  if (tokens.length === 0) return { staleTokens: [] }
+  const projectId = process.env.FCM_PROJECT_ID
+  if (!projectId) throw new Error('FCM_PROJECT_ID not set')
+
+  const accessToken = await getFcmAccessToken()
+  const endpoint = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`
+
+  const androidNotification: Record<string, unknown> = {}
+  if (typeof payload.badge === 'number') {
+    // Samsung One UI honors notification_count for numeric badge display.
+    // Pixel + most other launchers show a dot regardless (managed by the OS).
+    androidNotification.notification_count = payload.badge
+  }
+
+  const staleTokens: string[] = []
+  await Promise.all(tokens.map(async (token) => {
+    const message: Record<string, unknown> = {
+      token,
+      notification: { title: payload.title, body: payload.body },
+      // Top-level data — Android delivers these as Intent extras to
+      // MainActivity when the user taps the notification.
+      data: {
+        url: payload.url,
+        ...(typeof payload.badge === 'number' ? { badge: String(payload.badge) } : {}),
+      },
+    }
+    if (Object.keys(androidNotification).length > 0) {
+      message.android = { notification: androidNotification }
+    }
+    const { stale } = await postFcm(endpoint, accessToken, message)
+    if (stale) staleTokens.push(token)
+  }))
+
+  return { staleTokens }
+}
+
+// Silent badge-only update for Android. FCM doesn't expose a direct
+// "set badge" API — Android badges are launcher-managed off of visible
+// notifications. We send a data-only message so the JS bridge (if listening)
+// can react; on most launchers the badge will refresh naturally on the
+// next visible notification.
+export async function sendFcmBadgeOnly(
+  tokens: string[],
+  badge: number,
 ): Promise<{ staleTokens: string[] }> {
   if (tokens.length === 0) return { staleTokens: [] }
   const projectId = process.env.FCM_PROJECT_ID
@@ -51,40 +123,15 @@ export async function sendFcmPush(
   const endpoint = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`
 
   const staleTokens: string[] = []
-
-  await Promise.allSettled(tokens.map(token =>
-    fetch(endpoint, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({
-        message: {
-          token,
-          notification: { title: payload.title, body: payload.body },
-          // Top-level data — Android delivers these as Intent extras to
-          // MainActivity when the user taps the notification (both for
-          // FCM-auto-handled background notifications and our manually-shown
-          // foreground notifications).
-          data: { url: payload.url },
-        },
-      }),
-    }).then(async r => {
-      if (!r.ok) {
-        const text = await r.text()
-        console.error('[hub-fcm] send failed:', r.status, text)
-        // Only treat UNREGISTERED (uninstalled app / refreshed token) as
-        // terminal. 5xx, 429, and INVALID_ARGUMENT on other fields are
-        // transient or upstream issues — don't delete on those.
-        try {
-          const parsed = JSON.parse(text) as { error?: { details?: Array<{ errorCode?: string }> } }
-          const code = parsed?.error?.details?.find(d => d.errorCode)?.errorCode
-          if (code === 'UNREGISTERED') staleTokens.push(token)
-        } catch { /* not JSON, skip */ }
-      }
-    })
-  ))
+  await Promise.all(tokens.map(async (token) => {
+    const message: Record<string, unknown> = {
+      token,
+      data: { type: 'badge_clear', badge: String(badge) },
+      android: { priority: 'normal' },
+    }
+    const { stale } = await postFcm(endpoint, accessToken, message)
+    if (stale) staleTokens.push(token)
+  }))
 
   return { staleTokens }
 }
