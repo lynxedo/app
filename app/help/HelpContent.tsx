@@ -217,9 +217,10 @@ function HubTab() {
           <li><strong className="text-white">Join a room</strong> — sidebar &gt; <em>+ Browse rooms</em>, then click Join on any room you want to be in.</li>
           <li><strong className="text-white">Leave a room</strong> — open the room, click the room name at the top, then Leave.</li>
           <li><strong className="text-white">Star a room</strong> — click the star icon next to a room in the sidebar to pin it to the top.</li>
+          <li><strong className="text-white">See who&apos;s in the room</strong> — tap the people icon in the top-right of the room header to open a list of everyone in it.</li>
         </ul>
         <AdminOnly>
-          <p>Admins can create new rooms from the sidebar (<em>+ New room</em>), edit room names and descriptions, and remove members. Rooms can be made <strong className="text-white">private</strong> (members-only, doesn&apos;t appear in Browse).</p>
+          <p>Admins can create new rooms from the sidebar (<em>+ New room</em>), edit room names and descriptions, and add or remove members from <strong className="text-white">/admin/hub → Rooms</strong>. Rooms can be made <strong className="text-white">private</strong> (members-only, doesn&apos;t appear in Browse, and only members can see who else is in it).</p>
         </AdminOnly>
       </Section>
 
