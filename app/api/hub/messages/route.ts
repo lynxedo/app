@@ -6,6 +6,7 @@ import { askClaude } from '@/lib/hub-claude'
 import { resolveGuardianTier } from '@/lib/guardian-permissions'
 import { markActive } from '@/lib/hub-activity'
 import { bridgeHubMessageToChatSynx } from '@/lib/chat-synx'
+import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
 
 const MESSAGE_SELECT = `
   id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from, source,
@@ -159,43 +160,17 @@ export async function POST(request: Request) {
 
   // Realtime fallback. Supabase postgres_changes on `messages` sometimes
   // silently drops INSERT events (especially for iOS webviews where the
-  // realtime websocket gets suspended). Fire the same broadcast pattern
-  // chat-synx/events uses so MessageFeed (`feed:` channel) and HubSidebar
-  // (`hub-sidebar-messages` channel) pick the message up either way.
-  // Both clients dedupe by id so receiving via both paths is harmless.
-  void (async () => {
-    const broadcastAdmin = createAdminClient()
-    try {
-      const feedChannel = broadcastAdmin.channel(`feed:${room_id ?? conversation_id}`)
-      await feedChannel.subscribe()
-      await feedChannel.send({
-        type: 'broadcast',
-        event: 'message-inserted',
-        payload: { id: msg.id, parent_id: parent_id ?? null, sender_id: user.id },
-      })
-      await broadcastAdmin.removeChannel(feedChannel)
-    } catch (err) {
-      console.warn('[messages] feed broadcast failed:', (err as Error).message)
-    }
-    try {
-      const sidebarChannel = broadcastAdmin.channel('hub-sidebar-messages')
-      await sidebarChannel.subscribe()
-      await sidebarChannel.send({
-        type: 'broadcast',
-        event: 'message-inserted',
-        payload: {
-          id: msg.id,
-          room_id: room_id ?? null,
-          conversation_id: conversation_id ?? null,
-          parent_id: parent_id ?? null,
-          sender_id: user.id,
-        },
-      })
-      await broadcastAdmin.removeChannel(sidebarChannel)
-    } catch (err) {
-      console.warn('[messages] sidebar broadcast failed:', (err as Error).message)
-    }
-  })()
+  // realtime websocket gets suspended). MessageFeed (`feed:` channel) +
+  // HubSidebar (`hub-sidebar-messages` channel) both listen on this
+  // broadcast and dedupe by id, so receiving via realtime AND broadcast
+  // is harmless.
+  void broadcastMessageInserted({
+    messageId: msg.id,
+    roomId: room_id ?? null,
+    conversationId: conversation_id ?? null,
+    parentId: parent_id ?? null,
+    senderId: user.id,
+  })
 
   // All push recipient lookups use adminClient to bypass RLS
   const pushAdmin = createAdminClient()
@@ -447,12 +422,21 @@ async function fireAutomationRules({
       .replace(/\{room\}/g, roomName)
 
     if (rule.action_type === 'post_room' && rule.target_room_id) {
-      await admin.from('messages').insert({
+      const { data: inserted } = await admin.from('messages').insert({
         company_id: companyId,
         room_id: rule.target_room_id,
         sender_id: CLAUDE_BOT_ID,
         content: messageText,
-      })
+      }).select('id').single()
+      if (inserted) {
+        void broadcastMessageInserted({
+          messageId: inserted.id,
+          roomId: rule.target_room_id,
+          conversationId: null,
+          parentId: null,
+          senderId: CLAUDE_BOT_ID,
+        })
+      }
     } else if (rule.action_type === 'create_board_task' && rule.target_board_id) {
       await admin.from('board_items').insert({
         board_id: rule.target_board_id,
@@ -496,12 +480,21 @@ async function fireAutomationRules({
         ])
       }
 
-      await admin.from('messages').insert({
+      const { data: inserted } = await admin.from('messages').insert({
         company_id: companyId,
         conversation_id: conversationId,
         sender_id: CLAUDE_BOT_ID,
         content: messageText,
-      })
+      }).select('id').single()
+      if (inserted) {
+        void broadcastMessageInserted({
+          messageId: inserted.id,
+          roomId: null,
+          conversationId,
+          parentId: null,
+          senderId: CLAUDE_BOT_ID,
+        })
+      }
     }
   }
 }
@@ -550,12 +543,21 @@ async function handleClaudeReplyDM({
     : CLAUDE_SYSTEM_PROMPT
 
   // Instant acknowledgment so users know Claude is working
-  await admin.from('messages').insert({
+  const { data: ackMsg } = await admin.from('messages').insert({
     company_id: companyId,
     conversation_id: conversationId,
     sender_id: CLAUDE_BOT_ID,
     content: 'On it! Please stand by…',
-  })
+  }).select('id').single()
+  if (ackMsg) {
+    void broadcastMessageInserted({
+      messageId: ackMsg.id,
+      roomId: null,
+      conversationId,
+      parentId: null,
+      senderId: CLAUDE_BOT_ID,
+    })
+  }
 
   const tier = await resolveGuardianTier(admin, userId, { conversationId })
 
@@ -575,12 +577,21 @@ async function handleClaudeReplyDM({
 
   if (!claudeText.trim()) return
 
-  await admin.from('messages').insert({
+  const { data: replyMsg } = await admin.from('messages').insert({
     company_id: companyId,
     conversation_id: conversationId,
     sender_id: CLAUDE_BOT_ID,
     content: claudeText.trim(),
-  })
+  }).select('id').single()
+  if (replyMsg) {
+    void broadcastMessageInserted({
+      messageId: replyMsg.id,
+      roomId: null,
+      conversationId,
+      parentId: null,
+      senderId: CLAUDE_BOT_ID,
+    })
+  }
 }
 
 async function handleClaudeReply({
@@ -663,13 +674,22 @@ async function handleClaudeReply({
     : CLAUDE_SYSTEM_PROMPT
 
   // Instant acknowledgment so users know Claude is working
-  await admin.from('messages').insert({
+  const { data: ackMsg } = await admin.from('messages').insert({
     company_id: companyId,
     room_id: roomId,
     parent_id: parentMessageId,
     sender_id: CLAUDE_BOT_ID,
     content: 'On it! Please stand by…',
-  })
+  }).select('id').single()
+  if (ackMsg) {
+    void broadcastMessageInserted({
+      messageId: ackMsg.id,
+      roomId,
+      conversationId: null,
+      parentId: parentMessageId,
+      senderId: CLAUDE_BOT_ID,
+    })
+  }
 
   const tier = await resolveGuardianTier(admin, userId, { roomId })
 
@@ -689,11 +709,20 @@ async function handleClaudeReply({
 
   if (!claudeText.trim()) return
 
-  await admin.from('messages').insert({
+  const { data: replyMsg } = await admin.from('messages').insert({
     company_id: companyId,
     room_id: roomId,
     parent_id: parentMessageId,
     sender_id: CLAUDE_BOT_ID,
     content: claudeText.trim(),
-  })
+  }).select('id').single()
+  if (replyMsg) {
+    void broadcastMessageInserted({
+      messageId: replyMsg.id,
+      roomId,
+      conversationId: null,
+      parentId: parentMessageId,
+      senderId: CLAUDE_BOT_ID,
+    })
+  }
 }
