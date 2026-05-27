@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
+import type { Map as MapboxMap, Marker as MapboxMarker, GeoJSONSource } from 'mapbox-gl'
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
 
@@ -24,7 +24,8 @@ interface RoutePreviewMapProps {
    * in the desired visit order. When false, no polyline is drawn.
    */
   drawDrivePath: boolean
-  className?: string
+  /** Pixel height of the map. Defaults to 520. */
+  height?: number
 }
 
 // In-process cache: ordered coord-string → GeoJSON LineString feature.
@@ -40,9 +41,6 @@ async function fetchDirections(
   token: string,
   signal?: AbortSignal,
 ): Promise<GeoJSON.Feature<GeoJSON.LineString> | null> {
-  // Mapbox Directions API caps at 25 waypoints per request. Heroes routes
-  // sit well under that; if a route ever exceeds the cap, fall back to the
-  // straight-line representation rather than chaining requests.
   if (pts.length < 2 || pts.length > 25) return null
   const key = coordsKey(pts)
   const cached = directionsCache.get(key)
@@ -111,13 +109,14 @@ export default function RoutePreviewMap({
   depotCoord,
   pins,
   drawDrivePath,
-  className,
+  height = 520,
 }: RoutePreviewMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
-  const mapRef = useRef<mapboxgl.Map | null>(null)
-  const markersRef = useRef<mapboxgl.Marker[]>([])
+  const mapRef = useRef<MapboxMap | null>(null)
+  const markersRef = useRef<MapboxMarker[]>([])
   const [mapReady, setMapReady] = useState(false)
   const [pathFallback, setPathFallback] = useState(false)
+  const [loadError, setLoadError] = useState<string | null>(null)
 
   // Memoize the ordered coords used for both pins and the path,
   // so the path-fetch effect doesn't fire on unrelated re-renders.
@@ -127,53 +126,79 @@ export default function RoutePreviewMap({
   }, [depotCoord, pins])
 
   // ── Initial map setup ────────────────────────────────────────────────────
+  // mapbox-gl is browser-only. We lazy-load it inside the effect so that the
+  // module never reaches the SSR chunk (an earlier static top-level import
+  // crashed Turbopack with "module factory is not available" on /dashboard
+  // and /hub/routing).
   useEffect(() => {
     if (!containerRef.current || mapRef.current) return
-    if (!MAPBOX_TOKEN) return
-    mapboxgl.accessToken = MAPBOX_TOKEN
-    const map = new mapboxgl.Map({
-      container: containerRef.current,
-      style: 'mapbox://styles/mapbox/streets-v12',
-      center: [-95.45, 30.27],
-      zoom: 10,
-    })
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
-    map.addControl(new mapboxgl.FullscreenControl(), 'top-right')
-    map.on('load', () => {
-      map.addSource('route-path', {
-        type: 'geojson',
-        data: { type: 'FeatureCollection', features: [] },
-      })
-      map.addLayer({
-        id: 'route-path-line',
-        type: 'line',
-        source: 'route-path',
-        layout: { 'line-cap': 'round', 'line-join': 'round' },
-        paint: {
-          'line-color': '#1f77b4',
-          'line-width': 4,
-          'line-opacity': 0.85,
-        },
-      })
-      setMapReady(true)
-    })
-    mapRef.current = map
+    if (!MAPBOX_TOKEN) {
+      setLoadError('Mapbox token not configured')
+      return
+    }
 
-    // Mapbox needs explicit resize calls when the container's pixel dimensions
-    // settle after the surrounding flex layout. Hammer a few frames, then keep
-    // observing for ongoing changes (sidebar collapse, window resize, etc.).
-    const container = containerRef.current
-    const ro = new ResizeObserver(() => map.resize())
-    ro.observe(container)
-    const timers: number[] = []
-    ;[0, 50, 200, 500, 1000].forEach(ms => {
-      timers.push(window.setTimeout(() => map.resize(), ms))
-    })
+    let cancelled = false
+    let cleanupResize: (() => void) | null = null
+
+    ;(async () => {
+      try {
+        const mapboxgl = (await import('mapbox-gl')).default
+        if (cancelled || !containerRef.current) return
+
+        mapboxgl.accessToken = MAPBOX_TOKEN
+        const map = new mapboxgl.Map({
+          container: containerRef.current,
+          style: 'mapbox://styles/mapbox/streets-v12',
+          center: [-95.45, 30.27],
+          zoom: 10,
+        })
+        map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
+        map.addControl(new mapboxgl.FullscreenControl(), 'top-right')
+        map.on('load', () => {
+          map.addSource('route-path', {
+            type: 'geojson',
+            data: { type: 'FeatureCollection', features: [] },
+          })
+          map.addLayer({
+            id: 'route-path-line',
+            type: 'line',
+            source: 'route-path',
+            layout: { 'line-cap': 'round', 'line-join': 'round' },
+            paint: {
+              'line-color': '#1f77b4',
+              'line-width': 4,
+              'line-opacity': 0.85,
+            },
+          })
+          setMapReady(true)
+        })
+        mapRef.current = map
+
+        // Mapbox needs explicit resize calls when the container's pixel
+        // dimensions settle after the surrounding flex layout. Hammer a few
+        // frames, then keep observing for ongoing changes.
+        const container = containerRef.current
+        const ro = new ResizeObserver(() => map.resize())
+        ro.observe(container)
+        const timers: number[] = []
+        ;[0, 50, 200, 500, 1000].forEach(ms => {
+          timers.push(window.setTimeout(() => map.resize(), ms))
+        })
+        cleanupResize = () => {
+          timers.forEach(t => window.clearTimeout(t))
+          ro.disconnect()
+        }
+      } catch (e) {
+        if (!cancelled) {
+          setLoadError(e instanceof Error ? e.message : 'Map failed to load')
+        }
+      }
+    })()
 
     return () => {
-      timers.forEach(t => window.clearTimeout(t))
-      ro.disconnect()
-      map.remove()
+      cancelled = true
+      cleanupResize?.()
+      mapRef.current?.remove()
       mapRef.current = null
       setMapReady(false)
     }
@@ -183,51 +208,59 @@ export default function RoutePreviewMap({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady) return
-    for (const m of markersRef.current) m.remove()
-    markersRef.current = []
+    let cancelled = false
 
-    if (depotCoord) {
-      const el = buildPinEl({
-        id: '__depot__',
-        lat: depotCoord.lat,
-        lng: depotCoord.lng,
-        label: 'D',
-        color: '16a34a',
-        title: 'Depot',
-      })
-      const m = new mapboxgl.Marker({ element: el })
-        .setLngLat([depotCoord.lng, depotCoord.lat])
-        .addTo(map)
-      markersRef.current.push(m)
-    }
+    ;(async () => {
+      const mapboxgl = (await import('mapbox-gl')).default
+      if (cancelled || !mapRef.current) return
 
-    for (const pin of pins) {
-      const el = buildPinEl(pin)
-      const m = new mapboxgl.Marker({ element: el })
-        .setLngLat([pin.lng, pin.lat])
-        .addTo(map)
-      markersRef.current.push(m)
-    }
+      for (const m of markersRef.current) m.remove()
+      markersRef.current = []
 
-    // Fit bounds whenever the set of points changes.
-    const allPts: Array<{ lat: number; lng: number }> = [
-      ...(depotCoord ? [depotCoord] : []),
-      ...pins,
-    ]
-    if (allPts.length === 1) {
-      map.easeTo({ center: [allPts[0].lng, allPts[0].lat], zoom: 13, duration: 0 })
-    } else if (allPts.length > 1) {
-      const bounds = new mapboxgl.LngLatBounds()
-      for (const p of allPts) bounds.extend([p.lng, p.lat])
-      map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 300 })
-    }
+      if (depotCoord) {
+        const el = buildPinEl({
+          id: '__depot__',
+          lat: depotCoord.lat,
+          lng: depotCoord.lng,
+          label: 'D',
+          color: '16a34a',
+          title: 'Depot',
+        })
+        const m = new mapboxgl.Marker({ element: el })
+          .setLngLat([depotCoord.lng, depotCoord.lat])
+          .addTo(map)
+        markersRef.current.push(m)
+      }
+
+      for (const pin of pins) {
+        const el = buildPinEl(pin)
+        const m = new mapboxgl.Marker({ element: el })
+          .setLngLat([pin.lng, pin.lat])
+          .addTo(map)
+        markersRef.current.push(m)
+      }
+
+      const allPts: Array<{ lat: number; lng: number }> = [
+        ...(depotCoord ? [depotCoord] : []),
+        ...pins,
+      ]
+      if (allPts.length === 1) {
+        map.easeTo({ center: [allPts[0].lng, allPts[0].lat], zoom: 13, duration: 0 })
+      } else if (allPts.length > 1) {
+        const bounds = new mapboxgl.LngLatBounds()
+        for (const p of allPts) bounds.extend([p.lng, p.lat])
+        map.fitBounds(bounds, { padding: 60, maxZoom: 14, duration: 300 })
+      }
+    })()
+
+    return () => { cancelled = true }
   }, [depotCoord, pins, mapReady])
 
   // ── Fetch + render the driving polyline (debounced) ──────────────────────
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady) return
-    const source = map.getSource('route-path') as mapboxgl.GeoJSONSource | undefined
+    const source = map.getSource('route-path') as GeoJSONSource | undefined
     if (!source) return
 
     if (!drawDrivePath || !orderedPathCoords) {
@@ -237,8 +270,7 @@ export default function RoutePreviewMap({
     }
 
     // Show straight lines immediately so the user sees *something* while the
-    // Directions API call is in flight or debouncing. The real polyline
-    // replaces it once fetched.
+    // Directions API call is in flight or debouncing.
     const straight = straightLineFeature(orderedPathCoords)
     source.setData(straight)
 
@@ -246,7 +278,7 @@ export default function RoutePreviewMap({
     const timer = window.setTimeout(async () => {
       const feature = await fetchDirections(orderedPathCoords, MAPBOX_TOKEN, ctrl.signal)
       if (ctrl.signal.aborted) return
-      const live = mapRef.current?.getSource('route-path') as mapboxgl.GeoJSONSource | undefined
+      const live = mapRef.current?.getSource('route-path') as GeoJSONSource | undefined
       if (!live) return
       if (feature) {
         live.setData(feature)
@@ -263,20 +295,22 @@ export default function RoutePreviewMap({
     }
   }, [orderedPathCoords, drawDrivePath, mapReady])
 
-  if (!MAPBOX_TOKEN) {
-    return (
-      <div className={className ?? 'w-full h-[480px]'}>
-        <div className="h-full flex items-center justify-center px-4 py-12 text-gray-600 text-sm text-center">
-          Map unavailable — configure Mapbox token
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className={`${className ?? 'w-full h-[480px]'} relative`}>
-      <div ref={containerRef} className="absolute inset-0" />
-      {drawDrivePath && pathFallback && (
+    <div
+      style={{
+        position: 'relative',
+        width: '100%',
+        height: `${height}px`,
+        background: '#0f172a',
+      }}
+    >
+      <div ref={containerRef} style={{ position: 'absolute', inset: 0 }} />
+      {loadError && (
+        <div className="absolute inset-0 flex items-center justify-center text-red-300 text-sm bg-black/60 px-4 text-center">
+          ⚠ {loadError}
+        </div>
+      )}
+      {drawDrivePath && pathFallback && !loadError && (
         <div className="absolute bottom-2 left-2 text-[11px] bg-black/60 text-yellow-300 px-2 py-1 rounded">
           Showing straight-line route — couldn&apos;t fetch road path
         </div>
