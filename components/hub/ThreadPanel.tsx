@@ -127,6 +127,12 @@ export default function ThreadPanel({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const didInitialScroll = useRef(false)
   const supabase = createClient()
+  // Keep the latest onReplyPosted in a ref so the realtime subscription
+  // (keyed only on parentMessage.id) can call it without listing it in the
+  // effect deps — it's a fresh closure each render and would otherwise force
+  // a constant re-subscribe.
+  const onReplyPostedRef = useRef(onReplyPosted)
+  onReplyPostedRef.current = onReplyPosted
 
   useEffect(() => {
     if (emojiQuery === null || emojiQuery.length === 0) { setEmojiResults([]); return }
@@ -323,23 +329,42 @@ export default function ThreadPanel({
   }, [replies.length])
 
   useEffect(() => {
+    // Apply a reply that arrived via either realtime path. Fetches the full
+    // row, dedupes into the list (dropping any optimistic temp entry), and
+    // bumps the parent's "N replies" count via onReplyPosted — deduped by
+    // reply id on the receiving side, so postgres_changes + broadcast + the
+    // sender's own local notify can't double-count.
+    const applyIncomingReply = async (id: string) => {
+      const { data } = await supabase
+        .from('messages')
+        .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot), files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)')
+        .eq('id', id)
+        .single()
+      if (!data) return
+      const reply = data as unknown as Reply
+      setReplies(prev => {
+        const withoutTemp = prev.filter(r => !r.id.startsWith('temp-'))
+        if (withoutTemp.some(r => r.id === reply.id)) return withoutTemp
+        return [...withoutTemp, reply]
+      })
+      onReplyPostedRef.current?.(parentMessage.id, reply.id)
+    }
+
     const channel = supabase
       .channel(`thread:${parentMessage.id}`)
       .on('postgres_changes', {
         event: 'INSERT', schema: 'public', table: 'messages',
         filter: `parent_id=eq.${parentMessage.id}`,
-      }, async (payload) => {
-        const { data } = await supabase
-          .from('messages')
-          .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot), files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)')
-          .eq('id', payload.new.id)
-          .single()
-        if (data) setReplies(prev => {
-          // Deduplicate: remove any temp optimistic entry, then add the real one if not already present
-          const withoutTemp = prev.filter(r => !r.id.startsWith('temp-'))
-          if (withoutTemp.some(r => r.id === (data as unknown as Reply).id)) return withoutTemp
-          return [...withoutTemp, data as unknown as Reply]
-        })
+      }, (payload) => { void applyIncomingReply(payload.new.id as string) })
+      // Broadcast fallback — postgres_changes routinely drops admin-client
+      // inserts (Guardian's async reply especially), so the server fires a
+      // `thread:<parentId>` broadcast after inserting any threaded message.
+      // Without this an open thread never shows Guardian's reply (or bumps
+      // the count) until a hard refresh.
+      .on('broadcast', { event: 'message-inserted' }, (payload) => {
+        const p = (payload.payload ?? {}) as { id?: string; parent_id?: string | null }
+        if (!p.id || p.parent_id !== parentMessage.id) return
+        void applyIncomingReply(p.id)
       })
       .subscribe()
 
