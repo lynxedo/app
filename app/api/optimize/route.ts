@@ -219,8 +219,32 @@ export async function POST(req: NextRequest) {
     poolMatrix = matIdxs.map(ri => matIdxs.map(ci => durationMatrix![ri][ci]))
   }
 
+  // Build TSP anchors so the solver optimizes the middle stops as
+  //   lockedFirst → middle[0] → … → middle[n-1] → lockedLast
+  // instead of always using the depot as both bookends. When a side is
+  // unlocked it falls back to the depot, which matches the pre-pin behavior.
+  const startAnchor = lockedFirstGroupIdx !== null
+    ? uniqueGroups[lockedFirstGroupIdx].coord
+    : depot
+  const endAnchor = lockedLastGroupIdx !== null
+    ? uniqueGroups[lockedLastGroupIdx].coord
+    : depot
+  let startCosts: number[] | undefined
+  let endCosts: number[] | undefined
+  if (durationMatrix && poolGroups.length > 0) {
+    const startMatIdx = lockedFirstGroupIdx !== null ? lockedFirstGroupIdx + 1 : 0
+    const endMatIdx = lockedLastGroupIdx !== null ? lockedLastGroupIdx + 1 : 0
+    startCosts = poolGroupIndices.map(pi => durationMatrix![startMatIdx][pi + 1])
+    endCosts = poolGroupIndices.map(pi => durationMatrix![pi + 1][endMatIdx])
+  }
+
   const poolLocalGroupOrder = poolGroups.length > 1
-    ? twoOptTSP(poolGroups.map(g => g.coord), depot, poolMatrix ?? undefined)
+    ? twoOptTSP(
+        poolGroups.map(g => g.coord),
+        depot,
+        poolMatrix ?? undefined,
+        { startAnchor, endAnchor, startCosts, endCosts },
+      )
     : poolGroups.map((_, i) => i)
 
   const localGroupOrder: number[] = []
