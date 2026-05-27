@@ -103,6 +103,15 @@ export default function DailyLogV2View({
   const [depot, setDepot] = useState<{ lat: number; lng: number } | null>(null)
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
+  const [isMobile, setIsMobile] = useState(false)
+
+  useEffect(() => {
+    const mq = window.matchMedia('(max-width: 767px)')
+    const sync = () => setIsMobile(mq.matches)
+    sync()
+    mq.addEventListener('change', sync)
+    return () => mq.removeEventListener('change', sync)
+  }, [])
 
   const load = useCallback(async (d: string) => {
     setLoading(true)
@@ -136,92 +145,103 @@ export default function DailyLogV2View({
   }, [entries, filter, currentUserId])
 
   return (
-    <div className="max-w-5xl mx-auto px-4 md:px-6 py-6">
-      <header className="mb-6">
-        <div className="flex items-center justify-between mb-2">
-          <h1 className="text-2xl font-semibold text-white">Daily Log v2</h1>
-          <span className="text-xs bg-violet-500/20 text-violet-200 px-2 py-1 rounded">Preview</span>
+    <div className="flex flex-col h-full">
+      {/* Header — stays fixed at top while content scrolls below */}
+      <header className="flex-none px-3 md:px-6 pt-4 pb-3 border-b border-gray-800">
+        <div className="max-w-5xl mx-auto">
+          <div className="flex items-center justify-between mb-1">
+            <h1 className="text-xl md:text-2xl font-semibold text-white">Daily Log v2</h1>
+            <span className="text-[10px] md:text-xs bg-violet-500/20 text-violet-200 px-2 py-0.5 rounded">Preview</span>
+          </div>
+          <p className="text-xs md:text-sm text-gray-400 hidden md:block">
+            Tech-facing view of each day&apos;s stops. Populated by the Route Optimizer&apos;s <strong>Send to Daily Log</strong> button.
+          </p>
+
+          {/* Date + filter row */}
+          <div className="flex flex-wrap items-center gap-2 mt-3">
+            <div className="flex items-center gap-1.5">
+              <button
+                onClick={() => setDate(offsetDate(date, -1))}
+                className="px-3 py-2 md:py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white min-w-[40px]"
+                title="Previous day"
+              >
+                ←
+              </button>
+              <input
+                type="date"
+                value={date}
+                onChange={e => setDate(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded px-3 py-2 md:py-1.5 text-base md:text-sm text-white"
+              />
+              <button
+                onClick={() => setDate(offsetDate(date, 1))}
+                className="px-3 py-2 md:py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white min-w-[40px]"
+                title="Next day"
+              >
+                →
+              </button>
+              {date !== todayStr() && (
+                <button
+                  onClick={() => setDate(todayStr())}
+                  className="px-3 py-2 md:py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
+                >
+                  Today
+                </button>
+              )}
+            </div>
+            <div className="ml-auto flex items-center gap-1 bg-gray-800 border border-gray-700 rounded p-0.5">
+              <button
+                onClick={() => setFilter('all')}
+                className={`px-3 py-1.5 md:py-1 rounded text-sm ${filter === 'all' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
+              >
+                All
+              </button>
+              <button
+                onClick={() => setFilter('mine')}
+                className={`px-3 py-1.5 md:py-1 rounded text-sm ${filter === 'mine' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
+              >
+                My Day
+              </button>
+            </div>
+          </div>
+          <div className="text-xs text-gray-400 mt-2">
+            {formatDateHeading(date)}
+          </div>
         </div>
-        <p className="text-sm text-gray-400">
-          Tech-facing view of each day's stops. Populated by the Route Optimizer's <strong>Send to Daily Log</strong> button.
-        </p>
-        <p className="text-xs text-gray-500 mt-1">
-          The original Daily Log is still available at <a href="/hub/daily-log" className="text-sky-400 hover:underline">/hub/daily-log</a>.
-        </p>
       </header>
 
-      {/* Date + filter row */}
-      <div className="flex flex-wrap items-center gap-3 mb-6">
-        <div className="flex items-center gap-2">
-          <button
-            onClick={() => setDate(offsetDate(date, -1))}
-            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
-            title="Previous day"
-          >
-            ←
-          </button>
-          <input
-            type="date"
-            value={date}
-            onChange={e => setDate(e.target.value)}
-            className="bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white"
-          />
-          <button
-            onClick={() => setDate(offsetDate(date, 1))}
-            className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
-            title="Next day"
-          >
-            →
-          </button>
-          {date !== todayStr() && (
-            <button
-              onClick={() => setDate(todayStr())}
-              className="px-3 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded text-sm text-white"
-            >
-              Today
-            </button>
+      {/* Scrollable content area */}
+      <div className="flex-1 overflow-y-auto overscroll-contain">
+        <div className="max-w-5xl mx-auto px-3 md:px-6 py-4 pb-24">
+          {loading && <div className="text-gray-500 text-sm">Loading…</div>}
+          {error && (
+            <div className="bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm mb-4">
+              {error}
+            </div>
           )}
-        </div>
-        <div className="text-sm text-gray-300 hidden sm:block">
-          {formatDateHeading(date)}
-        </div>
-        <div className="ml-auto flex items-center gap-1 bg-gray-800 border border-gray-700 rounded p-0.5">
-          <button
-            onClick={() => setFilter('all')}
-            className={`px-3 py-1 rounded text-sm ${filter === 'all' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
-          >
-            All
-          </button>
-          <button
-            onClick={() => setFilter('mine')}
-            className={`px-3 py-1 rounded text-sm ${filter === 'mine' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
-          >
-            My Day
-          </button>
-        </div>
-      </div>
 
-      {loading && <div className="text-gray-500 text-sm">Loading…</div>}
-      {error && (
-        <div className="bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm mb-4">
-          {error}
-        </div>
-      )}
+          {!loading && !error && visibleEntries.length === 0 && (
+            <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 md:p-8 text-center">
+              <p className="text-gray-400 mb-2">No entries for {formatDateHeading(date)}.</p>
+              <p className="text-sm text-gray-500">
+                Run the <a href="/hub/routing" className="text-sky-400 hover:underline">Route Optimizer</a> and click
+                {' '}<strong>Send to Daily Log</strong> to populate stops here.
+              </p>
+            </div>
+          )}
 
-      {!loading && !error && visibleEntries.length === 0 && (
-        <div className="bg-gray-900 border border-gray-800 rounded-2xl p-8 text-center">
-          <p className="text-gray-400 mb-2">No entries for {formatDateHeading(date)}.</p>
-          <p className="text-sm text-gray-500">
-            Run the <a href="/hub/routing" className="text-sky-400 hover:underline">Route Optimizer</a> and click
-            {' '}<strong>Send to Daily Log</strong> to populate stops here.
-          </p>
+          <div className="space-y-4 md:space-y-6">
+            {visibleEntries.map(entry => (
+              <EntryCard
+                key={entry.id}
+                entry={entry}
+                depot={depot}
+                isAdmin={isAdmin}
+                mapHeight={isMobile ? 240 : 360}
+              />
+            ))}
+          </div>
         </div>
-      )}
-
-      <div className="space-y-6">
-        {visibleEntries.map(entry => (
-          <EntryCard key={entry.id} entry={entry} depot={depot} isAdmin={isAdmin} />
-        ))}
       </div>
     </div>
   )
@@ -231,10 +251,12 @@ function EntryCard({
   entry,
   depot,
   isAdmin,
+  mapHeight,
 }: {
   entry: Entry
   depot: { lat: number; lng: number } | null
   isAdmin: boolean
+  mapHeight: number
 }) {
   const stopsWithCoords = entry.stops.filter(s => s.lat != null && s.lng != null)
   const hasMap = stopsWithCoords.length > 0
@@ -297,7 +319,7 @@ function EntryCard({
             depotCoord={depot}
             pins={pins}
             drawDrivePath={true}
-            height={360}
+            height={mapHeight}
           />
         </div>
       )}
