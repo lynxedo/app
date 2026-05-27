@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
+import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
 
 interface JobberUser {
   id: string
@@ -169,41 +170,39 @@ export default function RouteBuilder() {
   const [sendError, setSendError] = useState<string | null>(null)
   const [sendMode, setSendMode] = useState<'times' | 'order' | null>(null)
 
-  // ── Computed map URL ──────────────────────────────────────────────────────
-  const pinMapUrl = useMemo(() => {
-    if (!visits || visits.length === 0) return null
-    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
-    if (!token) return null
-
-    if (optimizedVisits && depotCoord && optimizedVisits.length > 0) {
-      // Post-optimization: route line + numbered pins
-      const waypoints = [depotCoord, ...optimizedVisits.map(v => ({ lat: v.lat, lng: v.lng }))]
-      const polyline = encodePolyline5(waypoints)
-      const pathOverlay = `path-3+1f77b4-0.85(${encodeURIComponent(polyline)})`
-      const depotMarker = `pin-s-d+16a34a(${depotCoord.lng.toFixed(6)},${depotCoord.lat.toFixed(6)})`
-      const stopMarkers = optimizedVisits.map((v, i) => {
-        const label = i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9))
-        const color = sentIds.has(v.id) ? '888888' : 'c0392b'
-        return `pin-s-${label}+${color}(${v.lng.toFixed(6)},${v.lat.toFixed(6)})`
-      })
-      const overlays = [pathOverlay, depotMarker, ...stopMarkers].join(',')
-      return `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${overlays}/auto/900x700@2x?padding=60&access_token=${token}`
+  // ── Computed pins for the interactive preview map ─────────────────────────
+  // Pre-optimize: pins coloured by selection/sent state.
+  // Post-optimize: numbered pins in route order; the map component draws the
+  // actual driving polyline via Mapbox Directions API on top.
+  const previewPins = useMemo<RoutePreviewPin[]>(() => {
+    if (optimizedVisits && optimizedVisits.length > 0) {
+      return optimizedVisits.map((v, i) => ({
+        id: v.id,
+        lat: v.lat,
+        lng: v.lng,
+        label: i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9)),
+        color: sentIds.has(v.id) ? '888888' : 'c0392b',
+        title: `${v.stopNumber}. ${v.clientName}`,
+      }))
     }
-
-    // Pre-optimization: pins only, colored by selection/sent state
-    const pins: string[] = []
+    if (!visits) return []
+    const pins: RoutePreviewPin[] = []
     visits.forEach((v, i) => {
       const coord = visitCoords[i]
       if (!coord) return
       const isSent = sentIds.has(v.id)
       const isSelected = selectedIds.has(v.id)
-      const color = isSent ? '888888' : isSelected ? 'e47200' : '555555'
-      const label = i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9))
-      pins.push(`pin-s-${label}+${color}(${coord.lng.toFixed(6)},${coord.lat.toFixed(6)})`)
+      pins.push({
+        id: v.id,
+        lat: coord.lat,
+        lng: coord.lng,
+        label: i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9)),
+        color: isSent ? '888888' : isSelected ? 'e47200' : '555555',
+        title: v.clientName,
+      })
     })
-    if (pins.length === 0) return null
-    return `https://api.mapbox.com/styles/v1/mapbox/streets-v12/static/${pins.join(',')}/auto/900x700@2x?padding=60&access_token=${token}`
-  }, [visits, visitCoords, selectedIds, sentIds, optimizedVisits, depotCoord])
+    return pins
+  }, [visits, visitCoords, selectedIds, sentIds, optimizedVisits])
 
   // Load settings on mount (get saved duration_method default)
   useEffect(() => {
@@ -1030,14 +1029,15 @@ export default function RouteBuilder() {
                 </h3>
                 <span className="text-xs text-gray-500">
                   {coordsLoading && !optimizedVisits ? 'Locating pins…' : ''}
-                  {optimizedVisits ? 'Same map that prints on route sheet' : ''}
+                  {optimizedVisits ? 'Drag, zoom, and the path follows actual roads' : ''}
                 </span>
               </div>
-              {pinMapUrl ? (
-                <img
-                  src={pinMapUrl}
-                  alt="Route map preview"
-                  className="w-full block"
+              {previewPins.length > 0 || depotCoord ? (
+                <RoutePreviewMap
+                  depotCoord={depotCoord}
+                  pins={previewPins}
+                  drawDrivePath={!!optimizedVisits && optimizedVisits.length > 0}
+                  className="w-full h-[520px]"
                 />
               ) : (
                 <div className="px-4 py-12 text-gray-600 text-sm text-center">
