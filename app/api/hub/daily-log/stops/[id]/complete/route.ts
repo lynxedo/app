@@ -53,7 +53,7 @@ async function resolveStopOrError(stopId: string, userId: string) {
   const admin = createAdminClient()
   const { data: stop } = await admin
     .from('daily_log_stops')
-    .select('id, entry_id, jobber_visit_id, status, daily_log_entries!inner(company_id)')
+    .select('id, entry_id, jobber_visit_id, status, arrived_at, daily_log_entries!inner(company_id)')
     .eq('id', stopId)
     .single()
 
@@ -103,7 +103,7 @@ export async function POST(
       completed_by: userId,
     })
     .eq('id', stop.id)
-    .select('id, ord, status, completed_at, completed_by')
+    .select('id, ord, status, arrived_at, completed_at, completed_by')
     .single()
 
   if (updateErr || !updated) {
@@ -163,15 +163,19 @@ export async function DELETE(
   }
   const { admin, stop, userId } = resolved
 
+  // Reopen logic: if arrival was recorded, drop back to in_progress
+  // (timer keeps running with the original arrived_at). Otherwise pending.
+  const revertedStatus = stop.arrived_at ? 'in_progress' : 'pending'
+
   const { data: updated, error: updateErr } = await admin
     .from('daily_log_stops')
     .update({
-      status: 'pending',
+      status: revertedStatus,
       completed_at: null,
       completed_by: null,
     })
     .eq('id', stop.id)
-    .select('id, ord, status, completed_at, completed_by')
+    .select('id, ord, status, arrived_at, completed_at, completed_by')
     .single()
 
   if (updateErr || !updated) {
