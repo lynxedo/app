@@ -306,6 +306,18 @@ export default function HubSidebar({
   // Realtime: mark rooms/convs unread when new messages arrive
   useEffect(() => {
     const supabase = createClient()
+    const refreshUnreadFromServer = () => {
+      fetch('/api/hub/read-receipts', { cache: 'no-store' })
+        .then(r => r.json())
+        .then(d => {
+          const roomIds = (d.unread_room_ids ?? []) as string[]
+          const convIds = (d.unread_conv_ids ?? []) as string[]
+          setUnreadRoomIds(new Set(roomIds))
+          setUnreadConvIds(new Set(convIds))
+          saveUnreadState(currentUserId, roomIds, convIds)
+        })
+        .catch(() => {})
+    }
     const handleInsert = (msg: { room_id: string | null; conversation_id: string | null; sender_id: string; parent_id: string | null }) => {
       // Ignore thread replies and messages sent by this user
       if (msg.parent_id || msg.sender_id === currentUserId) return
@@ -323,6 +335,11 @@ export default function HubSidebar({
         // server-side auto-unarchive hook.
         loadConversations()
       }
+      // Also pull authoritative unread state from the server so the sidebar
+      // reconciles within a beat instead of waiting up to 60s for the next
+      // poll tick. Cheap (single fetch); cures the "I scrolled and there's
+      // no orange dot" delay on iOS where the realtime websocket suspended.
+      refreshUnreadFromServer()
     }
 
     const channel = supabase
