@@ -439,6 +439,14 @@ function HubTab() {
         </AdminOnly>
       </Section>
 
+      <Section title="Daily Log v2 (preview)">
+        <p>A new tech-facing view of the day&apos;s work, available at <Link href="/hub/daily-log-v2" className="text-sky-400 hover:underline">/hub/daily-log-v2</Link>. The original Daily Log keeps working unchanged — both run in parallel while v2 is iterating.</p>
+        <p>What&apos;s different: instead of one text-based card with office instructions and tech updates, v2 shows the day&apos;s <strong className="text-white">stops as an ordered list</strong> with customer names, addresses, scheduled times, and line items. A map at the top of each entry shows the route with numbered pins.</p>
+        <p><strong className="text-white">How stops get there:</strong> open the <Link href="/hub/routing" className="text-orange-400 hover:text-orange-300">Route Optimizer</Link>, build a route, then click the new <strong className="text-sky-300">Send to Daily Log</strong> button (blue, next to Send Order Only and Send with Times). The stops queue up under the target tech&apos;s entry for that day. If an entry doesn&apos;t exist yet it&apos;s created; if one already exists with office instructions, those stay — only stops get added or replaced.</p>
+        <p>You can run <em>Send to Daily Log</em> independently of the Jobber sends. Sending it doesn&apos;t change anything in Jobber. Re-running it after re-optimizing replaces the stops list with the new order.</p>
+        <p className="text-xs text-gray-500"><strong className="text-gray-400">Coming in later phases:</strong> tap a stop to see full details, mark complete (pushes back to Jobber), &ldquo;On my way&rdquo; text to the customer, navigate button (opens Google Maps), automatic weather capture at completion, pesticide records.</p>
+      </Section>
+
       <Section title="Fleet Tracker">
         <p>Fleet shows all company vehicles on a live map (powered by OneStepGPS). Each vehicle appears as a colored pin with a heading arrow and a popup that gives speed, fuel %, and last ping time. Tap a vehicle in the sidebar list to fly the map to it.</p>
         <p>Pin colors:</p>
@@ -527,8 +535,8 @@ function RoutingTab() {
         <p className="mt-2">After optimizing, the blue line follows <strong className="text-white">actual driving roads</strong> via Mapbox Directions — not straight lines. When you drag a stop to reorder, the line updates automatically after a brief pause. If the road path can&apos;t be fetched, a yellow note appears in the corner and the map falls back to straight lines.</p>
       </Section>
 
-      <Section title="Sending Back to Jobber">
-        <p>After optimizing you have <strong className="text-white">two ways</strong> to push the order back to Jobber — pick one each time you send. Each stop shows a ✓ or an error after sending.</p>
+      <Section title="Sending the Route">
+        <p>After optimizing you have <strong className="text-white">three independent send buttons</strong>. Two push to Jobber (pick one), the third populates Daily Log v2. You can use any combination — they don&apos;t conflict.</p>
 
         <div className="border border-gray-700 rounded-xl p-4 mt-3">
           <p className="text-white font-medium mb-2">Send Order Only (green button)</p>
@@ -542,9 +550,15 @@ function RoutingTab() {
           <p className="mt-2 text-xs text-gray-500">Use this when you want appointments shown to customers in Jobber notifications, or when techs need fixed time slots.</p>
         </div>
 
-        <p className="mt-3"><strong className="text-white">Reassign to</strong> (above the two buttons) picks which tech all the visits should end up assigned to in Jobber. Applies to both Send modes. <strong className="text-amber-300">Required when multiple techs were loaded</strong> — Jobber&apos;s anytime stop order is per-tech, so consolidating to one tech is mandatory before sending.</p>
+        <div className="border border-gray-700 rounded-xl p-4 mt-3">
+          <p className="text-white font-medium mb-2">Send to Daily Log (blue button)</p>
+          <p>Populates the new <Link href="/hub/daily-log-v2" className="text-sky-400 hover:underline">Daily Log v2</Link> with the optimized stops, attached to the target tech&apos;s entry for that day. <strong className="text-white">Doesn&apos;t touch Jobber.</strong> If an entry doesn&apos;t exist yet it&apos;s created; existing office instructions and tech updates are preserved — only the stops list is added or replaced.</p>
+          <p className="mt-2 text-xs text-gray-500">Use this any time you want techs to see the route in the tech-facing Daily Log view, with or without sending to Jobber.</p>
+        </div>
 
-        <Note>⚠️ Send with Times overwrites any existing appointment times on those visits. Send Order Only just sets the stop sequence.</Note>
+        <p className="mt-3"><strong className="text-white">Reassign to</strong> (above the buttons) picks which tech the visits should end up under. Applies to all three send modes — Jobber assignment AND the Daily Log entry. <strong className="text-amber-300">Required when multiple techs were loaded</strong> — Jobber&apos;s anytime stop order is per-tech, and Daily Log entries are per-tech, so consolidating to one tech is mandatory.</p>
+
+        <Note>⚠️ Send with Times overwrites any existing appointment times on those visits. Send Order Only just sets the stop sequence. Send to Daily Log replaces the prior stops list (if any) but never touches Jobber.</Note>
       </Section>
 
       <Section title="Printing the Route Sheet">

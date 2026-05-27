@@ -22,7 +22,11 @@ function ToolRow({
   onClose?: () => void
 }) {
   const pathname = usePathname() ?? ''
-  const isActive = prefixMatch ? pathname.startsWith(href) : pathname === href
+  // prefixMatch needs the trailing '/' so /hub/daily-log doesn't false-match
+  // /hub/daily-log-v2 (and similar sibling-route cases).
+  const isActive = prefixMatch
+    ? (pathname === href || pathname.startsWith(href + '/'))
+    : pathname === href
   return (
     <Link
       href={href}

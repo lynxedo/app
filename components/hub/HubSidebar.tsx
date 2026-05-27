@@ -55,6 +55,7 @@ type ToolDef = {
 const TOOL_CATALOG: Record<string, ToolDef> = {
   'tool:routing':       { id: 'tool:routing',       label: 'Routing',         icon: '⚡',  href: '/hub/routing',      prefixMatch: true },
   'tool:daily-log':     { id: 'tool:daily-log',     label: 'Daily Log',       icon: '📋', href: '/hub/daily-log',    prefixMatch: true },
+  'tool:daily-log-v2':  { id: 'tool:daily-log-v2',  label: 'Daily Log v2',    icon: '🗒️', href: '/hub/daily-log-v2', prefixMatch: true },
   'tool:time-records':  { id: 'tool:time-records',  label: 'Time Records',    icon: '🕐', href: '/admin/timesheet',  prefixMatch: true },
   'tool:tracker':       { id: 'tool:tracker',       label: 'Tracker',         icon: '🎯', href: '/hub/tracker',      prefixMatch: true },
   'tool:lawn':          { id: 'tool:lawn',          label: 'Lawn Sizer',      icon: '🌿', href: '/hub/lawn',         prefixMatch: false },
@@ -836,6 +837,7 @@ export default function HubSidebar({
   const toolAccess: Record<string, boolean> = {
     'tool:routing':      canAccessRouting,
     'tool:daily-log':    true,
+    'tool:daily-log-v2': true,
     'tool:time-records': !!isAdmin,
     'tool:tracker':      canAccessTracker,
     'tool:lawn':         canAccessLawn,
@@ -982,11 +984,22 @@ export default function HubSidebar({
               href="/hub/daily-log"
               onClick={() => onClose?.()}
               className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                pathname.startsWith('/hub/daily-log') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                pathname === '/hub/daily-log' || pathname.startsWith('/hub/daily-log/') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
               }`}
             >
               <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="daily-log" /></span>
               <span className="truncate flex-1">Daily Log</span>
+            </Link>
+            <Link
+              href="/hub/daily-log-v2"
+              onClick={() => onClose?.()}
+              className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+                pathname === '/hub/daily-log-v2' || pathname.startsWith('/hub/daily-log-v2/') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+              }`}
+            >
+              <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="daily-log-v2" /></span>
+              <span className="truncate flex-1">Daily Log v2</span>
+              <span className="text-[10px] bg-violet-500/20 text-violet-200 px-1.5 py-0.5 rounded flex-none">preview</span>
             </Link>
           </div>
 

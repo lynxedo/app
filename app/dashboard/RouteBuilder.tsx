@@ -170,6 +170,12 @@ export default function RouteBuilder() {
   const [sendError, setSendError] = useState<string | null>(null)
   const [sendMode, setSendMode] = useState<'times' | 'order' | null>(null)
 
+  // Send to Daily Log state (independent — doesn't share `sending` so the user
+  // can still see a Jobber send result while a daily-log send is in flight)
+  const [sendingDailyLog, setSendingDailyLog] = useState(false)
+  const [dailyLogResult, setDailyLogResult] = useState<{ stop_count: number; action: 'created' | 'updated' } | null>(null)
+  const [dailyLogError, setDailyLogError] = useState<string | null>(null)
+
   // ── Computed pins for the interactive preview map ─────────────────────────
   // Pre-optimize: pins coloured by selection/sent state.
   // Post-optimize: numbered pins in route order; the map component draws the
@@ -505,6 +511,74 @@ export default function RouteBuilder() {
       setSendError(e instanceof Error ? e.message : 'Failed to send order to Jobber')
     } finally {
       setSending(false)
+    }
+  }
+
+  async function sendToDailyLog() {
+    if (!optimizedVisits || optimizedVisits.length === 0) return
+
+    // Daily Log is per-tech. Multi-tech routes need the same reassign target
+    // the Jobber sends use — otherwise we don't know which tech to attach the
+    // stops to.
+    if (selectedUserIds.length > 1 && reassignUserId === '__keep__') {
+      setDailyLogError('Multiple techs were loaded. Pick a target tech in "Reassign to" before sending to Daily Log.')
+      return
+    }
+
+    const techJobberUserId = reassignUserId !== '__keep__'
+      ? reassignUserId
+      : selectedUserIds[0]
+    const techJobberUserName = users.find(u => u.id === techJobberUserId)?.name ?? ''
+    if (!techJobberUserName) {
+      setDailyLogError('Could not resolve the target tech\'s name. Reload the page and try again.')
+      return
+    }
+
+    setSendingDailyLog(true)
+    setDailyLogError(null)
+    setDailyLogResult(null)
+
+    const stops = optimizedVisits.map(v => ({
+      jobber_visit_id: v.id,
+      client_name: v.clientName,
+      client_phone: v.phone,
+      address: v.addressString,
+      lat: v.lat,
+      lng: v.lng,
+      job_title: v.jobTitle,
+      line_items: v.lineItems,
+      instructions: v.instructions,
+      scheduled_start_at: v.startAtISO,
+      scheduled_end_at: v.endAtISO,
+      duration_minutes: v.onSiteMinutes,
+    }))
+
+    try {
+      const res = await fetch('/api/hub/daily-log/from-route', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          log_date: date,
+          tech_jobber_user_id: techJobberUserId,
+          tech_jobber_user_name: techJobberUserName,
+          stops,
+        }),
+      })
+      const data = await res.json() as {
+        entry_id?: string
+        stop_count?: number
+        action?: 'created' | 'updated'
+        error?: string
+      }
+      if (!res.ok || data.error) {
+        setDailyLogError(data.error || `Failed (${res.status})`)
+        return
+      }
+      setDailyLogResult({ stop_count: data.stop_count!, action: data.action! })
+    } catch (e) {
+      setDailyLogError(e instanceof Error ? e.message : 'Failed to send to Daily Log')
+    } finally {
+      setSendingDailyLog(false)
     }
   }
 
@@ -1338,12 +1412,12 @@ export default function RouteBuilder() {
         </div>
       )}
 
-      {/* Send to Jobber panel */}
+      {/* Send route panel */}
       {optimizedVisits && optimizedVisits.length > 0 && (
         <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-          <h3 className="font-semibold text-lg mb-1">Send to Jobber</h3>
+          <h3 className="font-semibold text-lg mb-1">Send route</h3>
           <p className="text-sm text-gray-400 mb-4">
-            Push the optimized route back to Jobber. Pick one of two modes below.
+            Push the optimized route to Jobber, the Daily Log, or both.
           </p>
 
           {sendAllOk && (
@@ -1381,12 +1455,23 @@ export default function RouteBuilder() {
             </select>
             {selectedUserIds.length === 1 && (
               <p className="text-xs text-gray-500 mt-1">
-                Applies to both Send Order Only and Send with Times.
+                Applies to Send Order Only, Send with Times, and Send to Daily Log.
               </p>
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {dailyLogResult && (
+            <div className="mb-4 bg-sky-900/40 border border-sky-700 text-sky-300 rounded-lg px-4 py-3 text-sm">
+              ✓ Daily Log {dailyLogResult.action} with {dailyLogResult.stop_count} stops — open Daily Log v2 to view
+            </div>
+          )}
+          {dailyLogError && (
+            <div className="mb-4 bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm">
+              {dailyLogError}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <button
               onClick={sendOrderOnly}
               disabled={sending}
@@ -1412,6 +1497,20 @@ export default function RouteBuilder() {
               </div>
               <div className="text-xs font-normal opacity-90 mt-0.5">
                 Convert to scheduled visits with appointment times
+              </div>
+            </button>
+
+            <button
+              onClick={sendToDailyLog}
+              disabled={sendingDailyLog}
+              title="Populate the Daily Log v2 with the optimized stops for the target tech. Independent of Jobber — won't change visits in Jobber."
+              className="px-4 py-3 bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors text-left"
+            >
+              <div className="font-semibold">
+                {sendingDailyLog ? 'Sending…' : 'Send to Daily Log →'}
+              </div>
+              <div className="text-xs font-normal opacity-90 mt-0.5">
+                Queue stops for the tech in Daily Log v2
               </div>
             </button>
           </div>
