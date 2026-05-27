@@ -451,6 +451,7 @@ function EntryCard({
               expanded={expandedStopId === s.id}
               pending={pendingActionStopId === s.id}
               onToggleExpand={onToggleExpand}
+              onArrive={onArrive}
               onComplete={onComplete}
               onNotesSave={onNotesSave}
             />
