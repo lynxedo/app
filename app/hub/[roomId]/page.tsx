@@ -2,6 +2,7 @@ import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import RoomView from '@/components/hub/RoomView'
 import RoomNotifBell from '@/components/hub/RoomNotifBell'
+import RoomMembersButton from '@/components/hub/RoomMembersButton'
 
 export default async function RoomPage({
   params,
@@ -85,6 +86,7 @@ export default async function RoomPage({
         {room.is_private && (
           <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">Private</span>
         )}
+        <RoomMembersButton roomId={roomId} />
         <RoomNotifBell roomId={roomId} />
       </header>
 

@@ -9,9 +9,19 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  const isAdmin = profile?.role === 'admin'
 
-  const { data, error } = await supabase
+  if (!isAdmin) {
+    // RLS on rooms enforces: same company AND (NOT is_private OR is_room_member).
+    // If the user-session SELECT returns the row, they're allowed to see the members.
+    // If it doesn't, return 404 so private-room existence doesn't leak.
+    const { data: room } = await supabase.from('rooms').select('id').eq('id', id).maybeSingle()
+    if (!room) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  // Fetch member list via admin client — room_members RLS only returns own row.
+  const admin = createAdminClient()
+  const { data, error } = await admin
     .from('room_members')
     .select('user_id, role, joined_at, hub_users!user_id (id, display_name, avatar_url)')
     .eq('room_id', id)
