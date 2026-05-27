@@ -8,6 +8,7 @@ type ScheduledRow = {
   send_at: string
   room_id: string | null
   conversation_id: string | null
+  parent_id: string | null
   files: { filename: string }[] | null
   target_label: string
 }
@@ -168,7 +169,8 @@ export default function ScheduledMessagesModal({ onClose }: { onClose: () => voi
                     <div className="flex items-start justify-between gap-3 mb-2">
                       <div className="min-w-0 flex-1">
                         <p className="text-xs text-gray-400">
-                          To <span className="text-gray-200 font-medium">{row.target_label}</span>
+                          {row.parent_id ? 'Thread reply in ' : 'To '}
+                          <span className="text-gray-200 font-medium">{row.target_label}</span>
                         </p>
                         <p className="text-xs text-amber-300 mt-0.5">🕐 {formatWhen(row.send_at)}</p>
                       </div>

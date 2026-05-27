@@ -16,7 +16,7 @@ export async function POST(request: Request) {
 
   const { data: due, error } = await admin
     .from('scheduled_messages')
-    .select('id, company_id, room_id, conversation_id, sender_id, content, files')
+    .select('id, company_id, room_id, conversation_id, parent_id, sender_id, content, files')
     .lte('send_at', now)
     .is('sent_at', null)
 
@@ -31,14 +31,15 @@ export async function POST(request: Request) {
       conversation_id: sm.conversation_id ?? null,
       sender_id: sm.sender_id,
       content: sm.content,
-      parent_id: null,
+      parent_id: sm.parent_id ?? null,
       forwarded_from: null,
     })
 
     if (insertErr) continue
 
-    // Auto-unarchive the DM for all members on new activity
-    if (sm.conversation_id) {
+    // Auto-unarchive the DM for all members on new activity — only for
+    // top-level messages, mirrors POST /api/hub/messages behavior.
+    if (sm.conversation_id && !sm.parent_id) {
       await admin
         .from('conversation_members')
         .update({ archived_at: null })

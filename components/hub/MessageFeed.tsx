@@ -95,7 +95,7 @@ function fitThumbnail(w: number, h: number): { width: number; height: number } {
   return { width: Math.round(w * ratio), height: Math.round(h * ratio) }
 }
 
-function FileAttachment({ file, onOpenLightbox }: { file: FileItem; onOpenLightbox?: () => void }) {
+export function FileAttachment({ file, onOpenLightbox }: { file: FileItem; onOpenLightbox?: () => void }) {
   // Optimistic-send rows have a `localUrl` blob URL and a temp id; use
   // the blob URL until realtime delivers the row with a real DB id.
   const src = file.localUrl ?? `/api/hub/files/${file.id}`

@@ -5,7 +5,9 @@ import dynamic from 'next/dynamic'
 import data from '@emoji-mart/data'
 import { init, SearchIndex } from 'emoji-mart'
 import { createClient } from '@/lib/supabase/client'
-import type { HubMessage, HubUser, Sender } from './MessageFeed'
+import { FileAttachment } from './MessageFeed'
+import type { HubMessage, HubUser, Sender, FileItem } from './MessageFeed'
+import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { renderContent } from './renderContent'
 
 init({ data })
@@ -16,9 +18,45 @@ const EmojiMartPicker = dynamic(() => import('@emoji-mart/react').then(m => m.de
 
 type EmojiSuggestion = { id: string; name: string; native: string }
 
+type PendingFile = {
+  storage_path: string
+  filename: string
+  mime_type: string
+  size_bytes: number
+  width_px?: number | null
+  height_px?: number | null
+  localUrl?: string
+}
+
+// Read intrinsic dimensions from an image File before upload so the chat
+// thumbnail can reserve the right aspect ratio when it renders.
+async function readImageDimensions(file: File): Promise<{ width: number; height: number } | null> {
+  if (!file.type.startsWith('image/')) return null
+  return new Promise((resolve) => {
+    const url = URL.createObjectURL(file)
+    const img = new Image()
+    img.onload = () => {
+      const w = img.naturalWidth
+      const h = img.naturalHeight
+      URL.revokeObjectURL(url)
+      resolve(w > 0 && h > 0 ? { width: w, height: h } : null)
+    }
+    img.onerror = () => {
+      URL.revokeObjectURL(url)
+      resolve(null)
+    }
+    img.src = url
+  })
+}
+
 function normSender(raw: Sender | Sender[] | null): Sender | null {
   if (!raw) return null
   return Array.isArray(raw) ? (raw[0] ?? null) : raw
+}
+
+function normFiles(raw: unknown): FileItem[] {
+  if (!raw || !Array.isArray(raw)) return []
+  return raw as FileItem[]
 }
 
 function formatTime(iso: string) {
@@ -41,6 +79,7 @@ type Reply = {
   created_at: string
   edited_at: string | null
   sender: Sender | Sender[] | null
+  files?: FileItem[]
 }
 
 export default function ThreadPanel({
@@ -58,6 +97,15 @@ export default function ThreadPanel({
   const [replyContent, setReplyContent] = useState('')
   const [sending, setSending] = useState(false)
   const [isFocused, setIsFocused] = useState(false)
+  // Pending attachments
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
+  const [uploading, setUploading] = useState(false)
+  // Scheduled send — same shape as MessageComposer
+  const [scheduledAt, setScheduledAt] = useState<string>('')
+  const [showScheduler, setShowScheduler] = useState(false)
+  const schedulerRef = useRef<HTMLDivElement>(null)
+  // Lightbox for image/PDF previews in reply bubbles
+  const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null)
   // Emoji :name: autocomplete
   const [emojiQuery, setEmojiQuery] = useState<string | null>(null)
   const [emojiStart, setEmojiStart] = useState(-1)
@@ -69,6 +117,7 @@ export default function ThreadPanel({
   const formatPickerRef = useRef<HTMLDivElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const didInitialScroll = useRef(false)
   const supabase = createClient()
 
@@ -97,6 +146,17 @@ export default function ThreadPanel({
     document.addEventListener('mousedown', handler)
     return () => document.removeEventListener('mousedown', handler)
   }, [showFormatPicker])
+
+  useEffect(() => {
+    if (!showScheduler) return
+    function handler(e: MouseEvent) {
+      if (schedulerRef.current && !schedulerRef.current.contains(e.target as Node)) {
+        setShowScheduler(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [showScheduler])
 
   function wrapSelection(marker: string) {
     const el = textareaRef.current
@@ -178,10 +238,62 @@ export default function ThreadPanel({
     })
   }
 
+  async function uploadFile(file: File) {
+    setUploading(true)
+    const dims = await readImageDimensions(file)
+    const form = new FormData()
+    form.append('file', file)
+    if (dims) {
+      form.append('width_px', String(dims.width))
+      form.append('height_px', String(dims.height))
+    }
+    const res = await fetch('/api/hub/upload', { method: 'POST', body: form })
+    setUploading(false)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Upload failed' }))
+      alert(err.error ?? 'Upload failed')
+      return
+    }
+    const data = await res.json()
+    const localUrl = URL.createObjectURL(file)
+    setPendingFiles(prev => [...prev, { ...data, localUrl }])
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const files = Array.from(e.target.files ?? [])
+    files.forEach(uploadFile)
+    e.target.value = ''
+  }
+
+  function handleDrop(e: React.DragEvent) {
+    e.preventDefault()
+    Array.from(e.dataTransfer.files).forEach(uploadFile)
+  }
+
+  function handlePaste(e: React.ClipboardEvent) {
+    const items = Array.from(e.clipboardData.items)
+    const fileItems = items.filter(i => i.kind === 'file')
+    if (fileItems.length > 0) {
+      e.preventDefault()
+      fileItems.forEach(item => {
+        const f = item.getAsFile()
+        if (f) uploadFile(f)
+      })
+    }
+  }
+
+  function removeFile(idx: number) {
+    setPendingFiles(prev => {
+      const f = prev[idx]
+      if (f.localUrl) URL.revokeObjectURL(f.localUrl)
+      return prev.filter((_, i) => i !== idx)
+    })
+  }
+
   useEffect(() => {
     supabase
       .from('messages')
-      .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot)')
+      .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot), files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)')
       .eq('parent_id', parentMessage.id)
       .is('deleted_at', null)
       .order('created_at', { ascending: true })
@@ -212,7 +324,7 @@ export default function ThreadPanel({
       }, async (payload) => {
         const { data } = await supabase
           .from('messages')
-          .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot)')
+          .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot), files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)')
           .eq('id', payload.new.id)
           .single()
         if (data) setReplies(prev => {
@@ -229,9 +341,41 @@ export default function ThreadPanel({
 
   async function sendReply() {
     const trimmed = replyContent.trim()
-    if (!trimmed || sending) return
+    if ((!trimmed && pendingFiles.length === 0) || sending) return
     setSending(true)
     setReplyContent('')
+    const filesPayload = pendingFiles.map(({ localUrl: _, ...f }) => f)
+    const optimisticFiles: FileItem[] = pendingFiles.map((f, i) => ({
+      id: `temp-file-${Date.now()}-${i}`,
+      filename: f.filename,
+      mime_type: f.mime_type,
+      size_bytes: f.size_bytes,
+      storage_path: f.storage_path,
+      width_px: f.width_px ?? null,
+      height_px: f.height_px ?? null,
+      localUrl: f.localUrl,
+    }))
+    setPendingFiles([])
+
+    const wasScheduled = !!scheduledAt
+    if (wasScheduled) {
+      await fetch('/api/hub/scheduled-messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: parentMessage.room_id ?? null,
+          conversation_id: parentMessage.conversation_id ?? null,
+          parent_id: parentMessage.id,
+          content: trimmed || ' ',
+          files: filesPayload.length > 0 ? filesPayload : undefined,
+          send_at: new Date(scheduledAt).toISOString(),
+        }),
+      })
+      setScheduledAt('')
+      setShowScheduler(false)
+      setSending(false)
+      return
+    }
 
     const currentUser = hubUsers.find(u => u.id === currentUserId) ?? null
     const tempId = `temp-${Date.now()}`
@@ -241,6 +385,7 @@ export default function ThreadPanel({
       created_at: new Date().toISOString(),
       edited_at: null,
       sender: currentUser,
+      files: optimisticFiles,
     }])
 
     await fetch('/api/hub/messages', {
@@ -250,14 +395,15 @@ export default function ThreadPanel({
         room_id: parentMessage.room_id ?? null,
         conversation_id: parentMessage.conversation_id ?? null,
         parent_id: parentMessage.id,
-        content: trimmed,
+        content: trimmed || ' ',
+        files: filesPayload.length > 0 ? filesPayload : undefined,
       }),
     })
 
     // Refetch all replies to replace the optimistic entry with the real one
     const { data: refreshed } = await supabase
       .from('messages')
-      .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot)')
+      .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot), files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)')
       .eq('parent_id', parentMessage.id)
       .is('deleted_at', null)
       .order('created_at', { ascending: true })
@@ -267,9 +413,15 @@ export default function ThreadPanel({
   }
 
   const parentSender = normSender(parentMessage.sender)
+  const minDateTime = new Date(Date.now() + 60000).toISOString().slice(0, 16)
+  const hasContent = replyContent.trim().length > 0 || pendingFiles.length > 0
 
   return (
-    <div className="w-full flex-1 border-l border-gray-800 flex flex-col bg-gray-950">
+    <div
+      className="w-full flex-1 border-l border-gray-800 flex flex-col bg-gray-950"
+      onDrop={handleDrop}
+      onDragOver={e => e.preventDefault()}
+    >
       {/* Header */}
       <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 flex-none">
         <span className="font-semibold text-sm text-white">Thread</span>
@@ -307,6 +459,23 @@ export default function ThreadPanel({
         )}
         {replies.map(reply => {
           const sender = normSender(reply.sender)
+          const files = normFiles(reply.files)
+          // Build the lightbox slice for THIS reply so navigation is scoped
+          // to this message's media (matches MessageFeed's per-message scope).
+          const mediaItems: LightboxItem[] = []
+          const mediaIdxByFileId: Record<string, number> = {}
+          for (const f of files) {
+            const isImg = f.mime_type.startsWith('image/')
+            const isPdf = f.mime_type === 'application/pdf'
+            if (isImg || isPdf) {
+              mediaIdxByFileId[f.id] = mediaItems.length
+              mediaItems.push({
+                type: isImg ? 'image' : 'pdf',
+                src: f.localUrl ?? `/api/hub/files/${f.id}`,
+                filename: f.filename,
+              })
+            }
+          }
           return (
             <div key={reply.id} className="flex items-start gap-2">
               <Avatar sender={sender} />
@@ -315,10 +484,30 @@ export default function ThreadPanel({
                   <span className="font-semibold text-xs text-white">{sender?.display_name ?? 'Unknown'}</span>
                   <span className="text-xs text-gray-600">{formatTime(reply.created_at)}</span>
                 </div>
-                <p className="hub-message-text text-lg md:text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
-                  {renderContent(reply.content, hubUsers)}
-                  {reply.edited_at && <span className="ml-1 text-xs text-gray-600">(edited)</span>}
-                </p>
+                {reply.content && reply.content.trim() && (
+                  <p className="hub-message-text text-lg md:text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
+                    {renderContent(reply.content, hubUsers)}
+                    {reply.edited_at && <span className="ml-1 text-xs text-gray-600">(edited)</span>}
+                  </p>
+                )}
+                {files.length > 0 && (
+                  <div className={files.length > 1 ? 'grid grid-cols-2 gap-1.5 mt-1' : ''}>
+                    {files.map(f => {
+                      const mIdx = mediaIdxByFileId[f.id]
+                      return (
+                        <FileAttachment
+                          key={f.id}
+                          file={f}
+                          onOpenLightbox={
+                            mIdx !== undefined
+                              ? () => setLightbox({ items: mediaItems, index: mIdx })
+                              : undefined
+                          }
+                        />
+                      )
+                    })}
+                  </div>
+                )}
               </div>
             </div>
           )
@@ -328,6 +517,45 @@ export default function ThreadPanel({
 
       {/* Reply composer */}
       <div className="flex-none border-t border-gray-800 px-3 py-3">
+        {/* Pending file previews */}
+        {pendingFiles.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {pendingFiles.map((f, i) => (
+              <div key={i} className="relative group">
+                {f.mime_type.startsWith('image/') && f.localUrl ? (
+                  <img src={f.localUrl} alt={f.filename} className="w-16 h-16 object-cover rounded-lg border border-gray-700" />
+                ) : (
+                  <div className="w-16 h-16 bg-gray-800 border border-gray-700 rounded-lg flex flex-col items-center justify-center text-xs text-gray-400 px-1 text-center">
+                    <span className="text-lg">📎</span>
+                    <span className="truncate w-full text-center">{f.filename.slice(0, 8)}</span>
+                  </div>
+                )}
+                <button
+                  onClick={() => removeFile(i)}
+                  className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 hover:bg-red-400 rounded-full text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                >
+                  ✕
+                </button>
+              </div>
+            ))}
+            {uploading && (
+              <div className="w-16 h-16 bg-gray-800 border border-gray-700 rounded-lg flex items-center justify-center">
+                <div className="w-5 h-5 border-2 border-[#2E7EB8] border-t-transparent rounded-full animate-spin" />
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* Scheduled send indicator */}
+        {scheduledAt && (
+          <div className="mb-2 px-3 py-2 bg-[#2E7EB8]/10 border border-[#2E7EB8]/30 rounded-lg flex items-center justify-between text-xs text-[#2E7EB8]">
+            <span>
+              🕐 Scheduled for {new Date(scheduledAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}
+            </span>
+            <button onClick={() => { setScheduledAt(''); setShowScheduler(false) }} className="text-[#2E7EB8]/60 hover:text-[#2E7EB8] ml-2">✕</button>
+          </div>
+        )}
+
         {/* Emoji :name: autocomplete */}
         {emojiQuery !== null && emojiResults.length > 0 && (
           <div className="mb-2 bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-xl">
@@ -352,6 +580,7 @@ export default function ThreadPanel({
             ref={textareaRef}
             value={replyContent}
             onChange={handleReplyChange}
+            onPaste={handlePaste}
             onKeyDown={e => {
               if (emojiQuery !== null && emojiResults.length > 0) {
                 if (e.key === 'ArrowDown') { e.preventDefault(); setEmojiIndex(i => Math.min(i + 1, emojiResults.length - 1)); return }
@@ -394,6 +623,20 @@ export default function ThreadPanel({
         </div>
 
         <div className="flex items-center gap-1 mt-1.5 px-1">
+          {/* Attach */}
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="text-gray-500 hover:text-gray-300 disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-gray-800"
+            title="Attach file"
+            aria-label="Attach file"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+          </button>
+
           {/* Aa format */}
           <div className="relative" ref={formatPickerRef}>
             <button
@@ -450,17 +693,66 @@ export default function ThreadPanel({
             )}
           </div>
 
+          {/* Schedule */}
+          <div className="relative" ref={schedulerRef}>
+            <button
+              type="button"
+              onClick={() => setShowScheduler(v => !v)}
+              className={`transition-colors p-1.5 rounded-md hover:bg-gray-800 ${
+                scheduledAt ? 'text-[#2E7EB8]' : 'text-gray-500 hover:text-gray-300'
+              }`}
+              title="Schedule send"
+              aria-label="Schedule send"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+            </button>
+            {showScheduler && (
+              <div className="absolute bottom-full mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-3 z-50 w-64 max-w-[calc(100vw-1rem)] left-1/2 -translate-x-1/2 md:left-0 md:translate-x-0">
+                <p className="text-xs text-gray-400 mb-2 font-medium">Schedule for later</p>
+                <input
+                  type="datetime-local"
+                  min={minDateTime}
+                  value={scheduledAt}
+                  onChange={e => setScheduledAt(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-base md:text-sm text-white outline-none focus:border-[#2E7EB8]"
+                />
+                {scheduledAt && (
+                  <button
+                    onClick={() => { setScheduledAt(''); setShowScheduler(false) }}
+                    className="mt-2 w-full text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                  >
+                    Clear schedule
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
           <div className="flex-1" />
 
           <button
             onClick={sendReply}
-            disabled={!replyContent.trim() || sending}
-            className="text-xs bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-30 text-white px-3 py-1.5 rounded-lg transition-colors"
+            disabled={!hasContent || sending}
+            className={`text-xs disabled:opacity-30 text-white px-3 py-1.5 rounded-lg transition-colors ${
+              scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-[#2E7EB8] hover:bg-[#2470a8]'
+            }`}
           >
-            Reply
+            {scheduledAt ? 'Schedule' : 'Reply'}
           </button>
         </div>
       </div>
+
+      <input ref={fileInputRef} type="file" multiple className="hidden" onChange={handleFileChange} />
+
+      {lightbox && (
+        <MediaLightbox
+          items={lightbox.items}
+          startIndex={lightbox.index}
+          onClose={() => setLightbox(null)}
+        />
+      )}
     </div>
   )
 }
