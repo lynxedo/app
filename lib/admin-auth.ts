@@ -1,7 +1,8 @@
 import { createClient } from '@/lib/supabase/server'
 
-export type AdminArea = 'people' | 'hub' | 'routing' | 'timesheet' | 'fleet' | 'daily_log' | 'zone_sizer' | 'dialer' | 'contacts'
+export type AdminArea = 'people' | 'hub' | 'routing' | 'timesheet' | 'fleet' | 'daily_log' | 'zone_sizer' | 'dialer' | 'contacts' | 'guardian'
 
+// Guardian shares the Hub grant for now (see GUARDIAN_UPGRADE_PLAN.md — dedicated grant deferred).
 const AREA_TO_FLAG: Record<AdminArea, string> = {
   people: 'can_admin_people',
   hub: 'can_admin_hub',
@@ -12,6 +13,7 @@ const AREA_TO_FLAG: Record<AdminArea, string> = {
   zone_sizer: 'can_admin_zone_sizer',
   dialer: 'can_admin_dialer',
   contacts: 'can_admin_contacts',
+  guardian: 'can_admin_hub',
 }
 
 export type AdminCheckResult = {

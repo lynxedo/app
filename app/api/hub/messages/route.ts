@@ -561,6 +561,7 @@ async function handleClaudeReplyDM({
     claudeText = await askClaude({
       systemPrompt,
       userMessage: `[${senderName}]: ${triggeringContent}`,
+      companyId,
     })
   } catch {
     claudeText = "Sorry, I couldn't process that request right now."
@@ -669,6 +670,7 @@ async function handleClaudeReply({
     claudeText = await askClaude({
       systemPrompt,
       userMessage: `[${senderName}]: ${triggeringContent}`,
+      companyId,
     })
   } catch {
     claudeText = "Sorry, I couldn't process that request right now."
