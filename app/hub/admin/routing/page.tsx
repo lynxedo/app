@@ -16,6 +16,7 @@ const DEFAULTS = {
   default_drive_mph: 25,
   duration_method: 'default' as string,
   duration_rules: DEFAULT_DURATION_RULES as DurationRulesConfig,
+  visible_tech_ids: null as string[] | null,
 }
 
 export default async function AdminRoutingPage() {
@@ -32,7 +33,7 @@ export default async function AdminRoutingPage() {
 
   const { data: settingsRow } = await supabase
     .from('company_routing_settings')
-    .select('display_name, depot_address, depot_lat, depot_lng, default_service_minutes, default_drive_mph, duration_method, duration_rules')
+    .select('display_name, depot_address, depot_lat, depot_lng, default_service_minutes, default_drive_mph, duration_method, duration_rules, visible_tech_ids')
     .eq('company_id', profile.company_id!)
     .maybeSingle()
 

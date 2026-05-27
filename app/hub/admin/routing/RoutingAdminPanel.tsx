@@ -13,6 +13,12 @@ interface Settings {
   default_drive_mph: number
   duration_method: string
   duration_rules: DurationRulesConfig
+  visible_tech_ids: string[] | null
+}
+
+interface JobberUser {
+  id: string
+  name: string
 }
 
 interface Props {
@@ -51,6 +57,15 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
   const [durationErr, setDurationErr] = useState<string | null>(null)
   const [loadingLineItems, setLoadingLineItems] = useState(false)
   const [lineItemsErr, setLineItemsErr] = useState<string | null>(null)
+
+  // Team members (tech allowlist for the Quick Route dropdown)
+  const [jobberUsers, setJobberUsers] = useState<JobberUser[]>([])
+  const [allowlist, setAllowlist] = useState<string[]>(initial.visible_tech_ids ?? [])
+  const [loadingUsers, setLoadingUsers] = useState(false)
+  const [usersErr, setUsersErr] = useState<string | null>(null)
+  const [techsSave, setTechsSave] = useState<SaveState>('idle')
+  const [techsErr, setTechsErr] = useState<string | null>(null)
+  const [techsLoadedOnce, setTechsLoadedOnce] = useState(false)
 
   async function patchSettings(
     body: Partial<Settings & { duration_method: string; duration_rules: DurationRulesConfig }>,
@@ -101,6 +116,36 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
     }
   }
 
+  const refreshTeamMembers = async () => {
+    setLoadingUsers(true)
+    setUsersErr(null)
+    try {
+      const res = await fetch('/api/users?include_all=1')
+      const data = await res.json()
+      if (!res.ok || data.error) { setUsersErr(data.error ?? 'Failed to load'); return }
+      const list = (data.users as JobberUser[]).slice().sort((a, b) => a.name.localeCompare(b.name))
+      setJobberUsers(list)
+      setTechsLoadedOnce(true)
+    } catch (e) {
+      setUsersErr(e instanceof Error ? e.message : 'Network error')
+    } finally {
+      setLoadingUsers(false)
+    }
+  }
+
+  const toggleTech = (id: string) => {
+    setAllowlist(curr => curr.includes(id) ? curr.filter(x => x !== id) : [...curr, id])
+  }
+  const selectAllTechs = () => setAllowlist(jobberUsers.map(u => u.id))
+  const clearAllTechs = () => setAllowlist([])
+
+  const saveTeamMembers = () =>
+    patchSettings(
+      { visible_tech_ids: allowlist.length === 0 ? null : allowlist },
+      setTechsSave,
+      setTechsErr,
+    )
+
   const updateCode = (idx: number, field: keyof DurationRule, value: string | number) => {
     setRules(r => {
       const codes = [...r.codes]
@@ -134,6 +179,80 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
       <div className="bg-amber-500/10 border border-amber-500/30 text-amber-200 rounded-xl px-4 py-3 text-sm">
         These settings apply to <strong>everyone at your company</strong> who uses Route Optimizer. Only admins can change them.
       </div>
+
+      {/* Team Members */}
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <div className="flex items-start justify-between mb-1 gap-4">
+          <div>
+            <h2 className="font-semibold text-lg">Team Members</h2>
+            <p className="text-gray-400 text-sm mt-1">
+              Choose which Jobber users appear in the Quick Route tech dropdown.
+              {' '}Leave everyone unchecked to show all active Jobber users (default).
+            </p>
+          </div>
+          <button
+            onClick={refreshTeamMembers}
+            disabled={loadingUsers || !jobberConnected}
+            title={!jobberConnected ? 'Connect Jobber in Settings → Integrations first' : 'Pull the current user list from Jobber'}
+            className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-300 rounded-lg text-xs font-medium transition-colors whitespace-nowrap"
+          >
+            {loadingUsers ? 'Loading…' : '↻ Refresh from Jobber'}
+          </button>
+        </div>
+
+        {usersErr && <p className="text-red-400 text-sm mt-3">{usersErr}</p>}
+
+        {!techsLoadedOnce && jobberUsers.length === 0 && (
+          <p className="text-xs text-gray-500 mt-4">
+            {allowlist.length > 0
+              ? `${allowlist.length} member${allowlist.length === 1 ? '' : 's'} currently selected. Click Refresh to see all available users.`
+              : 'Click Refresh from Jobber to load the user list.'}
+          </p>
+        )}
+
+        {jobberUsers.length > 0 && (
+          <>
+            <div className="flex items-center gap-3 mt-4 mb-3">
+              <button onClick={selectAllTechs} className="text-xs text-orange-400 hover:text-orange-300">
+                Select all
+              </button>
+              <span className="text-gray-700">·</span>
+              <button onClick={clearAllTechs} className="text-xs text-orange-400 hover:text-orange-300">
+                Clear all
+              </button>
+              <span className="text-xs text-gray-500 ml-auto">
+                {allowlist.length} of {jobberUsers.length} selected
+              </span>
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+              {jobberUsers.map(u => {
+                const checked = allowlist.includes(u.id)
+                return (
+                  <label
+                    key={u.id}
+                    className={`flex items-center gap-3 px-3 py-2 rounded-lg border cursor-pointer transition-colors ${
+                      checked
+                        ? 'border-orange-500 bg-orange-500/10'
+                        : 'border-gray-800 hover:border-gray-600'
+                    }`}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => toggleTech(u.id)}
+                      className="w-4 h-4 accent-orange-500"
+                    />
+                    <span className="text-sm text-white">{u.name}</span>
+                  </label>
+                )
+              })}
+            </div>
+          </>
+        )}
+
+        {techsErr && <p className="text-red-400 text-sm mt-3">{techsErr}</p>}
+        <div className="mt-5">{saveBtn('Save', techsSave, saveTeamMembers, !techsLoadedOnce && jobberUsers.length === 0)}</div>
+      </section>
 
       {/* Duration Rules */}
       <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
