@@ -52,6 +52,7 @@ export default function ToolsSidebar({
   canAccessFleet,
   canAccessTimesheet,
   canAccessDialer,
+  canAccessMarketing,
   onClose,
   onDesktopCollapse,
 }: {
@@ -65,6 +66,7 @@ export default function ToolsSidebar({
   canAccessFleet: boolean
   canAccessTimesheet: boolean
   canAccessDialer: boolean
+  canAccessMarketing: boolean
   onClose?: () => void
   onDesktopCollapse?: () => void
 }) {
@@ -73,6 +75,7 @@ export default function ToolsSidebar({
     sales: true,
     communications: true,
     finance: true,
+    marketing: true,
     pages: true,
   })
   const toggle = (k: string) => setOpen(p => ({ ...p, [k]: !p[k] }))
@@ -142,6 +145,18 @@ export default function ToolsSidebar({
             <>
               {canAccessBooks && <ToolRow href="/hub/books" iconId="books" label="Books" prefixMatch onClose={onClose} />}
             </>
+          )}
+        </div>
+      )}
+
+      {canAccessMarketing && (
+        <div>
+          <button onClick={() => toggle('marketing')} className="w-full flex items-center gap-1 px-2 mb-1 group">
+            <Chevron open={open.marketing} />
+            <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider">Marketing</span>
+          </button>
+          {open.marketing && (
+            <ToolRow href="/hub/marketing/social" iconId="marketing" label="Social" onClose={onClose} />
           )}
         </div>
       )}

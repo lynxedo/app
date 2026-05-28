@@ -63,6 +63,7 @@ const TOOL_CATALOG: Record<string, ToolDef> = {
   'tool:call-log':      { id: 'tool:call-log',      label: 'Call Log',        icon: '📞', href: '/hub/call-log',     prefixMatch: true },
   'tool:books':         { id: 'tool:books',         label: 'Books',           icon: '📊', href: '/books',            prefixMatch: true },
   'tool:fleet':         { id: 'tool:fleet',         label: 'Fleet',           icon: '🚛', href: '/hub/fleet',        prefixMatch: true },
+  'tool:marketing':     { id: 'tool:marketing',     label: 'Marketing – Social', icon: '📣', href: '/hub/marketing/social', prefixMatch: true },
 }
 
 function convLabel(conv: Conversation, currentUserId: string) {
