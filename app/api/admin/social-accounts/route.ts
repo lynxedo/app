@@ -31,7 +31,8 @@ export async function POST(request: Request) {
     const appId = process.env.META_APP_ID
     if (!appId) return NextResponse.json({ error: 'META_APP_ID not configured' }, { status: 501 })
     const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/admin/social-accounts/meta-callback`
-    return NextResponse.json({ url: buildMetaOAuthUrl(appId, callbackUrl) })
+    const configId = process.env.META_OAUTH_CONFIG_ID
+    return NextResponse.json({ url: buildMetaOAuthUrl(appId, callbackUrl, configId) })
   }
 
   // Manual account entry (for testing)
