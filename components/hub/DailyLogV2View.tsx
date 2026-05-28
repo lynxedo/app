@@ -53,6 +53,8 @@ type Stop = {
   skip_reason_id: string | null
   skip_reason_label: string | null
   pesticide_tech_notes: string | null
+  office_reviewed_at: string | null
+  office_reviewed_by: string | null
   // Transient client-side state — not stored on server
   _jobber_warning?: string | null
   _omw_error?: string | null
@@ -62,10 +64,9 @@ type SkipReason = { id: string; label: string; sort_order: number }
 
 type StopMessage = {
   id: string
-  body: string
-  author_id: string
-  author_name: string | null
+  content: string
   created_at: string
+  user: { id: string; display_name: string; avatar_url?: string | null } | null
 }
 
 type StopAttachment = {
@@ -75,6 +76,7 @@ type StopAttachment = {
   file_size: number | null
   file_url: string
   created_at: string
+  uploaded_by: string | null
 }
 
 type ServiceReport = {
@@ -357,6 +359,20 @@ export default function DailyLogV2View({
     }
   }, [patchStop])
 
+  const handleReview = useCallback(async (stopId: string, undo: boolean) => {
+    try {
+      const res = await fetch(`/api/hub/daily-log/stops/${stopId}/review`, {
+        method: undo ? 'DELETE' : 'POST',
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) return
+      patchStop(stopId, {
+        office_reviewed_at: data.stop?.office_reviewed_at ?? null,
+        office_reviewed_by: data.stop?.office_reviewed_by ?? null,
+      })
+    } catch {/* best effort */}
+  }, [patchStop])
+
   const handleOnMyWay = useCallback(async (stopId: string, etaMinutes: number) => {
     setPendingActionStopId(stopId)
     try {
@@ -500,6 +516,7 @@ export default function DailyLogV2View({
                 onSkip={handleSkip}
                 onOnMyWay={handleOnMyWay}
                 onPestNotesSave={handlePestNotesSave}
+                onReview={handleReview}
                 onMarkRouteComplete={handleMarkRouteComplete}
                 onDismissRouteComplete={() => setRouteCompleteEntryId(null)}
               />
@@ -547,9 +564,26 @@ function EntryCard({
   onSkip: (stopId: string, undo: boolean, reasonId?: string, reasonLabel?: string) => void | Promise<void>
   onOnMyWay: (stopId: string, etaMinutes: number) => Promise<{ ok: true } | { ok: false }>
   onPestNotesSave: (stopId: string, notes: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  onReview: (stopId: string, undo: boolean) => void | Promise<void>
   onMarkRouteComplete: (entryId: string) => void | Promise<void>
   onDismissRouteComplete: () => void
 }) {
+  const [officeNotesDraft, setOfficeNotesDraft] = useState(entry.office_notes ?? '')
+  const [officeNotesSaving, setOfficeNotesSaving] = useState(false)
+
+  async function saveOfficeNotes() {
+    if (officeNotesDraft === (entry.office_notes ?? '')) return
+    setOfficeNotesSaving(true)
+    try {
+      await fetch(`/api/hub/daily-log/${entry.id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ office_notes: officeNotesDraft.trim() || null }),
+      })
+    } finally {
+      setOfficeNotesSaving(false)
+    }
+  }
   const stopsWithCoords = entry.stops.filter(s => s.lat != null && s.lng != null)
   const hasMap = stopsWithCoords.length > 0
 
@@ -627,12 +661,27 @@ function EntryCard({
       )}
 
       {/* Office instructions */}
-      {entry.office_notes && (
+      {isAdmin ? (
+        <div className="px-5 py-3 bg-amber-500/5 border-b border-gray-800">
+          <div className="flex items-center justify-between mb-1">
+            <div className="text-xs font-medium text-amber-300">Office Instructions</div>
+            {officeNotesSaving && <div className="text-[10px] text-gray-500">Saving…</div>}
+          </div>
+          <textarea
+            value={officeNotesDraft}
+            onChange={e => setOfficeNotesDraft(e.target.value)}
+            onBlur={saveOfficeNotes}
+            placeholder="Add office instructions for this route (saves when you click away)…"
+            rows={2}
+            className="w-full bg-transparent border border-amber-500/20 rounded px-2 py-1.5 text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-amber-400/50 resize-y"
+          />
+        </div>
+      ) : entry.office_notes ? (
         <div className="px-5 py-3 bg-amber-500/5 border-b border-gray-800">
           <div className="text-xs font-medium text-amber-300 mb-1">Office Instructions</div>
           <div className="text-sm text-gray-200 whitespace-pre-wrap">{entry.office_notes}</div>
         </div>
-      )}
+      ) : null}
 
       {/* Map */}
       {hasMap && (
@@ -660,6 +709,7 @@ function EntryCard({
               expanded={expandedStopId === s.id}
               pending={pendingActionStopId === s.id}
               currentUserId={currentUserId}
+              isAdmin={isAdmin}
               skipReasons={skipReasons}
               onToggleExpand={onToggleExpand}
               onArrive={onArrive}
@@ -667,6 +717,7 @@ function EntryCard({
               onSkip={onSkip}
               onOnMyWay={onOnMyWay}
               onPestNotesSave={onPestNotesSave}
+              onReview={onReview}
             />
           ))
         )}
@@ -702,6 +753,7 @@ function StopRow({
   expanded,
   pending,
   currentUserId,
+  isAdmin,
   skipReasons,
   onToggleExpand,
   onArrive,
@@ -709,11 +761,13 @@ function StopRow({
   onSkip,
   onOnMyWay,
   onPestNotesSave,
+  onReview,
 }: {
   stop: Stop
   expanded: boolean
   pending: boolean
   currentUserId: string
+  isAdmin: boolean
   skipReasons: SkipReason[]
   onToggleExpand: (stopId: string) => void
   onArrive: (stopId: string, undo: boolean) => void | Promise<void>
@@ -721,6 +775,7 @@ function StopRow({
   onSkip: (stopId: string, undo: boolean, reasonId?: string, reasonLabel?: string) => void | Promise<void>
   onOnMyWay: (stopId: string, etaMinutes: number) => Promise<{ ok: true } | { ok: false }>
   onPestNotesSave: (stopId: string, notes: string) => Promise<{ ok: true } | { ok: false; error: string }>
+  onReview: (stopId: string, undo: boolean) => void | Promise<void>
 }) {
   const lineItemNames = stop.line_items.map(li => li.name).filter(Boolean)
   const lineItemsSummary = lineItemNames.length === 0
@@ -833,6 +888,11 @@ function StopRow({
             {isSkipped && (
               <div className="text-[10px] bg-gray-700 text-gray-400 px-1.5 py-0.5 rounded">
                 {stop.skip_reason_label ?? 'Skipped'}
+              </div>
+            )}
+            {stop.office_reviewed_at && (
+              <div className="text-[10px] bg-violet-500/20 text-violet-300 px-1.5 py-0.5 rounded">
+                ✓ Reviewed
               </div>
             )}
           </div>
@@ -1007,11 +1067,29 @@ function StopRow({
             </div>
           )}
 
-          {/* Stop notes thread */}
-          <StopThreadPanel stopId={stop.id} currentUserId={currentUserId} />
+          {/* Unified notes + attachments thread */}
+          <StopNotesAndAttachments stopId={stop.id} currentUserId={currentUserId} />
 
-          {/* Attachments */}
-          <StopAttachmentsPanel stopId={stop.id} />
+          {/* Office reviewed marker — admin only */}
+          {isAdmin && (
+            <div className="flex items-center justify-between bg-violet-500/5 border border-violet-500/20 rounded px-3 py-2">
+              <div className="text-xs text-gray-300">
+                {stop.office_reviewed_at
+                  ? <span className="text-violet-300 font-medium">✓ Reviewed &amp; accounts updated</span>
+                  : <span className="text-gray-500">Mark as reviewed / accounts updated</span>}
+              </div>
+              <button
+                onClick={() => onReview(stop.id, !!stop.office_reviewed_at)}
+                className={`text-xs px-2.5 py-1.5 rounded font-medium transition-colors ${
+                  stop.office_reviewed_at
+                    ? 'bg-violet-700/40 text-violet-300 hover:bg-violet-700/60'
+                    : 'bg-violet-600 text-white hover:bg-violet-500'
+                }`}
+              >
+                {stop.office_reviewed_at ? 'Undo' : 'Mark reviewed'}
+              </button>
+            </div>
+          )}
 
           {/* Time on property */}
           {!isSkipped && (
@@ -1253,9 +1331,15 @@ function StopRow({
   )
 }
 
-// ── StopThreadPanel ───────────────────────────────────────────────────────────
+// ── StopNotesAndAttachments ───────────────────────────────────────────────────
 
-function StopThreadPanel({
+type ThreadItem =
+  | { kind: 'message'; id: string; content: string; created_at: string; user: StopMessage['user'] }
+  | { kind: 'file'; id: string; file_name: string; file_type: string | null; file_size: number | null; file_url: string; created_at: string; uploaded_by: string | null }
+
+type PendingFile = { file: File; previewUrl: string | null }
+
+function StopNotesAndAttachments({
   stopId,
   currentUserId,
 }: {
@@ -1263,189 +1347,223 @@ function StopThreadPanel({
   currentUserId: string
 }) {
   const [messages, setMessages] = useState<StopMessage[]>([])
+  const [attachments, setAttachments] = useState<StopAttachment[]>([])
   const [loading, setLoading] = useState(true)
-  const [body, setBody] = useState('')
-  const [posting, setPosting] = useState(false)
+  const [text, setText] = useState('')
+  const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
+  const [sending, setSending] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
     let cancelled = false
-    fetch(`/api/hub/daily-log/stops/${stopId}/messages`)
-      .then(r => r.json())
-      .then(d => { if (!cancelled) { setMessages(d.messages ?? []); setLoading(false) } })
-      .catch(() => { if (!cancelled) setLoading(false) })
+    Promise.all([
+      fetch(`/api/hub/daily-log/stops/${stopId}/messages`).then(r => r.json()),
+      fetch(`/api/hub/daily-log/stops/${stopId}/attachments`).then(r => r.json()),
+    ]).then(([msgData, attData]) => {
+      if (cancelled) return
+      setMessages(msgData.messages ?? [])
+      setAttachments(attData.attachments ?? [])
+      setLoading(false)
+    }).catch(() => { if (!cancelled) setLoading(false) })
     return () => { cancelled = true }
   }, [stopId])
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+  }, [messages, attachments])
+
+  // Revoke blob URLs when they leave the staging area
+  useEffect(() => {
+    return () => {
+      pendingFiles.forEach(p => { if (p.previewUrl) URL.revokeObjectURL(p.previewUrl) })
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  function stageFiles(files: FileList | File[]) {
+    const toAdd: PendingFile[] = Array.from(files).map(file => ({
+      file,
+      previewUrl: file.type.startsWith('image/') ? URL.createObjectURL(file) : null,
+    }))
+    setPendingFiles(prev => [...prev, ...toAdd])
+  }
+
+  function removePending(idx: number) {
+    setPendingFiles(prev => {
+      const p = prev[idx]
+      if (p.previewUrl) URL.revokeObjectURL(p.previewUrl)
+      return prev.filter((_, i) => i !== idx)
+    })
+  }
 
   async function send() {
-    if (!body.trim() || posting) return
-    setPosting(true)
+    const hasText = text.trim().length > 0
+    const hasFiles = pendingFiles.length > 0
+    if (!hasText && !hasFiles) return
+    setSending(true)
     try {
-      const res = await fetch(`/api/hub/daily-log/stops/${stopId}/messages`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body: body.trim() }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (res.ok && data.message) {
-        setMessages(prev => [...prev, data.message as StopMessage])
-        setBody('')
+      // Upload files first, sequentially
+      for (const pf of pendingFiles) {
+        const fd = new FormData()
+        fd.append('file', pf.file)
+        const res = await fetch(`/api/hub/daily-log/stops/${stopId}/attachments`, { method: 'POST', body: fd })
+        const data = await res.json().catch(() => ({}))
+        if (res.ok && data.attachment) {
+          setAttachments(prev => [...prev, data.attachment as StopAttachment])
+        }
+        if (pf.previewUrl) URL.revokeObjectURL(pf.previewUrl)
+      }
+      setPendingFiles([])
+
+      // Then post text if present
+      if (hasText) {
+        const res = await fetch(`/api/hub/daily-log/stops/${stopId}/messages`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ content: text.trim() }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (res.ok && data.message) {
+          setMessages(prev => [...prev, data.message as StopMessage])
+        }
+        setText('')
       }
     } finally {
-      setPosting(false)
+      setSending(false)
     }
   }
 
+  const threadItems = useMemo<ThreadItem[]>(() => {
+    const items: ThreadItem[] = [
+      ...messages.map(m => ({ kind: 'message' as const, id: m.id, content: m.content, created_at: m.created_at, user: m.user })),
+      ...attachments.map(a => ({ kind: 'file' as const, id: a.id, file_name: a.file_name, file_type: a.file_type, file_size: a.file_size, file_url: a.file_url, created_at: a.created_at, uploaded_by: a.uploaded_by })),
+    ]
+    return items.sort((a, b) => a.created_at.localeCompare(b.created_at))
+  }, [messages, attachments])
+
+  const isImage = (type: string | null) => !!type && /^image\//.test(type)
+  const isVideo = (type: string | null) => !!type && /^video\//.test(type)
+
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Stop notes</div>
+      <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Notes &amp; attachments</div>
+
       {loading ? (
         <div className="text-xs text-gray-500 mb-2">Loading…</div>
       ) : (
-        <div className="space-y-2 mb-2 max-h-48 overflow-y-auto">
-          {messages.length === 0 && (
-            <div className="text-xs text-gray-500">No notes yet — add one below.</div>
+        <div className="space-y-2 mb-2 max-h-64 overflow-y-auto">
+          {threadItems.length === 0 && (
+            <div className="text-xs text-gray-500">No notes or attachments yet.</div>
           )}
-          {messages.map(m => {
-            const isMine = m.author_id === currentUserId
-            return (
-              <div key={m.id} className={`flex gap-2 ${isMine ? 'flex-row-reverse' : ''}`}>
-                <div className="flex-none w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-[10px] text-gray-300 font-semibold">
-                  {(m.author_name ?? '?').charAt(0).toUpperCase()}
-                </div>
-                <div
-                  className={`max-w-[78%] rounded px-2.5 py-1.5 text-xs ${
-                    isMine ? 'bg-sky-600/25 text-sky-100' : 'bg-gray-800 text-gray-200'
-                  }`}
-                >
-                  <div className="font-medium text-[10px] opacity-60 mb-0.5">
-                    {m.author_name ?? 'Unknown'} · {formatTime(m.created_at)}
+          {threadItems.map(item => {
+            if (item.kind === 'message') {
+              const isMine = item.user?.id === currentUserId
+              const initials = item.user ? item.user.display_name.split(/\s+/).map(n => n[0]).join('').slice(0, 2).toUpperCase() : '?'
+              return (
+                <div key={`m-${item.id}`} className={`flex gap-2 ${isMine ? 'flex-row-reverse' : ''}`}>
+                  <div className="flex-none w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-[10px] text-gray-300 font-semibold">
+                    {initials}
                   </div>
-                  {m.body}
+                  <div className={`max-w-[78%] rounded px-2.5 py-1.5 text-xs ${isMine ? 'bg-sky-600/25 text-sky-100' : 'bg-gray-800 text-gray-200'}`}>
+                    <div className="font-medium text-[10px] opacity-60 mb-0.5">
+                      {item.user?.display_name ?? 'Unknown'} · {formatTime(item.created_at)}
+                    </div>
+                    <div className="whitespace-pre-wrap">{item.content}</div>
+                  </div>
                 </div>
-              </div>
-            )
+              )
+            } else {
+              const isMine = item.uploaded_by === currentUserId
+              return (
+                <div key={`f-${item.id}`} className={`flex gap-2 ${isMine ? 'flex-row-reverse' : ''}`}>
+                  <div className="flex-none w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-[10px] text-gray-300 font-semibold">
+                    {isMine ? 'Me' : '?'}
+                  </div>
+                  <a
+                    href={item.file_url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className={`max-w-[60%] block bg-gray-800 border border-gray-700 rounded overflow-hidden hover:border-sky-600 transition-colors ${isMine ? '' : ''}`}
+                  >
+                    {isImage(item.file_type) ? (
+                      // eslint-disable-next-line @next/next/no-img-element
+                      <img src={item.file_url} alt={item.file_name} className="w-full h-24 object-cover" />
+                    ) : (
+                      <div className="w-full h-16 flex items-center justify-center text-2xl select-none">
+                        {isVideo(item.file_type) ? '🎥' : '📄'}
+                      </div>
+                    )}
+                    <div className="px-2 py-1 text-[10px] text-gray-400 truncate">{item.file_name}</div>
+                  </a>
+                </div>
+              )
+            }
           })}
           <div ref={bottomRef} />
         </div>
       )}
-      <div className="flex gap-2">
+
+      {/* Staged files preview */}
+      {pendingFiles.length > 0 && (
+        <div className="flex flex-wrap gap-2 mb-2">
+          {pendingFiles.map((pf, idx) => (
+            <div key={idx} className="relative w-16 h-16 bg-gray-800 rounded border border-gray-700 overflow-hidden flex-none">
+              {pf.previewUrl ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img src={pf.previewUrl} alt={pf.file.name} className="w-full h-full object-cover" />
+              ) : (
+                <div className="w-full h-full flex items-center justify-center text-xl">📄</div>
+              )}
+              <button
+                onClick={() => removePending(idx)}
+                className="absolute top-0.5 right-0.5 w-4 h-4 bg-gray-900/80 rounded-full text-gray-300 hover:text-white flex items-center justify-center text-[10px] leading-none"
+              >
+                ×
+              </button>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Composer */}
+      <div className="flex gap-2 items-end">
+        <button
+          onClick={() => fileRef.current?.click()}
+          className="flex-none px-2.5 py-2.5 bg-gray-800 hover:bg-gray-700 text-gray-400 hover:text-white rounded transition-colors text-sm"
+          title="Attach photo or file"
+        >
+          📎
+        </button>
+        <input
+          ref={fileRef}
+          type="file"
+          accept="image/*,application/pdf,video/mp4,video/quicktime"
+          multiple
+          className="hidden"
+          onChange={e => {
+            if (e.target.files?.length) stageFiles(e.target.files)
+            e.target.value = ''
+          }}
+        />
         <textarea
-          value={body}
-          onChange={e => setBody(e.target.value)}
+          value={text}
+          onChange={e => setText(e.target.value)}
           onKeyDown={e => {
             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); send() }
           }}
-          placeholder="Add a note… (Enter to send, Shift+Enter for newline)"
+          placeholder="Add a note… (Enter to send)"
           rows={2}
           className="flex-1 bg-gray-900 border border-gray-700 rounded px-2.5 py-2 text-base md:text-sm text-white placeholder-gray-500 outline-none focus:border-sky-500 resize-none"
         />
         <button
           onClick={send}
-          disabled={!body.trim() || posting}
-          className="px-3 py-2 bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white rounded text-sm font-medium self-end transition-colors"
+          disabled={sending || (!text.trim() && pendingFiles.length === 0)}
+          className="flex-none px-3 py-2.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white rounded text-sm font-medium transition-colors self-end"
         >
-          {posting ? '…' : '↑'}
+          {sending ? '…' : '↑'}
         </button>
       </div>
-    </div>
-  )
-}
-
-// ── StopAttachmentsPanel ──────────────────────────────────────────────────────
-
-function StopAttachmentsPanel({ stopId }: { stopId: string }) {
-  const [attachments, setAttachments] = useState<StopAttachment[]>([])
-  const [loading, setLoading] = useState(true)
-  const [uploading, setUploading] = useState(false)
-  const fileRef = useRef<HTMLInputElement>(null)
-
-  useEffect(() => {
-    let cancelled = false
-    fetch(`/api/hub/daily-log/stops/${stopId}/attachments`)
-      .then(r => r.json())
-      .then(d => { if (!cancelled) { setAttachments(d.attachments ?? []); setLoading(false) } })
-      .catch(() => { if (!cancelled) setLoading(false) })
-    return () => { cancelled = true }
-  }, [stopId])
-
-  async function handleFile(file: File) {
-    setUploading(true)
-    try {
-      const fd = new FormData()
-      fd.append('file', file)
-      const res = await fetch(`/api/hub/daily-log/stops/${stopId}/attachments`, {
-        method: 'POST',
-        body: fd,
-      })
-      const data = await res.json().catch(() => ({}))
-      if (res.ok && data.attachment) {
-        setAttachments(prev => [...prev, data.attachment as StopAttachment])
-      }
-    } finally {
-      setUploading(false)
-    }
-  }
-
-  const isImage = (type: string | null) =>
-    !!type && /^image\//.test(type)
-  const isVideo = (type: string | null) =>
-    !!type && /^video\//.test(type)
-
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-2">
-        <div className="text-[10px] uppercase tracking-wide text-gray-500">Attachments</div>
-        <button
-          onClick={() => fileRef.current?.click()}
-          disabled={uploading}
-          className="text-xs text-sky-400 hover:text-sky-300 disabled:opacity-40 transition-colors"
-        >
-          {uploading ? 'Uploading…' : '+ Add photo / file'}
-        </button>
-      </div>
-      <input
-        ref={fileRef}
-        type="file"
-        accept="image/*,application/pdf,video/mp4,video/quicktime"
-        className="hidden"
-        onChange={e => {
-          const f = e.target.files?.[0]
-          if (f) handleFile(f)
-          e.target.value = ''
-        }}
-      />
-      {loading ? (
-        <div className="text-xs text-gray-500">Loading…</div>
-      ) : attachments.length === 0 ? (
-        <div className="text-xs text-gray-500">No attachments yet.</div>
-      ) : (
-        <div className="grid grid-cols-3 gap-2">
-          {attachments.map(a => (
-            <a
-              key={a.id}
-              href={a.file_url}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="block bg-gray-800 rounded overflow-hidden border border-gray-700 hover:border-sky-600 transition-colors"
-            >
-              {isImage(a.file_type) ? (
-                // eslint-disable-next-line @next/next/no-img-element
-                <img src={a.file_url} alt={a.file_name} className="w-full h-20 object-cover" />
-              ) : (
-                <div className="w-full h-20 flex items-center justify-center text-2xl select-none">
-                  {isVideo(a.file_type) ? '🎥' : '📄'}
-                </div>
-              )}
-              <div className="px-1.5 py-1 text-[10px] text-gray-400 truncate">{a.file_name}</div>
-            </a>
-          ))}
-        </div>
-      )}
     </div>
   )
 }
