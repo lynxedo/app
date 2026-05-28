@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-// PATCH — update mutable fields on a stop (Phase 2: notes only)
+// PATCH — update mutable fields on a stop (notes, pesticide_tech_notes)
 export async function PATCH(
   request: Request,
   context: { params: Promise<{ id: string }> },
@@ -22,17 +22,27 @@ export async function PATCH(
     return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
   }
 
-  const body = await request.json() as { notes?: string | null }
+  const body = await request.json() as { notes?: string | null; pesticide_tech_notes?: string | null }
   const updates: Record<string, unknown> = {}
   if (body.notes !== undefined) {
     if (typeof body.notes !== 'string' && body.notes !== null) {
       return NextResponse.json({ error: 'notes must be a string or null' }, { status: 400 })
     }
-    // 5000-char cap — generous but bounded
     if (typeof body.notes === 'string' && body.notes.length > 5000) {
       return NextResponse.json({ error: 'notes too long (max 5000 chars)' }, { status: 400 })
     }
     updates.notes = typeof body.notes === 'string' ? body.notes.trim() || null : null
+  }
+  if (body.pesticide_tech_notes !== undefined) {
+    if (typeof body.pesticide_tech_notes !== 'string' && body.pesticide_tech_notes !== null) {
+      return NextResponse.json({ error: 'pesticide_tech_notes must be a string or null' }, { status: 400 })
+    }
+    if (typeof body.pesticide_tech_notes === 'string' && body.pesticide_tech_notes.length > 2000) {
+      return NextResponse.json({ error: 'pesticide_tech_notes too long (max 2000 chars)' }, { status: 400 })
+    }
+    updates.pesticide_tech_notes = typeof body.pesticide_tech_notes === 'string'
+      ? body.pesticide_tech_notes.trim() || null
+      : null
   }
   if (Object.keys(updates).length === 0) {
     return NextResponse.json({ error: 'No updatable fields provided' }, { status: 400 })
@@ -60,7 +70,7 @@ export async function PATCH(
     .from('daily_log_stops')
     .update(updates)
     .eq('id', id)
-    .select('id, notes, updated_at')
+    .select('id, notes, pesticide_tech_notes, updated_at')
     .single()
 
   if (error || !updated) {

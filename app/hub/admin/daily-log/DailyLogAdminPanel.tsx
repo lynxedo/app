@@ -19,6 +19,13 @@ export type PesticideMapping = {
   active: boolean
 }
 
+export type SkipReason = {
+  id: string
+  label: string
+  sort_order: number
+  active: boolean
+}
+
 const DEFAULT_ON_MY_WAY_TEMPLATE =
   "Hi {first_name}, this is {tech_name} from Heroes Lawn Care. I'm on my way — should be there in about {eta} minutes."
 
@@ -29,6 +36,7 @@ export default function DailyLogAdminPanel({
   users,
   rooms,
   initialMappings,
+  initialSkipReasons,
 }: {
   initialRecipientIds: string[]
   initialRoomIds: string[]
@@ -36,6 +44,7 @@ export default function DailyLogAdminPanel({
   users: HubUser[]
   rooms: Room[]
   initialMappings: PesticideMapping[]
+  initialSkipReasons: SkipReason[]
 }) {
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set(initialRecipientIds))
   const [selectedRooms, setSelectedRooms] = useState<Set<string>>(new Set(initialRoomIds))
@@ -168,6 +177,8 @@ export default function DailyLogAdminPanel({
           )}
           {error && <span className="text-xs text-red-400">{error}</span>}
         </div>
+
+        <SkipReasonsSection initialReasons={initialSkipReasons} />
 
         <PesticideMappingsSection initialMappings={initialMappings} />
       </div>
@@ -495,6 +506,242 @@ function MappingForm({
           className="px-3 py-1.5 rounded bg-[#2E7EB8] hover:bg-[#2470a8] text-white text-sm font-medium transition-colors disabled:opacity-40"
         >
           {initial ? 'Save changes' : 'Add mapping'}
+        </button>
+        <button
+          onClick={onCancel}
+          className="px-3 py-1.5 rounded bg-white/5 hover:bg-white/10 text-white/70 text-sm transition-colors"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
+function SkipReasonsSection({ initialReasons }: { initialReasons: SkipReason[] }) {
+  const [reasons, setReasons] = useState<SkipReason[]>(initialReasons)
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [showAddForm, setShowAddForm] = useState(false)
+  const [sectionError, setSectionError] = useState<string | null>(null)
+
+  async function createReason(label: string, sortOrder: number) {
+    setSectionError(null)
+    try {
+      const res = await fetch('/api/admin/daily-log/skip-reasons', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ label, sort_order: sortOrder }),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? `Save failed (${res.status})`)
+      setReasons(prev => [...prev, body.reason as SkipReason].sort((a, b) => a.sort_order - b.sort_order))
+      setShowAddForm(false)
+    } catch (e) {
+      setSectionError(e instanceof Error ? e.message : 'Save failed')
+    }
+  }
+
+  async function updateReason(id: string, patch: Partial<SkipReason>) {
+    setSectionError(null)
+    try {
+      const res = await fetch(`/api/admin/daily-log/skip-reasons/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      const body = await res.json().catch(() => null)
+      if (!res.ok) throw new Error(body?.error ?? `Save failed (${res.status})`)
+      setReasons(prev =>
+        prev.map(r => r.id === id ? (body.reason as SkipReason) : r)
+          .sort((a, b) => a.sort_order - b.sort_order)
+      )
+      setEditingId(null)
+    } catch (e) {
+      setSectionError(e instanceof Error ? e.message : 'Save failed')
+    }
+  }
+
+  async function deleteReason(id: string) {
+    if (!confirm('Delete this skip reason? Stops already marked as skipped with this reason will retain the label text.')) return
+    setSectionError(null)
+    try {
+      const res = await fetch(`/api/admin/daily-log/skip-reasons/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error ?? `Delete failed (${res.status})`)
+      }
+      setReasons(prev => prev.filter(r => r.id !== id))
+    } catch (e) {
+      setSectionError(e instanceof Error ? e.message : 'Delete failed')
+    }
+  }
+
+  const nextSortOrder = reasons.length > 0 ? Math.max(...reasons.map(r => r.sort_order)) + 10 : 10
+
+  return (
+    <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-3">
+      <div>
+        <h2 className="font-semibold">
+          Skip reasons <span className="text-xs text-violet-200 bg-violet-500/20 px-1.5 py-0.5 rounded ml-1 align-middle">v2</span>
+        </h2>
+        <p className="text-xs text-white/50 mt-0.5">
+          Reason codes techs can select when marking a Daily Log v2 stop as skipped — e.g. &ldquo;Locked gate&rdquo;, &ldquo;Dog out&rdquo;, &ldquo;Customer request&rdquo;. Sort order controls the display sequence in the picker.
+        </p>
+      </div>
+
+      {sectionError && (
+        <div className="bg-red-900/30 border border-red-700/50 text-red-300 rounded px-3 py-2 text-xs">
+          {sectionError}
+        </div>
+      )}
+
+      <div className="space-y-2">
+        {reasons.length === 0 && !showAddForm && (
+          <div className="text-sm text-white/40 italic py-2">
+            No skip reasons configured. Techs must type a custom reason or skip without one until you add some.
+          </div>
+        )}
+
+        {reasons.map(r =>
+          editingId === r.id ? (
+            <SkipReasonForm
+              key={r.id}
+              initial={r}
+              onCancel={() => setEditingId(null)}
+              onSave={(label, sortOrder) => updateReason(r.id, { label, sort_order: sortOrder })}
+            />
+          ) : (
+            <SkipReasonRow
+              key={r.id}
+              reason={r}
+              onEdit={() => setEditingId(r.id)}
+              onDelete={() => deleteReason(r.id)}
+              onToggleActive={() => updateReason(r.id, { active: !r.active })}
+            />
+          )
+        )}
+
+        {showAddForm ? (
+          <SkipReasonForm
+            defaultSortOrder={nextSortOrder}
+            onCancel={() => setShowAddForm(false)}
+            onSave={(label, sortOrder) => createReason(label, sortOrder)}
+          />
+        ) : (
+          <button
+            onClick={() => setShowAddForm(true)}
+            className="w-full px-3 py-2 border border-dashed border-white/20 rounded-lg text-sm text-white/60 hover:bg-white/5 hover:text-white transition-colors"
+          >
+            + Add skip reason
+          </button>
+        )}
+      </div>
+    </section>
+  )
+}
+
+function SkipReasonRow({
+  reason,
+  onEdit,
+  onDelete,
+  onToggleActive,
+}: {
+  reason: SkipReason
+  onEdit: () => void
+  onDelete: () => void
+  onToggleActive: () => void
+}) {
+  return (
+    <div className={`rounded-lg border border-white/10 bg-gray-950/50 px-3 py-2.5 ${reason.active ? '' : 'opacity-50'}`}>
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3 min-w-0 flex-1">
+          <span className="text-xs text-white/30 font-mono w-8 shrink-0">{reason.sort_order}</span>
+          <span className="font-medium text-white truncate">{reason.label}</span>
+          {!reason.active && (
+            <span className="text-[10px] uppercase tracking-wide bg-gray-700 text-gray-300 px-1.5 py-0.5 rounded shrink-0">Inactive</span>
+          )}
+        </div>
+        <div className="flex flex-none items-center gap-1">
+          <button
+            onClick={onToggleActive}
+            className="text-xs px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-colors"
+            title={reason.active ? 'Disable — hides from tech picker' : 'Enable — shows in tech picker'}
+          >
+            {reason.active ? 'Disable' : 'Enable'}
+          </button>
+          <button
+            onClick={onEdit}
+            className="text-xs px-2 py-1 rounded bg-white/5 hover:bg-white/10 text-white/70 hover:text-white transition-colors"
+          >
+            Edit
+          </button>
+          <button
+            onClick={onDelete}
+            className="text-xs px-2 py-1 rounded bg-red-900/30 hover:bg-red-900/50 text-red-300 transition-colors"
+          >
+            Delete
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function SkipReasonForm({
+  initial,
+  defaultSortOrder = 10,
+  onCancel,
+  onSave,
+}: {
+  initial?: SkipReason
+  defaultSortOrder?: number
+  onCancel: () => void
+  onSave: (label: string, sortOrder: number) => void
+}) {
+  const [label, setLabel] = useState(initial?.label ?? '')
+  const [sortOrder, setSortOrder] = useState(initial?.sort_order ?? defaultSortOrder)
+
+  function submit() {
+    const trimmed = label.trim()
+    if (!trimmed || trimmed.length > 100) return
+    onSave(trimmed, sortOrder)
+  }
+
+  return (
+    <div className="rounded-lg border border-[#2E7EB8]/40 bg-[#2E7EB8]/5 px-3 py-3 space-y-2">
+      <div className="flex gap-2">
+        <div className="flex-1">
+          <label className="block text-[10px] uppercase tracking-wide text-white/50 mb-1">Label *</label>
+          <input
+            type="text"
+            value={label}
+            onChange={e => setLabel(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') submit() }}
+            placeholder="e.g. Locked gate"
+            maxLength={100}
+            autoFocus
+            className="w-full bg-gray-900 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+          />
+        </div>
+        <div className="w-24">
+          <label className="block text-[10px] uppercase tracking-wide text-white/50 mb-1">Sort order</label>
+          <input
+            type="number"
+            value={sortOrder}
+            onChange={e => setSortOrder(parseInt(e.target.value) || 0)}
+            min={0}
+            step={10}
+            className="w-full bg-gray-900 border border-white/10 rounded px-2 py-1.5 text-sm text-white"
+          />
+        </div>
+      </div>
+      <div className="flex gap-2 pt-1">
+        <button
+          onClick={submit}
+          disabled={label.trim().length === 0 || label.trim().length > 100}
+          className="px-3 py-1.5 rounded bg-[#2E7EB8] hover:bg-[#2470a8] text-white text-sm font-medium transition-colors disabled:opacity-40"
+        >
+          {initial ? 'Save changes' : 'Add reason'}
         </button>
         <button
           onClick={onCancel}

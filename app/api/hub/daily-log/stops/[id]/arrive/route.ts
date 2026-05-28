@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { fetchWeatherForLocation, type WeatherSnapshot } from '@/lib/nws-weather'
 
 async function authResolve(stopId: string) {
   const supabase = await createClient()
@@ -17,7 +18,7 @@ async function authResolve(stopId: string) {
   const admin = createAdminClient()
   const { data: stop } = await admin
     .from('daily_log_stops')
-    .select('id, status, arrived_at, completed_at, daily_log_entries!inner(company_id)')
+    .select('id, status, arrived_at, completed_at, lat, lng, daily_log_entries!inner(company_id)')
     .eq('id', stopId)
     .single()
   if (!stop) return { error: 'Stop not found', status: 404 as const }
@@ -52,6 +53,7 @@ export async function POST(
         status: stop.status,
         arrived_at: stop.arrived_at,
         completed_at: stop.completed_at,
+        weather: null,
       },
       already_arrived: true,
     })
@@ -60,10 +62,11 @@ export async function POST(
   // If the stop is already complete, arriving doesn't really make sense —
   // but be forgiving: stamp arrived_at and leave status='complete'.
   const newStatus = stop.status === 'complete' ? 'complete' : 'in_progress'
+  const nowIso = new Date().toISOString()
 
   const { data: updated, error } = await admin
     .from('daily_log_stops')
-    .update({ arrived_at: new Date().toISOString(), status: newStatus })
+    .update({ arrived_at: nowIso, status: newStatus })
     .eq('id', stop.id)
     .select('id, status, arrived_at, completed_at')
     .single()
@@ -71,7 +74,21 @@ export async function POST(
   if (error || !updated) {
     return NextResponse.json({ error: error?.message ?? 'Update failed' }, { status: 500 })
   }
-  return NextResponse.json({ stop: updated })
+
+  // Best-effort weather capture at arrive time (NWS, 8s budget).
+  // Null on any failure — never blocks the arrive action.
+  let weather: WeatherSnapshot | null = null
+  if (typeof stop.lat === 'number' && typeof stop.lng === 'number') {
+    weather = await fetchWeatherForLocation(stop.lat, stop.lng)
+    if (weather) {
+      await admin
+        .from('daily_log_stops')
+        .update({ weather: weather as unknown as Record<string, unknown> })
+        .eq('id', stop.id)
+    }
+  }
+
+  return NextResponse.json({ stop: { ...updated, weather } })
 }
 
 // DELETE — clear arrival timestamp (misclick recovery). Only allowed when

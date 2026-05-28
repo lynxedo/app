@@ -42,7 +42,8 @@ export async function GET(request: Request) {
         id, ord, jobber_visit_id, client_name, client_phone, address, lat, lng,
         job_title, line_items, instructions, scheduled_start_at, scheduled_end_at,
         duration_minutes, status, arrived_at, completed_at, notes,
-        on_my_way_sent_at, on_my_way_eta_minutes, weather, pesticide_record_id
+        on_my_way_sent_at, on_my_way_eta_minutes, weather, pesticide_record_id,
+        skip_reason_id, skip_reason_label, pesticide_tech_notes
       )
     `)
     .eq('company_id', profile.company_id)
