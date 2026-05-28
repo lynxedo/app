@@ -62,7 +62,6 @@ export async function GET(request: Request) {
 
   // Fetch all pages the user manages, with IG Business Account IDs
   const pagesResult = await fetchPagesWithIg(longResult.token)
-  console.log('[meta-callback] fetchPagesWithIg result:', JSON.stringify(pagesResult))
   if ('error' in pagesResult) {
     return redirectTo(`${adminPath}?meta_error=${encodeURIComponent(pagesResult.error)}`)
   }
