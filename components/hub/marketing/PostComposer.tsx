@@ -39,12 +39,16 @@ const CONTENT_PILLARS = [
 const FB_CHAR_LIMIT = 63206
 const IG_CHAR_LIMIT = 2200
 
+function toLocalDT(d: Date): string {
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`
+}
+
 function defaultScheduledAt(): string {
   const d = new Date()
   d.setMinutes(0, 0, 0)
   d.setHours(d.getHours() + 2)
-  // Strip seconds for datetime-local input
-  return d.toISOString().slice(0, 16)
+  return toLocalDT(d)
 }
 
 export default function PostComposer({
@@ -67,7 +71,7 @@ export default function PostComposer({
 }) {
   const [caption, setCaption] = useState(editPost?.caption ?? '')
   const [scheduledAt, setScheduledAt] = useState(
-    editPost ? editPost.scheduled_at.slice(0, 16) : defaultScheduledAt()
+    editPost ? toLocalDT(new Date(editPost.scheduled_at)) : defaultScheduledAt()
   )
   const [selectedPhoto, setSelectedPhoto] = useState<PhotoFile | null>(null)
   const [hubFileId, setHubFileId] = useState<string | null>(editPost?.hub_file_id ?? null)
@@ -160,17 +164,18 @@ export default function PostComposer({
     setGeneratingCaption(false)
   }
 
-  async function submit(action: 'draft' | 'schedule') {
+  async function submit(action: 'draft' | 'schedule', overrideAt?: string) {
     if (!canSubmit) return
     setSaving(true)
     setSaveError('')
 
+    const scheduledAtUtc = new Date(overrideAt ?? scheduledAt).toISOString()
     const entries = selectedAccountEntries()
     const body = {
       account_entries: editPost ? [{ account_id: editPost.account_id, platforms: entries[0]?.platforms ?? ['facebook'] }] : entries,
       hub_file_id: hubFileId,
       caption,
-      scheduled_at: scheduledAt,
+      scheduled_at: scheduledAtUtc,
       action,
     }
 
@@ -419,6 +424,15 @@ export default function PostComposer({
           >
             Save Draft
           </button>
+          {!editPost && (
+            <button
+              onClick={() => submit('schedule', new Date(Date.now() - 60000).toISOString())}
+              disabled={!canSubmit || saving || captionLength > charLimit}
+              className="text-sm bg-green-600 hover:bg-green-500 disabled:opacity-40 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+            >
+              {saving ? 'Saving…' : 'Post Now'}
+            </button>
+          )}
           <button
             onClick={() => submit('schedule')}
             disabled={!canSubmit || saving || captionLength > charLimit}
