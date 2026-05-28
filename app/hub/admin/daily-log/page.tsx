@@ -21,7 +21,7 @@ export default async function AdminDailyLogPage() {
 
   const admin = createAdminClient()
 
-  const [settingsRes, usersRes, roomsRes, mappingsRes] = await Promise.all([
+  const [settingsRes, usersRes, roomsRes, mappingsRes, skipReasonsRes] = await Promise.all([
     admin
       .from('daily_log_settings')
       .select('completion_notify_user_ids, completion_notify_room_ids, on_my_way_template')
@@ -43,6 +43,11 @@ export default async function AdminDailyLogPage() {
       .select('id, match_text, match_type, chemical_name, epa_registration_number, active_ingredients, target_pests, application_rate, notes, active')
       .eq('company_id', profile.company_id)
       .order('chemical_name'),
+    admin
+      .from('daily_log_skip_reasons')
+      .select('id, label, sort_order, active')
+      .eq('company_id', profile.company_id)
+      .order('sort_order', { ascending: true }),
   ])
 
   const recipientUserIds: string[] = settingsRes.data?.completion_notify_user_ids ?? []
@@ -51,6 +56,7 @@ export default async function AdminDailyLogPage() {
   const users = (usersRes.data ?? []).filter((u: { is_bot: boolean }) => !u.is_bot)
   const rooms = roomsRes.data ?? []
   const mappings = mappingsRes.data ?? []
+  const skipReasons = skipReasonsRes.data ?? []
 
   return (
     <DailyLogAdminPanel
@@ -60,6 +66,7 @@ export default async function AdminDailyLogPage() {
       users={users}
       rooms={rooms}
       initialMappings={mappings}
+      initialSkipReasons={skipReasons}
     />
   )
 }

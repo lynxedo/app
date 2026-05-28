@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { jobberGraphQL } from '@/lib/jobber'
-import { fetchWeatherForLocation, type WeatherSnapshot } from '@/lib/nws-weather'
+import type { WeatherSnapshot } from '@/lib/nws-weather'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface VisitMutationResponse {
@@ -62,6 +62,7 @@ type StopRow = {
   status: string
   arrived_at: string | null
   pesticide_record_id: string | null
+  pesticide_tech_notes: string | null
   weather: WeatherSnapshot | null
   daily_log_entries: {
     company_id: string
@@ -94,7 +95,7 @@ async function resolveStopOrError(stopId: string, userId: string) {
   const admin = createAdminClient()
   const { data: stop } = await admin
     .from('daily_log_stops')
-    .select('id, entry_id, jobber_visit_id, client_name, client_phone, address, lat, lng, line_items, status, arrived_at, pesticide_record_id, weather, daily_log_entries!inner(company_id, log_date, tech_user_id)')
+    .select('id, entry_id, jobber_visit_id, client_name, client_phone, address, lat, lng, line_items, status, arrived_at, pesticide_record_id, pesticide_tech_notes, weather, daily_log_entries!inner(company_id, log_date, tech_user_id)')
     .eq('id', stopId)
     .single<StopRow>()
 
@@ -150,8 +151,9 @@ async function upsertPesticideRecord(args: {
   weather: WeatherSnapshot | null
   applicationTimestamp: string
   technicianName: string | null
+  techNotes: string | null
 }): Promise<string | null> {
-  const { admin, stop, entry, weather, applicationTimestamp, technicianName } = args
+  const { admin, stop, entry, weather, applicationTimestamp, technicianName, techNotes } = args
 
   // Pull active mappings for this company
   const { data: mappingRows } = await admin
@@ -195,6 +197,7 @@ async function upsertPesticideRecord(args: {
     line_items: stop.line_items,
     chemicals_applied: chemicalsApplied,
     weather: weather,
+    tech_notes: techNotes,
   }
 
   if (stop.pesticide_record_id) {
@@ -257,21 +260,8 @@ export async function POST(
     )
   }
 
-  // Best-effort weather capture (NWS api.weather.gov). Awaited inline with
-  // its own internal 8s budget — total time bounded so technicians don't see
-  // a slow Mark Complete when NWS is down. Null on any failure.
-  let weather: WeatherSnapshot | null = null
-  if (typeof stop.lat === 'number' && typeof stop.lng === 'number') {
-    weather = await fetchWeatherForLocation(stop.lat, stop.lng)
-    if (weather) {
-      // Stamp on stop. Ignore error — we still have it in memory for the
-      // pesticide record below and the response payload.
-      await admin
-        .from('daily_log_stops')
-        .update({ weather: weather as unknown as Record<string, unknown> })
-        .eq('id', stop.id)
-    }
-  }
+  // Weather was captured at arrive time; use whatever is already on the stop.
+  const weather = stop.weather
 
   // Best-effort pesticide-record creation/update. arrived_at is the
   // application-start time per TDA convention; fall back to completed_at
@@ -297,6 +287,7 @@ export async function POST(
     weather,
     applicationTimestamp,
     technicianName,
+    techNotes: stop.pesticide_tech_notes,
   })
 
   // Persist the link back to the stop if we created/updated a record.
@@ -305,6 +296,17 @@ export async function POST(
       .from('daily_log_stops')
       .update({ pesticide_record_id: pesticideRecordId })
       .eq('id', stop.id)
+  }
+
+  // Detect if this was the last non-complete, non-skipped stop in the entry.
+  let isLastStop = false
+  {
+    const { count } = await admin
+      .from('daily_log_stops')
+      .select('id', { count: 'exact', head: true })
+      .eq('entry_id', stop.entry_id)
+      .in('status', ['pending', 'in_progress'])
+    isLastStop = (count ?? 0) === 0
   }
 
   // Best-effort Jobber push
@@ -341,6 +343,7 @@ export async function POST(
     },
     jobber_pushed: jobberSuccess,
     jobber_warning: jobberWarning,
+    is_last_stop: isLastStop,
   })
 }
 
