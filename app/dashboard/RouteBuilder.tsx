@@ -585,14 +585,41 @@ export default function RouteBuilder() {
     // ── Mapbox Static Image URL (used both on screen and in print) ──
     // We deliberately do NOT use Mapbox GL JS here because GL JS tile requests
     // get blocked by the public token's URL restrictions on certain origins,
-    // while the Static Images API works everywhere the token is enabled
-    // (confirmed: the Quick Route preview map uses the same API and renders
-    // fine on staging + prod).
+    // while the Static Images API works everywhere the token is enabled.
+    // For the path, we first try the Directions API (same as the preview map)
+    // to get actual road geometry. Falls back to straight lines for routes
+    // over 25 waypoints or when the API call fails.
     const mapboxToken = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
     let staticMapUrl = ''
     if (mapboxToken && depotCoord) {
-      const waypoints = [depotCoord, ...optimizedVisits.map(v => ({ lat: v.lat, lng: v.lng }))]
-      const polyline = encodePolyline5(waypoints)
+      const stopWaypoints = optimizedVisits.map(v => ({ lat: v.lat, lng: v.lng }))
+      // Full loop: depot → stops → depot (matches preview map behaviour)
+      const allWaypoints = [depotCoord, ...stopWaypoints, depotCoord]
+
+      // Try to fetch the actual driving route from Mapbox Directions API
+      let pathCoords: Array<{ lat: number; lng: number }> = allWaypoints
+      if (allWaypoints.length >= 2 && allWaypoints.length <= 25) {
+        try {
+          const coordStr = allWaypoints.map(p => `${p.lng},${p.lat}`).join(';')
+          const dirRes = await fetch(
+            `https://api.mapbox.com/directions/v5/mapbox/driving/${coordStr}` +
+            `?geometries=geojson&overview=simplified&access_token=${mapboxToken}`
+          )
+          if (dirRes.ok) {
+            const dirData = await dirRes.json() as {
+              code: string
+              routes?: Array<{ geometry: { coordinates: [number, number][] } }>
+            }
+            if (dirData.code === 'Ok' && dirData.routes?.[0]?.geometry?.coordinates?.length) {
+              pathCoords = dirData.routes[0].geometry.coordinates.map(([lng, lat]) => ({ lat, lng }))
+            }
+          }
+        } catch {
+          // fall back to straight-line waypoints
+        }
+      }
+
+      const polyline = encodePolyline5(pathCoords)
       const pathOverlay = `path-3+1f77b4-0.85(${encodeURIComponent(polyline)})`
       const depotMarker = `pin-s-d+16a34a(${depotCoord.lng.toFixed(6)},${depotCoord.lat.toFixed(6)})`
       const stopMarkers = optimizedVisits.map((v, i) => {
