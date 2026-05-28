@@ -37,17 +37,37 @@ export async function GET(
   }
 
   const isHtml = entry.route_sheet_url.endsWith('.html')
-  const contentType = isHtml ? 'text/html; charset=utf-8' : 'application/pdf'
   const fallbackName = isHtml ? 'route-sheet.html' : 'route-sheet.pdf'
-
   const r2 = getR2Client()
+
+  if (isHtml) {
+    // Proxy HTML content directly so the browser stays at lynxedo.com.
+    // A redirect to the R2 signed URL would make the page load from
+    // *.r2.cloudflarestorage.com — a different origin — so the Mapbox
+    // Static Images <img> inside the sheet would carry an R2 referrer
+    // and get blocked by the Mapbox token's URL restrictions.
+    const obj = await r2.send(new GetObjectCommand({
+      Bucket: process.env.CF_R2_BUCKET_NAME!,
+      Key: entry.route_sheet_url,
+    }))
+    const html = await obj.Body?.transformToString() ?? ''
+    return new Response(html, {
+      headers: {
+        'Content-Type': 'text/html; charset=utf-8',
+        'Content-Disposition': `inline; filename="${encodeURIComponent(entry.route_sheet_name ?? fallbackName)}"`,
+        'Cache-Control': 'private, max-age=3600',
+      },
+    })
+  }
+
+  // PDF — redirect to a short-lived signed URL (no Mapbox origin concern)
   const url = await getSignedUrl(
     r2,
     new GetObjectCommand({
       Bucket: process.env.CF_R2_BUCKET_NAME!,
       Key: entry.route_sheet_url,
       ResponseContentDisposition: `inline; filename="${encodeURIComponent(entry.route_sheet_name ?? fallbackName)}"`,
-      ResponseContentType: contentType,
+      ResponseContentType: 'application/pdf',
     }),
     { expiresIn: 3600 }
   )
