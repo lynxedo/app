@@ -36,14 +36,18 @@ export async function GET(
     return NextResponse.json({ error: 'File storage not configured' }, { status: 501 })
   }
 
+  const isHtml = entry.route_sheet_url.endsWith('.html')
+  const contentType = isHtml ? 'text/html; charset=utf-8' : 'application/pdf'
+  const fallbackName = isHtml ? 'route-sheet.html' : 'route-sheet.pdf'
+
   const r2 = getR2Client()
   const url = await getSignedUrl(
     r2,
     new GetObjectCommand({
       Bucket: process.env.CF_R2_BUCKET_NAME!,
       Key: entry.route_sheet_url,
-      ResponseContentDisposition: `inline; filename="${encodeURIComponent(entry.route_sheet_name ?? 'route-sheet.pdf')}"`,
-      ResponseContentType: 'application/pdf',
+      ResponseContentDisposition: `inline; filename="${encodeURIComponent(entry.route_sheet_name ?? fallbackName)}"`,
+      ResponseContentType: contentType,
     }),
     { expiresIn: 3600 }
   )
