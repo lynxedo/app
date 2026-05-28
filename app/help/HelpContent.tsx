@@ -472,7 +472,17 @@ function HubTab() {
         <p>Tap <strong className="text-white">Reopen</strong> on a complete stop to undo — the Jobber visit also flips back. Reopen keeps the original arrival time so the timer picks up where it left off; tap <em>Reset arrival time</em> to clear it entirely.</p>
         <p>If the Jobber push fails (offline, expired token), the local complete still works — you&apos;ll see an amber warning in the detail panel telling you what went wrong. The stop stays marked complete; the office can manually mark the Jobber visit later if needed.</p>
 
-        <p className="mt-4 text-xs text-gray-500"><strong className="text-gray-400">Coming in later phases:</strong> &ldquo;On my way&rdquo; text to the customer, navigate button (opens Google Maps), automatic weather capture at completion, pesticide records.</p>
+        <p className="mt-4"><strong className="text-white">Approach buttons</strong> — at the top of the expanded panel, next to the customer phone.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-sky-300">🗺️ Navigate</strong> — opens Google Maps in turn-by-turn mode with the customer&apos;s address pre-filled. On phones it opens the Google Maps app; on desktop it opens in a new browser tab.</li>
+          <li><strong className="text-amber-300">💬 On My Way</strong> — sends the customer a text message with your name and an estimated arrival time. Tap the button → pick how many minutes away you are (5/10/15/20/30/45 or type a custom number) → tap <em>Send</em>. The compact stop row gains a small <em>💬 Sent 2:13</em> badge so it&apos;s visible without expanding. You can re-send if needed (e.g. customer asks &ldquo;where are you?&rdquo; later).</li>
+        </ul>
+        <p>The SMS goes out through Heroes&apos; existing Captivated number (832-220-8100). Customers who are marked do-not-text or have no phone on file get a disabled button.</p>
+        <AdminOnly>
+          <p>Admins customize the text template under <strong className="text-white">/admin/daily-log</strong>. Available placeholders: <code className="text-amber-300">{'{first_name}'}</code> (customer first name), <code className="text-amber-300">{'{tech_name}'}</code> (tech first name from their Hub display name), <code className="text-amber-300">{'{eta}'}</code> (minutes selected at send time). Leave the template field blank to fall back to the system default.</p>
+        </AdminOnly>
+
+        <p className="mt-4 text-xs text-gray-500"><strong className="text-gray-400">Coming in later phases:</strong> automatic weather capture at completion, pesticide records.</p>
       </Section>
 
       <Section title="Fleet Tracker">
