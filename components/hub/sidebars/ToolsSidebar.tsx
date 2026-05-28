@@ -53,6 +53,7 @@ export default function ToolsSidebar({
   canAccessTimesheet,
   canAccessDialer,
   canAccessMarketing,
+  canAdminMarketing,
   onClose,
   onDesktopCollapse,
 }: {
@@ -67,6 +68,7 @@ export default function ToolsSidebar({
   canAccessTimesheet: boolean
   canAccessDialer: boolean
   canAccessMarketing: boolean
+  canAdminMarketing: boolean
   onClose?: () => void
   onDesktopCollapse?: () => void
 }) {
@@ -156,7 +158,12 @@ export default function ToolsSidebar({
             <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider">Marketing</span>
           </button>
           {open.marketing && (
-            <ToolRow href="/hub/marketing/social" iconId="marketing" label="Social" onClose={onClose} />
+            <>
+              <ToolRow href="/hub/marketing/social" iconId="marketing" label="Social" onClose={onClose} />
+              {(isAdmin || canAdminMarketing) && (
+                <ToolRow href="/hub/admin/marketing" iconId="marketing" label="Admin: Marketing" onClose={onClose} />
+              )}
+            </>
           )}
         </div>
       )}
