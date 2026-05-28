@@ -426,6 +426,7 @@ function HubTab() {
       <Section title="Daily Log">
         <p>Daily Log is a running log of operational notes for the day — who&apos;s on what crew, what went wrong, what got finished. Anyone can post.</p>
         <p>Posts are organized by date. Scrolling back through old days is how you reconstruct what happened the week of a callback.</p>
+        <p><strong className="text-white">Attaching files to updates:</strong> hit the 📎 paperclip button to the left of the text box to attach photos or files to any update. Multiple files per update are supported. Images render inline in the update thread; other file types show as a download card. Either the tech or the office can attach files, and attachment-only updates (no text required) are fine for when a photo says it all.</p>
         <p><strong className="text-white">Two techs on one route:</strong> when creating an entry you can pick a primary tech plus one or more secondary techs (the second person riding the route). The entry shows up on every tech&apos;s <em>My Day</em> view, and either tech can post updates or mark it complete.</p>
         <p><strong className="text-white">Two checkboxes — one for the tech, one for the office:</strong></p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
