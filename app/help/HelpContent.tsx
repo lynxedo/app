@@ -57,6 +57,7 @@ const TABS = [
   { id: 'dialer',       icon: '☎️', label: 'Dialer' },
   { id: 'contacts',     icon: '👤', label: 'Contacts' },
   { id: 'call-log',     icon: '📞', label: 'Call Log' },
+  { id: 'marketing',    icon: '📣', label: 'Marketing' },
   { id: 'books',        icon: '📊', label: 'Books' },
   { id: 'timesheet',    icon: '🕐', label: 'Timesheet' },
   { id: 'settings',     icon: '⚙️', label: 'Settings' },
@@ -133,6 +134,7 @@ export default function HelpContent() {
         {activeTab === 'dialer'     && <DialerTab />}
         {activeTab === 'contacts'   && <ContactsTab />}
         {activeTab === 'call-log'   && <CallLogTab />}
+        {activeTab === 'marketing'  && <MarketingTab />}
         {activeTab === 'books'      && <BooksTab />}
         {activeTab === 'timesheet'  && <TimesheetTab />}
         {activeTab === 'settings'   && <SettingsTab />}
@@ -959,6 +961,30 @@ function CallLogTab() {
           <li><strong className="text-white">Transcript</strong> — full speaker-labeled transcript, collapsible.</li>
         </ul>
         <Note>Historical calls (before May 2026) have transcripts and basic info but no AI coaching grades — those only run on new calls going forward.</Note>
+      </Section>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// MARKETING
+// ──────────────────────────────────────────────────────────────────────────
+
+function MarketingTab() {
+  return (
+    <>
+      <Section title="Social Posting (Coming Soon)">
+        <p>The Marketing section will let you schedule and publish Facebook and Instagram posts directly from Hub Files photos — no switching between tools.</p>
+        <p className="mt-2">Planned features:</p>
+        <ul className="list-disc pl-5 space-y-1 mt-1">
+          <li>Pick photos from Hub Files and write a caption</li>
+          <li>Schedule posts for a specific date and time</li>
+          <li>Post to Facebook, Instagram, or both at once</li>
+          <li>View a content calendar of upcoming and published posts</li>
+        </ul>
+      </Section>
+      <Section title="Access">
+        <p>Marketing access is controlled per-user in <strong className="text-white">Admin → People → Tools</strong>. Admin access (to manage settings) is a separate grant.</p>
       </Section>
     </>
   )
