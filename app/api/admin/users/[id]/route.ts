@@ -13,6 +13,7 @@ const RESTRICTED_FIELDS = new Set([
   'can_admin_zone_sizer',
   'can_admin_dialer',
   'can_admin_contacts',
+  'can_admin_marketing',
   'guardian_tier',
 ])
 

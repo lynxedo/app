@@ -26,6 +26,8 @@ type UserProfile = {
   can_admin_zone_sizer: boolean
   can_admin_dialer: boolean
   can_admin_contacts: boolean
+  can_access_marketing: boolean
+  can_admin_marketing: boolean
 }
 
 type User = {
@@ -65,6 +67,7 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_access_zone_sizer', label: 'Zone Sizer' },
   { key: 'can_access_dialer', label: 'Dialer' },
   { key: 'can_post_shout_outs', label: 'Post Shout Outs' },
+  { key: 'can_access_marketing', label: 'Marketing' },
 ]
 
 const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
@@ -77,6 +80,7 @@ const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_admin_zone_sizer', label: 'Zone Sizer' },
   { key: 'can_admin_dialer', label: 'Dialer' },
   { key: 'can_admin_contacts', label: 'Contacts' },
+  { key: 'can_admin_marketing', label: 'Marketing' },
 ]
 
 function getInitials(name: string | null, email: string): string {
@@ -182,6 +186,8 @@ export default function AdminPanel({
             can_admin_zone_sizer: false,
             can_admin_dialer: false,
             can_admin_contacts: false,
+            can_access_marketing: false,
+            can_admin_marketing: false,
           },
         }
         setUsers(prev => [...prev, newUser])
@@ -302,6 +308,8 @@ export default function AdminPanel({
             can_admin_zone_sizer: false,
             can_admin_dialer: false,
             can_admin_contacts: false,
+            can_access_marketing: false,
+            can_admin_marketing: false,
           },
         }
         setUsers(prev => [...prev, newUser])
