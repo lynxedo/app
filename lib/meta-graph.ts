@@ -5,19 +5,23 @@ const BASE = 'https://graph.facebook.com/v19.0'
 // OAuth helpers
 // ---------------------------------------------------------------------------
 
-export function buildMetaOAuthUrl(appId: string, callbackUrl: string): string {
+export function buildMetaOAuthUrl(appId: string, callbackUrl: string, configId?: string): string {
   const params = new URLSearchParams({
     client_id: appId,
     redirect_uri: callbackUrl,
-    scope: [
+    response_type: 'code',
+  })
+  if (configId) {
+    params.set('config_id', configId)
+  } else {
+    params.set('scope', [
       'pages_manage_posts',
       'pages_read_engagement',
       'pages_show_list',
       'instagram_basic',
       'instagram_content_publish',
-    ].join(','),
-    response_type: 'code',
-  })
+    ].join(','))
+  }
   return `https://www.facebook.com/v19.0/dialog/oauth?${params}`
 }
 
