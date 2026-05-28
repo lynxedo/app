@@ -12,6 +12,19 @@ type LineItem = {
   totalPrice: number
 }
 
+type WeatherSnapshot = {
+  observed_at: string | null
+  station_id: string | null
+  station_name: string | null
+  temperature_f: number | null
+  temperature_c: number | null
+  conditions: string | null
+  wind_mph: number | null
+  wind_direction: number | null
+  humidity_pct: number | null
+  source?: 'nws'
+}
+
 type Stop = {
   id: string
   ord: number
@@ -33,6 +46,8 @@ type Stop = {
   notes: string | null
   on_my_way_sent_at: string | null
   on_my_way_eta_minutes: number | null
+  weather: WeatherSnapshot | null
+  pesticide_record_id: string | null
   // Transient client-side: set when a Complete/Reopen call returns a warning
   // (e.g. Jobber push failed). Not stored on server. Cleared on next action.
   _jobber_warning?: string | null
@@ -147,12 +162,18 @@ export default function DailyLogV2View({
       if (!res.ok) {
         throw new Error(data.error || `Failed (${res.status})`)
       }
-      patchStop(stopId, {
+      // POST returns weather + pesticide_record_id alongside the standard
+      // stop fields; DELETE doesn't include them (those are completion-time
+      // artifacts). Use `in` to detect rather than reading undefined values.
+      const patch: Partial<Stop> = {
         status: data.stop?.status,
         arrived_at: data.stop?.arrived_at ?? null,
         completed_at: data.stop?.completed_at ?? null,
         _jobber_warning: data.jobber_warning ?? null,
-      })
+      }
+      if (data.stop && 'weather' in data.stop) patch.weather = data.stop.weather ?? null
+      if (data.stop && 'pesticide_record_id' in data.stop) patch.pesticide_record_id = data.stop.pesticide_record_id ?? null
+      patchStop(stopId, patch)
     } catch (e) {
       patchStop(stopId, {
         _jobber_warning: e instanceof Error ? e.message : 'Action failed',
@@ -511,7 +532,7 @@ function EntryCard({
 
       {isAdmin && (
         <div className="px-5 py-2 bg-gray-900/30 border-t border-gray-800 text-[10px] text-gray-600 uppercase tracking-wide">
-          v2 preview — Navigate, On-My-Way SMS, weather, and pesticide records ship in later phases
+          v2 preview — Phases 1–5 live (foundation, complete→Jobber, timer, On-My-Way, weather, pesticide records)
         </div>
       )}
     </div>
@@ -894,6 +915,54 @@ function StopRow({
               </div>
             )}
           </div>
+
+          {/* Weather snapshot — captured at Mark Complete via NWS api.weather.gov.
+              Only renders for completed stops with a captured snapshot. */}
+          {isComplete && stop.weather && (
+            <div className="bg-gray-900/40 border border-gray-800 rounded px-3 py-2.5">
+              <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-1">Weather at completion</div>
+              <div className="text-gray-200 text-sm">
+                {typeof stop.weather.temperature_f === 'number' && (
+                  <span className="font-medium">{stop.weather.temperature_f}°F</span>
+                )}
+                {stop.weather.conditions && (
+                  <span className="text-gray-400">
+                    {typeof stop.weather.temperature_f === 'number' ? ' · ' : ''}
+                    {stop.weather.conditions}
+                  </span>
+                )}
+              </div>
+              {(typeof stop.weather.wind_mph === 'number' || typeof stop.weather.humidity_pct === 'number') && (
+                <div className="text-gray-500 text-xs mt-0.5">
+                  {typeof stop.weather.wind_mph === 'number' && (
+                    <span>Wind {stop.weather.wind_mph} mph</span>
+                  )}
+                  {typeof stop.weather.wind_mph === 'number' && typeof stop.weather.humidity_pct === 'number' && ' · '}
+                  {typeof stop.weather.humidity_pct === 'number' && (
+                    <span>Humidity {stop.weather.humidity_pct}%</span>
+                  )}
+                </div>
+              )}
+              {stop.weather.station_name && (
+                <div className="text-gray-600 text-[10px] mt-0.5">
+                  Source: NWS · {stop.weather.station_name}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Pesticide-record link — present when matching mappings produced
+              a TDA-compliance record. Always shown for any stop with a record,
+              including reopened stops (records persist across reopen). */}
+          {stop.pesticide_record_id && (
+            <a
+              href={`/hub/pesticide-records/${stop.pesticide_record_id}`}
+              onClick={e => e.stopPropagation()}
+              className="block bg-emerald-500/5 border border-emerald-500/30 rounded px-3 py-2 text-xs text-emerald-200 hover:bg-emerald-500/10 transition-colors"
+            >
+              🧪 Pesticide record on file →
+            </a>
+          )}
 
           {/* Jobber warning (if a Complete/Reopen call had an issue) */}
           {stop._jobber_warning && (

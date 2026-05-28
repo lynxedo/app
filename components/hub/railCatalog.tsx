@@ -25,6 +25,7 @@ export type CatalogId =
   | 'files'
   | 'company-news'
   | 'contacts'
+  | 'pesticide-records'
 
 export type CatalogEntry = {
   id: CatalogId
@@ -89,6 +90,8 @@ const PATHS = {
   files: 'M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z',
   companyNews: 'M19 20H5a2 2 0 01-2-2V6a2 2 0 012-2h10l6 6v8a2 2 0 01-2 2zM15 4v5h5M8 13h8M8 17h5',
   contacts: 'M16 11a4 4 0 10-8 0 4 4 0 008 0zM3 21v-2a6 6 0 016-6h6a6 6 0 016 6v2M19 8h3m-1.5-1.5v3',
+  // Pesticide records — chemistry flask with a marker dot, plus a cap notch
+  pesticideRecords: 'M9 3h6M10 3v5l-5 9a2 2 0 001.7 3h10.6a2 2 0 001.7-3l-5-9V3M8 14h8M13 11.5a.5.5 0 11-1 0 .5.5 0 011 0z',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   search: 'M21 21l-4.34-4.34M17 10a7 7 0 11-14 0 7 7 0 0114 0z',
   settings: 'M10.325 4.317a2 2 0 013.35 0l.554.916a2 2 0 002.146.96l1.05-.224a2 2 0 012.39 2.39l-.224 1.05a2 2 0 00.96 2.146l.916.554a2 2 0 010 3.35l-.916.554a2 2 0 00-.96 2.146l.224 1.05a2 2 0 01-2.39 2.39l-1.05-.224a2 2 0 00-2.146.96l-.554.916a2 2 0 01-3.35 0l-.554-.916a2 2 0 00-2.146-.96l-1.05.224a2 2 0 01-2.39-2.39l.224-1.05a2 2 0 00-.96-2.146l-.916-.554a2 2 0 010-3.35l.916-.554a2 2 0 00.96-2.146l-.224-1.05a2 2 0 012.39-2.39l1.05.224a2 2 0 002.146-.96l.554-.916zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
@@ -119,6 +122,7 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
     case 'files':       return <I d={PATHS.files} />
     case 'company-news':return <I d={PATHS.companyNews} />
     case 'contacts':    return <I d={PATHS.contacts} />
+    case 'pesticide-records': return <I d={PATHS.pesticideRecords} />
   }
 }
 
@@ -149,6 +153,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'files',        label: 'Files',         href: '/hub/files', pickable: true },
   { id: 'company-news', label: 'Company News',  href: '/hub/pages/company-news', pickable: true },
   { id: 'contacts',     label: 'Contacts',      href: '/hub/contacts', prefixMatch: true, pickable: true },
+  { id: 'pesticide-records', label: 'Pesticide Records', href: '/hub/pesticide-records', prefixMatch: true, pickable: true },
 ]
 
 export function catalogEntriesFor(perms: RailPermissions): CatalogEntry[] {
