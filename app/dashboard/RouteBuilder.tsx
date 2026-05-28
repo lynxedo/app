@@ -170,6 +170,13 @@ export default function RouteBuilder() {
   const [sendError, setSendError] = useState<string | null>(null)
   const [sendMode, setSendMode] = useState<'times' | 'order' | null>(null)
 
+
+  // Send to Daily Log v1 state
+  const [sendingDailyLogV1, setSendingDailyLogV1] = useState(false)
+  const [dailyLogV1Result, setDailyLogV1Result] = useState<{ action: 'created' | 'updated' } | null>(null)
+  const [dailyLogV1Error, setDailyLogV1Error] = useState<string | null>(null)
+
+
   // ── Computed pins for the interactive preview map ─────────────────────────
   // Pre-optimize: pins coloured by selection/sent state.
   // Post-optimize: numbered pins in route order; the map component draws the
@@ -547,8 +554,8 @@ export default function RouteBuilder() {
     setSendError(null)
   }
 
-  async function printRouteSheet() {
-    if (!optimizedVisits || optimizedVisits.length === 0) return
+  async function generateRouteHtml(): Promise<string> {
+    if (!optimizedVisits || optimizedVisits.length === 0) return ''
     const techName = selectedUserIds.length === 0
       ? 'Unknown Tech'
       : selectedUserIds.length === 1
@@ -854,6 +861,12 @@ export default function RouteBuilder() {
 </body>
 </html>`
 
+    return html
+  }
+
+  async function printRouteSheet() {
+    const html = await generateRouteHtml()
+    if (!html) return
     // Hand off via localStorage to /hub/routing/print, which replaces its own
     // document with the HTML. The blob: URL approach used previously failed to
     // load Mapbox tiles because the public Mapbox token's URL restrictions
@@ -871,6 +884,65 @@ export default function RouteBuilder() {
       const blobUrl = URL.createObjectURL(blob)
       window.open(blobUrl, '_blank')
       setTimeout(() => URL.revokeObjectURL(blobUrl), 30000)
+    }
+  }
+
+  async function sendToDailyLogV1() {
+    if (!optimizedVisits || optimizedVisits.length === 0) return
+
+    if (selectedUserIds.length > 1 && reassignUserId === '__keep__') {
+      setDailyLogV1Error('Multiple techs were loaded. Pick a target tech in "Reassign to" before sending to Daily Log.')
+      return
+    }
+
+    const techJobberUserId = reassignUserId !== '__keep__'
+      ? reassignUserId
+      : selectedUserIds[0]
+    const techJobberUserName = users.find(u => u.id === techJobberUserId)?.name ?? ''
+    if (!techJobberUserName) {
+      setDailyLogV1Error('Could not resolve the target tech\'s name. Reload the page and try again.')
+      return
+    }
+
+    setSendingDailyLogV1(true)
+    setDailyLogV1Error(null)
+    setDailyLogV1Result(null)
+
+    const html = await generateRouteHtml()
+    if (!html) {
+      setDailyLogV1Error('Failed to generate route sheet HTML.')
+      setSendingDailyLogV1(false)
+      return
+    }
+
+    const routeName = `${techJobberUserName} - ${date}.html`
+
+    try {
+      const res = await fetch('/api/hub/daily-log/from-route-v1', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          log_date: date,
+          tech_jobber_user_id: techJobberUserId,
+          tech_jobber_user_name: techJobberUserName,
+          route_html: html,
+          route_name: routeName,
+        }),
+      })
+      const data = await res.json() as {
+        entry_id?: string
+        action?: 'created' | 'updated'
+        error?: string
+      }
+      if (!res.ok || data.error) {
+        setDailyLogV1Error(data.error || `Failed (${res.status})`)
+        return
+      }
+      setDailyLogV1Result({ action: data.action! })
+    } catch (e) {
+      setDailyLogV1Error(e instanceof Error ? e.message : 'Failed to send to Daily Log')
+    } finally {
+      setSendingDailyLogV1(false)
     }
   }
 
@@ -1413,7 +1485,18 @@ export default function RouteBuilder() {
             )}
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          {dailyLogV1Result && (
+            <div className="mb-4 bg-indigo-900/40 border border-indigo-700 text-indigo-300 rounded-lg px-4 py-3 text-sm">
+              ✓ Daily Log (v1) entry {dailyLogV1Result.action} with route sheet attached — open Daily Log to view
+            </div>
+          )}
+          {dailyLogV1Error && (
+            <div className="mb-4 bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm">
+              {dailyLogV1Error}
+            </div>
+          )}
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <button
               onClick={sendOrderOnly}
               disabled={sending}
@@ -1439,6 +1522,21 @@ export default function RouteBuilder() {
               </div>
               <div className="text-xs font-normal opacity-90 mt-0.5">
                 Convert to scheduled visits with appointment times
+              </div>
+            </button>
+
+
+            <button
+              onClick={sendToDailyLogV1}
+              disabled={sendingDailyLogV1}
+              title="Create a Daily Log (v1) entry for the tech and attach the route sheet automatically."
+              className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors text-left"
+            >
+              <div className="font-semibold">
+                {sendingDailyLogV1 ? 'Sending…' : 'Send to Daily Log (v1) →'}
+              </div>
+              <div className="text-xs font-normal opacity-90 mt-0.5">
+                Create entry + attach route sheet for the tech
               </div>
             </button>
           </div>
