@@ -546,6 +546,7 @@ function EntryCard({
   onSkip,
   onOnMyWay,
   onPestNotesSave,
+  onReview,
   onMarkRouteComplete,
   onDismissRouteComplete,
 }: {
