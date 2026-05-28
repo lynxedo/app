@@ -65,6 +65,7 @@ const TOOL_CATALOG: Record<string, ToolDef> = {
   'tool:books':         { id: 'tool:books',         label: 'Books',           icon: '📊', href: '/books',            prefixMatch: true },
   'tool:fleet':         { id: 'tool:fleet',         label: 'Fleet',           icon: '🚛', href: '/hub/fleet',        prefixMatch: true },
   'tool:marketing':     { id: 'tool:marketing',     label: 'Marketing – Social', icon: '📣', href: '/hub/marketing/social', prefixMatch: true },
+  'tool:pesticide-records': { id: 'tool:pesticide-records', label: 'Pesticide Records', icon: '🧪', href: '/hub/pesticide-records', prefixMatch: true },
 }
 
 function convLabel(conv: Conversation, currentUserId: string) {
@@ -866,6 +867,7 @@ export default function HubSidebar({
     'tool:call-log':     canAccessCallLog,
     'tool:books':        canAccessBooks,
     'tool:fleet':        canAccessFleet,
+    'tool:pesticide-records': true,
   }
   const favoriteTools: ToolDef[] = pinnedIds
     .filter(id => id.startsWith('tool:') && TOOL_CATALOG[id] && toolAccess[id])

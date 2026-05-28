@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { jobberGraphQL } from '@/lib/jobber'
+import { fetchWeatherForLocation, type WeatherSnapshot } from '@/lib/nws-weather'
+import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface VisitMutationResponse {
   data?: {
@@ -29,6 +31,45 @@ const VISIT_UNCOMPLETE_MUTATION = `
   }
 `
 
+type LineItem = {
+  name?: string
+  qty?: number
+  unitPrice?: number
+  totalPrice?: number
+}
+
+type PesticideMapping = {
+  id: string
+  match_text: string
+  match_type: 'exact' | 'contains'
+  chemical_name: string
+  epa_registration_number: string | null
+  active_ingredients: string | null
+  target_pests: string | null
+  application_rate: string | null
+}
+
+type StopRow = {
+  id: string
+  entry_id: string
+  jobber_visit_id: string | null
+  client_name: string
+  client_phone: string | null
+  address: string
+  lat: number | null
+  lng: number | null
+  line_items: LineItem[]
+  status: string
+  arrived_at: string | null
+  pesticide_record_id: string | null
+  weather: WeatherSnapshot | null
+  daily_log_entries: {
+    company_id: string
+    log_date: string
+    tech_user_id: string
+  } | Array<{ company_id: string; log_date: string; tech_user_id: string }>
+}
+
 async function resolveStopOrError(stopId: string, userId: string) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -53,9 +94,9 @@ async function resolveStopOrError(stopId: string, userId: string) {
   const admin = createAdminClient()
   const { data: stop } = await admin
     .from('daily_log_stops')
-    .select('id, entry_id, jobber_visit_id, status, arrived_at, daily_log_entries!inner(company_id)')
+    .select('id, entry_id, jobber_visit_id, client_name, client_phone, address, lat, lng, line_items, status, arrived_at, pesticide_record_id, weather, daily_log_entries!inner(company_id, log_date, tech_user_id)')
     .eq('id', stopId)
-    .single()
+    .single<StopRow>()
 
   if (!stop) {
     return { error: 'Stop not found', status: 404 as const }
@@ -70,7 +111,110 @@ async function resolveStopOrError(stopId: string, userId: string) {
     return { error: 'Stop not found', status: 404 as const }
   }
 
-  return { admin, stop, userId: user.id }
+  return { admin, stop, entry, userId: user.id, companyId: profile.company_id }
+}
+
+// Returns the array of mapping rows that match any of the stop's line items.
+// Match is case-insensitive 'contains' (default) or 'exact'. Empty line items
+// or no mappings → empty array.
+function findMatchingMappings(lineItems: LineItem[], mappings: PesticideMapping[]) {
+  if (!Array.isArray(lineItems) || lineItems.length === 0 || mappings.length === 0) return []
+
+  const result: Array<{ mapping: PesticideMapping; lineItem: LineItem }> = []
+  for (const item of lineItems) {
+    const itemName = (item?.name ?? '').trim().toLowerCase()
+    if (!itemName) continue
+    for (const m of mappings) {
+      const needle = m.match_text.trim().toLowerCase()
+      const hit = m.match_type === 'exact'
+        ? itemName === needle
+        : itemName.includes(needle)
+      if (hit) {
+        result.push({ mapping: m, lineItem: item })
+      }
+    }
+  }
+  return result
+}
+
+// Create or update the pesticide_records row for this stop. Idempotent on
+// re-complete: if a record already exists (stop.pesticide_record_id set),
+// UPDATE it in place instead of creating a duplicate. Records are never
+// deleted on reopen — that's TDA-compliance design.
+//
+// Returns the record id, or null if no mappings matched (no record needed).
+async function upsertPesticideRecord(args: {
+  admin: SupabaseClient
+  stop: StopRow
+  entry: { company_id: string; tech_user_id: string }
+  weather: WeatherSnapshot | null
+  applicationTimestamp: string
+  technicianName: string | null
+}): Promise<string | null> {
+  const { admin, stop, entry, weather, applicationTimestamp, technicianName } = args
+
+  // Pull active mappings for this company
+  const { data: mappingRows } = await admin
+    .from('pesticide_line_item_mappings')
+    .select('id, match_text, match_type, chemical_name, epa_registration_number, active_ingredients, target_pests, application_rate')
+    .eq('company_id', entry.company_id)
+    .eq('active', true)
+
+  const mappings: PesticideMapping[] = (mappingRows ?? []) as PesticideMapping[]
+  const matches = findMatchingMappings(stop.line_items, mappings)
+
+  // No matches → no record. If a record already existed (e.g. line items
+  // changed after the first completion to remove all chemical items) keep
+  // the existing record; we don't delete compliance records here.
+  if (matches.length === 0) return stop.pesticide_record_id ?? null
+
+  const chemicalsApplied = matches.map(({ mapping, lineItem }) => ({
+    matched_line_item: lineItem.name ?? '',
+    matched_line_item_qty: typeof lineItem.qty === 'number' ? lineItem.qty : null,
+    matched_line_item_total: typeof lineItem.totalPrice === 'number' ? lineItem.totalPrice : null,
+    chemical_name: mapping.chemical_name,
+    epa_registration_number: mapping.epa_registration_number,
+    active_ingredients: mapping.active_ingredients,
+    target_pests: mapping.target_pests,
+    application_rate: mapping.application_rate,
+    mapping_id: mapping.id,
+  }))
+
+  const recordBody = {
+    company_id: entry.company_id,
+    stop_id: stop.id,
+    daily_log_entry_id: stop.entry_id,
+    application_timestamp: applicationTimestamp,
+    location_address: stop.address,
+    location_lat: stop.lat,
+    location_lng: stop.lng,
+    customer_name: stop.client_name,
+    jobber_visit_id: stop.jobber_visit_id,
+    technician_user_id: entry.tech_user_id,
+    technician_name: technicianName,
+    line_items: stop.line_items,
+    chemicals_applied: chemicalsApplied,
+    weather: weather,
+  }
+
+  if (stop.pesticide_record_id) {
+    // Update existing record in place — preserves the original record id,
+    // refreshes timestamp + weather + chemicals to reflect the current state.
+    const { error } = await admin
+      .from('pesticide_records')
+      .update(recordBody)
+      .eq('id', stop.pesticide_record_id)
+    if (error) return null
+    return stop.pesticide_record_id
+  }
+
+  const { data: inserted, error } = await admin
+    .from('pesticide_records')
+    .insert(recordBody)
+    .select('id')
+    .single()
+  if (error || !inserted) return null
+  return inserted.id
 }
 
 // ── Mark stop complete + push to Jobber ─────────────────────────────────────
@@ -88,7 +232,7 @@ export async function POST(
   if ('error' in resolved) {
     return NextResponse.json({ error: resolved.error }, { status: resolved.status })
   }
-  const { admin, stop, userId } = resolved
+  const { admin, stop, entry, userId } = resolved
 
   const nowIso = new Date().toISOString()
 
@@ -111,6 +255,56 @@ export async function POST(
       { error: updateErr?.message ?? 'Failed to update stop' },
       { status: 500 },
     )
+  }
+
+  // Best-effort weather capture (NWS api.weather.gov). Awaited inline with
+  // its own internal 8s budget — total time bounded so technicians don't see
+  // a slow Mark Complete when NWS is down. Null on any failure.
+  let weather: WeatherSnapshot | null = null
+  if (typeof stop.lat === 'number' && typeof stop.lng === 'number') {
+    weather = await fetchWeatherForLocation(stop.lat, stop.lng)
+    if (weather) {
+      // Stamp on stop. Ignore error — we still have it in memory for the
+      // pesticide record below and the response payload.
+      await admin
+        .from('daily_log_stops')
+        .update({ weather: weather as unknown as Record<string, unknown> })
+        .eq('id', stop.id)
+    }
+  }
+
+  // Best-effort pesticide-record creation/update. arrived_at is the
+  // application-start time per TDA convention; fall back to completed_at
+  // when the tech skipped the timer.
+  const applicationTimestamp = stop.arrived_at ?? nowIso
+
+  // Tech name for the record snapshot — fetch lazily here since the stop
+  // resolve query didn't pull it.
+  let technicianName: string | null = null
+  {
+    const { data: techRow } = await admin
+      .from('hub_users')
+      .select('display_name')
+      .eq('id', entry.tech_user_id)
+      .maybeSingle()
+    technicianName = techRow?.display_name ?? null
+  }
+
+  const pesticideRecordId = await upsertPesticideRecord({
+    admin,
+    stop,
+    entry,
+    weather,
+    applicationTimestamp,
+    technicianName,
+  })
+
+  // Persist the link back to the stop if we created/updated a record.
+  if (pesticideRecordId && pesticideRecordId !== stop.pesticide_record_id) {
+    await admin
+      .from('daily_log_stops')
+      .update({ pesticide_record_id: pesticideRecordId })
+      .eq('id', stop.id)
   }
 
   // Best-effort Jobber push
@@ -140,13 +334,19 @@ export async function POST(
   }
 
   return NextResponse.json({
-    stop: updated,
+    stop: {
+      ...updated,
+      weather,
+      pesticide_record_id: pesticideRecordId,
+    },
     jobber_pushed: jobberSuccess,
     jobber_warning: jobberWarning,
   })
 }
 
 // ── Undo: revert stop + push uncomplete to Jobber ──────────────────────────
+// Weather data + pesticide_record are intentionally NOT cleared on reopen —
+// they're compliance/audit artifacts. Re-completion will refresh them.
 export async function DELETE(
   _request: Request,
   context: { params: Promise<{ id: string }> },
