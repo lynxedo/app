@@ -61,18 +61,37 @@ export async function POST(request: Request) {
     ),
   ]
 
+  // Optional: on_my_way_template (v2 — null = use system default)
+  let onMyWayTemplate: string | null | undefined
+  if ('on_my_way_template' in body) {
+    const raw = body.on_my_way_template
+    if (raw === null) {
+      onMyWayTemplate = null
+    } else if (typeof raw === 'string') {
+      const trimmed = raw.trim()
+      if (trimmed.length > 500) {
+        return NextResponse.json({ error: 'Template too long (max 500 chars)' }, { status: 400 })
+      }
+      onMyWayTemplate = trimmed.length === 0 ? null : trimmed
+    } else {
+      return NextResponse.json({ error: 'on_my_way_template must be a string or null' }, { status: 400 })
+    }
+  }
+
   const admin = createAdminClient()
+  const upsertPayload: Record<string, unknown> = {
+    company_id: ctx.companyId,
+    completion_notify_user_ids: userIds,
+    completion_notify_room_ids: roomIds,
+    updated_at: new Date().toISOString(),
+  }
+  if (onMyWayTemplate !== undefined) {
+    upsertPayload.on_my_way_template = onMyWayTemplate
+  }
+
   const { data, error } = await admin
     .from('daily_log_settings')
-    .upsert(
-      {
-        company_id: ctx.companyId,
-        completion_notify_user_ids: userIds,
-        completion_notify_room_ids: roomIds,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'company_id' },
-    )
+    .upsert(upsertPayload, { onConflict: 'company_id' })
     .select('*')
     .single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

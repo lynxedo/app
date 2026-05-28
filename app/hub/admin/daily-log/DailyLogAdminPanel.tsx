@@ -6,19 +6,25 @@ import AdminTabNav from '@/components/AdminTabNav'
 type HubUser = { id: string; display_name: string }
 type Room = { id: string; name: string }
 
+const DEFAULT_ON_MY_WAY_TEMPLATE =
+  "Hi {first_name}, this is {tech_name} from Heroes Lawn Care. I'm on my way — should be there in about {eta} minutes."
+
 export default function DailyLogAdminPanel({
   initialRecipientIds,
   initialRoomIds,
+  initialOnMyWayTemplate,
   users,
   rooms,
 }: {
   initialRecipientIds: string[]
   initialRoomIds: string[]
+  initialOnMyWayTemplate: string | null
   users: HubUser[]
   rooms: Room[]
 }) {
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set(initialRecipientIds))
   const [selectedRooms, setSelectedRooms] = useState<Set<string>>(new Set(initialRoomIds))
+  const [onMyWayTemplate, setOnMyWayTemplate] = useState<string>(initialOnMyWayTemplate ?? '')
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -51,6 +57,8 @@ export default function DailyLogAdminPanel({
         body: JSON.stringify({
           completion_notify_user_ids: [...selectedUsers],
           completion_notify_room_ids: [...selectedRooms],
+          // Empty string means "use the system default" — server stores NULL.
+          on_my_way_template: onMyWayTemplate.trim() || null,
         }),
       })
       if (!res.ok) {
@@ -99,6 +107,38 @@ export default function DailyLogAdminPanel({
           selected={selectedRooms}
           onToggle={toggleRoom}
         />
+
+        <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-3">
+          <div>
+            <h2 className="font-semibold">On-My-Way SMS template <span className="text-xs text-violet-200 bg-violet-500/20 px-1.5 py-0.5 rounded ml-1 align-middle">v2</span></h2>
+            <p className="text-xs text-white/50 mt-0.5">
+              Used by the <strong>💬 On My Way</strong> button in Daily Log v2 stop details. Placeholders <code className="text-amber-300">{'{first_name}'}</code>, <code className="text-amber-300">{'{tech_name}'}</code>, and <code className="text-amber-300">{'{eta}'}</code> are substituted at send time. Leave blank to use the system default.
+            </p>
+          </div>
+
+          <textarea
+            value={onMyWayTemplate}
+            onChange={(e) => setOnMyWayTemplate(e.target.value)}
+            placeholder={DEFAULT_ON_MY_WAY_TEMPLATE}
+            rows={3}
+            maxLength={500}
+            className="w-full bg-gray-900 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-[#2E7EB8] resize-y"
+          />
+          <div className="flex justify-between text-xs text-white/40">
+            <span>{onMyWayTemplate.length}/500 chars</span>
+            {!onMyWayTemplate.trim() && <span className="text-white/30">— using system default</span>}
+          </div>
+
+          <div>
+            <div className="text-[10px] uppercase tracking-wide text-white/40 mb-1">Preview (Sarah / Ben / 15 min)</div>
+            <div className="bg-emerald-500/10 border border-emerald-500/30 rounded px-3 py-2 text-sm text-emerald-100">
+              {(onMyWayTemplate.trim() || DEFAULT_ON_MY_WAY_TEMPLATE)
+                .replace(/\{first_name\}/g, 'Sarah')
+                .replace(/\{tech_name\}/g, 'Ben')
+                .replace(/\{eta\}/g, '15')}
+            </div>
+          </div>
+        </section>
 
         <div className="flex items-center gap-3">
           <button
