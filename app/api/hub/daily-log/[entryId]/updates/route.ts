@@ -20,18 +20,24 @@ export async function POST(
   if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
 
   const { entryId } = await params
-  const { content } = await request.json()
-  if (!content?.trim()) return NextResponse.json({ error: 'content required' }, { status: 400 })
+  const body = await request.json()
+  const content: string = body.content?.trim() ?? ''
+  const mediaUrls: { key: string; name: string; type: string }[] = body.media_urls ?? []
+
+  if (!content && mediaUrls.length === 0) {
+    return NextResponse.json({ error: 'content or attachments required' }, { status: 400 })
+  }
 
   const { data: update, error } = await supabase
     .from('daily_log_updates')
     .insert({
       entry_id: entryId,
       company_id: profile.company_id,
-      content: content.trim(),
+      content,
+      media_urls: mediaUrls,
       created_by: user.id,
     })
-    .select('id, content, created_at, created_by, creator:hub_users!created_by(id, display_name, avatar_url)')
+    .select('id, content, media_urls, created_at, created_by, creator:hub_users!created_by(id, display_name, avatar_url)')
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -57,15 +63,21 @@ export async function POST(
 
   const subscriberIds = (subscribersResult.data ?? [])
     .map((s: { user_id: string }) => s.user_id)
-    .filter((id: string) => id !== user.id) // don't notify the poster
+    .filter((id: string) => id !== user.id)
 
   if (subscriberIds.length > 0) {
     const senderName = senderResult.data?.display_name ?? 'Someone'
     const techRaw = entryResult.data?.tech
     const techName = (Array.isArray(techRaw) ? techRaw[0] : techRaw)?.display_name ?? 'a tech'
-    const snippet = content.trim().length > 100
-      ? content.trim().slice(0, 97) + '…'
-      : content.trim()
+
+    let snippet: string
+    if (content) {
+      snippet = content.length > 100 ? content.slice(0, 97) + '…' : content
+    } else {
+      snippet = mediaUrls.length === 1
+        ? `📎 ${mediaUrls[0].name}`
+        : `📎 ${mediaUrls.length} attachments`
+    }
 
     await sendHubPush(
       subscriberIds,
@@ -78,7 +90,6 @@ export async function POST(
     )
   }
 
-  // If the entry is already complete, re-fire the completion DM with the latest update list
   if (entryResult.data?.completed_at) {
     notifyDailyLogComplete(entryId).catch((err) =>
       console.error('[daily-log] re-notify on update failed:', err),

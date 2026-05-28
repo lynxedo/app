@@ -18,6 +18,7 @@ type EntryRow = {
 type UpdateRow = {
   id: string
   content: string
+  media_urls: { key: string; name: string; type: string }[] | null
   created_at: string
   creator: { display_name: string } | null
 }
@@ -54,7 +55,7 @@ export async function notifyDailyLogComplete(entryId: string): Promise<void> {
 
   const { data: updates } = await admin
     .from('daily_log_updates')
-    .select('id, content, created_at, creator:hub_users!created_by(display_name)')
+    .select('id, content, media_urls, created_at, creator:hub_users!created_by(display_name)')
     .eq('entry_id', entryId)
     .order('created_at', { ascending: true })
     .returns<UpdateRow[]>()
@@ -149,8 +150,14 @@ function formatBody(
     for (const u of updates) {
       const time = formatTime(u.created_at)
       const name = u.creator?.display_name ?? 'Unknown'
-      const content = u.content.replace(/\n+/g, ' ').trim()
-      lines.push(`• ${time} (${name}): ${content}`)
+      const attachCount = u.media_urls?.length ?? 0
+      let text = u.content.replace(/\n+/g, ' ').trim()
+      if (!text && attachCount > 0) {
+        text = attachCount === 1
+          ? `📎 ${u.media_urls![0].name}`
+          : `📎 ${attachCount} attachments`
+      }
+      lines.push(`• ${time} (${name}): ${text}`)
     }
   }
 

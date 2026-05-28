@@ -4,9 +4,16 @@ import { useState, useEffect, useRef, useCallback } from 'react'
 
 type HubUser = { id: string; display_name: string; avatar_url?: string | null; is_bot?: boolean }
 
+type AttachmentItem = {
+  key: string
+  name: string
+  type: string
+}
+
 type DailyLogUpdate = {
   id: string
   content: string
+  media_urls?: AttachmentItem[] | null
   created_at: string
   created_by: string
   creator?: HubUser | null
@@ -146,6 +153,8 @@ function EntryCard({
 }) {
   const [updates, setUpdates] = useState<DailyLogUpdate[]>(entry.updates)
   const [updateText, setUpdateText] = useState('')
+  const [pendingAttachments, setPendingAttachments] = useState<AttachmentItem[]>([])
+  const [uploadingCount, setUploadingCount] = useState(0)
   const [sendingUpdate, setSendingUpdate] = useState(false)
   const [editingNotes, setEditingNotes] = useState(false)
   const [notesText, setNotesText] = useState(entry.office_notes ?? '')
@@ -161,6 +170,7 @@ function EntryCard({
   const [togglingClose, setTogglingClose] = useState(false)
   const [addingSecondary, setAddingSecondary] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const attachInputRef = useRef<HTMLInputElement>(null)
   const updatesBottomRef = useRef<HTMLDivElement>(null)
 
   const canEdit = isAdmin || entry.creator?.id === currentUserId
@@ -259,19 +269,38 @@ function EntryCard({
     setUpdates(entry.updates)
   }, [entry.updates])
 
+  async function handleAttachFiles(files: FileList | null) {
+    if (!files || files.length === 0) return
+    const fileArr = Array.from(files)
+    setUploadingCount(c => c + fileArr.length)
+    await Promise.all(fileArr.map(async (file) => {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch(`/api/hub/daily-log/${entry.id}/updates/upload`, { method: 'POST', body: fd })
+      if (res.ok) {
+        const item: AttachmentItem = await res.json()
+        setPendingAttachments(prev => [...prev, item])
+      }
+      setUploadingCount(c => c - 1)
+    }))
+  }
+
   async function submitUpdate() {
-    if (!updateText.trim() || sendingUpdate) return
+    const hasText = updateText.trim().length > 0
+    const hasFiles = pendingAttachments.length > 0
+    if ((!hasText && !hasFiles) || sendingUpdate || uploadingCount > 0) return
     setSendingUpdate(true)
     const res = await fetch(`/api/hub/daily-log/${entry.id}/updates`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ content: updateText.trim() }),
+      body: JSON.stringify({ content: updateText.trim(), media_urls: pendingAttachments }),
     })
     const data = await res.json()
     setSendingUpdate(false)
     if (res.ok) {
       setUpdates(prev => [...prev, data])
       setUpdateText('')
+      setPendingAttachments([])
       setTimeout(() => updatesBottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 50)
     }
   }
@@ -653,7 +682,45 @@ function EntryCard({
                       </span>
                       <span className="text-xs text-gray-600">{formatTime(u.created_at)}</span>
                     </div>
-                    <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">{u.content}</p>
+                    {u.content && (
+                      <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">{u.content}</p>
+                    )}
+                    {(u.media_urls ?? []).length > 0 && (
+                      <div className={`flex flex-col gap-1.5 ${u.content ? 'mt-1.5' : ''}`}>
+                        {(u.media_urls ?? []).map((att, i) => {
+                          const isImage = att.type.startsWith('image/')
+                          const mediaUrl = `/api/hub/daily-log/media/${att.key}`
+                          if (isImage) {
+                            return (
+                              <a key={i} href={mediaUrl} target="_blank" rel="noopener noreferrer" className="block">
+                                <img
+                                  src={mediaUrl}
+                                  alt={att.name}
+                                  className="max-h-48 max-w-[280px] rounded-lg object-cover border border-gray-700"
+                                />
+                              </a>
+                            )
+                          }
+                          return (
+                            <a
+                              key={i}
+                              href={mediaUrl}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-colors group max-w-[280px]"
+                            >
+                              <svg className="w-4 h-4 text-gray-400 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                              </svg>
+                              <span className="text-xs text-gray-300 group-hover:text-white truncate flex-1">{att.name}</span>
+                              <svg className="w-3 h-3 text-gray-500 group-hover:text-gray-300 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                              </svg>
+                            </a>
+                          )
+                        })}
+                      </div>
+                    )}
                   </div>
                   <div className="flex-none flex items-start gap-1 opacity-0 group-hover:opacity-100 transition-opacity pt-0.5">
                     {/* Push to Board */}
@@ -695,28 +762,85 @@ function EntryCard({
           </div>
 
           {/* Add update composer */}
-          <div className="mt-3 flex gap-2 items-end">
-            <textarea
-              value={updateText}
-              onChange={e => setUpdateText(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) {
-                  e.preventDefault()
-                  submitUpdate()
-                }
-              }}
-              rows={1}
-              placeholder="Post an update…"
-              className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8] resize-none"
-              style={{ minHeight: '2.5rem' }}
-            />
-            <button
-              onClick={submitUpdate}
-              disabled={!updateText.trim() || sendingUpdate}
-              className="px-3 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] text-white text-sm font-medium transition-colors disabled:opacity-40 flex-none"
-            >
-              {sendingUpdate ? '…' : 'Send'}
-            </button>
+          <div className="mt-3 space-y-2">
+            {/* Pending attachment chips */}
+            {(pendingAttachments.length > 0 || uploadingCount > 0) && (
+              <div className="flex flex-wrap gap-1.5">
+                {pendingAttachments.map((att, i) => (
+                  <div
+                    key={i}
+                    className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-300 max-w-[200px]"
+                  >
+                    <svg className="w-3 h-3 text-gray-400 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                    </svg>
+                    <span className="truncate">{att.name}</span>
+                    <button
+                      onClick={() => setPendingAttachments(prev => prev.filter((_, j) => j !== i))}
+                      className="text-gray-500 hover:text-red-400 flex-none ml-0.5"
+                    >
+                      ×
+                    </button>
+                  </div>
+                ))}
+                {uploadingCount > 0 && (
+                  <div className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-gray-800 border border-gray-700 text-xs text-gray-500">
+                    <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    Uploading…
+                  </div>
+                )}
+              </div>
+            )}
+
+            <div className="flex gap-2 items-end">
+              {/* Attach button */}
+              <button
+                type="button"
+                onClick={() => attachInputRef.current?.click()}
+                disabled={sendingUpdate}
+                className="p-2 rounded-xl text-gray-500 hover:text-gray-300 hover:bg-gray-700 transition-colors disabled:opacity-40 flex-none"
+                title="Attach files"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                </svg>
+              </button>
+              <input
+                ref={attachInputRef}
+                type="file"
+                multiple
+                className="hidden"
+                onChange={e => {
+                  handleAttachFiles(e.target.files)
+                  e.target.value = ''
+                }}
+              />
+
+              <textarea
+                value={updateText}
+                onChange={e => setUpdateText(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && !e.shiftKey) {
+                    e.preventDefault()
+                    submitUpdate()
+                  }
+                }}
+                rows={1}
+                placeholder="Post an update…"
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8] resize-none"
+                style={{ minHeight: '2.5rem' }}
+              />
+              <button
+                onClick={submitUpdate}
+                disabled={(!updateText.trim() && pendingAttachments.length === 0) || sendingUpdate || uploadingCount > 0}
+                className="px-3 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] text-white text-sm font-medium transition-colors disabled:opacity-40 flex-none"
+              >
+                {sendingUpdate ? '…' : 'Send'}
+              </button>
+            </div>
           </div>
         </div>
 
