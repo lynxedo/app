@@ -44,19 +44,26 @@ export async function POST(request: Request) {
   const admin = createAdminClient()
   const now = new Date().toISOString()
 
-  const { data: due, error: fetchErr } = await admin
+  // Atomically claim due rows by flipping status to 'delivering'.
+  // Because Postgres serializes the UPDATE at the row level, only one concurrent
+  // cron invocation can claim any given row — the WHERE status='scheduled' guard
+  // prevents a second process from seeing the same row after the first has claimed it.
+  const { data: claimed, error: claimErr } = await admin
     .from('social_posts')
+    .update({ status: 'delivering' })
+    .eq('status', 'scheduled')
+    .lte('scheduled_at', now)
     .select(`
       id, company_id, account_id, hub_file_id, caption, platforms,
       account:social_accounts!account_id (external_id, access_token, ig_user_id, platform),
       file:hub_files!hub_file_id (storage_path, mime_type)
     `)
-    .eq('status', 'scheduled')
-    .lte('scheduled_at', now)
     .limit(50)
 
-  if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 })
-  if (!due || due.length === 0) return NextResponse.json({ delivered: 0 })
+  if (claimErr) return NextResponse.json({ error: claimErr.message }, { status: 500 })
+  if (!claimed || claimed.length === 0) return NextResponse.json({ delivered: 0 })
+
+  const due = claimed
 
   const r2 = getR2Client()
   let delivered = 0
