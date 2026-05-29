@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 
-export type AdminArea = 'people' | 'hub' | 'routing' | 'timesheet' | 'fleet' | 'daily_log' | 'zone_sizer' | 'dialer' | 'contacts' | 'guardian' | 'marketing'
+export type AdminArea = 'people' | 'hub' | 'routing' | 'timesheet' | 'fleet' | 'daily_log' | 'zone_sizer' | 'dialer' | 'contacts' | 'guardian' | 'marketing' | 'forms'
 
 // Guardian shares the Hub grant for now (see GUARDIAN_UPGRADE_PLAN.md — dedicated grant deferred).
 const AREA_TO_FLAG: Record<AdminArea, string> = {
@@ -15,6 +15,7 @@ const AREA_TO_FLAG: Record<AdminArea, string> = {
   contacts: 'can_admin_contacts',
   guardian: 'can_admin_hub',
   marketing: 'can_admin_marketing',
+  forms: 'can_admin_forms',
 }
 
 export type AdminCheckResult = {
@@ -36,7 +37,7 @@ export async function requireAdminArea(area: AdminArea): Promise<AdminCheckResul
   const flag = AREA_TO_FLAG[area]
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, company_id, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing')
+    .select('role, company_id, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing, can_admin_forms')
     .eq('id', user.id)
     .single()
 

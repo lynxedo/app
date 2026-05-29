@@ -58,6 +58,7 @@ const TABS = [
   { id: 'contacts',     icon: '👤', label: 'Contacts' },
   { id: 'call-log',     icon: '📞', label: 'Call Log' },
   { id: 'marketing',    icon: '📣', label: 'Marketing' },
+  { id: 'forms',        icon: '📝', label: 'Forms' },
   { id: 'books',        icon: '📊', label: 'Books' },
   { id: 'timesheet',    icon: '🕐', label: 'Timesheet' },
   { id: 'settings',     icon: '⚙️', label: 'Settings' },
@@ -135,6 +136,7 @@ export default function HelpContent() {
         {activeTab === 'contacts'   && <ContactsTab />}
         {activeTab === 'call-log'   && <CallLogTab />}
         {activeTab === 'marketing'  && <MarketingTab />}
+        {activeTab === 'forms'      && <FormsTab />}
         {activeTab === 'books'      && <BooksTab />}
         {activeTab === 'timesheet'  && <TimesheetTab />}
         {activeTab === 'settings'   && <SettingsTab />}
@@ -1191,6 +1193,70 @@ function SettingsTab() {
         </ul>
         <p>The setting scales <em>everything</em> — message bubbles, the sidebar, Settings, Help, every tool — and it travels with your account, so it&apos;s the same on every device you sign in on.</p>
       </Section>
+    </>
+  )
+}
+
+function FormsTab() {
+  return (
+    <>
+      <Section title="What are Forms?">
+        <p>Forms is a customizable checklist and inspection tool. Your admin team builds forms in the <strong className="text-white">Form Builder</strong>, and field technicians fill them out from <strong className="text-white">Tools → Forms</strong>.</p>
+        <p className="mt-2">Uses include after-service reports, irrigation inspection checklists, equipment sign-offs, and any other structured data you want to capture per job.</p>
+      </Section>
+
+      <Section title="Filling Out a Form">
+        <ol className="list-decimal list-inside text-gray-400 space-y-2 ml-2">
+          <li>Go to <strong className="text-white">Tools → Forms</strong> in the sidebar.</li>
+          <li>Tap the form you want to fill out (e.g. <em>Irrigation Inspection Report</em>).</li>
+          <li>Fill in each field — checkboxes, dates, short answers, dropdowns, etc.</li>
+          <li>For the <strong className="text-white">signature field</strong>, draw directly on the canvas with your finger or stylus. Tap <em>Clear</em> to redo.</li>
+          <li>Optionally enter the customer&apos;s name and phone number at the bottom. This lets you copy a ready-made text message to send them after the job.</li>
+          <li>To link the submission to a Jobber client (so a note appears on their record), tap <strong className="text-white">Link to Jobber Client</strong>, search by name, and select the customer.</li>
+          <li>Tap <strong className="text-white">Submit Form</strong>. The form saves to the database. If Jobber was linked, a formatted note is added to the client automatically.</li>
+        </ol>
+      </Section>
+
+      <Section title="SMS Template">
+        <p>After submitting, if you entered a customer name, a pre-written text message appears on the success screen. Tap <strong className="text-white">Copy message</strong> and paste it into any texting app to send to the customer.</p>
+        <p className="mt-2">The admin can customize what this message says in the Form Builder (see below).</p>
+      </Section>
+
+      <Section title="Jobber Sync">
+        <p>When you link a Jobber client before submitting, the form results are automatically posted as a <strong className="text-white">note on the Jobber client record</strong>. The note includes all answered fields, organized by section, plus who submitted it and when.</p>
+        <p className="mt-2">If Jobber sync fails (e.g. you&apos;re not connected to Jobber), the form still saves locally. You&apos;ll see a warning on the success screen.</p>
+      </Section>
+
+      <AdminOnly>
+        <Section title="Building a Form (Admin)">
+          <p>Go to <strong className="text-white">Admin → Form Builder</strong> in the sidebar (or Admin → Form Builder from the admin nav).</p>
+          <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+            <li>Click <strong className="text-white">+ Irrigation Inspection</strong> to create the pre-built irrigation form, or <strong className="text-white">+ Blank Form</strong> to start from scratch.</li>
+            <li>Click <strong className="text-white">Build</strong> on any form to open the builder.</li>
+          </ul>
+          <p className="mt-3">In the builder:</p>
+          <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+            <li><strong className="text-white">Section Title</strong> — a bold header that organizes fields into groups. Not a fillable field.</li>
+            <li><strong className="text-white">Checkbox</strong> — yes/no item (e.g. &quot;System tested and functioning&quot;).</li>
+            <li><strong className="text-white">Date</strong> — a date picker.</li>
+            <li><strong className="text-white">Dropdown</strong> — a pick-one list. Add options by typing and pressing Enter or clicking +&nbsp;Add.</li>
+            <li><strong className="text-white">Short Answer</strong> — a single-line text input.</li>
+            <li><strong className="text-white">Long Answer</strong> — a multi-line textarea for notes.</li>
+            <li><strong className="text-white">Signature</strong> — a touchscreen-friendly canvas for capturing a signature.</li>
+          </ul>
+          <p className="mt-3">Use <strong className="text-white">▲ / ▼</strong> to reorder fields. Mark a field <strong className="text-white">Req</strong> to make it required before submission.</p>
+          <p className="mt-3">The <strong className="text-white">SMS Notification Template</strong> is the text message shown after submission. Use placeholders: <code className="text-sky-400">{'{customer_name}'}</code> <code className="text-sky-400">{'{tech_name}'}</code> <code className="text-sky-400">{'{date}'}</code> <code className="text-sky-400">{'{company_name}'}</code>.</p>
+          <p className="mt-3">Toggle <strong className="text-white">Active / Inactive</strong> to control whether the form is visible to techs. Click <strong className="text-white">Save</strong> (or <em>Save Form</em> at the bottom) when done.</p>
+        </Section>
+
+        <Section title="Permissions">
+          <p>Two toggles in <strong className="text-white">Admin → People → Tools</strong>:</p>
+          <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-1">
+            <li><strong className="text-white">Forms</strong> — allows the user to view and fill out forms. On by default for all new users.</li>
+            <li><strong className="text-white">Form Builder</strong> (Admin Access section) — allows the user to create and edit forms in the Form Builder admin panel.</li>
+          </ul>
+        </Section>
+      </AdminOnly>
     </>
   )
 }

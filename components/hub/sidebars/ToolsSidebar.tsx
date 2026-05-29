@@ -58,6 +58,7 @@ export default function ToolsSidebar({
   canAccessDialer,
   canAccessMarketing,
   canAdminMarketing,
+  canAccessForms,
   onClose,
   onDesktopCollapse,
 }: {
@@ -73,6 +74,7 @@ export default function ToolsSidebar({
   canAccessDialer: boolean
   canAccessMarketing: boolean
   canAdminMarketing: boolean
+  canAccessForms?: boolean
   onClose?: () => void
   onDesktopCollapse?: () => void
 }) {
@@ -86,7 +88,7 @@ export default function ToolsSidebar({
   })
   const toggle = (k: string) => setOpen(p => ({ ...p, [k]: !p[k] }))
 
-  const hasOperations = canAccessRouting || canAccessFleet || canAccessTimesheet || isAdmin
+  const hasOperations = canAccessRouting || canAccessFleet || canAccessTimesheet || canAccessForms || isAdmin
   const hasSales = canAccessTracker || canAccessLawn || canAccessZoneSizer
   const hasComms = true // Contacts is always shown under Communications; Dialer + Call Log gated below
   const hasFinance = canAccessBooks
@@ -103,6 +105,7 @@ export default function ToolsSidebar({
             <>
               {canAccessRouting && <ToolRow href="/hub/routing" iconId="routing" label="Routing" prefixMatch onClose={onClose} />}
               {canAccessTimesheet && <ToolRow href="/hub/timesheet" iconId="time-records" label="Timesheet" prefixMatch onClose={onClose} />}
+              {canAccessForms && <ToolRow href="/hub/forms" iconId="forms" label="Forms" prefixMatch onClose={onClose} />}
               {canAccessFleet && <ToolRow href="/hub/fleet" iconId="fleet" label="Fleet" prefixMatch onClose={onClose} />}
             </>
           )}

@@ -62,6 +62,7 @@ export default function HubShell({
   canAccessDialer,
   canAccessMarketing,
   canAdminMarketing,
+  canAccessForms,
   dialerGlobalRing,
   myPresenceMode,
   children,
@@ -100,6 +101,7 @@ export default function HubShell({
   canAccessDialer?: boolean
   canAccessMarketing?: boolean
   canAdminMarketing?: boolean
+  canAccessForms?: boolean
   /** Session 58.5: when true (default) AND canAccessDialer, the Twilio
    *  Device registers on every Hub page so IncomingCall pops anywhere. */
   dialerGlobalRing?: boolean
@@ -294,13 +296,13 @@ export default function HubShell({
   const grants = adminGrants ?? {
     people: !!isAdmin, hub: !!isAdmin, routing: !!isAdmin,
     timesheet: !!isAdmin, fleet: !!isAdmin, daily_log: !!isAdmin, zone_sizer: !!isAdmin,
-    dialer: !!isAdmin,
+    dialer: !!isAdmin, forms: !!isAdmin,
   }
   const isSuperAdmin = !!isAdmin
   const showAdminRail =
     isSuperAdmin || grants.people || grants.hub || grants.routing ||
     grants.timesheet || grants.fleet || grants.daily_log || grants.zone_sizer ||
-    grants.dialer
+    grants.dialer || grants.forms
 
   const permissions: RailPermissions = {
     isAdmin: !!isAdmin,
@@ -314,6 +316,7 @@ export default function HubShell({
     canAccessZoneSizer: !!canAccessZoneSizer,
     canAccessDialer: !!canAccessDialer,
     canAccessMarketing: !!canAccessMarketing,
+    canAccessForms: !!canAccessForms,
   }
 
   function renderSidebar() {
@@ -355,6 +358,7 @@ export default function HubShell({
             canAccessDialer={!!canAccessDialer}
             canAccessMarketing={!!canAccessMarketing}
             canAdminMarketing={!!canAdminMarketing}
+            canAccessForms={!!canAccessForms}
             onClose={closeMobileDrawer}
             {...collapseProps}
           />
