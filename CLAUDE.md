@@ -26,13 +26,26 @@ This folder contains the source code for the Lynxedo platform at lynxedo.com.
 ### Rule: ALWAYS ask "staging or prod?" before pushing.
 Heroes is live. Before pushing any code change — new feature, bug fix, tweak — ask Ben explicitly. Default for new/risky work is staging first; promote to prod only after he confirms.
 
-### Promoting staging → prod
-Once a feature is tested on staging and Ben says it's good:
+### Promoting staging → prod — CHERRY-PICKS ONLY
+**⚠ NEVER `git merge develop` into `main`.** `develop` and `main` have deliberately
+diverged — `develop` carries features that are gated behind external approvals and
+cannot all ship at once (e.g. Txt v2 awaiting Toll-Free Verification, Daily Log v2
+shipping as a specific commit range, Guardian Session 3 which must go with Txt v2).
+A full merge would drag all of that to prod.
+
+Once a feature is tested on staging and Ben says it's good, cherry-pick just that
+feature's commit(s) from `develop` onto `main`:
 ```
 git checkout main
-git merge develop
+git cherry-pick <commit-sha> [<commit-sha> ...]   # only the commits for this feature
 git push origin main
 ```
+Find the commits to pick with `git log develop ^main --oneline` (commits on develop
+not yet on main). Before pushing, run `npx tsc --noEmit` against main's tree — a
+develop-only import can break prod even when the cherry-pick applies cleanly.
+
+This matches the authoritative rule in the root `Lynxedo/CLAUDE.md`
+("⚠ Never `git merge develop→main` — use cherry-picks only").
 
 ### Important: staging shares the prod database
 Both environments read/write the SAME Supabase project. Staging is for testing UI/code changes against real data — NOT for schema migrations or destructive testing. A bad migration on staging hits prod data.
