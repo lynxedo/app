@@ -83,6 +83,7 @@ export default function HubShell({
     daily_log: boolean
     zone_sizer: boolean
     dialer: boolean
+    forms?: boolean
   }
   initialActiveAnnouncements?: Announcement[]
   initialTextSize?: string
@@ -292,11 +293,12 @@ export default function HubShell({
 
   const closeMobileDrawer = useCallback(() => setMobileDrawerOpen(false), [])
 
-  const grants = adminGrants ?? {
+  const rawGrants = adminGrants ?? {
     people: !!isAdmin, hub: !!isAdmin, routing: !!isAdmin,
     timesheet: !!isAdmin, fleet: !!isAdmin, daily_log: !!isAdmin, zone_sizer: !!isAdmin,
-    dialer: !!isAdmin, forms: !!isAdmin,
+    dialer: !!isAdmin,
   }
+  const grants = { ...rawGrants, forms: !!(rawGrants.forms ?? isAdmin) }
   const isSuperAdmin = !!isAdmin
   const showAdminRail =
     isSuperAdmin || grants.people || grants.hub || grants.routing ||
