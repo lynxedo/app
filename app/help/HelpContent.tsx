@@ -986,7 +986,8 @@ function MarketingTab() {
           <li>Write your caption, or click <strong className="text-white">✦ Generate Caption</strong> to have AI draft one based on the photo, service type, and content pillar.</li>
           <li>Set the schedule date and time, then click <strong className="text-white">Schedule</strong> (or <strong className="text-white">Save Draft</strong> to hold it).</li>
         </ol>
-        <p className="mt-2 text-amber-300/90">⚠ Google Business posts disappear from your profile after 7 days. Schedule new ones weekly to stay visible.</p>
+        <p className="mt-2 text-red-300 font-semibold">⛔ Google Business (GBP) posting is currently NOT working. Google disabled the API that lets apps post to Business Profiles, so GBP posts scheduled here will fail. Facebook and Instagram work normally. Add Google Business posts manually at business.google.com for now.</p>
+        <p className="mt-2 text-amber-300/90">⚠ (When working) Google Business posts disappear from your profile after 7 days. Schedule new ones weekly to stay visible.</p>
       </Section>
       <Section title="AI Caption Generator">
         <p>The Generate Caption button calls Claude with your selected photo and settings to draft a platform-appropriate caption with hashtags. Choose:</p>

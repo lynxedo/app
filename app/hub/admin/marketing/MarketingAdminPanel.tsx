@@ -366,12 +366,15 @@ export default function MarketingAdminPanel({
       <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-3">
         <div>
           <h2 className="text-sm font-semibold text-white">Connect Google Business Profile</h2>
-          <p className="text-xs text-white/50 mt-1">
+          <p className="text-xs font-semibold text-red-200 bg-red-500/10 border border-red-500/40 rounded-md px-2.5 py-2 mt-1 leading-relaxed">
+            ⛔ Posting to Google Business is currently NOT working. Google has disabled the API that lets third-party apps create Business Profile posts, so scheduled GBP posts will fail to publish. You can still connect an account here, but add posts manually at business.google.com until this is rebuilt. (A browser-automation replacement has been prototyped and is pending a future build.)
+          </p>
+          <p className="text-xs text-white/50 mt-2">
             Click below to authorize Lynxedo to post to your Google Business Profile. Posts appear in Google Search
             and Maps results for local searches like &ldquo;lawn care The Woodlands.&rdquo;
           </p>
           <p className="text-xs text-amber-300/80 mt-2">
-            ⚠ Google Business posts expire and disappear from your profile after 7 days. Schedule new posts weekly to stay visible.
+            ⚠ (When working) Google Business posts expire and disappear from your profile after 7 days. Schedule new posts weekly to stay visible.
           </p>
         </div>
 
