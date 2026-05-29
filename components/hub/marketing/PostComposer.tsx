@@ -290,13 +290,12 @@ export default function PostComposer({
                       </div>
                     )
                   })}
+                  {gbpSelected && (
+                    <p className="mt-2 text-xs text-amber-300/90">
+                      ⚠ Google Business posts expire and disappear from your profile after 7 days.
+                    </p>
+                  )}
                 </div>
-
-                {gbpSelected && (
-                  <p className="mt-2 text-xs text-amber-300/90">
-                    ⚠ Google Business posts expire and disappear from your profile after 7 days.
-                  </p>
-                )}
               )}
             </div>
           )}
