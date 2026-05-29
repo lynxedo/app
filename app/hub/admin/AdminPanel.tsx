@@ -455,15 +455,17 @@ function UserRow({
   onSendInvite: (userId: string) => void
   onSaveName: (userId: string, fullName: string, displayName: string) => Promise<void>
 }) {
-  const profile = user.profile
-  if (!profile) return null
-
+  // Hooks must run unconditionally on every render — keep them above the
+  // `if (!profile)` guard below to satisfy React's Rules of Hooks.
   const [sendingInvite, setSendingInvite] = useState(false)
   const [invited, setInvited] = useState(!!user.invite_sent_at)
   const [editing, setEditing] = useState(false)
   const [editFull, setEditFull] = useState(user.full_name ?? '')
   const [editDisplay, setEditDisplay] = useState(user.display_name ?? '')
   const [saving, setSaving] = useState(false)
+
+  const profile = user.profile
+  if (!profile) return null
 
   const isPending = !invited
 
