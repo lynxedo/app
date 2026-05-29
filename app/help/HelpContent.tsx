@@ -344,6 +344,7 @@ function HubTab() {
         <p>Threads keep side conversations from cluttering the main room. Opening <em>Reply in thread</em> on any message slides out a panel where replies live.</p>
         <p>Anyone in the room can read and reply to a thread. When someone replies in a thread you started or participated in, you get a notification.</p>
         <p>Thread replies support the same toolbar as the main composer — <strong className="text-white">📎 attach</strong> photos and files, <strong className="text-white">Aa</strong> format (bold/italic/strike/quote), <strong className="text-white">😀</strong> insert emoji, and <strong className="text-white">⏰</strong> schedule the reply for later. Attachment-only replies (no text) work too.</p>
+        <p><strong className="text-white">Resize the thread pane</strong> — on desktop, hover over the left edge of the thread panel to reveal a drag handle. Drag left to widen it (up to about half the screen), drag right to narrow it. Your preferred width is saved automatically.</p>
       </Section>
 
       <Section title="Boards (Saved Messages)">
