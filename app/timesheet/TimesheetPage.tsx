@@ -190,6 +190,15 @@ export default function TimesheetPage({
       return
     }
 
+    // GPS is only useful on mobile — desktop browsers can't reliably get location
+    // (no GPS chip; relies on Google WiFi triangulation API which is often blocked).
+    // Skip the GPS flow entirely on non-mobile devices.
+    const isMobile = /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
+    if (!isMobile) {
+      await submitPunch(null, null)
+      return
+    }
+
     setGpsStatus('requesting')
     try {
       const pos = await new Promise<GeolocationPosition>((res, rej) =>
