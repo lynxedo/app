@@ -89,6 +89,75 @@ Supabase `call_datetime` is stored as naive Texas-local time labeled `+00:00`. `
 
 ---
 
+## Deploy Failure Recovery
+
+**Symptom:** Push goes to GitHub, GitHub Actions says ✅ green, but `staging.lynxedo.com` or `lynxedo.com` returns 502 / never loads.
+
+**This used to happen often** (Session 77 `RailPermissions`, Session 79 Phase 2.5 `onArrive`, Session 78 JSX paren mismatch). Each time the failure was a TypeScript or JSX error that broke `next build` — but the bigger problem was the deploy script kept charging ahead and PM2 entered a 300+ restart loop against a missing `.next/BUILD_ID`.
+
+### What now prevents this (deploy workflows, May 29 2026)
+
+Both `deploy-staging.yml` and `deploy.yml` have these properties — DO NOT remove them:
+
+1. **`set -euo pipefail`** at the top of every deploy script. Any non-zero exit aborts immediately, so a broken tsc never reaches the pm2 step. The old PM2 process keeps serving the prior good build.
+2. **`npx tsc --noEmit` BEFORE `npm run build`.** Catches type/JSX errors in ~15s with a clear file:line, instead of failing 60s into the build.
+3. **`pm2 restart` (not `reload`).** Reload is a graceful zero-downtime swap that becomes a no-op when PM2 is already in `errored` state. Restart forces a fresh process and resets the restart counter.
+4. **Health check via `curl` after restart.** Polls `http://localhost:3000/` (or `:3002` for staging) up to 30s. If no HTTP 200/307/308, dumps `pm2 logs --err --lines 30` to the Actions log and exits non-zero — the GitHub deploy step turns red.
+
+**Outcome:** A broken commit is now LOUD — Actions goes red, you see exactly which file:line broke, and the old build keeps serving traffic. It's no longer possible to silently end up with a dead PM2 process.
+
+### If staging or prod IS down (manual recovery)
+
+The hardened workflow should make this rare, but if you hit it (or you're recovering from a pre-May-29 push that landed before the fix):
+
+```bash
+ssh root@5.78.42.57
+
+# 1. Diagnose
+pm2 list                                    # find errored process
+pm2 logs lynxedo-staging --lines 50 --err   # see the actual error
+
+# 2. Most common cause: missing or partial .next/ build
+ls /opt/lynxedo-staging/app/.next/BUILD_ID  # if "No such file", build never finished
+
+# 3. Manual rebuild + restart
+cd /opt/lynxedo-staging/app
+npx tsc --noEmit                            # find any type errors first
+npm run build                               # rebuild fresh
+pm2 restart lynxedo-staging --update-env    # restart (NOT reload)
+curl -s -o /dev/null -w "HTTP %{http_code}\n" http://localhost:3002/   # verify
+
+# Same procedure for prod, swap paths/names/port:
+#   /opt/lynxedo/app    lynxedo   :3000
+```
+
+### Pre-push self-check (highly recommended for any session that touches JSX or types)
+
+Before pushing a session that adds props, changes type signatures, or refactors JSX, run the **TSC safety dance** that caught the Session 78 JSX bug:
+
+```bash
+# From your Mac, scp the changed file(s) into staging, run tsc, restore originals.
+# scope the file list to what you actually changed.
+FILES="components/hub/marketing/PostComposer.tsx lib/google-business.ts"
+cd "Lynxedo/Website"
+
+# Backup originals on the VPS
+ssh root@5.78.42.57 "cd /opt/lynxedo-staging/app && for f in $FILES; do cp \$f \$f.orig; done"
+
+# Push your local versions
+for f in $FILES; do scp "$f" "root@5.78.42.57:/opt/lynxedo-staging/app/$f"; done
+
+# Run tsc — exit 0 means safe to push
+ssh root@5.78.42.57 "cd /opt/lynxedo-staging/app && set -o pipefail && npx tsc --noEmit"
+
+# Restore (so the next deploy doesn't pick up half-applied changes)
+ssh root@5.78.42.57 "cd /opt/lynxedo-staging/app && for f in $FILES; do mv \$f.orig \$f; done"
+```
+
+The hardened deploy workflow now does this automatically inside CI, so the safety dance is **belt-and-suspenders** — it gives you the failure signal in ~15s on your laptop instead of waiting ~60s for the GH Actions deploy to fail. Worth doing for any large multi-file session.
+
+---
+
 ## New Computer Setup (so Claude can push and deploy)
 
 Before Claude can push to GitHub on a new Mac, do this once:
