@@ -15,7 +15,7 @@ function getR2Client() {
 }
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ key: string[] }> }
 ) {
   const supabase = await createClient()
@@ -52,6 +52,13 @@ export async function GET(
     }),
     { expiresIn: 3600 }
   )
+
+  // ?json=1 returns the signed URL as JSON so the client can open it
+  // via window.open() — avoids the mobile/Capacitor issue where target="_blank"
+  // opens in the system browser without session cookies.
+  if (new URL(request.url).searchParams.has('json')) {
+    return NextResponse.json({ url })
+  }
 
   return NextResponse.redirect(url, {
     headers: { 'Cache-Control': 'private, max-age=3600' },

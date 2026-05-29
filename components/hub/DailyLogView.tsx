@@ -173,6 +173,13 @@ function EntryCard({
   const attachInputRef = useRef<HTMLInputElement>(null)
   const updatesBottomRef = useRef<HTMLDivElement>(null)
 
+  async function openAttachment(key: string) {
+    const res = await fetch(`/api/hub/daily-log/media/${key}?json=1`)
+    if (!res.ok) return
+    const { url } = await res.json()
+    window.open(url, '_blank')
+  }
+
   const canEdit = isAdmin || entry.creator?.id === currentUserId
   const isOnEntry =
     entry.tech?.id === currentUserId ||
@@ -692,21 +699,19 @@ function EntryCard({
                           const mediaUrl = `/api/hub/daily-log/media/${att.key}`
                           if (isImage) {
                             return (
-                              <a key={i} href={mediaUrl} target="_blank" rel="noopener noreferrer" className="block">
+                              <button key={i} onClick={() => openAttachment(att.key)} className="block text-left">
                                 <img
                                   src={mediaUrl}
                                   alt={att.name}
                                   className="max-h-48 max-w-[280px] rounded-lg object-cover border border-gray-700"
                                 />
-                              </a>
+                              </button>
                             )
                           }
                           return (
-                            <a
+                            <button
                               key={i}
-                              href={mediaUrl}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                              onClick={() => openAttachment(att.key)}
                               className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-colors group max-w-[280px]"
                             >
                               <svg className="w-4 h-4 text-gray-400 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -716,7 +721,7 @@ function EntryCard({
                               <svg className="w-3 h-3 text-gray-500 group-hover:text-gray-300 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                                 <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
                               </svg>
-                            </a>
+                            </button>
                           )
                         })}
                       </div>
