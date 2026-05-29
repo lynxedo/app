@@ -1168,8 +1168,8 @@ function StopRow({
             </a>
           )}
 
-          {/* Pesticide tech notes — only shown when a record exists */}
-          {stop.pesticide_record_id && (
+          {/* Pesticide tech notes — shown for any non-skipped stop so techs can fill in before completing */}
+          {!isSkipped && (
             <div>
               <div className="flex items-center justify-between mb-1">
                 <div className="text-[10px] uppercase tracking-wide text-emerald-500/70">Pesticide application notes</div>
@@ -1193,8 +1193,8 @@ function StopRow({
             </div>
           )}
 
-          {/* After-service report — only for completed stops */}
-          {isComplete && (
+          {/* After-service report — shown for any non-skipped stop so techs can fill in before completing */}
+          {!isSkipped && (
             <ServiceReportSection stopId={stop.id} clientPhone={stop.client_phone} />
           )}
 
