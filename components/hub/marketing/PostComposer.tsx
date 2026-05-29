@@ -291,9 +291,14 @@ export default function PostComposer({
                     )
                   })}
                   {gbpSelected && (
-                    <p className="mt-2 text-xs text-amber-300/90">
-                      ⚠ Google Business posts expire and disappear from your profile after 7 days.
-                    </p>
+                    <div className="mt-2 space-y-1.5">
+                      <p className="text-xs font-semibold text-red-200 bg-red-500/10 border border-red-500/40 rounded-md px-2.5 py-2 leading-relaxed">
+                        ⛔ Google Business posting is currently NOT working. Google has disabled the API that lets apps post to Business Profiles, so anything scheduled here will fail to publish. For now, please add Google Business posts manually at business.google.com.
+                      </p>
+                      <p className="text-xs text-amber-300/90">
+                        ⚠ (When working) Google Business posts expire and disappear from your profile after 7 days.
+                      </p>
+                    </div>
                   )}
                 </div>
               )}
