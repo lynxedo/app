@@ -3,7 +3,6 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   exchangeCodeForRefreshToken,
-  fetchFirstAccountAndLocation,
 } from '@/lib/google-business'
 
 // GET /api/admin/social-accounts/google-callback?code=...
@@ -53,10 +52,17 @@ export async function GET(request: Request) {
     return redirectTo(`${adminPath}?google_error=${encodeURIComponent(tokenResult.error)}`)
   }
 
-  // Fetch first account + first location
-  const acctLoc = await fetchFirstAccountAndLocation(tokenResult.accessToken)
-  if ('error' in acctLoc) {
-    return redirectTo(`${adminPath}?google_error=${encodeURIComponent(acctLoc.error)}`)
+  // Hardcoded Heroes Lawn Care account + location IDs.
+  // We skip the live API lookup to avoid GBP quota limits on the lynxedo-hub GCP project.
+  // These were confirmed via OAuth Playground on 2026-05-29:
+  //   GET /v1/accounts → accountId 114939412558177871000
+  //   GET /v1/accounts/{id}/locations → locationId 17768714372580687809
+  // When Lynxedo onboards additional tenants, replace this with a dynamic
+  // fetchFirstAccountAndLocation() call (or a picker UI) once quota is increased.
+  const acctLoc = {
+    accountId: '114939412558177871000',
+    locationId: '17768714372580687809',
+    locationTitle: 'Heroes Lawn Care of The Woodlands',
   }
 
   const admin = createAdminClient()
