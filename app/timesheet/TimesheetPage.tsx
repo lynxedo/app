@@ -33,6 +33,17 @@ type EditRequest = {
   created_at: string
 }
 
+type PtoRequest = {
+  id: string
+  request_date: string
+  hours: number
+  type: 'paid' | 'unpaid'
+  note: string | null
+  status: 'pending' | 'approved' | 'rejected'
+  admin_note: string | null
+  created_at: string
+}
+
 function formatTime(ts: string): string {
   return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
 }
@@ -113,6 +124,13 @@ export default function TimesheetPage({
   const [submittingEdit, setSubmittingEdit] = useState(false)
   const [editError, setEditError] = useState('')
 
+  // PTO state
+  const [ptoRequests, setPtoRequests] = useState<PtoRequest[]>([])
+  const [showPtoForm, setShowPtoForm] = useState(false)
+  const [ptoForm, setPtoForm] = useState({ request_date: '', hours: '', type: 'paid' as 'paid' | 'unpaid', note: '' })
+  const [ptoSubmitting, setPtoSubmitting] = useState(false)
+  const [ptoError, setPtoError] = useState('')
+
   const currentWeekStart = getCurrentWeekStart()
   const isCurrentWeek = weekStart.toISOString().split('T')[0] === currentWeekStart.toISOString().split('T')[0]
 
@@ -128,6 +146,7 @@ export default function TimesheetPage({
     const fetches: Promise<Response>[] = [
       fetch(`/api/timesheet/entries?employee_id=${employee.id}&start=${week.start}&end=${week.end}`),
       fetch('/api/timesheet/punch-edits'),
+      fetch('/api/timesheet/pto-requests'),
     ]
     if (isCurrentWeek) fetches.unshift(fetch(`/api/timesheet/punch?employee_id=${employee.id}`))
 
@@ -135,9 +154,11 @@ export default function TimesheetPage({
     const statusIdx = isCurrentWeek ? 0 : -1
     const entriesIdx = isCurrentWeek ? 1 : 0
     const editIdx = isCurrentWeek ? 2 : 1
+    const ptoIdx = isCurrentWeek ? 3 : 2
 
     const entriesData = await results[entriesIdx].json()
     const editData = await results[editIdx].json()
+    const ptoData = await results[ptoIdx].json()
 
     if (isCurrentWeek && statusIdx >= 0) {
       const statusData = await results[statusIdx].json()
@@ -151,6 +172,7 @@ export default function TimesheetPage({
     const weekEntries: TimeEntry[] = entriesData.entries ?? []
     setEntries(weekEntries)
     setEditRequests(editData.requests ?? [])
+    setPtoRequests(ptoData.requests ?? [])
 
     const total = weekEntries.reduce((s, e) => s + (e.total_hours ?? 0), 0)
     const ot = weekEntries.reduce((s, e) => s + (e.overtime_hours ?? 0), 0)
@@ -251,6 +273,30 @@ export default function TimesheetPage({
       return
     }
     setEditingEntryId(null)
+    loadData()
+  }
+
+  async function submitPto() {
+    if (!employee) return
+    if (!ptoForm.request_date) { setPtoError('Date is required.'); return }
+    if (!ptoForm.hours || Number(ptoForm.hours) <= 0) { setPtoError('Hours must be greater than 0.'); return }
+    setPtoSubmitting(true)
+    setPtoError('')
+    const res = await fetch('/api/timesheet/pto-requests', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        request_date: ptoForm.request_date,
+        hours: Number(ptoForm.hours),
+        type: ptoForm.type,
+        note: ptoForm.note.trim() || null,
+      }),
+    })
+    const data = await res.json()
+    setPtoSubmitting(false)
+    if (!res.ok) { setPtoError(data.error ?? 'Failed to submit request.'); return }
+    setPtoForm({ request_date: '', hours: '', type: 'paid', note: '' })
+    setShowPtoForm(false)
     loadData()
   }
 
@@ -427,6 +473,115 @@ export default function TimesheetPage({
             </div>
 
             {/* Daily entries */}
+            {/* PTO Requests section */}
+            <div className="w-full mt-6">
+              <div className="flex items-center justify-between mb-3">
+                <h3 className="text-xs font-semibold uppercase tracking-widest text-gray-600">PTO Requests</h3>
+                {!showPtoForm && (
+                  <button
+                    onClick={() => { setShowPtoForm(true); setPtoError('') }}
+                    className="text-xs text-gray-500 hover:text-white border border-gray-700 hover:border-gray-500 px-2 py-1 rounded-lg transition-colors"
+                  >+ Request PTO</button>
+                )}
+              </div>
+
+              {/* PTO submit form */}
+              {showPtoForm && (
+                <div className="bg-gray-900 border border-gray-700 rounded-xl p-4 mb-3 space-y-3">
+                  <p className="text-xs text-gray-400">Submit a PTO request — your manager will review it.</p>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Date <span className="text-red-400">*</span></label>
+                      <input
+                        type="date"
+                        value={ptoForm.request_date}
+                        onChange={e => setPtoForm(f => ({ ...f, request_date: e.target.value }))}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs text-gray-500 block mb-1">Hours <span className="text-red-400">*</span></label>
+                      <input
+                        type="number"
+                        step="0.5"
+                        min="0.5"
+                        max="24"
+                        value={ptoForm.hours}
+                        onChange={e => setPtoForm(f => ({ ...f, hours: e.target.value }))}
+                        placeholder="8"
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                      />
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">Type</label>
+                    <div className="flex gap-2">
+                      {(['paid', 'unpaid'] as const).map(t => (
+                        <button
+                          key={t}
+                          onClick={() => setPtoForm(f => ({ ...f, type: t }))}
+                          className={`flex-1 py-1.5 rounded-lg text-sm transition-colors border ${ptoForm.type === t ? 'bg-blue-600 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-white'}`}
+                        >{t.charAt(0).toUpperCase() + t.slice(1)}</button>
+                      ))}
+                    </div>
+                  </div>
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">Note</label>
+                    <textarea
+                      value={ptoForm.note}
+                      onChange={e => setPtoForm(f => ({ ...f, note: e.target.value }))}
+                      placeholder="Optional — reason for the request"
+                      rows={2}
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-blue-500 resize-none"
+                    />
+                  </div>
+                  {ptoError && <p className="text-xs text-red-400">{ptoError}</p>}
+                  <div className="flex gap-2">
+                    <button
+                      onClick={submitPto}
+                      disabled={ptoSubmitting}
+                      className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+                    >{ptoSubmitting ? 'Submitting…' : 'Submit Request'}</button>
+                    <button
+                      onClick={() => { setShowPtoForm(false); setPtoError('') }}
+                      className="px-4 py-2 rounded-lg border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors"
+                    >Cancel</button>
+                  </div>
+                </div>
+              )}
+
+              {/* PTO request history */}
+              {ptoRequests.length === 0 && !showPtoForm ? (
+                <p className="text-xs text-gray-600 text-center py-2">No PTO requests yet.</p>
+              ) : (
+                <div className="space-y-2">
+                  {ptoRequests.map(req => (
+                    <div key={req.id} className={`bg-gray-900 border rounded-xl px-4 py-3 ${req.status === 'pending' ? 'border-amber-500/30' : req.status === 'approved' ? 'border-emerald-500/25' : 'border-gray-800'}`}>
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <div className="text-sm font-medium">{formatDate(req.request_date)}</div>
+                          <div className="text-xs text-gray-500 mt-0.5">
+                            {req.hours}h · {req.type}
+                            {req.note && <span> · &ldquo;{req.note}&rdquo;</span>}
+                          </div>
+                          {req.status === 'rejected' && req.admin_note && (
+                            <div className="text-xs text-red-400 mt-1">Rejected: {req.admin_note}</div>
+                          )}
+                        </div>
+                        <span className={`text-xs px-2 py-0.5 rounded-full shrink-0 ${
+                          req.status === 'pending' ? 'bg-amber-500/15 text-amber-400 border border-amber-500/25' :
+                          req.status === 'approved' ? 'bg-emerald-500/15 text-emerald-400 border border-emerald-500/25' :
+                          'bg-gray-800 text-gray-500 border border-gray-700'
+                        }`}>
+                          {req.status === 'pending' ? '⏳ Pending' : req.status === 'approved' ? '✓ Approved' : 'Rejected'}
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
             {entries.length > 0 && (
               <div className="w-full mt-4">
                 <h3 className="text-xs font-semibold uppercase tracking-widest text-gray-600 mb-3">
