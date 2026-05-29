@@ -18,7 +18,7 @@ export default async function SettingsPage() {
       .maybeSingle(),
     supabase
       .from('user_profiles')
-      .select('role, phone, full_name, landing_page, rail_config, dialer_global_ring, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_timesheet, can_access_dialer, can_access_marketing')
+      .select('role, phone, full_name, landing_page, rail_config, txt_signature, dialer_global_ring, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_timesheet, can_access_dialer, can_access_marketing, can_access_forms, can_access_daily_log_v2')
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -64,10 +64,12 @@ export default async function SettingsPage() {
     canAccessMarketing: !!profileResult.data?.can_access_marketing,
     canAccessCallLog: !!profileResult.data?.can_access_call_log,
     canAccessTimesheet: !!profileResult.data?.can_access_timesheet,
+    canAccessForms: !!profileResult.data?.can_access_forms,
+    canAccessDailyLogV2: !!profileResult.data?.can_access_daily_log_v2,
   }
 
+  const txtSignature = (profileResult.data?.txt_signature ?? '') as string
   const dialerGlobalRing = profileResult.data?.dialer_global_ring ?? true
-
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto bg-gray-950 text-white">
@@ -84,6 +86,7 @@ export default async function SettingsPage() {
           notifPref={notifPref}
           railConfig={railConfig}
           railPermissions={railPermissions}
+          txtSignature={txtSignature}
           dialerGlobalRing={dialerGlobalRing}
         />
       </main>

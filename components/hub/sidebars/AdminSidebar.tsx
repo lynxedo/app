@@ -15,6 +15,7 @@ export default function AdminSidebar({
     timesheet: boolean
     fleet: boolean
     daily_log: boolean
+    forms: boolean
   }
   isSuperAdmin: boolean
   onClose?: () => void
@@ -39,6 +40,9 @@ export default function AdminSidebar({
       )}
       {(isSuperAdmin || grants.daily_log) && (
         <SidebarLinkRow href="/hub/admin/daily-log" icon="📋" label="Daily Log" prefixMatch onClose={onClose} />
+      )}
+      {(isSuperAdmin || grants.forms) && (
+        <SidebarLinkRow href="/hub/admin/forms" icon="📝" label="Form Builder" prefixMatch onClose={onClose} />
       )}
     </SidebarShell>
   )

@@ -64,8 +64,9 @@ const TOOL_CATALOG: Record<string, ToolDef> = {
   'tool:call-log':      { id: 'tool:call-log',      label: 'Call Log',        icon: '📞', href: '/hub/call-log',     prefixMatch: true },
   'tool:books':         { id: 'tool:books',         label: 'Books',           icon: '📊', href: '/books',            prefixMatch: true },
   'tool:fleet':         { id: 'tool:fleet',         label: 'Fleet',           icon: '🚛', href: '/hub/fleet',        prefixMatch: true },
-  'tool:marketing':     { id: 'tool:marketing',     label: 'Marketing – Social', icon: '📣', href: '/hub/marketing/social', prefixMatch: true },
   'tool:pesticide-records': { id: 'tool:pesticide-records', label: 'Pesticide Records', icon: '🧪', href: '/hub/pesticide-records', prefixMatch: true },
+  'tool:marketing':     { id: 'tool:marketing',     label: 'Marketing – Social', icon: '📣', href: '/hub/marketing/social', prefixMatch: true },
+  'tool:forms':         { id: 'tool:forms',         label: 'Forms',              icon: '📋', href: '/hub/forms',            prefixMatch: true },
 }
 
 function convLabel(conv: Conversation, currentUserId: string) {
@@ -99,6 +100,7 @@ export default function HubSidebar({
   canAccessRouting = false,
   canAccessBooks = false,
   canAccessFleet = false,
+  canAccessDailyLogV2 = false,
   myPresenceMode,
   onOpenTimeClock,
 }: {
@@ -123,6 +125,7 @@ export default function HubSidebar({
   canAccessRouting?: boolean
   canAccessBooks?: boolean
   canAccessFleet?: boolean
+  canAccessDailyLogV2?: boolean
   myPresenceMode?: 'clock' | 'activity'
   onOpenTimeClock?: () => void
 }) {
@@ -858,7 +861,7 @@ export default function HubSidebar({
   const toolAccess: Record<string, boolean> = {
     'tool:routing':      canAccessRouting,
     'tool:daily-log':    true,
-    'tool:daily-log-v2': true,
+    'tool:daily-log-v2': canAccessDailyLogV2,
     'tool:time-records': !!isAdmin,
     'tool:tracker':      canAccessTracker,
     'tool:lawn':         canAccessLawn,
@@ -1012,17 +1015,18 @@ export default function HubSidebar({
               <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="daily-log" /></span>
               <span className="truncate flex-1">Daily Log</span>
             </Link>
-            <Link
-              href="/hub/daily-log-v2"
-              onClick={() => onClose?.()}
-              className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                pathname === '/hub/daily-log-v2' || pathname.startsWith('/hub/daily-log-v2/') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
-              }`}
-            >
-              <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="daily-log-v2" /></span>
-              <span className="truncate flex-1">Daily Log v2</span>
-              <span className="text-[10px] bg-violet-500/20 text-violet-200 px-1.5 py-0.5 rounded flex-none">preview</span>
-            </Link>
+            {canAccessDailyLogV2 && (
+              <Link
+                href="/hub/daily-log-v2"
+                onClick={() => onClose?.()}
+                className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+                  pathname === '/hub/daily-log-v2' || pathname.startsWith('/hub/daily-log-v2/') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                }`}
+              >
+                <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="daily-log-v2" /></span>
+                <span className="truncate flex-1">Daily Log v2</span>
+              </Link>
+            )}
           </div>
 
           {/* Unread — surfaces any room or DM with unread messages. Hides
