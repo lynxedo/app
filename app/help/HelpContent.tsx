@@ -344,6 +344,7 @@ function HubTab() {
         <p>Threads keep side conversations from cluttering the main room. Opening <em>Reply in thread</em> on any message slides out a panel where replies live.</p>
         <p>Anyone in the room can read and reply to a thread. When someone replies in a thread you started or participated in, you get a notification.</p>
         <p>Thread replies support the same toolbar as the main composer — <strong className="text-white">📎 attach</strong> photos and files, <strong className="text-white">Aa</strong> format (bold/italic/strike/quote), <strong className="text-white">😀</strong> insert emoji, and <strong className="text-white">⏰</strong> schedule the reply for later. Attachment-only replies (no text) work too.</p>
+        <p><strong className="text-white">Resize the thread pane</strong> — on desktop, hover over the left edge of the thread panel to reveal a drag handle. Drag left to widen it (up to about half the screen), drag right to narrow it. Your preferred width is saved automatically.</p>
       </Section>
 
       <Section title="Boards (Saved Messages)">
@@ -974,17 +975,18 @@ function MarketingTab() {
   return (
     <>
       <Section title="Social Posting">
-        <p>Schedule Facebook and Instagram posts directly from Hub Files photos — without leaving Lynxedo.</p>
+        <p>Schedule Facebook, Instagram, and Google Business Profile posts directly from Hub Files photos — without leaving Lynxedo.</p>
         <p className="mt-2">Navigate to <strong className="text-white">Marketing → Social</strong> from the Tools sidebar to access the queue.</p>
       </Section>
       <Section title="Creating a Post">
         <ol className="list-decimal pl-5 space-y-1">
           <li>Click <strong className="text-white">New Post</strong> in the top-right.</li>
-          <li>Select which accounts to post to — check Facebook (FB) and/or Instagram (IG) for each connected page.</li>
+          <li>Select which accounts to post to — check Facebook (FB), Instagram (IG), and/or Google Business (GBP) for each connected account.</li>
           <li>Optionally pick a photo from Hub Files. Photos tagged <em>Social Media</em> appear first with &ldquo;Social queue only&rdquo; checked.</li>
           <li>Write your caption, or click <strong className="text-white">✦ Generate Caption</strong> to have AI draft one based on the photo, service type, and content pillar.</li>
           <li>Set the schedule date and time, then click <strong className="text-white">Schedule</strong> (or <strong className="text-white">Save Draft</strong> to hold it).</li>
         </ol>
+        <p className="mt-2 text-amber-300/90">⚠ Google Business posts disappear from your profile after 7 days. Schedule new ones weekly to stay visible.</p>
       </Section>
       <Section title="AI Caption Generator">
         <p>The Generate Caption button calls Claude with your selected photo and settings to draft a platform-appropriate caption with hashtags. Choose:</p>
@@ -1003,9 +1005,9 @@ function MarketingTab() {
         <p className="mt-2">If a post fails (e.g. an expired token), the status shows <strong className="text-white">Failed</strong> with the error. Reconnect your accounts in Admin → Marketing, then edit the post to reschedule.</p>
       </Section>
       <Section title="Admin: Connecting Accounts">
-        <p>Admins with Marketing Admin access can connect Facebook pages at <strong className="text-white">Admin → Marketing</strong> (or via the Admin link in the Marketing sidebar section).</p>
-        <p className="mt-2">Click <strong className="text-white">Connect Facebook Accounts</strong> — you&apos;ll be redirected to Facebook to approve the connection. Lynxedo will detect any linked Instagram Business accounts automatically.</p>
-        <p className="mt-2">Facebook page tokens last ~60 days. Reconnect before they expire to avoid posting failures. The token expiry date is shown on each connected account.</p>
+        <p>Admins with Marketing Admin access can connect accounts at <strong className="text-white">Admin → Marketing</strong> (or via the Admin link in the Marketing sidebar section).</p>
+        <p className="mt-2"><strong className="text-white">Facebook + Instagram:</strong> Click <strong className="text-white">Connect Facebook Accounts</strong> — you&apos;ll be redirected to Facebook to approve the connection. Lynxedo detects any linked Instagram Business accounts automatically. Facebook page tokens last ~60 days and auto-renew weekly via cron.</p>
+        <p className="mt-2"><strong className="text-white">Google Business:</strong> Click <strong className="text-white">Connect Google Business</strong> — you&apos;ll be redirected to Google to sign in and approve. Lynxedo picks up your first Business Profile location automatically. Google&apos;s refresh token doesn&apos;t expire in normal use — connect once and forget.</p>
       </Section>
       <Section title="Access">
         <p>Marketing access is controlled per-user in <strong className="text-white">Admin → People → Tools</strong>. Admin access (to connect accounts and manage settings) is a separate <em>Marketing Admin</em> grant.</p>
