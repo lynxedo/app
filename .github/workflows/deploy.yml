@@ -20,9 +20,42 @@ jobs:
           host: ${{ secrets.DEPLOY_HOST }}
           username: ${{ secrets.DEPLOY_USER }}
           key: ${{ secrets.DEPLOY_KEY }}
+          # Hardened deploy — see Website/CLAUDE.md "Deploy Failure Recovery"
+          # for the lessons that drove this script. Critical properties:
+          # 1. set -euo pipefail aborts the script the instant anything fails,
+          #    so a broken tsc / build never reaches the pm2 step.
+          # 2. tsc --noEmit runs BEFORE build. Type errors are surfaced fast
+          #    (~15s) without the 60-90s build overhead, and the GitHub Actions
+          #    log shows the exact file+line that broke.
+          # 3. pm2 restart (not reload) — reload is a no-op against an
+          #    already-errored process; restart forcefully recreates it and
+          #    resets the restart counter.
+          # 4. Health check via curl --fail. If the app doesn't respond within
+          #    30s, dump the last 30 lines of pm2 stderr and exit non-zero so
+          #    GitHub Actions turns the deploy red.
+          # Result: a broken commit keeps the OLD build running and the GH
+          # Actions step goes red. Prod never enters the restart-loop zombie
+          # state we used to recover from manually.
           script: |
+            set -euo pipefail
             cd /opt/lynxedo/app
             git pull origin main
             npm install --legacy-peer-deps
+            echo "==> Type-checking before build (fast-fail)"
+            npx tsc --noEmit
+            echo "==> Building"
             npm run build
-            pm2 reload lynxedo --update-env
+            echo "==> Restarting PM2"
+            pm2 restart lynxedo --update-env
+            echo "==> Health check (up to 30s for cold start)"
+            for i in $(seq 1 30); do
+              if curl --fail --silent --max-time 3 http://localhost:3000/ > /dev/null 2>&1 \
+                 || curl --silent --max-time 3 -o /dev/null -w "%{http_code}" http://localhost:3000/ | grep -qE "^(200|307|308)$"; then
+                echo "Healthy after ${i}s"
+                exit 0
+              fi
+              sleep 1
+            done
+            echo "Health check failed after 30s — dumping recent stderr:"
+            pm2 logs lynxedo --lines 30 --nostream --err || true
+            exit 1
