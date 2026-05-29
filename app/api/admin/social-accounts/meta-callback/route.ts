@@ -81,6 +81,7 @@ export async function GET(request: Request) {
           account_name: page.name,
           external_id: page.id,
           access_token: page.access_token,
+          user_token: longResult.token,
           token_expires_at: expiresAt,
           ig_user_id: page.ig_user_id,
           active: true,
