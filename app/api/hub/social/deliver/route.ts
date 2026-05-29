@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 import { publishFacebookPost, publishInstagramPost } from '@/lib/meta-graph'
+import { exchangeRefreshTokenForAccessToken, publishGoogleBusinessPost } from '@/lib/google-business'
 
 // Called by VPS cron every minute via:
 // curl -s -X POST https://lynxedo.com/api/hub/social/deliver \
@@ -102,7 +103,7 @@ export async function POST(request: Request) {
     let fbPostId: string | null = null
 
     // Publish to Facebook
-    if (platforms.includes('facebook')) {
+    if (platforms.includes('facebook') && account.platform === 'facebook') {
       const result = await publishFacebookPost({
         pageId: account.external_id,
         accessToken: account.access_token,
@@ -129,6 +130,45 @@ export async function POST(request: Request) {
         })
         if ('error' in result) {
           errors.push(`IG: ${result.error}`)
+        }
+      }
+    }
+
+    // Publish to Google Business Profile
+    if (platforms.includes('google_business') && account.platform === 'google_business') {
+      const clientId = process.env.GOOGLE_CLIENT_ID
+      const clientSecret = process.env.GOOGLE_CLIENT_SECRET
+      if (!clientId || !clientSecret) {
+        errors.push('GBP: GOOGLE_CLIENT_ID / GOOGLE_CLIENT_SECRET not configured')
+      } else {
+        // external_id is "accountId/locationId"; access_token col stores the refresh token.
+        const [accountId, locationId] = account.external_id.split('/')
+        if (!accountId || !locationId) {
+          errors.push('GBP: account external_id malformed (expected "accountId/locationId")')
+        } else {
+          const tokRes = await exchangeRefreshTokenForAccessToken({
+            refreshToken: account.access_token,
+            clientId,
+            clientSecret,
+          })
+          if ('error' in tokRes) {
+            errors.push(`GBP: token refresh failed: ${tokRes.error}`)
+          } else {
+            // GBP expects a publicly fetchable URL. We pass the same signed R2 URL
+            // Facebook uses — it's not auth-gated, just time-limited (1h) and hard
+            // to guess. If Google rejects signed URLs in practice, swap to a public
+            // proxy route as a follow-up.
+            const result = await publishGoogleBusinessPost({
+              accessToken: tokRes.accessToken,
+              accountId,
+              locationId,
+              caption: post.caption,
+              imageUrl,
+            })
+            if ('error' in result) {
+              errors.push(`GBP: ${result.error}`)
+            }
+          }
         }
       }
     }

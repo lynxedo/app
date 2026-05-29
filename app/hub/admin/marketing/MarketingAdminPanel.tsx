@@ -44,22 +44,33 @@ export default function MarketingAdminPanel({
   metaConfigured,
   metaConnectedCount,
   metaError,
+  googleConfigured,
+  googleConnected,
+  googleError,
 }: {
   initialAccounts: SocialAccount[]
   metaConfigured: boolean
   metaConnectedCount: number | null
   metaError: string | null
+  googleConfigured: boolean
+  googleConnected: boolean
+  googleError: string | null
 }) {
   const [accounts, setAccounts] = useState<SocialAccount[]>(initialAccounts)
   const [connecting, setConnecting] = useState(false)
   const [connectErr, setConnectErr] = useState('')
-  const [banner, setBanner] = useState<string | null>(
-    metaConnectedCount !== null
-      ? `Connected ${metaConnectedCount} Facebook page${metaConnectedCount !== 1 ? 's' : ''}. Tokens will auto-renew before expiry.`
-      : metaError
-      ? `Meta connection error: ${metaError}`
-      : null
-  )
+  const [connectingGoogle, setConnectingGoogle] = useState(false)
+  const [connectGoogleErr, setConnectGoogleErr] = useState('')
+  const initialBanner = metaConnectedCount !== null
+    ? { text: `Connected ${metaConnectedCount} Facebook page${metaConnectedCount !== 1 ? 's' : ''}. Tokens will auto-renew before expiry.`, kind: 'success' as const }
+    : metaError
+    ? { text: `Meta connection error: ${metaError}`, kind: 'error' as const }
+    : googleConnected
+    ? { text: 'Google Business Profile connected. Posts will publish via the same scheduler as Facebook.', kind: 'success' as const }
+    : googleError
+    ? { text: `Google connection error: ${googleError}`, kind: 'error' as const }
+    : null
+  const [banner, setBanner] = useState<{ text: string; kind: 'success' | 'error' } | null>(initialBanner)
 
   // Per-account refresh state
   const [refreshOpen, setRefreshOpen] = useState<string | null>(null)
@@ -86,6 +97,28 @@ export default function MarketingAdminPanel({
     } catch {
       setConnectErr('Network error')
       setConnecting(false)
+    }
+  }
+
+  async function handleConnectGoogle() {
+    setConnectingGoogle(true)
+    setConnectGoogleErr('')
+    try {
+      const res = await fetch('/api/admin/social-accounts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'oauth_url_google' }),
+      })
+      const data = await res.json() as { url?: string; error?: string }
+      if (!res.ok || !data.url) {
+        setConnectGoogleErr(data.error ?? 'Failed to get OAuth URL')
+        setConnectingGoogle(false)
+        return
+      }
+      window.location.href = data.url
+    } catch {
+      setConnectGoogleErr('Network error')
+      setConnectingGoogle(false)
     }
   }
 
@@ -127,7 +160,7 @@ export default function MarketingAdminPanel({
       setAccounts(prev => prev.map(a => a.id === accountId ? data.account! : a))
       setRefreshOpen(null)
       setRefreshToken('')
-      setBanner('Token refreshed successfully — good for another 60 days.')
+      setBanner({ text: 'Token refreshed successfully — good for another 60 days.', kind: 'success' })
     } catch {
       setRefreshErr('Network error')
     } finally {
@@ -140,15 +173,15 @@ export default function MarketingAdminPanel({
       <div>
         <h1 className="text-xl font-semibold text-white">Marketing Admin</h1>
         <p className="text-sm text-white/50 mt-1">
-          Connect Facebook pages to enable social posting from the Marketing section.
+          Connect Facebook, Instagram, and Google Business Profile to enable social posting from the Marketing section.
         </p>
       </div>
 
       {banner && (
         <div className={`rounded-lg px-4 py-3 text-sm ${
-          metaError ? 'bg-red-500/10 text-red-300 border border-red-500/20' : 'bg-green-500/10 text-green-300 border border-green-500/20'
+          banner.kind === 'error' ? 'bg-red-500/10 text-red-300 border border-red-500/20' : 'bg-green-500/10 text-green-300 border border-green-500/20'
         }`}>
-          {banner}
+          {banner.text}
           <button onClick={() => setBanner(null)} className="ml-3 text-xs opacity-60 hover:opacity-100">✕</button>
         </div>
       )}
@@ -187,22 +220,24 @@ export default function MarketingAdminPanel({
                       </div>
                     </div>
                     <div className="flex items-center gap-2 flex-shrink-0">
-                      <button
-                        onClick={() => {
-                          setRefreshOpen(isRefreshOpen ? null : account.id)
-                          setRefreshToken('')
-                          setRefreshErr('')
-                        }}
-                        className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
-                          isRefreshOpen
-                            ? 'border-amber-600/40 text-amber-400 bg-amber-900/20'
-                            : expiringSoon || expired
-                            ? 'border-amber-600/40 text-amber-400 hover:bg-amber-900/20'
-                            : 'border-gray-700 text-white/40 hover:text-amber-400 hover:border-amber-600/40'
-                        }`}
-                      >
-                        ↻ Refresh
-                      </button>
+                      {account.platform !== 'google_business' && (
+                        <button
+                          onClick={() => {
+                            setRefreshOpen(isRefreshOpen ? null : account.id)
+                            setRefreshToken('')
+                            setRefreshErr('')
+                          }}
+                          className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                            isRefreshOpen
+                              ? 'border-amber-600/40 text-amber-400 bg-amber-900/20'
+                              : expiringSoon || expired
+                              ? 'border-amber-600/40 text-amber-400 hover:bg-amber-900/20'
+                              : 'border-gray-700 text-white/40 hover:text-amber-400 hover:border-amber-600/40'
+                          }`}
+                        >
+                          ↻ Refresh
+                        </button>
+                      )}
                       <button
                         onClick={() => toggleActive(account.id, !account.active)}
                         className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
@@ -324,6 +359,48 @@ export default function MarketingAdminPanel({
         <div className="text-xs text-white/30 space-y-1">
           <p>Permissions requested: Pages Manage Posts, Pages Read Engagement, Instagram Content Publish</p>
           <p>Tokens are long-lived (~60 days) and auto-renew weekly via cron.</p>
+        </div>
+      </div>
+
+      {/* Google Business connect */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-3">
+        <div>
+          <h2 className="text-sm font-semibold text-white">Connect Google Business Profile</h2>
+          <p className="text-xs text-white/50 mt-1">
+            Click below to authorize Lynxedo to post to your Google Business Profile. Posts appear in Google Search
+            and Maps results for local searches like &ldquo;lawn care The Woodlands.&rdquo;
+          </p>
+          <p className="text-xs text-amber-300/80 mt-2">
+            ⚠ Google Business posts expire and disappear from your profile after 7 days. Schedule new posts weekly to stay visible.
+          </p>
+        </div>
+
+        {!googleConfigured && (
+          <div className="rounded-lg bg-amber-500/10 border border-amber-500/20 px-4 py-3 text-xs text-amber-300">
+            <strong>Setup required:</strong> Add <code className="font-mono">GOOGLE_CLIENT_ID</code> and <code className="font-mono">GOOGLE_CLIENT_SECRET</code> to the VPS
+            environment file (<code className="font-mono">/opt/lynxedo/app/.env.local</code>), then rebuild.
+          </div>
+        )}
+
+        {connectGoogleErr && (
+          <div className="text-xs text-red-400">{connectGoogleErr}</div>
+        )}
+
+        <button
+          onClick={handleConnectGoogle}
+          disabled={!googleConfigured || connectingGoogle}
+          className="bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+        >
+          {connectingGoogle
+            ? 'Redirecting to Google…'
+            : accounts.some(a => a.platform === 'google_business')
+            ? 'Reconnect / Update Google Business'
+            : 'Connect Google Business'}
+        </button>
+
+        <div className="text-xs text-white/30 space-y-1">
+          <p>Permission requested: Manage your Business Profile (<code className="font-mono">business.manage</code>)</p>
+          <p>Google issues a refresh token; access tokens are short-lived (~1h) and re-fetched at each publish.</p>
         </div>
       </div>
 

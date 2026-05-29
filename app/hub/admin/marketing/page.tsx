@@ -8,7 +8,12 @@ export const metadata = { title: 'Marketing Admin' }
 export default async function AdminMarketingPage({
   searchParams,
 }: {
-  searchParams: Promise<{ meta_connected?: string; meta_error?: string }>
+  searchParams: Promise<{
+    meta_connected?: string
+    meta_error?: string
+    google_connected?: string
+    google_error?: string
+  }>
 }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -31,8 +36,9 @@ export default async function AdminMarketingPage({
     .eq('company_id', profile.company_id)
     .order('created_at')
 
-  const { meta_connected, meta_error } = await searchParams
+  const { meta_connected, meta_error, google_connected, google_error } = await searchParams
   const metaConfigured = !!(process.env.META_APP_ID && process.env.META_APP_SECRET)
+  const googleConfigured = !!(process.env.GOOGLE_CLIENT_ID && process.env.GOOGLE_CLIENT_SECRET)
 
   return (
     <MarketingAdminPanel
@@ -40,6 +46,9 @@ export default async function AdminMarketingPage({
       metaConfigured={metaConfigured}
       metaConnectedCount={meta_connected ? parseInt(meta_connected) : null}
       metaError={meta_error ?? null}
+      googleConfigured={googleConfigured}
+      googleConnected={google_connected === '1'}
+      googleError={google_error ?? null}
     />
   )
 }

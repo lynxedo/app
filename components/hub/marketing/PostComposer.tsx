@@ -76,15 +76,16 @@ export default function PostComposer({
   const [selectedPhoto, setSelectedPhoto] = useState<PhotoFile | null>(null)
   const [hubFileId, setHubFileId] = useState<string | null>(editPost?.hub_file_id ?? null)
 
-  // Per-account selections: { account_id: { fb: bool, ig: bool } }
-  const [accountSelections, setAccountSelections] = useState<Record<string, { fb: boolean; ig: boolean }>>(() => {
-    const init: Record<string, { fb: boolean; ig: boolean }> = {}
+  // Per-account selections: { account_id: { fb, ig, gbp } }
+  const [accountSelections, setAccountSelections] = useState<Record<string, { fb: boolean; ig: boolean; gbp: boolean }>>(() => {
+    const init: Record<string, { fb: boolean; ig: boolean; gbp: boolean }> = {}
     if (editPost) {
       const acc = accounts.find(a => a.id === editPost.account_id)
       if (acc) {
         init[acc.id] = {
           fb: editPost.platforms.includes('facebook'),
           ig: editPost.platforms.includes('instagram'),
+          gbp: editPost.platforms.includes('google_business'),
         }
       }
     }
@@ -110,15 +111,18 @@ export default function PostComposer({
 
   const selectedAccountEntries = useCallback((): AccountEntry[] => {
     return Object.entries(accountSelections)
-      .filter(([, v]) => v.fb || v.ig)
+      .filter(([, v]) => v.fb || v.ig || v.gbp)
       .map(([account_id, v]) => ({
         account_id,
         platforms: [
           ...(v.fb ? ['facebook'] : []),
           ...(v.ig ? ['instagram'] : []),
+          ...(v.gbp ? ['google_business'] : []),
         ],
       }))
   }, [accountSelections])
+
+  const gbpSelected = Object.values(accountSelections).some(v => v.gbp)
 
   const canSubmit =
     caption.trim().length > 0 &&
@@ -234,38 +238,65 @@ export default function PostComposer({
               ) : (
                 <div className="space-y-2">
                   {accounts.map(account => {
-                    const sel = accountSelections[account.id] ?? { fb: false, ig: false }
+                    const sel = accountSelections[account.id] ?? { fb: false, ig: false, gbp: false }
+                    const isGbp = account.platform === 'google_business'
                     return (
                       <div key={account.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-gray-900 border border-gray-800">
                         <div className="flex-1">
                           <span className="text-sm text-white font-medium">{account.account_name}</span>
-                          <span className="ml-2 text-xs text-blue-400">Facebook</span>
-                          {account.ig_user_id && <span className="ml-1 text-xs text-pink-400">· Instagram</span>}
+                          {isGbp ? (
+                            <span className="ml-2 text-xs text-emerald-400">Google Business</span>
+                          ) : (
+                            <>
+                              <span className="ml-2 text-xs text-blue-400">Facebook</span>
+                              {account.ig_user_id && <span className="ml-1 text-xs text-pink-400">· Instagram</span>}
+                            </>
+                          )}
                         </div>
-                        <label className="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer">
-                          <input
-                            type="checkbox"
-                            checked={sel.fb}
-                            onChange={e => setAccountSelections(p => ({ ...p, [account.id]: { ...sel, fb: e.target.checked } }))}
-                            className="accent-blue-500"
-                          />
-                          FB
-                        </label>
-                        {account.ig_user_id && (
+                        {isGbp ? (
                           <label className="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer">
                             <input
                               type="checkbox"
-                              checked={sel.ig}
-                              onChange={e => setAccountSelections(p => ({ ...p, [account.id]: { ...sel, ig: e.target.checked } }))}
-                              className="accent-pink-500"
+                              checked={sel.gbp}
+                              onChange={e => setAccountSelections(p => ({ ...p, [account.id]: { ...sel, gbp: e.target.checked } }))}
+                              className="accent-emerald-500"
                             />
-                            IG
+                            GBP
                           </label>
+                        ) : (
+                          <>
+                            <label className="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={sel.fb}
+                                onChange={e => setAccountSelections(p => ({ ...p, [account.id]: { ...sel, fb: e.target.checked } }))}
+                                className="accent-blue-500"
+                              />
+                              FB
+                            </label>
+                            {account.ig_user_id && (
+                              <label className="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer">
+                                <input
+                                  type="checkbox"
+                                  checked={sel.ig}
+                                  onChange={e => setAccountSelections(p => ({ ...p, [account.id]: { ...sel, ig: e.target.checked } }))}
+                                  className="accent-pink-500"
+                                />
+                                IG
+                              </label>
+                            )}
+                          </>
                         )}
                       </div>
                     )
                   })}
                 </div>
+
+                {gbpSelected && (
+                  <p className="mt-2 text-xs text-amber-300/90">
+                    ⚠ Google Business posts expire and disappear from your profile after 7 days.
+                  </p>
+                )}
               )}
             </div>
           )}
