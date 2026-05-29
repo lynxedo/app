@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
-import Link from 'next/link'
 
 type Employee = {
   id: string
@@ -56,6 +55,19 @@ type OpenPunch = {
   employees: { first_name: string; last_name: string; preferred_name: string | null }
 }
 
+type EditRequest = {
+  id: string
+  employee_id: string
+  time_entry_id: string
+  new_clock_in: string | null
+  new_clock_out: string | null
+  reason: string
+  status: 'pending' | 'approved' | 'rejected'
+  created_at: string
+  employees: { first_name: string; last_name: string; preferred_name: string | null } | null
+  time_entries: { id: string; date: string; clock_in: string; clock_out: string | null } | null
+}
+
 type ImportChange = {
   key: string
   action: 'add' | 'update_rate' | 'update_title' | 'deactivate'
@@ -96,6 +108,10 @@ function formatTime(ts: string): string {
   return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
 }
 
+function formatDateShort(d: string): string {
+  return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 function formatDuration(sinceTs: string): string {
   const ms = Date.now() - new Date(sinceTs).getTime()
   const h = Math.floor(ms / 3600000)
@@ -116,34 +132,44 @@ function weekSummary(entries: TimeEntry[]) {
   return { total: Math.round(total * 100) / 100, regular: Math.round(regular * 100) / 100, ot: Math.round(ot * 100) / 100 }
 }
 
+// Gusto-friendly CSV: one row per employee, columns that map to Gusto payroll entry
 function exportPayPeriodCSV(employees: Employee[], entries: TimeEntry[], weekStart: Date) {
   const end = new Date(weekStart)
   end.setDate(weekStart.getDate() + 6)
   const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
-  const rows: string[][] = [
-    ['Employee', 'Department', '$/hr', 'Regular Hours', 'OT Hours', 'Total Hours', 'Est. Wages'],
-  ]
-  for (const emp of employees) {
+  const periodStart = weekStart.toISOString().split('T')[0]
+  const periodEnd = end.toISOString().split('T')[0]
+
+  const rows: string[][] = [[
+    'First Name', 'Last Name', 'Gusto Employee ID',
+    'Pay Period Start', 'Pay Period End',
+    'Regular Hours', 'Overtime Hours', 'Total Hours', 'Est. Wages',
+  ]]
+
+  for (const emp of employees.filter(e => e.pay_type === 'hourly')) {
     const s = weekSummary(entries.filter(e => e.employee_id === emp.id))
     const estPay = emp.hourly_rate
       ? (s.regular * emp.hourly_rate + s.ot * emp.hourly_rate * 1.5).toFixed(2)
       : ''
     rows.push([
-      `${emp.first_name} ${emp.last_name}`,
-      emp.department,
-      emp.hourly_rate ? String(emp.hourly_rate) : '',
+      emp.first_name,
+      emp.last_name,
+      emp.gusto_uuid ?? '',
+      periodStart,
+      periodEnd,
       s.regular.toFixed(2),
       s.ot.toFixed(2),
       s.total.toFixed(2),
       estPay,
     ])
   }
+
   const csv = rows.map(r => r.map(v => `"${v.replace(/"/g, '""')}"`).join(',')).join('\n')
   const blob = new Blob([csv], { type: 'text/csv' })
   const url = URL.createObjectURL(blob)
   const a = document.createElement('a')
   a.href = url
-  a.download = `timesheet-${fmt(weekStart).replace(/[, ]+/g, '-')}-to-${fmt(end).replace(/[, ]+/g, '-')}.csv`
+  a.download = `gusto-hours-${fmt(weekStart).replace(/[, ]+/g, '-')}-to-${fmt(end).replace(/[, ]+/g, '-')}.csv`
   a.click()
   URL.revokeObjectURL(url)
 }
@@ -155,6 +181,7 @@ export default function AdminTimesheetPage() {
   const [employees, setEmployees] = useState<Employee[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
   const [openPunches, setOpenPunches] = useState<OpenPunch[]>([])
+  const [pendingRequests, setPendingRequests] = useState<EditRequest[]>([])
   const [loading, setLoading] = useState(true)
   const [clockingId, setClockingId] = useState<string | null>(null)
   const [editEmployee, setEditEmployee] = useState<Employee | null>(null)
@@ -181,10 +208,13 @@ export default function AdminTimesheetPage() {
   const [linkSaving, setLinkSaving] = useState(false)
   const [linkError, setLinkError] = useState<string | null>(null)
 
+  // Pay Period expand state
+  const [expandedRows, setExpandedRows] = useState<Set<string>>(new Set())
+  const [reviewingId, setReviewingId] = useState<string | null>(null)
+
   const weekEnd = new Date(weekStart)
   weekEnd.setDate(weekStart.getDate() + 6)
 
-  // Tick every minute to update live durations
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 60000)
     return () => clearInterval(t)
@@ -192,15 +222,18 @@ export default function AdminTimesheetPage() {
 
   const loadData = useCallback(async () => {
     setLoading(true)
-    const [empRes, entRes] = await Promise.all([
+    const [empRes, entRes, editRes] = await Promise.all([
       fetch('/api/timesheet/employees'),
       fetch(`/api/timesheet/entries?start=${toDateStr(weekStart)}&end=${toDateStr(weekEnd)}`),
+      fetch('/api/timesheet/punch-edits'),
     ])
     const empData = await empRes.json()
     const entData = await entRes.json()
+    const editData = await editRes.json()
     setEmployees(empData.employees ?? [])
     setEntries(entData.entries ?? [])
     setOpenPunches(entData.open_punches ?? [])
+    setPendingRequests(editData.requests ?? [])
     setLoading(false)
   }, [weekStart]) // eslint-disable-line react-hooks/exhaustive-deps
 
@@ -281,6 +314,17 @@ export default function AdminTimesheetPage() {
     })
     setAddingPunch(null)
     loadEditPunches(editEmployee, editWeekStart)
+    loadData()
+  }
+
+  async function reviewEditRequest(id: string, action: 'approve' | 'reject') {
+    setReviewingId(id)
+    await fetch(`/api/timesheet/admin/punch-edits/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ action }),
+    })
+    setReviewingId(null)
     loadData()
   }
 
@@ -384,15 +428,46 @@ export default function AdminTimesheetPage() {
   const isClockedIn = (emp: Employee) => openPunches.some(p => p.employee_id === emp.id)
   const openPunch = (emp: Employee) => openPunches.find(p => p.employee_id === emp.id)
   const empEntries = (emp: Employee) => entries.filter(e => e.employee_id === emp.id)
-
-  // ── render ─────────────────────────────────────────────────────────────────
+  const empPendingRequests = (emp: Employee) => pendingRequests.filter(r => r.employee_id === emp.id)
+  const hasPending = (emp: Employee) => empPendingRequests(emp).length > 0
 
   const liveCount = openPunches.length
   const isCurrentWeek = toDateStr(weekStart) === toDateStr(getWeekStart())
 
+  function toggleExpandedRow(empId: string) {
+    setExpandedRows(prev => {
+      const next = new Set(prev)
+      next.has(empId) ? next.delete(empId) : next.add(empId)
+      return next
+    })
+  }
+
+  // ── render ─────────────────────────────────────────────────────────────────
+
   return (
     <div className="bg-gray-950 text-white">
       <main className="max-w-5xl mx-auto px-4 py-6">
+
+        {/* Pending edit requests banner */}
+        {pendingRequests.length > 0 && (
+          <div className="bg-amber-500/10 border border-amber-500/25 rounded-xl px-4 py-3 mb-5 flex items-center gap-3">
+            <span className="text-amber-400 text-lg">⚠</span>
+            <div>
+              <span className="text-amber-400 text-sm font-medium">
+                {pendingRequests.length} pending time edit {pendingRequests.length === 1 ? 'request' : 'requests'}
+              </span>
+              <span className="text-gray-400 text-sm ml-2">
+                — expand an employee row in the Pay Period tab to review
+              </span>
+            </div>
+            <button
+              onClick={() => setTab('summary')}
+              className="ml-auto text-xs text-amber-400 border border-amber-500/30 hover:bg-amber-500/10 px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+            >
+              Review →
+            </button>
+          </div>
+        )}
 
         {/* Week nav + tabs */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
@@ -414,8 +489,11 @@ export default function AdminTimesheetPage() {
             <button onClick={() => setTab('week')} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${tab === 'week' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>
               Employees
             </button>
-            <button onClick={() => setTab('summary')} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${tab === 'summary' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>
+            <button onClick={() => setTab('summary')} className={`relative px-4 py-1.5 rounded-md text-sm transition-colors ${tab === 'summary' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>
               Pay Period
+              {pendingRequests.length > 0 && (
+                <span className="absolute -top-1 -right-1 w-2 h-2 bg-amber-400 rounded-full" />
+              )}
             </button>
             <button onClick={() => setTab('employees')} className={`px-4 py-1.5 rounded-md text-sm transition-colors ${tab === 'employees' ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}>
               Roster
@@ -433,7 +511,7 @@ export default function AdminTimesheetPage() {
                 <span className="text-green-400 text-sm font-medium">🟢 {liveCount} clocked in</span>
                 {openPunches.map(p => {
                   const dur = formatDuration(p.punched_at)
-                  void now // tick
+                  void now
                   return (
                     <span key={p.id} className="text-sm text-gray-300">
                       {p.employees.preferred_name || p.employees.first_name} since {formatTime(p.punched_at)} ({dur})
@@ -450,13 +528,20 @@ export default function AdminTimesheetPage() {
                 const punch = openPunch(emp)
                 const summary = weekSummary(empEntries(emp))
                 const isClocking = clockingId === emp.id
+                const pendingCount = empPendingRequests(emp).length
 
                 return (
-                  <div key={emp.id} className={`bg-gray-900 border rounded-xl p-4 flex flex-col gap-3 ${clockedIn ? 'border-green-500/30' : 'border-gray-800'}`}>
-                    {/* Name + status */}
+                  <div key={emp.id} className={`bg-gray-900 border rounded-xl p-4 flex flex-col gap-3 ${clockedIn ? 'border-green-500/30' : pendingCount > 0 ? 'border-amber-500/25' : 'border-gray-800'}`}>
                     <div className="flex items-start justify-between">
                       <div>
-                        <div className="font-semibold">{emp.first_name} {emp.last_name}</div>
+                        <div className="flex items-center gap-2">
+                          <div className="font-semibold">{emp.first_name} {emp.last_name}</div>
+                          {pendingCount > 0 && (
+                            <span className="text-xs bg-amber-500/15 text-amber-400 border border-amber-500/25 px-1.5 py-0.5 rounded-full">
+                              {pendingCount} pending
+                            </span>
+                          )}
+                        </div>
                         <div className="text-xs text-gray-500 mt-0.5">{emp.job_title}</div>
                       </div>
                       <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${clockedIn ? 'bg-green-500/15 text-green-400 border border-green-500/25' : 'bg-gray-800 text-gray-500 border border-gray-700'}`}>
@@ -464,7 +549,6 @@ export default function AdminTimesheetPage() {
                       </span>
                     </div>
 
-                    {/* Live since */}
                     {clockedIn && punch && isCurrentWeek && (
                       <div className="text-xs text-green-400">
                         Since {formatTime(punch.punched_at)} · {formatDuration(punch.punched_at)}
@@ -472,7 +556,6 @@ export default function AdminTimesheetPage() {
                       </div>
                     )}
 
-                    {/* Hours summary */}
                     <div className="grid grid-cols-3 gap-2 text-center">
                       <div>
                         <div className="text-lg font-bold">{summary.total.toFixed(1)}</div>
@@ -490,7 +573,6 @@ export default function AdminTimesheetPage() {
                       </div>
                     </div>
 
-                    {/* Rate */}
                     {emp.pay_type === 'hourly' && emp.hourly_rate && (
                       <div className="text-xs text-gray-500">
                         ${emp.hourly_rate}/hr · est. ${((summary.regular * emp.hourly_rate) + (summary.ot * emp.hourly_rate * 1.5)).toFixed(0)}
@@ -500,7 +582,6 @@ export default function AdminTimesheetPage() {
                       <div className="text-xs text-gray-500">Salaried — not pushed to Gusto</div>
                     )}
 
-                    {/* Actions */}
                     <div className="flex gap-2 mt-auto pt-1">
                       {isCurrentWeek && (
                         <button
@@ -529,7 +610,7 @@ export default function AdminTimesheetPage() {
             </div>
           </>
         ) : tab === 'summary' ? (
-          // Pay period summary tab
+          // Pay period summary tab with expandable rows
           <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
             <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
               <div>
@@ -556,13 +637,13 @@ export default function AdminTimesheetPage() {
               <table className="w-full text-sm">
                 <thead>
                   <tr className="border-b border-gray-800 text-gray-500 text-xs uppercase tracking-wide">
-                    <th className="text-left px-5 py-3">Employee</th>
+                    <th className="text-left px-5 py-3 w-8" />
+                    <th className="text-left px-2 py-3">Employee</th>
                     <th className="text-right px-4 py-3">$/hr</th>
                     <th className="text-right px-4 py-3">Regular</th>
                     <th className="text-right px-4 py-3">OT</th>
                     <th className="text-right px-4 py-3">Total</th>
                     <th className="text-right px-4 py-3">Est. Wages</th>
-                    <th className="text-center px-4 py-3">GPS</th>
                     <th className="text-center px-4 py-3">Gusto</th>
                   </tr>
                 </thead>
@@ -572,12 +653,36 @@ export default function AdminTimesheetPage() {
                     const estPay = emp.hourly_rate
                       ? (summary.regular * emp.hourly_rate) + (summary.ot * emp.hourly_rate * 1.5)
                       : null
+                    const isExpanded = expandedRows.has(emp.id)
+                    const empPending = empPendingRequests(emp)
+                    const empDailyEntries = empEntries(emp).sort((a, b) => a.date.localeCompare(b.date))
 
-                    return (
-                      <tr key={emp.id} className="hover:bg-gray-800/50 transition-colors">
-                        <td className="px-5 py-3">
-                          <div className="font-medium">{emp.first_name} {emp.last_name}</div>
-                          <div className="text-xs text-gray-500">{emp.department}</div>
+                    return [
+                      // Main row
+                      <tr key={emp.id} className={`hover:bg-gray-800/50 transition-colors ${isExpanded ? 'bg-gray-800/30' : ''}`}>
+                        <td className="px-3 py-3 text-center">
+                          <button
+                            onClick={() => toggleExpandedRow(emp.id)}
+                            className="w-6 h-6 flex items-center justify-center rounded text-gray-500 hover:text-white hover:bg-gray-700 transition-colors text-xs"
+                            title={isExpanded ? 'Collapse' : 'Expand punches'}
+                          >
+                            {isExpanded ? '▾' : '▸'}
+                          </button>
+                        </td>
+                        <td className="px-2 py-3">
+                          <div className="flex items-center gap-2">
+                            <div>
+                              <div className="font-medium flex items-center gap-1.5">
+                                {emp.first_name} {emp.last_name}
+                                {empPending.length > 0 && (
+                                  <span className="text-xs bg-amber-500/15 text-amber-400 border border-amber-500/20 px-1.5 py-0.5 rounded-full">
+                                    ⚠ {empPending.length}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="text-xs text-gray-500">{emp.department}</div>
+                            </div>
+                          </div>
                         </td>
                         <td className="text-right px-4 py-3 tabular-nums text-gray-400">
                           {emp.hourly_rate ? `$${Number(emp.hourly_rate).toFixed(2)}` : <span className="text-gray-700">—</span>}
@@ -591,27 +696,102 @@ export default function AdminTimesheetPage() {
                           {estPay !== null ? `$${estPay.toFixed(2)}` : <span className="text-gray-600">—</span>}
                         </td>
                         <td className="text-center px-4 py-3">
-                          <button
-                            onClick={() => openEditPunches(emp)}
-                            className="text-xs text-gray-500 hover:text-blue-400 transition-colors"
-                            title="View punch locations"
-                          >
-                            📍
-                          </button>
-                        </td>
-                        <td className="text-center px-4 py-3">
                           {emp.pay_type === 'hourly'
                             ? <span className="text-xs text-gray-600 bg-gray-800 px-2 py-0.5 rounded">Pending</span>
                             : <span className="text-xs text-gray-700">N/A</span>
                           }
                         </td>
-                      </tr>
-                    )
+                      </tr>,
+
+                      // Expanded punches row
+                      isExpanded && (
+                        <tr key={`${emp.id}-expanded`} className="bg-gray-800/20">
+                          <td colSpan={8} className="px-4 py-3">
+                            {empDailyEntries.length === 0 ? (
+                              <p className="text-xs text-gray-600 py-1">No time entries this week.</p>
+                            ) : (
+                              <div className="space-y-2">
+                                {empDailyEntries.map(entry => {
+                                  const pendingReq = empPending.find(r => r.time_entry_id === entry.id)
+                                  const isReviewing = reviewingId === pendingReq?.id
+
+                                  return (
+                                    <div key={entry.id} className={`rounded-lg border px-4 py-2.5 ${pendingReq ? 'border-amber-500/30 bg-amber-500/5' : 'border-gray-700 bg-gray-900/50'}`}>
+                                      <div className="flex items-start justify-between gap-4">
+                                        {/* Left: date + times */}
+                                        <div className="flex-1">
+                                          <div className="flex items-center gap-3">
+                                            <span className="text-sm font-medium text-gray-300">{formatDateShort(entry.date)}</span>
+                                            <span className="text-xs text-gray-500">
+                                              {formatTime(entry.clock_in)} → {entry.clock_out ? formatTime(entry.clock_out) : <span className="text-green-400">ongoing</span>}
+                                            </span>
+                                            <span className="text-xs tabular-nums text-gray-400">{entry.total_hours?.toFixed(2)}h</span>
+                                            {(entry.overtime_hours ?? 0) > 0 && (
+                                              <span className="text-xs text-amber-400">{entry.overtime_hours?.toFixed(2)}h OT</span>
+                                            )}
+                                          </div>
+
+                                          {pendingReq && (
+                                            <div className="mt-2 space-y-1">
+                                              <p className="text-xs text-amber-300 font-medium">Edit requested by {displayName({ ...emp, preferred_name: pendingReq.employees?.preferred_name ?? null, first_name: pendingReq.employees?.first_name ?? emp.first_name, last_name: pendingReq.employees?.last_name ?? emp.last_name })}</p>
+                                              <div className="flex items-center gap-2 text-xs text-gray-400">
+                                                <span>New times:</span>
+                                                <span className="text-white">
+                                                  {pendingReq.new_clock_in ? formatTime(pendingReq.new_clock_in) : formatTime(entry.clock_in)}
+                                                  {' → '}
+                                                  {pendingReq.new_clock_out ? formatTime(pendingReq.new_clock_out) : (entry.clock_out ? formatTime(entry.clock_out) : '—')}
+                                                </span>
+                                              </div>
+                                              <p className="text-xs text-gray-400">Reason: <span className="text-gray-300">&ldquo;{pendingReq.reason}&rdquo;</span></p>
+                                            </div>
+                                          )}
+                                        </div>
+
+                                        {/* Right: actions */}
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          {pendingReq ? (
+                                            <>
+                                              <button
+                                                onClick={() => reviewEditRequest(pendingReq.id, 'approve')}
+                                                disabled={isReviewing}
+                                                className="text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition-colors font-medium"
+                                              >
+                                                {isReviewing ? '…' : '✓ Approve'}
+                                              </button>
+                                              <button
+                                                onClick={() => reviewEditRequest(pendingReq.id, 'reject')}
+                                                disabled={isReviewing}
+                                                className="text-xs bg-gray-700 hover:bg-red-900/40 hover:border-red-500/30 disabled:opacity-50 text-gray-300 hover:text-red-400 border border-gray-600 px-3 py-1.5 rounded-lg transition-colors"
+                                              >
+                                                Reject
+                                              </button>
+                                            </>
+                                          ) : (
+                                            <button
+                                              onClick={() => openEditPunches(emp)}
+                                              className="text-xs text-gray-500 hover:text-white border border-gray-700 hover:border-gray-500 px-2 py-1.5 rounded-lg transition-colors"
+                                              title="Edit punches"
+                                            >
+                                              ✎ Edit
+                                            </button>
+                                          )}
+                                        </div>
+                                      </div>
+                                    </div>
+                                  )
+                                })}
+                              </div>
+                            )}
+                          </td>
+                        </tr>
+                      ),
+                    ].filter(Boolean)
                   })}
                 </tbody>
                 <tfoot>
                   <tr className="border-t border-gray-700 bg-gray-800/50 font-semibold">
-                    <td className="px-5 py-3 text-gray-400 text-xs uppercase">Totals</td>
+                    <td />
+                    <td className="px-2 py-3 text-gray-400 text-xs uppercase">Totals</td>
                     <td />
                     {(() => {
                       const hourlyEmps = employees.filter(e => e.pay_type === 'hourly')
@@ -629,7 +809,6 @@ export default function AdminTimesheetPage() {
                           <td className="text-right px-4 py-3 tabular-nums">{totHrs.toFixed(2)}h</td>
                           <td className="text-right px-4 py-3 tabular-nums">${totPay.toFixed(2)}</td>
                           <td />
-                          <td />
                         </>
                       )
                     })()}
@@ -638,14 +817,12 @@ export default function AdminTimesheetPage() {
               </table>
             </div>
             <div className="px-5 py-3 border-t border-gray-800">
-              <p className="text-xs text-gray-600">Send to Gusto will be enabled once Gusto OAuth is connected in Settings (Phase 2).</p>
+              <p className="text-xs text-gray-600">Export CSV is formatted for Gusto import (hourly employees only). Send to Gusto will be enabled once Gusto OAuth is connected.</p>
             </div>
           </div>
         ) : (
           // Roster tab
           <div className="space-y-4">
-
-            {/* Employee table */}
             <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
               <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
                 <div>
@@ -724,7 +901,6 @@ export default function AdminTimesheetPage() {
               </div>
             </div>
 
-            {/* Apply result banner */}
             {applyResult && (
               <div className="bg-green-500/10 border border-green-500/25 rounded-xl px-5 py-3 flex items-center justify-between">
                 <span className="text-green-400 text-sm">
@@ -737,12 +913,12 @@ export default function AdminTimesheetPage() {
         )}
       </main>
 
-      {/* Gusto import preview panel */}
+      {/* ── Modals ─────────────────────────────────────────────────────────── */}
+
+      {/* Gusto import preview */}
       {importPreview && (
         <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setImportPreview(null) }}>
           <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
-
-            {/* Header */}
             <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between shrink-0">
               <div>
                 <h3 className="font-semibold">Gusto Import Preview</h3>
@@ -750,9 +926,7 @@ export default function AdminTimesheetPage() {
               </div>
               <button onClick={() => setImportPreview(null)} className="text-gray-500 hover:text-white transition-colors text-xl leading-none">×</button>
             </div>
-
             <div className="overflow-y-auto flex-1 px-5 py-4">
-
               {!importPreview.configured ? (
                 <div className="text-center py-6 space-y-3">
                   <div className="text-3xl">🔗</div>
@@ -767,37 +941,26 @@ export default function AdminTimesheetPage() {
                 </div>
               ) : (
                 <div className="space-y-5">
-
-                  {/* Select all / none */}
                   <div className="flex gap-3 text-xs">
                     <button onClick={() => setImportSelections(new Set(importPreview.changes.map(c => c.key)))} className="text-blue-400 hover:text-blue-300">Select all</button>
                     <span className="text-gray-700">·</span>
                     <button onClick={() => setImportSelections(new Set())} className="text-gray-500 hover:text-gray-400">Deselect all</button>
                     <span className="ml-auto text-gray-600">{importSelections.size} of {importPreview.changes.length} selected</span>
                   </div>
-
-                  {/* Group by action type */}
                   {(['add', 'update_rate', 'update_title', 'deactivate'] as const).map(action => {
                     const group = importPreview.changes.filter(c => c.action === action)
                     if (group.length === 0) return null
                     const labels: Record<string, string> = {
-                      add: '🆕 New Employees',
-                      update_rate: '💰 Rate Changes',
-                      update_title: '📝 Title Changes',
-                      deactivate: '⚠️ No Longer in Gusto',
+                      add: '🆕 New Employees', update_rate: '💰 Rate Changes',
+                      update_title: '📝 Title Changes', deactivate: '⚠️ No Longer in Gusto',
                     }
                     return (
                       <div key={action}>
                         <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{labels[action]} ({group.length})</div>
                         <div className="space-y-1">
                           {group.map(change => (
-                            <label key={change.key} className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-gray-800 cursor-pointer group">
-                              <input
-                                type="checkbox"
-                                checked={importSelections.has(change.key)}
-                                onChange={() => toggleSelection(change.key)}
-                                className="w-4 h-4 rounded accent-blue-500 shrink-0"
-                              />
+                            <label key={change.key} className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-gray-800 cursor-pointer">
+                              <input type="checkbox" checked={importSelections.has(change.key)} onChange={() => toggleSelection(change.key)} className="w-4 h-4 rounded accent-blue-500 shrink-0" />
                               <div className="flex-1 min-w-0">
                                 <div className="text-sm font-medium">{change.label}</div>
                                 <div className={`text-xs mt-0.5 ${action === 'deactivate' ? 'text-amber-500' : 'text-gray-500'}`}>{change.detail}</div>
@@ -811,20 +974,12 @@ export default function AdminTimesheetPage() {
                 </div>
               )}
             </div>
-
-            {/* Footer */}
             {importPreview.configured && importPreview.changes.length > 0 && (
               <div className="px-5 py-4 border-t border-gray-800 flex gap-3 shrink-0">
-                <button
-                  onClick={applyImport}
-                  disabled={applying || importSelections.size === 0}
-                  className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm"
-                >
+                <button onClick={applyImport} disabled={applying || importSelections.size === 0} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm">
                   {applying ? 'Applying…' : `Apply Import (${importSelections.size})`}
                 </button>
-                <button onClick={() => setImportPreview(null)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">
-                  Cancel
-                </button>
+                <button onClick={() => setImportPreview(null)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
               </div>
             )}
           </div>
@@ -843,81 +998,41 @@ export default function AdminTimesheetPage() {
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">First Name *</label>
-                  <input
-                    value={addForm.first_name}
-                    onChange={e => setAddForm(f => ({ ...f, first_name: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                    placeholder="Jane"
-                  />
+                  <input value={addForm.first_name} onChange={e => setAddForm(f => ({ ...f, first_name: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="Jane" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Last Name *</label>
-                  <input
-                    value={addForm.last_name}
-                    onChange={e => setAddForm(f => ({ ...f, last_name: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                    placeholder="Smith"
-                  />
+                  <input value={addForm.last_name} onChange={e => setAddForm(f => ({ ...f, last_name: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="Smith" />
                 </div>
               </div>
               <div>
                 <label className="text-xs text-gray-500 block mb-1">Preferred Name</label>
-                <input
-                  value={addForm.preferred_name}
-                  onChange={e => setAddForm(f => ({ ...f, preferred_name: e.target.value }))}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                  placeholder="Optional nickname"
-                />
+                <input value={addForm.preferred_name} onChange={e => setAddForm(f => ({ ...f, preferred_name: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="Optional nickname" />
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Email</label>
-                  <input
-                    type="email"
-                    value={addForm.email}
-                    onChange={e => setAddForm(f => ({ ...f, email: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                    placeholder="jane@example.com"
-                  />
+                  <input type="email" value={addForm.email} onChange={e => setAddForm(f => ({ ...f, email: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="jane@example.com" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Phone</label>
-                  <input
-                    value={addForm.phone}
-                    onChange={e => setAddForm(f => ({ ...f, phone: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                    placeholder="555-555-5555"
-                  />
+                  <input value={addForm.phone} onChange={e => setAddForm(f => ({ ...f, phone: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="555-555-5555" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Job Title</label>
-                  <input
-                    value={addForm.job_title}
-                    onChange={e => setAddForm(f => ({ ...f, job_title: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                    placeholder="Crew Leader"
-                  />
+                  <input value={addForm.job_title} onChange={e => setAddForm(f => ({ ...f, job_title: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="Crew Leader" />
                 </div>
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Department</label>
-                  <input
-                    value={addForm.department}
-                    onChange={e => setAddForm(f => ({ ...f, department: e.target.value }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                    placeholder="Field"
-                  />
+                  <input value={addForm.department} onChange={e => setAddForm(f => ({ ...f, department: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="Field" />
                 </div>
               </div>
               <div className="grid grid-cols-2 gap-3">
                 <div>
                   <label className="text-xs text-gray-500 block mb-1">Pay Type *</label>
-                  <select
-                    value={addForm.pay_type}
-                    onChange={e => setAddForm(f => ({ ...f, pay_type: e.target.value as 'hourly' | 'salary' }))}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none"
-                  >
+                  <select value={addForm.pay_type} onChange={e => setAddForm(f => ({ ...f, pay_type: e.target.value as 'hourly' | 'salary' }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
                     <option value="hourly">Hourly</option>
                     <option value="salary">Salary</option>
                   </select>
@@ -925,31 +1040,17 @@ export default function AdminTimesheetPage() {
                 {addForm.pay_type === 'hourly' && (
                   <div>
                     <label className="text-xs text-gray-500 block mb-1">Hourly Rate</label>
-                    <input
-                      type="number"
-                      step="0.01"
-                      min="0"
-                      value={addForm.hourly_rate}
-                      onChange={e => setAddForm(f => ({ ...f, hourly_rate: e.target.value }))}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500"
-                      placeholder="18.00"
-                    />
+                    <input type="number" step="0.01" min="0" value={addForm.hourly_rate} onChange={e => setAddForm(f => ({ ...f, hourly_rate: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" placeholder="18.00" />
                   </div>
                 )}
               </div>
               {addError && <p className="text-red-400 text-xs">{addError}</p>}
             </div>
             <div className="px-5 py-4 border-t border-gray-800 flex gap-3 shrink-0">
-              <button
-                onClick={saveNewEmployee}
-                disabled={addSaving || !addForm.first_name || !addForm.last_name}
-                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm"
-              >
+              <button onClick={saveNewEmployee} disabled={addSaving || !addForm.first_name || !addForm.last_name} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm">
                 {addSaving ? 'Saving…' : 'Add Employee'}
               </button>
-              <button onClick={() => setShowAddEmployee(false)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">
-                Cancel
-              </button>
+              <button onClick={() => setShowAddEmployee(false)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
             </div>
           </div>
         </div>
@@ -967,40 +1068,22 @@ export default function AdminTimesheetPage() {
               <button onClick={() => setLinkingEmployee(null)} className="text-gray-500 hover:text-white text-xl leading-none">×</button>
             </div>
             <div className="px-5 py-5 space-y-4">
-              <p className="text-xs text-gray-500 leading-relaxed">
-                Select the Lynxedo login that belongs to this employee. They&apos;ll get timesheet access automatically.
-              </p>
+              <p className="text-xs text-gray-500 leading-relaxed">Select the Lynxedo login that belongs to this employee. They&apos;ll get timesheet access automatically.</p>
               {lynxedoUsers.length === 0 ? (
                 <p className="text-sm text-gray-600 text-center py-4">No unlinked Lynxedo users found.</p>
               ) : (
-                <select
-                  value={selectedUserId}
-                  onChange={e => setSelectedUserId(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500"
-                >
+                <select value={selectedUserId} onChange={e => setSelectedUserId(e.target.value)} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white focus:outline-none focus:border-blue-500">
                   <option value="">Select a user…</option>
-                  {lynxedoUsers.map(u => (
-                    <option key={u.id} value={u.id}>{u.email}</option>
-                  ))}
+                  {lynxedoUsers.map(u => <option key={u.id} value={u.id}>{u.email}</option>)}
                 </select>
               )}
-              {linkError && (
-                <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">
-                  {linkError}
-                </p>
-              )}
+              {linkError && <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{linkError}</p>}
             </div>
             <div className="px-5 py-4 border-t border-gray-800 flex gap-3 shrink-0">
-              <button
-                onClick={saveLink}
-                disabled={linkSaving || !selectedUserId}
-                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm"
-              >
+              <button onClick={saveLink} disabled={linkSaving || !selectedUserId} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm">
                 {linkSaving ? 'Linking…' : 'Link Account'}
               </button>
-              <button onClick={() => setLinkingEmployee(null)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">
-                Cancel
-              </button>
+              <button onClick={() => setLinkingEmployee(null)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
             </div>
           </div>
         </div>
@@ -1016,16 +1099,9 @@ export default function AdminTimesheetPage() {
                 <button onClick={() => setEditEmployee(null)} className="text-gray-500 hover:text-white transition-colors text-xl leading-none">×</button>
               </div>
               <div className="flex items-center gap-2">
-                <button
-                  onClick={() => navigateEditWeek(-1)}
-                  className="w-7 h-7 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors text-sm"
-                >‹</button>
+                <button onClick={() => navigateEditWeek(-1)} className="w-7 h-7 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors text-sm">‹</button>
                 <span className="flex-1 text-center text-xs text-gray-400">{formatWeekRange(editWeekStart)}</span>
-                <button
-                  onClick={() => navigateEditWeek(1)}
-                  disabled={toDateStr(editWeekStart) >= toDateStr(getWeekStart())}
-                  className="w-7 h-7 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm"
-                >›</button>
+                <button onClick={() => navigateEditWeek(1)} disabled={toDateStr(editWeekStart) >= toDateStr(getWeekStart())} className="w-7 h-7 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 disabled:opacity-30 disabled:cursor-not-allowed transition-colors text-sm">›</button>
               </div>
             </div>
 
@@ -1068,56 +1144,26 @@ export default function AdminTimesheetPage() {
                           <span className="text-xs text-amber-500/70 ml-2" title={`Edited: ${punch.edit_reason}`}>✎</span>
                         )}
                         {punch.lat && punch.lng && (
-                          <a
-                            href={`https://maps.google.com/?q=${punch.lat},${punch.lng}`}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs ml-2"
-                            title={`${punch.lat.toFixed(5)}, ${punch.lng.toFixed(5)} — open in Maps`}
-                          >📍</a>
+                          <a href={`https://maps.google.com/?q=${punch.lat},${punch.lng}`} target="_blank" rel="noopener noreferrer" className="text-xs ml-2" title={`${punch.lat.toFixed(5)}, ${punch.lng.toFixed(5)} — open in Maps`}>📍</a>
                         )}
                       </span>
-                      <button
-                        onClick={() => setEditingPunch({ id: punch.id, time: punch.punched_at, reason: '' })}
-                        className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-white transition-all text-sm px-1"
-                        title="Edit time"
-                      >✎</button>
-                      <button
-                        onClick={() => deletePunch(punch.id)}
-                        className="opacity-0 group-hover:opacity-100 text-gray-700 hover:text-red-400 transition-all text-sm px-1"
-                        title="Delete punch"
-                      >✕</button>
+                      <button onClick={() => setEditingPunch({ id: punch.id, time: punch.punched_at, reason: '' })} className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-white transition-all text-sm px-1" title="Edit time">✎</button>
+                      <button onClick={() => deletePunch(punch.id)} className="opacity-0 group-hover:opacity-100 text-gray-700 hover:text-red-400 transition-all text-sm px-1" title="Delete punch">✕</button>
                     </>
                   )}
                 </div>
               ))}
 
-              {/* Add punch */}
               {addingPunch ? (
                 <div className="border border-dashed border-gray-700 rounded-lg p-3 space-y-2">
                   <div className="flex gap-2">
-                    <select
-                      value={addingPunch.type}
-                      onChange={e => setAddingPunch(p => p ? { ...p, type: e.target.value as 'in' | 'out' } : p)}
-                      className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none"
-                    >
+                    <select value={addingPunch.type} onChange={e => setAddingPunch(p => p ? { ...p, type: e.target.value as 'in' | 'out' } : p)} className="bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none">
                       <option value="in">Clock In</option>
                       <option value="out">Clock Out</option>
                     </select>
-                    <input
-                      type="datetime-local"
-                      value={addingPunch.datetime.slice(0, 16)}
-                      onChange={e => setAddingPunch(p => p ? { ...p, datetime: e.target.value + ':00.000Z' } : p)}
-                      className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
-                    />
+                    <input type="datetime-local" value={addingPunch.datetime.slice(0, 16)} onChange={e => setAddingPunch(p => p ? { ...p, datetime: e.target.value + ':00.000Z' } : p)} className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500" />
                   </div>
-                  <input
-                    type="text"
-                    placeholder="Note (optional)"
-                    value={addingPunch.note}
-                    onChange={e => setAddingPunch(p => p ? { ...p, note: e.target.value } : p)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
-                  />
+                  <input type="text" placeholder="Note (optional)" value={addingPunch.note} onChange={e => setAddingPunch(p => p ? { ...p, note: e.target.value } : p)} className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500" />
                   <div className="flex gap-2">
                     <button onClick={addPunch} className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-1.5 rounded-lg transition-colors">Add</button>
                     <button onClick={() => setAddingPunch(null)} className="text-gray-500 hover:text-white text-sm px-3 py-1.5 transition-colors">Cancel</button>
