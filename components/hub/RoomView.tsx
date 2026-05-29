@@ -8,7 +8,6 @@ import ThreadPanel from './ThreadPanel'
 type RoomRef = { id: string; name: string }
 
 const MIN_THREAD_W = 240
-const MAX_THREAD_W = 600
 const DEFAULT_THREAD_W = 320
 
 export default function RoomView({
@@ -39,6 +38,7 @@ export default function RoomView({
 }) {
   const [openThreadMsg, setOpenThreadMsg] = useState<HubMessage | null>(null)
   const feedRef = useRef<MessageFeedHandle>(null)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   // Thread pane width — persisted, desktop only.
   const [threadWidth, setThreadWidth] = useState(DEFAULT_THREAD_W)
@@ -46,7 +46,7 @@ export default function RoomView({
   useEffect(() => {
     try {
       const n = parseInt(localStorage.getItem('hub-thread-width') || '', 10)
-      if (!isNaN(n) && n >= MIN_THREAD_W && n <= MAX_THREAD_W) {
+      if (!isNaN(n) && n >= MIN_THREAD_W) {
         setThreadWidth(n)
         widthRef.current = n
       }
@@ -57,8 +57,10 @@ export default function RoomView({
   const dragStartW = useRef(DEFAULT_THREAD_W)
 
   const onDragMove = useCallback((e: MouseEvent) => {
+    // Allow up to 60% of the content area so the thread can go roughly half-and-half.
+    const maxW = Math.floor((containerRef.current?.offsetWidth ?? 1600) * 0.6)
     const delta = dragStartX.current - e.clientX
-    const next = Math.max(MIN_THREAD_W, Math.min(MAX_THREAD_W, dragStartW.current + delta))
+    const next = Math.max(MIN_THREAD_W, Math.min(maxW, dragStartW.current + delta))
     widthRef.current = next
     setThreadWidth(next)
   }, [])
@@ -89,7 +91,7 @@ export default function RoomView({
   }, [onDragMove, onDragUp])
 
   return (
-    <div className="flex flex-1 overflow-hidden">
+    <div ref={containerRef} className="flex flex-1 overflow-hidden">
       {/* Feed + composer — hidden on mobile when thread is open */}
       <div className={`flex flex-col flex-1 min-w-0 ${openThreadMsg ? 'hidden md:flex' : 'flex'}`}>
         <MessageFeed
