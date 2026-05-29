@@ -976,8 +976,7 @@ export default function DailyLogView({
 
             <button
               onClick={() => goDate(1)}
-              disabled={isToday}
-              className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors disabled:opacity-30"
+              className="p-2 rounded-lg text-gray-400 hover:text-white hover:bg-gray-800 transition-colors"
               title="Next day"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
@@ -1017,18 +1016,16 @@ export default function DailyLogView({
               </button>
             </div>
 
-            {/* Add entry button (admin/office) */}
-            {isAdmin && (
-              <button
-                onClick={() => setShowAddEntry(true)}
-                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2E7EB8] hover:bg-[#2470a8] text-white text-xs font-medium transition-colors"
-              >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                </svg>
-                Add Tech
-              </button>
-            )}
+            {/* Add entry button (all users) */}
+            <button
+              onClick={() => setShowAddEntry(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2E7EB8] hover:bg-[#2470a8] text-white text-xs font-medium transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
+              Add Tech
+            </button>
           </div>
         </div>
       </div>
@@ -1044,14 +1041,12 @@ export default function DailyLogView({
                 ? 'No log entry for you on this day.'
                 : 'No entries for this day yet.'}
             </p>
-            {isAdmin && (
-              <button
-                onClick={() => setShowAddEntry(true)}
-                className="mt-3 text-sm text-[#2E7EB8] hover:text-blue-300 transition-colors"
-              >
-                + Add a technician entry
-              </button>
-            )}
+            <button
+              onClick={() => setShowAddEntry(true)}
+              className="mt-3 text-sm text-[#2E7EB8] hover:text-blue-300 transition-colors"
+            >
+              + Add a technician entry
+            </button>
           </div>
         ) : (
           <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-4">
