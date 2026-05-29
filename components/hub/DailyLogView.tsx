@@ -174,10 +174,13 @@ function EntryCard({
   const updatesBottomRef = useRef<HTMLDivElement>(null)
 
   async function openAttachment(key: string) {
+    // Open the window synchronously (trusted user gesture) so iOS doesn't
+    // block it as a popup, then navigate it once we have the signed URL.
+    const win = window.open('', '_blank')
     const res = await fetch(`/api/hub/daily-log/media/${key}?json=1`)
-    if (!res.ok) return
+    if (!res.ok) { win?.close(); return }
     const { url } = await res.json()
-    window.open(url, '_blank')
+    if (win) win.location.href = url
   }
 
   const canEdit = isAdmin || entry.creator?.id === currentUserId
