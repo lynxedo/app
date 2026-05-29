@@ -25,15 +25,18 @@ const PLATFORM_COLOR: Record<string, string> = {
   google_business: 'text-green-400 bg-green-500/10',
 }
 
-function formatExpiry(ts: string | null): string {
-  if (!ts) return 'Never expires'
+function formatExpiry(ts: string | null): { text: string; daysLeft: number | null } {
+  if (!ts) return { text: 'Never expires', daysLeft: null }
   const d = new Date(ts)
   const now = new Date()
   const days = Math.ceil((d.getTime() - now.getTime()) / 86400000)
-  if (days < 0) return 'Expired'
-  if (days === 0) return 'Expires today'
-  if (days <= 7) return `Expires in ${days}d`
-  return `Expires ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+  if (days < 0) return { text: 'Expired', daysLeft: days }
+  if (days === 0) return { text: 'Expires today', daysLeft: 0 }
+  if (days <= 7) return { text: `Expires in ${days}d`, daysLeft: days }
+  return {
+    text: `Expires ${d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })} (${days}d)`,
+    daysLeft: days,
+  }
 }
 
 export default function MarketingAdminPanel({
@@ -52,11 +55,17 @@ export default function MarketingAdminPanel({
   const [connectErr, setConnectErr] = useState('')
   const [banner, setBanner] = useState<string | null>(
     metaConnectedCount !== null
-      ? `Connected ${metaConnectedCount} Facebook page${metaConnectedCount !== 1 ? 's' : ''}. Tokens will auto-reconnect before expiry.`
+      ? `Connected ${metaConnectedCount} Facebook page${metaConnectedCount !== 1 ? 's' : ''}. Tokens will auto-renew before expiry.`
       : metaError
       ? `Meta connection error: ${metaError}`
       : null
   )
+
+  // Per-account refresh state
+  const [refreshOpen, setRefreshOpen] = useState<string | null>(null)
+  const [refreshToken, setRefreshToken] = useState('')
+  const [refreshing, setRefreshing] = useState(false)
+  const [refreshErr, setRefreshErr] = useState('')
 
   async function handleConnectFacebook() {
     setConnecting(true)
@@ -99,6 +108,33 @@ export default function MarketingAdminPanel({
     }
   }
 
+  async function handleRefreshToken(accountId: string) {
+    if (!refreshToken.trim()) { setRefreshErr('Paste your User Access Token first'); return }
+    setRefreshing(true)
+    setRefreshErr('')
+    try {
+      const res = await fetch(`/api/admin/social-accounts/${accountId}/refresh-token`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ userToken: refreshToken.trim() }),
+      })
+      const data = await res.json() as { account?: SocialAccount; error?: string }
+      if (!res.ok || !data.account) {
+        setRefreshErr(data.error ?? 'Refresh failed')
+        setRefreshing(false)
+        return
+      }
+      setAccounts(prev => prev.map(a => a.id === accountId ? data.account! : a))
+      setRefreshOpen(null)
+      setRefreshToken('')
+      setBanner('Token refreshed successfully — good for another 60 days.')
+    } catch {
+      setRefreshErr('Network error')
+    } finally {
+      setRefreshing(false)
+    }
+  }
+
   return (
     <div className="max-w-2xl mx-auto p-6 space-y-6">
       <div>
@@ -131,45 +167,129 @@ export default function MarketingAdminPanel({
         ) : (
           <div className="divide-y divide-gray-800">
             {accounts.map(account => {
-              const expiryText = formatExpiry(account.token_expires_at)
-              const expiring = account.token_expires_at && new Date(account.token_expires_at).getTime() - Date.now() < 7 * 86400000
+              const { text: expiryText, daysLeft } = formatExpiry(account.token_expires_at)
+              const expired = daysLeft !== null && daysLeft < 0
+              const expiringSoon = daysLeft !== null && daysLeft >= 0 && daysLeft <= 14
+              const isRefreshOpen = refreshOpen === account.id
               return (
-                <div key={account.id} className="px-5 py-3 flex items-center gap-3">
-                  <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PLATFORM_COLOR[account.platform] ?? 'text-gray-400 bg-gray-700'}`}>
-                    {PLATFORM_LABEL[account.platform] ?? account.platform}
-                  </span>
-                  <div className="flex-1 min-w-0">
-                    <div className="text-sm text-white font-medium truncate">{account.account_name}</div>
-                    <div className={`text-xs mt-0.5 ${expiring ? 'text-amber-400' : 'text-white/40'}`}>
-                      {expiryText}
-                      {account.ig_user_id && (
-                        <span className="ml-2 text-pink-400">· IG linked</span>
-                      )}
+                <div key={account.id}>
+                  <div className="px-5 py-3 flex items-center gap-3">
+                    <span className={`text-xs font-medium px-2 py-0.5 rounded-full ${PLATFORM_COLOR[account.platform] ?? 'text-gray-400 bg-gray-700'}`}>
+                      {PLATFORM_LABEL[account.platform] ?? account.platform}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <div className="text-sm text-white font-medium truncate">{account.account_name}</div>
+                      <div className={`text-xs mt-0.5 ${expired ? 'text-red-400' : expiringSoon ? 'text-amber-400' : 'text-white/40'}`}>
+                        {expiryText}
+                        {account.ig_user_id && (
+                          <span className="ml-2 text-pink-400">· IG linked</span>
+                        )}
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button
+                        onClick={() => {
+                          setRefreshOpen(isRefreshOpen ? null : account.id)
+                          setRefreshToken('')
+                          setRefreshErr('')
+                        }}
+                        className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                          isRefreshOpen
+                            ? 'border-amber-600/40 text-amber-400 bg-amber-900/20'
+                            : expiringSoon || expired
+                            ? 'border-amber-600/40 text-amber-400 hover:bg-amber-900/20'
+                            : 'border-gray-700 text-white/40 hover:text-amber-400 hover:border-amber-600/40'
+                        }`}
+                      >
+                        ↻ Refresh
+                      </button>
+                      <button
+                        onClick={() => toggleActive(account.id, !account.active)}
+                        className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
+                          account.active
+                            ? 'border-green-600/40 text-green-400 hover:bg-red-900/30 hover:text-red-400 hover:border-red-600/40'
+                            : 'border-gray-700 text-white/40 hover:bg-green-900/30 hover:text-green-400 hover:border-green-600/40'
+                        }`}
+                      >
+                        {account.active ? 'Active' : 'Inactive'}
+                      </button>
+                      <button
+                        onClick={() => deleteAccount(account.id)}
+                        className="text-xs px-2.5 py-1 rounded-md border border-gray-700 text-white/40 hover:text-red-400 hover:border-red-600/40 transition-colors"
+                      >
+                        Remove
+                      </button>
                     </div>
                   </div>
-                  <div className="flex items-center gap-2 flex-shrink-0">
-                    <button
-                      onClick={() => toggleActive(account.id, !account.active)}
-                      className={`text-xs px-2.5 py-1 rounded-md border transition-colors ${
-                        account.active
-                          ? 'border-green-600/40 text-green-400 hover:bg-red-900/30 hover:text-red-400 hover:border-red-600/40'
-                          : 'border-gray-700 text-white/40 hover:bg-green-900/30 hover:text-green-400 hover:border-green-600/40'
-                      }`}
-                    >
-                      {account.active ? 'Active' : 'Inactive'}
-                    </button>
-                    <button
-                      onClick={() => deleteAccount(account.id)}
-                      className="text-xs px-2.5 py-1 rounded-md border border-gray-700 text-white/40 hover:text-red-400 hover:border-red-600/40 transition-colors"
-                    >
-                      Remove
-                    </button>
-                  </div>
+
+                  {/* Inline token refresh panel */}
+                  {isRefreshOpen && (
+                    <div className="mx-4 mb-4 rounded-lg bg-amber-500/5 border border-amber-500/20 p-4 space-y-3">
+                      <div>
+                        <p className="text-xs font-semibold text-amber-300 mb-2">How to get a User Access Token</p>
+                        <ol className="text-xs text-white/60 space-y-1 list-decimal list-inside">
+                          <li>
+                            Go to{' '}
+                            <a
+                              href="https://developers.facebook.com/tools/explorer"
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="text-blue-400 underline hover:text-blue-300"
+                            >
+                              developers.facebook.com/tools/explorer
+                            </a>
+                          </li>
+                          <li>In the top-right dropdown, select your Lynxedo app</li>
+                          <li>Click <strong className="text-white/80">Generate Access Token</strong> → approve permissions</li>
+                          <li>Copy the token and paste it below</li>
+                        </ol>
+                      </div>
+                      <textarea
+                        value={refreshToken}
+                        onChange={e => setRefreshToken(e.target.value)}
+                        placeholder="Paste your User Access Token here…"
+                        rows={3}
+                        className="w-full bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-xs text-white font-mono placeholder-white/30 focus:outline-none focus:border-amber-500/60 resize-none"
+                      />
+                      {refreshErr && <p className="text-xs text-red-400">{refreshErr}</p>}
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleRefreshToken(account.id)}
+                          disabled={refreshing || !refreshToken.trim()}
+                          className="text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-3 py-1.5 rounded-lg transition-colors"
+                        >
+                          {refreshing ? 'Refreshing…' : 'Refresh Token'}
+                        </button>
+                        <button
+                          onClick={() => { setRefreshOpen(null); setRefreshToken(''); setRefreshErr('') }}
+                          className="text-xs text-white/40 hover:text-white/70 transition-colors"
+                        >
+                          Cancel
+                        </button>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}
           </div>
         )}
+      </div>
+
+      {/* Auto Token Renewal */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-3">
+        <div className="flex items-start gap-3">
+          <span className="text-green-400 text-lg mt-0.5">⟳</span>
+          <div>
+            <h2 className="text-sm font-semibold text-white">Auto Token Renewal</h2>
+            <p className="text-xs text-white/50 mt-1">
+              Once the weekly cron is set up (see below), tokens renew automatically — no action needed. The system
+              re-exchanges the stored token every Monday before it can expire. You only need to use the{' '}
+              <strong className="text-white/70">↻ Refresh</strong> button above if the token actually expires (e.g., the
+              cron was down for an extended period).
+            </p>
+          </div>
+        </div>
       </div>
 
       {/* Connect button */}
@@ -203,22 +323,33 @@ export default function MarketingAdminPanel({
 
         <div className="text-xs text-white/30 space-y-1">
           <p>Permissions requested: Pages Manage Posts, Pages Read Engagement, Instagram Content Publish</p>
-          <p>Tokens are long-lived (~60 days). Reconnect before expiry to avoid posting failures.</p>
+          <p>Tokens are long-lived (~60 days) and auto-renew weekly via cron.</p>
         </div>
       </div>
 
-      {/* VPS cron reminder */}
-      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-2">
+      {/* Cron setup */}
+      <div className="bg-gray-900 rounded-xl border border-gray-800 p-5 space-y-3">
         <h2 className="text-sm font-semibold text-white">Cron Setup (one-time)</h2>
         <p className="text-xs text-white/50">
-          Add this line to the VPS crontab (<code className="font-mono">crontab -e</code>) to enable automatic publishing of scheduled posts:
+          Add both lines to the VPS crontab (<code className="font-mono">crontab -e</code>).
+          The first publishes scheduled posts every minute. The second auto-renews tokens every Monday.
         </p>
-        <pre className="text-xs font-mono bg-gray-950 text-green-300 px-3 py-2 rounded-lg overflow-x-auto whitespace-pre-wrap">
-          {`* * * * * curl -s -X POST https://lynxedo.com/api/hub/social/deliver -H "x-cron-secret: $CRON_SECRET" >/dev/null 2>&1`}
-        </pre>
+        <div className="space-y-2">
+          <div>
+            <p className="text-xs text-white/40 mb-1">Post delivery (every minute):</p>
+            <pre className="text-xs font-mono bg-gray-950 text-green-300 px-3 py-2 rounded-lg overflow-x-auto whitespace-pre-wrap">
+              {`* * * * * curl -s -X POST https://lynxedo.com/api/hub/social/deliver -H "x-cron-secret: $CRON_SECRET" >/dev/null 2>&1`}
+            </pre>
+          </div>
+          <div>
+            <p className="text-xs text-white/40 mb-1">Token auto-renewal (every Monday 9am UTC):</p>
+            <pre className="text-xs font-mono bg-gray-950 text-green-300 px-3 py-2 rounded-lg overflow-x-auto whitespace-pre-wrap">
+              {`0 9 * * 1 curl -s -X POST https://lynxedo.com/api/hub/social/refresh-tokens -H "x-cron-secret: $CRON_SECRET" >/dev/null 2>&1`}
+            </pre>
+          </div>
+        </div>
         <p className="text-xs text-white/30">
           Replace <code className="font-mono">$CRON_SECRET</code> with the actual value from <code className="font-mono">.env.local</code>.
-          Run every minute — same pattern as scheduled messages.
         </p>
       </div>
     </div>
