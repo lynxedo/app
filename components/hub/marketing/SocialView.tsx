@@ -54,6 +54,9 @@ function PlatformIcons({ platforms, igUserId }: { platforms: string[]; igUserId:
       {platforms.includes('instagram') && igUserId && (
         <span className="text-pink-400 text-xs font-semibold">IG</span>
       )}
+      {platforms.includes('google_business') && (
+        <span className="text-emerald-400 text-xs font-semibold">GBP</span>
+      )}
     </span>
   )
 }
@@ -107,7 +110,7 @@ export default function SocialView({
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-semibold text-white">Social</h1>
-            <p className="text-xs text-white/50 mt-0.5">Schedule Facebook and Instagram posts</p>
+            <p className="text-xs text-white/50 mt-0.5">Schedule Facebook, Instagram, and Google Business posts</p>
           </div>
           <div className="flex items-center gap-2">
             {canAdmin && (
@@ -121,7 +124,7 @@ export default function SocialView({
             <button
               onClick={() => { setEditingPost(null); setShowComposer(true) }}
               disabled={noAccounts}
-              title={noAccounts ? 'Connect a Facebook account in Admin first' : undefined}
+              title={noAccounts ? 'Connect a social account in Admin first' : undefined}
               className="flex items-center gap-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
