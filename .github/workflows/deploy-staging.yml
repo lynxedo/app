@@ -39,6 +39,8 @@ jobs:
             cd /opt/lynxedo-staging/app
             git pull origin develop
             npm install --legacy-peer-deps
+            echo "==> Lint (non-blocking — informational only, never gates the deploy)"
+            npx eslint . || echo "::warning::ESLint reported issues (non-blocking) — see output above"
             echo "==> Type-checking before build (fast-fail)"
             npx tsc --noEmit
             echo "==> Building"
