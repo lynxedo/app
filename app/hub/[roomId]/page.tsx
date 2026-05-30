@@ -1,5 +1,6 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { selectInChunks } from '@/lib/supabase/chunked-in'
 import RoomView from '@/components/hub/RoomView'
 import RoomNotifBell from '@/components/hub/RoomNotifBell'
 import RoomMembersButton from '@/components/hub/RoomMembersButton'
@@ -40,11 +41,11 @@ export default async function RoomPage({
 
   // Reply counts
   const parentIds = rawMessages.map((m) => (m as { id: string }).id)
-  const { data: replyRows } = parentIds.length
-    ? await supabase.from('messages').select('parent_id').in('parent_id', parentIds).is('deleted_at', null)
-    : { data: [] }
+  const replyRows = await selectInChunks<{ parent_id: string }>(parentIds, (batch) =>
+    supabase.from('messages').select('parent_id').in('parent_id', batch).is('deleted_at', null)
+  )
   const replyCounts: Record<string, number> = {}
-  for (const r of (replyRows ?? []) as { parent_id: string }[]) {
+  for (const r of replyRows) {
     replyCounts[r.parent_id] = (replyCounts[r.parent_id] ?? 0) + 1
   }
 

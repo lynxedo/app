@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { selectInChunks } from '@/lib/supabase/chunked-in'
 
 const ACTIVITY_SELECT = `
   id, content, created_at, parent_id, room_id, conversation_id,
@@ -78,23 +79,6 @@ export async function GET(request: Request) {
     .gte('created_at', since)
   const myParentIds = (myParentsRes.data ?? []).map(m => m.id)
 
-  const repliesQuery = myParentIds.length > 0
-    ? admin
-        .from('messages')
-        .select(ACTIVITY_SELECT)
-        .in('parent_id', myParentIds)
-        .gte('created_at', since)
-        .is('deleted_at', null)
-        .neq('sender_id', user.id)
-        .order('created_at', { ascending: false })
-        .limit(100)
-    : null
-
-  const [mentionsRes, repliesRes] = await Promise.all([
-    mentionsQuery ? mentionsQuery : Promise.resolve({ data: [], error: null }),
-    repliesQuery ? repliesQuery : Promise.resolve({ data: [], error: null }),
-  ])
-
   type ActivityRow = {
     id: string
     content: string | null
@@ -104,8 +88,30 @@ export async function GET(request: Request) {
     conversation_id: string | null
     sender: { id: string; display_name: string; avatar_url: string | null; is_bot: boolean } | { id: string; display_name: string; avatar_url: string | null; is_bot: boolean }[] | null
   }
+
+  // Chunk the parent_id IN-list: an active user can own hundreds of top-level
+  // messages in 30 days, and one long IN-list overflows PostgREST's URL-length
+  // limit (HTTP 400). Batch the lookups and merge, then re-sort + cap to 100.
+  const [mentionsRes, repliesRows] = await Promise.all([
+    mentionsQuery ? mentionsQuery : Promise.resolve({ data: [], error: null }),
+    selectInChunks<ActivityRow>(myParentIds, (batch) =>
+      admin
+        .from('messages')
+        .select(ACTIVITY_SELECT)
+        .in('parent_id', batch)
+        .gte('created_at', since)
+        .is('deleted_at', null)
+        .neq('sender_id', user.id)
+        .order('created_at', { ascending: false })
+        .limit(100)
+    ),
+  ])
+
   const mentions = ((mentionsRes.data as ActivityRow[] | null) ?? []).map(m => ({ ...m, kind: 'mention' as const }))
-  const replies = ((repliesRes.data as ActivityRow[] | null) ?? []).map(m => ({ ...m, kind: 'reply' as const }))
+  const replies = repliesRows
+    .sort((a, b) => new Date(b.created_at).getTime() - new Date(a.created_at).getTime())
+    .slice(0, 100)
+    .map(m => ({ ...m, kind: 'reply' as const }))
 
   // 5. Merge + dedupe by id (a message could match both buckets if someone
   // replied to me with @firstname).
