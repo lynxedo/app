@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback } from 'react'
 
 type SocialAccount = {
   id: string
-  platform: 'facebook' | 'instagram' | 'google_business'
+  platform: 'facebook' | 'instagram'
   account_name: string
   ig_user_id: string | null
 }
@@ -76,16 +76,15 @@ export default function PostComposer({
   const [selectedPhoto, setSelectedPhoto] = useState<PhotoFile | null>(null)
   const [hubFileId, setHubFileId] = useState<string | null>(editPost?.hub_file_id ?? null)
 
-  // Per-account selections: { account_id: { fb, ig, gbp } }
-  const [accountSelections, setAccountSelections] = useState<Record<string, { fb: boolean; ig: boolean; gbp: boolean }>>(() => {
-    const init: Record<string, { fb: boolean; ig: boolean; gbp: boolean }> = {}
+  // Per-account selections: { account_id: { fb, ig } }
+  const [accountSelections, setAccountSelections] = useState<Record<string, { fb: boolean; ig: boolean }>>(() => {
+    const init: Record<string, { fb: boolean; ig: boolean }> = {}
     if (editPost) {
       const acc = accounts.find(a => a.id === editPost.account_id)
       if (acc) {
         init[acc.id] = {
           fb: editPost.platforms.includes('facebook'),
           ig: editPost.platforms.includes('instagram'),
-          gbp: editPost.platforms.includes('google_business'),
         }
       }
     }
@@ -111,18 +110,15 @@ export default function PostComposer({
 
   const selectedAccountEntries = useCallback((): AccountEntry[] => {
     return Object.entries(accountSelections)
-      .filter(([, v]) => v.fb || v.ig || v.gbp)
+      .filter(([, v]) => v.fb || v.ig)
       .map(([account_id, v]) => ({
         account_id,
         platforms: [
           ...(v.fb ? ['facebook'] : []),
           ...(v.ig ? ['instagram'] : []),
-          ...(v.gbp ? ['google_business'] : []),
         ],
       }))
   }, [accountSelections])
-
-  const gbpSelected = Object.values(accountSelections).some(v => v.gbp)
 
   const canSubmit =
     caption.trim().length > 0 &&
@@ -238,68 +234,37 @@ export default function PostComposer({
               ) : (
                 <div className="space-y-2">
                   {accounts.map(account => {
-                    const sel = accountSelections[account.id] ?? { fb: false, ig: false, gbp: false }
-                    const isGbp = account.platform === 'google_business'
+                    const sel = accountSelections[account.id] ?? { fb: false, ig: false }
                     return (
                       <div key={account.id} className="flex items-center gap-3 px-3 py-2.5 rounded-lg bg-gray-900 border border-gray-800">
                         <div className="flex-1">
                           <span className="text-sm text-white font-medium">{account.account_name}</span>
-                          {isGbp ? (
-                            <span className="ml-2 text-xs text-emerald-400">Google Business</span>
-                          ) : (
-                            <>
-                              <span className="ml-2 text-xs text-blue-400">Facebook</span>
-                              {account.ig_user_id && <span className="ml-1 text-xs text-pink-400">· Instagram</span>}
-                            </>
-                          )}
+                          <span className="ml-2 text-xs text-blue-400">Facebook</span>
+                          {account.ig_user_id && <span className="ml-1 text-xs text-pink-400">· Instagram</span>}
                         </div>
-                        {isGbp ? (
+                        <label className="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer">
+                          <input
+                            type="checkbox"
+                            checked={sel.fb}
+                            onChange={e => setAccountSelections(p => ({ ...p, [account.id]: { ...sel, fb: e.target.checked } }))}
+                            className="accent-blue-500"
+                          />
+                          FB
+                        </label>
+                        {account.ig_user_id && (
                           <label className="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer">
                             <input
                               type="checkbox"
-                              checked={sel.gbp}
-                              onChange={e => setAccountSelections(p => ({ ...p, [account.id]: { ...sel, gbp: e.target.checked } }))}
-                              className="accent-emerald-500"
+                              checked={sel.ig}
+                              onChange={e => setAccountSelections(p => ({ ...p, [account.id]: { ...sel, ig: e.target.checked } }))}
+                              className="accent-pink-500"
                             />
-                            GBP
+                            IG
                           </label>
-                        ) : (
-                          <>
-                            <label className="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer">
-                              <input
-                                type="checkbox"
-                                checked={sel.fb}
-                                onChange={e => setAccountSelections(p => ({ ...p, [account.id]: { ...sel, fb: e.target.checked } }))}
-                                className="accent-blue-500"
-                              />
-                              FB
-                            </label>
-                            {account.ig_user_id && (
-                              <label className="flex items-center gap-1.5 text-xs text-white/60 cursor-pointer">
-                                <input
-                                  type="checkbox"
-                                  checked={sel.ig}
-                                  onChange={e => setAccountSelections(p => ({ ...p, [account.id]: { ...sel, ig: e.target.checked } }))}
-                                  className="accent-pink-500"
-                                />
-                                IG
-                              </label>
-                            )}
-                          </>
                         )}
                       </div>
                     )
                   })}
-                  {gbpSelected && (
-                    <div className="mt-2 space-y-1.5">
-                      <p className="text-xs font-semibold text-red-200 bg-red-500/10 border border-red-500/40 rounded-md px-2.5 py-2 leading-relaxed">
-                        ⛔ Google Business posting is currently NOT working. Google has disabled the API that lets apps post to Business Profiles, so anything scheduled here will fail to publish. For now, please add Google Business posts manually at business.google.com.
-                      </p>
-                      <p className="text-xs text-amber-300/90">
-                        ⚠ (When working) Google Business posts expire and disappear from your profile after 7 days.
-                      </p>
-                    </div>
-                  )}
                 </div>
               )}
             </div>

@@ -2,7 +2,6 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { buildMetaOAuthUrl } from '@/lib/meta-graph'
-import { buildGoogleOAuthUrl } from '@/lib/google-business'
 
 // GET  — list social accounts for the company
 // POST — save a manually-entered account (for testing without OAuth)
@@ -34,13 +33,6 @@ export async function POST(request: Request) {
     const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/admin/social-accounts/meta-callback`
     const configId = process.env.META_OAUTH_CONFIG_ID
     return NextResponse.json({ url: buildMetaOAuthUrl(appId, callbackUrl, configId) })
-  }
-
-  if (body.action === 'oauth_url_google') {
-    const clientId = process.env.GOOGLE_CLIENT_ID
-    if (!clientId) return NextResponse.json({ error: 'GOOGLE_CLIENT_ID not configured' }, { status: 501 })
-    const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/admin/social-accounts/google-callback`
-    return NextResponse.json({ url: buildGoogleOAuthUrl(clientId, callbackUrl) })
   }
 
   // Manual account entry (for testing)
