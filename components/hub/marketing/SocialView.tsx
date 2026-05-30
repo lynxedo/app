@@ -5,7 +5,7 @@ import PostComposer from './PostComposer'
 
 type SocialAccount = {
   id: string
-  platform: 'facebook' | 'instagram' | 'google_business'
+  platform: 'facebook' | 'instagram'
   account_name: string
   external_id: string
   ig_user_id: string | null
@@ -53,9 +53,6 @@ function PlatformIcons({ platforms, igUserId }: { platforms: string[]; igUserId:
       )}
       {platforms.includes('instagram') && igUserId && (
         <span className="text-pink-400 text-xs font-semibold">IG</span>
-      )}
-      {platforms.includes('google_business') && (
-        <span className="text-emerald-400 text-xs font-semibold">GBP</span>
       )}
     </span>
   )
@@ -110,7 +107,7 @@ export default function SocialView({
         <div className="flex items-center justify-between">
           <div>
             <h1 className="text-lg font-semibold text-white">Social</h1>
-            <p className="text-xs text-white/50 mt-0.5">Schedule Facebook, Instagram, and Google Business posts</p>
+            <p className="text-xs text-white/50 mt-0.5">Schedule Facebook and Instagram posts</p>
           </div>
           <div className="flex items-center gap-2">
             {canAdmin && (
