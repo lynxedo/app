@@ -196,7 +196,7 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
     .maybeSingle()
   if (!link?.hub_user_id) {
     console.log(
-      `[chat-synx:events] no person link for slack_user=${event.user} — add a mapping in Admin → Chat Synx → People. Dropping channel=${event.channel} text="${(event.text ?? '').slice(0, 60)}…"`,
+      `[chat-synx:events] no person link for slack_user=${event.user} — add a mapping in Admin → Chat Synx → People. Dropping channel=${event.channel}`,
     )
     return
   }

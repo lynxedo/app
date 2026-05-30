@@ -176,8 +176,6 @@ export async function publishGoogleBusinessPost(opts: {
     body: JSON.stringify(body),
   })
   const data = await res.json() as Record<string, unknown>
-  // DEBUG — log full Google response so we can diagnose publish issues
-  console.log('[GBP publish] status:', res.status, 'body:', JSON.stringify(data))
   if (!res.ok || data.error) {
     const errObj = data.error as { message?: string; status?: string } | undefined
     const raw = errObj?.message ?? `HTTP ${res.status}`
