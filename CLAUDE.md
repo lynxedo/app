@@ -169,6 +169,30 @@ ssh root@5.78.42.57 "cd /opt/lynxedo-staging/app && for f in $FILES; do mv \$f.o
 
 The hardened deploy workflow now does this automatically inside CI, so the safety dance is **belt-and-suspenders** — it gives you the failure signal in ~15s on your laptop instead of waiting ~60s for the GH Actions deploy to fail. Worth doing for any large multi-file session.
 
+### `npm install` → `npm ci` migration gotcha (May 29 2026)
+
+The deploy workflows now use `npm ci --legacy-peer-deps` (not `npm install`).
+`npm ci` installs exactly what's in `package-lock.json` and **never mutates it**,
+so the lock stays authoritative and a future drift fails the deploy loudly.
+
+**One-time trap when switching install → ci:** the *old* `npm install` step had
+been silently mutating `package-lock.json` **in the live app dirs** on every
+deploy, leaving the working tree dirty (`git status` showed ` M package-lock.json`).
+The first post-switch deploy then failed at **`git pull`** — not at npm — because
+the incoming lock commit couldn't overwrite the local modification. Symptom: GitHub
+emails a failed deploy, but the site stays up (the hardened workflow aborts before
+PM2) and `git -C /opt/lynxedo/app rev-parse HEAD` still shows the *old* commit.
+
+Fix — clear the stale mutation in each live app dir, then re-trigger:
+```bash
+ssh root@5.78.42.57 "cd /opt/lynxedo/app && git checkout -- package-lock.json"          # prod
+ssh root@5.78.42.57 "cd /opt/lynxedo-staging/app && git checkout -- package-lock.json"   # staging
+# then push (an empty commit works: git commit --allow-empty -m 'ci: re-trigger') to re-run Actions
+```
+This is a **one-time** cleanup. Because `npm ci` doesn't touch the lock, the working
+tree stays clean on every deploy afterward — verify with `git status --short` showing
+no ` M package-lock.json`.
+
 ---
 
 ## New Computer Setup (so Claude can push and deploy)
