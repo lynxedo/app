@@ -129,7 +129,7 @@ export async function POST(req: NextRequest) {
   const numMedia = parseInt(params.NumMedia || '0', 10) || 0
 
   if (!from || !sid) {
-    console.warn('[txt:inbound] missing from or sid', { from, sid })
+    console.warn('[txt:inbound] missing from or sid', { hasFrom: !!from, sid })
     return twimlResponse()
   }
 
@@ -373,8 +373,6 @@ export async function POST(req: NextRequest) {
   }
 
   console.log('[txt:inbound] received', {
-    from,
-    to,
     sid,
     conversationId,
     media: mediaUrls.length,
