@@ -41,6 +41,8 @@ jobs:
             npm ci --legacy-peer-deps
             echo "==> Lint (non-blocking — informational only, never gates the deploy)"
             npx eslint . || echo "::warning::ESLint reported issues (non-blocking) — see output above"
+            echo "==> Clearing stale generated route types (so pre-build tsc never trips on a deleted/renamed route)"
+            rm -rf .next/types
             echo "==> Type-checking before build (fast-fail)"
             npx tsc --noEmit
             echo "==> Building"
