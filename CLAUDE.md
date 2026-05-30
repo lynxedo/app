@@ -172,26 +172,51 @@ The hardened deploy workflow now does this automatically inside CI, so the safet
 ### `npm install` → `npm ci` migration gotcha (May 29 2026)
 
 The deploy workflows now use `npm ci --legacy-peer-deps` (not `npm install`).
-`npm ci` installs exactly what's in `package-lock.json` and **never mutates it**,
-so the lock stays authoritative and a future drift fails the deploy loudly.
+`npm ci` installs exactly what's in `package-lock.json` and won't silently mutate
+a **complete** lock, so the lock stays authoritative and a future drift fails the
+deploy loudly. Two traps bit us during the switch — both are now fixed, but read
+this before regenerating the lock again:
 
-**One-time trap when switching install → ci:** the *old* `npm install` step had
-been silently mutating `package-lock.json` **in the live app dirs** on every
-deploy, leaving the working tree dirty (`git status` showed ` M package-lock.json`).
+**Trap 1 — dirty live working tree blocks `git pull`.** The *old* `npm install`
+step had been silently mutating `package-lock.json` **in the live app dirs** on
+every deploy, leaving the tree dirty (`git status` showed ` M package-lock.json`).
 The first post-switch deploy then failed at **`git pull`** — not at npm — because
 the incoming lock commit couldn't overwrite the local modification. Symptom: GitHub
 emails a failed deploy, but the site stays up (the hardened workflow aborts before
 PM2) and `git -C /opt/lynxedo/app rev-parse HEAD` still shows the *old* commit.
-
 Fix — clear the stale mutation in each live app dir, then re-trigger:
 ```bash
 ssh root@5.78.42.57 "cd /opt/lynxedo/app && git checkout -- package-lock.json"          # prod
 ssh root@5.78.42.57 "cd /opt/lynxedo-staging/app && git checkout -- package-lock.json"   # staging
 # then push (an empty commit works: git commit --allow-empty -m 'ci: re-trigger') to re-run Actions
 ```
-This is a **one-time** cleanup. Because `npm ci` doesn't touch the lock, the working
-tree stays clean on every deploy afterward — verify with `git status --short` showing
-no ` M package-lock.json`.
+
+**Trap 2 — an INCOMPLETE lock makes `npm ci` churn it on every deploy.** `npm ci`
+*will* rewrite the lock if it's missing the cross-platform optional dependencies
+(the nested `@next/swc-*`, `@tailwindcss/oxide-*`, `lightningcss-*`, `@img/sharp-*`
+platform binaries for darwin/win32/musl). Each deploy then succeeds but re-dirties
+the tree, re-arming Trap 1 for the *next* deploy. This happens if you regenerate the
+lock by **extending an existing/stale lock** (e.g. `npm install` with the old lock
+present) — npm only fills in the current platform. **Always regenerate from
+`package.json` ALONE**, and verify the result is an `npm ci` fixed point before
+committing:
+```bash
+# On the VPS (never in Google Drive), in a scratch dir with ONLY package.json:
+npm install --legacy-peer-deps                      # builds a complete cross-platform lock
+# Prove npm ci won't churn it — must show NO ' M package-lock.json' both times:
+git init -q && printf 'node_modules/\n' > .gitignore && git add -A && git commit -qm base
+rm -rf node_modules && npm ci --legacy-peer-deps && git status --short   # run twice
+```
+⚠ A from-scratch regen also **re-resolves every transitive dep to latest-compatible**
+(it dropped `ws`, bumped `@unrs/resolver`, etc.) — a silent dependency upgrade prod
+isn't tested against. When the goal is just "make `npm ci` work" (not an upgrade),
+prefer the lock that `npm ci` itself converges to from the *current* committed state
+(it keeps prod's exact versions and only adds the missing platform binaries). That's
+what's committed now: verified `npm ci`-stable ×2, Next 16.2.6, `ws 8.21.0` +
+`brace-expansion@5 5.0.6` overrides honored, `ws` retained for `@supabase/realtime-js`.
+
+After either fix, verify the live tree stays clean post-deploy: `git status --short`
+in each app dir shows no ` M package-lock.json`.
 
 ---
 
