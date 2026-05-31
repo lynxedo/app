@@ -335,7 +335,7 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
   // Mirrors the room-push block in app/api/hub/messages/route.ts so
   // Slack-originated messages notify Hub users the same way Hub-originated ones do.
   try {
-    const [{ data: senderProfile }, { data: roomMeta }, { data: members }] = await Promise.all([
+    const [{ data: senderProfile }, { data: roomMeta }, { data: members }, { data: roomMemberRows }] = await Promise.all([
       admin.from('hub_users').select('display_name').eq('id', link.hub_user_id).single(),
       admin.from('rooms').select('name').eq('id', bridge.hub_room_id).single(),
       admin
@@ -344,11 +344,22 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
         .eq('company_id', bridge.company_id)
         .neq('id', link.hub_user_id)
         .eq('is_bot', false),
+      admin
+        .from('room_members')
+        .select('user_id')
+        .eq('room_id', bridge.hub_room_id)
+        .neq('user_id', link.hub_user_id),
     ])
 
     const senderName = senderProfile?.display_name ?? 'Someone'
     const roomName = roomMeta?.name ?? 'room'
-    const allOthers = (members ?? []) as { id: string; display_name: string }[]
+    // Scope recipients to the room's MEMBERS only — a bridged Slack message must
+    // not push to company users who aren't in this Hub room (same membership fix
+    // as app/api/hub/messages/route.ts). Filtering allOthers here flows through to
+    // the @mention, @room, and regular-room push paths below.
+    const roomMemberIdSet = new Set((roomMemberRows ?? []).map((m: { user_id: string }) => m.user_id))
+    const allOthers = ((members ?? []) as { id: string; display_name: string }[])
+      .filter(u => roomMemberIdSet.has(u.id))
     // Use the mention-translated text so @firstname / @room patterns get
     // detected by the matchAll below (Slack-side <@U…> / <!channel> would
     // never match the @firstname regex otherwise).
