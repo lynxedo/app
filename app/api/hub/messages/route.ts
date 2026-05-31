@@ -183,6 +183,29 @@ export async function POST(request: Request) {
     .single()
   const senderName = senderProfile?.display_name ?? 'Someone'
 
+  // Resolve who actually belongs to this conversation so every push path below
+  // targets members only — never the whole company. Rooms are membership-gated
+  // (Slack-style: room_members is the source of truth, same as the room list and
+  // room-page access); DMs are scoped to conversation_members. Sender excluded.
+  let roomMemberIds: string[] = []
+  if (room_id) {
+    const { data: rm } = await pushAdmin
+      .from('room_members')
+      .select('user_id')
+      .eq('room_id', room_id)
+      .neq('user_id', user.id)
+    roomMemberIds = (rm ?? []).map((m: { user_id: string }) => m.user_id)
+  }
+  let convMemberIds: string[] = []
+  if (conversation_id) {
+    const { data: cm } = await pushAdmin
+      .from('conversation_members')
+      .select('user_id')
+      .eq('conversation_id', conversation_id)
+      .neq('user_id', user.id)
+    convMemberIds = (cm ?? []).map((m: { user_id: string }) => m.user_id)
+  }
+
   // Push for @mentions — pass room_id so push logic can check mute prefs
   const textToScan = content ?? ''
   const mentionedFirstNames = [...textToScan.matchAll(/@(\w+)/g)].map((m: RegExpMatchArray) => m[1].toLowerCase())
@@ -199,9 +222,14 @@ export async function POST(request: Request) {
       )
       .map((u: { id: string }) => u.id)
 
-    if (matchedIds.length > 0) {
+    // Only notify mentioned users who can actually see this room/DM — an @mention
+    // must never pull in someone who isn't a member of the room or conversation.
+    const mentionMemberSet = new Set(room_id ? roomMemberIds : convMemberIds)
+    const mentionRecipientIds = matchedIds.filter((id: string) => mentionMemberSet.has(id))
+
+    if (mentionRecipientIds.length > 0) {
       const destination = room_id ? `/hub/${room_id}` : `/hub/pm/${conversation_id}`
-      sendHubPush(matchedIds, {
+      sendHubPush(mentionRecipientIds, {
         title: `${senderName} mentioned you`,
         body: textToScan.trim().slice(0, 120),
         url: destination,
@@ -211,16 +239,9 @@ export async function POST(request: Request) {
     }
   }
 
-  // @room — force-notify all room members (bypasses mentions-only pref, respects muted)
+  // @room — force-notify everyone in THIS room (bypasses mentions-only pref, respects muted)
   if (room_id && !parent_id && textToScan.toLowerCase().includes('@room')) {
     const { data: roomMeta } = await pushAdmin.from('rooms').select('name').eq('id', room_id).single()
-    const { data: allHubUsers } = await pushAdmin
-      .from('hub_users')
-      .select('id')
-      .eq('company_id', profile.company_id)
-      .neq('id', user.id)
-      .eq('is_bot', false)
-    const roomMemberIds = (allHubUsers ?? []).map((u: { id: string }) => u.id)
     if (roomMemberIds.length > 0) {
       sendHubPush(roomMemberIds, {
         title: `📢 @room — #${roomMeta?.name ?? 'room'} — ${senderName}`,
@@ -233,51 +254,32 @@ export async function POST(request: Request) {
   }
 
   // Push for new DM messages (top-level only) — notify all other participants
-  if (conversation_id && !parent_id) {
-    const { data: members } = await pushAdmin
-      .from('conversation_members')
-      .select('user_id')
-      .eq('conversation_id', conversation_id)
-      .neq('user_id', user.id)
-
-    const recipientIds = (members ?? []).map((m: { user_id: string }) => m.user_id)
-    if (recipientIds.length > 0) {
-      sendHubPush(recipientIds, {
-        title: senderName,
-        body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
-        url: `/hub/pm/${conversation_id}`,
-      }, { isDm: true }).catch((err: Error) =>
-        console.error('[messages] DM push failed:', err.message)
-      )
-    }
+  if (conversation_id && !parent_id && convMemberIds.length > 0) {
+    sendHubPush(convMemberIds, {
+      title: senderName,
+      body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
+      url: `/hub/pm/${conversation_id}`,
+    }, { isDm: true }).catch((err: Error) =>
+      console.error('[messages] DM push failed:', err.message)
+    )
   }
 
-  // Push for new room messages (top-level only) — notify all company members
-  // sendHubPush filters by each user's notification prefs (muted/mentions/all)
-  if (room_id && !parent_id) {
+  // Push for new room messages (top-level only) — notify the room's MEMBERS only.
+  // sendHubPush further filters by each user's notification prefs (muted/mentions/all)
+  if (room_id && !parent_id && roomMemberIds.length > 0) {
     const { data: roomData } = await pushAdmin
       .from('rooms')
       .select('name')
       .eq('id', room_id)
       .single()
 
-    const { data: allHubUsers } = await pushAdmin
-      .from('hub_users')
-      .select('id')
-      .eq('company_id', profile.company_id)
-      .neq('id', user.id)
-      .eq('is_bot', false)
-
-    const roomMemberIds = (allHubUsers ?? []).map((u: { id: string }) => u.id)
-    if (roomMemberIds.length > 0) {
-      sendHubPush(roomMemberIds, {
-        title: `#${roomData?.name ?? 'room'} — ${senderName}`,
-        body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
-        url: `/hub/${room_id}`,
-      }, { roomId: room_id }).catch((err: Error) =>
-        console.error('[messages] room push failed:', err.message)
-      )
-    }
+    sendHubPush(roomMemberIds, {
+      title: `#${roomData?.name ?? 'room'} — ${senderName}`,
+      body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
+      url: `/hub/${room_id}`,
+    }, { roomId: room_id }).catch((err: Error) =>
+      console.error('[messages] room push failed:', err.message)
+    )
   }
 
   // Check per-room and per-user Claude gates — both must pass
