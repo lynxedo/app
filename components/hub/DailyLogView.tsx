@@ -183,6 +183,18 @@ function EntryCard({
     if (win) win.location.href = url
   }
 
+  async function openRouteSheet() {
+    // Same gesture-safe pattern as openAttachment. We fetch a token-authorized
+    // URL from inside the app (where we're logged in via cookie), then open it.
+    // The token makes the sheet load in ANY browser the device hands the link to
+    // (default browser, signed in or not) — fixes the 401 on the iOS/Android app.
+    const win = window.open('', '_blank')
+    const res = await fetch(`/api/hub/daily-log/${entry.id}/route-sheet?grant=1`)
+    if (!res.ok) { win?.close(); return }
+    const { url } = await res.json()
+    if (win) win.location.href = url
+  }
+
   const canEdit = isAdmin || entry.creator?.id === currentUserId
   const isOnEntry =
     entry.tech?.id === currentUserId ||
@@ -585,11 +597,10 @@ function EntryCard({
           </div>
           {uploadError && <p className="text-xs text-red-400 mb-1">{uploadError}</p>}
           {entry.route_sheet_url ? (
-            <a
-              href={`/api/hub/daily-log/${entry.id}/route-sheet`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700/80 border border-gray-700 rounded-xl transition-colors group"
+            <button
+              type="button"
+              onClick={openRouteSheet}
+              className="w-full text-left cursor-pointer flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700/80 border border-gray-700 rounded-xl transition-colors group"
             >
               <svg className="w-5 h-5 text-red-400 flex-none" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM12 14h-2v2h2v-2zm0-4h-2v3h2v-3z" />
@@ -600,7 +611,7 @@ function EntryCard({
               <svg className="w-3.5 h-3.5 text-gray-500 group-hover:text-gray-300 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
               </svg>
-            </a>
+            </button>
           ) : (
             <p className="text-sm text-gray-600 italic">No route sheet attached</p>
           )}
