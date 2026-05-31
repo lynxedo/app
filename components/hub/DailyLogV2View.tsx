@@ -585,6 +585,21 @@ function EntryCard({
       setOfficeNotesSaving(false)
     }
   }
+
+  async function openRouteSheet() {
+    // Gesture-safe open (mirrors v1 DailyLogView.openRouteSheet). Open the window
+    // synchronously on the trusted click so iOS doesn't block it as a popup, then
+    // fetch a token-authorized URL from inside the app (where we're cookie-authed)
+    // and navigate the popup to it. The token makes the sheet load in ANY browser
+    // the device hands the link to — fixes the 401 the native app hit when
+    // target="_blank" opened the system browser without the Lynxedo session cookie.
+    const win = window.open('', '_blank')
+    const res = await fetch(`/api/hub/daily-log/${entry.id}/route-sheet?grant=1`)
+    if (!res.ok) { win?.close(); return }
+    const { url } = await res.json()
+    if (win) win.location.href = url
+  }
+
   const stopsWithCoords = entry.stops.filter(s => s.lat != null && s.lng != null)
   const hasMap = stopsWithCoords.length > 0
 
@@ -727,14 +742,13 @@ function EntryCard({
       {/* Route sheet link */}
       {entry.route_sheet_url && (
         <div className="px-5 py-3 bg-gray-900/50 border-t border-gray-800 text-xs">
-          <a
-            href={entry.route_sheet_url}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            type="button"
+            onClick={openRouteSheet}
             className="text-sky-400 hover:underline"
           >
             📎 {entry.route_sheet_name ?? 'Route Sheet'}
-          </a>
+          </button>
         </div>
       )}
 
@@ -1356,6 +1370,20 @@ function StopNotesAndAttachments({
   const fileRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
+  async function openAttachment(fileUrl: string) {
+    // Gesture-safe open (mirrors v1 DailyLogView.openAttachment). Open the window
+    // synchronously on the trusted click so iOS doesn't block it as a popup, then
+    // fetch the signed R2 URL from inside the app (where we're cookie-authed) and
+    // navigate the popup to it. fileUrl already points at the auth-gated media
+    // route, so ?json=1 returns the signed URL — fixes the 401 the native app hit
+    // when target="_blank" handed the link to the system browser without a cookie.
+    const win = window.open('', '_blank')
+    const res = await fetch(`${fileUrl}?json=1`)
+    if (!res.ok) { win?.close(); return }
+    const { url } = await res.json()
+    if (win) win.location.href = url
+  }
+
   useEffect(() => {
     let cancelled = false
     Promise.all([
@@ -1481,11 +1509,10 @@ function StopNotesAndAttachments({
                   <div className="flex-none w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-[10px] text-gray-300 font-semibold">
                     {isMine ? 'Me' : '?'}
                   </div>
-                  <a
-                    href={item.file_url}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className={`max-w-[60%] block bg-gray-800 border border-gray-700 rounded overflow-hidden hover:border-sky-600 transition-colors ${isMine ? '' : ''}`}
+                  <button
+                    type="button"
+                    onClick={() => openAttachment(item.file_url)}
+                    className="max-w-[60%] block text-left bg-gray-800 border border-gray-700 rounded overflow-hidden hover:border-sky-600 transition-colors"
                   >
                     {isImage(item.file_type) ? (
                       // eslint-disable-next-line @next/next/no-img-element
@@ -1496,7 +1523,7 @@ function StopNotesAndAttachments({
                       </div>
                     )}
                     <div className="px-2 py-1 text-[10px] text-gray-400 truncate">{item.file_name}</div>
-                  </a>
+                  </button>
                 </div>
               )
             }
