@@ -159,7 +159,16 @@ export default function HeroesSmsConsentScriptPage() {
           <div className="bg-white border border-gray-200 rounded-xl p-5 shadow-sm space-y-1 text-gray-700">
             <p className="font-medium text-gray-900">Heroes Lawn Care of The Woodlands</p>
             <p>
-              Text/Phone:{' '}
+              Phone:{' '}
+              <a
+                href="tel:+18885504376"
+                className="text-emerald-700 font-medium hover:text-emerald-800"
+              >
+                (888) 550-4376
+              </a>
+            </p>
+            <p>
+              Text:{' '}
               <a
                 href="tel:+18322208100"
                 className="text-emerald-700 font-medium hover:text-emerald-800"
@@ -170,21 +179,21 @@ export default function HeroesSmsConsentScriptPage() {
             <p>
               Email:{' '}
               <a
-                href="mailto:support@heroeslawntx.com"
+                href="mailto:hlc105@heroeslawncare.com"
                 className="text-emerald-700 font-medium hover:text-emerald-800"
               >
-                support@heroeslawntx.com
+                hlc105@heroeslawncare.com
               </a>
             </p>
             <p>
               Web:{' '}
               <a
-                href="https://www.heroeslawntx.com"
+                href="https://www.heroeslawncare.com/woodlands-tx"
                 target="_blank"
                 rel="noopener noreferrer"
                 className="text-emerald-700 font-medium hover:text-emerald-800"
               >
-                heroeslawntx.com
+                heroeslawncare.com/woodlands-tx
               </a>
             </p>
           </div>
