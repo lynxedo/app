@@ -20,6 +20,15 @@ export async function POST(request: NextRequest) {
     .single()
   if (!hu?.company_id) return NextResponse.json({ error: 'No company found' }, { status: 400 })
 
+  // Evict this device token from any other account first, so pushes for a
+  // previously signed-in account can't land on this device after an account
+  // switch/logout (same one-device-one-account rule as apns-subscribe).
+  await admin
+    .from('fcm_tokens')
+    .delete()
+    .eq('device_token', body.token)
+    .neq('user_id', user.id)
+
   const { error } = await admin
     .from('fcm_tokens')
     .upsert(

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -17,6 +18,15 @@ export async function POST(request: Request) {
     .eq('id', user.id)
     .single()
   if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+
+  // Evict this endpoint from any other account first, so pushes for a
+  // previously signed-in account can't land on this browser after an account
+  // switch/logout (same one-device-one-account rule as apns-subscribe).
+  await createAdminClient()
+    .from('push_subscriptions')
+    .delete()
+    .eq('endpoint', endpoint)
+    .neq('user_id', user.id)
 
   await supabase
     .from('push_subscriptions')
