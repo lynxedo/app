@@ -116,6 +116,21 @@ export default function RouteBuilder() {
   const [usersLoading, setUsersLoading] = useState(true)
   const [usersError, setUsersError] = useState<string | null>(null)
 
+  // Basic ↔ Advanced routing mode. Advanced renders the full Basic flow and
+  // layers the route-capacity steps on top (tank loadout, product quantities,
+  // predicted times) — those are built in later sessions. This is purely a
+  // view switch over the SAME route engine; Basic is never forked or rebuilt.
+  // Persisted per-browser, hydrated after mount to avoid an SSR/client mismatch.
+  const [routeMode, setRouteMode] = useState<'basic' | 'advanced'>('basic')
+  useEffect(() => {
+    const saved = localStorage.getItem('lynxedo-route-mode')
+    if (saved === 'advanced' || saved === 'basic') setRouteMode(saved)
+  }, [])
+  const changeRouteMode = (mode: 'basic' | 'advanced') => {
+    setRouteMode(mode)
+    try { localStorage.setItem('lynxedo-route-mode', mode) } catch {}
+  }
+
   const [date, setDate] = useState(todayLocal())
   // Multi-select: array of Jobber user IDs whose visits to load. Order
   // doesn't matter; visits get tagged with their originating tech.
@@ -1044,6 +1059,33 @@ export default function RouteBuilder() {
 
   return (
     <div className="space-y-6">
+      {/* ── Mode toggle: Basic ↔ Advanced ──────────────────────────────────
+          Framework only. Advanced currently renders the IDENTICAL Basic flow
+          below; the capacity / loadout steps (product amounts, tank loadout,
+          predicted on-site & drive time → Daily Log) get layered on in later
+          sessions, gated on `routeMode === 'advanced'`. Basic is never forked
+          or rebuilt. See Hub/ROUTE_CAPACITY_AND_ADVANCED_ROUTING_PRD.md. */}
+      <div className="inline-flex rounded-xl bg-gray-900 border border-gray-800 p-1">
+        <button
+          type="button"
+          onClick={() => changeRouteMode('basic')}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            routeMode === 'basic' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Basic
+        </button>
+        <button
+          type="button"
+          onClick={() => changeRouteMode('advanced')}
+          className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
+            routeMode === 'advanced' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'
+          }`}
+        >
+          Advanced
+        </button>
+      </div>
+
       {/* Controls */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
         <h3 className="font-semibold text-lg mb-4">Quick Route</h3>
