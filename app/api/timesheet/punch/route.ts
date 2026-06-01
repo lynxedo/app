@@ -19,12 +19,12 @@ function getPayPeriod(date: Date): { start: string; end: string } {
 
 function computeHours(clockIn: Date, clockOut: Date, breakMinutes = 0) {
   const totalHours = Math.max(0, (clockOut.getTime() - clockIn.getTime()) / 3600000 - breakMinutes / 60)
-  const regularHours = Math.min(totalHours, 8)
-  const overtimeHours = Math.max(0, totalHours - 8)
+  // OT is weekly (>40h), not daily — store all shift hours as regular at entry level.
+  // weekSummary() in the admin UI computes weekly OT across all entries.
   return {
     total_hours: Math.round(totalHours * 100) / 100,
-    regular_hours: Math.round(regularHours * 100) / 100,
-    overtime_hours: Math.round(overtimeHours * 100) / 100,
+    regular_hours: Math.round(totalHours * 100) / 100,
+    overtime_hours: 0,
   }
 }
 
