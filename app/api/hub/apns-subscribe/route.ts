@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -17,6 +18,16 @@ export async function POST(request: Request) {
     .eq('id', user.id)
     .single()
   if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
+
+  // A physical device belongs to exactly one account — evict this token from
+  // any other user before binding it here, so pushes for a previously
+  // signed-in account can't land on this device after a logout/account switch.
+  // Uses the admin client because RLS blocks deleting another user's row.
+  await createAdminClient()
+    .from('apns_tokens')
+    .delete()
+    .eq('device_token', device_token)
+    .neq('user_id', user.id)
 
   await supabase
     .from('apns_tokens')
