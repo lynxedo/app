@@ -541,16 +541,6 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
 
   function sendBatchOrderOnly(b: RouteBatch) {
     const stops = orderedStops(b)
-    const offDay = stops.filter(s => s.original_day && s.original_day !== b.assigned_date)
-    if (offDay.length > 0) {
-      const ok = window.confirm(
-        `Send Order Only sets the visit sequence but CANNOT move a visit to a different day.\n\n` +
-        `${offDay.length} of ${stops.length} stop(s) are currently scheduled on a different day than ${b.assigned_date} ` +
-        `and will stay on their day (just reordered).\n\n` +
-        `To actually move them to ${b.assigned_date}, use "Send with Times" instead.\n\nContinue with order-only?`,
-      )
-      if (!ok) return
-    }
     runBatchAction(b.id, 'order', async () => {
       const res = await fetch('/api/reorder-jobber', {
         method: 'POST',
@@ -558,6 +548,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
         body: JSON.stringify({
           visit_ids: stops.map(s => s.jobber_visit_id),
           assigned_user_id: b.assigned_tech_jobber_id ?? null,
+          assigned_date: b.assigned_date,
         }),
       })
       const data = await res.json() as { results?: Array<{ success: boolean }>; allOk?: boolean; error?: string }
