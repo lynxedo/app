@@ -123,13 +123,16 @@ export async function POST(req: NextRequest) {
 
   if (punchError) return NextResponse.json({ error: punchError.message }, { status: 500 })
 
-  // On clock-out: compute and store the time entry
+  // On clock-out: compute and store the time entry.
+  // Must use the admin client — time_entries has an admin-only write RLS policy,
+  // so a non-admin employee's session would silently drop the insert.
   if (action === 'out' && lastPunch) {
     const clockIn = new Date(lastPunch.punched_at)
     const hours = computeHours(clockIn, now)
     const period = getPayPeriod(clockIn)
 
-    await supabase.from('time_entries').insert({
+    const admin = createAdminClient()
+    await admin.from('time_entries').insert({
       employee_id,
       date: clockIn.toISOString().split('T')[0],
       clock_in: clockIn.toISOString(),
