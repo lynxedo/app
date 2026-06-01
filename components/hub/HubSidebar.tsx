@@ -170,6 +170,16 @@ export default function HubSidebar({
   const [unreadRoomIds, setUnreadRoomIds] = useState<Set<string>>(new Set())
   const [unreadConvIds, setUnreadConvIds] = useState<Set<string>>(new Set())
 
+  // Refs mirroring the member room / conversation lists. Read inside the
+  // realtime handler (which must not resubscribe when the lists change) to gate
+  // the optimistic unread-add to entities the user actually belongs to — the
+  // broadcast fallback channel isn't RLS-scoped, so without this a private-room
+  // broadcast could briefly slip a non-member id into the unread set.
+  const sidebarRoomsRef = useRef<Room[]>(sidebarRooms)
+  sidebarRoomsRef.current = sidebarRooms
+  const conversationsRef = useRef<Conversation[]>(conversations)
+  conversationsRef.current = conversations
+
   // Favorites / pinning state
   const [pinnedIds, setPinnedIds] = useState<string[]>(initialPinnedIds)
 
@@ -331,12 +341,21 @@ export default function HubSidebar({
       if (msg.room_id) {
         // Don't mark unread if user is currently viewing this room
         if (activeRoomMatch?.[1] === msg.room_id) return
-        setUnreadRoomIds(prev => new Set([...prev, msg.room_id!]))
+        // Only optimistically mark unread for rooms the user is a member of. The
+        // broadcast fallback channel isn't RLS-scoped, so this gate stops a
+        // private-room broadcast from slipping a non-member room id into the set.
+        // (A brand-new membership is reconciled by refreshUnreadFromServer below.)
+        if (sidebarRoomsRef.current.some(r => r.id === msg.room_id)) {
+          setUnreadRoomIds(prev => new Set([...prev, msg.room_id!]))
+        }
       } else if (msg.conversation_id) {
         if (activePmMatch?.[1] === msg.conversation_id) return
-        setUnreadConvIds(prev => new Set([...prev, msg.conversation_id!]))
+        // Same membership gate for DMs — only a conversation the user is in.
+        if (conversationsRef.current.some(c => c.id === msg.conversation_id)) {
+          setUnreadConvIds(prev => new Set([...prev, msg.conversation_id!]))
+        }
         // Refetch so the conversation's archived flag updates from the
-        // server-side auto-unarchive hook.
+        // server-side auto-unarchive hook (also surfaces a brand-new DM).
         loadConversations()
       }
       // Also pull authoritative unread state from the server so the sidebar
