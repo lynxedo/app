@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
+import AdvancedRouteView from './AdvancedRouteView'
 
 interface JobberUser {
   id: string
@@ -1060,11 +1061,11 @@ export default function RouteBuilder() {
   return (
     <div className="space-y-6">
       {/* ── Mode toggle: Basic ↔ Advanced ──────────────────────────────────
-          Framework only. Advanced currently renders the IDENTICAL Basic flow
-          below; the capacity / loadout steps (product amounts, tank loadout,
-          predicted on-site & drive time → Daily Log) get layered on in later
-          sessions, gated on `routeMode === 'advanced'`. Basic is never forked
-          or rebuilt. See Hub/ROUTE_CAPACITY_AND_ADVANCED_ROUTING_PRD.md. */}
+          Advanced renders its own view (AdvancedRouteView): multi-day pull,
+          interactive map, lasso select, optimize-selected. Tank loadout /
+          product quantities / predicted-time → Daily Log layer on in later
+          sessions. Basic (below, gated on `routeMode === 'basic'`) is never
+          forked or rebuilt. See Hub/ROUTE_CAPACITY_AND_ADVANCED_ROUTING_PRD.md. */}
       <div className="inline-flex rounded-xl bg-gray-900 border border-gray-800 p-1">
         <button
           type="button"
@@ -1086,6 +1087,16 @@ export default function RouteBuilder() {
         </button>
       </div>
 
+      {/* Advanced mode renders its own self-contained view (multi-day pull,
+          interactive map, lasso select, optimize-selected). The Basic flow
+          below is wrapped in a `basic`-only guard so it is never forked or
+          rebuilt — it renders exactly as before, just conditionally. */}
+      {routeMode === 'advanced' && (
+        <AdvancedRouteView users={users} usersLoading={usersLoading} usersError={usersError} />
+      )}
+
+      {routeMode === 'basic' && (
+      <>
       {/* Controls */}
       <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
         <h3 className="font-semibold text-lg mb-4">Quick Route</h3>
@@ -1679,6 +1690,8 @@ export default function RouteBuilder() {
             </button>
           </div>
         </div>
+      )}
+      </>
       )}
     </div>
   )
