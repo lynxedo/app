@@ -3,6 +3,26 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { pushBadgeUpdate } from '@/lib/hub-badges'
 
+async function broadcastReceiptUpdated(conversationId: string, userId: string, lastReadAt: string) {
+  const admin = createAdminClient()
+  const channel = admin.channel(`receipts:${conversationId}`)
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('subscribe timeout')), 5000)
+      channel.subscribe((status) => {
+        const s = String(status)
+        if (s === 'SUBSCRIBED') { clearTimeout(timeout); resolve() }
+        else if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED') { clearTimeout(timeout); reject(new Error(s)) }
+      })
+    })
+    await channel.send({ type: 'broadcast', event: 'receipt-updated', payload: { user_id: userId, last_read_at: lastReadAt } })
+  } catch (err) {
+    console.warn('[read-receipts] broadcast failed:', (err as Error).message)
+  } finally {
+    await admin.removeChannel(channel)
+  }
+}
+
 // GET — returns unread room IDs and conversation IDs for the current user
 export async function GET() {
   const supabase = await createClient()
@@ -96,6 +116,12 @@ export async function POST(request: Request) {
   await supabase
     .from('hub_read_receipts')
     .upsert(record, { onConflict: conflictCol })
+
+  // Broadcast receipt update for DMs so the sender's "Read" indicator
+  // appears immediately even when postgres_changes drops the WAL event.
+  if (conversation_id) {
+    void broadcastReceiptUpdated(conversation_id, user.id, record.last_read_at)
+  }
 
   // Push the new lower badge count to this user's other devices so reading
   // on phone clears the iPad badge too. Fire-and-forget — never block the

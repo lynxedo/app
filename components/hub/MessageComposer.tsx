@@ -98,6 +98,30 @@ export default function MessageComposer({
 
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  const draftKey = roomId ? `hub-draft-room-${roomId}` : conversationId ? `hub-draft-conv-${conversationId}` : null
+
+  // Restore draft from localStorage when switching conversations/rooms.
+  useEffect(() => {
+    if (!draftKey) return
+    const saved = localStorage.getItem(draftKey)
+    setContent(saved ?? '')
+  }, [draftKey])
+
+  // Auto-save draft to localStorage on every content change (debounced 400ms).
+  useEffect(() => {
+    if (!draftKey) return
+    if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current)
+    draftSaveTimer.current = setTimeout(() => {
+      if (content.trim()) {
+        localStorage.setItem(draftKey, content)
+      } else {
+        localStorage.removeItem(draftKey)
+      }
+    }, 400)
+    return () => { if (draftSaveTimer.current) clearTimeout(draftSaveTimer.current) }
+  }, [content, draftKey])
 
   const filteredUsers = mentionQuery !== null
     ? hubUsers.filter(u =>
@@ -400,6 +424,7 @@ export default function MessageComposer({
     if ((!trimmed && pendingFiles.length === 0) || sending) return
     setSending(true)
     setContent('')
+    if (draftKey) localStorage.removeItem(draftKey)
     const files = pendingFiles.map(({ localUrl: _, ...f }) => f)
     // Snapshot the pending files with their blob URLs for the optimistic
     // insert. Real DB ids arrive via the realtime INSERT a moment later.
@@ -466,7 +491,7 @@ export default function MessageComposer({
 
     setSending(false)
     textareaRef.current?.focus()
-  }, [content, pendingFiles, sending, scheduledAt, roomId, conversationId, onSent, currentUserId, hubUsers])
+  }, [content, pendingFiles, sending, scheduledAt, roomId, conversationId, onSent, currentUserId, hubUsers, draftKey])
 
   // Min datetime for scheduler — 1 minute from now
   const minDateTime = new Date(Date.now() + 60000).toISOString().slice(0, 16)
