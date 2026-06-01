@@ -159,6 +159,12 @@ export default function AdvancedRouteMap({
   // per render but capturing closures) always hit-test against current data.
   const pinsRef = useRef<AdvPin[]>(pins)
   pinsRef.current = pins
+  // Latest onPinClick in a ref so the marker-render effect doesn't depend on the
+  // parent passing a stable callback — markers then rebuild only when the pin
+  // set actually changes, not on every unrelated parent re-render (e.g. typing
+  // a new date), which would otherwise tear down + re-add ~80 DOM markers.
+  const onPinClickRef = useRef(onPinClick)
+  onPinClickRef.current = onPinClick
 
   const orderedPathCoords = useMemo(() => {
     if (!pathCoords || pathCoords.length < 2) return null
@@ -246,7 +252,7 @@ export default function AdvancedRouteMap({
         const el = buildPinEl(pin)
         el.addEventListener('click', (ev) => {
           ev.stopPropagation()
-          onPinClick(pin.id)
+          onPinClickRef.current(pin.id)
           const popup = popupRef.current
           if (popup && mapRef.current) {
             popup.setLngLat([pin.lng, pin.lat]).setHTML(popupHtml(pin)).addTo(mapRef.current)
@@ -258,7 +264,7 @@ export default function AdvancedRouteMap({
     })()
 
     return () => { cancelled = true }
-  }, [depotCoord, pins, mapReady, onPinClick])
+  }, [depotCoord, pins, mapReady])
 
   // ── Fit bounds when the set of locations changes (not on every selection) ──
   const fitKey = useMemo(
@@ -317,12 +323,12 @@ export default function AdvancedRouteMap({
   useEffect(() => {
     const map = mapRef.current
     if (!map || !mapReady || !highlightId) return
-    const pin = pins.find(p => p.id === highlightId)
+    const pin = pinsRef.current.find(p => p.id === highlightId)
     if (!pin) return
     map.easeTo({ center: [pin.lng, pin.lat], zoom: Math.max(map.getZoom(), 13), duration: 400 })
     const popup = popupRef.current
     if (popup) popup.setLngLat([pin.lng, pin.lat]).setHTML(popupHtml(pin)).addTo(map)
-  }, [highlightId, pins, mapReady])
+  }, [highlightId, mapReady])
 
   // ── Lasso: enable/disable map drag-pan so a freehand drag draws instead ────
   useEffect(() => {
