@@ -1,11 +1,16 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import PdfCanvas from './PdfCanvas'
 
 export type LightboxItem = {
-  type: 'image' | 'pdf'
+  type: 'image' | 'pdf' | 'html'
   src: string
   filename: string
+  // Optional separate URL for the Download button. Defaults to `src`. Used when
+  // the in-app preview reads bytes from one endpoint but downloading should hit
+  // another (e.g. a redirect-to-signed-URL endpoint).
+  downloadSrc?: string
 }
 
 export default function MediaLightbox({
@@ -84,7 +89,7 @@ export default function MediaLightbox({
           )}
         </div>
         <a
-          href={current.src}
+          href={current.downloadSrc ?? current.src}
           download={current.filename}
           className="p-2 hover:bg-white/10 active:bg-white/20 rounded text-white"
           title="Download"
@@ -111,23 +116,30 @@ export default function MediaLightbox({
 
       {/* Content area */}
       <div
-        className="relative flex-1 flex items-center justify-center overflow-hidden"
+        className="relative flex-1 min-h-0 flex flex-col overflow-hidden"
         onTouchStart={handleTouchStart}
         onTouchEnd={handleTouchEnd}
       >
         {current.type === 'image' ? (
-          <img
-            src={current.src}
-            alt={current.filename}
-            className="max-w-full max-h-full object-contain select-none"
-            style={{ touchAction: 'pinch-zoom' }}
-            onClick={e => e.stopPropagation()}
-            draggable={false}
-          />
+          <div className="flex-1 min-h-0 flex items-center justify-center overflow-hidden">
+            <img
+              src={current.src}
+              alt={current.filename}
+              className="max-w-full max-h-full object-contain select-none"
+              style={{ touchAction: 'pinch-zoom' }}
+              onClick={e => e.stopPropagation()}
+              draggable={false}
+            />
+          </div>
+        ) : current.type === 'pdf' ? (
+          // pdf.js canvas renderer — works in every webview, including Android's
+          // (which can't render PDFs in an <iframe> — shows a blank white screen).
+          <PdfCanvas key={current.src} src={current.src} />
         ) : (
+          // HTML (e.g. a generated route sheet) renders fine in an iframe everywhere.
           <iframe
             src={current.src}
-            className="w-full h-full bg-white"
+            className="w-full flex-1 bg-white"
             title={current.filename}
             onClick={e => e.stopPropagation()}
           />

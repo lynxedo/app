@@ -4,7 +4,7 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const supabase = await createClient()
@@ -40,6 +40,25 @@ export async function GET(
       secretAccessKey: process.env.CF_R2_SECRET_ACCESS_KEY!,
     },
   })
+
+  // In-app PDF preview reads bytes from this same origin — the lightbox's pdf.js
+  // renderer can't read a cross-origin redirect to R2 (CORS). Stream the object
+  // directly instead of redirecting.
+  if (new URL(request.url).searchParams.get('inline') === 'pdf') {
+    const obj = await r2.send(new GetObjectCommand({
+      Bucket: process.env.CF_R2_BUCKET_NAME!,
+      Key: file.storage_path,
+    }))
+    const bytes = await obj.Body?.transformToByteArray()
+    if (!bytes) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    return new Response(new Uint8Array(bytes), {
+      headers: {
+        'Content-Type': file.mime_type || 'application/pdf',
+        'Content-Disposition': `inline; filename="${encodeURIComponent(file.filename)}"`,
+        'Cache-Control': 'private, max-age=3600',
+      },
+    })
+  }
 
   const url = await getSignedUrl(
     r2,

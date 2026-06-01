@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 
 type HubUser = { id: string; display_name: string; avatar_url?: string | null; is_bot?: boolean }
 
@@ -172,27 +173,25 @@ function EntryCard({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const attachInputRef = useRef<HTMLInputElement>(null)
   const updatesBottomRef = useRef<HTMLDivElement>(null)
+  const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null)
 
-  async function openAttachment(key: string) {
-    // Open the window synchronously (trusted user gesture) so iOS doesn't
-    // block it as a popup, then navigate it once we have the signed URL.
-    const win = window.open('', '_blank')
-    const res = await fetch(`/api/hub/daily-log/media/${key}?json=1`)
-    if (!res.ok) { win?.close(); return }
-    const { url } = await res.json()
-    if (win) win.location.href = url
-  }
-
-  async function openRouteSheet() {
-    // Same gesture-safe pattern as openAttachment. We fetch a token-authorized
-    // URL from inside the app (where we're logged in via cookie), then open it.
-    // The token makes the sheet load in ANY browser the device hands the link to
-    // (default browser, signed in or not) — fixes the 401 on the iOS/Android app.
-    const win = window.open('', '_blank')
-    const res = await fetch(`/api/hub/daily-log/${entry.id}/route-sheet?grant=1`)
-    if (!res.ok) { win?.close(); return }
-    const { url } = await res.json()
-    if (win) win.location.href = url
+  function openRouteSheet() {
+    // Open in the in-app viewer (MediaLightbox) — renders inside the logged-in
+    // Hub webview, so it works on every platform including the iOS/Android apps
+    // (no new browser window, no session/cookie problem). HTML sheets render in
+    // an iframe; PDFs render via pdf.js (canvas) which Android's webview needs.
+    if (!entry.route_sheet_url) return
+    const isHtml = entry.route_sheet_url.endsWith('.html')
+    const base = `/api/hub/daily-log/${entry.id}/route-sheet`
+    setLightbox({
+      items: [{
+        type: isHtml ? 'html' : 'pdf',
+        src: isHtml ? base : `${base}?inline=pdf`,
+        downloadSrc: base,
+        filename: entry.route_sheet_name ?? 'Route Sheet',
+      }],
+      index: 0,
+    })
   }
 
   const canEdit = isAdmin || entry.creator?.id === currentUserId
@@ -706,40 +705,71 @@ function EntryCard({
                     {u.content && (
                       <p className="text-sm text-gray-300 whitespace-pre-wrap leading-relaxed">{u.content}</p>
                     )}
-                    {(u.media_urls ?? []).length > 0 && (
-                      <div className={`flex flex-col gap-1.5 ${u.content ? 'mt-1.5' : ''}`}>
-                        {(u.media_urls ?? []).map((att, i) => {
-                          const isImage = att.type.startsWith('image/')
-                          const mediaUrl = `/api/hub/daily-log/media/${att.key}`
-                          if (isImage) {
-                            return (
-                              <button key={i} onClick={() => openAttachment(att.key)} className="block text-left">
-                                <img
-                                  src={mediaUrl}
-                                  alt={att.name}
-                                  className="max-h-48 max-w-[280px] rounded-lg object-cover border border-gray-700"
-                                />
-                              </button>
+                    {(u.media_urls ?? []).length > 0 && (() => {
+                      const atts = u.media_urls ?? []
+                      // Images + PDFs share one in-app viewer so prev/next flips
+                      // through them. Other file types fall back to download.
+                      const items: LightboxItem[] = []
+                      const idxByKey: Record<string, number> = {}
+                      atts.forEach(att => {
+                        const isImage = att.type.startsWith('image/')
+                        const isPdf = att.type === 'application/pdf'
+                        if (isImage || isPdf) {
+                          idxByKey[att.key] = items.length
+                          const base = `/api/hub/daily-log/media/${att.key}`
+                          items.push({
+                            type: isImage ? 'image' : 'pdf',
+                            src: isPdf ? `${base}?inline=pdf` : base,
+                            downloadSrc: base,
+                            filename: att.name,
+                          })
+                        }
+                      })
+                      const fileChipClass = "flex items-center gap-2 px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-colors group max-w-[280px]"
+                      return (
+                        <div className={`flex flex-col gap-1.5 ${u.content ? 'mt-1.5' : ''}`}>
+                          {atts.map((att, i) => {
+                            const isImage = att.type.startsWith('image/')
+                            const isPdf = att.type === 'application/pdf'
+                            const mediaUrl = `/api/hub/daily-log/media/${att.key}`
+                            if (isImage) {
+                              return (
+                                <button key={i} onClick={() => setLightbox({ items, index: idxByKey[att.key] ?? 0 })} className="block text-left">
+                                  <img
+                                    src={mediaUrl}
+                                    alt={att.name}
+                                    className="max-h-48 max-w-[280px] rounded-lg object-cover border border-gray-700"
+                                  />
+                                </button>
+                              )
+                            }
+                            const chipBody = (
+                              <>
+                                <svg className="w-4 h-4 text-gray-400 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+                                </svg>
+                                <span className="text-xs text-gray-300 group-hover:text-white truncate flex-1">{att.name}</span>
+                                <svg className="w-3 h-3 text-gray-500 group-hover:text-gray-300 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                                </svg>
+                              </>
                             )
-                          }
-                          return (
-                            <button
-                              key={i}
-                              onClick={() => openAttachment(att.key)}
-                              className="flex items-center gap-2 px-2.5 py-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 rounded-lg transition-colors group max-w-[280px]"
-                            >
-                              <svg className="w-4 h-4 text-gray-400 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-                              </svg>
-                              <span className="text-xs text-gray-300 group-hover:text-white truncate flex-1">{att.name}</span>
-                              <svg className="w-3 h-3 text-gray-500 group-hover:text-gray-300 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                              </svg>
-                            </button>
-                          )
-                        })}
-                      </div>
-                    )}
+                            if (isPdf) {
+                              return (
+                                <button key={i} onClick={() => setLightbox({ items, index: idxByKey[att.key] ?? 0 })} className={fileChipClass}>
+                                  {chipBody}
+                                </button>
+                              )
+                            }
+                            return (
+                              <a key={i} href={mediaUrl} download={att.name} target="_blank" rel="noopener" className={fileChipClass}>
+                                {chipBody}
+                              </a>
+                            )
+                          })}
+                        </div>
+                      )
+                    })()}
                   </div>
                   <div className="flex-none flex items-start gap-1 opacity-0 group-hover:opacity-100 transition-opacity pt-0.5">
                     {/* Push to Board */}
@@ -864,6 +894,14 @@ function EntryCard({
         </div>
 
       </div>
+
+      {lightbox && (
+        <MediaLightbox
+          items={lightbox.items}
+          startIndex={lightbox.index}
+          onClose={() => setLightbox(null)}
+        />
+      )}
     </div>
   )
 }

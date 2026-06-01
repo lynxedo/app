@@ -892,7 +892,10 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                           mediaIdxByFileId[f.id] = mediaItems.length
                           mediaItems.push({
                             type: isImg ? 'image' : 'pdf',
-                            src: f.localUrl ?? `/api/hub/files/${f.id}`,
+                            // PDFs are read as bytes by the in-app pdf.js viewer (same-origin,
+                            // no CORS); images load via the redirect. Download uses the redirect.
+                            src: isPdf && !f.localUrl ? `/api/hub/files/${f.id}?inline=pdf` : (f.localUrl ?? `/api/hub/files/${f.id}`),
+                            downloadSrc: f.localUrl ?? `/api/hub/files/${f.id}`,
                             filename: f.filename,
                           })
                         }
