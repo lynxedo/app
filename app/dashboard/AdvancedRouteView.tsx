@@ -65,6 +65,7 @@ interface Visit {
   instructions: string | null
   startAt: string | null
   type: 'visit' | 'assessment'
+  jobId: string | null  // Jobber Job ID — used to look up days-since-last-visit
   // Decorated client-side during the multi-day pull:
   techId: string   // originating Jobber user
   dayDate: string  // the YYYY-MM-DD this visit was pulled for
@@ -170,6 +171,10 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
   // Lasso behavior: drag to add to (select) or remove from (deselect) the selection.
   const [lassoMode, setLassoMode] = useState<'select' | 'deselect'>('select')
 
+  // Days since last completed visit, keyed by Jobber Job ID. Loaded asynchronously
+  // after the visit list renders — pins update once data arrives.
+  const [daysSinceByJobId, setDaysSinceByJobId] = useState<Map<string, number | null>>(new Map())
+
   // Optimized selection (the route preview for whatever is lassoed/checked)
   const [optimized, setOptimized] = useState<OptimizedVisit[] | null>(null)
   const [optimizing, setOptimizing] = useState(false)
@@ -219,6 +224,21 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       .then(data => { if (data.pin_settings) setPinSettings(data.pin_settings) })
       .catch(() => {})
   }, [])
+
+  // When visits load, fetch days-since-last-visit for every unique job ID in the
+  // result set. Runs in the background — pin labels update once data arrives.
+  // Clears on null (new load started) so stale counts never show on the wrong set.
+  useEffect(() => {
+    if (!visits) { setDaysSinceByJobId(new Map()); return }
+    const jobIds = [...new Set(visits.flatMap(v => (v.jobId ? [v.jobId] : [])))]
+    if (jobIds.length === 0) return
+    fetch(`/api/routing/last-visit-dates?jobIds=${jobIds.join(',')}`)
+      .then(r => r.json())
+      .then((data: Record<string, number | null>) => {
+        setDaysSinceByJobId(new Map(Object.entries(data)))
+      })
+      .catch(() => {})
+  }, [visits])
 
   // Close tech picker on outside click
   useEffect(() => {
@@ -718,11 +738,21 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       // recoloring — and aux programs form the halo. Falls back to slate when no base
       // program matches. The route-order number still shows once optimized.
       const { baseColor, auxColors } = resolvePinColors(v.lineItemNames, pinSettings)
+      // Optimized stops show their route-order number; unoptimized stops show
+      // the days since the last completed visit on this job (loaded async).
+      const pinLabel = (() => {
+        if (route) return labelFor(route.pos)
+        if (v.jobId) {
+          const days = daysSinceByJobId.get(v.jobId)
+          if (typeof days === 'number') return String(days)
+        }
+        return ''
+      })()
       out.push({
         id: v.id,
         lat: coord.lat,
         lng: coord.lng,
-        label: route ? labelFor(route.pos) : '',
+        label: pinLabel,
         color: baseColor ?? DEFAULT_PIN_COLOR,
         auxColors: auxColors.slice(0, MAX_HALO_ARCS),
         selected: sel,
@@ -733,7 +763,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       })
     }
     return out
-  }, [visits, coordsById, selectedIds, optimized, routePosById, heldVisitIds, pinSettings])
+  }, [visits, coordsById, selectedIds, optimized, routePosById, heldVisitIds, pinSettings, daysSinceByJobId])
 
   const pathCoords = useMemo(() => {
     if (!optimized || optimized.length === 0 || !depotCoord) return null
