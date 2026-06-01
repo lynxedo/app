@@ -591,6 +591,17 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           .single()
         if (!data) return
         const msg = data as unknown as HubMessage
+        if (msg.forwarded_from) {
+          const { data: orig } = await supabase
+            .from('messages')
+            .select('id, content, room_id, conversation_id, sender:hub_users!sender_id (display_name)')
+            .eq('id', msg.forwarded_from)
+            .single()
+          if (orig) {
+            const o = orig as { id: string; content: string; room_id: string | null; conversation_id: string | null; sender: { display_name: string } | { display_name: string }[] | null }
+            msg.forwarded_original = { ...o, sender: Array.isArray(o.sender) ? o.sender[0] : o.sender }
+          }
+        }
         setMessages(prev => {
           const idx = prev.findIndex(m => m.id === msg.id)
           if (idx >= 0) { const next = [...prev]; next[idx] = msg; return next }
@@ -645,10 +656,24 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   }, [roomId, conversationId])
 
   // Realtime: read receipts (DMs only). Lets "Read by ..." update live
-  // the moment another member opens the conversation. RLS policy
-  // hub_read_receipts_select_dm_members controls who receives events.
+  // the moment another member opens the conversation. Listens on both
+  // postgres_changes (authoritative, but sometimes dropped on iOS/mobile)
+  // and the broadcast fallback fired by the read-receipts API route.
   useEffect(() => {
     if (!conversationId) return
+
+    function applyReceiptUpdate(userId: string, lastReadAt: string) {
+      setMemberReceipts(prev => {
+        if (prev[userId] && prev[userId] >= lastReadAt) return prev
+        const next = { ...prev, [userId]: lastReadAt }
+        saveReadReceipts(
+          conversationId!,
+          Object.entries(next).map(([user_id, last_read_at]) => ({ user_id, last_read_at })),
+        )
+        return next
+      })
+    }
+
     const channel = supabase
       .channel(`receipts:${conversationId}`)
       .on(
@@ -662,7 +687,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
               if (!(row.user_id in prev)) return prev
               const next = { ...prev }
               delete next[row.user_id]
-              // Write through to cache so the next entry reflects this delete.
               saveReadReceipts(
                 conversationId,
                 Object.entries(next).map(([user_id, last_read_at]) => ({ user_id, last_read_at })),
@@ -670,17 +694,14 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
               return next
             })
           } else if (row.last_read_at) {
-            setMemberReceipts(prev => {
-              const next = { ...prev, [row.user_id]: row.last_read_at! }
-              saveReadReceipts(
-                conversationId,
-                Object.entries(next).map(([user_id, last_read_at]) => ({ user_id, last_read_at })),
-              )
-              return next
-            })
+            applyReceiptUpdate(row.user_id, row.last_read_at)
           }
         }
       )
+      .on('broadcast', { event: 'receipt-updated' }, (payload) => {
+        const p = (payload.payload ?? {}) as { user_id?: string; last_read_at?: string }
+        if (p.user_id && p.last_read_at) applyReceiptUpdate(p.user_id, p.last_read_at)
+      })
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
