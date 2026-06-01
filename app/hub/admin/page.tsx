@@ -45,7 +45,7 @@ export default async function AdminPage() {
     can_admin_timesheet: boolean; can_admin_fleet: boolean; can_admin_daily_log: boolean;
     can_admin_zone_sizer: boolean; can_admin_dialer: boolean; can_admin_contacts: boolean;
     can_access_marketing: boolean; can_admin_marketing: boolean;
-    can_access_forms: boolean; can_admin_forms: boolean;
+    can_access_forms: boolean; can_admin_forms: boolean; can_admin_products: boolean;
     display_name: string | null; avatar_url: string | null; invite_sent_at: string | null;
     full_name: string | null;
   }) => ({
@@ -85,6 +85,7 @@ export default async function AdminPage() {
       can_admin_marketing: r.can_admin_marketing,
       can_access_forms: r.can_access_forms,
       can_admin_forms: r.can_admin_forms,
+      can_admin_products: r.can_admin_products,
     },
   }))
 

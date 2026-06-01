@@ -30,6 +30,7 @@ type UserProfile = {
   can_admin_marketing: boolean
   can_access_forms: boolean
   can_admin_forms: boolean
+  can_admin_products: boolean
 }
 
 type User = {
@@ -85,6 +86,7 @@ const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_admin_contacts', label: 'Contacts' },
   { key: 'can_admin_marketing', label: 'Marketing' },
   { key: 'can_admin_forms', label: 'Form Builder' },
+  { key: 'can_admin_products', label: 'Products' },
 ]
 
 function getInitials(name: string | null, email: string): string {
@@ -194,6 +196,7 @@ export default function AdminPanel({
             can_admin_marketing: false,
             can_access_forms: true,
             can_admin_forms: false,
+            can_admin_products: false,
           },
         }
         setUsers(prev => [...prev, newUser])
@@ -318,6 +321,7 @@ export default function AdminPanel({
             can_admin_marketing: false,
             can_access_forms: true,
             can_admin_forms: false,
+            can_admin_products: false,
           },
         }
         setUsers(prev => [...prev, newUser])

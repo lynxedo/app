@@ -59,6 +59,7 @@ const TABS = [
   { id: 'call-log',     icon: '📞', label: 'Call Log' },
   { id: 'marketing',    icon: '📣', label: 'Marketing' },
   { id: 'forms',        icon: '📝', label: 'Forms' },
+  { id: 'products',     icon: '📦', label: 'Products' },
   { id: 'books',        icon: '📊', label: 'Books' },
   { id: 'timesheet',    icon: '🕐', label: 'Timesheet' },
   { id: 'settings',     icon: '⚙️', label: 'Settings' },
@@ -137,6 +138,7 @@ export default function HelpContent() {
         {activeTab === 'call-log'   && <CallLogTab />}
         {activeTab === 'marketing'  && <MarketingTab />}
         {activeTab === 'forms'      && <FormsTab />}
+        {activeTab === 'products'   && <ProductsTab />}
         {activeTab === 'books'      && <BooksTab />}
         {activeTab === 'timesheet'  && <TimesheetTab />}
         {activeTab === 'settings'   && <SettingsTab />}
@@ -1177,7 +1179,7 @@ function SettingsTab() {
           <li><strong className="text-white">Admin</strong> — full access to every admin area. Admins are the only ones who can change roles or grant manager access.</li>
         </ul>
         <AdminOnly>
-          <p>To make someone a manager: in <strong className="text-white">Admin → People</strong>, change their role dropdown to <em>Manager</em>. An amber <strong className="text-white">Admin Access</strong> panel appears with toggles for each admin area — People, Hub, Routing, Time Records, Fleet, Daily Log. Flip on whichever areas they should be able to manage. Only true admins (role = Admin) see this panel, and only true admins can change role or grant access.</p>
+          <p>To make someone a manager: in <strong className="text-white">Admin → People</strong>, change their role dropdown to <em>Manager</em>. An amber <strong className="text-white">Admin Access</strong> panel appears with toggles for each admin area — People, Hub, Routing, Time Records, Fleet, Daily Log, Products. Flip on whichever areas they should be able to manage. Only true admins (role = Admin) see this panel, and only true admins can change role or grant access.</p>
         </AdminOnly>
       </Section>
 
@@ -1252,6 +1254,55 @@ function FormsTab() {
             <li><strong className="text-white">Forms</strong> — allows the user to view and fill out forms. On by default for all new users.</li>
             <li><strong className="text-white">Form Builder</strong> (Admin Access section) — allows the user to create and edit forms in the Form Builder admin panel.</li>
           </ul>
+        </Section>
+      </AdminOnly>
+    </>
+  )
+}
+
+function ProductsTab() {
+  return (
+    <>
+      <Section title="What is Products?">
+        <p>Products is the master catalog of everything you apply — fertilizers, herbicides, fungicides, insecticides, and more — each with its price, package size, application rate, and on-hand inventory. It&apos;s the &ldquo;spreadsheet&rdquo; the cost numbers, inventory counts, and (soon) the route-capacity and pesticide-record tools all read from.</p>
+        <p className="mt-2">It lives at <strong className="text-white">Admin → Products</strong> and is managed by admins (or anyone with the Products admin grant).</p>
+      </Section>
+
+      <Section title="Groups, Items &amp; Sub-items">
+        <p>The catalog is three levels deep — like the lead tracker, but one deeper:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Group</strong> — the product type (Fertilizer, Insecticide, Fungicide…). Each group header collapses and expands.</li>
+          <li><strong className="text-white">Item</strong> — the physical product you buy (e.g. <em>Acelepryn</em>). Holds the package price, size, unit, EPA #, active ingredient, batch info — and the inventory counts.</li>
+          <li><strong className="text-white">Sub-item</strong> — a rate the product is applied at (e.g. <em>0.1 rate</em>, <em>High Rate</em>). Click the arrow on an item to expand its sub-items; each carries its own application rate and derived cost. Use <strong className="text-white">+ Add sub-item</strong> to add another rate.</li>
+        </ul>
+        <p className="mt-2">Why split rates out? Because the same product gets applied at different rates for different jobs. Inventory is counted once on the item, but pesticide records and route capacity need the exact rate — which lives on the sub-item.</p>
+      </Section>
+
+      <Section title="Cost per 1,000 sq ft">
+        <p>You never type the cost — it&apos;s calculated. From <strong className="text-white">package size ÷ rate</strong> the system works out how many 1,000-sq-ft a package covers, then <strong className="text-white">package price ÷ that</strong> gives the cost per 1,000 sq ft. Update the price from your invoices and every rate&apos;s cost updates automatically.</p>
+      </Section>
+
+      <Section title="Inventory by location">
+        <p>Each storage location (Vehicle 1, Shop, North Shop…) is its own column. Type how many packages are at each location; the <strong className="text-white">Total</strong> and <strong className="text-emerald-300">$ Value</strong> columns add up automatically (total packages × package price). Counts live on the item, not per rate.</p>
+      </Section>
+
+      <AdminOnly>
+        <Section title="Adding &amp; editing products (Admin)">
+          <p>In <strong className="text-white">Admin → Products</strong> (Catalog tab):</p>
+          <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+            <li><strong className="text-white">+ Add product</strong> — name + group + price + size + unit, then expand it to add sub-items and the rest of the details.</li>
+            <li>Click any item&apos;s arrow to <strong className="text-white">expand</strong> it — edit every field, manage its rates, and see derived costs.</li>
+            <li><strong className="text-white">Package price</strong> and the per-location inventory cells edit right in the table — changes save as you click away.</li>
+            <li>The <strong className="text-white">✕</strong> on a row deletes that item (and its sub-items + inventory).</li>
+          </ul>
+        </Section>
+
+        <Section title="Groups &amp; locations (Settings)">
+          <p>The <strong className="text-white">Settings</strong> sub-tab manages your <strong className="text-white">Product Groups</strong> and <strong className="text-white">Inventory Locations</strong> — add, rename, or delete each. Deleting a group keeps its products (they become Uncategorized); deleting a location removes its inventory counts.</p>
+        </Section>
+
+        <Section title="Permissions">
+          <p>Controlled by the <strong className="text-white">Products</strong> grant in <strong className="text-white">Admin → People → Admin Access</strong> (for managers) — or any full admin. Off by default.</p>
         </Section>
       </AdminOnly>
     </>
