@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import AdvancedRouteMap, { type AdvPin } from '@/components/AdvancedRouteMap'
 import { buildAdvancedRouteSheetHtml, type RouteSheetStop } from '@/lib/advanced-route-sheet'
+import { resolvePinColors, DEFAULT_PIN_COLOR, MAX_HALO_ARCS, EMPTY_PIN_SETTINGS, type PinSettings } from '@/lib/pin-colors'
 
 interface JobberUser { id: string; name: string }
 
@@ -164,6 +165,11 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
   const [collapsedDays, setCollapsedDays] = useState<Set<string>>(new Set())
   const [highlightId, setHighlightId] = useState<string | null>(null)
 
+  // Company pin-color settings (base/aux programs → pin fill + halo). Read-only here.
+  const [pinSettings, setPinSettings] = useState<PinSettings>(EMPTY_PIN_SETTINGS)
+  // Lasso behavior: drag to add to (select) or remove from (deselect) the selection.
+  const [lassoMode, setLassoMode] = useState<'select' | 'deselect'>('select')
+
   // Optimized selection (the route preview for whatever is lassoed/checked)
   const [optimized, setOptimized] = useState<OptimizedVisit[] | null>(null)
   const [optimizing, setOptimizing] = useState(false)
@@ -203,6 +209,14 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     fetch('/api/settings')
       .then(r => r.json())
       .then(data => { if (data.settings?.duration_method) setDurationMethod(data.settings.duration_method) })
+      .catch(() => {})
+  }, [])
+
+  // Company pin-color settings (base/aux programs). Drives pin fill + halo colors.
+  useEffect(() => {
+    fetch('/api/routing/pin-settings')
+      .then(r => r.json())
+      .then(data => { if (data.pin_settings) setPinSettings(data.pin_settings) })
       .catch(() => {})
   }, [])
 
@@ -700,12 +714,17 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       const coord = route ? { lat: route.lat, lng: route.lng } : coordsById.get(v.id)
       if (!coord) continue
       const sel = selectedIds.has(v.id)
+      // Program color wins the center fill — selection is shown by the glow, not by
+      // recoloring — and aux programs form the halo. Falls back to slate when no base
+      // program matches. The route-order number still shows once optimized.
+      const { baseColor, auxColors } = resolvePinColors(v.lineItemNames, pinSettings)
       out.push({
         id: v.id,
         lat: coord.lat,
         lng: coord.lng,
         label: route ? labelFor(route.pos) : '',
-        color: route ? 'c0392b' : sel ? 'e47200' : '64748b',
+        color: baseColor ?? DEFAULT_PIN_COLOR,
+        auxColors: auxColors.slice(0, MAX_HALO_ARCS),
         selected: sel,
         dimmed: !!optimized && !route,
         title: v.clientName,
@@ -714,7 +733,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       })
     }
     return out
-  }, [visits, coordsById, selectedIds, optimized, routePosById, heldVisitIds])
+  }, [visits, coordsById, selectedIds, optimized, routePosById, heldVisitIds, pinSettings])
 
   const pathCoords = useMemo(() => {
     if (!optimized || optimized.length === 0 || !depotCoord) return null
@@ -982,16 +1001,46 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
             <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
                 <h3 className="font-semibold text-sm">Route map</h3>
-                <span className="text-xs text-gray-500">{coordsLoading ? 'Locating pins…' : 'Click a pin to inspect · Lasso to select'}</span>
+                <span className="text-xs text-gray-500">{coordsLoading ? 'Locating pins…' : 'Click a pin to inspect · Lasso to select/deselect'}</span>
               </div>
+
+              {/* Pin color legend — base = filled center, aux = halo ring */}
+              {(pinSettings.base_programs.length > 0 || pinSettings.aux_programs.length > 0) && (
+                <div className="px-4 py-2.5 border-b border-gray-800 flex flex-wrap items-center gap-x-4 gap-y-1.5 text-[11px]">
+                  {pinSettings.base_programs.map(p => (
+                    <span key={p.id} className="flex items-center gap-1.5 text-gray-300">
+                      <span className="w-3 h-3 rounded-full border border-white/40" style={{ background: p.color }} />
+                      {p.label}
+                    </span>
+                  ))}
+                  {pinSettings.base_programs.length > 0 && pinSettings.aux_programs.length > 0 && (
+                    <span className="text-gray-700">|</span>
+                  )}
+                  {pinSettings.aux_programs.map((p, i) => (
+                    <span key={p.id} className={`flex items-center gap-1.5 ${i < MAX_HALO_ARCS ? 'text-gray-400' : 'text-gray-600'}`}>
+                      <span className="w-3 h-3 rounded-full bg-transparent" style={{ border: `2px solid ${p.color}` }} />
+                      {p.label}{i >= MAX_HALO_ARCS ? ' (not on halo)' : ''}
+                    </span>
+                  ))}
+                </div>
+              )}
               {pins.length > 0 || depotCoord ? (
                 <AdvancedRouteMap
                   depotCoord={depotCoord}
                   pins={pins}
                   pathCoords={pathCoords}
-                  onLassoSelect={(ids) => setSelectedIds(new Set(ids))}
+                  onLassoSelect={(ids) => setSelectedIds(prev => {
+                    const next = new Set(prev)
+                    if (lassoMode === 'deselect') ids.forEach(id => next.delete(id))
+                    else ids.forEach(id => next.add(id))
+                    return next
+                  })}
                   onPinClick={(id) => setHighlightId(id)}
                   highlightId={highlightId}
+                  lassoMode={lassoMode}
+                  onLassoModeChange={setLassoMode}
+                  onClearSelection={() => setSelectedIds(new Set())}
+                  selectedCount={selectedCount}
                 />
               ) : (
                 <div className="px-4 py-12 text-gray-600 text-sm text-center">

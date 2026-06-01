@@ -14,7 +14,8 @@ export interface AdvPin {
   lat: number
   lng: number
   label: string        // text inside the pin ("" → small dot; "1".."n"/"a".. → numbered route order)
-  color: string        // hex without # (e.g. "e47200")
+  color: string        // full CSS color for the center fill (e.g. "#e47200") — the base program color
+  auxColors?: string[] // halo arc colors (aux programs); only the first 3 are drawn
   selected: boolean    // currently in the lasso/checkbox selection
   dimmed: boolean      // not part of the active optimized route — shown faint
   title?: string       // client name (popup heading)
@@ -31,10 +32,19 @@ interface AdvancedRouteMapProps {
    * appears after "Optimize Selected".
    */
   pathCoords: Array<{ lat: number; lng: number }> | null
+  /** Called with the visit ids inside the drawn loop. The parent applies them
+   *  additively (select) or subtractively (deselect) based on `lassoMode`. */
   onLassoSelect: (ids: string[]) => void
   onPinClick: (id: string) => void
   /** When set, the map eases to that pin and opens its popup. */
   highlightId: string | null
+  /** Lasso behavior: add to or remove from the current selection. */
+  lassoMode: 'select' | 'deselect'
+  onLassoModeChange: (mode: 'select' | 'deselect') => void
+  /** Clears the entire current selection (toolbar button). */
+  onClearSelection: () => void
+  /** Current selection size — drives the Clear button visibility/label. */
+  selectedCount: number
   height?: number
 }
 
@@ -93,30 +103,104 @@ function pointInPolygon(pt: { x: number; y: number }, poly: Array<{ x: number; y
   return inside
 }
 
+const SVG_NS = 'http://www.w3.org/2000/svg'
+const MAX_HALO = 3   // mirror of lib/pin-colors MAX_HALO_ARCS — only draw the first 3 aux arcs
+
+function polarToXY(cx: number, cy: number, r: number, angleDeg: number): { x: number; y: number } {
+  const a = (angleDeg - 90) * Math.PI / 180
+  return { x: cx + r * Math.cos(a), y: cy + r * Math.sin(a) }
+}
+
+// Arc path from startDeg→endDeg (clockwise), used for halo segments (< 360°).
+function arcPath(cx: number, cy: number, r: number, startDeg: number, endDeg: number): string {
+  const start = polarToXY(cx, cy, r, endDeg)
+  const end = polarToXY(cx, cy, r, startDeg)
+  const largeArc = endDeg - startDeg <= 180 ? '0' : '1'
+  return `M ${start.x.toFixed(2)} ${start.y.toFixed(2)} A ${r} ${r} 0 ${largeArc} 0 ${end.x.toFixed(2)} ${end.y.toFixed(2)}`
+}
+
+// Custom marker: a base-color circle (program color) with an optional aux halo
+// ring around it and an optional center label. Selection shows as an orange glow
+// so the base/program color is never overwritten.
 function buildPinEl(pin: AdvPin): HTMLDivElement {
-  const el = document.createElement('div')
-  const size = pin.label ? 28 : pin.selected ? 18 : 14
-  el.style.width = `${size}px`
-  el.style.height = `${size}px`
-  el.style.borderRadius = '50%'
-  el.style.background = `#${pin.color}`
-  el.style.border = pin.selected ? '3px solid #fff' : '2px solid #fff'
-  el.style.boxShadow = pin.selected
-    ? '0 0 0 2px #f97316, 0 1px 5px rgba(0,0,0,0.55)'
-    : '0 1px 4px rgba(0,0,0,0.5)'
-  el.style.color = '#fff'
-  el.style.fontSize = '12px'
-  el.style.fontWeight = 'bold'
-  el.style.display = 'flex'
-  el.style.alignItems = 'center'
-  el.style.justifyContent = 'center'
-  el.style.fontFamily = "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
-  el.style.cursor = 'pointer'
-  el.style.opacity = pin.dimmed ? '0.35' : '1'
-  el.style.transition = 'opacity 0.15s'
-  el.textContent = pin.label
-  if (pin.title) el.title = pin.title
-  return el
+  const aux = (pin.auxColors ?? []).slice(0, MAX_HALO)
+  const hasHalo = aux.length > 0
+
+  const innerR = (pin.label ? 26 : 18) / 2   // bigger when a number is shown; dots bumped up so halos read
+  const gap = 2
+  const ringW = 4
+  const ringR = innerR + gap + ringW / 2          // center radius of the halo stroke
+  const outerR = hasHalo ? innerR + gap + ringW : innerR
+  const pad = 7                                    // room for the selection glow + ring stroke
+  const size = Math.ceil((outerR + pad) * 2)
+  const c = size / 2
+
+  const wrap = document.createElement('div')
+  wrap.style.width = `${size}px`
+  wrap.style.height = `${size}px`
+  wrap.style.cursor = 'pointer'
+  wrap.style.opacity = pin.dimmed ? '0.35' : '1'
+  wrap.style.transition = 'opacity 0.15s'
+  if (pin.title) wrap.title = pin.title
+
+  const svg = document.createElementNS(SVG_NS, 'svg')
+  svg.setAttribute('width', `${size}`)
+  svg.setAttribute('height', `${size}`)
+  svg.setAttribute('viewBox', `0 0 ${size} ${size}`)
+  svg.style.display = 'block'
+  if (pin.selected) {
+    svg.style.filter = 'drop-shadow(0 0 2px #f97316) drop-shadow(0 0 5px #f97316)'
+  }
+
+  // Halo ring (aux programs)
+  if (hasHalo) {
+    if (aux.length === 1) {
+      const ring = document.createElementNS(SVG_NS, 'circle')
+      ring.setAttribute('cx', `${c}`); ring.setAttribute('cy', `${c}`); ring.setAttribute('r', `${ringR}`)
+      ring.setAttribute('fill', 'none'); ring.setAttribute('stroke', aux[0]); ring.setAttribute('stroke-width', `${ringW}`)
+      svg.appendChild(ring)
+    } else {
+      const n = aux.length
+      const gapDeg = 10
+      const seg = 360 / n
+      for (let i = 0; i < n; i++) {
+        const start = i * seg + gapDeg / 2
+        const end = (i + 1) * seg - gapDeg / 2
+        const path = document.createElementNS(SVG_NS, 'path')
+        path.setAttribute('d', arcPath(c, c, ringR, start, end))
+        path.setAttribute('fill', 'none')
+        path.setAttribute('stroke', aux[i])
+        path.setAttribute('stroke-width', `${ringW}`)
+        path.setAttribute('stroke-linecap', 'round')
+        svg.appendChild(path)
+      }
+    }
+  }
+
+  // Base circle (program color)
+  const circle = document.createElementNS(SVG_NS, 'circle')
+  circle.setAttribute('cx', `${c}`); circle.setAttribute('cy', `${c}`); circle.setAttribute('r', `${innerR}`)
+  circle.setAttribute('fill', pin.color)
+  circle.setAttribute('stroke', '#ffffff')
+  circle.setAttribute('stroke-width', pin.selected ? '2.5' : '2')
+  svg.appendChild(circle)
+
+  // Center label (route order today; days-since in 73.4)
+  if (pin.label) {
+    const text = document.createElementNS(SVG_NS, 'text')
+    text.setAttribute('x', `${c}`); text.setAttribute('y', `${c}`)
+    text.setAttribute('text-anchor', 'middle')
+    text.setAttribute('dominant-baseline', 'central')
+    text.setAttribute('fill', '#ffffff')
+    text.setAttribute('font-size', '12')
+    text.setAttribute('font-weight', '700')
+    text.setAttribute('font-family', "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif")
+    text.textContent = pin.label
+    svg.appendChild(text)
+  }
+
+  wrap.appendChild(svg)
+  return wrap
 }
 
 function popupHtml(pin: AdvPin): string {
@@ -138,6 +222,10 @@ export default function AdvancedRouteMap({
   onLassoSelect,
   onPinClick,
   highlightId,
+  lassoMode,
+  onLassoModeChange,
+  onClearSelection,
+  selectedCount,
   height = 600,
 }: AdvancedRouteMapProps) {
   const containerRef = useRef<HTMLDivElement | null>(null)
@@ -241,7 +329,7 @@ export default function AdvancedRouteMap({
       if (depotCoord) {
         const el = buildPinEl({
           id: '__depot__', lat: depotCoord.lat, lng: depotCoord.lng,
-          label: 'D', color: '16a34a', selected: false, dimmed: false, title: 'Depot',
+          label: 'D', color: '#16a34a', selected: false, dimmed: false, title: 'Depot',
         })
         const m = new mapboxgl.Marker({ element: el })
           .setLngLat([depotCoord.lng, depotCoord.lat]).addTo(map)
@@ -399,8 +487,8 @@ export default function AdvancedRouteMap({
         )}
       </div>
 
-      {/* Toolbar (above the overlay so the toggle stays clickable in lasso mode) */}
-      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 30, display: 'flex', gap: 8 }}>
+      {/* Toolbar (above the overlay so the controls stay clickable in lasso mode) */}
+      <div style={{ position: 'absolute', top: 10, left: 10, zIndex: 30, display: 'flex', gap: 8, flexWrap: 'wrap', alignItems: 'center' }}>
         <button
           type="button"
           onClick={() => { setLassoActive(v => !v); setLassoPts([]) }}
@@ -411,14 +499,58 @@ export default function AdvancedRouteMap({
             borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
             boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
           }}
-          title="Draw a loop around stops to select them"
+          title="Draw a loop around stops to select (or deselect) them"
         >
           <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M4 9a8 5 0 1 0 16 0 8 5 0 1 0-16 0" />
             <path d="M7 13.5 5.5 20l4-2" />
           </svg>
-          {lassoActive ? 'Lasso on — drag to select' : 'Lasso'}
+          {lassoActive
+            ? (lassoMode === 'select' ? 'Lasso: drag to add' : 'Lasso: drag to remove')
+            : 'Lasso'}
         </button>
+
+        {/* Select / Deselect mode switch — only meaningful while lassoing */}
+        {lassoActive && (
+          <div style={{ display: 'flex', borderRadius: 8, overflow: 'hidden', border: '1px solid #334155', boxShadow: '0 1px 4px rgba(0,0,0,0.4)' }}>
+            <button
+              type="button"
+              onClick={() => onLassoModeChange('select')}
+              style={{
+                background: lassoMode === 'select' ? '#16a34a' : 'rgba(15,23,42,0.85)',
+                color: '#fff', border: 'none', padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Select
+            </button>
+            <button
+              type="button"
+              onClick={() => onLassoModeChange('deselect')}
+              style={{
+                background: lassoMode === 'deselect' ? '#dc2626' : 'rgba(15,23,42,0.85)',
+                color: '#fff', border: 'none', borderLeft: '1px solid #334155', padding: '6px 10px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              }}
+            >
+              Deselect
+            </button>
+          </div>
+        )}
+
+        {/* Clear the whole selection */}
+        {selectedCount > 0 && (
+          <button
+            type="button"
+            onClick={onClearSelection}
+            style={{
+              background: 'rgba(15,23,42,0.85)', color: '#fca5a5', border: '1px solid #334155',
+              borderRadius: 8, padding: '6px 12px', fontSize: 12, fontWeight: 600, cursor: 'pointer',
+              boxShadow: '0 1px 4px rgba(0,0,0,0.4)',
+            }}
+            title="Clear the entire selection"
+          >
+            Clear ({selectedCount})
+          </button>
+        )}
       </div>
 
       {loadError && (

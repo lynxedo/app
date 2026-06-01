@@ -1,8 +1,12 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import type { DurationRulesConfig, DurationRule } from '@/app/api/settings/types'
 import { DEFAULT_DURATION_RULES } from '@/app/api/settings/types'
+import {
+  EMPTY_PIN_SETTINGS, MAX_BASE_PROGRAMS, MAX_AUX_PROGRAMS, MAX_HALO_ARCS, PIN_COLOR_PALETTE,
+  type PinSettings, type PinProgram, type MatchType,
+} from '@/lib/pin-colors'
 
 interface Settings {
   display_name: string | null
@@ -66,6 +70,127 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
   const [techsSave, setTechsSave] = useState<SaveState>('idle')
   const [techsErr, setTechsErr] = useState<string | null>(null)
   const [techsLoadedOnce, setTechsLoadedOnce] = useState(false)
+
+  // Pin colors — base/aux programs that color the Advanced route planner's pins.
+  const [pinSettings, setPinSettings] = useState<PinSettings>(EMPTY_PIN_SETTINGS)
+  const [pinLineItems, setPinLineItems] = useState<string[]>([])
+  const [pinLoadingItems, setPinLoadingItems] = useState(false)
+  const [pinItemsErr, setPinItemsErr] = useState<string | null>(null)
+  const [pinSave, setPinSave] = useState<SaveState>('idle')
+  const [pinErr, setPinErr] = useState<string | null>(null)
+
+  useEffect(() => {
+    fetch('/api/routing/pin-settings')
+      .then(r => r.json())
+      .then(d => { if (d.pin_settings) setPinSettings(d.pin_settings) })
+      .catch(() => {})
+  }, [])
+
+  const refreshPinLineItems = async () => {
+    setPinLoadingItems(true)
+    setPinItemsErr(null)
+    try {
+      const res = await fetch('/api/jobber/line-items')
+      const data = await res.json()
+      if (!res.ok || data.error) { setPinItemsErr(data.error ?? 'Failed to load'); return }
+      setPinLineItems(data.lineItems as string[])
+    } catch (e) {
+      setPinItemsErr(e instanceof Error ? e.message : 'Network error')
+    } finally {
+      setPinLoadingItems(false)
+    }
+  }
+
+  const PIN_KEYS = { base: 'base_programs', aux: 'aux_programs' } as const
+  const addPinProgram = (kind: 'base' | 'aux') => {
+    const key = PIN_KEYS[kind]
+    const max = kind === 'base' ? MAX_BASE_PROGRAMS : MAX_AUX_PROGRAMS
+    setPinSettings(s => {
+      if (s[key].length >= max) return s
+      const next: PinProgram = {
+        id: crypto.randomUUID(),
+        label: '', match: '', matchType: 'line_item',
+        color: PIN_COLOR_PALETTE[s[key].length % PIN_COLOR_PALETTE.length],
+      }
+      return { ...s, [key]: [...s[key], next] }
+    })
+  }
+  const updatePinProgram = (kind: 'base' | 'aux', idx: number, patch: Partial<PinProgram>) => {
+    const key = PIN_KEYS[kind]
+    setPinSettings(s => {
+      const arr = [...s[key]]
+      arr[idx] = { ...arr[idx], ...patch }
+      return { ...s, [key]: arr }
+    })
+  }
+  const removePinProgram = (kind: 'base' | 'aux', idx: number) => {
+    const key = PIN_KEYS[kind]
+    setPinSettings(s => ({ ...s, [key]: s[key].filter((_, i) => i !== idx) }))
+  }
+
+  const savePins = async () => {
+    setPinSave('saving')
+    setPinErr(null)
+    try {
+      const res = await fetch('/api/routing/pin-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin_settings: pinSettings }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setPinErr(data.error ?? 'Save failed'); setPinSave('error'); return }
+      if (data.pin_settings) setPinSettings(data.pin_settings)
+      setPinSave('saved')
+      setTimeout(() => setPinSave('idle'), 2000)
+    } catch (e) {
+      setPinErr(e instanceof Error ? e.message : 'Network error')
+      setPinSave('error')
+    }
+  }
+
+  const renderPinRow = (kind: 'base' | 'aux', p: PinProgram, idx: number) => {
+    const overHalo = kind === 'aux' && idx >= MAX_HALO_ARCS
+    return (
+      <div key={p.id} className="flex items-center gap-2 flex-wrap">
+        <select
+          value={p.matchType}
+          onChange={e => updatePinProgram(kind, idx, { matchType: e.target.value as MatchType })}
+          className="bg-gray-950 border border-gray-800 rounded-lg px-2 py-2 text-xs focus:outline-none focus:border-orange-500"
+        >
+          <option value="line_item">Line item</option>
+          <option value="keyword">Keyword</option>
+        </select>
+        {p.matchType === 'line_item' && pinLineItems.length > 0 ? (
+          <select
+            value={p.match}
+            onChange={e => updatePinProgram(kind, idx, { match: e.target.value, label: e.target.value })}
+            className="flex-1 min-w-[160px] bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+          >
+            <option value="">— select line item —</option>
+            {pinLineItems.map(li => <option key={li} value={li}>{li}</option>)}
+          </select>
+        ) : (
+          <input
+            value={p.match}
+            onChange={e => updatePinProgram(kind, idx, { match: e.target.value, label: e.target.value })}
+            placeholder={p.matchType === 'keyword' ? 'Keyword in line item (e.g. root rot)' : 'Line item name (exact)'}
+            className="flex-1 min-w-[160px] bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
+          />
+        )}
+        <input
+          type="color"
+          value={p.color}
+          onChange={e => updatePinProgram(kind, idx, { color: e.target.value })}
+          className="w-10 h-9 bg-gray-950 border border-gray-800 rounded-lg cursor-pointer p-0.5"
+          title="Pin color"
+        />
+        {overHalo && <span className="text-[10px] text-gray-500 whitespace-nowrap">not on halo</span>}
+        <button onClick={() => removePinProgram(kind, idx)} className="text-gray-600 hover:text-red-400 transition-colors text-lg leading-none px-1">
+          ×
+        </button>
+      </div>
+    )
+  }
 
   async function patchSettings(
     body: Partial<Settings & { duration_method: string; duration_rules: DurationRulesConfig }>,
@@ -401,6 +526,77 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
 
         {durationErr && <p className="text-red-400 text-sm mt-4">{durationErr}</p>}
         <div className="mt-5">{saveBtn('Save', durationSave, saveDuration)}</div>
+      </section>
+
+      {/* Pin Colors (Advanced route planner) */}
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <div className="flex items-start justify-between mb-1 gap-4">
+          <div>
+            <h2 className="font-semibold text-lg">Pin Colors</h2>
+            <p className="text-gray-400 text-sm mt-1">
+              Color-code the <strong>Advanced</strong> route planner&apos;s map pins by line item.
+              Base programs set the pin&apos;s center color; aux programs add a halo ring around it.
+            </p>
+          </div>
+          <button
+            onClick={refreshPinLineItems}
+            disabled={pinLoadingItems || !jobberConnected}
+            title={!jobberConnected ? 'Connect Jobber in Settings → Integrations first' : 'Pull line items from Jobber for the dropdowns'}
+            className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-300 rounded-lg text-xs font-medium transition-colors whitespace-nowrap"
+          >
+            {pinLoadingItems ? 'Loading…' : '↻ Load line items'}
+          </button>
+        </div>
+        {pinItemsErr && <p className="text-red-400 text-xs mt-2">{pinItemsErr}</p>}
+        {pinLineItems.length > 0 && <p className="text-xs text-green-400 mt-2">✓ {pinLineItems.length} line items loaded from Jobber</p>}
+        {pinLineItems.length === 0 && (
+          <p className="text-xs text-gray-500 mt-2">Tip: click <em>Load line items</em> to pick from your Jobber catalog — or use <em>Keyword</em> to match a word inside any line item.</p>
+        )}
+
+        {/* Base programs */}
+        <div className="mt-5">
+          <p className="text-sm font-medium text-white">
+            Base Programs <span className="text-xs text-gray-500">— center color · up to {MAX_BASE_PROGRAMS}</span>
+          </p>
+          <div className="bg-amber-500/10 border border-amber-500/30 text-amber-200 rounded-lg px-3 py-2 text-xs mt-2">
+            These line items shouldn&apos;t appear together on a single visit. If they do, the first match (top of this list) wins.
+          </div>
+          {pinSettings.base_programs.length === 0 && (
+            <p className="text-xs text-gray-500 mt-3">No base programs yet. Add one below.</p>
+          )}
+          <div className="space-y-2 mt-3">
+            {pinSettings.base_programs.map((p, idx) => renderPinRow('base', p, idx))}
+          </div>
+          {pinSettings.base_programs.length < MAX_BASE_PROGRAMS && (
+            <button onClick={() => addPinProgram('base')} className="mt-3 text-xs text-orange-400 hover:text-orange-300 transition-colors">
+              + Add base program
+            </button>
+          )}
+        </div>
+
+        {/* Aux programs */}
+        <div className="mt-6 border-t border-gray-800 pt-5">
+          <p className="text-sm font-medium text-white">
+            Aux Programs <span className="text-xs text-gray-500">— halo ring · up to {MAX_AUX_PROGRAMS}</span>
+          </p>
+          <p className="text-xs text-gray-500 mt-1">
+            Add-ons that can appear alongside a base program. The halo draws the first {MAX_HALO_ARCS} that match a stop, in this order.
+          </p>
+          {pinSettings.aux_programs.length === 0 && (
+            <p className="text-xs text-gray-500 mt-3">No aux programs yet. Add one below.</p>
+          )}
+          <div className="space-y-2 mt-3">
+            {pinSettings.aux_programs.map((p, idx) => renderPinRow('aux', p, idx))}
+          </div>
+          {pinSettings.aux_programs.length < MAX_AUX_PROGRAMS && (
+            <button onClick={() => addPinProgram('aux')} className="mt-3 text-xs text-orange-400 hover:text-orange-300 transition-colors">
+              + Add aux program
+            </button>
+          )}
+        </div>
+
+        {pinErr && <p className="text-red-400 text-sm mt-4">{pinErr}</p>}
+        <div className="mt-5">{saveBtn('Save', pinSave, savePins)}</div>
       </section>
 
       {/* Routing Defaults */}
