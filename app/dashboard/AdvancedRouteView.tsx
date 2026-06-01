@@ -2,10 +2,53 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import AdvancedRouteMap, { type AdvPin } from '@/components/AdvancedRouteMap'
+import { buildAdvancedRouteSheetHtml, type RouteSheetStop } from '@/lib/advanced-route-sheet'
 
 interface JobberUser { id: string; name: string }
 
 interface LineItem { name: string; qty: number; unitPrice: number; totalPrice: number }
+
+// ── Holding-area batch (persisted in route_batches) ─────────────────────────
+// A batch is a lassoed + optimized set of stops parked for a future day/tech.
+// `stops` is a superset that lets us rebuild all four send payloads later.
+interface BatchStop {
+  ord: number
+  jobber_visit_id: string
+  client_name: string
+  client_phone: string | null
+  address: string
+  lat: number | null
+  lng: number | null
+  job_title: string | null
+  line_items: LineItem[]
+  instructions: string | null
+  services: string
+  total_price: number
+  eta: string
+  start_at_iso: string | null
+  end_at_iso: string | null
+  drive_minutes: number
+  onsite_minutes: number
+  distance_km: number
+  original_day: string   // the YYYY-MM-DD this visit is currently scheduled in Jobber
+}
+
+interface RouteBatch {
+  id: string
+  label: string | null
+  assigned_date: string
+  assigned_tech_jobber_id: string | null
+  assigned_tech_name: string | null
+  stops: BatchStop[]
+  total_drive_minutes: number
+  total_onsite_minutes: number
+  total_miles: number
+  depot_lat: number | null
+  depot_lng: number | null
+  sent_to_jobber_at: string | null
+  sent_to_daily_log_at: string | null
+  created_at: string
+}
 
 interface Visit {
   stopNumber: number
@@ -129,6 +172,21 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
   const [usingMatrix, setUsingMatrix] = useState<boolean | null>(null)
   const [geocodeFailed, setGeocodeFailed] = useState<string[]>([])
   const [fallbackStops, setFallbackStops] = useState<string[]>([])
+
+  // ── Holding area (batches) ──────────────────────────────────────────────
+  const [batches, setBatches] = useState<RouteBatch[]>([])
+  const [batchesError, setBatchesError] = useState<string | null>(null)
+  const [holdingCollapsed, setHoldingCollapsed] = useState(false)
+  const [expandedBatchId, setExpandedBatchId] = useState<string | null>(null)
+  // Per-batch in-flight action + result message, keyed by batch id.
+  const [batchBusy, setBatchBusy] = useState<Record<string, string | null>>({})
+  const [batchMsg, setBatchMsg] = useState<Record<string, { ok: boolean; text: string }>>({})
+  // Pre-holding modal (assign day + tech + label before parking the selection).
+  const [holdingModalOpen, setHoldingModalOpen] = useState(false)
+  const [batchDate, setBatchDate] = useState(todayLocal())
+  const [batchTechId, setBatchTechId] = useState<string>('')
+  const [batchLabel, setBatchLabel] = useState('')
+  const [creatingBatch, setCreatingBatch] = useState(false)
 
   const initedTechRef = useRef(false)
 
@@ -310,10 +368,308 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     }
   }
 
+  // ── Holding area: load / create / send / delete ──────────────────────────
+  async function loadBatches() {
+    try {
+      const res = await fetch('/api/hub/routing/batches')
+      const data = await res.json()
+      if (data.error) { setBatchesError(data.error); return }
+      setBatches((data.batches ?? []) as RouteBatch[])
+      setBatchesError(null)
+    } catch (e) {
+      setBatchesError(e instanceof Error ? e.message : 'Failed to load holding area')
+    }
+  }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadBatches() }, [])
+
+  // Re-stamp an optimize-time ISO ("YYYY-MM-DDTHH:MM:SS") onto the batch's
+  // assigned date — keeps the clock time, moves the calendar day.
+  function swapDate(iso: string | null, date: string): string | null {
+    if (!iso) return null
+    const t = iso.split('T')[1] ?? '00:00:00'
+    return `${date}T${t}`
+  }
+
+  function batchTitle(b: RouteBatch): string {
+    if (b.label) return b.label
+    const day = new Date(b.assigned_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    const tech = b.assigned_tech_name?.split(/\s+/)[0] ?? 'Unassigned'
+    return `${day} · ${tech}`
+  }
+
+  function openHoldingModal() {
+    if (!optimized || optimized.length === 0) return
+    const firstDay = optimized[0]?.dayDate ?? startDate
+    const firstTech = optimized[0]?.techId ?? selectedUserIds[0] ?? ''
+    setBatchDate(firstDay)
+    setBatchTechId(firstTech)
+    const dayShort = new Date(firstDay + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+    const techFirst = users.find(u => u.id === firstTech)?.name?.split(/\s+/)[0] ?? ''
+    setBatchLabel(techFirst ? `${dayShort} · ${techFirst}` : dayShort)
+    setHoldingModalOpen(true)
+  }
+
+  async function createBatch() {
+    if (!optimized || optimized.length === 0) return
+    setCreatingBatch(true)
+    setBatchesError(null)
+    const techName = users.find(u => u.id === batchTechId)?.name ?? null
+    const stops: BatchStop[] = optimized.map(v => ({
+      ord: v.stopNumber,
+      jobber_visit_id: v.id,
+      client_name: v.clientName,
+      client_phone: v.phone,
+      address: v.addressString,
+      lat: v.lat,
+      lng: v.lng,
+      job_title: v.jobTitle,
+      line_items: v.lineItems,
+      instructions: v.instructions,
+      services: v.services,
+      total_price: v.totalPrice,
+      eta: v.eta,
+      start_at_iso: v.startAtISO,
+      end_at_iso: v.endAtISO,
+      drive_minutes: v.driveMinutes,
+      onsite_minutes: v.onSiteMinutes,
+      distance_km: v.distanceKm,
+      original_day: v.dayDate,
+    }))
+    try {
+      const res = await fetch('/api/hub/routing/batches', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          label: batchLabel.trim() || null,
+          assigned_date: batchDate,
+          assigned_tech_jobber_id: batchTechId || null,
+          assigned_tech_name: techName,
+          stops,
+          total_drive_minutes: optimized.reduce((s, v) => s + v.driveMinutes, 0),
+          total_onsite_minutes: optimized.reduce((s, v) => s + v.onSiteMinutes, 0),
+          total_miles: optimized.reduce((s, v) => s + v.distanceKm, 0) / 1.609,
+          depot_lat: depotCoord?.lat ?? null,
+          depot_lng: depotCoord?.lng ?? null,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        setBatchesError(data.error || `Failed to save batch (${res.status})`)
+        return
+      }
+      // Success: the new batch's stops are now "held" → they vanish from the
+      // map + list so the remaining stops can be lassoed into the next batch.
+      setHoldingModalOpen(false)
+      setOptimized(null)
+      setDepotCoord(null)
+      setUsingMatrix(null)
+      setSelectedIds(new Set())
+      setBatchLabel('')
+      await loadBatches()
+    } catch (e) {
+      setBatchesError(e instanceof Error ? e.message : 'Failed to save batch')
+    } finally {
+      setCreatingBatch(false)
+    }
+  }
+
+  // Generic per-batch action runner: tracks busy state, captures a result
+  // message, and on success stamps the send channel + reloads.
+  async function runBatchAction(
+    batchId: string,
+    action: string,
+    fn: () => Promise<{ ok: boolean; text: string; channel?: 'jobber' | 'daily_log' }>,
+  ) {
+    setBatchBusy(prev => ({ ...prev, [batchId]: action }))
+    setBatchMsg(prev => { const n = { ...prev }; delete n[batchId]; return n })
+    try {
+      const result = await fn()
+      setBatchMsg(prev => ({ ...prev, [batchId]: { ok: result.ok, text: result.text } }))
+      if (result.ok && result.channel) {
+        await fetch(`/api/hub/routing/batches/${batchId}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ channel: result.channel }),
+        })
+        await loadBatches()
+      }
+    } catch (e) {
+      setBatchMsg(prev => ({ ...prev, [batchId]: { ok: false, text: e instanceof Error ? e.message : 'Failed' } }))
+    } finally {
+      setBatchBusy(prev => ({ ...prev, [batchId]: null }))
+    }
+  }
+
+  function orderedStops(b: RouteBatch): BatchStop[] {
+    return [...b.stops].sort((a, z) => a.ord - z.ord)
+  }
+
+  function sendBatchOrderOnly(b: RouteBatch) {
+    const stops = orderedStops(b)
+    const offDay = stops.filter(s => s.original_day && s.original_day !== b.assigned_date)
+    if (offDay.length > 0) {
+      const ok = window.confirm(
+        `Send Order Only sets the visit sequence but CANNOT move a visit to a different day.\n\n` +
+        `${offDay.length} of ${stops.length} stop(s) are currently scheduled on a different day than ${b.assigned_date} ` +
+        `and will stay on their day (just reordered).\n\n` +
+        `To actually move them to ${b.assigned_date}, use "Send with Times" instead.\n\nContinue with order-only?`,
+      )
+      if (!ok) return
+    }
+    runBatchAction(b.id, 'order', async () => {
+      const res = await fetch('/api/reorder-jobber', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          visit_ids: stops.map(s => s.jobber_visit_id),
+          assigned_user_id: b.assigned_tech_jobber_id ?? null,
+        }),
+      })
+      const data = await res.json() as { results?: Array<{ success: boolean }>; allOk?: boolean; error?: string }
+      if (data.error) return { ok: false, text: data.error }
+      const okCount = data.results?.filter(r => r.success).length ?? 0
+      return data.allOk
+        ? { ok: true, channel: 'jobber', text: `Order sent to Jobber (${okCount} stops)` }
+        : { ok: false, text: `Partial: ${okCount}/${stops.length} reordered` }
+    })
+  }
+
+  function sendBatchWithTimes(b: RouteBatch) {
+    const stops = orderedStops(b)
+    const visitsPayload = stops
+      .filter(s => s.start_at_iso && s.end_at_iso)
+      .map(s => ({
+        visitId: s.jobber_visit_id,
+        startAt: swapDate(s.start_at_iso, b.assigned_date)!,
+        endAt: swapDate(s.end_at_iso, b.assigned_date)!,
+      }))
+    if (visitsPayload.length === 0) {
+      setBatchMsg(prev => ({ ...prev, [b.id]: { ok: false, text: 'No stops have times — re-optimize before parking.' } }))
+      return
+    }
+    runBatchAction(b.id, 'times', async () => {
+      const res = await fetch('/api/send-to-jobber', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ visits: visitsPayload, assignedUserId: b.assigned_tech_jobber_id ?? null }),
+      })
+      const data = await res.json() as { results?: Array<{ success: boolean }>; allOk?: boolean; error?: string }
+      if (data.error) return { ok: false, text: data.error }
+      const okCount = data.results?.filter(r => r.success).length ?? 0
+      return data.allOk
+        ? { ok: true, channel: 'jobber', text: `Times sent for ${b.assigned_date} (${okCount} stops)` }
+        : { ok: false, text: `Partial: ${okCount}/${visitsPayload.length} updated` }
+    })
+  }
+
+  function sendBatchDailyLogV2(b: RouteBatch) {
+    if (!b.assigned_tech_name) {
+      setBatchMsg(prev => ({ ...prev, [b.id]: { ok: false, text: 'Batch has no assigned tech — cannot send to Daily Log.' } }))
+      return
+    }
+    const stops = orderedStops(b).map(s => ({
+      jobber_visit_id: s.jobber_visit_id,
+      client_name: s.client_name,
+      client_phone: s.client_phone,
+      address: s.address,
+      lat: s.lat,
+      lng: s.lng,
+      job_title: s.job_title,
+      line_items: s.line_items,
+      instructions: s.instructions,
+      scheduled_start_at: swapDate(s.start_at_iso, b.assigned_date),
+      scheduled_end_at: swapDate(s.end_at_iso, b.assigned_date),
+      duration_minutes: s.onsite_minutes,
+    }))
+    runBatchAction(b.id, 'dlv2', async () => {
+      const res = await fetch('/api/hub/daily-log/from-route', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          log_date: b.assigned_date,
+          tech_jobber_user_id: b.assigned_tech_jobber_id,
+          tech_jobber_user_name: b.assigned_tech_name,
+          stops,
+        }),
+      })
+      const data = await res.json() as { stop_count?: number; action?: string; error?: string }
+      if (!res.ok || data.error) return { ok: false, text: data.error || `Failed (${res.status})` }
+      return { ok: true, channel: 'daily_log', text: `Daily Log v2 ${data.action ?? 'sent'} (${data.stop_count} stops)` }
+    })
+  }
+
+  function sendBatchDailyLogV1(b: RouteBatch) {
+    if (!b.assigned_tech_name) {
+      setBatchMsg(prev => ({ ...prev, [b.id]: { ok: false, text: 'Batch has no assigned tech — cannot send to Daily Log.' } }))
+      return
+    }
+    runBatchAction(b.id, 'dlv1', async () => {
+      const sheetStops: RouteSheetStop[] = orderedStops(b).map(s => ({
+        stopNumber: s.ord,
+        clientName: s.client_name,
+        addressString: s.address,
+        phone: s.client_phone,
+        jobTitle: s.job_title ?? '',
+        eta: s.eta,
+        driveMinutes: s.drive_minutes,
+        onSiteMinutes: s.onsite_minutes,
+        distanceKm: s.distance_km,
+        lat: s.lat ?? 0,
+        lng: s.lng ?? 0,
+        lineItems: s.line_items,
+        services: s.services,
+        totalPrice: s.total_price,
+        instructions: s.instructions,
+      }))
+      const html = await buildAdvancedRouteSheetHtml({
+        techName: b.assigned_tech_name!,
+        date: b.assigned_date,
+        stops: sheetStops,
+        depot: (b.depot_lat != null && b.depot_lng != null) ? { lat: b.depot_lat, lng: b.depot_lng } : null,
+        mapboxToken: process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? '',
+      })
+      if (!html) return { ok: false, text: 'Failed to build route sheet.' }
+      const res = await fetch('/api/hub/daily-log/from-route-v1', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          log_date: b.assigned_date,
+          tech_jobber_user_id: b.assigned_tech_jobber_id,
+          tech_jobber_user_name: b.assigned_tech_name,
+          route_html: html,
+          route_name: `${b.assigned_tech_name} - ${b.assigned_date}.html`,
+        }),
+      })
+      const data = await res.json() as { action?: string; error?: string }
+      if (!res.ok || data.error) return { ok: false, text: data.error || `Failed (${res.status})` }
+      return { ok: true, channel: 'daily_log', text: `Daily Log v1 ${data.action ?? 'sent'}` }
+    })
+  }
+
+  function deleteBatch(b: RouteBatch) {
+    if (!window.confirm(`Delete "${batchTitle(b)}"? Its ${b.stops.length} stop(s) will return to the map and list.`)) return
+    runBatchAction(b.id, 'delete', async () => {
+      const res = await fetch(`/api/hub/routing/batches/${b.id}`, { method: 'DELETE' })
+      const data = await res.json() as { ok?: boolean; error?: string }
+      if (!res.ok || data.error) return { ok: false, text: data.error || 'Delete failed' }
+      await loadBatches()
+      return { ok: true, text: 'Deleted' }
+    })
+  }
+
+  // Visit IDs parked in any existing batch — hidden from the live map + list
+  // until that batch is deleted. Seeded from the DB so it survives a refresh.
+  const heldVisitIds = useMemo(
+    () => new Set(batches.flatMap(b => b.stops.map(s => s.jobber_visit_id))),
+    [batches],
+  )
+
   // ── Derived: visits grouped by day, each day's stops sorted by time then name
   const visitsByDay = useMemo(() => {
     const groups = new Map<string, Visit[]>()
     for (const v of visits ?? []) {
+      if (heldVisitIds.has(v.id)) continue   // parked in a holding batch — hide
       const arr = groups.get(v.dayDate) ?? []
       arr.push(v)
       groups.set(v.dayDate, arr)
@@ -327,7 +683,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       })
     }
     return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))
-  }, [visits])
+  }, [visits, heldVisitIds])
 
   // ── Derived: map pins ──────────────────────────────────────────────────────
   const routePosById = useMemo(() => {
@@ -339,6 +695,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
   const pins = useMemo<AdvPin[]>(() => {
     const out: AdvPin[] = []
     for (const v of visits ?? []) {
+      if (heldVisitIds.has(v.id)) continue   // parked in a holding batch — hide
       const route = routePosById.get(v.id)
       const coord = route ? { lat: route.lat, lng: route.lng } : coordsById.get(v.id)
       if (!coord) continue
@@ -357,7 +714,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       })
     }
     return out
-  }, [visits, coordsById, selectedIds, optimized, routePosById])
+  }, [visits, coordsById, selectedIds, optimized, routePosById, heldVisitIds])
 
   const pathCoords = useMemo(() => {
     if (!optimized || optimized.length === 0 || !depotCoord) return null
@@ -551,9 +908,69 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
               </li>
             ))}
           </ol>
-          <p className="mt-3 text-xs text-gray-500">
-            This is a preview. Saving a route to a holding area (and sending it to Jobber / Daily Log) arrives in the next update.
-          </p>
+          <div className="mt-4 flex items-center justify-between flex-wrap gap-3 pt-3 border-t border-gray-800">
+            <p className="text-xs text-gray-500 max-w-md">
+              Park this route in the holding area to assign it a day + tech. It leaves the map and list so you can keep building other days; send it to Jobber / Daily Log later.
+            </p>
+            <button
+              onClick={openHoldingModal}
+              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition-colors shrink-0"
+            >
+              📥 Send to Holding →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* Pre-holding modal: assign day + tech + label before parking. */}
+      {holdingModalOpen && optimized && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !creatingBatch && setHoldingModalOpen(false)}>
+          <div className="bg-gray-900 border border-gray-700 rounded-2xl p-6 w-full max-w-md" onClick={e => e.stopPropagation()}>
+            <h3 className="font-semibold text-lg mb-1">Send {optimized.length} stops to holding</h3>
+            <p className="text-xs text-gray-400 mb-4">Assign the day and tech this route is for. You can send it to Jobber / Daily Log from the holding area afterward.</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Day this route is for</label>
+                <input
+                  type="date"
+                  value={batchDate}
+                  onChange={e => setBatchDate(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-base sm:text-sm text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Tech</label>
+                <select
+                  value={batchTechId}
+                  onChange={e => setBatchTechId(e.target.value)}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-base sm:text-sm text-white focus:outline-none focus:border-indigo-500"
+                >
+                  <option value="">— Unassigned —</option>
+                  {users.map(u => <option key={u.id} value={u.id}>{u.name}</option>)}
+                </select>
+                {!batchTechId && (
+                  <p className="text-[11px] text-yellow-400 mt-1">A tech is required to send to Daily Log.</p>
+                )}
+              </div>
+              <div>
+                <label className="block text-xs text-gray-400 mb-1">Label (optional)</label>
+                <input
+                  type="text"
+                  value={batchLabel}
+                  onChange={e => setBatchLabel(e.target.value)}
+                  placeholder="e.g. Mon Jun 8 · Mike"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-base sm:text-sm text-white focus:outline-none focus:border-indigo-500"
+                />
+              </div>
+            </div>
+            {batchesError && <p className="text-red-400 text-xs mt-3">{batchesError}</p>}
+            <div className="flex items-center justify-end gap-2 mt-5">
+              <button onClick={() => setHoldingModalOpen(false)} disabled={creatingBatch} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-sm font-medium disabled:opacity-50">Cancel</button>
+              <button onClick={createBatch} disabled={creatingBatch} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-semibold">
+                {creatingBatch ? 'Saving…' : 'Send to Holding'}
+              </button>
+            </div>
+          </div>
         </div>
       )}
 
@@ -694,6 +1111,83 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {/* ── Holding area ──────────────────────────────────────────────────── */}
+      {batches.length > 0 && (
+        <div className="bg-gray-900 border border-indigo-900/50 rounded-2xl overflow-hidden">
+          <button
+            onClick={() => setHoldingCollapsed(c => !c)}
+            className="w-full px-5 py-3 flex items-center gap-2 bg-indigo-950/30 hover:bg-indigo-950/50 transition-colors"
+          >
+            <span className="text-indigo-300 text-xs">{holdingCollapsed ? '▶' : '▼'}</span>
+            <h3 className="font-semibold">📥 Holding area</h3>
+            <span className="text-xs text-gray-400">
+              {batches.length} batch{batches.length !== 1 ? 'es' : ''} · {batches.reduce((s, b) => s + b.stops.length, 0)} stops
+            </span>
+          </button>
+          {!holdingCollapsed && (
+            <div className="divide-y divide-gray-800">
+              {batchesError && <p className="px-5 py-3 text-red-400 text-sm">{batchesError}</p>}
+              {batches.map(b => {
+                const expanded = expandedBatchId === b.id
+                const busy = batchBusy[b.id]
+                const msg = batchMsg[b.id]
+                const stops = orderedStops(b)
+                const dayLabel = new Date(b.assigned_date + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'long', month: 'short', day: 'numeric' })
+                return (
+                  <div key={b.id} className="px-5 py-4">
+                    <div className="flex items-start justify-between gap-3">
+                      <button onClick={() => setExpandedBatchId(expanded ? null : b.id)} className="flex-1 min-w-0 text-left">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="text-gray-500 text-xs">{expanded ? '▼' : '▶'}</span>
+                          <span className="font-semibold text-white">{batchTitle(b)}</span>
+                          {b.sent_to_jobber_at && <span className="text-[10px] bg-green-900/50 text-green-300 border border-green-800 px-1.5 py-0.5 rounded-full">✓ Jobber</span>}
+                          {b.sent_to_daily_log_at && <span className="text-[10px] bg-green-900/50 text-green-300 border border-green-800 px-1.5 py-0.5 rounded-full">✓ Daily Log</span>}
+                        </div>
+                        <div className="text-xs text-gray-400 mt-1 ml-5">
+                          {dayLabel} · {b.assigned_tech_name ?? 'Unassigned'} · {stops.length} stops · 🚗 {Math.floor(b.total_drive_minutes / 60)}h {b.total_drive_minutes % 60}m · ⏱ {Math.floor(b.total_onsite_minutes / 60)}h {b.total_onsite_minutes % 60}m
+                        </div>
+                      </button>
+                      <button onClick={() => deleteBatch(b)} disabled={!!busy} className="text-xs text-red-400 hover:text-red-300 shrink-0 disabled:opacity-50">
+                        {busy === 'delete' ? 'Deleting…' : 'Delete'}
+                      </button>
+                    </div>
+                    {expanded && (
+                      <div className="mt-3 ml-5 space-y-3">
+                        <ol className="space-y-1">
+                          {stops.map(s => (
+                            <li key={s.jobber_visit_id} className="flex items-center gap-2 text-sm">
+                              <span className="w-5 h-5 shrink-0 rounded-full bg-indigo-700 text-white text-[10px] font-bold flex items-center justify-center">{s.ord}</span>
+                              <span className="flex-1 min-w-0 truncate text-gray-200">{s.client_name}</span>
+                              <span className="hidden sm:block text-xs text-gray-500 truncate max-w-[40%]">{s.address}</span>
+                              <span className="text-xs text-orange-400 shrink-0">{s.eta}</span>
+                            </li>
+                          ))}
+                        </ol>
+                        <div className="flex flex-wrap gap-2 pt-2">
+                          <button onClick={() => sendBatchOrderOnly(b)} disabled={!!busy} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-100 rounded-lg text-xs font-medium">
+                            {busy === 'order' ? 'Sending…' : 'Send Order Only'}
+                          </button>
+                          <button onClick={() => sendBatchWithTimes(b)} disabled={!!busy} className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-lg text-xs font-medium">
+                            {busy === 'times' ? 'Sending…' : 'Send with Times'}
+                          </button>
+                          <button onClick={() => sendBatchDailyLogV1(b)} disabled={!!busy} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-medium">
+                            {busy === 'dlv1' ? 'Sending…' : 'Send to Daily Log v1'}
+                          </button>
+                          <button onClick={() => sendBatchDailyLogV2(b)} disabled={!!busy} className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg text-xs font-medium">
+                            {busy === 'dlv2' ? 'Sending…' : 'Send to Daily Log v2'}
+                          </button>
+                        </div>
+                        {msg && <p className={`text-xs ${msg.ok ? 'text-green-400' : 'text-red-400'}`}>{msg.text}</p>}
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
         </div>
       )}
     </div>
