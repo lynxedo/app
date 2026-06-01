@@ -287,14 +287,33 @@ async function fireRoomPush(
   args: { companyId: string; roomId: string; roomName: string; body: string },
 ) {
   try {
-    const { data: members } = await admin
-      .from('hub_users')
-      .select('id, display_name')
-      .eq('company_id', args.companyId)
-      .neq('id', GUARDIAN_HUB_USER_ID)
-      .eq('is_bot', false)
+    // Scope recipients to the room's MEMBERS only — a Guardian room post must
+    // never push to company users who aren't in this room. room_members is the
+    // source of truth for room access (Slack-style, same as /api/hub/messages
+    // and the Chat Synx events route), for both public and private rooms.
+    // Intersecting the company-member list (needed for @mention display_name
+    // matching) with room_members flows through to the @mention, @room, and
+    // regular-room push paths below, so all three stay member-scoped.
+    const [{ data: members }, { data: roomMemberRows }] = await Promise.all([
+      admin
+        .from('hub_users')
+        .select('id, display_name')
+        .eq('company_id', args.companyId)
+        .neq('id', GUARDIAN_HUB_USER_ID)
+        .eq('is_bot', false),
+      admin
+        .from('room_members')
+        .select('user_id')
+        .eq('room_id', args.roomId)
+        .neq('user_id', GUARDIAN_HUB_USER_ID),
+    ])
 
-    const all = (members ?? []) as { id: string; display_name: string }[]
+    const roomMemberIdSet = new Set(
+      (roomMemberRows ?? []).map((m: { user_id: string }) => m.user_id),
+    )
+    const all = ((members ?? []) as { id: string; display_name: string }[]).filter(
+      (u) => roomMemberIdSet.has(u.id),
+    )
     const previewText = args.body.trim()
     const pushBody = previewText.length > 0 ? previewText.slice(0, 120) : '📎 Sent an attachment'
 
