@@ -275,6 +275,7 @@ function HubTab() {
           <li><strong className="text-white">Send</strong> — on desktop, press Enter. On phone or tablet, tap the blue send button (only shows up once you&apos;ve started typing).</li>
           <li><strong className="text-white">New line</strong> — Shift+Enter on desktop. On mobile, plain Enter inserts a new line — sending takes a deliberate tap of the send button so you can&apos;t fire off a half-typed message by accident.</li>
           <li><strong className="text-white">Expand the box</strong> — small chevron just above the input (flush right). Tap it to grow the composer to about half the screen for drafting longer messages; tap again to shrink. Sending also auto-shrinks it. Every room or DM you open starts at the default small size.</li>
+          <li><strong className="text-white">Drafts</strong> — if you start typing and switch to another room or DM before sending, your text is automatically saved. Come back to that conversation and it&apos;ll be waiting exactly where you left off. Drafts clear the moment you send.</li>
         </ul>
         <p className="font-medium text-white mt-3">Toolbar buttons (left to right, below the input)</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
@@ -324,7 +325,7 @@ function HubTab() {
           <li><strong className="text-white">1-on-1 DM</strong> — shows <em>Read</em> when the other person has opened the conversation since you sent.</li>
           <li><strong className="text-white">Group DM</strong> — shows <em>Read by Joe</em>, then <em>Read by Joe &amp; Sarah</em>, then <em>Read by Joe, Sarah &amp; 2 more</em>, and finally <em>Read by everyone</em> once the whole group has caught up.</li>
           <li>The label only sits under the most recent message <em>you</em> sent — if they read it, it stays put; if you send another, the label moves to the new one once that one is read too.</li>
-          <li>Updates live — the moment someone opens the DM, you see the label change without refreshing.</li>
+          <li>Updates live — the moment someone opens the DM, you see the label appear without refreshing. Works reliably on all devices including native iOS and Android apps.</li>
           <li>Rooms (channels) intentionally <strong>do not</strong> show read receipts. Slack-style — channels would be overwhelming and weird to track per-person.</li>
           <li>Bots (like @Guardian) are never counted as readers.</li>
         </ul>
