@@ -88,6 +88,24 @@ export async function GET(
     })
   }
 
+  // In-app PDF preview reads bytes same-origin (pdf.js can't read a cross-origin
+  // redirect to R2 due to CORS). Stream the object instead of redirecting.
+  if (sp.get('inline') === 'pdf') {
+    const obj = await r2.send(new GetObjectCommand({
+      Bucket: process.env.CF_R2_BUCKET_NAME!,
+      Key: entry.route_sheet_url,
+    }))
+    const bytes = await obj.Body?.transformToByteArray()
+    if (!bytes) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    return new Response(new Uint8Array(bytes), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="${encodeURIComponent(entry.route_sheet_name ?? fallbackName)}"`,
+        'Cache-Control': 'private, max-age=3600',
+      },
+    })
+  }
+
   // PDF — redirect to a short-lived signed URL (no Mapbox origin concern). The
   // external browser follows the redirect to the self-authenticating signed URL.
   const url = await getSignedUrl(

@@ -43,6 +43,24 @@ export async function GET(
 
   const fileName = segments[segments.length - 1]
 
+  // In-app PDF preview reads bytes same-origin (pdf.js can't read a cross-origin
+  // redirect to R2 due to CORS). Stream the object instead of redirecting.
+  if (new URL(request.url).searchParams.get('inline') === 'pdf') {
+    const obj = await getR2Client().send(new GetObjectCommand({
+      Bucket: process.env.CF_R2_BUCKET_NAME!,
+      Key: key,
+    }))
+    const bytes = await obj.Body?.transformToByteArray()
+    if (!bytes) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    return new Response(new Uint8Array(bytes), {
+      headers: {
+        'Content-Type': 'application/pdf',
+        'Content-Disposition': `inline; filename="${encodeURIComponent(fileName)}"`,
+        'Cache-Control': 'private, max-age=3600',
+      },
+    })
+  }
+
   const url = await getSignedUrl(
     getR2Client(),
     new GetObjectCommand({
