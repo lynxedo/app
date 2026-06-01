@@ -58,6 +58,8 @@ const TABS = [
   { id: 'contacts',     icon: '👤', label: 'Contacts' },
   { id: 'call-log',     icon: '📞', label: 'Call Log' },
   { id: 'marketing',    icon: '📣', label: 'Marketing' },
+  { id: 'forms',        icon: '📝', label: 'Forms' },
+  { id: 'products',     icon: '📦', label: 'Products' },
   { id: 'books',        icon: '📊', label: 'Books' },
   { id: 'timesheet',    icon: '🕐', label: 'Timesheet' },
   { id: 'settings',     icon: '⚙️', label: 'Settings' },
@@ -135,6 +137,8 @@ export default function HelpContent() {
         {activeTab === 'contacts'   && <ContactsTab />}
         {activeTab === 'call-log'   && <CallLogTab />}
         {activeTab === 'marketing'  && <MarketingTab />}
+        {activeTab === 'forms'      && <FormsTab />}
+        {activeTab === 'products'   && <ProductsTab />}
         {activeTab === 'books'      && <BooksTab />}
         {activeTab === 'timesheet'  && <TimesheetTab />}
         {activeTab === 'settings'   && <SettingsTab />}
@@ -1180,7 +1184,7 @@ function SettingsTab() {
           <li><strong className="text-white">Admin</strong> — full access to every admin area. Admins are the only ones who can change roles or grant manager access.</li>
         </ul>
         <AdminOnly>
-          <p>To make someone a manager: in <strong className="text-white">Admin → People</strong>, change their role dropdown to <em>Manager</em>. An amber <strong className="text-white">Admin Access</strong> panel appears with toggles for each admin area — People, Hub, Routing, Time Records, Fleet, Daily Log. Flip on whichever areas they should be able to manage. Only true admins (role = Admin) see this panel, and only true admins can change role or grant access.</p>
+          <p>To make someone a manager: in <strong className="text-white">Admin → People</strong>, change their role dropdown to <em>Manager</em>. An amber <strong className="text-white">Admin Access</strong> panel appears with toggles for each admin area — People, Hub, Routing, Time Records, Fleet, Daily Log, Products. Flip on whichever areas they should be able to manage. Only true admins (role = Admin) see this panel, and only true admins can change role or grant access.</p>
         </AdminOnly>
       </Section>
 
@@ -1193,6 +1197,119 @@ function SettingsTab() {
         </ul>
         <p>The setting scales <em>everything</em> — message bubbles, the sidebar, Settings, Help, every tool — and it travels with your account, so it&apos;s the same on every device you sign in on.</p>
       </Section>
+    </>
+  )
+}
+
+function FormsTab() {
+  return (
+    <>
+      <Section title="What are Forms?">
+        <p>Forms is a customizable checklist and inspection tool. Your admin team builds forms in the <strong className="text-white">Form Builder</strong>, and field technicians fill them out from <strong className="text-white">Tools → Forms</strong>.</p>
+        <p className="mt-2">Uses include after-service reports, irrigation inspection checklists, equipment sign-offs, and any other structured data you want to capture per job.</p>
+      </Section>
+
+      <Section title="Filling Out a Form">
+        <ol className="list-decimal list-inside text-gray-400 space-y-2 ml-2">
+          <li>Go to <strong className="text-white">Tools → Forms</strong> in the sidebar.</li>
+          <li>Tap the form you want to fill out (e.g. <em>Irrigation Inspection Report</em>).</li>
+          <li>Fill in each field — checkboxes, dates, short answers, dropdowns, etc.</li>
+          <li>For the <strong className="text-white">signature field</strong>, draw directly on the canvas with your finger or stylus. Tap <em>Clear</em> to redo.</li>
+          <li>Optionally enter the customer&apos;s name and phone number at the bottom. This lets you copy a ready-made text message to send them after the job.</li>
+          <li>To link the submission to a Jobber client (so a note appears on their record), tap <strong className="text-white">Link to Jobber Client</strong>, search by name, and select the customer.</li>
+          <li>Tap <strong className="text-white">Submit Form</strong>. The form saves to the database. If Jobber was linked, a formatted note is added to the client automatically.</li>
+        </ol>
+      </Section>
+
+      <Section title="SMS Template">
+        <p>After submitting, if you entered a customer name, a pre-written text message appears on the success screen. Tap <strong className="text-white">Copy message</strong> and paste it into any texting app to send to the customer.</p>
+        <p className="mt-2">The admin can customize what this message says in the Form Builder (see below).</p>
+      </Section>
+
+      <Section title="Jobber Sync">
+        <p>When you link a Jobber client before submitting, the form results are automatically posted as a <strong className="text-white">note on the Jobber client record</strong>. The note includes all answered fields, organized by section, plus who submitted it and when.</p>
+        <p className="mt-2">If Jobber sync fails (e.g. you&apos;re not connected to Jobber), the form still saves locally. You&apos;ll see a warning on the success screen.</p>
+      </Section>
+
+      <AdminOnly>
+        <Section title="Building a Form (Admin)">
+          <p>Go to <strong className="text-white">Admin → Form Builder</strong> in the sidebar (or Admin → Form Builder from the admin nav).</p>
+          <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+            <li>Click <strong className="text-white">+ Irrigation Inspection</strong> to create the pre-built irrigation form, or <strong className="text-white">+ Blank Form</strong> to start from scratch.</li>
+            <li>Click <strong className="text-white">Build</strong> on any form to open the builder.</li>
+          </ul>
+          <p className="mt-3">In the builder:</p>
+          <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+            <li><strong className="text-white">Section Title</strong> — a bold header that organizes fields into groups. Not a fillable field.</li>
+            <li><strong className="text-white">Checkbox</strong> — yes/no item (e.g. &quot;System tested and functioning&quot;).</li>
+            <li><strong className="text-white">Date</strong> — a date picker.</li>
+            <li><strong className="text-white">Dropdown</strong> — a pick-one list. Add options by typing and pressing Enter or clicking +&nbsp;Add.</li>
+            <li><strong className="text-white">Short Answer</strong> — a single-line text input.</li>
+            <li><strong className="text-white">Long Answer</strong> — a multi-line textarea for notes.</li>
+            <li><strong className="text-white">Signature</strong> — a touchscreen-friendly canvas for capturing a signature.</li>
+          </ul>
+          <p className="mt-3">Use <strong className="text-white">▲ / ▼</strong> to reorder fields. Mark a field <strong className="text-white">Req</strong> to make it required before submission.</p>
+          <p className="mt-3">The <strong className="text-white">SMS Notification Template</strong> is the text message shown after submission. Use placeholders: <code className="text-sky-400">{'{customer_name}'}</code> <code className="text-sky-400">{'{tech_name}'}</code> <code className="text-sky-400">{'{date}'}</code> <code className="text-sky-400">{'{company_name}'}</code>.</p>
+          <p className="mt-3">Toggle <strong className="text-white">Active / Inactive</strong> to control whether the form is visible to techs. Click <strong className="text-white">Save</strong> (or <em>Save Form</em> at the bottom) when done.</p>
+        </Section>
+
+        <Section title="Permissions">
+          <p>Two toggles in <strong className="text-white">Admin → People → Tools</strong>:</p>
+          <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-1">
+            <li><strong className="text-white">Forms</strong> — allows the user to view and fill out forms. On by default for all new users.</li>
+            <li><strong className="text-white">Form Builder</strong> (Admin Access section) — allows the user to create and edit forms in the Form Builder admin panel.</li>
+          </ul>
+        </Section>
+      </AdminOnly>
+    </>
+  )
+}
+
+function ProductsTab() {
+  return (
+    <>
+      <Section title="What is Products?">
+        <p>Products is the master catalog of everything you apply — fertilizers, herbicides, fungicides, insecticides, and more — each with its price, package size, application rate, and on-hand inventory. It&apos;s the &ldquo;spreadsheet&rdquo; the cost numbers, inventory counts, and (soon) the route-capacity and pesticide-record tools all read from.</p>
+        <p className="mt-2">It lives at <strong className="text-white">Admin → Products</strong> and is managed by admins (or anyone with the Products admin grant).</p>
+      </Section>
+
+      <Section title="Groups, Items &amp; Sub-items">
+        <p>The catalog is three levels deep — like the lead tracker, but one deeper:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Group</strong> — the product type (Fertilizer, Insecticide, Fungicide…). Each group header collapses and expands.</li>
+          <li><strong className="text-white">Item</strong> — the physical product you buy (e.g. <em>Acelepryn</em>). Holds the package price, size, unit, EPA #, active ingredient, batch info — and the inventory counts.</li>
+          <li><strong className="text-white">Sub-item</strong> — a rate the product is applied at (e.g. <em>0.1 rate</em>, <em>High Rate</em>). Click the arrow on an item to expand its sub-items; each carries its own application rate and derived cost. Use <strong className="text-white">+ Add sub-item</strong> to add another rate.</li>
+        </ul>
+        <p className="mt-2">Why split rates out? Because the same product gets applied at different rates for different jobs. Inventory is counted once on the item, but pesticide records and route capacity need the exact rate — which lives on the sub-item.</p>
+      </Section>
+
+      <Section title="Cost per 1,000 sq ft">
+        <p>You never type the cost — it&apos;s calculated. From <strong className="text-white">package size ÷ rate</strong> the system works out how many 1,000-sq-ft a package covers, then <strong className="text-white">package price ÷ that</strong> gives the cost per 1,000 sq ft. Update the price from your invoices and every rate&apos;s cost updates automatically.</p>
+      </Section>
+
+      <Section title="Inventory by location">
+        <p>Each storage location (Vehicle 1, Shop, North Shop…) is its own column. Type how many packages are at each location; the <strong className="text-white">Total</strong> and <strong className="text-emerald-300">$ Value</strong> columns add up automatically (total packages × package price). Counts live on the item, not per rate.</p>
+      </Section>
+
+      <AdminOnly>
+        <Section title="Adding &amp; editing products (Admin)">
+          <p>In <strong className="text-white">Admin → Products</strong> (Catalog tab):</p>
+          <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+            <li><strong className="text-white">+ Add product</strong> — name + group + price + size + unit, then expand it to add sub-items and the rest of the details.</li>
+            <li>Click any item&apos;s arrow to <strong className="text-white">expand</strong> it — edit every field, manage its rates, and see derived costs.</li>
+            <li><strong className="text-white">Package price</strong> and the per-location inventory cells edit right in the table — changes save as you click away.</li>
+            <li>The <strong className="text-white">✕</strong> on a row deletes that item (and its sub-items + inventory).</li>
+          </ul>
+        </Section>
+
+        <Section title="Groups &amp; locations (Settings)">
+          <p>The <strong className="text-white">Settings</strong> sub-tab manages your <strong className="text-white">Product Groups</strong> and <strong className="text-white">Inventory Locations</strong> — add, rename, or delete each. Deleting a group keeps its products (they become Uncategorized); deleting a location removes its inventory counts.</p>
+        </Section>
+
+        <Section title="Permissions">
+          <p>Controlled by the <strong className="text-white">Products</strong> grant in <strong className="text-white">Admin → People → Admin Access</strong> (for managers) — or any full admin. Off by default.</p>
+        </Section>
+      </AdminOnly>
     </>
   )
 }
