@@ -173,7 +173,7 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
           <input
             value={p.match}
             onChange={e => updatePinProgram(kind, idx, { match: e.target.value, label: e.target.value })}
-            placeholder={p.matchType === 'keyword' ? 'Keyword in line item (e.g. root rot)' : 'Line item name (exact)'}
+            placeholder={p.matchType === 'keyword' ? 'Keyword in line item (e.g. root rot)' : 'Line item name'}
             className="flex-1 min-w-[160px] bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500"
           />
         )}
@@ -536,6 +536,8 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
             <p className="text-gray-400 text-sm mt-1">
               Color-code the <strong>Advanced</strong> route planner&apos;s map pins by line item.
               Base programs set the pin&apos;s center color; aux programs add a halo ring around it.
+              Matching is case-insensitive and hits when a visit&apos;s line item <em>contains</em> your
+              text — so pick from the Jobber catalog or just type a keyword.
             </p>
           </div>
           <button

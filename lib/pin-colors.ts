@@ -15,8 +15,8 @@ export type MatchType = 'line_item' | 'keyword'
 export interface PinProgram {
   id: string
   label: string       // display name (defaults to the match text)
-  match: string       // exact line item name (line_item) or a substring (keyword)
-  matchType: MatchType
+  match: string       // text matched (case-insensitive "contains") against a visit's line item names
+  matchType: MatchType // 'line_item' = picked from the Jobber catalog dropdown; 'keyword' = free text. Both match the same way.
   color: string       // hex with leading # — e.g. "#7c3aed"
 }
 
@@ -54,15 +54,19 @@ function norm(s: string): string {
   return s.trim().toLowerCase()
 }
 
-/** Does a program match any of a visit's line item names? */
+/** Does a program match any of a visit's line item names?
+ *
+ *  Both modes are a case-insensitive "contains": the 'line_item' dropdown is sourced
+ *  from the Jobber product catalog (productOrServices), whose names don't always equal
+ *  the line-item text that actually lands on a visit — visits frequently append a size
+ *  or round suffix (e.g. catalog "Lawn Health Plus" → visit line item "Lawn Health Plus
+ *  - 5,000 sqft"). An exact-equality match silently fails for those (showed up as a grey
+ *  fallback pin), so we match leniently in both modes. The matchType only drives the
+ *  admin UI (dropdown vs. free text), not the matching. */
 export function programMatches(p: PinProgram, lineItemNames: string[]): boolean {
   const m = norm(p.match)
   if (!m) return false
-  if (p.matchType === 'keyword') {
-    return lineItemNames.some(n => norm(n).includes(m))
-  }
-  // line_item: exact (case-insensitive) name match
-  return lineItemNames.some(n => norm(n) === m)
+  return lineItemNames.some(n => norm(n).includes(m))
 }
 
 export interface ResolvedPinColors {
