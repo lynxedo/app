@@ -102,6 +102,7 @@ function formatStop(type: 'visit' | 'assessment', i: number, data: {
   lineItemNames: string[]
   jobTitle: string; instructions: string | null
   startAt: string | null; endAt: string | null; type: 'visit' | 'assessment'
+  jobId: string | null
 }) {
   return { stopNumber: i + 1, ...data }
 }
@@ -160,6 +161,7 @@ export async function GET(request: Request) {
         instructions: v.job?.instructions ?? null,
         startAt: v.startAt, endAt: v.endAt,
         type: 'visit',
+        jobId: v.job?.id ?? null,
       }))
     }
 
@@ -183,6 +185,7 @@ export async function GET(request: Request) {
         instructions: a.instructions ?? null,
         startAt: a.startAt, endAt: a.endAt,
         type: 'assessment',
+        jobId: null,
       }))
     }
 

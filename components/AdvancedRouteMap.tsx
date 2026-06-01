@@ -185,14 +185,15 @@ function buildPinEl(pin: AdvPin): HTMLDivElement {
   circle.setAttribute('stroke-width', pin.selected ? '2.5' : '2')
   svg.appendChild(circle)
 
-  // Center label (route order today; days-since in 73.4)
+  // Center label: route-order number (optimized) or days-since-last-visit (unoptimized).
+  // 3-char labels (e.g. "365") use a smaller font so they don't overflow the circle.
   if (pin.label) {
     const text = document.createElementNS(SVG_NS, 'text')
     text.setAttribute('x', `${c}`); text.setAttribute('y', `${c}`)
     text.setAttribute('text-anchor', 'middle')
     text.setAttribute('dominant-baseline', 'central')
     text.setAttribute('fill', '#ffffff')
-    text.setAttribute('font-size', '12')
+    text.setAttribute('font-size', pin.label.length >= 3 ? '9' : '12')
     text.setAttribute('font-weight', '700')
     text.setAttribute('font-family', "-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif")
     text.textContent = pin.label
