@@ -146,6 +146,8 @@ export default function TxtConversationView({
   const [text, setText] = useState('')
   const [sending, setSending] = useState(false)
   const [sendError, setSendError] = useState('')
+  // Expand/collapse the composer (toolbar toggle, mirrors the Hub composer).
+  const [expanded, setExpanded] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [assignOpen, setAssignOpen] = useState(false)
@@ -1035,27 +1037,9 @@ export default function TxtConversationView({
             className="hidden"
             onChange={(e) => handleFilesSelected(e.target.files)}
           />
-          <div className="flex gap-2 relative">
-            <button
-              type="button"
-              onClick={pickAttachments}
-              disabled={sending || uploadingAttachment || !!conversation.contact?.do_not_text}
-              className="self-start mt-1 px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-sm disabled:opacity-50"
-              title="Attach an image (JPEG/PNG/GIF/WebP, up to 5 MB)"
-              aria-label="Attach image"
-            >
-              📎
-            </button>
-            <button
-              type="button"
-              onClick={openPickerManually}
-              disabled={sending || !!conversation.contact?.do_not_text}
-              className="self-start mt-1 px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-sm disabled:opacity-50"
-              title="Insert template (or type / in the composer)"
-              aria-label="Insert template"
-            >
-              📋
-            </button>
+          {/* Input box — clean, full width. The toolbar (attach / templates /
+              expand / send) sits below, mirroring the Hub composer. */}
+          <div className="relative">
             <textarea
               ref={textareaRef}
               value={text}
@@ -1095,21 +1079,12 @@ export default function TxtConversationView({
               }}
               placeholder="Type a text… (/ for templates)"
               rows={1}
-              className="flex-1 px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm resize-none"
-              style={{ minHeight: 36, maxHeight: 120, fontSize: 16 }}
+              className={`w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm resize-none ${
+                expanded ? 'h-[40vh]' : 'min-h-[40px] max-h-[120px]'
+              }`}
+              style={{ fontSize: 16 }}
               disabled={sending || !!conversation.contact?.do_not_text}
             />
-            <button
-              onClick={sendMessage}
-              disabled={
-                sending ||
-                (!text.trim() && pendingAttachments.length === 0) ||
-                !!conversation.contact?.do_not_text
-              }
-              className="px-4 py-2 rounded-lg bg-emerald-600 hover:bg-emerald-500 text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
-            >
-              {sending ? '…' : 'Send'}
-            </button>
             {pickerOpen && (
               <TemplatePicker
                 templates={templates}
@@ -1124,14 +1099,72 @@ export default function TxtConversationView({
               />
             )}
           </div>
-          <div className="flex items-center justify-between mt-1 px-1 text-[10px] text-white/40">
-            <span>
-              {text.length > 0 && `${text.length} char${text.length === 1 ? '' : 's'}`}
-              {selectedTemplateId && (
-                <span className="ml-2 text-emerald-300">· template applied</span>
-              )}
+
+          {/* Toolbar — 📎 attach · 📋 templates · ⤢ expand · (spacer) · count · ➤ send */}
+          <div className="flex items-center gap-1 mt-1.5">
+            <button
+              type="button"
+              onClick={pickAttachments}
+              disabled={sending || uploadingAttachment || !!conversation.contact?.do_not_text}
+              className="text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
+              title="Attach an image (JPEG/PNG/GIF/WebP, up to 5 MB)"
+              aria-label="Attach image"
+            >
+              <span className="text-base leading-none">📎</span>
+            </button>
+            <button
+              type="button"
+              onClick={openPickerManually}
+              disabled={sending || !!conversation.contact?.do_not_text}
+              className="text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
+              title="Insert template (or type / in the composer)"
+              aria-label="Insert template"
+            >
+              <span className="text-base leading-none">📋</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setExpanded((v) => !v)}
+              className="text-white/50 hover:text-white transition-colors p-1.5 rounded-md hover:bg-white/10"
+              title={expanded ? 'Shrink composer' : 'Expand composer'}
+              aria-label={expanded ? 'Shrink composer' : 'Expand composer'}
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                {expanded ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
+                )}
+              </svg>
+            </button>
+
+            <div className="flex-1" />
+
+            <span className="text-[10px] text-white/40 mr-1">
+              {text.length > 0 && `${text.length}`}
+              {selectedTemplateId && <span className="ml-1 text-emerald-300">· tmpl</span>}
             </span>
-            <span>Mobile: tap Send. Desktop: Enter to send.</span>
+
+            <button
+              onClick={sendMessage}
+              disabled={
+                sending ||
+                (!text.trim() && pendingAttachments.length === 0) ||
+                !!conversation.contact?.do_not_text
+              }
+              style={{ width: 34, height: 34 }}
+              className="flex-none rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 disabled:cursor-not-allowed flex items-center justify-center"
+              title="Send"
+              aria-label="Send"
+            >
+              {sending ? (
+                <span className="inline-block w-3.5 h-3.5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <svg className="w-4 h-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+                </svg>
+              )}
+            </button>
           </div>
         </div>
       )}
