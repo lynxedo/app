@@ -358,6 +358,44 @@ export default function MessageComposer({
     })
   }
 
+  // Slack/Docs-style bullet continuation. When Enter is pressed and the caret
+  // line is a "• " bullet: a bullet with content continues the list (a fresh
+  // "• " on the next line); an empty bullet exits the list (the marker is
+  // dropped). Returns true when it handled the key so the caller skips
+  // send/newline.
+  function maybeContinueBullet(): boolean {
+    const el = textareaRef.current
+    if (!el) return false
+    const caret = el.selectionStart ?? content.length
+    if ((el.selectionEnd ?? caret) !== caret) return false // ignore when a range is selected
+    const lineStart = content.lastIndexOf('\n', caret - 1) + 1
+    const lineEndIdx = content.indexOf('\n', caret)
+    const lineEnd = lineEndIdx === -1 ? content.length : lineEndIdx
+    const line = content.slice(lineStart, lineEnd)
+    if (!line.startsWith('• ')) return false
+    if (line.slice(2).trim() === '') {
+      // Empty bullet → exit the list (remove the marker, leave a blank line).
+      const newVal = content.slice(0, lineStart) + content.slice(lineEnd)
+      setContent(newVal)
+      requestAnimationFrame(() => {
+        if (!el) return
+        el.focus()
+        el.setSelectionRange(lineStart, lineStart)
+      })
+      return true
+    }
+    // Non-empty bullet → continue with a fresh marker on the next line.
+    const newVal = content.slice(0, caret) + '\n• ' + content.slice(caret)
+    setContent(newVal)
+    const newCaret = caret + 3
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(newCaret, newCaret)
+    })
+    return true
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Emoji autocomplete navigation takes priority over mention because
     // the two can't be open at the same time (different trigger chars).
@@ -379,6 +417,11 @@ export default function MessageComposer({
       if (k === 'b' && !e.shiftKey) { e.preventDefault(); wrapSelection('*'); return }
       if (k === 'i' && !e.shiftKey) { e.preventDefault(); wrapSelection('_'); return }
       if (k === 'x' && e.shiftKey)  { e.preventDefault(); wrapSelection('~'); return }
+    }
+    // Bullet-list continuation (Slack/Docs behavior) takes priority over both
+    // send and newline so a bulleted line auto-extends the list.
+    if (e.key === 'Enter' && !e.shiftKey) {
+      if (maybeContinueBullet()) { e.preventDefault(); return }
     }
     // Enter sends on desktop only. On mobile (≤767px) Enter inserts a
     // newline — sending requires tapping the Send button. This matches
