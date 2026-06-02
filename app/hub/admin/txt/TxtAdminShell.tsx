@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import TxtAdminPanel from './TxtAdminPanel'
 import TxtNumbersPanel, { type TxtNumber } from './TxtNumbersPanel'
+import OnMyWayPanel from './OnMyWayPanel'
 
 type Template = {
   id: string
@@ -14,14 +15,16 @@ type Template = {
   updated_at: string
 }
 
-type SubTab = 'templates' | 'numbers'
+type SubTab = 'templates' | 'numbers' | 'onmyway'
 
 export default function TxtAdminShell({
   initialTemplates,
   initialNumbers,
+  initialOnMyWayTemplate,
 }: {
   initialTemplates: Template[]
   initialNumbers: TxtNumber[]
+  initialOnMyWayTemplate: string | null
 }) {
   const [tab, setTab] = useState<SubTab>('templates')
 
@@ -34,10 +37,14 @@ export default function TxtAdminShell({
         <SubTabButton active={tab === 'numbers'} onClick={() => setTab('numbers')}>
           Numbers
         </SubTabButton>
+        <SubTabButton active={tab === 'onmyway'} onClick={() => setTab('onmyway')}>
+          On My Way
+        </SubTabButton>
       </div>
 
       {tab === 'templates' && <TxtAdminPanel initialTemplates={initialTemplates} />}
       {tab === 'numbers' && <TxtNumbersPanel initialNumbers={initialNumbers} />}
+      {tab === 'onmyway' && <OnMyWayPanel initialTemplate={initialOnMyWayTemplate} />}
     </div>
   )
 }

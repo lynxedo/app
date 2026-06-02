@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ContactModal, { type ContactForModal } from './ContactModal'
 import TemplatePicker, { filterTemplates, type PickerTemplate } from './TemplatePicker'
+import { renderTemplate, DEFAULT_ON_MY_WAY_TEMPLATE } from '@/lib/txt-templates'
 
 type Message = {
   id: string
@@ -148,6 +149,11 @@ export default function TxtConversationView({
   const [sendError, setSendError] = useState('')
   // Expand/collapse the composer (toolbar toggle, mirrors the Hub composer).
   const [expanded, setExpanded] = useState(false)
+  // On-My-Way (🚗) — admin-editable template + ETA picker. Picking an ETA
+  // renders the template into the composer for the tech to review + send.
+  const [omwOpen, setOmwOpen] = useState(false)
+  const [omwTemplate, setOmwTemplate] = useState<string | null>(null)
+  const [omwCustom, setOmwCustom] = useState('')
   const [showNotes, setShowNotes] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [assignOpen, setAssignOpen] = useState(false)
@@ -244,7 +250,29 @@ export default function TxtConversationView({
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((data) => setNumbers(data.numbers || []))
       .catch(() => setNumbers([]))
+    fetch('/api/txt/settings')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => setOmwTemplate(data.on_my_way_template ?? null))
+      .catch(() => setOmwTemplate(null))
   }, [])
+
+  // On-My-Way: render the company template (or the default) with the contact's
+  // first name, the sender, the company, and the chosen ETA, then drop it into
+  // the composer for review. {eta} isn't a contact/sender field so it's filled
+  // in after renderTemplate.
+  function applyOnMyWay(eta: number) {
+    const tmpl = (omwTemplate && omwTemplate.trim()) || DEFAULT_ON_MY_WAY_TEMPLATE
+    const rendered = renderTemplate(tmpl, {
+      contactName: conversation.contact?.name || null,
+      senderName: currentUserName,
+      companyName,
+    }).replace(/\{eta\}/g, String(eta))
+    setText(rendered)
+    setSelectedTemplateId(null)
+    setOmwOpen(false)
+    setOmwCustom('')
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
 
   useEffect(() => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
@@ -1122,6 +1150,61 @@ export default function TxtConversationView({
             >
               <span className="text-base leading-none">📋</span>
             </button>
+            {!isGroup && conversation.contact && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setOmwOpen((v) => !v)}
+                  disabled={sending || !!conversation.contact?.do_not_text}
+                  className="text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
+                  title="On my way — pick an ETA"
+                  aria-label="On my way"
+                >
+                  <span className="text-base leading-none">🚗</span>
+                </button>
+                {omwOpen && (
+                  <div className="absolute bottom-full mb-2 left-0 w-56 bg-[#0F2E47] border border-white/15 rounded-lg shadow-xl z-30 p-2">
+                    <div className="text-[11px] text-white/50 px-1 pb-1.5">
+                      On my way — pick an ETA
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {[5, 10, 15, 20, 30, 45].map((m) => (
+                        <button
+                          key={m}
+                          type="button"
+                          onClick={() => applyOnMyWay(m)}
+                          className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-emerald-600/40 text-sm"
+                        >
+                          {m}m
+                        </button>
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-1.5 mt-2">
+                      <input
+                        type="number"
+                        min={1}
+                        max={240}
+                        value={omwCustom}
+                        onChange={(e) => setOmwCustom(e.target.value)}
+                        placeholder="custom"
+                        className="flex-1 w-full px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm"
+                        style={{ fontSize: 16 }}
+                      />
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const n = parseInt(omwCustom, 10)
+                          if (Number.isFinite(n) && n >= 1 && n <= 240) applyOnMyWay(n)
+                        }}
+                        className="px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm"
+                      >
+                        Use
+                      </button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}

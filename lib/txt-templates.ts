@@ -49,3 +49,9 @@ export const TEMPLATE_FIELDS = [
   'my_name',
   'company',
 ] as const
+
+// On-My-Way default. Used when txt_settings.on_my_way_template is blank.
+// {eta} is substituted client-side after renderTemplate (it's not a contact/
+// sender field, so renderTemplate leaves it as a literal token to fill in).
+export const DEFAULT_ON_MY_WAY_TEMPLATE =
+  "Hi {first_name}, this is {my_name} from {company}. I'm on my way — should be there in about {eta} minutes."
