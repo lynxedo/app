@@ -62,6 +62,7 @@ export default function HubShell({
   canAccessMarketing,
   canAdminMarketing,
   canAccessForms,
+  canAccessDailyLogV2,
   dialerGlobalRing,
   myPresenceMode,
   children,
@@ -102,6 +103,7 @@ export default function HubShell({
   canAccessMarketing?: boolean
   canAdminMarketing?: boolean
   canAccessForms?: boolean
+  canAccessDailyLogV2?: boolean
   /** Session 58.5: when true (default) AND canAccessDialer, the Twilio
    *  Device registers on every Hub page so IncomingCall pops anywhere. */
   dialerGlobalRing?: boolean
@@ -318,6 +320,7 @@ export default function HubShell({
     canAccessDialer: !!canAccessDialer,
     canAccessMarketing: !!canAccessMarketing,
     canAccessForms: !!canAccessForms,
+    canAccessDailyLogV2: !!canAccessDailyLogV2,
   }
 
   function renderSidebar() {
@@ -349,6 +352,7 @@ export default function HubShell({
             canAccessMarketing={!!canAccessMarketing}
             canAdminMarketing={!!canAdminMarketing}
             canAccessForms={!!canAccessForms}
+            canAccessDailyLogV2={!!canAccessDailyLogV2}
             onClose={closeMobileDrawer}
             {...collapseProps}
           />
