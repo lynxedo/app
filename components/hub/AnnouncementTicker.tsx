@@ -19,6 +19,14 @@ export type Announcement = {
 
 const REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '🙌', '👀']
 
+// Both tickers share one CSS marquee keyframe (translateX 0 → -50% over a fixed
+// duration), so the linear scroll speed scales with text length — a long shout-out
+// scrolls faster than a short announcement. We instead drive a CONSTANT speed
+// (px/second) by computing the animation duration from the rendered width, so every
+// ticker scrolls at the same calm pace regardless of message length. Bump this to
+// speed every ticker up, lower it to slow them all down.
+const MARQUEE_SPEED_PX_PER_SEC = 30
+
 const STYLE: Record<AnnType, { icon: string; bg: string; border: string; text: string; ariaLabel: string }> = {
   announcement: {
     icon: '📢',
@@ -67,6 +75,19 @@ function TickerBar({
   const pickerRef = useRef<HTMLDivElement>(null)
   const style = STYLE[announcement.type]
 
+  // Constant-speed marquee: measure the rendered width and set the animation
+  // duration so the scroll speed (px/sec) is identical across every ticker.
+  const marqueeRef = useRef<HTMLDivElement>(null)
+  const [marqueeDuration, setMarqueeDuration] = useState<number | null>(null)
+  useEffect(() => {
+    const el = marqueeRef.current
+    if (!el) return
+    // Content is duplicated, so the keyframe's -50% translate moves exactly one
+    // copy's width — that half is the real distance travelled per loop.
+    const travel = el.scrollWidth / 2
+    if (travel > 0) setMarqueeDuration(travel / MARQUEE_SPEED_PX_PER_SEC)
+  }, [announcement.content])
+
   useEffect(() => {
     if (!showPicker) return
     function handler(e: MouseEvent) {
@@ -104,7 +125,11 @@ function TickerBar({
       <span className="flex-none text-sm">{style.icon}</span>
 
       <div className="flex-1 overflow-hidden relative">
-        <div className={`whitespace-nowrap animate-marquee text-sm ${style.text} inline-block`}>
+        <div
+          ref={marqueeRef}
+          className={`whitespace-nowrap animate-marquee text-sm ${style.text} inline-block`}
+          style={marqueeDuration ? { animationDuration: `${marqueeDuration}s` } : undefined}
+        >
           {announcement.content}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
           {announcement.content}&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;&nbsp;
         </div>
