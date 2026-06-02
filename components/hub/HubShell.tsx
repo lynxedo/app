@@ -253,29 +253,50 @@ export default function HubShell({
     return () => { cancelled = true; clearInterval(id) }
   }, [pathname])
 
-  // Any-unread-DM/room poll for the Hub rail icon dot. Reads the same
-  // read-receipts endpoint the sidebar uses; we just collapse to a boolean.
+  // Authoritative unread refresh for the Hub rail icon dot (any unread room/DM)
+  // + the Daily Log dot. Reads the same read-receipts endpoint the sidebar uses.
+  // pathname is read via ref so this is a stable callback.
+  const refreshHubUnread = useCallback(() => {
+    fetch('/api/hub/read-receipts', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : { unread_room_ids: [], unread_conv_ids: [], daily_log_unread: false })
+      .then(d => {
+        const any =
+          (Array.isArray(d.unread_room_ids) && d.unread_room_ids.length > 0) ||
+          (Array.isArray(d.unread_conv_ids) && d.unread_conv_ids.length > 0)
+        setUnreadHub(any)
+        // Don't show the Daily Log dot while the user is viewing Daily Log.
+        const path = pathnameRef.current
+        const onDailyLog = path === '/hub/daily-log' || path.startsWith('/hub/daily-log/')
+        setDailyLogUnread(d.daily_log_unread === true && !onDailyLog)
+      })
+      .catch(() => {})
+  }, [])
+
+  // Refresh on every navigation + a 60s safety poll.
   useEffect(() => {
-    let cancelled = false
-    function tick() {
-      fetch('/api/hub/read-receipts', { cache: 'no-store' })
-        .then(r => r.ok ? r.json() : { unread_room_ids: [], unread_conv_ids: [], daily_log_unread: false })
-        .then(d => {
-          if (cancelled) return
-          const any =
-            (Array.isArray(d.unread_room_ids) && d.unread_room_ids.length > 0) ||
-            (Array.isArray(d.unread_conv_ids) && d.unread_conv_ids.length > 0)
-          setUnreadHub(any)
-          // Don't show the Daily Log dot while the user is viewing Daily Log.
-          const onDailyLog = pathname === '/hub/daily-log' || pathname.startsWith('/hub/daily-log/')
-          setDailyLogUnread(d.daily_log_unread === true && !onDailyLog)
+    refreshHubUnread()
+    const id = setInterval(refreshHubUnread, 60_000)
+    return () => clearInterval(id)
+  }, [pathname, refreshHubUnread])
+
+  // Realtime: light the Hub rail icon dot the instant a new message arrives
+  // (instead of waiting up to 60s for the poll). On a qualifying insert we pull
+  // the authoritative read-receipts state so the dot also clears on read.
+  // postgres_changes covers normal message inserts; the 60s poll backstops the
+  // rare admin-client insert (Slack bridge) that postgres_changes can drop.
+  useEffect(() => {
+    const supabase = createClient()
+    const channel = supabase
+      .channel('shell-hub-unread')
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' },
+        (payload) => {
+          const msg = payload.new as { sender_id?: string; parent_id?: string | null }
+          if (!msg?.sender_id || msg.sender_id === currentUserId || msg.parent_id) return
+          refreshHubUnread()
         })
-        .catch(() => {})
-    }
-    tick()
-    const id = setInterval(tick, 60_000)
-    return () => { cancelled = true; clearInterval(id) }
-  }, [pathname])
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [currentUserId, refreshHubUnread])
 
   // Mark Daily Log read + clear the dot when the user opens it. (/hub/daily-log
   // only — Daily Log v2 lives at /hub/daily-log-v2 and is intentionally untouched.)
