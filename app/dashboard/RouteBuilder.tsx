@@ -1620,7 +1620,6 @@ export default function RouteBuilder() {
               {dailyLogError}
             </div>
           )}
-
           {dailyLogV1Result && (
             <div className="mb-4 bg-indigo-900/40 border border-indigo-700 text-indigo-300 rounded-lg px-4 py-3 text-sm">
               ✓ Daily Log (v1) entry {dailyLogV1Result.action} with route sheet attached — open Daily Log to view
@@ -1632,7 +1631,7 @@ export default function RouteBuilder() {
             </div>
           )}
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
             <button
               onClick={sendOrderOnly}
               disabled={sending}
@@ -1660,6 +1659,7 @@ export default function RouteBuilder() {
                 Convert to scheduled visits with appointment times
               </div>
             </button>
+
 
             <button
               onClick={sendToDailyLog}
