@@ -143,6 +143,12 @@ export default function HubAdminPanel({
   const [savingEdit, setSavingEdit] = useState(false)
   const [editError, setEditError] = useState('')
 
+  // Past announcements (archived / expired)
+  const [pastAnns, setPastAnns] = useState<Announcement[]>([])
+  const [pastAnnsLoaded, setPastAnnsLoaded] = useState(false)
+  const [loadingPastAnns, setLoadingPastAnns] = useState(false)
+  const [deletingAnnId, setDeletingAnnId] = useState<string | null>(null)
+
   // API Keys
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([])
   const [apiKeysLoaded, setApiKeysLoaded] = useState(false)
@@ -367,8 +373,29 @@ export default function HubAdminPanel({
     const res = await fetch(`/api/hub/announcements/${ann.id}`, { method: 'DELETE' })
     if (res.ok) {
       setActiveAnns(prev => prev.filter(a => a.id !== ann.id))
+      if (pastAnnsLoaded) {
+        setPastAnns(prev => [{ ...ann, archived_at: new Date().toISOString() }, ...prev])
+      }
       router.refresh()
     }
+  }
+
+  async function loadPastAnns() {
+    if (pastAnnsLoaded || loadingPastAnns) return
+    setLoadingPastAnns(true)
+    const res = await fetch('/api/hub/announcements?archived=1')
+    const data = await res.json()
+    setPastAnns(data.archived ?? [])
+    setPastAnnsLoaded(true)
+    setLoadingPastAnns(false)
+  }
+
+  async function hardDeleteAnn(id: string) {
+    if (!confirm('Permanently delete this announcement? This cannot be undone.')) return
+    setDeletingAnnId(id)
+    const res = await fetch(`/api/hub/announcements/${id}?hard=1`, { method: 'DELETE' })
+    setDeletingAnnId(null)
+    if (res.ok) setPastAnns(prev => prev.filter(a => a.id !== id))
   }
 
   function startEdit(ann: Announcement) {
@@ -719,7 +746,7 @@ export default function HubAdminPanel({
         ] as const).map(([key, label]) => (
           <button
             key={key}
-            onClick={() => { setTab(key); if (key === 'api-keys') loadApiKeys(); if (key === 'automation') loadAutomationRules(); if (key === 'chat-synx') { if (!chatSynxLinksLoaded) loadChatSynxLinks(); if (!chatSynxBridgesLoaded) loadChatSynxBridges(); } if (key === 'file-tags' && !fileTagsLoaded) loadFileTags(); if (key === 'external-links' && !externalLinksLoaded) loadExternalLinks() }}
+            onClick={() => { setTab(key); if (key === 'api-keys') loadApiKeys(); if (key === 'automation') loadAutomationRules(); if (key === 'chat-synx') { if (!chatSynxLinksLoaded) loadChatSynxLinks(); if (!chatSynxBridgesLoaded) loadChatSynxBridges(); } if (key === 'file-tags' && !fileTagsLoaded) loadFileTags(); if (key === 'external-links' && !externalLinksLoaded) loadExternalLinks(); if (key === 'announcements') loadPastAnns() }}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === key ? 'border-[#2E7EB8] text-white' : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}
@@ -1521,6 +1548,39 @@ Content-Type: application/json
               </div>
             </div>
           )}
+
+          {/* Past announcements (archived / expired) */}
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+            <h2 className="font-semibold text-white mb-4">Past Announcements</h2>
+            {loadingPastAnns ? (
+              <p className="text-sm text-gray-500">Loading…</p>
+            ) : pastAnns.length === 0 ? (
+              <p className="text-sm text-gray-500">No past announcements.</p>
+            ) : (
+              <div className="space-y-2">
+                {pastAnns.map(a => (
+                  <div key={a.id} className="flex items-start gap-3 bg-gray-800/50 rounded-xl px-4 py-3">
+                    <span className="flex-none mt-0.5 text-sm">{a.type === 'shout_out' ? '🎉' : '📢'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-sm text-gray-300 line-clamp-2">{a.content}</p>
+                      <p className="text-xs text-gray-600 mt-1">
+                        {a.archived_at
+                          ? `Archived ${new Date(a.archived_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`
+                          : `Expired ${new Date(a.expires_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`}
+                      </p>
+                    </div>
+                    <button
+                      onClick={() => hardDeleteAnn(a.id)}
+                      disabled={deletingAnnId === a.id}
+                      className="flex-none text-xs text-red-400 hover:text-red-300 px-2 py-1 rounded hover:bg-red-500/10 transition-colors disabled:opacity-40"
+                    >
+                      {deletingAnnId === a.id ? 'Deleting…' : 'Delete'}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
         </div>
       )}
 

@@ -23,12 +23,25 @@ function normalize(row: RawRow) {
 }
 
 // GET returns the latest active row of EACH type as a flat array.
-export async function GET() {
+// With ?archived=1, returns up to 50 past (archived or expired) rows instead.
+export async function GET(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const nowIso = new Date().toISOString()
+
+  const wantArchived = new URL(request.url).searchParams.get('archived') === '1'
+  if (wantArchived) {
+    const { data, error } = await supabase
+      .from('hub_announcements')
+      .select('id, content, created_at, expires_at, type, archived_at, edited_at, created_by')
+      .or(`archived_at.not.is.null,expires_at.lte.${nowIso}`)
+      .order('created_at', { ascending: false })
+      .limit(50)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ archived: data ?? [] })
+  }
 
   // Pull the latest non-expired, non-archived row per type.
   const results = await Promise.all(
