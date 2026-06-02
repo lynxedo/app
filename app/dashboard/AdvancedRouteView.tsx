@@ -155,9 +155,10 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
   const [startDate, setStartDate] = useState(todayLocal())
   const [endDate, setEndDate] = useState(todayLocal())
 
-  // ── Resizable stop-list panel (desktop only) ──────────────────────────────
+  // ── Resizable stop-list panel + tall map (desktop) ────────────────────────
   const [listWidth, setListWidth] = useState(DEFAULT_LIST_W)
   const [isDesktop, setIsDesktop] = useState(false)
+  const [mapHeight, setMapHeight] = useState(640)
   const mapRowRef = useRef<HTMLDivElement>(null)
   useEffect(() => {
     try {
@@ -166,9 +167,17 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     } catch { /* ignore */ }
     const mq = window.matchMedia('(min-width: 1024px)')
     const update = () => setIsDesktop(mq.matches)
+    // Fill most of the viewport height — the map sits in a sticky column with
+    // plenty of room below the header.
+    const onResize = () => setMapHeight(Math.max(480, Math.min(900, window.innerHeight - 190)))
     update()
+    onResize()
     mq.addEventListener('change', update)
-    return () => mq.removeEventListener('change', update)
+    window.addEventListener('resize', onResize)
+    return () => {
+      mq.removeEventListener('change', update)
+      window.removeEventListener('resize', onResize)
+    }
   }, [])
   function startListResize(e: React.MouseEvent) {
     e.preventDefault()
@@ -717,6 +726,55 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     })
   }
 
+  // View / print a batch's route sheet (same HTML the Daily Log v1 send builds),
+  // opened in a new tab via the shared /hub/routing/print page.
+  function viewBatchRouteSheet(b: RouteBatch) {
+    if (!b.assigned_tech_name) {
+      setBatchMsg(prev => ({ ...prev, [b.id]: { ok: false, text: 'Batch has no assigned tech — cannot build a route sheet.' } }))
+      return
+    }
+    runBatchAction(b.id, 'sheet', async () => {
+      const sheetStops: RouteSheetStop[] = orderedStops(b).map(s => ({
+        stopNumber: s.ord,
+        clientName: s.client_name,
+        addressString: s.address,
+        phone: s.client_phone,
+        jobTitle: s.job_title ?? '',
+        eta: s.eta,
+        driveMinutes: s.drive_minutes,
+        onSiteMinutes: s.onsite_minutes,
+        distanceKm: s.distance_km,
+        lat: s.lat ?? 0,
+        lng: s.lng ?? 0,
+        lineItems: s.line_items,
+        services: s.services,
+        totalPrice: s.total_price,
+        instructions: s.instructions,
+      }))
+      const html = await buildAdvancedRouteSheetHtml({
+        techName: b.assigned_tech_name!,
+        date: b.assigned_date,
+        stops: sheetStops,
+        depot: (b.depot_lat != null && b.depot_lng != null) ? { lat: b.depot_lat, lng: b.depot_lng } : null,
+        mapboxToken: process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? '',
+      })
+      if (!html) return { ok: false, text: 'Failed to build route sheet.' }
+      // Hand off via localStorage to /hub/routing/print so the Mapbox static
+      // image loads from a lynxedo.com origin (token referrer restriction).
+      try {
+        const key = `hub_print_sheet_${Date.now()}_${b.id}`
+        localStorage.setItem(key, JSON.stringify({ html, t: Date.now() }))
+        window.open(`/hub/routing/print?k=${encodeURIComponent(key)}`, '_blank')
+      } catch {
+        const blob = new Blob([html], { type: 'text/html' })
+        const url = URL.createObjectURL(blob)
+        window.open(url, '_blank')
+        setTimeout(() => URL.revokeObjectURL(url), 30000)
+      }
+      return { ok: true, text: 'Route sheet opened in a new tab' }
+    })
+  }
+
   function deleteBatch(b: RouteBatch) {
     if (!window.confirm(`Delete "${batchTitle(b)}"? Its ${b.stops.length} stop(s) will return to the map and list.`)) return
     runBatchAction(b.id, 'delete', async () => {
@@ -1092,6 +1150,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
               )}
               {pins.length > 0 || depotCoord ? (
                 <AdvancedRouteMap
+                  height={mapHeight}
                   depotCoord={depotCoord}
                   pins={pins}
                   pathCoords={pathCoords}
@@ -1292,6 +1351,9 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                           ))}
                         </ol>
                         <div className="flex flex-wrap gap-2 pt-2">
+                          <button onClick={() => viewBatchRouteSheet(b)} disabled={!!busy} className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg text-xs font-medium">
+                            {busy === 'sheet' ? 'Building…' : '📄 Route Sheet'}
+                          </button>
                           <button onClick={() => sendBatchOrderOnly(b)} disabled={!!busy} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-100 rounded-lg text-xs font-medium">
                             {busy === 'order' ? 'Sending…' : 'Send Order Only'}
                           </button>
