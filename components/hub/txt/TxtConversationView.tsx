@@ -817,6 +817,19 @@ export default function TxtConversationView({
         </div>
       </div>
 
+      {/* Opt-out banner — always visible (even when the thread is archived) so
+          staff immediately see the contact is on the do-not-text list. The
+          composer's own do-not-text note only renders on active threads, but a
+          STOP auto-archives the thread, which would otherwise hide all signal. */}
+      {conversation.contact?.do_not_text && (
+        <div className="px-4 py-2 bg-orange-500/15 border-b border-orange-500/30 text-orange-200 text-sm flex items-center gap-2">
+          <span aria-hidden>🚫</span>
+          <span>
+            This contact opted out — they&apos;re on the do-not-text list. Outbound texts are blocked.
+          </span>
+        </div>
+      )}
+
       {/* Body: messages + optional notes panel */}
       <div className="flex-1 flex min-h-0">
         <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">

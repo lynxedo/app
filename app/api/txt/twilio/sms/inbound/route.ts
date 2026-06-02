@@ -20,14 +20,6 @@ const STOP_KEYWORDS = new Set(['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'QUIT
 const START_KEYWORDS = new Set(['START', 'UNSTOP', 'YES'])
 const HELP_KEYWORDS = new Set(['HELP', 'INFO'])
 
-// TODO(session-50+): make these admin-editable per company.
-const STOP_REPLY =
-  'You have been unsubscribed and will no longer receive messages from Heroes Lawn Care. Reply START to resubscribe.'
-const START_REPLY =
-  "You're resubscribed to Heroes Lawn Care messages. Reply STOP to unsubscribe at any time."
-const HELP_REPLY =
-  'Reply STOP to unsubscribe. For help with Heroes Lawn Care, call (281) 698-7757 or visit heroeslawntx.com.'
-
 type ComplianceKind = 'stop' | 'start' | 'help' | null
 
 function classifyKeyword(body: string): ComplianceKind {
@@ -37,21 +29,6 @@ function classifyKeyword(body: string): ComplianceKind {
   if (START_KEYWORDS.has(t)) return 'start'
   if (HELP_KEYWORDS.has(t)) return 'help'
   return null
-}
-
-function escapeXml(s: string) {
-  return s
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&apos;')
-}
-
-function twimlMessage(message: string) {
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Message>${escapeXml(
-    message
-  )}</Message></Response>`
 }
 
 function twimlResponse(body = EMPTY_TWIML, status = 200) {
@@ -273,7 +250,7 @@ export async function POST(req: NextRequest) {
   if (compliance === 'stop') {
     await supabase
       .from('txt_contacts')
-      .update({ do_not_text: true })
+      .update({ do_not_text: true, updated_at: now })
       .eq('id', contactId)
     // Archive the conversation so it drops out of active views; staff can still see history.
     await supabase
@@ -283,7 +260,7 @@ export async function POST(req: NextRequest) {
   } else if (compliance === 'start') {
     await supabase
       .from('txt_contacts')
-      .update({ do_not_text: false })
+      .update({ do_not_text: false, updated_at: now })
       .eq('id', contactId)
   }
 
@@ -379,9 +356,13 @@ export async function POST(req: NextRequest) {
     compliance,
   })
 
-  if (compliance === 'stop') return twimlResponse(twimlMessage(STOP_REPLY))
-  if (compliance === 'start') return twimlResponse(twimlMessage(START_REPLY))
-  if (compliance === 'help') return twimlResponse(twimlMessage(HELP_REPLY))
+  // Compliance auto-replies (STOP/START/HELP) are intentionally NOT sent from the
+  // app. The 888 is a standalone toll-free number, so Twilio's built-in carrier
+  // keyword handling already opts the sender out/in AND sends the carrier-required
+  // confirmation. A second reply from us is redundant: it fails with error 21610 on
+  // STOP (Twilio has already blocked the number) and double-texts the customer on
+  // HELP/START. We still record the inbound + toggle do_not_text above; Twilio owns
+  // the customer-facing reply. (Confirmed in Stage 1 live test, 2026-06-02.)
   return twimlResponse()
 }
 
