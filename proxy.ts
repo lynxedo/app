@@ -106,6 +106,7 @@ export async function proxy(request: NextRequest) {
         const adminFlagMap: Record<string, keyof typeof profile> = {
           '/hub/admin/hub': 'can_admin_hub',
           '/hub/admin/guardian': 'can_admin_hub',
+          '/hub/admin/txt': 'can_admin_hub',
           '/hub/admin/routing': 'can_admin_routing',
           '/hub/admin/timesheet': 'can_admin_timesheet',
           '/hub/admin/fleet': 'can_admin_fleet',

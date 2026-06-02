@@ -1,0 +1,224 @@
+import crypto from 'node:crypto'
+
+const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || ''
+const AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || ''
+const FROM_NUMBER = process.env.TWILIO_PHONE_NUMBER || ''
+
+export function twilioConfigured(): boolean {
+  return Boolean(ACCOUNT_SID && AUTH_TOKEN && FROM_NUMBER)
+}
+
+export function twilioFromNumber(): string {
+  return FROM_NUMBER
+}
+
+export type TwilioSendResult =
+  | { ok: true; sid: string; status: string }
+  | { ok: false; error: string; code?: number }
+
+export async function sendSms(opts: {
+  to: string
+  body: string
+  mediaUrls?: string[]
+  statusCallback?: string
+  fromNumber?: string
+}): Promise<TwilioSendResult> {
+  if (!twilioConfigured()) {
+    return { ok: false, error: 'twilio_not_configured' }
+  }
+
+  const from = opts.fromNumber || FROM_NUMBER
+  const form = new URLSearchParams()
+  form.set('From', from)
+  form.set('To', opts.to)
+  if (opts.body) form.set('Body', opts.body)
+  if (opts.mediaUrls?.length) {
+    for (const url of opts.mediaUrls) form.append('MediaUrl', url)
+  }
+  if (opts.statusCallback) form.set('StatusCallback', opts.statusCallback)
+
+  const auth = Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString('base64')
+  const res = await fetch(
+    `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Messages.json`,
+    {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: form.toString(),
+    }
+  )
+
+  const payload = (await res.json().catch(() => null)) as
+    | { sid?: string; status?: string; message?: string; code?: number }
+    | null
+
+  if (!res.ok || !payload?.sid) {
+    return {
+      ok: false,
+      error: payload?.message || `twilio_http_${res.status}`,
+      code: payload?.code,
+    }
+  }
+
+  return { ok: true, sid: payload.sid, status: payload.status || 'queued' }
+}
+
+// Twilio signature validation. Returns true if signature header is present
+// and matches; returns false otherwise. Throws nothing.
+// https://www.twilio.com/docs/usage/security#validating-requests
+export function validateTwilioSignature(
+  url: string,
+  params: Record<string, string>,
+  headerSignature: string | null
+): boolean {
+  if (!AUTH_TOKEN || !headerSignature) return false
+  const sortedKeys = Object.keys(params).sort()
+  let data = url
+  for (const key of sortedKeys) data += key + params[key]
+  const computed = crypto
+    .createHmac('sha1', AUTH_TOKEN)
+    .update(Buffer.from(data, 'utf-8'))
+    .digest('base64')
+  try {
+    return crypto.timingSafeEqual(
+      Buffer.from(computed),
+      Buffer.from(headerSignature)
+    )
+  } catch {
+    return false
+  }
+}
+
+// Helper to download a Twilio MediaUrl with auth. Returns raw bytes + content-type.
+export async function downloadTwilioMedia(
+  mediaUrl: string
+): Promise<{ bytes: Uint8Array; contentType: string } | null> {
+  if (!twilioConfigured()) return null
+  const auth = Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString('base64')
+  const res = await fetch(mediaUrl, {
+    headers: { Authorization: `Basic ${auth}` },
+    redirect: 'follow',
+  })
+  if (!res.ok) return null
+  const buffer = await res.arrayBuffer()
+  return {
+    bytes: new Uint8Array(buffer),
+    contentType: res.headers.get('content-type') || 'application/octet-stream',
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Conversations API (used for group SMS). Separate Twilio product from
+// Programmable Messaging. Group conversations are first-class Twilio resources:
+// you create a Conversation, add Participants (each with their phone +
+// proxy_address = our Twilio number), then send Messages on the Conversation.
+// Inbound + status events fire on the Conversations Service webhook,
+// not the per-number SMS webhook.
+//
+// All helpers below no-op safely when creds are empty — same pattern as
+// sendSms — so the code paths can run on staging without configured creds.
+// ---------------------------------------------------------------------------
+
+export type TwilioConvCreateResult =
+  | { ok: true; sid: string }
+  | { ok: false; error: string; code?: number }
+
+async function twilioConvFetch(path: string, init: RequestInit) {
+  const auth = Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString('base64')
+  return fetch(`https://conversations.twilio.com/v1${path}`, {
+    ...init,
+    headers: {
+      Authorization: `Basic ${auth}`,
+      'Content-Type': 'application/x-www-form-urlencoded',
+      ...(init.headers || {}),
+    },
+  })
+}
+
+export async function twilioConvCreate(opts: {
+  friendlyName?: string
+}): Promise<TwilioConvCreateResult> {
+  if (!twilioConfigured()) return { ok: false, error: 'twilio_not_configured' }
+  const form = new URLSearchParams()
+  if (opts.friendlyName) form.set('FriendlyName', opts.friendlyName)
+  const res = await twilioConvFetch('/Conversations', {
+    method: 'POST',
+    body: form.toString(),
+  })
+  const payload = (await res.json().catch(() => null)) as
+    | { sid?: string; message?: string; code?: number }
+    | null
+  if (!res.ok || !payload?.sid) {
+    return {
+      ok: false,
+      error: payload?.message || `twilio_http_${res.status}`,
+      code: payload?.code,
+    }
+  }
+  return { ok: true, sid: payload.sid }
+}
+
+export async function twilioConvAddSmsParticipant(opts: {
+  conversationSid: string
+  contactPhone: string // E.164
+  proxyNumber?: string // overrides env default; for Session 54 multi-number
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!twilioConfigured()) return { ok: false, error: 'twilio_not_configured' }
+  const form = new URLSearchParams()
+  form.set('MessagingBinding.Address', opts.contactPhone)
+  form.set('MessagingBinding.ProxyAddress', opts.proxyNumber || FROM_NUMBER)
+  const res = await twilioConvFetch(
+    `/Conversations/${opts.conversationSid}/Participants`,
+    { method: 'POST', body: form.toString() }
+  )
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => null)) as
+      | { message?: string }
+      | null
+    return { ok: false, error: payload?.message || `twilio_http_${res.status}` }
+  }
+  return { ok: true }
+}
+
+export async function twilioConvSendMessage(opts: {
+  conversationSid: string
+  body: string
+  author?: string
+}): Promise<TwilioSendResult> {
+  if (!twilioConfigured()) return { ok: false, error: 'twilio_not_configured' }
+  const form = new URLSearchParams()
+  form.set('Body', opts.body)
+  if (opts.author) form.set('Author', opts.author)
+  const res = await twilioConvFetch(
+    `/Conversations/${opts.conversationSid}/Messages`,
+    { method: 'POST', body: form.toString() }
+  )
+  const payload = (await res.json().catch(() => null)) as
+    | { sid?: string; message?: string; code?: number }
+    | null
+  if (!res.ok || !payload?.sid) {
+    return {
+      ok: false,
+      error: payload?.message || `twilio_http_${res.status}`,
+      code: payload?.code,
+    }
+  }
+  return { ok: true, sid: payload.sid, status: 'queued' }
+}
+
+// E.164 normalizer for US numbers — Twilio requires E.164 (+1...).
+// Accepts (281) 555-1234, 281-555-1234, 12815551234, +12815551234, etc.
+export function toE164(raw: string): string | null {
+  if (!raw) return null
+  const trimmed = raw.trim()
+  if (trimmed.startsWith('+')) {
+    const digits = trimmed.slice(1).replace(/\D/g, '')
+    return digits.length >= 10 ? '+' + digits : null
+  }
+  const digits = trimmed.replace(/\D/g, '')
+  if (digits.length === 10) return '+1' + digits
+  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits
+  return null
+}

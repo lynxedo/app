@@ -20,6 +20,7 @@ const TABS: { href: string; label: string; exact: boolean; grantKey: keyof Grant
   { href: '/hub/admin', label: 'People', exact: true, grantKey: 'people' },
   { href: '/hub/admin/hub', label: 'Hub', exact: false, grantKey: 'hub' },
   { href: '/hub/admin/guardian', label: 'Guardian', exact: false, grantKey: 'hub' },
+  { href: '/hub/admin/txt', label: 'Txt', exact: false, grantKey: 'hub' },
   { href: '/hub/admin/contacts', label: 'Contacts', exact: false, grantKey: 'contacts' },
   { href: '/hub/admin/routing', label: 'Routing', exact: false, grantKey: 'routing' },
   { href: '/hub/admin/timesheet', label: 'Time Records', exact: false, grantKey: 'timesheet' },

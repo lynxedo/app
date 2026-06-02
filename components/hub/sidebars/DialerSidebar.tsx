@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
+import Link from 'next/link'
 import { SidebarHeader } from './SidebarShell'
 
 type CallRow = {
@@ -175,7 +176,17 @@ export default function DialerSidebar({
     >
       <SidebarHeader title="Dialer" onClose={onClose} onDesktopCollapse={onDesktopCollapse} />
 
-      <div className="px-3 pt-3 pb-2">
+      <div className="px-3 pt-3">
+        <Link
+          href="/hub/contacts"
+          onClick={onClose}
+          className="block w-full text-center px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-sm font-medium border border-white/10"
+        >
+          Contacts
+        </Link>
+      </div>
+
+      <div className="px-3 pt-2 pb-2">
         <div className="flex gap-1 text-xs">
           {tabs
             .filter((t) => t.show)

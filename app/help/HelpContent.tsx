@@ -55,6 +55,7 @@ const TABS = [
   { id: 'lawn-sizer',   icon: '🌿', label: 'Lawn Sizer' },
   { id: 'zone-sizer',   icon: '💧', label: 'Zone Sizer' },
   { id: 'dialer',       icon: '☎️', label: 'Dialer' },
+  { id: 'txt',          icon: '🗨️', label: 'Txt2' },
   { id: 'contacts',     icon: '👤', label: 'Contacts' },
   { id: 'call-log',     icon: '📞', label: 'Call Log' },
   { id: 'marketing',    icon: '📣', label: 'Marketing' },
@@ -134,6 +135,7 @@ export default function HelpContent() {
         {activeTab === 'lawn-sizer' && <LawnSizerTab />}
         {activeTab === 'zone-sizer' && <ZoneSizerTab />}
         {activeTab === 'dialer'     && <DialerTab />}
+        {activeTab === 'txt'        && <TxtTab />}
         {activeTab === 'contacts'   && <ContactsTab />}
         {activeTab === 'call-log'   && <CallLogTab />}
         {activeTab === 'marketing'  && <MarketingTab />}
@@ -777,6 +779,83 @@ function ZoneSizerTab() {
       <AdminOnly>
         <p>Admins configure the per-zone square footage under <strong className="text-white">/admin/zone-sizer</strong>. Defaults are 1,000 sq ft per zone for both turf and beds. Raise the bed rate if you use drip or microspray that covers more area per zone.</p>
         <p>Each user must have the <em>Zone Sizer</em> permission enabled in Admin → People to use the tool.</p>
+      </AdminOnly>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// TXT2
+// ──────────────────────────────────────────────────────────────────────────
+
+function TxtTab() {
+  return (
+    <>
+      <Section title="What It Does">
+        <p><strong className="text-white">Txt2</strong> is the new customer texting inbox, powered by Heroes&apos; own phone number through Twilio. Send and receive SMS/MMS with customers, hand conversations off between teammates, send templates, schedule messages, and run text broadcasts — all inside Hub.</p>
+        <Note>You&apos;ll see <strong className="text-white">two</strong> texting icons in the sidebar during the transition: <strong className="text-white">Txt</strong> is the old inbox (unchanged — keep using it as normal), and <strong className="text-white">Txt2</strong> is this new one. Both work side by side so you can compare them. Over time everyone moves to Txt2.</Note>
+      </Section>
+
+      <Section title="The conversation list">
+        <p>The Txt2 sidebar lists your conversations under three tabs:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Mine</strong> — conversations assigned to you (or where you&apos;re a member).</li>
+          <li><strong className="text-white">All</strong> — every active conversation on Heroes&apos; line (managers).</li>
+          <li><strong className="text-white">Archived</strong> — closed-out conversations. They pop back to the top automatically if the customer texts again.</li>
+        </ul>
+        <p><strong className="text-white">Unassigned</strong> conversations (a customer texted in and no one&apos;s claimed them yet) pin to the top, highlighted orange, with inline <strong className="text-white">Claim · Assign · Archive</strong> buttons. Claim takes it for yourself; Assign hands it to a teammate.</p>
+      </Section>
+
+      <Section title="Sending a text">
+        <Step n={1}>Open <strong className="text-white">Txt2</strong> from the sidebar, then pick a conversation — or tap <strong className="text-white">New</strong> and search your contacts to start one.</Step>
+        <Step n={2}>Type your message in the composer at the bottom and tap the <strong className="text-white">➤</strong> send button.</Step>
+        <Step n={3}>The customer&apos;s replies land back in the same thread in real time, with a push notification to whoever owns the conversation.</Step>
+        <p>The composer toolbar has: <strong className="text-white">📎 attach</strong> (photo/image MMS, up to 5 MB), <strong className="text-white">📋 templates</strong>, <strong className="text-white">🚗 on-my-way</strong>, <strong className="text-white">⏰ schedule</strong>, <strong className="text-white">😀 emoji</strong>, <strong className="text-white">⤢ expand</strong> (a bigger typing box), and <strong className="text-white">➤ send</strong>.</p>
+      </Section>
+
+      <Section title="Templates">
+        <p>Save messages you send over and over — appointment confirmations, &quot;running late&quot;, payment reminders. Tap <strong className="text-white">📋</strong> in the composer, or just type <strong className="text-white">/</strong> at the start of the box to pop the picker.</p>
+        <p>Templates support <code>{'{first_name}'}</code>, which fills in the customer&apos;s first name automatically. There are <strong className="text-white">company templates</strong> (shared with the team, managed in Admin → Txt) and your own <strong className="text-white">personal templates</strong> (managed in Settings → Account → Communications).</p>
+      </Section>
+
+      <Section title="On My Way">
+        <p>Tap <strong className="text-white">🚗</strong>, pick an ETA (5 / 10 / 15 / 20 / 30 / 45 min, or a custom number), and Txt2 drops a polished &quot;I&apos;m on my way&quot; message into the composer for you to review and send. The wording is set in <strong className="text-white">Admin → Txt → On My Way</strong> and uses <code>{'{first_name}'}</code>, <code>{'{my_name}'}</code>, <code>{'{company}'}</code>, and <code>{'{eta}'}</code>.</p>
+      </Section>
+
+      <Section title="Scheduled send">
+        <p>Tap <strong className="text-white">⏰</strong> to queue a message for a future date and time instead of sending now — useful for next-morning reminders. A badge shows how many you have queued, and you can cancel any of them before they go out.</p>
+      </Section>
+
+      <Section title="Assigning &amp; collaborating">
+        <p>Each conversation has an <strong className="text-white">owner</strong> (the chip reads &quot;Owner: You&quot; or the teammate&apos;s name) plus optional <strong className="text-white">members</strong> who can also see and reply. Use <strong className="text-white">+ member</strong> to pull a teammate in — they get a push so they know they&apos;ve been added.</p>
+        <p>The <strong className="text-white">📝 Notes</strong> panel holds internal notes that the customer never sees — context for whoever picks the conversation up next. On mobile it opens full-screen; note markers also appear inline in the thread at the point in time they were added.</p>
+      </Section>
+
+      <Section title="Click-to-call">
+        <p>Direct conversations have a <strong className="text-white">📞</strong> button in the header that jumps to the Dialer with the customer&apos;s number filled in. Texting and calling stay linked so Call Log can show which thread a call came from.</p>
+      </Section>
+
+      <Section title="Groups &amp; broadcasts">
+        <p><strong className="text-white">Group</strong> texts (<strong className="text-white">+ Group</strong> in the composer) include several customers on one thread. <strong className="text-white">Broadcasts</strong> send one message to many customers as separate individual texts (not a group thread) — good for seasonal announcements. Broadcasts automatically skip anyone who&apos;s opted out, and go out throttled over time so the carrier doesn&apos;t flag them. Track them at <strong className="text-white">Txt2 → Broadcasts</strong>.</p>
+      </Section>
+
+      <Section title="Opt-outs (STOP / HELP)">
+        <p>If a customer replies <strong className="text-white">STOP</strong>, they&apos;re automatically marked <em>do not text</em> and the conversation archives — outbound texts to them are then blocked everywhere (regular sends and broadcasts). <strong className="text-white">START</strong> re-enables them. The carrier sends the customer the official STOP/HELP confirmation, so you don&apos;t need to reply to those yourself.</p>
+        <p>An opt-out banner shows at the top of any conversation with a customer who&apos;s opted out, including archived ones, so it&apos;s always clear.</p>
+      </Section>
+
+      <Section title="Your text signature">
+        <p>Set a signature in <strong className="text-white">Settings → Account → Communications</strong> (e.g. &quot;— Ben, Heroes Lawn Care&quot;). It&apos;s auto-appended when you&apos;re the first to text a client, or when you jump into a conversation a different teammate was handling — so customers always know who they&apos;re talking to. It won&apos;t repeat back-to-back from the same sender. Leave it blank to turn it off.</p>
+      </Section>
+
+      <Section title="Suggest Reply (Guardian)">
+        <p>In a conversation, Guardian can draft a reply suggestion based on the thread so far. Review and edit it before sending — it&apos;s a starting point, never sent automatically.</p>
+      </Section>
+
+      <AdminOnly>
+        <p>Txt2 is gated per person. Turn on <strong className="text-white">Txt2 (new texting)</strong> for a user in <strong className="text-white">Admin → People</strong> to give them the Txt2 icon and access to <code>/hub/txt</code>. It&apos;s off by default, so the team keeps using the old Txt (Captivated) until you roll each person onto Txt2.</p>
+        <p><strong className="text-white">Admin → Txt</strong> manages the phone number(s) (mark one as default), the On-My-Way wording, and the company templates. Each user can also be allowed to assign threads to others via the <em>Assign Txt threads</em> grant.</p>
+        <p>Customer-facing texting requires Heroes&apos; verified Twilio number to be live and configured (inbound + status webhooks, the broadcast and scheduled-send crons, and the number added in Admin → Txt). Voice (Dialer) and texting (Txt2) share the same Twilio number.</p>
       </AdminOnly>
     </>
   )

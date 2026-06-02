@@ -1,0 +1,375 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { createAdminClient } from '@/lib/supabase/admin'
+import {
+  validateTwilioSignature,
+  downloadTwilioMedia,
+  toE164,
+  twilioConfigured,
+} from '@/lib/twilio'
+import { sendHubPush } from '@/lib/hub-push'
+
+const HEROES_COMPANY_ID =
+  process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
+
+const EMPTY_TWIML = '<?xml version="1.0" encoding="UTF-8"?><Response></Response>'
+
+// Carrier-required compliance keywords (A2P 10DLC).
+// Matched case-insensitive against the trimmed message body.
+const STOP_KEYWORDS = new Set(['STOP', 'STOPALL', 'UNSUBSCRIBE', 'CANCEL', 'QUIT', 'END'])
+const START_KEYWORDS = new Set(['START', 'UNSTOP', 'YES'])
+const HELP_KEYWORDS = new Set(['HELP', 'INFO'])
+
+type ComplianceKind = 'stop' | 'start' | 'help' | null
+
+function classifyKeyword(body: string): ComplianceKind {
+  const t = body.trim().toUpperCase()
+  if (!t) return null
+  if (STOP_KEYWORDS.has(t)) return 'stop'
+  if (START_KEYWORDS.has(t)) return 'start'
+  if (HELP_KEYWORDS.has(t)) return 'help'
+  return null
+}
+
+function twimlResponse(body = EMPTY_TWIML, status = 200) {
+  return new NextResponse(body, {
+    status,
+    headers: { 'Content-Type': 'text/xml' },
+  })
+}
+
+function r2Client() {
+  return new S3Client({
+    region: 'auto',
+    endpoint: `https://${process.env.CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+    credentials: {
+      accessKeyId: process.env.CF_R2_ACCESS_KEY_ID!,
+      secretAccessKey: process.env.CF_R2_SECRET_ACCESS_KEY!,
+    },
+  })
+}
+
+async function ingestMediaToR2(
+  mediaUrl: string,
+  contentType: string,
+  companyId: string
+): Promise<string | null> {
+  const downloaded = await downloadTwilioMedia(mediaUrl)
+  if (!downloaded) return null
+  const ext = (contentType.split('/')[1] || 'bin').replace(/[^a-z0-9]/gi, '')
+  const key = `txt/${companyId}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+  try {
+    const r2 = r2Client()
+    await r2.send(
+      new PutObjectCommand({
+        Bucket: process.env.CF_R2_BUCKET_NAME!,
+        Key: key,
+        Body: Buffer.from(downloaded.bytes),
+        ContentType: downloaded.contentType,
+      })
+    )
+    return key
+  } catch (err) {
+    console.warn(
+      `[txt:inbound] R2 upload failed: ${(err as Error).message} url=${mediaUrl}`
+    )
+    return null
+  }
+}
+
+export async function POST(req: NextRequest) {
+  const rawBody = await req.text()
+  const params = Object.fromEntries(new URLSearchParams(rawBody))
+
+  // Build the URL Twilio used to sign. Cloudflare tunnel: use NEXT_PUBLIC_APP_URL.
+  const baseUrl =
+    process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
+  const signedUrl = `${baseUrl}${req.nextUrl.pathname}${req.nextUrl.search || ''}`
+
+  // Twilio signature validation — only enforced when configured.
+  // (When env is empty, anyone could POST here; that's fine on staging while no real
+  // traffic is pointed yet, but we still gate writes on auth_token presence below.)
+  if (twilioConfigured()) {
+    const sigHeader = req.headers.get('x-twilio-signature')
+    if (!validateTwilioSignature(signedUrl, params, sigHeader)) {
+      console.warn('[txt:inbound] signature validation failed', {
+        url: signedUrl,
+      })
+      return twimlResponse(EMPTY_TWIML, 403)
+    }
+  }
+
+  const from = toE164(params.From || '')
+  const to = params.To || ''
+  const body = params.Body || ''
+  const sid = params.MessageSid || params.SmsSid || ''
+  const numMedia = parseInt(params.NumMedia || '0', 10) || 0
+
+  if (!from || !sid) {
+    console.warn('[txt:inbound] missing from or sid', { hasFrom: !!from, sid })
+    return twimlResponse()
+  }
+
+  const supabase = createAdminClient()
+
+  // Dedupe by twilio_sid (Twilio retries on 5xx)
+  const { data: existing } = await supabase
+    .from('txt_messages')
+    .select('id')
+    .eq('twilio_sid', sid)
+    .maybeSingle()
+  if (existing) {
+    console.log('[txt:inbound] duplicate sid, skipping', { sid })
+    return twimlResponse()
+  }
+
+  // Find or create contact for the sender's phone
+  const { data: existingContact } = await supabase
+    .from('txt_contacts')
+    .select('id, name')
+    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('phone', from)
+    .maybeSingle()
+
+  let contactId = existingContact?.id
+  if (!contactId) {
+    const { data: created, error: createErr } = await supabase
+      .from('txt_contacts')
+      .insert({
+        company_id: HEROES_COMPANY_ID,
+        phone: from,
+        name: from, // placeholder until enriched from Jobber
+      })
+      .select('id')
+      .single()
+    if (createErr || !created) {
+      console.error('[txt:inbound] contact insert failed', createErr)
+      return twimlResponse(EMPTY_TWIML, 500)
+    }
+    contactId = created.id
+  }
+
+  // Session 54: look up our local txt_phone_numbers row matching the inbound
+  // `To` so we can stamp it on the conversation (and use it to route outbound
+  // replies back through the right number). null is fine — old/single-number
+  // setups still work via the env-default fallback in sendSms.
+  let toNumberId: string | null = null
+  if (to) {
+    const { data: numberRow } = await supabase
+      .from('txt_phone_numbers')
+      .select('id')
+      .eq('twilio_number', to)
+      .maybeSingle()
+    toNumberId = numberRow?.id || null
+  }
+
+  // Find or create direct conversation; reopen archived → unassigned.
+  // Inbound SMS only matches direct threads — group conversations are
+  // identified by their Twilio Conversations SID in a separate webhook.
+  const { data: existingConv } = await supabase
+    .from('txt_conversations')
+    .select('id, status, phone_number_id')
+    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('contact_id', contactId)
+    .eq('kind', 'direct')
+    .maybeSingle()
+
+  let conversationId: string
+  if (existingConv) {
+    conversationId = existingConv.id
+    const reopenPatch: Record<string, unknown> = {}
+    if (existingConv.status === 'archived') {
+      reopenPatch.status = 'unassigned'
+      reopenPatch.archived_by = null
+    }
+    // Stamp the inbound number if we don't have one yet — never overwrite an
+    // explicit override that was set later.
+    if (toNumberId && !existingConv.phone_number_id) {
+      reopenPatch.phone_number_id = toNumberId
+    }
+    if (Object.keys(reopenPatch).length > 0) {
+      await supabase
+        .from('txt_conversations')
+        .update(reopenPatch)
+        .eq('id', conversationId)
+    }
+  } else {
+    const { data: createdConv, error: convErr } = await supabase
+      .from('txt_conversations')
+      .insert({
+        company_id: HEROES_COMPANY_ID,
+        contact_id: contactId,
+        status: 'unassigned',
+        kind: 'direct',
+        phone_number_id: toNumberId,
+      })
+      .select('id')
+      .single()
+    if (convErr || !createdConv) {
+      console.error('[txt:inbound] conversation insert failed', convErr)
+      return twimlResponse(EMPTY_TWIML, 500)
+    }
+    conversationId = createdConv.id
+  }
+
+  // Pull MMS media if present
+  const mediaUrls: string[] = []
+  for (let i = 0; i < numMedia; i++) {
+    const url = params[`MediaUrl${i}`]
+    const type = params[`MediaContentType${i}`] || 'application/octet-stream'
+    if (!url) continue
+    const r2Key = await ingestMediaToR2(url, type, HEROES_COMPANY_ID)
+    if (r2Key) mediaUrls.push(r2Key)
+  }
+
+  // Insert the inbound message
+  const now = new Date().toISOString()
+  const { error: insertErr } = await supabase.from('txt_messages').insert({
+    company_id: HEROES_COMPANY_ID,
+    conversation_id: conversationId,
+    contact_id: contactId,
+    direction: 'inbound',
+    body: body || null,
+    media_urls: mediaUrls,
+    twilio_sid: sid,
+    status: 'received',
+  })
+  if (insertErr) {
+    console.error('[txt:inbound] message insert failed', insertErr)
+    return twimlResponse(EMPTY_TWIML, 500)
+  }
+
+  // Bump conversation timestamps
+  await supabase
+    .from('txt_conversations')
+    .update({ last_message_at: now, last_inbound_at: now })
+    .eq('id', conversationId)
+
+  // STOP / START / HELP compliance handling
+  const compliance = classifyKeyword(body)
+  if (compliance === 'stop') {
+    await supabase
+      .from('txt_contacts')
+      .update({ do_not_text: true, updated_at: now })
+      .eq('id', contactId)
+    // Archive the conversation so it drops out of active views; staff can still see history.
+    await supabase
+      .from('txt_conversations')
+      .update({ status: 'archived' })
+      .eq('id', conversationId)
+  } else if (compliance === 'start') {
+    await supabase
+      .from('txt_contacts')
+      .update({ do_not_text: false, updated_at: now })
+      .eq('id', contactId)
+  }
+
+  // Push notification fan-out — same machinery Hub messages use.
+  // Recipients:
+  //   - unassigned: all Txt managers in the company (queue audience)
+  //   - assigned:   owner (assigned_to) + every member on txt_conversation_members
+  // `isDm: true` keeps the push from being filtered by the global "mentions only"
+  // pref level; respects DND, muted, and scheduled-DND windows.
+  try {
+    const { data: convForPush } = await supabase
+      .from('txt_conversations')
+      .select('status, assigned_to')
+      .eq('id', conversationId)
+      .maybeSingle()
+
+    let recipients: string[] = []
+    if (convForPush?.status === 'unassigned') {
+      // Anyone who could pick this up from the Queue tab.
+      const { data: managers } = await supabase
+        .from('user_profiles')
+        .select('id, role, can_admin_hub, can_assign_txt_threads')
+        .eq('company_id', HEROES_COMPANY_ID)
+      recipients = (managers ?? [])
+        .filter(
+          (m) =>
+            m.role === 'admin' ||
+            m.can_admin_hub === true ||
+            m.can_assign_txt_threads === true
+        )
+        .map((m) => m.id)
+    } else {
+      const ids = new Set<string>()
+      if (convForPush?.assigned_to) ids.add(convForPush.assigned_to)
+      const { data: members } = await supabase
+        .from('txt_conversation_members')
+        .select('user_id')
+        .eq('conversation_id', conversationId)
+      for (const m of members ?? []) ids.add(m.user_id)
+      recipients = Array.from(ids)
+    }
+
+    if (recipients.length > 0) {
+      // Look up contact name for nicer push title (Heroes' contacts typically
+      // start as the phone number until enriched, so this gracefully degrades).
+      const { data: contactRow } = await supabase
+        .from('txt_contacts')
+        .select('name')
+        .eq('id', contactId)
+        .maybeSingle()
+      const displayName = contactRow?.name?.trim() || from
+      const preview = body
+        ? body.length > 100
+          ? body.slice(0, 97) + '…'
+          : body
+        : mediaUrls.length > 0
+        ? `📎 ${mediaUrls.length} attachment${mediaUrls.length === 1 ? '' : 's'}`
+        : '(empty message)'
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
+      // Fire-and-forget; don't block the Twilio response on push delivery.
+      sendHubPush(
+        recipients,
+        {
+          title: displayName,
+          body: preview,
+          url: `${baseUrl}/hub/txt/${conversationId}?source=push`,
+        },
+        { isDm: true }
+      ).catch((err) => console.warn('[txt:inbound] push fan-out failed', err))
+    }
+  } catch (err) {
+    console.warn('[txt:inbound] push lookup failed', err)
+  }
+
+  // Broadcast for realtime UI updates
+  try {
+    const channel = supabase.channel(`txt:${HEROES_COMPANY_ID}`)
+    await channel.subscribe()
+    await channel.send({
+      type: 'broadcast',
+      event: 'inbound',
+      payload: { conversation_id: conversationId, contact_id: contactId },
+    })
+    await supabase.removeChannel(channel)
+  } catch (err) {
+    console.warn('[txt:inbound] broadcast failed', err)
+  }
+
+  console.log('[txt:inbound] received', {
+    sid,
+    conversationId,
+    media: mediaUrls.length,
+    compliance,
+  })
+
+  // Compliance auto-replies (STOP/START/HELP) are intentionally NOT sent from the
+  // app. The 888 is a standalone toll-free number, so Twilio's built-in carrier
+  // keyword handling already opts the sender out/in AND sends the carrier-required
+  // confirmation. A second reply from us is redundant: it fails with error 21610 on
+  // STOP (Twilio has already blocked the number) and double-texts the customer on
+  // HELP/START. We still record the inbound + toggle do_not_text above; Twilio owns
+  // the customer-facing reply. (Confirmed in Stage 1 live test, 2026-06-02.)
+  return twimlResponse()
+}
+
+export async function GET() {
+  return NextResponse.json({
+    ok: true,
+    endpoint: 'txt/twilio/sms/inbound',
+    twilio_configured: twilioConfigured(),
+  })
+}

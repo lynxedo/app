@@ -1,0 +1,646 @@
+'use client'
+
+import { useEffect, useState, useCallback } from 'react'
+import Link from 'next/link'
+import { usePathname } from 'next/navigation'
+import { SidebarHeader } from './SidebarShell'
+import ContactModal from '@/components/hub/txt/ContactModal'
+import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
+import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
+
+type Conversation = {
+  id: string
+  kind?: 'direct' | 'group'
+  status: 'unassigned' | 'assigned' | 'archived'
+  assigned_to: string | null
+  last_message_at: string | null
+  last_inbound_at: string | null
+  created_at: string
+  contact: { id: string; name: string; phone: string; do_not_text: boolean } | null
+  assignee: { id: string; display_name: string } | null
+  group_contacts?: Array<{ contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null }>
+}
+
+type Scope = 'mine' | 'all' | 'archived'
+
+type SimpleUser = { id: string; display_name: string }
+
+function formatPhone(phone: string) {
+  const digits = phone.replace(/\D/g, '')
+  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
+  if (digits.length === 11 && digits[0] === '1') return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
+  return phone
+}
+
+function formatRelative(iso: string | null) {
+  if (!iso) return ''
+  const d = new Date(iso)
+  const now = new Date()
+  const diff = (now.getTime() - d.getTime()) / 1000
+  if (diff < 60) return 'now'
+  if (diff < 3600) return `${Math.floor(diff / 60)}m`
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h`
+  if (d.toDateString() === now.toDateString()) return 'today'
+  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function displayNameFor(c: Conversation) {
+  const isGroup = c.kind === 'group'
+  if (!isGroup) return c.contact?.name || 'Unknown'
+  const groupNames = (c.group_contacts ?? [])
+    .map((gc) => {
+      const inner = Array.isArray(gc.contact) ? gc.contact[0] : gc.contact
+      return inner?.name || null
+    })
+    .filter(Boolean) as string[]
+  return groupNames.length > 0
+    ? `👥 ${groupNames.slice(0, 2).join(', ')}${groupNames.length > 2 ? ` +${groupNames.length - 2}` : ''}`
+    : '👥 Group'
+}
+
+function sublineFor(c: Conversation) {
+  const isGroup = c.kind === 'group'
+  if (isGroup) {
+    const n = (c.group_contacts ?? []).length
+    return `${n} people`
+  }
+  return c.contact?.phone ? formatPhone(c.contact.phone) : ''
+}
+
+export default function TxtV2Sidebar({
+  onClose,
+  onDesktopCollapse,
+  canAssign,
+  currentUserId,
+}: {
+  onClose?: () => void
+  onDesktopCollapse?: () => void
+  canAssign: boolean
+  currentUserId: string
+}) {
+  const pathname = usePathname() || ''
+  const [scope, setScope] = useState<Scope>(canAssign ? 'all' : 'mine')
+  const [conversations, setConversations] = useState<Conversation[]>([])
+  const [queue, setQueue] = useState<Conversation[]>([])
+  const [loading, setLoading] = useState(false)
+  const [search, setSearch] = useState('')
+  const [newOpen, setNewOpen] = useState(false)
+  const [addContactOpen, setAddContactOpen] = useState(false)
+  const [groupOpen, setGroupOpen] = useState(false)
+  const [broadcastOpen, setBroadcastOpen] = useState(false)
+  const [actioningId, setActioningId] = useState<string | null>(null)
+  const [assignOpenId, setAssignOpenId] = useState<string | null>(null)
+  const [users, setUsers] = useState<SimpleUser[]>([])
+
+  // Assignable users for the inline Assign menu (managers only).
+  useEffect(() => {
+    if (!canAssign) return
+    fetch('/api/hub/users')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        const list = (data.users || []).filter(
+          (u: { is_bot?: boolean }) => !u.is_bot
+        )
+        setUsers(list.map((u: SimpleUser) => ({ id: u.id, display_name: u.display_name })))
+      })
+      .catch(() => setUsers([]))
+  }, [canAssign])
+
+  const load = useCallback(async () => {
+    setLoading(true)
+    const showQueue = canAssign && scope !== 'archived'
+    const requests: Promise<Response>[] = [
+      fetch(`/api/txt/conversations?scope=${scope}&limit=100`),
+    ]
+    if (showQueue) {
+      requests.push(fetch('/api/txt/conversations?scope=unassigned&limit=100'))
+    }
+    const [mainRes, queueRes] = await Promise.all(requests)
+    if (mainRes.ok) {
+      const data = await mainRes.json()
+      setConversations(data.conversations || [])
+    }
+    if (showQueue && queueRes?.ok) {
+      const data = await queueRes.json()
+      setQueue(data.conversations || [])
+    } else {
+      setQueue([])
+    }
+    setLoading(false)
+  }, [scope, canAssign])
+
+  useEffect(() => {
+    load()
+  }, [load])
+
+  // Fallback poll every 15s — realtime channel added later.
+  useEffect(() => {
+    let cancelled = false
+    const t = setInterval(() => {
+      if (!cancelled) load()
+    }, 15000)
+    return () => {
+      cancelled = true
+      clearInterval(t)
+    }
+  }, [load])
+
+  const matchesSearch = useCallback(
+    (c: Conversation) => {
+      if (!search) return true
+      const q = search.toLowerCase()
+      if (
+        c.contact?.name?.toLowerCase().includes(q) ||
+        c.contact?.phone?.toLowerCase().includes(q)
+      )
+        return true
+      return (c.group_contacts ?? []).some((gc) => {
+        const inner = Array.isArray(gc.contact) ? gc.contact[0] : gc.contact
+        return (
+          inner?.name?.toLowerCase().includes(q) ||
+          inner?.phone?.toLowerCase().includes(q)
+        )
+      })
+    },
+    [search]
+  )
+
+  const filteredQueue = queue.filter(matchesSearch)
+  // In the All view the unassigned threads also come back in the main list —
+  // drop them so they only appear once (in the pinned Queue section above).
+  const filteredMain = conversations
+    .filter((c) => !(scope === 'all' && c.status === 'unassigned'))
+    .filter(matchesSearch)
+
+  async function claim(id: string, e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (actioningId) return
+    setActioningId(id)
+    try {
+      const res = await fetch(`/api/txt/conversations/${id}/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assigned_to: currentUserId }),
+      })
+      if (res.ok) await load()
+    } finally {
+      setActioningId(null)
+    }
+  }
+
+  async function assign(id: string, userId: string, e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    setAssignOpenId(null)
+    if (actioningId) return
+    setActioningId(id)
+    try {
+      const res = await fetch(`/api/txt/conversations/${id}/assign`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ assigned_to: userId }),
+      })
+      if (res.ok) await load()
+    } finally {
+      setActioningId(null)
+    }
+  }
+
+  async function archive(id: string, e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (actioningId) return
+    setActioningId(id)
+    try {
+      const res = await fetch(`/api/txt/conversations/${id}/archive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived: true }),
+      })
+      if (res.ok) await load()
+    } finally {
+      setActioningId(null)
+    }
+  }
+
+  const tabs: { id: Scope; label: string; show: boolean }[] = [
+    { id: 'mine', label: 'Mine', show: true },
+    { id: 'all', label: 'All', show: canAssign },
+    { id: 'archived', label: 'Archived', show: true },
+  ]
+
+  return (
+    <aside
+      className="h-full w-72 bg-[#0F2E47] text-white flex flex-col flex-none border-r border-white/5 min-h-0"
+      aria-label="Txt sidebar"
+    >
+      <SidebarHeader title="Txt" onClose={onClose} onDesktopCollapse={onDesktopCollapse} />
+
+      <div className="px-3 pt-3 pb-2 space-y-2">
+        <button
+          type="button"
+          onClick={() => setNewOpen(true)}
+          className="w-full px-3 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium"
+        >
+          + New conversation
+        </button>
+        <div className="grid grid-cols-2 gap-2">
+          <button
+            type="button"
+            onClick={() => setAddContactOpen(true)}
+            className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
+          >
+            + Add contact
+          </button>
+          <Link
+            href="/hub/contacts"
+            onClick={onClose}
+            className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10 text-center"
+          >
+            Contacts
+          </Link>
+        </div>
+        {canAssign && (
+          <div className="grid grid-cols-2 gap-2">
+            <button
+              type="button"
+              onClick={() => setGroupOpen(true)}
+              className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
+              title="New group conversation"
+            >
+              + Group
+            </button>
+            <button
+              type="button"
+              onClick={() => setBroadcastOpen(true)}
+              className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
+              title="Send 1-to-many broadcast"
+            >
+              📣 Broadcast
+            </button>
+          </div>
+        )}
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search name or phone…"
+          className="w-full px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm placeholder-white/30"
+        />
+        <div className="flex gap-1 text-xs">
+          {tabs
+            .filter((t) => t.show)
+            .map((t) => (
+              <button
+                key={t.id}
+                onClick={() => setScope(t.id)}
+                className={`flex-1 px-2 py-1 rounded-md transition ${
+                  scope === t.id
+                    ? 'bg-white/10 text-white'
+                    : 'text-white/50 hover:text-white/80'
+                }`}
+              >
+                {t.label}
+              </button>
+            ))}
+        </div>
+      </div>
+
+      <div className="flex-1 overflow-y-auto min-h-0">
+        {loading && conversations.length === 0 && queue.length === 0 && (
+          <div className="px-4 py-6 text-sm text-white/40">Loading…</div>
+        )}
+
+        {/* Pinned Queue section — unassigned threads, always at the top for
+            managers (in Mine + All). Highlighted, with inline Claim / Assign /
+            Archive so they can be triaged without leaving the list. */}
+        {canAssign && scope !== 'archived' && filteredQueue.length > 0 && (
+          <div className="bg-orange-500/[0.06] border-b border-orange-500/20">
+            <div className="px-4 pt-2 pb-1 flex items-center gap-2">
+              <span className="text-[10px] uppercase tracking-wide text-orange-300/80 font-semibold">
+                Queue
+              </span>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-orange-500/20 text-orange-200 font-semibold">
+                {filteredQueue.length}
+              </span>
+            </div>
+            <ul>
+              {filteredQueue.map((c) => {
+                const active = pathname === `/hub/txt/${c.id}`
+                const busy = actioningId === c.id
+                return (
+                  <li key={c.id} className="border-l-2 border-orange-400/70">
+                    <Link
+                      href={`/hub/txt/${c.id}`}
+                      onClick={onClose}
+                      className={`block px-4 py-2 ${active ? 'bg-white/5' : 'hover:bg-white/5'}`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-medium text-sm truncate">
+                          {displayNameFor(c)}
+                        </span>
+                        <span className="text-[10px] text-white/40 flex-none">
+                          {formatRelative(c.last_message_at || c.created_at)}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-white/40 truncate mt-0.5">
+                        {sublineFor(c)}
+                      </div>
+                    </Link>
+                    {/* Inline triage actions */}
+                    <div className="px-4 pb-2 -mt-0.5 flex items-center gap-1.5">
+                      <button
+                        type="button"
+                        onClick={(e) => claim(c.id, e)}
+                        disabled={busy}
+                        className="px-2 py-0.5 rounded bg-emerald-600/80 hover:bg-emerald-600 text-white text-[10px] font-medium disabled:opacity-50"
+                        title="Assign this to me"
+                      >
+                        {busy ? '…' : 'Claim'}
+                      </button>
+                      <div className="relative">
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.preventDefault()
+                            e.stopPropagation()
+                            setAssignOpenId((v) => (v === c.id ? null : c.id))
+                          }}
+                          disabled={busy}
+                          className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/80 text-[10px] font-medium disabled:opacity-50"
+                          title="Assign to a teammate"
+                        >
+                          Assign ▾
+                        </button>
+                        {assignOpenId === c.id && (
+                          <div className="absolute left-0 top-full mt-1 w-44 max-h-56 overflow-y-auto bg-[#0F2E47] border border-white/15 rounded-md shadow-xl z-30">
+                            {users.length === 0 && (
+                              <div className="px-3 py-2 text-[11px] text-white/40">
+                                No teammates
+                              </div>
+                            )}
+                            {users.map((u) => (
+                              <button
+                                key={u.id}
+                                type="button"
+                                onClick={(e) => assign(c.id, u.id, e)}
+                                className="block w-full text-left px-3 py-1.5 text-xs hover:bg-white/5"
+                              >
+                                {u.display_name}
+                              </button>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={(e) => archive(c.id, e)}
+                        disabled={busy}
+                        className="px-2 py-0.5 rounded bg-white/10 hover:bg-white/20 text-white/60 text-[10px] font-medium disabled:opacity-50"
+                        title="Archive without replying"
+                      >
+                        Archive
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
+          </div>
+        )}
+
+        {!loading && filteredMain.length === 0 && filteredQueue.length === 0 && (
+          <div className="px-4 py-6 text-sm text-white/40">
+            {scope === 'mine'
+              ? 'Nothing assigned to you yet.'
+              : scope === 'archived'
+              ? 'No archived conversations.'
+              : 'No conversations.'}
+          </div>
+        )}
+
+        <ul>
+          {filteredMain.map((c) => {
+            const active = pathname === `/hub/txt/${c.id}`
+            return (
+              <li key={c.id}>
+                <Link
+                  href={`/hub/txt/${c.id}`}
+                  onClick={onClose}
+                  className={`block px-4 py-2 border-l-2 ${
+                    active
+                      ? 'bg-white/5 border-emerald-400'
+                      : 'border-transparent hover:bg-white/5'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <span className="font-medium text-sm truncate">
+                      {displayNameFor(c)}
+                    </span>
+                    <span className="text-[10px] text-white/40 flex-none">
+                      {formatRelative(c.last_message_at || c.created_at)}
+                    </span>
+                  </div>
+                  <div className="flex items-center justify-between gap-2 mt-0.5">
+                    <span className="text-[11px] text-white/40 truncate">
+                      {sublineFor(c)}
+                    </span>
+                    <span className="flex items-center gap-1 text-[10px] flex-none">
+                      {c.status === 'assigned' && c.assignee && (
+                        <span className="text-emerald-300">
+                          {c.assignee.id === currentUserId
+                            ? 'you'
+                            : c.assignee.display_name.split(' ')[0]}
+                        </span>
+                      )}
+                      {c.status === 'archived' && (
+                        <span className="text-white/30">archived</span>
+                      )}
+                    </span>
+                  </div>
+                </Link>
+              </li>
+            )
+          })}
+        </ul>
+      </div>
+
+      <div className="px-3 py-2 border-t border-white/5 flex items-center justify-between">
+        {canAssign ? (
+          <Link
+            href="/hub/txt/broadcasts"
+            onClick={onClose}
+            className="text-[11px] text-white/60 hover:text-white"
+          >
+            📣 Broadcasts ›
+          </Link>
+        ) : (
+          <span />
+        )}
+        <span className="text-[10px] text-white/30">Staging</span>
+      </div>
+
+      {newOpen && (
+        <NewConversationModal onClose={() => setNewOpen(false)} onCreated={load} />
+      )}
+
+      {addContactOpen && (
+        <ContactModal
+          mode="create"
+          onClose={() => setAddContactOpen(false)}
+          onCreated={() => {
+            setAddContactOpen(false)
+            window.location.href = `/hub/contacts`
+          }}
+        />
+      )}
+
+      {groupOpen && <TxtGroupComposer onClose={() => setGroupOpen(false)} />}
+
+      {broadcastOpen && <TxtBroadcastComposer onClose={() => setBroadcastOpen(false)} />}
+    </aside>
+  )
+}
+
+function NewConversationModal({
+  onClose,
+  onCreated,
+}: {
+  onClose: () => void
+  onCreated: () => void
+}) {
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<
+    Array<{ id: string; name: string; phone: string; do_not_text?: boolean }>
+  >([])
+  const [searching, setSearching] = useState(false)
+  const [searched, setSearched] = useState(false)
+  const [manualPhone, setManualPhone] = useState('')
+  const [error, setError] = useState('')
+
+  // Search the local Txt contacts (the Contacts page), not Jobber.
+  async function search(q: string) {
+    const term = q.trim()
+    if (!term) {
+      setResults([])
+      setSearched(false)
+      return
+    }
+    setSearching(true)
+    setError('')
+    const res = await fetch(
+      `/api/txt/contacts?search=${encodeURIComponent(term)}&include_do_not_text=1&limit=25`
+    )
+    setSearching(false)
+    setSearched(true)
+    if (res.ok) {
+      const data = await res.json()
+      setResults(data.contacts || [])
+    } else {
+      const data = await res.json().catch(() => ({}))
+      setError(data.error || 'Search failed')
+    }
+  }
+
+  // Debounced search-as-you-type.
+  useEffect(() => {
+    const t = setTimeout(() => search(query), 250)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query])
+
+  async function start(opts: { phone: string; name?: string; email?: string }) {
+    setError('')
+    const res = await fetch('/api/txt/conversations/start', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(opts),
+    })
+    const data = await res.json()
+    if (!res.ok) {
+      setError(data.error || 'Failed to start conversation')
+      return
+    }
+    onCreated()
+    onClose()
+    window.location.href = `/hub/txt/${data.conversation_id}`
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center px-4">
+      <div className="bg-[#0F2E47] border border-white/10 rounded-lg w-full max-w-md max-h-[80vh] flex flex-col">
+        <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+          <h2 className="font-medium">New conversation</h2>
+          <button onClick={onClose} className="text-white/50 hover:text-white">×</button>
+        </div>
+        <div className="p-4 space-y-3 overflow-y-auto">
+          <div>
+            <label className="text-xs text-white/50 block mb-1">Search contacts</label>
+            <input
+              type="text"
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Name or phone…"
+              className="w-full px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm placeholder-white/30"
+              style={{ fontSize: 16 }}
+              autoFocus
+            />
+          </div>
+          {searching && <div className="text-xs text-white/40">Searching…</div>}
+          {!searching && searched && results.length === 0 && query.trim() && (
+            <div className="text-xs text-white/40">
+              No matching contacts. Add them below by phone, or use “+ Add contact”.
+            </div>
+          )}
+          {results.length > 0 && (
+            <ul className="space-y-1 max-h-56 overflow-y-auto">
+              {results.map((r) => (
+                <li key={r.id}>
+                  <button
+                    onClick={() => start({ phone: r.phone || '', name: r.name })}
+                    disabled={!r.phone}
+                    className="w-full text-left px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 disabled:opacity-40"
+                  >
+                    <div className="text-sm font-medium flex items-center gap-2">
+                      {r.name}
+                      {r.do_not_text && (
+                        <span className="text-[10px] px-1 rounded bg-orange-500/20 text-orange-300">
+                          do-not-text
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[11px] text-white/50">
+                      {r.phone ? formatPhone(r.phone) : 'no phone'}
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+          <div className="pt-2 border-t border-white/10">
+            <label className="text-xs text-white/50 block mb-1">Or start by phone number</label>
+            <div className="flex gap-2">
+              <input
+                type="tel"
+                value={manualPhone}
+                onChange={(e) => setManualPhone(e.target.value)}
+                placeholder="(281) 555-1234"
+                className="flex-1 px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm placeholder-white/30"
+                style={{ fontSize: 16 }}
+              />
+              <button
+                onClick={() => start({ phone: manualPhone })}
+                disabled={!manualPhone.trim()}
+                className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm disabled:opacity-50"
+              >
+                Start
+              </button>
+            </div>
+          </div>
+          {error && <div className="text-xs text-red-400">{error}</div>}
+        </div>
+      </div>
+    </div>
+  )
+}

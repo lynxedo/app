@@ -30,7 +30,9 @@ export type RailId =
 // active accent bar regardless of which slot it occupies.
 const RAIL_BY_PREFIX: Array<[string, RailId]> = [
   ['/hub/home', 'hub'],          // landing page treated as hub-adjacent
-  ['/hub/clients', 'txt'],
+  ['/hub/clients', 'txt'],       // old Captivated inbox — the everyone-visible "Txt"
+  ['/hub/txt', 'txt2'],          // new Twilio-backed Txt2 — gated by canAccessTxt
+  ['/hub/contacts', 'contacts'], // shared Contacts tool (linked from Txt + Dialer)
   ['/hub/activity', 'activity'],
   ['/hub/admin', 'admin'],
   ['/hub/settings', 'settings'],
@@ -344,6 +346,20 @@ export default function HubRail({
           <span className={active === 'txt' ? 'text-amber-300' : ''}><CatalogIcon id="txt" /></span>
           <span>Txt</span>
         </Link>
+
+        {permissions.canAccessTxt && (
+          <Link
+            href="/hub/txt"
+            onClick={handleNavLinkClick('txt2')}
+            className={railBtnClass(active === 'txt2')}
+            aria-current={active === 'txt2' ? 'page' : undefined}
+            title="Txt2 — new texting"
+          >
+            <ActiveBar show={active === 'txt2'} />
+            <span className={active === 'txt2' ? 'text-amber-300' : ''}><CatalogIcon id="txt2" /></span>
+            <span>Txt2</span>
+          </Link>
+        )}
 
         {permissions.canAccessDialer && (
           <Link

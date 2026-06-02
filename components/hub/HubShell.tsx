@@ -14,6 +14,7 @@ import SettingsSidebar from './sidebars/SettingsSidebar'
 import ProfileSidebar from './sidebars/ProfileSidebar'
 import ActivitySidebar from './sidebars/ActivitySidebar'
 import TxtSidebar from './sidebars/TxtSidebar'
+import TxtV2Sidebar from './sidebars/TxtV2Sidebar'
 import DialerSidebar from './sidebars/DialerSidebar'
 import AnnouncementTicker, { type Announcement } from './AnnouncementTicker'
 import HubQuickCompose from './HubQuickCompose'
@@ -60,6 +61,7 @@ export default function HubShell({
   canAccessFleet,
   canAccessZoneSizer,
   canAccessDialer,
+  canAccessTxt,
   canAccessMarketing,
   canAdminMarketing,
   canAccessForms,
@@ -102,6 +104,7 @@ export default function HubShell({
   canAccessFleet?: boolean
   canAccessZoneSizer?: boolean
   canAccessDialer?: boolean
+  canAccessTxt?: boolean
   canAccessMarketing?: boolean
   canAdminMarketing?: boolean
   canAccessForms?: boolean
@@ -386,6 +389,7 @@ export default function HubShell({
     canAccessTimesheet: !!canAccessTimesheet,
     canAccessZoneSizer: !!canAccessZoneSizer,
     canAccessDialer: !!canAccessDialer,
+    canAccessTxt: !!canAccessTxt,
     canAccessMarketing: !!canAccessMarketing,
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
@@ -403,7 +407,18 @@ export default function HubShell({
           />
         )
       case 'txt':
+        // 'txt' rail = old Captivated /hub/clients (everyone). New Twilio
+        // /hub/txt maps to the gated 'txt2' rail below.
         return <TxtSidebar onClose={closeMobileDrawer} {...collapseProps} />
+      case 'txt2':
+        return (
+          <TxtV2Sidebar
+            onClose={closeMobileDrawer}
+            {...collapseProps}
+            canAssign={!!isAdmin || !!adminGrants?.hub}
+            currentUserId={currentUserId}
+          />
+        )
       case 'tools':
         return (
           <ToolsSidebar
@@ -554,6 +569,7 @@ export default function HubShell({
         const isChat =
           pathname.startsWith('/hub/pm/') ||
           (pathname.startsWith('/hub/clients/') && pathname !== '/hub/clients/') ||
+          (pathname.startsWith('/hub/txt/') && pathname !== '/hub/txt/') ||
           (r === 'hub' && pathname !== '/hub' && !pathname.startsWith('/hub/home'))
         if (!isChat) return null
         return (

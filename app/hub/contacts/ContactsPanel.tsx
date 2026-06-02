@@ -44,6 +44,30 @@ export default function ContactsPanel({
   const [untaggedOnly, setUntaggedOnly] = useState(false)
   const [openContact, setOpenContact] = useState<Contact | null>(null)
   const [adding, setAdding] = useState(false)
+  const [textingId, setTextingId] = useState<string | null>(null)
+
+  // Open (or reopen) a Txt conversation with this contact and navigate there.
+  // Find-or-create happens server-side in /conversations/start, so this works
+  // whether or not a thread already exists.
+  async function textContact(c: Contact) {
+    if (textingId) return
+    setTextingId(c.id)
+    try {
+      const res = await fetch('/api/txt/conversations/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ phone: c.phone, name: c.name }),
+      })
+      const data = await res.json()
+      if (res.ok && data.conversation_id) {
+        router.push(`/hub/txt/${data.conversation_id}`)
+      } else {
+        setTextingId(null)
+      }
+    } catch {
+      setTextingId(null)
+    }
+  }
 
   // Debounced reload from /api/contacts when search or filters change so the
   // tag-filter and search are server-authoritative (handles >200 contacts).
@@ -215,6 +239,8 @@ export default function ContactsPanel({
             setOpenContact(null)
           }}
           onCall={(phone) => router.push(`/hub/dialer?number=${encodeURIComponent(phone)}`)}
+          onText={() => textContact(openContact)}
+          texting={textingId === openContact.id}
         />
       )}
 
@@ -244,6 +270,8 @@ function ContactDetailSheet({
   onUpdated,
   onDeleted,
   onCall,
+  onText,
+  texting,
 }: {
   contact: Contact
   tags: Tag[]
@@ -252,6 +280,8 @@ function ContactDetailSheet({
   onUpdated: (updated: Contact) => void
   onDeleted: (id: string) => void
   onCall: (phone: string) => void
+  onText: () => void
+  texting: boolean
 }) {
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(contact.name)
@@ -382,6 +412,17 @@ function ContactDetailSheet({
           {!editing && canAccessDialer && (
             <button type="button" onClick={() => onCall(contact.phone)} className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium">
               📞 Call
+            </button>
+          )}
+          {!editing && (
+            <button
+              type="button"
+              onClick={onText}
+              disabled={texting}
+              className="px-3 py-1.5 rounded-md bg-sky-600 hover:bg-sky-500 text-sm font-medium disabled:opacity-50"
+              title="Open a text conversation"
+            >
+              {texting ? '…' : '💬 Text'}
             </button>
           )}
           {!editing && (
