@@ -71,13 +71,108 @@ function getCtx(): AudioContext | null {
   return ctx
 }
 
+// ── HTMLAudio fallback ─────────────────────────────────────────────────────
+// In an INSTALLED PWA the AudioContext is suspended whenever the window isn't
+// focused and Chrome won't let us resume it from a background timer (no user
+// gesture) — so the Web Audio synth above goes silent there even though it
+// works fine in a normal browser tab. An <audio> element, once unlocked during
+// a gesture, keeps playing in the background. We generate the same two-note
+// chime as a WAV data URI (no asset to ship) and use it only when the
+// AudioContext can't play. iOS PWAs suspend background audio at the OS level —
+// nothing client-side can fix that; mobile relies on the native push sound.
+
+let chimeDataUri: string | null = null
+function buildChimeDataUri(): string {
+  if (chimeDataUri) return chimeDataUri
+  const sampleRate = 44100
+  const length = Math.floor(sampleRate * 0.45)
+  const samples = new Int16Array(length)
+  for (let i = 0; i < length; i++) {
+    const t = i / sampleRate
+    let s = Math.sin(2 * Math.PI * 880.0 * t) * Math.exp(-t * 8) // A5
+    if (t >= 0.11) {
+      const tt = t - 0.11
+      s += Math.sin(2 * Math.PI * 1174.66 * t) * Math.exp(-tt * 8) // D6, rising fourth
+    }
+    s *= 0.28
+    samples[i] = Math.max(-1, Math.min(1, s)) * 32767
+  }
+  const dataSize = samples.length * 2
+  const buf = new ArrayBuffer(44 + dataSize)
+  const view = new DataView(buf)
+  const writeStr = (off: number, str: string) => {
+    for (let i = 0; i < str.length; i++) view.setUint8(off + i, str.charCodeAt(i))
+  }
+  writeStr(0, 'RIFF')
+  view.setUint32(4, 36 + dataSize, true)
+  writeStr(8, 'WAVE')
+  writeStr(12, 'fmt ')
+  view.setUint32(16, 16, true)
+  view.setUint16(20, 1, true) // PCM
+  view.setUint16(22, 1, true) // mono
+  view.setUint32(24, sampleRate, true)
+  view.setUint32(28, sampleRate * 2, true) // byte rate
+  view.setUint16(32, 2, true) // block align
+  view.setUint16(34, 16, true) // bits per sample
+  writeStr(36, 'data')
+  view.setUint32(40, dataSize, true)
+  for (let i = 0; i < samples.length; i++) view.setInt16(44 + i * 2, samples[i], true)
+  const bytes = new Uint8Array(buf)
+  let binary = ''
+  for (let i = 0; i < bytes.length; i += 0x8000) {
+    binary += String.fromCharCode(...Array.from(bytes.subarray(i, i + 0x8000)))
+  }
+  chimeDataUri = 'data:audio/wav;base64,' + btoa(binary)
+  return chimeDataUri
+}
+
+let fallbackAudio: HTMLAudioElement | null = null
+function getFallbackAudio(): HTMLAudioElement | null {
+  if (typeof Audio === 'undefined') return null
+  if (fallbackAudio) return fallbackAudio
+  try {
+    fallbackAudio = new Audio(buildChimeDataUri())
+    fallbackAudio.preload = 'auto'
+  } catch {
+    return null
+  }
+  return fallbackAudio
+}
+
+function playFallback(): void {
+  const a = getFallbackAudio()
+  if (!a) return
+  try {
+    a.muted = false
+    a.currentTime = 0
+    const p = a.play()
+    if (p && typeof p.then === 'function') p.catch(() => {})
+  } catch {
+    /* blocked — nothing more we can do without a gesture */
+  }
+}
+
 // Browsers create an AudioContext in the "suspended" state until a user gesture
 // resumes it. Call this from inside a real click/keydown handler (Hub receives
-// one almost immediately) so that later background chimes are allowed to play.
+// one almost immediately), AND on visibility/focus to keep the context warm, so
+// that later background chimes are allowed to play. Also unlocks the HTMLAudio
+// fallback within the gesture so it can play later in a backgrounded PWA.
 export function primeChimeAudio(): void {
   const c = getCtx()
   if (c && c.state === 'suspended') {
     c.resume().catch(() => { /* will retry on the next gesture */ })
+  }
+  const a = getFallbackAudio()
+  if (a) {
+    try {
+      a.muted = true
+      const p = a.play()
+      const reset = () => { a.pause(); a.currentTime = 0; a.muted = false }
+      if (p && typeof p.then === 'function') p.then(reset).catch(() => { a.muted = false })
+      else reset()
+    } catch {
+      /* ignore — will try again on the next gesture */
+    }
   }
 }
 
@@ -110,10 +205,17 @@ function playTones(c: AudioContext): void {
 // so the first tap isn't silent.
 export function playChime(): void {
   const c = getCtx()
-  if (!c) return
-  if (c.state === 'suspended') {
-    c.resume().then(() => playTones(c)).catch(() => {})
+  // Running context (a normal browser tab after the first gesture): use the
+  // crisp Web Audio synth — this is the path that already works.
+  if (c && c.state === 'running') {
+    playTones(c)
     return
   }
-  playTones(c)
+  // Suspended or unavailable — typical in a backgrounded installed PWA, where
+  // Chrome won't resume the AudioContext from a background timer. Nudge it for
+  // next time, but play NOW via the pre-unlocked HTMLAudio fallback.
+  if (c && c.state === 'suspended') {
+    c.resume().catch(() => {})
+  }
+  playFallback()
 }
