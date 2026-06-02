@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { isChimeEnabled, playChime, primeChimeAudio } from '@/lib/hub-chime'
+import { isChimeEnabled, playChime, primeChimeAudio, claimChimeForMessage } from '@/lib/hub-chime'
 
 type RoomLite = { id: string; name: string }
 type PrefRow = {
@@ -18,9 +18,9 @@ interface Props {
   rooms: RoomLite[]
 }
 
-// Plays a per-device sound when a new Hub message arrives while the Hub tab is
-// OPEN but NOT focused (the user is on another tab, or another app entirely).
-// That's the whole point — an audible alert when you're working elsewhere.
+// Plays a per-device sound whenever a new Hub message arrives, as long as a Hub
+// tab is open in this browser — whether the user is looking at Hub or working in
+// another tab/app. An audible heads-up for every new message.
 //
 // It reuses the same Supabase Realtime "messages" stream plus the same
 // membership / mute / DND filters as ElectronNotifier and lib/hub-push.ts, so
@@ -151,18 +151,15 @@ export default function WebChimeNotifier({ currentUserId, rooms }: Props) {
             // Respect mute / mentions-only / Do-Not-Disturb
             if (isSuppressed(msg.room_id, msg.conversation_id != null)) return
 
-            // Only chime when the user is NOT actively looking at Hub: the tab is
-            // hidden (another tab) or the window isn't focused (another app).
-            const lookingAtHub =
-              typeof document !== 'undefined' &&
-              document.visibilityState === 'visible' &&
-              document.hasFocus()
-            if (lookingAtHub) return
-
             // Per-device on/off preference
             if (!isChimeEnabled()) return
 
-            // Throttle bursts so a flurry of messages doesn't machine-gun
+            // Ding for any qualifying new message as long as a Hub tab is open —
+            // whether the user is looking at Hub or working in another tab/app.
+            // De-dupe across multiple open tabs so the same message dings once.
+            if (!claimChimeForMessage(msg.id)) return
+
+            // Throttle bursts so a flurry of messages doesn't machine-gun this tab
             const now = Date.now()
             if (now - lastPlayedRef.current < 1500) return
             lastPlayedRef.current = now

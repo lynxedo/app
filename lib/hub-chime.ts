@@ -27,6 +27,28 @@ export function setChimeEnabled(on: boolean): void {
   }
 }
 
+// Cross-tab de-dupe. Returns true only for the FIRST open Hub tab to claim a
+// given message id within a short window, so several open tabs in the same
+// browser don't all ding for the same message. localStorage is shared across
+// same-origin tabs.
+const LAST_DING_KEY = 'hub-chime-last'
+export function claimChimeForMessage(id: string): boolean {
+  try {
+    const now = Date.now()
+    const raw = localStorage.getItem(LAST_DING_KEY)
+    if (raw) {
+      const prev = JSON.parse(raw) as { id?: string; t?: number }
+      if (prev.id === id && typeof prev.t === 'number' && now - prev.t < 4000) {
+        return false
+      }
+    }
+    localStorage.setItem(LAST_DING_KEY, JSON.stringify({ id, t: now }))
+    return true
+  } catch {
+    return true // storage blocked → don't suppress the ding
+  }
+}
+
 type AudioCtor = typeof AudioContext
 
 function getAudioCtor(): AudioCtor | null {
