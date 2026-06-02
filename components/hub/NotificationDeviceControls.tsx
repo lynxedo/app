@@ -81,6 +81,15 @@ export default function NotificationDeviceControls() {
     if (busy) return
     setBusy('test')
     setMsg(null)
+
+    // The in-app chime is a separate system from push notifications, so play it
+    // here too — this one button then verifies the new-message sound as well.
+    // Running it inside the click also unlocks audio for later background chimes.
+    if (isChimeEnabled()) {
+      primeChimeAudio()
+      playChime()
+    }
+
     try {
       const res = await fetch('/api/hub/push-test', { method: 'POST' })
       if (!res.ok) {
