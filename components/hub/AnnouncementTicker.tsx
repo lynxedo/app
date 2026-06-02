@@ -247,7 +247,13 @@ export default function AnnouncementTicker({
   initialActive?: Announcement[]
 }) {
   const [active, setActive] = useState<Announcement[]>(initialActive ?? [])
-  const [dismissed, setDismissed] = useState<Record<string, boolean>>({})
+  const [dismissed, setDismissed] = useState<Record<string, boolean>>(() => {
+    const next: Record<string, boolean> = {}
+    for (const a of initialActive ?? []) {
+      try { next[a.id] = localStorage.getItem(`dismissed_announcement_${a.id}`) === '1' } catch {}
+    }
+    return next
+  })
   const [reactionsById, setReactionsById] = useState<Record<string, Reaction[]>>(() => {
     const out: Record<string, Reaction[]> = {}
     for (const a of initialActive ?? []) out[a.id] = a.reactions ?? []
