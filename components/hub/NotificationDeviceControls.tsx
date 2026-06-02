@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { isChimeEnabled, setChimeEnabled, playChime, primeChimeAudio } from '@/lib/hub-chime'
 
 type Platform = 'web' | 'ios-native' | 'android-native' | 'electron' | 'unsupported'
 
@@ -46,10 +47,23 @@ export default function NotificationDeviceControls() {
   const [webStatus, setWebStatus] = useState<'unknown' | 'enabled' | 'no-permission' | 'permission-denied' | 'no-subscription'>('unknown')
   const [busy, setBusy] = useState<'reset' | 'test' | null>(null)
   const [msg, setMsg] = useState<{ kind: 'ok' | 'err' | 'info'; text: string } | null>(null)
+  const [soundOn, setSoundOn] = useState(true)
 
   useEffect(() => {
     setPlatform(detectPlatform())
+    setSoundOn(isChimeEnabled())
   }, [])
+
+  function handleToggleSound() {
+    const next = !soundOn
+    setSoundOn(next)
+    setChimeEnabled(next)
+    // Toggling on from inside this click both unlocks audio and previews the sound.
+    if (next) {
+      primeChimeAudio()
+      playChime()
+    }
+  }
 
   useEffect(() => {
     if (platform !== 'web') return
@@ -199,6 +213,24 @@ export default function NotificationDeviceControls() {
       <p className="text-gray-400 text-sm mb-4">
         {platformLabel}. Send a test push to confirm this device receives notifications, or reset its registration if pushes have stopped working.
       </p>
+      {platform === 'web' && (
+        <div className="flex items-center justify-between gap-3 mb-4 rounded-lg border border-gray-800 bg-gray-900/40 px-3 py-2.5">
+          <div>
+            <p className="text-sm text-white">Play a sound for new messages</p>
+            <p className="text-xs text-gray-400">Chimes on this device when Hub is open in another tab or behind another app.</p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={soundOn}
+            aria-label="Play a sound for new messages on this device"
+            onClick={handleToggleSound}
+            className={`relative inline-flex h-6 w-11 flex-shrink-0 items-center rounded-full transition-colors ${soundOn ? 'bg-blue-600' : 'bg-gray-600'}`}
+          >
+            <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${soundOn ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        </div>
+      )}
       <div className="flex flex-wrap gap-2">
         <button
           type="button"
