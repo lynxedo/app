@@ -254,7 +254,7 @@ export default function TxtV2Sidebar({
             + Add contact
           </button>
           <Link
-            href="/hub/txt/contacts"
+            href="/hub/contacts"
             onClick={onClose}
             className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10 text-center"
           >
@@ -491,7 +491,7 @@ export default function TxtV2Sidebar({
           onClose={() => setAddContactOpen(false)}
           onCreated={() => {
             setAddContactOpen(false)
-            window.location.href = `/hub/txt/contacts`
+            window.location.href = `/hub/contacts`
           }}
         />
       )}

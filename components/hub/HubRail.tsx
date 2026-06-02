@@ -32,6 +32,7 @@ const RAIL_BY_PREFIX: Array<[string, RailId]> = [
   ['/hub/home', 'hub'],          // landing page treated as hub-adjacent
   ['/hub/txt', 'txt'],           // develop-only: new Twilio-backed Txt page
   ['/hub/clients', 'txt'],
+  ['/hub/contacts', 'contacts'], // shared Contacts tool (linked from Txt + Dialer)
   ['/hub/activity', 'activity'],
   ['/hub/admin', 'admin'],
   ['/hub/settings', 'settings'],

@@ -1,13 +1,8 @@
 import { redirect } from 'next/navigation'
-import { createClient } from '@/lib/supabase/server'
-import TxtContactsView from '@/components/hub/txt/TxtContactsView'
 
-export default async function TxtContactsPage() {
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) redirect('/login')
-
-  return <TxtContactsView />
+// Contacts is a shared, top-level tool at /hub/contacts (reachable from Texting,
+// the Dialer, and on its own). This path used to render a Txt-scoped duplicate;
+// it now redirects to the canonical Contacts page.
+export default function TxtContactsRedirect() {
+  redirect('/hub/contacts')
 }
