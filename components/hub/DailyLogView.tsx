@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
+import { createClient } from '@/lib/supabase/client'
 
 type HubUser = { id: string; display_name: string; avatar_url?: string | null; is_bot?: boolean }
 
@@ -910,11 +911,13 @@ function EntryCard({
 
 export default function DailyLogView({
   currentUserId,
+  companyId,
   isAdmin,
   isTech,
   hubUsers,
 }: {
   currentUserId: string
+  companyId?: string
   isAdmin: boolean
   isTech: boolean
   hubUsers: HubUser[]
@@ -944,6 +947,36 @@ export default function DailyLogView({
   useEffect(() => {
     loadEntries(date)
   }, [date, loadEntries])
+
+  // Live updates: when anyone posts a Daily Log update, the update-posted route
+  // fires a company broadcast (daily_log_updates isn't in the Realtime
+  // publication). If it's for an entry on the day we're viewing and not our own
+  // post, refetch the day so the new update appears without a manual refresh.
+  // Read date/entries via refs so the channel doesn't re-subscribe on every nav.
+  const dateRef = useRef(date)
+  dateRef.current = date
+  const entriesRef = useRef(entries)
+  entriesRef.current = entries
+  useEffect(() => {
+    if (!companyId) return
+    const supabase = createClient()
+    let refetchTimer: ReturnType<typeof setTimeout> | null = null
+    const channel = supabase
+      .channel(`daily-log:${companyId}`)
+      .on('broadcast', { event: 'update-inserted' }, ({ payload }) => {
+        const p = (payload ?? {}) as { entry_id?: string; sender_id?: string }
+        if (!p.entry_id || p.sender_id === currentUserId) return
+        // Only refetch if the update is for an entry on the day in view.
+        if (!entriesRef.current.some(e => e.id === p.entry_id)) return
+        if (refetchTimer) clearTimeout(refetchTimer)
+        refetchTimer = setTimeout(() => loadEntries(dateRef.current), 400)
+      })
+      .subscribe()
+    return () => {
+      if (refetchTimer) clearTimeout(refetchTimer)
+      supabase.removeChannel(channel)
+    }
+  }, [companyId, currentUserId, loadEntries])
 
   function goDate(days: number) {
     setDate(prev => offsetDate(prev, days))

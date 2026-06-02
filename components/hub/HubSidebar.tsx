@@ -1007,16 +1007,24 @@ export default function HubSidebar({
 
           {/* Daily Log — second priority entry. */}
           <div className="space-y-0.5">
+            {(() => {
+              const dlActive = pathname === '/hub/daily-log' || pathname.startsWith('/hub/daily-log/')
+              return (
             <Link
               href="/hub/daily-log"
               onClick={() => onClose?.()}
               className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                pathname === '/hub/daily-log' || pathname.startsWith('/hub/daily-log/') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                dlActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
               }`}
             >
               <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="daily-log" /></span>
               <span className="truncate flex-1">Daily Log</span>
+              {dailyLogUnread && !dlActive && (
+                <span className="flex-none w-2 h-2 rounded-full bg-[#f97316]" />
+              )}
             </Link>
+              )
+            })()}
             {canAccessDailyLogV2 && (
               <Link
                 href="/hub/daily-log-v2"

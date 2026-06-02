@@ -12,7 +12,7 @@ export default async function DailyLogPage() {
   const [profileResult, hubUsersResult] = await Promise.all([
     supabase
       .from('user_profiles')
-      .select('role, can_admin_daily_log')
+      .select('role, can_admin_daily_log, company_id')
       .eq('id', user.id)
       .single(),
     supabase
@@ -36,6 +36,7 @@ export default async function DailyLogPage() {
   return (
     <DailyLogView
       currentUserId={user.id}
+      companyId={profileResult.data?.company_id ?? ''}
       isAdmin={isAdmin}
       isTech={isTech}
       hubUsers={hubUsers}

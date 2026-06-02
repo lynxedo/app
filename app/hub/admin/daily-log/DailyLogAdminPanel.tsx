@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import AdminTabNav from '@/components/AdminTabNav'
 
 type HubUser = { id: string; display_name: string }
@@ -56,46 +56,31 @@ export default function DailyLogAdminPanel({
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
 
-  function toggleUser(id: string) {
-    setSelectedUsers((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
+  // Latest values mirrored into a ref so the debounced auto-save always POSTs
+  // the current selections (state updates are async; the debounce window lets
+  // the ref catch up before the save fires).
+  const valuesRef = useRef({ selectedUsers, selectedRooms, updateNotifyUsers, onMyWayTemplate })
+  valuesRef.current = { selectedUsers, selectedRooms, updateNotifyUsers, onMyWayTemplate }
+  const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  function toggleRoom(id: string) {
-    setSelectedRooms((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
-  function toggleUpdateNotify(id: string) {
-    setUpdateNotifyUsers((prev) => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
-    })
-  }
-
+  // The pickers auto-save on toggle, so checking a box IS saving it — no separate
+  // Save click needed. The Save button below still does an immediate save (and
+  // covers the SMS template).
   async function save() {
+    if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     setSaving(true)
     setError(null)
     try {
+      const v = valuesRef.current
       const res = await fetch('/api/admin/daily-log-settings', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          completion_notify_user_ids: [...selectedUsers],
-          completion_notify_room_ids: [...selectedRooms],
-          update_notify_user_ids: [...updateNotifyUsers],
+          completion_notify_user_ids: [...v.selectedUsers],
+          completion_notify_room_ids: [...v.selectedRooms],
+          update_notify_user_ids: [...v.updateNotifyUsers],
           // Empty string means "use the system default" — server stores NULL.
-          on_my_way_template: onMyWayTemplate.trim() || null,
+          on_my_way_template: v.onMyWayTemplate.trim() || null,
         }),
       })
       if (!res.ok) {
@@ -110,6 +95,44 @@ export default function DailyLogAdminPanel({
     }
   }
 
+  // Debounced auto-save — fired by the pickers on every toggle so a checkbox
+  // change persists on its own. The 500ms window batches rapid clicks and lets
+  // valuesRef catch up to the new state before the POST.
+  function scheduleSave() {
+    if (saveTimer.current) clearTimeout(saveTimer.current)
+    saveTimer.current = setTimeout(() => { void save() }, 500)
+  }
+
+  function toggleUser(id: string) {
+    setSelectedUsers((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+    scheduleSave()
+  }
+
+  function toggleRoom(id: string) {
+    setSelectedRooms((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+    scheduleSave()
+  }
+
+  function toggleUpdateNotify(id: string) {
+    setUpdateNotifyUsers((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+    scheduleSave()
+  }
+
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-gray-950 text-white">
       <div className="border-b border-gray-800">
@@ -119,10 +142,22 @@ export default function DailyLogAdminPanel({
       </div>
       <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-6">
         <header>
-          <h1 className="text-xl font-semibold">Daily Log</h1>
+          <div className="flex items-center justify-between gap-3">
+            <h1 className="text-xl font-semibold">Daily Log</h1>
+            <span className="text-xs flex-none">
+              {saving
+                ? <span className="text-white/50">Saving…</span>
+                : error
+                  ? <span className="text-red-400">{error}</span>
+                  : savedAt
+                    ? <span className="text-emerald-400">✓ Saved</span>
+                    : null}
+            </span>
+          </div>
           <p className="text-sm text-white/60 mt-1">
             Configure who gets notified about Daily Log activity — both <strong>new updates</strong> as
             they&apos;re posted, and the <strong>end-of-day summary</strong> when a tech marks a route complete.
+            <span className="text-white/40"> Changes save automatically.</span>
           </p>
         </header>
 
@@ -163,7 +198,7 @@ export default function DailyLogAdminPanel({
 
           <textarea
             value={onMyWayTemplate}
-            onChange={(e) => setOnMyWayTemplate(e.target.value)}
+            onChange={(e) => { setOnMyWayTemplate(e.target.value); scheduleSave() }}
             placeholder={DEFAULT_ON_MY_WAY_TEMPLATE}
             rows={3}
             maxLength={500}

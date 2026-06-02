@@ -121,18 +121,21 @@ export async function POST(
       },
       { isDm: true }
     )
-
-    // Live signal for open Hub tabs: sidebar/rail dot, chime, desktop banner.
-    void broadcastDailyLogUpdate(profile.company_id, {
-      update_id: update.id,
-      entry_id: entryId,
-      sender_id: user.id,
-      sender_name: senderName,
-      tech_name: techName,
-      snippet,
-      recipient_ids: recipientIds,
-    })
   }
+
+  // Live signal for open Hub tabs — fired ALWAYS (even with no push recipients)
+  // so anyone currently *viewing* the Daily Log sees the new update appear without
+  // refreshing. Recipient-scoped consumers (sidebar/rail dot, chime, desktop
+  // banner) self-filter on `recipient_ids`; the in-view refresh ignores it.
+  void broadcastDailyLogUpdate(profile.company_id, {
+    update_id: update.id,
+    entry_id: entryId,
+    sender_id: user.id,
+    sender_name: senderName,
+    tech_name: techName,
+    snippet,
+    recipient_ids: recipientIds,
+  })
 
   if (entryRow?.completed_at) {
     notifyDailyLogComplete(entryId).catch((err) =>
