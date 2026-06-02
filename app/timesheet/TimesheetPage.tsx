@@ -223,17 +223,29 @@ export default function TimesheetPage({
 
     setGpsStatus('requesting')
     try {
-      const pos = await new Promise<GeolocationPosition>((res, rej) =>
-        navigator.geolocation.getCurrentPosition(res, rej, {
-          timeout: 20000,
-          maximumAge: 60000,
-          enableHighAccuracy: false,
-        })
-      )
+      // The browser's `timeout` option only starts measuring *after* the OS
+      // permission prompt resolves — if the prompt hangs (iOS PWA / Capacitor
+      // quirks) the promise sits forever and the user is stuck on "Getting
+      // location…" with no way to clock in. Race against a hard deadline (just
+      // above the inner timeout) so the UI always recovers into the warning
+      // panel, which offers "Clock In Without Location".
+      const pos = await Promise.race<GeolocationPosition>([
+        new Promise<GeolocationPosition>((res, rej) =>
+          navigator.geolocation.getCurrentPosition(res, rej, {
+            timeout: 20000,
+            maximumAge: 60000,
+            enableHighAccuracy: false,
+          })
+        ),
+        new Promise<GeolocationPosition>((_, rej) =>
+          setTimeout(() => rej(new Error('hard-timeout')), 24000)
+        ),
+      ])
       await submitPunch(pos.coords.latitude, pos.coords.longitude)
     } catch (err) {
       const geoErr = err as GeolocationPositionError
-      // Code 1 = PERMISSION_DENIED; anything else = timeout or unavailable
+      // Code 1 = PERMISSION_DENIED; anything else (incl. the hard-timeout) =
+      // timeout or unavailable
       setGpsErrorType(geoErr?.code === 1 ? 'denied' : 'unavailable')
       setGpsStatus('warning')
     }
