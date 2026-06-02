@@ -420,6 +420,7 @@ export default function HubShell({
             canAccessRouting={canAccessRouting}
             canAccessBooks={canAccessBooks}
             canAccessFleet={canAccessFleet}
+            canAccessDailyLogV2={canAccessDailyLogV2}
             myPresenceMode={myPresenceMode}
             onOpenTimeClock={() => { closeMobileDrawer(); setShowTimeClock(true) }}
           />
