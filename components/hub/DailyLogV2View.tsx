@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
+import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -586,18 +587,26 @@ function EntryCard({
     }
   }
 
-  async function openRouteSheet() {
-    // Gesture-safe open (mirrors v1 DailyLogView.openRouteSheet). Open the window
-    // synchronously on the trusted click so iOS doesn't block it as a popup, then
-    // fetch a token-authorized URL from inside the app (where we're cookie-authed)
-    // and navigate the popup to it. The token makes the sheet load in ANY browser
-    // the device hands the link to — fixes the 401 the native app hit when
-    // target="_blank" opened the system browser without the Lynxedo session cookie.
-    const win = window.open('', '_blank')
-    const res = await fetch(`/api/hub/daily-log/${entry.id}/route-sheet?grant=1`)
-    if (!res.ok) { win?.close(); return }
-    const { url } = await res.json()
-    if (win) win.location.href = url
+  const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null)
+
+  function openRouteSheet() {
+    // Open in the in-app viewer (MediaLightbox) — renders inside the logged-in Hub
+    // webview, so it works on every platform including the iOS/Android apps. The old
+    // window.open('', '_blank') gesture-popup returns null in the iOS Capacitor
+    // webview, so the route sheet never opened there. HTML sheets render in an
+    // iframe; PDFs render via pdf.js (canvas).
+    if (!entry.route_sheet_url) return
+    const isHtml = entry.route_sheet_url.endsWith('.html')
+    const base = `/api/hub/daily-log/${entry.id}/route-sheet`
+    setLightbox({
+      items: [{
+        type: isHtml ? 'html' : 'pdf',
+        src: isHtml ? base : `${base}?inline=pdf`,
+        downloadSrc: base,
+        filename: entry.route_sheet_name ?? 'Route Sheet',
+      }],
+      index: 0,
+    })
   }
 
   const stopsWithCoords = entry.stops.filter(s => s.lat != null && s.lng != null)
@@ -756,6 +765,14 @@ function EntryCard({
         <div className="px-5 py-2 bg-gray-900/30 border-t border-gray-800 text-[10px] text-gray-600 uppercase tracking-wide">
           v2 preview — Phases 1–6 live
         </div>
+      )}
+
+      {lightbox && (
+        <MediaLightbox
+          items={lightbox.items}
+          startIndex={lightbox.index}
+          onClose={() => setLightbox(null)}
+        />
       )}
     </div>
   )
@@ -1370,19 +1387,31 @@ function StopNotesAndAttachments({
   const fileRef = useRef<HTMLInputElement>(null)
   const bottomRef = useRef<HTMLDivElement>(null)
 
-  async function openAttachment(fileUrl: string) {
-    // Gesture-safe open (mirrors v1 DailyLogView.openAttachment). Open the window
-    // synchronously on the trusted click so iOS doesn't block it as a popup, then
-    // fetch the signed R2 URL from inside the app (where we're cookie-authed) and
-    // navigate the popup to it. fileUrl already points at the auth-gated media
-    // route, so ?json=1 returns the signed URL — fixes the 401 the native app hit
-    // when target="_blank" handed the link to the system browser without a cookie.
-    const win = window.open('', '_blank')
-    const res = await fetch(`${fileUrl}?json=1`)
-    if (!res.ok) { win?.close(); return }
-    const { url } = await res.json()
-    if (win) win.location.href = url
-  }
+  const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null)
+
+  // Image + PDF attachments open in the in-app viewer (MediaLightbox) so they work
+  // on every platform including the iOS/Android apps. The old window.open('','_blank')
+  // gesture-popup returns null in the iOS Capacitor webview, so attachments never
+  // opened there. Other file types fall back to a same-origin download link.
+  const lightboxItems = useMemo<LightboxItem[]>(() =>
+    attachments
+      .filter(a => !!a.file_type && (a.file_type.startsWith('image/') || a.file_type === 'application/pdf'))
+      .map(a => {
+        const isPdf = a.file_type === 'application/pdf'
+        return {
+          type: (isPdf ? 'pdf' : 'image') as 'pdf' | 'image',
+          src: isPdf ? `${a.file_url}?inline=pdf` : a.file_url,
+          downloadSrc: a.file_url,
+          filename: a.file_name,
+        }
+      }), [attachments])
+  const lightboxIndexById = useMemo<Record<string, number>>(() => {
+    const m: Record<string, number> = {}
+    attachments
+      .filter(a => !!a.file_type && (a.file_type.startsWith('image/') || a.file_type === 'application/pdf'))
+      .forEach((a, i) => { m[a.id] = i })
+    return m
+  }, [attachments])
 
   useEffect(() => {
     let cancelled = false
@@ -1509,21 +1538,31 @@ function StopNotesAndAttachments({
                   <div className="flex-none w-6 h-6 rounded-full bg-gray-700 flex items-center justify-center text-[10px] text-gray-300 font-semibold">
                     {isMine ? 'Me' : '?'}
                   </div>
-                  <button
-                    type="button"
-                    onClick={() => openAttachment(item.file_url)}
-                    className="max-w-[60%] block text-left bg-gray-800 border border-gray-700 rounded overflow-hidden hover:border-sky-600 transition-colors"
-                  >
-                    {isImage(item.file_type) ? (
-                      // eslint-disable-next-line @next/next/no-img-element
-                      <img src={item.file_url} alt={item.file_name} className="w-full h-24 object-cover" />
-                    ) : (
+                  {(isImage(item.file_type) || item.file_type === 'application/pdf') ? (
+                    <button
+                      type="button"
+                      onClick={() => setLightbox({ items: lightboxItems, index: lightboxIndexById[item.id] ?? 0 })}
+                      className="max-w-[60%] block text-left bg-gray-800 border border-gray-700 rounded overflow-hidden hover:border-sky-600 transition-colors"
+                    >
+                      {isImage(item.file_type) ? (
+                        // eslint-disable-next-line @next/next/no-img-element
+                        <img src={item.file_url} alt={item.file_name} className="w-full h-24 object-cover" />
+                      ) : (
+                        <div className="w-full h-16 flex items-center justify-center text-2xl select-none">📄</div>
+                      )}
+                      <div className="px-2 py-1 text-[10px] text-gray-400 truncate">{item.file_name}</div>
+                    </button>
+                  ) : (
+                    <a
+                      href={item.file_url}
+                      className="max-w-[60%] block text-left bg-gray-800 border border-gray-700 rounded overflow-hidden hover:border-sky-600 transition-colors"
+                    >
                       <div className="w-full h-16 flex items-center justify-center text-2xl select-none">
                         {isVideo(item.file_type) ? '🎥' : '📄'}
                       </div>
-                    )}
-                    <div className="px-2 py-1 text-[10px] text-gray-400 truncate">{item.file_name}</div>
-                  </button>
+                      <div className="px-2 py-1 text-[10px] text-gray-400 truncate">{item.file_name}</div>
+                    </a>
+                  )}
                 </div>
               )
             }
@@ -1592,6 +1631,14 @@ function StopNotesAndAttachments({
           {sending ? '…' : '↑'}
         </button>
       </div>
+
+      {lightbox && (
+        <MediaLightbox
+          items={lightbox.items}
+          startIndex={lightbox.index}
+          onClose={() => setLightbox(null)}
+        />
+      )}
     </div>
   )
 }
