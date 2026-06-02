@@ -15,8 +15,8 @@ export type ContactForModal = {
 type CreateProps = {
   mode: 'create'
   onClose: () => void
-  // Called after save with the resolved conversation id; parent navigates.
-  onCreated: (conversationId: string) => void
+  // Called after the contact is created (no conversation is started).
+  onCreated: (contact: ContactForModal) => void
 }
 
 type EditProps = {
@@ -55,7 +55,7 @@ export default function ContactModal(props: Props) {
     setSaving(true)
     try {
       if (props.mode === 'create') {
-        const res = await fetch('/api/txt/conversations/start', {
+        const res = await fetch('/api/txt/contacts', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -71,7 +71,7 @@ export default function ContactModal(props: Props) {
           setSaving(false)
           return
         }
-        props.onCreated(data.conversation_id)
+        props.onCreated(data.contact)
       } else {
         const res = await fetch(`/api/txt/contacts/${props.contact.id}`, {
           method: 'PATCH',
@@ -201,7 +201,7 @@ export default function ContactModal(props: Props) {
             disabled={saving}
             className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium disabled:opacity-50"
           >
-            {saving ? 'Saving…' : isEdit ? 'Save' : 'Add & open'}
+            {saving ? 'Saving…' : isEdit ? 'Save' : 'Add contact'}
           </button>
         </div>
       </div>

@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { toE164 } from '@/lib/twilio'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -7,9 +9,9 @@ const HEROES_COMPANY_ID =
 // GET /api/txt/contacts?search=...&limit=200&include_do_not_text=0
 //
 // Lists txt_contacts for the caller's company. Used by the broadcast and
-// group-conversation composers. By default excludes do_not_text contacts
-// — pass include_do_not_text=1 to see them (admin contact-management
-// contexts use this).
+// group-conversation composers, the New-conversation search, and the
+// Contacts page. By default excludes do_not_text contacts — pass
+// include_do_not_text=1 to see them (contact-management contexts use this).
 export async function GET(request: Request) {
   const supabase = await createClient()
   const {
@@ -39,4 +41,63 @@ export async function GET(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   return NextResponse.json({ contacts: data ?? [] })
+}
+
+// POST /api/txt/contacts
+// Body: { name, phone, email?, notes? }
+// Creates a contact in the company's address book (no conversation). Used by
+// the "+ Add contact" flow and the Contacts page. Phone is E.164-normalized
+// and deduped — a contact with the same phone returns 409 with the existing id.
+export async function POST(request: Request) {
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
+  const body = await request.json().catch(() => ({}))
+  const name: string = (body.name || '').trim()
+  const phoneE164 = toE164(body.phone || '')
+  const email: string | null = (body.email || '').trim() || null
+  const notes: string | null = (body.notes || '').trim() || null
+
+  if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
+  if (!phoneE164) return NextResponse.json({ error: 'Invalid phone' }, { status: 400 })
+
+  const admin = createAdminClient()
+
+  const { data: existing } = await admin
+    .from('txt_contacts')
+    .select('id, name, phone, email, notes, do_not_text, jobber_client_id')
+    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('phone', phoneE164)
+    .maybeSingle()
+
+  if (existing) {
+    return NextResponse.json(
+      { error: 'A contact with this phone number already exists', contact: existing },
+      { status: 409 }
+    )
+  }
+
+  const { data: created, error: createErr } = await admin
+    .from('txt_contacts')
+    .insert({
+      company_id: HEROES_COMPANY_ID,
+      phone: phoneE164,
+      name,
+      email,
+      notes,
+    })
+    .select('id, name, phone, email, notes, do_not_text, jobber_client_id')
+    .single()
+
+  if (createErr || !created) {
+    return NextResponse.json(
+      { error: createErr?.message || 'Contact insert failed' },
+      { status: 500 }
+    )
+  }
+
+  return NextResponse.json({ contact: created }, { status: 201 })
 }
