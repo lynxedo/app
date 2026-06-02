@@ -5,6 +5,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import HubShell from '@/components/hub/HubShell'
 import PushInit from '@/components/hub/PushInit'
 import ElectronNotifier from '@/components/hub/ElectronNotifier'
+import WebChimeNotifier from '@/components/hub/WebChimeNotifier'
 import HubIdleTracker from '@/components/hub/HubIdleTracker'
 import { markActive } from '@/lib/hub-activity'
 import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
@@ -225,6 +226,10 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       <ElectronNotifier
         currentUserId={user.id}
         hubUsers={(hubUsersResult.data ?? []) as { id: string; display_name: string; is_bot?: boolean }[]}
+        rooms={rooms.map(r => ({ id: r.id, name: r.name }))}
+      />
+      <WebChimeNotifier
+        currentUserId={user.id}
         rooms={rooms.map(r => ({ id: r.id, name: r.name }))}
       />
       <HubIdleTracker />
