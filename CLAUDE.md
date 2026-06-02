@@ -117,7 +117,28 @@ Both `deploy-staging.yml` and `deploy.yml` have these properties — DO NOT remo
 3. **`pm2 restart` (not `reload`).** Reload is a graceful zero-downtime swap that becomes a no-op when PM2 is already in `errored` state. Restart forces a fresh process and resets the restart counter.
 4. **Health check via `curl` after restart.** Polls `http://localhost:3000/` (or `:3002` for staging) up to 30s. If no HTTP 200/307/308, dumps `pm2 logs --err --lines 30` to the Actions log and exits non-zero — the GitHub deploy step turns red.
 
+5. **`rm -rf .next` before `npm run build` — clean build every deploy (June 2 2026).** Both workflows previously wiped only `.next/types`; they now wipe ALL of `.next`. See the `/hub` 500 incident below for why. (Trade-off: slightly slower builds since the `.next/cache` is dropped each deploy — worth it for reliability.)
+
 **Outcome:** A broken commit is now LOUD — Actions goes red, you see exactly which file:line broke, and the old build keeps serving traffic. It's no longer possible to silently end up with a dead PM2 process.
+
+### The June 2 2026 `/hub` 500 — incremental build dropped a client-reference manifest
+
+**Symptom:** Deploy is GREEN, homepage + login load fine (HTTP 200), but **authenticated `/hub` returns an Internal Server Error.** Logged-out external curl health checks look perfectly healthy because `/hub` just 307-redirects to login when signed out — it never renders the broken route, so the failure is invisible to anyone who isn't signed in.
+
+**Cause:** A new **client component** (`WebChimeNotifier`) was added to the **`/hub` layout**. The deploy ran an **incremental** `npm run build` over a stale `.next` — a known Next.js bug where it can silently fail to emit a route's **client-reference manifest**. The build still exits 0 and writes a `BUILD_ID`, so nothing flags it. At request time the server throws:
+`Invariant: The client reference manifest for route "/hub" does not exist. This is a bug in Next.js.`
+
+**How to confirm (read-only — no prod writes):**
+```bash
+# does the /hub page manifest exist in the live build?
+ssh root@5.78.42.57 'ls -la /opt/lynxedo/app/.next/server/app/hub/page_client-reference-manifest.js'
+# is the server actually throwing it?
+ssh root@5.78.42.57 'pm2 logs lynxedo --err --lines 40 --nostream | grep InvariantError'
+```
+
+**Fix:** a clean build. The durable fix is item 5 above (deploys now `rm -rf .next`). Re-trigger the deploy (push the workflow change, or an empty commit) and the clean build regenerates the manifest. **Do NOT trust a logged-out curl to declare `/hub` healthy** — after any change to the Hub layout's client/server boundary, grep the prod error log for `InvariantError`.
+
+**Note:** a direct SSH rebuild (`rm -rf .next && npm run build && pm2 restart`) is the fastest manual recovery, but the auto-mode classifier blocks remote *writes* to `/opt/lynxedo/app` — so prefer the in-band pipeline fix (push a workflow change or empty commit), which fixes prod without a remote write.
 
 ### If staging or prod IS down (manual recovery)
 
