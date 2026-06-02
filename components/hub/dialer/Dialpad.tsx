@@ -69,7 +69,10 @@ export default function Dialpad({
 
   return (
     <div
-      className="w-full max-w-[240px] md:max-w-xs mx-auto select-none"
+      // Fluid on phones: fills ~82% of the screen width up to a 340px cap, so a
+      // big phone gets a noticeably larger pad than a small one (instead of
+      // every phone being locked to the same fixed width). Desktop stays capped.
+      className="w-full max-w-[min(82vw,340px)] md:max-w-xs mx-auto select-none"
       tabIndex={0}
       onKeyDown={handleKeyDown}
     >
@@ -93,7 +96,7 @@ export default function Dialpad({
             disabled={disabled}
             className="aspect-square rounded-full bg-white/5 hover:bg-white/10 active:bg-white/20 transition-colors flex flex-col items-center justify-center disabled:opacity-40"
           >
-            <span className="text-xl md:text-2xl font-light text-white">{k.digit}</span>
+            <span className="text-2xl font-light text-white">{k.digit}</span>
             {k.letters && (
               <span className="text-[9px] md:text-[10px] tracking-widest text-white/40 mt-0.5">
                 {k.letters}
