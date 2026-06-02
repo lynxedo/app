@@ -293,9 +293,9 @@ function HubTab() {
       <Section title="Viewing photos, videos, and PDFs">
         <p>Attachments open inside Hub — no new browser tab.</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">Photos</strong> — tap the thumbnail to open the full image in a dark lightbox. On desktop, use the ← / → buttons (or arrow keys) to flip between photos in the same message; Esc closes. On phone, swipe left/right to flip and pinch to zoom.</li>
+          <li><strong className="text-white">Photos</strong> — tap the thumbnail to open the full image in a dark lightbox. On desktop, use the ← / → buttons (or arrow keys) to flip between photos in the same message; Esc closes. On phone, swipe left/right to flip, <strong className="text-white">pinch to zoom and drag to pan</strong>, and double-tap to zoom in/out. (Pinch works inside the iOS and Android apps too, not just the browser.)</li>
           <li><strong className="text-white">Videos</strong> — play right in the chat bubble with native controls (play, scrub, fullscreen, volume).</li>
-          <li><strong className="text-white">PDFs</strong> — tap the 📄 card to open the document in the lightbox. The ⬇ button in the top-right downloads the file.</li>
+          <li><strong className="text-white">PDFs</strong> — tap the 📄 card to open the document in the lightbox. <strong className="text-white">Pinch to zoom</strong> (iOS + Android apps included) or use the − / + buttons at the bottom; the ⬇ button in the top-right downloads the file.</li>
         </ul>
       </Section>
 
@@ -308,6 +308,7 @@ function HubTab() {
           <li><code className="bg-gray-800 px-1 rounded text-orange-300">~strike~</code> → <span className="line-through">strike</span></li>
           <li><code className="bg-gray-800 px-1 rounded text-orange-300">`code`</code> → <code className="bg-gray-700 text-gray-100 rounded px-1 font-mono text-sm">code</code> (inline)</li>
           <li><code className="bg-gray-800 px-1 rounded text-orange-300">&gt; quote</code> at the start of a line → renders as a quoted line with a left border</li>
+          <li><strong className="text-white">Bullet list</strong> — the bullet button in the <strong className="text-white">Aa</strong> popover adds a <code className="bg-gray-800 px-1 rounded text-orange-300">•</code> to the line. Press <strong className="text-white">Enter</strong> to continue the list with a new bullet automatically; press Enter on an empty bullet to end the list (like Docs/Word).</li>
         </ul>
         <p className="font-medium text-white mt-3">Keyboard shortcuts (desktop)</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
