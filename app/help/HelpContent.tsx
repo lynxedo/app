@@ -377,14 +377,17 @@ function HubTab() {
       </Section>
 
       <Section title="Announcements & Shout Outs">
-        <p>Two tickers appear at the top of Hub Home:</p>
+        <p>Two tickers appear at the top of Hub (in rooms and DMs):</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">📢 Announcements (blue)</strong> — company-wide updates the admin team wants everyone to see (policy changes, schedule notes, etc.).</li>
           <li><strong className="text-white">🎉 Shout Outs (gold)</strong> — recognition for great work, customer compliments, milestones.</li>
         </ul>
-        <p>Click either ticker to open the full <strong className="text-white">Company News</strong> page where everything is sorted by Active / Archived / Expired.</p>
+        <p>Hit <strong className="text-white">✕</strong> to dismiss a ticker from your view — it stays hidden on that device until a new announcement of the same type is posted. Click the ticker text to open the full <strong className="text-white">Company News</strong> page where everything is sorted by Active / Archived / Expired.</p>
         <AdminOnly>
-          <p>Admins post announcements from <strong className="text-white">/admin/hub → Announcements</strong>. Anyone with the <em>Can post Shout Outs</em> flag enabled can post shout outs from the same page. Posting a new active announcement automatically archives the previous one — only one is live at a time.</p>
+          <p>Admins manage announcements from <strong className="text-white">/admin/hub → Announcements</strong>. Anyone with the <em>Can post Shout Outs</em> flag enabled can post shout outs from the same page. Posting a new active announcement automatically archives the previous one — only one of each type is live at a time.</p>
+          <p><strong className="text-white">Edit</strong> — click Edit on the active announcement card to change the text (expiration is preserved). The ✎ pencil on the ticker itself also opens the same edit modal.</p>
+          <p><strong className="text-white">Archive</strong> — click Archive on the active card to pull it immediately, before it expires.</p>
+          <p><strong className="text-white">Delete</strong> — the <em>Past Announcements</em> list at the bottom of the Announcements tab shows all archived and expired posts. Click Delete on any row to permanently remove it.</p>
         </AdminOnly>
       </Section>
 
