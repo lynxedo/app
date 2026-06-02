@@ -529,6 +529,54 @@ export default function TxtConversationView({
   const isArchived = conversation.status === 'archived'
   const phoneDisplay = conversation.contact ? formatPhone(conversation.contact.phone) : ''
 
+  // Interleave internal notes into the message stream as small markers, in
+  // chronological order, so staff can see where in the conversation a note was
+  // taken. Tapping a marker opens the notes panel.
+  const timeline: Array<
+    | { kind: 'message'; id: string; at: string; message: Message }
+    | { kind: 'note'; id: string; at: string; note: Note }
+  > = [
+    ...messages.map((m) => ({ kind: 'message' as const, id: `m-${m.id}`, at: m.created_at, message: m })),
+    ...notes.map((n) => ({ kind: 'note' as const, id: `n-${n.id}`, at: n.created_at, note: n })),
+  ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
+
+  // Notes panel body (list + composer) — shared between the desktop right rail
+  // and the mobile full-screen overlay so both stay in sync.
+  const notesInner = (
+    <>
+      <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
+        {notes.length === 0 && (
+          <div className="text-xs text-white/40">No notes yet.</div>
+        )}
+        {notes.map((n) => (
+          <div key={n.id} className="bg-amber-500/10 border border-amber-500/20 rounded-md p-2">
+            <div className="text-xs whitespace-pre-wrap break-words">{n.body}</div>
+            <div className="text-[10px] text-white/40 mt-1">
+              {n.author?.display_name?.split(' ')[0] || 'Someone'} · {formatTime(n.created_at)}
+            </div>
+          </div>
+        ))}
+      </div>
+      <div className="p-2 border-t border-white/10 space-y-2">
+        <textarea
+          value={noteText}
+          onChange={(e) => setNoteText(e.target.value)}
+          placeholder="Add a note (staff only)…"
+          rows={2}
+          className="w-full px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs resize-none"
+          style={{ fontSize: 16 }}
+        />
+        <button
+          onClick={addNote}
+          disabled={!noteText.trim()}
+          className="w-full px-2 py-1.5 rounded-md bg-amber-600/80 hover:bg-amber-600 text-xs disabled:opacity-50"
+        >
+          Save note
+        </button>
+      </div>
+    </>
+  )
+
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Header */}
@@ -583,9 +631,11 @@ export default function TxtConversationView({
               {conversation.status === 'unassigned'
                 ? '+ Assign'
                 : conversation.assignee
-                ? conversation.assignee.id === currentUserId
-                  ? 'You'
-                  : conversation.assignee.display_name.split(' ')[0]
+                ? `Owner: ${
+                    conversation.assignee.id === currentUserId
+                      ? 'You'
+                      : conversation.assignee.display_name.split(' ')[0]
+                  }`
                 : 'Unassigned'}
             </button>
             {assignOpen && (
@@ -694,29 +744,14 @@ export default function TxtConversationView({
             )
           })}
           {canManageMembers && memberCandidates.length > 0 && (
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setAddMemberOpen((v) => !v)}
-                className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 text-white/60"
-                title="Add a teammate to this thread"
-              >
-                + member
-              </button>
-              {addMemberOpen && (
-                <div className="absolute right-0 mt-1 w-48 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 max-h-60 overflow-y-auto">
-                  {memberCandidates.map((u) => (
-                    <button
-                      key={u.id}
-                      onClick={() => addMember(u.id)}
-                      className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
-                    >
-                      {u.display_name}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
+            <button
+              type="button"
+              onClick={() => setAddMemberOpen(true)}
+              className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 text-white/60"
+              title="Add a teammate to this thread"
+            >
+              + member
+            </button>
           )}
           {isMemberMe && !isOwnerMe && !canManageMembers && (
             <button
@@ -838,11 +873,29 @@ export default function TxtConversationView({
               No messages yet.
             </div>
           )}
-          {messages.map((m) => {
+          {timeline.map((item) => {
+            if (item.kind === 'note') {
+              const n = item.note
+              return (
+                <div key={item.id} className="flex justify-center my-1">
+                  <button
+                    type="button"
+                    onClick={() => setShowNotes(true)}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-200/90 text-[10px] hover:bg-amber-500/20 max-w-[85%]"
+                    title="Internal note — tap to view"
+                  >
+                    <span aria-hidden>📝</span>
+                    <span className="flex-none">Note · {formatTime(n.created_at)}</span>
+                    {n.body && <span className="text-amber-100/60 truncate">— {n.body}</span>}
+                  </button>
+                </div>
+              )
+            }
+            const m = item.message
             const isOutbound = m.direction === 'outbound'
             return (
               <div
-                key={m.id}
+                key={item.id}
                 className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}
               >
                 <div
@@ -931,35 +984,7 @@ export default function TxtConversationView({
             <div className="px-3 py-2 border-b border-white/10 text-xs text-amber-300">
               Internal notes (not sent to customer)
             </div>
-            <div className="flex-1 overflow-y-auto px-3 py-2 space-y-2">
-              {notes.length === 0 && (
-                <div className="text-xs text-white/40">No notes yet.</div>
-              )}
-              {notes.map((n) => (
-                <div key={n.id} className="bg-amber-500/10 border border-amber-500/20 rounded-md p-2">
-                  <div className="text-xs whitespace-pre-wrap break-words">{n.body}</div>
-                  <div className="text-[10px] text-white/40 mt-1">
-                    {n.author?.display_name?.split(' ')[0] || 'Someone'} · {formatTime(n.created_at)}
-                  </div>
-                </div>
-              ))}
-            </div>
-            <div className="p-2 border-t border-white/10 space-y-2">
-              <textarea
-                value={noteText}
-                onChange={(e) => setNoteText(e.target.value)}
-                placeholder="Add a note (staff only)…"
-                rows={2}
-                className="w-full px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs resize-none"
-              />
-              <button
-                onClick={addNote}
-                disabled={!noteText.trim()}
-                className="w-full px-2 py-1.5 rounded-md bg-amber-600/80 hover:bg-amber-600 text-xs disabled:opacity-50"
-              >
-                Save note
-              </button>
-            </div>
+            {notesInner}
           </div>
         )}
       </div>
@@ -1114,6 +1139,63 @@ export default function TxtConversationView({
       {isArchived && (
         <div className="border-t border-white/10 px-4 py-3 bg-amber-500/5 text-amber-200 text-sm text-center">
           This conversation is archived. Tap ↺ above to reopen.
+        </div>
+      )}
+
+      {/* Mobile notes overlay — the desktop rail is hidden on small screens, so
+          on mobile the 📝 button opens this full-screen panel instead. */}
+      {showNotes && (
+        <div className="md:hidden fixed inset-0 z-50 bg-[#0B2237] flex flex-col">
+          <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+            <span className="text-sm text-amber-300">Internal notes (not sent to customer)</span>
+            <button
+              onClick={() => setShowNotes(false)}
+              className="text-white/50 hover:text-white text-xl leading-none"
+              aria-label="Close notes"
+            >
+              ×
+            </button>
+          </div>
+          {notesInner}
+        </div>
+      )}
+
+      {/* Add-member picker — a centered modal (works on mobile, never clips off
+          the right edge like the old absolute dropdown did). */}
+      {addMemberOpen && (
+        <div
+          className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center px-4"
+          onClick={() => setAddMemberOpen(false)}
+        >
+          <div
+            className="bg-[#0F2E47] border border-white/10 rounded-lg w-full max-w-xs max-h-[70vh] flex flex-col"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+              <h2 className="font-medium text-sm">Add to conversation</h2>
+              <button
+                onClick={() => setAddMemberOpen(false)}
+                className="text-white/50 hover:text-white text-xl leading-none"
+                aria-label="Close"
+              >
+                ×
+              </button>
+            </div>
+            <div className="overflow-y-auto py-1">
+              {memberCandidates.length === 0 && (
+                <div className="px-4 py-3 text-sm text-white/40">Everyone&apos;s already here.</div>
+              )}
+              {memberCandidates.map((u) => (
+                <button
+                  key={u.id}
+                  onClick={() => addMember(u.id)}
+                  className="block w-full text-left px-4 py-2.5 text-sm hover:bg-white/5"
+                >
+                  {u.display_name}
+                </button>
+              ))}
+            </div>
+          </div>
         </div>
       )}
 

@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
+import { sendHubPush } from '@/lib/hub-push'
 
 // POST /api/txt/conversations/[id]/members  — add a member
 // DELETE /api/txt/conversations/[id]/members?user_id=... — remove a member
@@ -44,6 +45,46 @@ export async function POST(
   // Ignore duplicate-primary-key (user already on this conv); surface anything else.
   if (error && error.code !== '23505') {
     return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
+  // Notify the newly added teammate — but only on a fresh add (skip the
+  // duplicate case, which means they were already on the thread).
+  if (!error) {
+    try {
+      const [{ data: conv }, { data: adder }] = await Promise.all([
+        admin
+          .from('txt_conversations')
+          .select(
+            `kind, contact:txt_contacts!txt_conversations_contact_id_fkey ( name, phone )`
+          )
+          .eq('id', id)
+          .maybeSingle(),
+        admin.from('hub_users').select('display_name').eq('id', user.id).maybeSingle(),
+      ])
+      const contact = conv
+        ? Array.isArray(conv.contact)
+          ? conv.contact[0]
+          : conv.contact
+        : null
+      const convLabel =
+        conv?.kind === 'group'
+          ? 'a group text'
+          : contact?.name?.trim() || contact?.phone || 'a text conversation'
+      const adderName = adder?.display_name?.split(/\s+/)[0] || 'A teammate'
+      const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
+      // Fire-and-forget so the add response isn't blocked on push delivery.
+      sendHubPush(
+        [targetUserId],
+        {
+          title: 'Added to a text conversation',
+          body: `${adderName} added you to ${convLabel}`,
+          url: `${baseUrl}/hub/txt/${id}?source=push`,
+        },
+        { isDm: true }
+      ).catch((e) => console.warn('[txt:members] add-notify push failed', e))
+    } catch (e) {
+      console.warn('[txt:members] add-notify lookup failed', e)
+    }
   }
 
   return NextResponse.json({ ok: true })
