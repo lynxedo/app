@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ContactModal, { type ContactForModal } from './ContactModal'
 import TemplatePicker, { filterTemplates, type PickerTemplate } from './TemplatePicker'
+import EmojiPicker from '@/components/hub/EmojiPicker'
 import { renderTemplate, DEFAULT_ON_MY_WAY_TEMPLATE } from '@/lib/txt-templates'
 
 type Message = {
@@ -149,6 +150,8 @@ export default function TxtConversationView({
   const [sendError, setSendError] = useState('')
   // Expand/collapse the composer (toolbar toggle, mirrors the Hub composer).
   const [expanded, setExpanded] = useState(false)
+  // Emoji picker (😀 toolbar button) — same picker the Hub composer uses.
+  const [emojiOpen, setEmojiOpen] = useState(false)
   // On-My-Way (🚗) — admin-editable template + ETA picker. Picking an ETA
   // renders the template into the composer for the tech to review + send.
   const [omwOpen, setOmwOpen] = useState(false)
@@ -612,6 +615,22 @@ export default function TxtConversationView({
     setPickerQuery('')
     setPickerIndex(0)
     textareaRef.current?.focus()
+  }
+
+  // Insert an emoji at the caret (or replacing the selection), then restore the
+  // caret just after it. Mirrors the Hub composer's emoji insert.
+  function insertEmojiAtCaret(native: string) {
+    const el = textareaRef.current
+    const start = el?.selectionStart ?? text.length
+    const end = el?.selectionEnd ?? text.length
+    const newVal = text.slice(0, start) + native + text.slice(end)
+    setText(newVal)
+    const caret = start + native.length
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(caret, caret)
+    })
   }
 
   async function addNote() {
@@ -1226,6 +1245,25 @@ export default function TxtConversationView({
             >
               <span className="text-base leading-none">📋</span>
             </button>
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setEmojiOpen((v) => !v)}
+                disabled={sending || !!conversation.contact?.do_not_text}
+                className="text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
+                title="Insert emoji"
+                aria-label="Insert emoji"
+              >
+                <span className="text-base leading-none">😀</span>
+              </button>
+              {emojiOpen && (
+                <EmojiPicker
+                  align="left"
+                  onSelect={insertEmojiAtCaret}
+                  onClose={() => setEmojiOpen(false)}
+                />
+              )}
+            </div>
             {!isGroup && conversation.contact && (
               <div className="relative">
                 <button
