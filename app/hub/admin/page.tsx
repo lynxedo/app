@@ -46,6 +46,7 @@ export default async function AdminPage() {
     can_admin_zone_sizer: boolean; can_admin_dialer: boolean; can_admin_contacts: boolean;
     can_access_marketing: boolean; can_admin_marketing: boolean;
     can_access_forms: boolean; can_admin_forms: boolean; can_admin_products: boolean;
+    can_access_daily_log_v2: boolean;
     display_name: string | null; avatar_url: string | null; invite_sent_at: string | null;
     full_name: string | null;
   }) => ({
@@ -86,6 +87,7 @@ export default async function AdminPage() {
       can_access_forms: r.can_access_forms,
       can_admin_forms: r.can_admin_forms,
       can_admin_products: r.can_admin_products,
+      can_access_daily_log_v2: r.can_access_daily_log_v2,
     },
   }))
 
