@@ -146,9 +146,54 @@ function stopTime(startAt: string | null): string {
   return d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 
+// Resizable stop-list panel (desktop only) — drag the divider to enlarge the map.
+const LIST_W_KEY = 'lynxedo-adv-route-list-width'
+const MIN_LIST_W = 260
+const DEFAULT_LIST_W = 380
+
 export default function AdvancedRouteView({ users, usersLoading, usersError }: AdvancedRouteViewProps) {
   const [startDate, setStartDate] = useState(todayLocal())
   const [endDate, setEndDate] = useState(todayLocal())
+
+  // ── Resizable stop-list panel (desktop only) ──────────────────────────────
+  const [listWidth, setListWidth] = useState(DEFAULT_LIST_W)
+  const [isDesktop, setIsDesktop] = useState(false)
+  const mapRowRef = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    try {
+      const n = parseInt(localStorage.getItem(LIST_W_KEY) || '', 10)
+      if (!isNaN(n) && n >= MIN_LIST_W) setListWidth(n)
+    } catch { /* ignore */ }
+    const mq = window.matchMedia('(min-width: 1024px)')
+    const update = () => setIsDesktop(mq.matches)
+    update()
+    mq.addEventListener('change', update)
+    return () => mq.removeEventListener('change', update)
+  }, [])
+  function startListResize(e: React.MouseEvent) {
+    e.preventDefault()
+    const startX = e.clientX
+    const startW = listWidth
+    let latest = startW
+    const move = (ev: MouseEvent) => {
+      // Cap the list at 70% of the row so the map keeps at least ~30%.
+      const maxW = Math.floor((mapRowRef.current?.offsetWidth ?? 1200) * 0.7)
+      const delta = startX - ev.clientX // drag left → wider list, right → narrower
+      latest = Math.max(MIN_LIST_W, Math.min(maxW, startW + delta))
+      setListWidth(latest)
+    }
+    const up = () => {
+      document.removeEventListener('mousemove', move)
+      document.removeEventListener('mouseup', up)
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+      try { localStorage.setItem(LIST_W_KEY, String(latest)) } catch { /* ignore */ }
+    }
+    document.addEventListener('mousemove', move)
+    document.addEventListener('mouseup', up)
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'col-resize'
+  }
   const [selectedUserIds, setSelectedUserIds] = useState<string[]>([])
   const [techPickerOpen, setTechPickerOpen] = useState(false)
   const techPickerRef = useRef<HTMLDivElement>(null)
@@ -1016,9 +1061,9 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
 
       {/* Main: map + day-grouped list */}
       {visits !== null && (
-        <div className="flex flex-col lg:flex-row gap-4 items-start">
-          {/* Map (large, sticky) */}
-          <div className="w-full lg:w-2/3 lg:sticky lg:top-6">
+        <div ref={mapRowRef} className="flex flex-col lg:flex-row gap-4 items-start">
+          {/* Map (large, sticky) — grows to fill whatever the resizable list leaves */}
+          <div className="w-full lg:flex-1 lg:min-w-0 lg:sticky lg:top-6">
             <div className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
               <div className="px-4 py-3 border-b border-gray-800 flex items-center justify-between">
                 <h3 className="font-semibold text-sm">Route map</h3>
@@ -1073,8 +1118,18 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
             </div>
           </div>
 
-          {/* Day-grouped list (narrow sidebar) */}
-          <div className="w-full lg:w-1/3">
+          {/* Drag handle — desktop only. Drag left to enlarge the list, right to enlarge the map. */}
+          <div
+            className="hidden lg:block flex-none w-2 cursor-col-resize group lg:sticky lg:top-6"
+            style={{ height: '70vh' }}
+            onMouseDown={startListResize}
+            title="Drag to resize the map and list"
+          >
+            <div className="mx-auto w-px h-full bg-gray-700 group-hover:bg-orange-500/70 transition-colors" />
+          </div>
+
+          {/* Day-grouped list (resizable sidebar on desktop, full width on mobile) */}
+          <div className="w-full lg:flex-none" style={isDesktop ? { width: listWidth } : undefined}>
             {/* Selection toolbar */}
             <div className="bg-gray-900 border border-gray-800 rounded-2xl px-4 py-3 mb-3 flex items-center justify-between gap-3">
               <div className="text-sm">
