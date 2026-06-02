@@ -83,10 +83,12 @@ export default function HubMobileBar({
       return
     }
     onTxtClick()
-    // If already on /hub/txt/*, just open the drawer; don't re-navigate
-    // (which would reset to the placeholder and drop the open conversation).
+    // Fixed mobile "Txt" = old Captivated /hub/clients (everyone keeps it).
+    // New Txt2 (/hub/txt) reaches mobile via the user slot / More picker,
+    // which is gated by canAccessTxt. If already on a clients path, just open
+    // the drawer; don't re-navigate (which would drop the open conversation).
     if (active !== 'txt') {
-      router.push('/hub/txt')
+      router.push('/hub/clients')
     }
   }
 

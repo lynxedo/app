@@ -15,9 +15,12 @@ export default async function TxtConversationPage({
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_hub, can_assign_txt_threads, can_access_dialer, guardian_tier, company_id')
+    .select('role, can_admin_hub, can_assign_txt_threads, can_access_dialer, can_access_txt, guardian_tier, company_id')
     .eq('id', user.id)
     .single()
+
+  // Txt2 (new Twilio texting) is gated per-user.
+  if (!profile?.can_access_txt) redirect('/hub/clients')
 
   const canAssign =
     profile?.role === 'admin' ||

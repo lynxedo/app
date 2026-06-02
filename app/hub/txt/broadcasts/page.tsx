@@ -18,6 +18,14 @@ export default async function TxtBroadcastsPage() {
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
+  // Txt2 (new Twilio texting) is gated per-user.
+  const { data: gate } = await supabase
+    .from('user_profiles')
+    .select('can_access_txt')
+    .eq('id', user.id)
+    .single()
+  if (!gate?.can_access_txt) redirect('/hub/clients')
+
   const { data: broadcasts } = await supabase
     .from('txt_broadcasts')
     .select(

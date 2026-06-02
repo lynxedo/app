@@ -61,6 +61,7 @@ export default function HubShell({
   canAccessFleet,
   canAccessZoneSizer,
   canAccessDialer,
+  canAccessTxt,
   canAccessMarketing,
   canAdminMarketing,
   canAccessForms,
@@ -103,6 +104,7 @@ export default function HubShell({
   canAccessFleet?: boolean
   canAccessZoneSizer?: boolean
   canAccessDialer?: boolean
+  canAccessTxt?: boolean
   canAccessMarketing?: boolean
   canAdminMarketing?: boolean
   canAccessForms?: boolean
@@ -387,6 +389,7 @@ export default function HubShell({
     canAccessTimesheet: !!canAccessTimesheet,
     canAccessZoneSizer: !!canAccessZoneSizer,
     canAccessDialer: !!canAccessDialer,
+    canAccessTxt: !!canAccessTxt,
     canAccessMarketing: !!canAccessMarketing,
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
@@ -404,18 +407,18 @@ export default function HubShell({
           />
         )
       case 'txt':
-        // /hub/txt = develop-only new Twilio-backed view; /hub/clients = existing Captivated view
-        if (pathname === '/hub/txt' || pathname.startsWith('/hub/txt/')) {
-          return (
-            <TxtV2Sidebar
-              onClose={closeMobileDrawer}
-              {...collapseProps}
-              canAssign={!!isAdmin || !!adminGrants?.hub}
-              currentUserId={currentUserId}
-            />
-          )
-        }
+        // 'txt' rail = old Captivated /hub/clients (everyone). New Twilio
+        // /hub/txt maps to the gated 'txt2' rail below.
         return <TxtSidebar onClose={closeMobileDrawer} {...collapseProps} />
+      case 'txt2':
+        return (
+          <TxtV2Sidebar
+            onClose={closeMobileDrawer}
+            {...collapseProps}
+            canAssign={!!isAdmin || !!adminGrants?.hub}
+            currentUserId={currentUserId}
+          />
+        )
       case 'tools':
         return (
           <ToolsSidebar
