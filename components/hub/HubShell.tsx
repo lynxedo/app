@@ -23,6 +23,7 @@ import NotifPrefsModal from './NotifPrefsModal'
 import DialerProvider from './dialer/DialerProvider'
 import ActiveCallBanner from './dialer/ActiveCallBanner'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
+import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
 import { HubTextSizeContext } from './HubTextSizeContext'
 import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
@@ -144,6 +145,8 @@ export default function HubShell({
   const [unreadActivity, setUnreadActivity] = useState<number>(0)
   const [unreadHub, setUnreadHub] = useState<boolean>(false)
   const [dailyLogUnread, setDailyLogUnread] = useState<boolean>(false)
+  const [txtUnread, setTxtUnread] = useState<boolean>(false)
+  const [missedCall, setMissedCall] = useState<boolean>(false)
   const [showActivity, setShowActivity] = useState(false)
   const [isClockedIn, setIsClockedIn] = useState<boolean>(!!initialIsClockedIn)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
@@ -341,6 +344,77 @@ export default function HubShell({
   // canAccessDialer so non-dialer users don't hit the endpoint.
   const unheardVoicemails = useHubVoicemailCount(!!canAccessDialer)
 
+  // ── Txt2 unread dot ───────────────────────────────────────────────────────
+  // Orange dot on the Txt2 rail icon when there's a newer customer inbound than
+  // the last time this device opened Txt2 (per-device, like the chime pref).
+  // Mirrors the Daily Log dot: 60s poll + the instant inbound broadcast.
+  const TXT_SEEN_KEY = 'txt-last-seen'
+  const refreshTxtUnread = useCallback(() => {
+    if (!canAccessTxt) { setTxtUnread(false); return }
+    const path = pathnameRef.current
+    if (path === '/hub/txt' || path.startsWith('/hub/txt/')) { setTxtUnread(false); return }
+    fetch('/api/txt/unread', { cache: 'no-store' })
+      .then(r => (r.ok ? r.json() : { latest_inbound_at: null }))
+      .then(d => {
+        const latest: string | null = d.latest_inbound_at ?? null
+        if (!latest) { setTxtUnread(false); return }
+        let seen = ''
+        try { seen = localStorage.getItem(TXT_SEEN_KEY) || '' } catch { /* ignore */ }
+        setTxtUnread(!seen || latest > seen)
+      })
+      .catch(() => {})
+  }, [canAccessTxt])
+
+  useEffect(() => {
+    if (!canAccessTxt) return
+    refreshTxtUnread()
+    const id = setInterval(refreshTxtUnread, 60_000)
+    return () => clearInterval(id)
+  }, [pathname, canAccessTxt, refreshTxtUnread])
+
+  // Instant: light the dot on the inbound broadcast (same topic the inbound
+  // webhook fires; the daily-log dot uses this exact two-subscriber pattern).
+  useEffect(() => {
+    if (!canAccessTxt || !companyId) return
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`txt:${companyId}`)
+      .on('broadcast', { event: 'inbound' }, () => {
+        const path = pathnameRef.current
+        if (path === '/hub/txt' || path.startsWith('/hub/txt/')) return
+        setTxtUnread(true)
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+  }, [canAccessTxt, companyId])
+
+  // Clear + stamp last-seen when the user opens Txt2.
+  useEffect(() => {
+    const onTxt = pathname === '/hub/txt' || pathname.startsWith('/hub/txt/')
+    if (!onTxt) return
+    setTxtUnread(false)
+    try { localStorage.setItem(TXT_SEEN_KEY, new Date().toISOString()) } catch { /* ignore */ }
+  }, [pathname])
+
+  // ── Dialer missed-call dot ────────────────────────────────────────────────
+  // Orange dot on the Dialer rail icon when there's a missed inbound call newer
+  // than the last time this device opened the Dialer. Distinct from the red
+  // unheard-voicemail count badge (a missed call may not leave a voicemail).
+  const latestMissedAt = useHubMissedCall(!!canAccessDialer)
+  const DIALER_SEEN_KEY = 'dialer-missed-seen'
+  useEffect(() => {
+    const onDialer = pathname === '/hub/dialer' || pathname.startsWith('/hub/dialer/')
+    if (onDialer) {
+      setMissedCall(false)
+      try { localStorage.setItem(DIALER_SEEN_KEY, latestMissedAt || new Date().toISOString()) } catch { /* ignore */ }
+      return
+    }
+    if (!latestMissedAt) { setMissedCall(false); return }
+    let seen = ''
+    try { seen = localStorage.getItem(DIALER_SEEN_KEY) || '' } catch { /* ignore */ }
+    setMissedCall(!seen || latestMissedAt > seen)
+  }, [latestMissedAt, pathname])
+
   // Whether to lift the Twilio Device registration up to shell level. When
   // false, IncomingCall only renders on /hub/dialer (original Session 56
   // behavior, e.g. user opted out via Settings or doesn't have dialer access).
@@ -524,6 +598,8 @@ export default function HubShell({
         unreadActivity={unreadActivity}
         unreadHub={unreadHub}
         dailyLogUnread={dailyLogUnread}
+        txtUnread={txtUnread}
+        missedCall={missedCall}
         unheardVoicemails={unheardVoicemails}
         isClockedIn={isClockedIn}
         onSearchClick={() => setShowCompose(true)}

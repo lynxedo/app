@@ -69,9 +69,17 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
     window.addEventListener('pointerdown', prime, { once: true })
     window.addEventListener('keydown', prime, { once: true })
 
+    // Keep the audio path warm: an installed PWA suspends the AudioContext when
+    // the window loses focus, so re-prime whenever we regain it — that's what
+    // lets the next background chime play (the PWA case Ben hit in Chrome).
+    const keepWarm = () => { if (!document.hidden) primeChimeAudio() }
+    document.addEventListener('visibilitychange', keepWarm)
+    window.addEventListener('focus', keepWarm)
+
     const supabase = createClient()
     let channel: ReturnType<typeof supabase.channel> | null = null
     let dlChannel: ReturnType<typeof supabase.channel> | null = null
+    let txtChannel: ReturnType<typeof supabase.channel> | null = null
     let cancelled = false
 
     // Time-of-day DND window check (Texas-local), identical to lib/hub-push.ts.
@@ -193,9 +201,31 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
           .subscribe()
       }
 
+      // Txt2 inbound texts (a different table than `messages`). The inbound
+      // webhook fires a company broadcast on `txt:{companyId}`; chime for it
+      // like a DM (customer texts are never the user's own). De-dupe per
+      // conversation across tabs via the shared claim window.
+      if (companyId) {
+        txtChannel = supabase
+          .channel(`txt:${companyId}`)
+          .on('broadcast', { event: 'inbound' }, ({ payload }) => {
+            const p = (payload ?? {}) as { conversation_id?: string }
+            if (!p.conversation_id) return
+            if (isSuppressed(null, true)) return
+            if (!isChimeEnabled()) return
+            if (!claimChimeForMessage('txt-' + p.conversation_id)) return
+            const now = Date.now()
+            if (now - lastPlayedRef.current < 1500) return
+            lastPlayedRef.current = now
+            playChime()
+          })
+          .subscribe()
+      }
+
       if (cancelled) {
         if (channel) supabase.removeChannel(channel)
         if (dlChannel) supabase.removeChannel(dlChannel)
+        if (txtChannel) supabase.removeChannel(txtChannel)
       }
     })()
 
@@ -203,8 +233,11 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
       cancelled = true
       window.removeEventListener('pointerdown', prime)
       window.removeEventListener('keydown', prime)
+      document.removeEventListener('visibilitychange', keepWarm)
+      window.removeEventListener('focus', keepWarm)
       if (channel) supabase.removeChannel(channel)
       if (dlChannel) supabase.removeChannel(dlChannel)
+      if (txtChannel) supabase.removeChannel(txtChannel)
     }
   }, [currentUserId, companyId])
 

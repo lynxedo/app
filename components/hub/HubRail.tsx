@@ -86,6 +86,8 @@ export default function HubRail({
   unreadTxt: _unreadTxt,
   unreadHub,
   dailyLogUnread = false,
+  txtUnread = false,
+  missedCall = false,
   unheardVoicemails = 0,
   isClockedIn,
   onSearchClick,
@@ -112,6 +114,10 @@ export default function HubRail({
   unreadHub?: boolean
   /** Orange dot on the Daily Log rail slot when there are unseen v1 updates. */
   dailyLogUnread?: boolean
+  /** Orange dot on the Txt2 rail icon when there are unread customer texts. */
+  txtUnread?: boolean
+  /** Orange dot on the Dialer rail icon when there's a new missed call. */
+  missedCall?: boolean
   /** Session 58.5: red badge with count on the rail Dialer icon. */
   unheardVoicemails?: number
   isClockedIn?: boolean
@@ -356,7 +362,15 @@ export default function HubRail({
             title="Txt2 — new texting"
           >
             <ActiveBar show={active === 'txt2'} />
-            <span className={active === 'txt2' ? 'text-amber-300' : ''}><CatalogIcon id="txt2" /></span>
+            <span className={`relative ${active === 'txt2' ? 'text-amber-300' : ''}`}>
+              <CatalogIcon id="txt2" />
+              {txtUnread && active !== 'txt2' && (
+                <span
+                  className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]"
+                  aria-label="Unread texts"
+                />
+              )}
+            </span>
             <span>Txt2</span>
           </Link>
         )}
@@ -372,6 +386,12 @@ export default function HubRail({
             <ActiveBar show={active === 'dialer'} />
             <span className={`relative ${active === 'dialer' ? 'text-amber-300' : ''}`}>
               <CatalogIcon id="dialer" />
+              {missedCall && active !== 'dialer' && (
+                <span
+                  className="absolute -top-0.5 -left-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]"
+                  aria-label="Missed call"
+                />
+              )}
               {unheardVoicemails > 0 && (
                 <span
                   className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 border-2 border-[#0a1f33] text-[9px] font-bold text-white flex items-center justify-center leading-none"
