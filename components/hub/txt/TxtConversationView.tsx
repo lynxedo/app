@@ -154,6 +154,13 @@ export default function TxtConversationView({
   const [omwOpen, setOmwOpen] = useState(false)
   const [omwTemplate, setOmwTemplate] = useState<string | null>(null)
   const [omwCustom, setOmwCustom] = useState('')
+  // Scheduled send (⏰) — queue an SMS for later; a cron delivers it.
+  const [scheduleOpen, setScheduleOpen] = useState(false)
+  const [scheduleAt, setScheduleAt] = useState('')
+  const [scheduling, setScheduling] = useState(false)
+  const [scheduledList, setScheduledList] = useState<
+    Array<{ id: string; body: string | null; send_at: string }>
+  >([])
   const [showNotes, setShowNotes] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [assignOpen, setAssignOpen] = useState(false)
@@ -254,6 +261,8 @@ export default function TxtConversationView({
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((data) => setOmwTemplate(data.on_my_way_template ?? null))
       .catch(() => setOmwTemplate(null))
+    loadScheduled()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
   // On-My-Way: render the company template (or the default) with the contact's
@@ -272,6 +281,70 @@ export default function TxtConversationView({
     setOmwOpen(false)
     setOmwCustom('')
     setTimeout(() => textareaRef.current?.focus(), 0)
+  }
+
+  async function loadScheduled() {
+    const res = await fetch(`/api/txt/conversations/${conversation.id}/schedule`)
+    if (res.ok) {
+      const data = await res.json()
+      setScheduledList(data.scheduled || [])
+    }
+  }
+
+  // Queue the current composer content for later delivery.
+  async function scheduleMessage() {
+    if (scheduling) return
+    const bodyText = text.trim()
+    const media = pendingAttachments.map((a) => a.storage_path)
+    if (!bodyText && media.length === 0) {
+      setSendError('Type a message (or attach something) to schedule')
+      return
+    }
+    if (!scheduleAt) {
+      setSendError('Pick a date & time')
+      return
+    }
+    const when = new Date(scheduleAt)
+    if (isNaN(when.getTime()) || when <= new Date()) {
+      setSendError('Pick a time in the future')
+      return
+    }
+    setScheduling(true)
+    setSendError('')
+    const res = await fetch(`/api/txt/conversations/${conversation.id}/schedule`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        body: bodyText,
+        media_urls: media,
+        template_id: selectedTemplateId,
+        send_at: when.toISOString(),
+      }),
+    })
+    const data = await res.json().catch(() => ({}))
+    setScheduling(false)
+    if (!res.ok) {
+      setSendError(data.error || 'Could not schedule')
+      return
+    }
+    // Clear the composer + staged attachments, mirroring a send.
+    pendingAttachments.forEach((a) => URL.revokeObjectURL(a.preview))
+    setPendingAttachments([])
+    setText('')
+    setSelectedTemplateId(null)
+    setScheduleAt('')
+    setScheduleOpen(false)
+    loadScheduled()
+  }
+
+  async function cancelScheduled(scheduledId: string) {
+    const res = await fetch(
+      `/api/txt/conversations/${conversation.id}/schedule?scheduled_id=${encodeURIComponent(scheduledId)}`,
+      { method: 'DELETE' }
+    )
+    if (res.ok) {
+      setScheduledList((prev) => prev.filter((s) => s.id !== scheduledId))
+    }
   }
 
   useEffect(() => {
@@ -558,6 +631,9 @@ export default function TxtConversationView({
 
   const isArchived = conversation.status === 'archived'
   const phoneDisplay = conversation.contact ? formatPhone(conversation.contact.phone) : ''
+  // Min for the schedule datetime-local input — 1 minute out (UX hint only;
+  // the server validates send_at is in the future).
+  const minScheduleDateTime = new Date(Date.now() + 60_000).toISOString().slice(0, 16)
 
   // Interleave internal notes into the message stream as small markers, in
   // chronological order, so staff can see where in the conversation a note was
@@ -1220,6 +1296,79 @@ export default function TxtConversationView({
                 )}
               </svg>
             </button>
+            {/* Scheduled send */}
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setScheduleOpen((v) => !v)}
+                disabled={sending || !!conversation.contact?.do_not_text}
+                className="relative text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
+                title="Schedule send"
+                aria-label="Schedule send"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+                {scheduledList.length > 0 && (
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-1 rounded-full bg-amber-500 text-[9px] font-semibold text-white flex items-center justify-center">
+                    {scheduledList.length}
+                  </span>
+                )}
+              </button>
+              {scheduleOpen && (
+                <div className="absolute bottom-full mb-2 left-0 w-64 max-w-[calc(100vw-2rem)] bg-[#0F2E47] border border-white/15 rounded-lg shadow-xl z-30 p-3">
+                  <div className="text-[11px] text-white/50 pb-1.5">Schedule for later</div>
+                  <input
+                    type="datetime-local"
+                    min={minScheduleDateTime}
+                    value={scheduleAt}
+                    onChange={(e) => setScheduleAt(e.target.value)}
+                    className="w-full px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm"
+                    style={{ fontSize: 16 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={scheduleMessage}
+                    disabled={scheduling || !scheduleAt}
+                    className="mt-2 w-full px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-500 text-sm font-medium disabled:opacity-50"
+                  >
+                    {scheduling ? 'Scheduling…' : 'Schedule this message'}
+                  </button>
+                  {scheduledList.length > 0 && (
+                    <div className="mt-3 pt-2 border-t border-white/10 space-y-1.5 max-h-40 overflow-y-auto">
+                      <div className="text-[10px] uppercase tracking-wide text-white/40">
+                        Upcoming
+                      </div>
+                      {scheduledList.map((s) => (
+                        <div key={s.id} className="flex items-start gap-2 text-[11px]">
+                          <div className="flex-1 min-w-0">
+                            <div className="text-white/70">
+                              {new Date(s.send_at).toLocaleString('en-US', {
+                                month: 'short',
+                                day: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                              })}
+                            </div>
+                            <div className="text-white/40 truncate">
+                              {s.body || '📎 attachment'}
+                            </div>
+                          </div>
+                          <button
+                            type="button"
+                            onClick={() => cancelScheduled(s.id)}
+                            className="text-white/40 hover:text-red-300 flex-none text-sm leading-none"
+                            aria-label="Cancel scheduled message"
+                          >
+                            ×
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
 
             <div className="flex-1" />
 
