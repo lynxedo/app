@@ -217,7 +217,7 @@ export default function NotificationDeviceControls() {
         <div className="flex items-center justify-between gap-3 mb-4 rounded-lg border border-gray-800 bg-gray-900/40 px-3 py-2.5">
           <div>
             <p className="text-sm text-white">Play a sound for new messages</p>
-            <p className="text-xs text-gray-400">Chimes on this device when Hub is open in another tab or behind another app.</p>
+            <p className="text-xs text-gray-400">Chimes on this device for every new message while Hub is open in this browser — whether you&apos;re looking at Hub or working elsewhere.</p>
           </div>
           <button
             type="button"
