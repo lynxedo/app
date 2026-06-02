@@ -15,6 +15,7 @@ type PrefRow = {
 
 interface Props {
   currentUserId: string
+  companyId?: string
   rooms: RoomLite[]
 }
 
@@ -30,7 +31,7 @@ interface Props {
 // app's OS notification already plays a sound) and in the native iOS/Android
 // apps (they receive native push with their own sound). On mobile browsers a
 // backgrounded tab is suspended by the OS, so it simply never fires there.
-export default function WebChimeNotifier({ currentUserId, rooms }: Props) {
+export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Props) {
   const roomsRef = useRef<Record<string, RoomLite>>({})
   useEffect(() => {
     const m: Record<string, RoomLite> = {}
@@ -70,6 +71,7 @@ export default function WebChimeNotifier({ currentUserId, rooms }: Props) {
 
     const supabase = createClient()
     let channel: ReturnType<typeof supabase.channel> | null = null
+    let dlChannel: ReturnType<typeof supabase.channel> | null = null
     let cancelled = false
 
     // Time-of-day DND window check (Texas-local), identical to lib/hub-push.ts.
@@ -169,7 +171,32 @@ export default function WebChimeNotifier({ currentUserId, rooms }: Props) {
         )
         .subscribe()
 
-      if (cancelled && channel) supabase.removeChannel(channel)
+      // Daily Log v1 updates aren't in the Realtime publication, so the
+      // update-posted route fires a company broadcast carrying the recipient
+      // list. Chime for the same updates the user is notified for — same
+      // mute/DND/per-device gating as a message (treated like a DM).
+      if (companyId) {
+        dlChannel = supabase
+          .channel(`daily-log:${companyId}`)
+          .on('broadcast', { event: 'update-inserted' }, ({ payload }) => {
+            const p = (payload ?? {}) as { update_id?: string; recipient_ids?: string[]; sender_id?: string }
+            if (!p.update_id || p.sender_id === currentUserId) return
+            if (!Array.isArray(p.recipient_ids) || !p.recipient_ids.includes(currentUserId)) return
+            if (isSuppressed(null, true)) return
+            if (!isChimeEnabled()) return
+            if (!claimChimeForMessage('dl-' + p.update_id)) return
+            const now = Date.now()
+            if (now - lastPlayedRef.current < 1500) return
+            lastPlayedRef.current = now
+            playChime()
+          })
+          .subscribe()
+      }
+
+      if (cancelled) {
+        if (channel) supabase.removeChannel(channel)
+        if (dlChannel) supabase.removeChannel(dlChannel)
+      }
     })()
 
     return () => {
@@ -177,8 +204,9 @@ export default function WebChimeNotifier({ currentUserId, rooms }: Props) {
       window.removeEventListener('pointerdown', prime)
       window.removeEventListener('keydown', prime)
       if (channel) supabase.removeChannel(channel)
+      if (dlChannel) supabase.removeChannel(dlChannel)
     }
-  }, [currentUserId])
+  }, [currentUserId, companyId])
 
   return null
 }

@@ -23,6 +23,47 @@ type UpdateRow = {
   creator: { display_name: string } | null
 }
 
+export type DailyLogUpdateBroadcast = {
+  update_id: string
+  entry_id: string
+  sender_id: string
+  sender_name: string
+  tech_name: string
+  snippet: string
+  /** Hub user IDs who are "members" of this entry — assigned tech(s),
+   *  admin-configured always-notify users, and Followers. Clients use this to
+   *  decide whether to light the sidebar dot / chime / raise a banner. */
+  recipient_ids: string[]
+}
+
+// Fire a realtime broadcast so open Hub clients react to a new Daily Log update
+// instantly (sidebar dot, chime, desktop banner) — the same pattern as
+// broadcastReceiptUpdated in the read-receipts route. `daily_log_updates` is NOT
+// in the Realtime publication, so postgres_changes won't deliver these; this
+// company-scoped broadcast is the live signal. Fire-and-forget.
+export async function broadcastDailyLogUpdate(
+  companyId: string,
+  payload: DailyLogUpdateBroadcast,
+): Promise<void> {
+  const admin = createAdminClient()
+  const channel = admin.channel(`daily-log:${companyId}`)
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('subscribe timeout')), 5000)
+      channel.subscribe((status) => {
+        const s = String(status)
+        if (s === 'SUBSCRIBED') { clearTimeout(timeout); resolve() }
+        else if (s === 'CHANNEL_ERROR' || s === 'TIMED_OUT' || s === 'CLOSED') { clearTimeout(timeout); reject(new Error(s)) }
+      })
+    })
+    await channel.send({ type: 'broadcast', event: 'update-inserted', payload })
+  } catch (err) {
+    console.warn('[daily-log] update broadcast failed:', (err as Error).message)
+  } finally {
+    await admin.removeChannel(channel)
+  }
+}
+
 export async function notifyDailyLogComplete(entryId: string): Promise<void> {
   const admin = createAdminClient()
 

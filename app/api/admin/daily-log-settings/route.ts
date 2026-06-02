@@ -38,6 +38,7 @@ export async function POST(request: Request) {
 
   const rawUsers = body.completion_notify_user_ids
   const rawRooms = body.completion_notify_room_ids
+  const rawUpdateUsers = body.update_notify_user_ids
   if (!Array.isArray(rawUsers)) {
     return NextResponse.json(
       { error: 'completion_notify_user_ids must be an array' },
@@ -50,12 +51,25 @@ export async function POST(request: Request) {
       { status: 400 },
     )
   }
+  if (rawUpdateUsers !== undefined && !Array.isArray(rawUpdateUsers)) {
+    return NextResponse.json(
+      { error: 'update_notify_user_ids must be an array' },
+      { status: 400 },
+    )
+  }
   const userIds = [
     ...new Set(rawUsers.filter((v): v is string => typeof v === 'string' && v.length > 0)),
   ]
   const roomIds = [
     ...new Set(
       ((rawRooms as unknown[]) ?? []).filter(
+        (v): v is string => typeof v === 'string' && v.length > 0,
+      ),
+    ),
+  ]
+  const updateUserIds = [
+    ...new Set(
+      ((rawUpdateUsers as unknown[]) ?? []).filter(
         (v): v is string => typeof v === 'string' && v.length > 0,
       ),
     ),
@@ -87,6 +101,11 @@ export async function POST(request: Request) {
   }
   if (onMyWayTemplate !== undefined) {
     upsertPayload.on_my_way_template = onMyWayTemplate
+  }
+  // Only write the update-notify list when the caller sent it, so a payload
+  // that omits the key doesn't wipe an existing list.
+  if ('update_notify_user_ids' in body) {
+    upsertPayload.update_notify_user_ids = updateUserIds
   }
 
   const { data, error } = await admin

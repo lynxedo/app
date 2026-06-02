@@ -101,6 +101,7 @@ export default function HubSidebar({
   canAccessBooks = false,
   canAccessFleet = false,
   canAccessDailyLogV2 = false,
+  dailyLogUnread = false,
   myPresenceMode,
   onOpenTimeClock,
 }: {
@@ -126,6 +127,7 @@ export default function HubSidebar({
   canAccessBooks?: boolean
   canAccessFleet?: boolean
   canAccessDailyLogV2?: boolean
+  dailyLogUnread?: boolean
   myPresenceMode?: 'clock' | 'activity'
   onOpenTimeClock?: () => void
 }) {
@@ -1054,6 +1056,7 @@ export default function HubSidebar({
                   {favoriteConvs.map(conv => renderConv(conv, false))}
                   {favoriteTools.map(tool => {
                     const isActive = tool.prefixMatch ? pathname.startsWith(tool.href) : pathname === tool.href
+                    const showDot = tool.id === 'tool:daily-log' && dailyLogUnread && !isActive
                     return (
                       <div key={tool.id} className="group/fav flex items-center">
                         <Link
@@ -1065,6 +1068,9 @@ export default function HubSidebar({
                         >
                           <span className="text-xs flex-none">{tool.icon}</span>
                           <span className="truncate flex-1">{tool.label}</span>
+                          {showDot && (
+                            <span className="flex-none w-2 h-2 rounded-full bg-[#f97316]" />
+                          )}
                         </Link>
                         <button
                           onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(tool.id) }}
