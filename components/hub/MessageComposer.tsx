@@ -331,6 +331,33 @@ export default function MessageComposer({
     })
   }
 
+  // Insert a `• ` bullet at the start of each line spanned by the selection
+  // (or just the caret line). The bullet is a literal character — it renders
+  // as-is via whitespace-pre-wrap, with no conflict against the *_~` markers.
+  function prependBulletToLines() {
+    const el = textareaRef.current
+    if (!el) return
+    const selStart = el.selectionStart ?? content.length
+    const selEnd = el.selectionEnd ?? selStart
+    // Expand the range to whole lines.
+    const blockStart = content.lastIndexOf('\n', selStart - 1) + 1
+    let blockEnd = content.indexOf('\n', selEnd)
+    if (blockEnd === -1) blockEnd = content.length
+    const block = content.slice(blockStart, blockEnd)
+    const bulleted = block
+      .split('\n')
+      .map((line) => (line.startsWith('• ') ? line : '• ' + line))
+      .join('\n')
+    const newVal = content.slice(0, blockStart) + bulleted + content.slice(blockEnd)
+    setContent(newVal)
+    const newEnd = blockStart + bulleted.length
+    requestAnimationFrame(() => {
+      if (!el) return
+      el.focus()
+      el.setSelectionRange(blockStart, newEnd)
+    })
+  }
+
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
     // Emoji autocomplete navigation takes priority over mention because
     // the two can't be open at the same time (different trigger chars).
@@ -723,6 +750,20 @@ export default function MessageComposer({
                 aria-label="Quote line"
               >
                 ❝
+              </button>
+              <button
+                type="button"
+                onClick={() => { prependBulletToLines(); setShowFormatPicker(false) }}
+                className="w-8 h-8 flex items-center justify-center text-gray-300 hover:text-white hover:bg-gray-800 rounded-md"
+                title="Bullet list"
+                aria-label="Bullet list"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <circle cx="4" cy="6" r="1" fill="currentColor" stroke="none" />
+                  <circle cx="4" cy="12" r="1" fill="currentColor" stroke="none" />
+                  <circle cx="4" cy="18" r="1" fill="currentColor" stroke="none" />
+                  <path strokeLinecap="round" d="M9 6h11M9 12h11M9 18h11" />
+                </svg>
               </button>
             </div>
           )}
