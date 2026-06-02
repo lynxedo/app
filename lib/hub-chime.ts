@@ -81,16 +81,7 @@ export function primeChimeAudio(): void {
   }
 }
 
-// Play a short, pleasant rising two-note "ding". Safe to call often: it no-ops
-// if Web Audio is unavailable, and stays quiet until the context has been
-// unlocked by a user gesture (see primeChimeAudio).
-export function playChime(): void {
-  const c = getCtx()
-  if (!c) return
-  if (c.state === 'suspended') {
-    c.resume().catch(() => {})
-    return
-  }
+function playTones(c: AudioContext): void {
   const now = c.currentTime
   const notes: { freq: number; at: number }[] = [
     { freq: 880.0, at: 0 },      // A5
@@ -111,4 +102,18 @@ export function playChime(): void {
     osc.start(start)
     osc.stop(start + 0.36)
   }
+}
+
+// Play a short, pleasant rising two-note "ding". Safe to call often: it no-ops
+// if Web Audio is unavailable. If the context is still suspended — e.g. this is
+// the very first user gesture — it resumes first and plays once that resolves,
+// so the first tap isn't silent.
+export function playChime(): void {
+  const c = getCtx()
+  if (!c) return
+  if (c.state === 'suspended') {
+    c.resume().then(() => playTones(c)).catch(() => {})
+    return
+  }
+  playTones(c)
 }
