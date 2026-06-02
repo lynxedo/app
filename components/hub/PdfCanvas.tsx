@@ -53,6 +53,8 @@ function loadPdfjs(): Promise<PdfjsLib> {
 type PageInfo = { width: number; height: number }
 
 const ZOOMS = [1, 1.5, 2, 3]
+const MIN_ZOOM = ZOOMS[0]
+const MAX_ZOOM = ZOOMS[ZOOMS.length - 1]
 
 export default function PdfCanvas({ src }: { src: string }) {
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -63,6 +65,12 @@ export default function PdfCanvas({ src }: { src: string }) {
   const [pageInfos, setPageInfos] = useState<PageInfo[]>([])
   const [baseWidth, setBaseWidth] = useState(0)
   const [zoom, setZoom] = useState(1)
+  // Two-finger pinch zoom. The +/- buttons snap to ZOOMS; pinch sets any value
+  // in between, so the buttons (below) find the nearest step rather than using
+  // an exact index.
+  const pinch = useRef<{ active: boolean; startDist: number; startZoom: number }>({
+    active: false, startDist: 0, startZoom: 1,
+  })
 
   // Load pdf.js + the document and collect each page's dimensions.
   useEffect(() => {
@@ -142,6 +150,31 @@ export default function PdfCanvas({ src }: { src: string }) {
     return () => io.disconnect()
   }, [status, pageInfos, baseWidth])
 
+  function touchDist(t: React.TouchList): number {
+    const dx = t[0].clientX - t[1].clientX
+    const dy = t[0].clientY - t[1].clientY
+    return Math.hypot(dx, dy)
+  }
+  // stopPropagation keeps the lightbox's swipe-to-next from firing while the
+  // user scrolls/zooms the PDF.
+  function onPdfTouchStart(e: React.TouchEvent) {
+    e.stopPropagation()
+    if (e.touches.length === 2) {
+      pinch.current = { active: true, startDist: touchDist(e.touches), startZoom: zoom }
+    }
+  }
+  function onPdfTouchMove(e: React.TouchEvent) {
+    e.stopPropagation()
+    if (pinch.current.active && e.touches.length === 2 && pinch.current.startDist > 0) {
+      const ratio = touchDist(e.touches) / pinch.current.startDist
+      setZoom(Math.min(MAX_ZOOM, Math.max(MIN_ZOOM, pinch.current.startZoom * ratio)))
+    }
+  }
+  function onPdfTouchEnd(e: React.TouchEvent) {
+    e.stopPropagation()
+    if (e.touches.length < 2) pinch.current.active = false
+  }
+
   if (status === 'error') {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-center px-8 text-gray-300" onClick={e => e.stopPropagation()}>
@@ -159,8 +192,12 @@ export default function PdfCanvas({ src }: { src: string }) {
       <div
         ref={scrollRef}
         className="absolute inset-0 overflow-auto overscroll-contain bg-gray-600/30"
-        onTouchStart={e => e.stopPropagation()}
-        onTouchMove={e => e.stopPropagation()}
+        // pan-x pan-y keeps one-finger scrolling but hands two-finger pinch to
+        // our JS zoom instead of the browser zooming the whole overlay.
+        style={{ touchAction: 'pan-x pan-y' }}
+        onTouchStart={onPdfTouchStart}
+        onTouchMove={onPdfTouchMove}
+        onTouchEnd={onPdfTouchEnd}
       >
         {status === 'loading' && (
           <div className="absolute inset-0 flex items-center justify-center text-gray-300 text-sm">
@@ -193,8 +230,8 @@ export default function PdfCanvas({ src }: { src: string }) {
       {status === 'ready' && pageInfos.length > 0 && (
         <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/70 backdrop-blur rounded-full px-1.5 py-1 text-white">
           <button
-            onClick={e => { e.stopPropagation(); setZoom(z => ZOOMS[Math.max(0, ZOOMS.indexOf(z) - 1)]) }}
-            disabled={zoom === ZOOMS[0]}
+            onClick={e => { e.stopPropagation(); setZoom(z => [...ZOOMS].reverse().find(v => v < z - 0.001) ?? MIN_ZOOM) }}
+            disabled={zoom <= MIN_ZOOM + 0.001}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/15 disabled:opacity-30 text-lg leading-none"
             aria-label="Zoom out"
           >
@@ -202,8 +239,8 @@ export default function PdfCanvas({ src }: { src: string }) {
           </button>
           <span className="text-xs tabular-nums w-10 text-center">{Math.round(zoom * 100)}%</span>
           <button
-            onClick={e => { e.stopPropagation(); setZoom(z => ZOOMS[Math.min(ZOOMS.length - 1, ZOOMS.indexOf(z) + 1)]) }}
-            disabled={zoom === ZOOMS[ZOOMS.length - 1]}
+            onClick={e => { e.stopPropagation(); setZoom(z => ZOOMS.find(v => v > z + 0.001) ?? MAX_ZOOM) }}
+            disabled={zoom >= MAX_ZOOM - 0.001}
             className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-white/15 disabled:opacity-30 text-lg leading-none"
             aria-label="Zoom in"
           >

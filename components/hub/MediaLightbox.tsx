@@ -121,16 +121,8 @@ export default function MediaLightbox({
         onTouchEnd={handleTouchEnd}
       >
         {current.type === 'image' ? (
-          <div className="flex-1 min-h-0 flex items-center justify-center overflow-hidden">
-            <img
-              src={current.src}
-              alt={current.filename}
-              className="max-w-full max-h-full object-contain select-none"
-              style={{ touchAction: 'pinch-zoom' }}
-              onClick={e => e.stopPropagation()}
-              draggable={false}
-            />
-          </div>
+          // keyed by src so scale/pan reset when navigating to another image
+          <ZoomableImage key={current.src} src={current.src} alt={current.filename} />
         ) : current.type === 'pdf' ? (
           // pdf.js canvas renderer — works in every webview, including Android's
           // (which can't render PDFs in an <iframe> — shows a blank white screen).
@@ -166,6 +158,100 @@ export default function MediaLightbox({
           </>
         )}
       </div>
+    </div>
+  )
+}
+
+// Pinch-to-zoom + pan image for the lightbox. Works in the iOS/Android app
+// webviews (where browser page-zoom is disabled) because the zoom is applied as
+// a CSS transform driven by our own touch handlers. Double-tap (or double-click
+// on desktop) toggles a 2.5× zoom. At rest (scale 1) single-finger touches are
+// left to bubble so the lightbox's swipe-to-next still works; once zoomed, the
+// gesture is consumed for panning instead.
+function ZoomableImage({ src, alt }: { src: string; alt: string }) {
+  const [scale, setScale] = useState(1)
+  const [offset, setOffset] = useState({ x: 0, y: 0 })
+  const g = useRef({
+    mode: 'none' as 'none' | 'pan' | 'pinch',
+    startDist: 0,
+    startScale: 1,
+    startOffset: { x: 0, y: 0 },
+    panStart: { x: 0, y: 0 },
+  })
+
+  const dist = (t: React.TouchList) =>
+    Math.hypot(t[0].clientX - t[1].clientX, t[0].clientY - t[1].clientY)
+
+  function onTouchStart(e: React.TouchEvent) {
+    if (e.touches.length === 2) {
+      e.stopPropagation()
+      g.current.mode = 'pinch'
+      g.current.startDist = dist(e.touches)
+      g.current.startScale = scale
+      g.current.startOffset = offset
+    } else if (e.touches.length === 1 && scale > 1) {
+      e.stopPropagation()
+      g.current.mode = 'pan'
+      g.current.panStart = { x: e.touches[0].clientX, y: e.touches[0].clientY }
+      g.current.startOffset = offset
+    } else {
+      g.current.mode = 'none' // let the lightbox handle swipe-to-next
+    }
+  }
+
+  function onTouchMove(e: React.TouchEvent) {
+    if (g.current.mode === 'pinch' && e.touches.length === 2 && g.current.startDist > 0) {
+      e.stopPropagation()
+      setScale(Math.min(5, Math.max(1, g.current.startScale * (dist(e.touches) / g.current.startDist))))
+    } else if (g.current.mode === 'pan' && e.touches.length === 1) {
+      e.stopPropagation()
+      setOffset({
+        x: g.current.startOffset.x + (e.touches[0].clientX - g.current.panStart.x),
+        y: g.current.startOffset.y + (e.touches[0].clientY - g.current.panStart.y),
+      })
+    }
+  }
+
+  function onTouchEnd(e: React.TouchEvent) {
+    if (g.current.mode !== 'none') e.stopPropagation()
+    g.current.mode = 'none'
+    if (scale <= 1.02) {
+      setScale(1)
+      setOffset({ x: 0, y: 0 })
+    }
+  }
+
+  function onDoubleClick(e: React.MouseEvent) {
+    e.stopPropagation()
+    if (scale > 1) {
+      setScale(1)
+      setOffset({ x: 0, y: 0 })
+    } else {
+      setScale(2.5)
+    }
+  }
+
+  return (
+    <div
+      className="flex-1 min-h-0 flex items-center justify-center overflow-hidden"
+      onTouchStart={onTouchStart}
+      onTouchMove={onTouchMove}
+      onTouchEnd={onTouchEnd}
+      onDoubleClick={onDoubleClick}
+    >
+      <img
+        src={src}
+        alt={alt}
+        className="max-w-full max-h-full object-contain select-none"
+        style={{
+          transform: `translate(${offset.x}px, ${offset.y}px) scale(${scale})`,
+          transition: g.current.mode === 'none' ? 'transform 0.15s ease-out' : 'none',
+          touchAction: 'none',
+          cursor: scale > 1 ? 'grab' : 'zoom-in',
+        }}
+        onClick={e => e.stopPropagation()}
+        draggable={false}
+      />
     </div>
   )
 }
