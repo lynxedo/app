@@ -207,7 +207,7 @@ export default function RouteBuilder() {
         id: v.id,
         lat: v.lat,
         lng: v.lng,
-        label: i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9)),
+        label: String(i + 1),
         color: sentIds.has(v.id) ? '888888' : 'c0392b',
         title: `${v.stopNumber}. ${v.clientName}`,
       }))
@@ -223,7 +223,7 @@ export default function RouteBuilder() {
         id: v.id,
         lat: coord.lat,
         lng: coord.lng,
-        label: i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9)),
+        label: String(i + 1),
         color: isSent ? '888888' : isSelected ? 'e47200' : '555555',
         title: v.clientName,
       })
@@ -718,7 +718,7 @@ export default function RouteBuilder() {
       const pathOverlay = `path-3+1f77b4-0.85(${encodeURIComponent(polyline)})`
       const depotMarker = `pin-s-d+16a34a(${depotCoord.lng.toFixed(6)},${depotCoord.lat.toFixed(6)})`
       const stopMarkers = optimizedVisits.map((v, i) => {
-        const label = i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9))
+        const label = String(i + 1)
         return `pin-s-${label}+c0392b(${v.lng.toFixed(6)},${v.lat.toFixed(6)})`
       })
       const overlays = [pathOverlay, depotMarker, ...stopMarkers].join(',')

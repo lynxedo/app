@@ -92,7 +92,9 @@ function buildPinEl(pin: RoutePreviewPin): HTMLDivElement {
   el.style.border = '2px solid #fff'
   el.style.boxShadow = '0 1px 4px rgba(0,0,0,0.5)'
   el.style.color = '#fff'
-  el.style.fontSize = '12px'
+  // Shrink the font for multi-digit stop numbers so e.g. "12" / "100" still fit
+  // inside the 28px pin.
+  el.style.fontSize = pin.label.length >= 3 ? '9px' : pin.label.length === 2 ? '11px' : '12px'
   el.style.fontWeight = 'bold'
   el.style.display = 'flex'
   el.style.alignItems = 'center'

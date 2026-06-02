@@ -129,7 +129,9 @@ export async function buildAdvancedRouteSheetHtml(input: RouteSheetInput): Promi
     const pathOverlay = `path-3+1f77b4-0.85(${encodeURIComponent(polyline)})`
     const depotMarker = `pin-s-d+16a34a(${depot.lng.toFixed(6)},${depot.lat.toFixed(6)})`
     const stopMarkers = stops.map((v, i) => {
-      const label = i < 9 ? String(i + 1) : String.fromCharCode(97 + (i - 9))
+      // Mapbox static pin labels support 0–99, so use the plain stop number for
+      // every stop (the old scheme switched to letters a, b, c… past stop 9).
+      const label = String(i + 1)
       return `pin-s-${label}+c0392b(${v.lng.toFixed(6)},${v.lat.toFixed(6)})`
     })
     const overlays = [pathOverlay, depotMarker, ...stopMarkers].join(',')
