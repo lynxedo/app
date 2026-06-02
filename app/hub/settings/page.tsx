@@ -68,7 +68,6 @@ export default async function SettingsPage() {
     canAccessDailyLogV2: !!profileResult.data?.can_access_daily_log_v2,
   }
 
-  const txtSignature = (profileResult.data?.txt_signature ?? '') as string
   const dialerGlobalRing = profileResult.data?.dialer_global_ring ?? true
 
   return (
@@ -86,7 +85,6 @@ export default async function SettingsPage() {
           notifPref={notifPref}
           railConfig={railConfig}
           railPermissions={railPermissions}
-          txtSignature={txtSignature}
           dialerGlobalRing={dialerGlobalRing}
         />
       </main>

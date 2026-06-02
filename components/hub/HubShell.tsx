@@ -364,7 +364,6 @@ export default function HubShell({
             canAccessMarketing={!!canAccessMarketing}
             canAdminMarketing={!!canAdminMarketing}
             canAccessForms={!!canAccessForms}
-            canAccessDailyLogV2={!!canAccessDailyLogV2}
             onClose={closeMobileDrawer}
             {...collapseProps}
           />
