@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import HubSidebar from './HubSidebar'
 import HubRail, { railFromPath } from './HubRail'
@@ -24,6 +24,7 @@ import DialerProvider from './dialer/DialerProvider'
 import ActiveCallBanner from './dialer/ActiveCallBanner'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
 import { HubTextSizeContext } from './HubTextSizeContext'
+import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
 import type { RailConfig, RailPermissions } from './railCatalog'
 import { persistStorage } from '@/lib/hub-cache'
@@ -64,6 +65,7 @@ export default function HubShell({
   canAdminMarketing,
   canAccessForms,
   canAccessDailyLogV2,
+  companyId,
   dialerGlobalRing,
   myPresenceMode,
   children,
@@ -105,6 +107,7 @@ export default function HubShell({
   canAdminMarketing?: boolean
   canAccessForms?: boolean
   canAccessDailyLogV2?: boolean
+  companyId?: string
   /** Session 58.5: when true (default) AND canAccessDialer, the Twilio
    *  Device registers on every Hub page so IncomingCall pops anywhere. */
   dialerGlobalRing?: boolean
@@ -113,6 +116,10 @@ export default function HubShell({
 }) {
   const pathname = usePathname() ?? ''
   const pathRail = railFromPath(pathname)
+  // Held in a ref so the Daily Log broadcast effect can read the live path
+  // without re-subscribing its Supabase channel on every navigation.
+  const pathnameRef = useRef(pathname)
+  pathnameRef.current = pathname
 
   const [manualRail, setManualRail] = useState<ManualRail>(null)
   useEffect(() => { setManualRail(null) }, [pathname])
@@ -134,6 +141,7 @@ export default function HubShell({
   const [liveStatus, setLiveStatus] = useState<string | null>(currentUserStatus ?? null)
   const [unreadActivity, setUnreadActivity] = useState<number>(0)
   const [unreadHub, setUnreadHub] = useState<boolean>(false)
+  const [dailyLogUnread, setDailyLogUnread] = useState<boolean>(false)
   const [showActivity, setShowActivity] = useState(false)
   const [isClockedIn, setIsClockedIn] = useState<boolean>(!!initialIsClockedIn)
   const [keyboardOpen, setKeyboardOpen] = useState(false)
@@ -252,13 +260,16 @@ export default function HubShell({
     let cancelled = false
     function tick() {
       fetch('/api/hub/read-receipts', { cache: 'no-store' })
-        .then(r => r.ok ? r.json() : { unread_room_ids: [], unread_conv_ids: [] })
+        .then(r => r.ok ? r.json() : { unread_room_ids: [], unread_conv_ids: [], daily_log_unread: false })
         .then(d => {
           if (cancelled) return
           const any =
             (Array.isArray(d.unread_room_ids) && d.unread_room_ids.length > 0) ||
             (Array.isArray(d.unread_conv_ids) && d.unread_conv_ids.length > 0)
           setUnreadHub(any)
+          // Don't show the Daily Log dot while the user is viewing Daily Log.
+          const onDailyLog = pathname === '/hub/daily-log' || pathname.startsWith('/hub/daily-log/')
+          setDailyLogUnread(d.daily_log_unread === true && !onDailyLog)
         })
         .catch(() => {})
     }
@@ -266,6 +277,42 @@ export default function HubShell({
     const id = setInterval(tick, 60_000)
     return () => { cancelled = true; clearInterval(id) }
   }, [pathname])
+
+  // Mark Daily Log read + clear the dot when the user opens it. (/hub/daily-log
+  // only — Daily Log v2 lives at /hub/daily-log-v2 and is intentionally untouched.)
+  useEffect(() => {
+    const onDailyLog = pathname === '/hub/daily-log' || pathname.startsWith('/hub/daily-log/')
+    if (!onDailyLog) return
+    setDailyLogUnread(false)
+    fetch('/api/hub/read-receipts', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ daily_log: true }),
+    }).catch(() => {})
+  }, [pathname])
+
+  // Live Daily Log signal — company broadcast fired by the update-posted route.
+  // daily_log_updates isn't in the Realtime publication, so this broadcast is
+  // the instant path (the 60s poll above is the backstop). Only light the dot
+  // if this user is one of the update's recipients and isn't already viewing it.
+  useEffect(() => {
+    if (!companyId) return
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`daily-log:${companyId}`)
+      .on('broadcast', { event: 'update-inserted' }, ({ payload }) => {
+        const p = (payload ?? {}) as { recipient_ids?: string[]; sender_id?: string }
+        if (p.sender_id === currentUserId) return
+        if (!Array.isArray(p.recipient_ids) || !p.recipient_ids.includes(currentUserId)) return
+        const path = pathnameRef.current
+        if (path === '/hub/daily-log' || path.startsWith('/hub/daily-log/')) return
+        setDailyLogUnread(true)
+      })
+      .subscribe()
+    return () => { supabase.removeChannel(channel) }
+    // pathname read via pathnameRef so we don't tear down + re-subscribe the
+    // channel on every navigation (matches the HubSidebar messages pattern).
+  }, [companyId, currentUserId])
 
   // Session 58.5: poll unheard voicemail count for the rail badge. Gated on
   // canAccessDialer so non-dialer users don't hit the endpoint.
@@ -421,6 +468,7 @@ export default function HubShell({
             canAccessBooks={canAccessBooks}
             canAccessFleet={canAccessFleet}
             canAccessDailyLogV2={canAccessDailyLogV2}
+            dailyLogUnread={dailyLogUnread}
             myPresenceMode={myPresenceMode}
             onOpenTimeClock={() => { closeMobileDrawer(); setShowTimeClock(true) }}
           />
@@ -451,6 +499,7 @@ export default function HubShell({
         showAdmin={showAdminRail}
         unreadActivity={unreadActivity}
         unreadHub={unreadHub}
+        dailyLogUnread={dailyLogUnread}
         unheardVoicemails={unheardVoicemails}
         isClockedIn={isClockedIn}
         onSearchClick={() => setShowCompose(true)}

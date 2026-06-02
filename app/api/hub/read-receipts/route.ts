@@ -77,7 +77,83 @@ export async function GET() {
     })
     .map(([id]) => id)
 
-  return NextResponse.json({ unread_room_ids, unread_conv_ids })
+  const daily_log_unread = await computeDailyLogUnread(user.id, profile.company_id)
+
+  return NextResponse.json({ unread_room_ids, unread_conv_ids, daily_log_unread })
+}
+
+// Whether this user has any unseen Daily Log v1 update since they last opened
+// Daily Log. "Seen" = an update on an entry the user is a MEMBER of — assigned
+// tech(s), an admin-configured always-notify user, or a Follower — posted by
+// someone else after their last_read_at. Mirrors the DM/Room unread model but
+// collapsed to a single boolean since Daily Log is one nav entry, not a list.
+// Computed via the admin client and self-scoped to the authenticated user.
+async function computeDailyLogUnread(userId: string, companyId: string): Promise<boolean> {
+  const admin = createAdminClient()
+
+  const [readReceiptRes, settingsRes] = await Promise.all([
+    admin
+      .from('daily_log_read_receipts')
+      .select('last_read_at')
+      .eq('user_id', userId)
+      .maybeSingle(),
+    admin
+      .from('daily_log_settings')
+      .select('update_notify_user_ids')
+      .eq('company_id', companyId)
+      .maybeSingle(),
+  ])
+
+  // Never opened Daily Log → baseline is epoch (any qualifying update is unread,
+  // same as a never-opened Room). Clears the moment they open the page.
+  const lastRead = readReceiptRes.data?.last_read_at ?? '1970-01-01T00:00:00Z'
+  const alwaysNotify = ((settingsRes.data?.update_notify_user_ids ?? []) as string[]).includes(userId)
+
+  // Admin always-notify users get the dot for ANY company update by others.
+  if (alwaysNotify) {
+    const { data } = await admin
+      .from('daily_log_updates')
+      .select('id')
+      .eq('company_id', companyId)
+      .neq('created_by', userId)
+      .gt('created_at', lastRead)
+      .limit(1)
+    return (data?.length ?? 0) > 0
+  }
+
+  // Otherwise: only updates on entries the user belongs to. Bound assigned
+  // entries to the last 30 days — older entries don't gain new updates and this
+  // keeps the IN list small. Subscribed entries are naturally few per user.
+  const sinceDate = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000)
+    .toISOString()
+    .slice(0, 10)
+
+  const [assignedRes, subbedRes] = await Promise.all([
+    admin
+      .from('daily_log_entries')
+      .select('id')
+      .eq('company_id', companyId)
+      .gte('log_date', sinceDate)
+      .or(`tech_user_id.eq.${userId},secondary_tech_user_ids.cs.{${userId}}`),
+    admin
+      .from('daily_log_subscribers')
+      .select('entry_id')
+      .eq('user_id', userId),
+  ])
+
+  const entryIds = new Set<string>()
+  for (const e of (assignedRes.data ?? []) as { id: string }[]) entryIds.add(e.id)
+  for (const s of (subbedRes.data ?? []) as { entry_id: string }[]) entryIds.add(s.entry_id)
+  if (entryIds.size === 0) return false
+
+  const { data } = await admin
+    .from('daily_log_updates')
+    .select('id')
+    .in('entry_id', [...entryIds])
+    .neq('created_by', userId)
+    .gt('created_at', lastRead)
+    .limit(1)
+  return (data?.length ?? 0) > 0
 }
 
 // POST — mark a room or conversation as read (upsert)
@@ -94,7 +170,21 @@ export async function POST(request: Request) {
   if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
 
   const body = await request.json()
-  const { room_id, conversation_id } = body
+  const { room_id, conversation_id, daily_log } = body
+
+  // Mark Daily Log read — fired when the user opens /hub/daily-log. Self-scoped
+  // upsert via the admin client (one row per user).
+  if (daily_log === true) {
+    const nowIso = new Date().toISOString()
+    await createAdminClient()
+      .from('daily_log_read_receipts')
+      .upsert(
+        { user_id: user.id, company_id: profile.company_id, last_read_at: nowIso, updated_at: nowIso },
+        { onConflict: 'user_id' },
+      )
+    return NextResponse.json({ ok: true })
+  }
+
   if (!room_id && !conversation_id) return NextResponse.json({ error: 'room_id or conversation_id required' }, { status: 400 })
 
   const record: {

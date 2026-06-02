@@ -85,6 +85,7 @@ export default function HubRail({
   unreadChat: _unreadChat,
   unreadTxt: _unreadTxt,
   unreadHub,
+  dailyLogUnread = false,
   unheardVoicemails = 0,
   isClockedIn,
   onSearchClick,
@@ -109,6 +110,8 @@ export default function HubRail({
   unreadChat?: number
   unreadTxt?: number
   unreadHub?: boolean
+  /** Orange dot on the Daily Log rail slot when there are unseen v1 updates. */
+  dailyLogUnread?: boolean
   /** Session 58.5: red badge with count on the rail Dialer icon. */
   unheardVoicemails?: number
   isClockedIn?: boolean
@@ -409,10 +412,19 @@ export default function HubRail({
                 handleNavLinkClick(slot.id)(e)
               }
               const cls = railBtnClass(isActiveSlot)
+              const showDailyLogDot = slot.id === 'daily-log' && dailyLogUnread && !isActiveSlot
               const body = (
                 <>
                   <ActiveBar show={isActiveSlot} />
-                  <span className={isActiveSlot ? 'text-amber-300' : ''}>{slot.icon}</span>
+                  <span className={`relative ${isActiveSlot ? 'text-amber-300' : ''}`}>
+                    {slot.icon}
+                    {showDailyLogDot && (
+                      <span
+                        className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]"
+                        aria-label="New Daily Log updates"
+                      />
+                    )}
+                  </span>
                   <span className="truncate max-w-[58px]">{slot.label}</span>
                 </>
               )

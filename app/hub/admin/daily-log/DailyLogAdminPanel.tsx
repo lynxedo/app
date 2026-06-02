@@ -32,6 +32,7 @@ const DEFAULT_ON_MY_WAY_TEMPLATE =
 export default function DailyLogAdminPanel({
   initialRecipientIds,
   initialRoomIds,
+  initialUpdateNotifyIds,
   initialOnMyWayTemplate,
   users,
   rooms,
@@ -40,6 +41,7 @@ export default function DailyLogAdminPanel({
 }: {
   initialRecipientIds: string[]
   initialRoomIds: string[]
+  initialUpdateNotifyIds: string[]
   initialOnMyWayTemplate: string | null
   users: HubUser[]
   rooms: Room[]
@@ -48,6 +50,7 @@ export default function DailyLogAdminPanel({
 }) {
   const [selectedUsers, setSelectedUsers] = useState<Set<string>>(new Set(initialRecipientIds))
   const [selectedRooms, setSelectedRooms] = useState<Set<string>>(new Set(initialRoomIds))
+  const [updateNotifyUsers, setUpdateNotifyUsers] = useState<Set<string>>(new Set(initialUpdateNotifyIds))
   const [onMyWayTemplate, setOnMyWayTemplate] = useState<string>(initialOnMyWayTemplate ?? '')
   const [saving, setSaving] = useState(false)
   const [savedAt, setSavedAt] = useState<number | null>(null)
@@ -71,6 +74,15 @@ export default function DailyLogAdminPanel({
     })
   }
 
+  function toggleUpdateNotify(id: string) {
+    setUpdateNotifyUsers((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
   async function save() {
     setSaving(true)
     setError(null)
@@ -81,6 +93,7 @@ export default function DailyLogAdminPanel({
         body: JSON.stringify({
           completion_notify_user_ids: [...selectedUsers],
           completion_notify_room_ids: [...selectedRooms],
+          update_notify_user_ids: [...updateNotifyUsers],
           // Empty string means "use the system default" — server stores NULL.
           on_my_way_template: onMyWayTemplate.trim() || null,
         }),
@@ -108,15 +121,23 @@ export default function DailyLogAdminPanel({
         <header>
           <h1 className="text-xl font-semibold">Daily Log</h1>
           <p className="text-sm text-white/60 mt-1">
-            When a tech marks a route complete, @Guardian sends a summary of that day&apos;s
-            log — office notes, route sheet, and every update posted. Pick any combination of
-            DMs and room posts.
+            Configure who gets notified about Daily Log activity — both <strong>new updates</strong> as
+            they&apos;re posted, and the <strong>end-of-day summary</strong> when a tech marks a route complete.
           </p>
         </header>
 
         <PickerSection
-          title="DM these users"
-          subtitle="@Guardian DMs each selected user a one-on-one summary."
+          title="Notify on every update"
+          subtitle="These users always get a push notification (plus the in-app unread dot + chime) for every new Daily Log update — no need to Follow. The assigned tech is always notified automatically; this list is for anyone else who should stay in the loop."
+          empty="No users in this company yet."
+          items={users.map((u) => ({ id: u.id, label: u.display_name }))}
+          selected={updateNotifyUsers}
+          onToggle={toggleUpdateNotify}
+        />
+
+        <PickerSection
+          title="On completion — DM these users"
+          subtitle="When a route is marked complete, @Guardian DMs each selected user a one-on-one summary of the day."
           empty="No users in this company yet."
           items={users.map((u) => ({ id: u.id, label: u.display_name }))}
           selected={selectedUsers}
@@ -124,8 +145,8 @@ export default function DailyLogAdminPanel({
         />
 
         <PickerSection
-          title="Post in these rooms"
-          subtitle="@Guardian posts the summary in each selected room (auto-joins if needed)."
+          title="On completion — post in these rooms"
+          subtitle="When a route is marked complete, @Guardian posts the summary in each selected room (auto-joins if needed)."
           empty="No active rooms to choose from."
           items={rooms.map((r) => ({ id: r.id, label: `#${r.name}` }))}
           selected={selectedRooms}

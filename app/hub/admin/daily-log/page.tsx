@@ -24,7 +24,7 @@ export default async function AdminDailyLogPage() {
   const [settingsRes, usersRes, roomsRes, mappingsRes, skipReasonsRes] = await Promise.all([
     admin
       .from('daily_log_settings')
-      .select('completion_notify_user_ids, completion_notify_room_ids, on_my_way_template')
+      .select('completion_notify_user_ids, completion_notify_room_ids, update_notify_user_ids, on_my_way_template')
       .eq('company_id', profile.company_id)
       .maybeSingle(),
     admin
@@ -52,6 +52,7 @@ export default async function AdminDailyLogPage() {
 
   const recipientUserIds: string[] = settingsRes.data?.completion_notify_user_ids ?? []
   const recipientRoomIds: string[] = settingsRes.data?.completion_notify_room_ids ?? []
+  const updateNotifyUserIds: string[] = settingsRes.data?.update_notify_user_ids ?? []
   const onMyWayTemplate: string | null = settingsRes.data?.on_my_way_template ?? null
   const users = (usersRes.data ?? []).filter((u: { is_bot: boolean }) => !u.is_bot)
   const rooms = roomsRes.data ?? []
@@ -62,6 +63,7 @@ export default async function AdminDailyLogPage() {
     <DailyLogAdminPanel
       initialRecipientIds={recipientUserIds}
       initialRoomIds={recipientRoomIds}
+      initialUpdateNotifyIds={updateNotifyUserIds}
       initialOnMyWayTemplate={onMyWayTemplate}
       users={users}
       rooms={rooms}

@@ -65,7 +65,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       .eq('user_id', user.id),
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
     supabase.from('hub_users').select('display_name, status, avatar_url, last_active_at').eq('id', user.id).single(),
-    supabase.from('user_profiles').select('role, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_lawn, can_access_zone_sizer, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet, can_access_dialer, can_access_marketing, can_admin_marketing, can_access_forms, can_admin_forms, can_access_daily_log_v2, dialer_global_ring, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, rail_config').eq('id', user.id).single(),
+    supabase.from('user_profiles').select('role, company_id, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_lawn, can_access_zone_sizer, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet, can_access_dialer, can_access_marketing, can_admin_marketing, can_access_forms, can_admin_forms, can_access_daily_log_v2, dialer_global_ring, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, rail_config').eq('id', user.id).single(),
     // Active rows for BOTH types — DB returns latest first; we keep newest per type below.
     supabase
       .from('hub_announcements')
@@ -149,6 +149,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAdminMarketing = profileResult.data?.can_admin_marketing ?? false
   const canAccessForms = profileResult.data?.can_access_forms ?? true
   const canAccessDailyLogV2 = profileResult.data?.can_access_daily_log_v2 ?? false
+  const companyId = profileResult.data?.company_id ?? ''
   // Session 58.5: per-user opt-out. Defaults true server-side so any user
   // with can_access_dialer gets Hub-wide ringing on first login.
   const dialerGlobalRing = profileResult.data?.dialer_global_ring ?? true
@@ -217,6 +218,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAdminMarketing={canAdminMarketing}
         canAccessForms={canAccessForms}
         canAccessDailyLogV2={canAccessDailyLogV2}
+        companyId={companyId}
         dialerGlobalRing={dialerGlobalRing}
         myPresenceMode={myPresenceMode}
       >
@@ -225,11 +227,13 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       <PushInit />
       <ElectronNotifier
         currentUserId={user.id}
+        companyId={companyId}
         hubUsers={(hubUsersResult.data ?? []) as { id: string; display_name: string; is_bot?: boolean }[]}
         rooms={rooms.map(r => ({ id: r.id, name: r.name }))}
       />
       <WebChimeNotifier
         currentUserId={user.id}
+        companyId={companyId}
         rooms={rooms.map(r => ({ id: r.id, name: r.name }))}
       />
       <HubIdleTracker />

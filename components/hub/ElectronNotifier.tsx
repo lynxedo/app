@@ -16,6 +16,7 @@ type PrefRow = {
 
 interface Props {
   currentUserId: string
+  companyId?: string
   hubUsers: HubUserLite[]
   rooms: RoomLite[]
 }
@@ -36,7 +37,7 @@ interface Props {
 //      and (b) protects us if Realtime RLS is ever misconfigured.
 //   2. Mute / mentions-only / Do-Not-Disturb — mirrors the eligibility filter in
 //      sendHubPush so desktop banners respect the same prefs as Web Push/APNs/FCM.
-export default function ElectronNotifier({ currentUserId, hubUsers, rooms }: Props) {
+export default function ElectronNotifier({ currentUserId, companyId, hubUsers, rooms }: Props) {
   const pathname = usePathname()
   const pathnameRef = useRef(pathname)
   pathnameRef.current = pathname
@@ -75,6 +76,7 @@ export default function ElectronNotifier({ currentUserId, hubUsers, rooms }: Pro
 
     const supabase = createClient()
     let channel: ReturnType<typeof supabase.channel> | null = null
+    let dlChannel: ReturnType<typeof supabase.channel> | null = null
     let cancelled = false
 
     // Time-of-day DND window check (Texas-local), identical to lib/hub-push.ts.
@@ -214,15 +216,64 @@ export default function ElectronNotifier({ currentUserId, hubUsers, rooms }: Pro
         )
         .subscribe()
 
+      // Daily Log v1 updates — company broadcast from the update-posted route
+      // (the table isn't in the Realtime publication). Raise a desktop banner
+      // for updates this user is a recipient of; click → /hub/daily-log.
+      if (companyId) {
+        dlChannel = supabase
+          .channel(`daily-log:${companyId}`)
+          .on('broadcast', { event: 'update-inserted' }, ({ payload }) => {
+            const p = (payload ?? {}) as {
+              update_id?: string
+              recipient_ids?: string[]
+              sender_id?: string
+              sender_name?: string
+              tech_name?: string
+              snippet?: string
+            }
+            if (!p.update_id || p.sender_id === currentUserId) return
+            if (!Array.isArray(p.recipient_ids) || !p.recipient_ids.includes(currentUserId)) return
+            // Respect mute / DND (treated like a DM).
+            if (isSuppressed(null, true)) return
+            const path = pathnameRef.current ?? ''
+            // Don't banner if already viewing Daily Log.
+            if (path === '/hub/daily-log' || path.startsWith('/hub/daily-log/')) return
+            // Skip if focused AND somewhere in /hub (user is engaged).
+            if (typeof document !== 'undefined' && document.hasFocus() && path.startsWith('/hub')) return
+
+            const title = `${p.sender_name ?? 'Someone'} — Daily Log (${p.tech_name ?? 'a tech'})`
+            const body = (p.snippet ?? '').trim().slice(0, 200) || 'New update'
+            try {
+              const n = new Notification(title, {
+                body,
+                icon: '/icons/icon-192.png',
+                tag: 'dl-' + p.update_id,
+              })
+              n.onclick = () => {
+                try { window.focus() } catch { /* */ }
+                window.location.href = '/hub/daily-log'
+                n.close()
+              }
+            } catch (e) {
+              console.error('[ElectronNotifier] DL Notification failed:', e)
+            }
+          })
+          .subscribe()
+      }
+
       // If the component unmounted while we were fetching prefs, tear down.
-      if (cancelled && channel) supabase.removeChannel(channel)
+      if (cancelled) {
+        if (channel) supabase.removeChannel(channel)
+        if (dlChannel) supabase.removeChannel(dlChannel)
+      }
     })()
 
     return () => {
       cancelled = true
       if (channel) supabase.removeChannel(channel)
+      if (dlChannel) supabase.removeChannel(dlChannel)
     }
-  }, [currentUserId])
+  }, [currentUserId, companyId])
 
   return null
 }
