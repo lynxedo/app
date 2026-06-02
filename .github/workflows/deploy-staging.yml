@@ -45,6 +45,11 @@ jobs:
             rm -rf .next/types
             echo "==> Type-checking before build (fast-fail)"
             npx tsc --noEmit
+            echo "==> Clean build — wipe ALL of .next first. An incremental build over a"
+            echo "    stale .next can silently drop a route's client-reference manifest"
+            echo "    when a client component is added to a layout (caused a /hub 500 on"
+            echo "    2026-06-02: 'Invariant: client reference manifest for /hub does not exist')."
+            rm -rf .next
             echo "==> Building"
             npm run build
             echo "==> Restarting PM2"
