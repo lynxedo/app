@@ -138,7 +138,8 @@ function parseCustomFields(
   }
 
   const lawnSizeRaw = cf['lawn size'] ? Number(cf['lawn size']) : null
-  const lawn_size_k = isFinite(lawnSizeRaw ?? NaN) ? lawnSizeRaw : null
+  // numeric(5,1) max is 9999.9 — cap to avoid overflow on atypically large values
+  const lawn_size_k = isFinite(lawnSizeRaw ?? NaN) && Math.abs(lawnSizeRaw!) < 10000 ? lawnSizeRaw : null
   const lawn_size_sqft = lawn_size_k != null ? Math.round(lawn_size_k * 1000) : null
 
   const routeRaw = (cf['wf route'] ?? '').trim() || parseRouteCodeFromTitle(jobTitle)
@@ -162,6 +163,15 @@ function parseCustomFields(
       custom_note,
     },
   }
+}
+
+/** Deduplicate line_item rows by external_id within a batch page.
+ *  Jobber can return the same line item ID on multiple visits in one page,
+ *  causing "ON CONFLICT DO UPDATE command cannot affect row a second time". */
+function dedupLineItems(rows: Record<string, unknown>[]): Record<string, unknown>[] {
+  const seen = new Map<string, Record<string, unknown>>()
+  for (const r of rows) seen.set(r.external_id as string, r)
+  return Array.from(seen.values())
 }
 
 function parseDeptPrefix(lineItemName: string | null | undefined): string | null {
@@ -651,7 +661,7 @@ async function syncJobs(
         }))
 
         if (lineItemRows.length) {
-          await admin.from('line_items').upsert(lineItemRows, { onConflict: 'external_id,source' })
+          await admin.from('line_items').upsert(dedupLineItems(lineItemRows), { onConflict: 'external_id,source' })
         }
 
         // Job notes are a JobNoteUnionConnection in Jobber's schema (selections
@@ -788,7 +798,7 @@ async function syncVisits(
         }))
 
         if (lineItemRows.length) {
-          await admin.from('line_items').upsert(lineItemRows, { onConflict: 'external_id,source' })
+          await admin.from('line_items').upsert(dedupLineItems(lineItemRows), { onConflict: 'external_id,source' })
         }
       }
     }
@@ -917,7 +927,7 @@ async function syncInvoices(
         }))
 
         if (lineItemRows.length) {
-          await admin.from('line_items').upsert(lineItemRows, { onConflict: 'external_id,source' })
+          await admin.from('line_items').upsert(dedupLineItems(lineItemRows), { onConflict: 'external_id,source' })
         }
       }
     }
