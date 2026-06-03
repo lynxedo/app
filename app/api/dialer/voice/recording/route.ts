@@ -103,6 +103,20 @@ export async function POST(request: NextRequest) {
 
   await admin.from('calls').update(update).eq('twilio_call_sid', callSid)
 
+  // Fire-and-forget the Phase 3 transcription pipeline for the call we just
+  // flagged pending. Runs on the long-lived PM2 server, so it completes even
+  // though we don't await it; the 1-min cron sweep is the backstop if this
+  // request is dropped. callRow.id is the internal call id the route expects.
+  if (update.transcription_status === 'pending' && callRow?.id && process.env.CRON_SECRET) {
+    const base = process.env.NEXT_PUBLIC_APP_URL || ''
+    if (base) {
+      fetch(`${base}/api/dialer/calls/${callRow.id}/transcribe`, {
+        method: 'POST',
+        headers: { 'x-cron-secret': process.env.CRON_SECRET },
+      }).catch(() => {})
+    }
+  }
+
   return twimlResponse()
 }
 
