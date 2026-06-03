@@ -139,19 +139,23 @@ export async function jobberGraphQL<T = unknown>(
 }
 
 // Admin-client variant — see getJobberTokenAdmin. Use from background/cron jobs.
+// Throws on GraphQL errors returned in the 200 body (Jobber returns "Throttled"
+// and field errors this way) so callers' retry/backoff can react and the error
+// surfaces instead of crashing later on an undefined `data`.
 export async function jobberGraphQLAdmin<T = unknown>(
   userId: string,
   query: string,
   variables?: Record<string, unknown>
 ): Promise<T> {
-  return jobberGraphQLWith(getJobberTokenAdmin, userId, query, variables)
+  return jobberGraphQLWith(getJobberTokenAdmin, userId, query, variables, true)
 }
 
 async function jobberGraphQLWith<T = unknown>(
   getToken: (userId: string) => Promise<string | null>,
   userId: string,
   query: string,
-  variables?: Record<string, unknown>
+  variables?: Record<string, unknown>,
+  throwOnGraphQLErrors = false
 ): Promise<T> {
   const token = await getToken(userId)
   if (!token) throw new Error('No Jobber token — user needs to reconnect')
@@ -164,14 +168,18 @@ async function jobberGraphQLWith<T = unknown>(
       'X-JOBBER-GRAPHQL-VERSION': JOBBER_API_VERSION,
     },
     body: JSON.stringify({ query, variables }),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(30000),
   })
 
   if (!res.ok) {
     throw new Error(`Jobber API HTTP ${res.status}: ${await res.text()}`)
   }
 
-  return res.json() as Promise<T>
+  const json = await res.json()
+  if (throwOnGraphQLErrors && Array.isArray(json?.errors) && json.errors.length) {
+    throw new Error('Jobber GraphQL errors: ' + JSON.stringify(json.errors))
+  }
+  return json as T
 }
 
 // ── Connection check ─────────────────────────────────────────────────────────

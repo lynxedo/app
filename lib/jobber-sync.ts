@@ -25,17 +25,41 @@ function isThrottledError(e: unknown): boolean {
 
 async function withRateLimit<T>(fn: () => Promise<T>): Promise<T> {
   let lastErr: unknown
-  for (let attempt = 0; attempt < 5; attempt++) {
+  for (let attempt = 0; attempt < 7; attempt++) {
     try { return await fn() }
     catch (e) {
       lastErr = e
       if (!isThrottledError(e)) throw e
-      const delay = Math.min(8000, 1000 * 2 ** attempt)
-      console.warn(`[jobber-sync] throttled, retrying in ${delay}ms`)
+      const delay = Math.min(15000, 1500 * 2 ** attempt)
+      console.warn(`[jobber-sync] throttled, retrying in ${delay}ms (attempt ${attempt + 1})`)
       await sleep(delay)
     }
   }
   throw lastErr
+}
+
+// Pace pagination using Jobber's returned query-cost throttle status so the
+// leaky bucket (max 10,000, restores ~500/s) recovers before the next
+// similarly-priced page. Jobber returns the cost block in `extensions.cost`.
+async function throttleSleep(resp: unknown): Promise<void> {
+  const cost = (resp as {
+    extensions?: { cost?: {
+      requestedQueryCost?: number
+      throttleStatus?: { currentlyAvailable?: number; restoreRate?: number }
+    } }
+  })?.extensions?.cost
+  const ts = cost?.throttleStatus
+  if (!ts || ts.currentlyAvailable == null) { await sleep(300); return }
+  const nextCost = cost?.requestedQueryCost ?? 0
+  const restoreRate = ts.restoreRate || 500
+  const deficit = nextCost - ts.currentlyAvailable
+  if (deficit > 0) {
+    const waitMs = Math.min(30000, Math.ceil((deficit / restoreRate) * 1000) + 300)
+    console.log(`[jobber-sync] pacing ${waitMs}ms (cost ${nextCost}, avail ${ts.currentlyAvailable})`)
+    await sleep(waitMs)
+  } else {
+    await sleep(300)
+  }
 }
 
 /** Find the first admin user for the company who has a Jobber token */
@@ -181,7 +205,7 @@ async function completeSyncLog(
 
 const CLIENTS_QUERY = `
   query SyncClients($cursor: String, $filter: ClientFilterAttributes) {
-    clients(first: 100, after: $cursor, filter: $filter) {
+    clients(first: 40, after: $cursor, filter: $filter) {
       nodes {
         id
         name
@@ -202,7 +226,7 @@ const CLIENTS_QUERY = `
         }
         createdAt
         updatedAt
-        contacts {
+        contacts(first: 5) {
           nodes {
             id
             firstName
@@ -210,15 +234,15 @@ const CLIENTS_QUERY = `
             name
             title
             role
-            emails { nodes { address } }
-            phones { nodes { number } }
+            emails(first: 3) { nodes { address } }
+            phones(first: 3) { nodes { number } }
             isBillingContact
             receivesFollowUps
             receivesReminders
             createdAt
           }
         }
-        notes {
+        notes(first: 10) {
           nodes {
             id
             message
@@ -226,7 +250,7 @@ const CLIENTS_QUERY = `
             createdAt
           }
         }
-        tags { nodes { label } }
+        tags(first: 10) { nodes { label } }
       }
       pageInfo { hasNextPage endCursor }
     }
@@ -375,7 +399,7 @@ async function syncClients(
 
     if (!pageInfo.hasNextPage) break
     cursor = pageInfo.endCursor
-    await sleep(250)
+    await throttleSleep(resp)
   }
 
   return total
@@ -453,7 +477,7 @@ async function syncProperties(
 
     if (!pageInfo.hasNextPage) break
     cursor = pageInfo.endCursor
-    await sleep(250)
+    await throttleSleep(resp)
   }
 
   return total
@@ -463,7 +487,7 @@ async function syncProperties(
 
 const JOBS_QUERY = `
   query SyncJobs($cursor: String, $filter: JobFilterAttributes) {
-    jobs(first: 100, after: $cursor, filter: $filter) {
+    jobs(first: 40, after: $cursor, filter: $filter) {
       nodes {
         id
         title
@@ -487,7 +511,7 @@ const JOBS_QUERY = `
           ... on CustomFieldText    { label valueText }
           ... on CustomFieldNumeric { label valueNumeric }
         }
-        lineItems(first: 50) {
+        lineItems(first: 25) {
           nodes {
             id
             name
@@ -637,7 +661,7 @@ async function syncJobs(
 
     if (!pageInfo.hasNextPage) break
     cursor = pageInfo.endCursor
-    await sleep(250)
+    await throttleSleep(resp)
   }
 
   return total
@@ -647,7 +671,7 @@ async function syncJobs(
 
 const VISITS_SYNC_QUERY = `
   query SyncVisits($cursor: String, $filter: VisitFilterAttributes) {
-    visits(first: 100, after: $cursor, filter: $filter) {
+    visits(first: 40, after: $cursor, filter: $filter) {
       nodes {
         id
         title
@@ -658,8 +682,8 @@ const VISITS_SYNC_QUERY = `
         createdAt
         job { id }
         client { id }
-        assignedUsers { nodes { id } }
-        lineItems(first: 50) {
+        assignedUsers(first: 10) { nodes { id } }
+        lineItems(first: 25) {
           nodes {
             id
             name
@@ -770,7 +794,7 @@ async function syncVisits(
 
     if (!pageInfo.hasNextPage) break
     cursor = pageInfo.endCursor
-    await sleep(250)
+    await throttleSleep(resp)
   }
 
   return total
@@ -780,7 +804,7 @@ async function syncVisits(
 
 const INVOICES_QUERY = `
   query SyncInvoices($cursor: String, $filter: InvoiceFilterAttributes) {
-    invoices(first: 100, after: $cursor, filter: $filter) {
+    invoices(first: 40, after: $cursor, filter: $filter) {
       nodes {
         id
         invoiceNumber
@@ -794,7 +818,7 @@ const INVOICES_QUERY = `
         updatedAt
         client { id }
         jobs(first: 1) { nodes { id } }
-        lineItems(first: 50) {
+        lineItems(first: 25) {
           nodes {
             id
             name
@@ -899,7 +923,7 @@ async function syncInvoices(
 
     if (!pageInfo.hasNextPage) break
     cursor = pageInfo.endCursor
-    await sleep(250)
+    await throttleSleep(resp)
   }
 
   return total
