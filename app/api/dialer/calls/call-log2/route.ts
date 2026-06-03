@@ -3,8 +3,9 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // GET /api/dialer/calls/call-log2
-// Returns calls with their call_ai_results rows for the /hub/call-log2 compare page.
-// Requires can_access_call_log2 (or can_admin_dialer / role=admin for managers).
+// Returns ALL Twilio calls (not just recorded ones), with joined voicemails and
+// call_ai_results, for the /hub/call-log2 page.
+// Requires can_access_call_log2 (or can_admin_dialer / role=admin).
 export async function GET(request: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -23,58 +24,73 @@ export async function GET(request: NextRequest) {
   const { searchParams } = new URL(request.url)
   const limit = Math.min(parseInt(searchParams.get('limit') || '100', 10), 500)
   const offset = parseInt(searchParams.get('offset') || '0', 10)
+  const dateFrom = searchParams.get('date_from') || ''
+  const dateTo = searchParams.get('date_to') || ''
+  const phone = searchParams.get('phone') || ''
 
   const admin = createAdminClient()
+  const companyId = profile.company_id || ''
 
-  const { data: calls, error } = await admin
+  let q = admin
     .from('calls')
     .select(
-      'id, direction, from_number, to_number, status, duration_seconds, created_at, answered_at, ended_at, recording_url, recording_storage_path, recording_duration_seconds, transcription_status, transcript, ai_summary, sentiment, call_type, topics, intents, action_items, handled_by, initiated_by, contact:txt_contacts!contact_id(id, name, phone)'
+      'id, direction, from_number, to_number, status, duration_seconds, created_at, answered_at, ended_at, recording_storage_path, recording_duration_seconds, transcription_status, transcript, ai_summary, sentiment, call_type, topics, action_items, handled_by, initiated_by, contact:txt_contacts!contact_id(id, name, phone)'
     )
-    .eq('company_id', profile.company_id || '')
-    .not('recording_storage_path', 'is', null)
+    .eq('company_id', companyId)
     .order('created_at', { ascending: false })
     .range(offset, offset + limit - 1)
 
+  if (dateFrom) q = q.gte('created_at', `${dateFrom}T00:00:00`)
+  if (dateTo) q = q.lte('created_at', `${dateTo}T23:59:59`)
+  if (phone) {
+    const digits = phone.replace(/\D/g, '')
+    q = q.or(`from_number.ilike.%${digits}%,to_number.ilike.%${digits}%`)
+  }
+
+  const { data: calls, error } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Fetch call_ai_results for the returned calls in one query.
   const callIds = (calls ?? []).map(c => c.id)
   let aiResults: {
-    call_id: string
-    engine: string
-    transcript_text: string | null
-    transcript_json: unknown
-    summary: string | null
-    sentiment: string | null
-    sentiment_json: unknown
-    topics: string[] | null
-    intents: unknown
-    action_items: string[] | null
-    call_type: string | null
-    latency_ms: number | null
-    error_message: string | null
-    created_at: string
+    call_id: string; engine: string; transcript_text: string | null
+    summary: string | null; sentiment: string | null; sentiment_json: unknown
+    topics: string[] | null; intents: unknown; action_items: string[] | null
+    call_type: string | null; latency_ms: number | null; error_message: string | null
+  }[] = []
+  let voicemails: {
+    id: string; call_id: string; from_number: string
+    recording_storage_path: string | null; recording_duration_sec: number | null
+    transcript: string | null; created_at: string
   }[] = []
 
   if (callIds.length > 0) {
-    const { data: results } = await admin
-      .from('call_ai_results')
-      .select('call_id, engine, transcript_text, transcript_json, summary, sentiment, sentiment_json, topics, intents, action_items, call_type, latency_ms, error_message, created_at')
-      .in('call_id', callIds)
-    aiResults = results ?? []
+    const [aiRes, vmRes] = await Promise.all([
+      admin
+        .from('call_ai_results')
+        .select('call_id, engine, transcript_text, summary, sentiment, sentiment_json, topics, intents, action_items, call_type, latency_ms, error_message')
+        .in('call_id', callIds),
+      admin
+        .from('voicemails')
+        .select('id, call_id, from_number, recording_storage_path, recording_duration_sec, transcript, created_at')
+        .in('call_id', callIds),
+    ])
+    aiResults = aiRes.data ?? []
+    voicemails = vmRes.data ?? []
   }
 
-  // Group ai_results by call_id
-  const resultsByCallId = aiResults.reduce<Record<string, typeof aiResults>>((acc, r) => {
+  const aiByCallId = aiResults.reduce<Record<string, typeof aiResults>>((acc, r) => {
     if (!acc[r.call_id]) acc[r.call_id] = []
     acc[r.call_id].push(r)
     return acc
   }, {})
 
+  const vmByCallId: Record<string, typeof voicemails[0]> = {}
+  for (const vm of voicemails) vmByCallId[vm.call_id] = vm
+
   const enriched = (calls ?? []).map(c => ({
     ...c,
-    ai_results: resultsByCallId[c.id] ?? [],
+    ai_results: aiByCallId[c.id] ?? [],
+    voicemail: vmByCallId[c.id] ?? null,
   }))
 
   return NextResponse.json({ calls: enriched })
