@@ -48,6 +48,9 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
     status_until: null,
   })
   const lastPlayedRef = useRef(0)
+  // The user's DM conversation ids — used to gate broadcast-sourced DM chimes
+  // (the hub-sidebar-messages broadcast isn't RLS-scoped, unlike postgres_changes).
+  const myConvIdsRef = useRef<Set<string>>(new Set())
 
   useEffect(() => {
     if (typeof window === 'undefined' || typeof navigator === 'undefined') return
@@ -78,8 +81,10 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
 
     const supabase = createClient()
     let channel: ReturnType<typeof supabase.channel> | null = null
+    let sidebarChannel: ReturnType<typeof supabase.channel> | null = null
     let dlChannel: ReturnType<typeof supabase.channel> | null = null
     let txtChannel: ReturnType<typeof supabase.channel> | null = null
+    let convTimer: ReturnType<typeof setInterval> | null = null
     let cancelled = false
 
     // Time-of-day DND window check (Texas-local), identical to lib/hub-push.ts.
@@ -138,45 +143,91 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
         dndStatusRef.current = { status: row.status ?? null, status_until: row.status_until ?? null }
       }
 
+      // The user's DM conversation ids, refreshed periodically so a broadcast-
+      // sourced DM chime only fires for conversations the user is actually in
+      // (the broadcast channel below isn't RLS-scoped). A brand-new DM rings via
+      // the RLS-scoped postgres_changes path until the next refresh picks it up.
+      const loadConvIds = async () => {
+        const { data } = await supabase
+          .from('conversation_members')
+          .select('conversation_id')
+          .eq('user_id', currentUserId)
+        if (cancelled) return
+        myConvIdsRef.current = new Set((data ?? []).map((r) => r.conversation_id as string))
+      }
+      await loadConvIds()
+      if (!cancelled) convTimer = setInterval(() => { void loadConvIds() }, 120_000)
+
+      type MsgLite = {
+        id: string
+        room_id: string | null
+        conversation_id: string | null
+        sender_id: string
+        parent_id: string | null
+      }
+
+      // Shared by the (flaky) postgres_changes stream and the reliable
+      // `hub-sidebar-messages` broadcast the messages API fires on every insert.
+      // `fromBroadcast` tightens DM gating: postgres_changes is RLS-scoped (only
+      // delivers the user's own messages), but the broadcast is company-wide, so
+      // a broadcast DM event must match a known membership. De-dupe by id so the
+      // two paths never double-ding.
+      const handleMessage = (msg: MsgLite | null, fromBroadcast: boolean) => {
+        if (!msg?.id) return
+        // Skip thread replies and the user's own messages
+        if (msg.parent_id || msg.sender_id === currentUserId) return
+        if (msg.room_id) {
+          // Room-membership gate (both paths — accurate from the rooms prop).
+          if (!roomsRef.current[msg.room_id]) return
+        } else if (msg.conversation_id) {
+          // DMs: trust RLS on the postgres_changes path; require known
+          // membership on the un-RLS'd broadcast path so we never ding for a
+          // DM between other people.
+          if (fromBroadcast && !myConvIdsRef.current.has(msg.conversation_id)) return
+        } else {
+          return
+        }
+        // Respect mute / mentions-only / Do-Not-Disturb
+        if (isSuppressed(msg.room_id, msg.conversation_id != null)) return
+        // Per-device on/off preference
+        if (!isChimeEnabled()) return
+        // Ding once per message across all open tabs in this browser.
+        if (!claimChimeForMessage(msg.id)) return
+        // Throttle bursts so a flurry of messages doesn't machine-gun this tab.
+        const now = Date.now()
+        if (now - lastPlayedRef.current < 1500) return
+        lastPlayedRef.current = now
+        playChime()
+      }
+
       channel = supabase
         .channel('web-chime-messages')
         .on(
           'postgres_changes',
           { event: 'INSERT', schema: 'public', table: 'messages' },
-          (payload) => {
-            const msg = payload.new as {
-              id: string
-              room_id: string | null
-              conversation_id: string | null
-              sender_id: string
-              parent_id: string | null
-            }
-
-            // Skip thread replies and the user's own messages
-            if (msg.parent_id || msg.sender_id === currentUserId) return
-
-            // Room-membership gate. DMs are gated by Realtime RLS.
-            if (msg.room_id && !roomsRef.current[msg.room_id]) return
-
-            // Respect mute / mentions-only / Do-Not-Disturb
-            if (isSuppressed(msg.room_id, msg.conversation_id != null)) return
-
-            // Per-device on/off preference
-            if (!isChimeEnabled()) return
-
-            // Ding for any qualifying new message as long as a Hub tab is open —
-            // whether the user is looking at Hub or working in another tab/app.
-            // De-dupe across multiple open tabs so the same message dings once.
-            if (!claimChimeForMessage(msg.id)) return
-
-            // Throttle bursts so a flurry of messages doesn't machine-gun this tab
-            const now = Date.now()
-            if (now - lastPlayedRef.current < 1500) return
-            lastPlayedRef.current = now
-
-            playChime()
-          }
+          (payload) => handleMessage(payload.new as MsgLite, false)
         )
+        .subscribe()
+
+      // Reliable fallback: the messages API fires `message-inserted` on
+      // `hub-sidebar-messages` for EVERY insert (room or DM), so the chime works
+      // even when postgres_changes silently drops the event — which is why Hub
+      // messages weren't dinging while Txt (a broadcast) was.
+      sidebarChannel = supabase
+        .channel('hub-sidebar-messages')
+        .on('broadcast', { event: 'message-inserted' }, ({ payload }) => {
+          const p = (payload ?? {}) as Partial<MsgLite>
+          handleMessage(
+            {
+              id: p.id ?? '',
+              room_id: p.room_id ?? null,
+              conversation_id: p.conversation_id ?? null,
+              sender_id: p.sender_id ?? '',
+              parent_id: p.parent_id ?? null,
+            },
+            true,
+          )
+        })
         .subscribe()
 
       // Daily Log v1 updates aren't in the Realtime publication, so the
@@ -223,7 +274,9 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
       }
 
       if (cancelled) {
+        if (convTimer) clearInterval(convTimer)
         if (channel) supabase.removeChannel(channel)
+        if (sidebarChannel) supabase.removeChannel(sidebarChannel)
         if (dlChannel) supabase.removeChannel(dlChannel)
         if (txtChannel) supabase.removeChannel(txtChannel)
       }
@@ -231,11 +284,13 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
 
     return () => {
       cancelled = true
+      if (convTimer) clearInterval(convTimer)
       window.removeEventListener('pointerdown', prime)
       window.removeEventListener('keydown', prime)
       document.removeEventListener('visibilitychange', keepWarm)
       window.removeEventListener('focus', keepWarm)
       if (channel) supabase.removeChannel(channel)
+      if (sidebarChannel) supabase.removeChannel(sidebarChannel)
       if (dlChannel) supabase.removeChannel(dlChannel)
       if (txtChannel) supabase.removeChannel(txtChannel)
     }
