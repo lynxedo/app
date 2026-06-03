@@ -20,6 +20,7 @@ interface CallLog {
   action_items: string[] | null
   avg_confidence: number | null
   transcript_text: string | null
+  sentiment: string | null
 }
 
 function formatDuration(seconds: number | null) {
@@ -57,6 +58,17 @@ function directionLabel(dir: string) {
   return { label: dir || '?', color: 'text-gray-400 bg-gray-800' }
 }
 
+// Deepgram sentiment → label + chip color. Null until a call is transcribed
+// with the Audio Intelligence flags (new calls going forward).
+function sentimentChip(sentiment: string | null) {
+  if (!sentiment) return null
+  const s = sentiment.toLowerCase()
+  if (s === 'positive') return { label: '🙂 Positive', color: 'text-green-400 bg-green-900/30' }
+  if (s === 'negative') return { label: '🙁 Negative', color: 'text-red-400 bg-red-900/30' }
+  if (s === 'neutral') return { label: '😐 Neutral', color: 'text-gray-300 bg-gray-800' }
+  return { label: sentiment, color: 'text-gray-300 bg-gray-800' }
+}
+
 
 function SettingsIcon() {
   return (
@@ -84,6 +96,11 @@ function CallRow({ call, selected, onClick }: { call: CallLog; selected: boolean
         <span>{formatPhone(call.phone)}</span>
         <span>·</span>
         <span>{formatDuration(call.duration_seconds)}</span>
+        {sentimentChip(call.sentiment) && (
+          <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${sentimentChip(call.sentiment)!.color}`}>
+            {sentimentChip(call.sentiment)!.label}
+          </span>
+        )}
       </div>
       <div className="text-xs text-gray-600 mt-0.5">
         {formatDateTime(call.call_datetime)}
@@ -117,6 +134,11 @@ function CallDetail({ call }: { call: CallLog }) {
           <span>·</span>
           <span>{formatDuration(call.duration_seconds)}</span>
           {call.rep_name && <><span>·</span><span>{call.rep_name}</span></>}
+          {sentimentChip(call.sentiment) && (
+            <span className={`px-2 py-0.5 rounded text-xs font-medium ${sentimentChip(call.sentiment)!.color}`}>
+              {sentimentChip(call.sentiment)!.label}
+            </span>
+          )}
         </div>
       </div>
 
