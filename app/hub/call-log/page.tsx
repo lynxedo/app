@@ -21,6 +21,10 @@ interface CallLog {
   avg_confidence: number | null
   transcript_text: string | null
   sentiment: string | null
+  sentiment_json: {
+    average?: { sentiment: string; sentiment_score: number }
+    segments?: { text: string; sentiment: string; sentiment_score: number }[]
+  } | null
   transcript_speakers: { speaker: string; text: string }[] | null
 }
 
@@ -68,6 +72,33 @@ function sentimentChip(sentiment: string | null) {
   if (s === 'negative') return { label: '🙁 Negative', color: 'text-red-400 bg-red-900/30' }
   if (s === 'neutral') return { label: '😐 Neutral', color: 'text-gray-300 bg-gray-800' }
   return { label: sentiment, color: 'text-gray-300 bg-gray-800' }
+}
+
+// Left-border accent color for a sentiment segment.
+function sentimentBorder(sentiment: string | undefined) {
+  const s = (sentiment || '').toLowerCase()
+  if (s === 'positive') return 'border-green-500'
+  if (s === 'negative') return 'border-red-500'
+  return 'border-gray-600'
+}
+
+// Merge consecutive same-speaker segments into one paragraph. Deepgram stores
+// one utterance per pause, so a single speaking turn arrives as many segments —
+// this collapses runs of the same speaker for display. Applied at render so it
+// also fixes older calls whose stored segments predate the script-side merge.
+function mergeSpeakers(
+  segments: { speaker: string; text: string }[]
+): { speaker: string; text: string }[] {
+  const out: { speaker: string; text: string }[] = []
+  for (const s of segments) {
+    const last = out[out.length - 1]
+    if (last && last.speaker === s.speaker) {
+      last.text = `${last.text} ${s.text}`.trim()
+    } else {
+      out.push({ speaker: s.speaker, text: s.text })
+    }
+  }
+  return out
 }
 
 
@@ -205,7 +236,7 @@ function CallDetail({ call }: { call: CallLog }) {
           {showTranscript && (
             call.transcript_speakers && call.transcript_speakers.length > 0 ? (
               <div className="mt-3 space-y-3">
-                {call.transcript_speakers.map((seg, i) => (
+                {mergeSpeakers(call.transcript_speakers).map((seg, i) => (
                   <div key={i}>
                     <div className="text-xs font-semibold text-purple-300 mb-0.5">{seg.speaker}</div>
                     <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{seg.text}</p>
@@ -218,6 +249,30 @@ function CallDetail({ call }: { call: CallLog }) {
               </pre>
             )
           )}
+        </div>
+      )}
+
+      {/* Sentiment by section — Deepgram scores the call in parts (its own word
+          ranges, independent of speaker turns), so you can see where the tone
+          shifts. New calls only (older calls predate the sentiment flags). */}
+      {call.sentiment_json?.segments && call.sentiment_json.segments.length > 0 && (
+        <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+          <div className="flex items-center justify-between mb-3 gap-2">
+            <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider">Sentiment by section</div>
+            {sentimentChip(call.sentiment) && (
+              <span className={`px-2 py-0.5 rounded text-xs font-medium ${sentimentChip(call.sentiment)!.color}`}>
+                Overall: {sentimentChip(call.sentiment)!.label}
+              </span>
+            )}
+          </div>
+          <div className="space-y-2">
+            {call.sentiment_json.segments.map((seg, i) => (
+              <div key={i} className={`border-l-2 pl-3 ${sentimentBorder(seg.sentiment)}`}>
+                <p className="text-sm text-gray-300 leading-relaxed">{seg.text}</p>
+                <span className="text-[10px] uppercase tracking-wide text-gray-500">{seg.sentiment}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

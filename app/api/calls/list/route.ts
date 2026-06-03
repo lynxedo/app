@@ -17,7 +17,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from('call_logs')
-    .select('id,recording_id,filename,call_datetime,date,direction,phone,duration_seconds,rep_name,customer_name,call_type,call_subject,customer_summary,action_items,avg_confidence,transcript_text,sentiment,transcript_speakers')
+    .select('id,recording_id,filename,call_datetime,date,direction,phone,duration_seconds,rep_name,customer_name,call_type,call_subject,customer_summary,action_items,avg_confidence,transcript_text,sentiment,sentiment_json,transcript_speakers')
     .order('call_datetime', { ascending: false })
     .range(offset, offset + limit - 1)
 
