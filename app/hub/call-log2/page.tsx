@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -99,59 +99,36 @@ function jsonDisplay(val: unknown): string {
 }
 
 // ---------------------------------------------------------------------------
-// Audio player
+// Audio player — uses a plain <audio> element so the browser follows the
+// R2 signed-URL redirect natively without CORS restrictions. JavaScript
+// fetch() applies strict CORS rules on cross-origin redirects; <audio src>
+// does not, which is the standard approach for auth-gated media.
 // ---------------------------------------------------------------------------
 
 function AudioPlayer({ callId }: { callId: string }) {
-  const [src, setSrc] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const audioRef = useRef<HTMLAudioElement>(null)
+  const [show, setShow] = useState(false)
 
-  const load = useCallback(async () => {
-    if (src) { audioRef.current?.play(); return }
-    setLoading(true)
-    setError(null)
-    try {
-      const res = await fetch(`/api/dialer/calls/${callId}/recording`, { redirect: 'follow' })
-      if (!res.ok) { setError('Recording unavailable'); return }
-      const blob = await res.blob()
-      setSrc(URL.createObjectURL(blob))
-    } catch {
-      setError('Failed to load recording')
-    } finally {
-      setLoading(false)
-    }
-  }, [callId, src])
+  // The API route checks auth via cookie, then 302-redirects to a signed R2 URL.
+  // Use a plain <audio> element so the browser follows that redirect natively
+  // without CORS restrictions — JavaScript fetch() would fail on cross-origin
+  // redirects but <audio src> bypasses CORS for media loads.
+  const apiUrl = `/api/dialer/calls/${callId}/recording`
 
-  useEffect(() => {
-    if (src && audioRef.current) {
-      audioRef.current.play().catch(() => {})
-    }
-  }, [src])
-
-  if (error) return <p className="text-xs text-red-400">{error}</p>
-
-  if (!src) {
+  if (!show) {
     return (
       <button
-        onClick={load}
-        disabled={loading}
-        className="flex items-center gap-2 px-3 py-1.5 rounded bg-white/10 hover:bg-white/15 text-sm text-white disabled:opacity-50"
+        onClick={() => setShow(true)}
+        className="flex items-center gap-2 px-3 py-1.5 rounded bg-white/10 hover:bg-white/15 text-sm text-white"
       >
-        {loading ? (
-          <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4"/><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"/></svg>
-        ) : (
-          <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
-        )}
-        {loading ? 'Loading…' : 'Play Recording'}
+        <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 24 24"><path d="M8 5v14l11-7z"/></svg>
+        Play Recording
       </button>
     )
   }
 
   return (
     // eslint-disable-next-line jsx-a11y/media-has-caption
-    <audio ref={audioRef} src={src} controls className="w-full h-10 rounded" />
+    <audio src={apiUrl} controls autoPlay className="w-full h-10 rounded" />
   )
 }
 
