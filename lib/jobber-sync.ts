@@ -190,12 +190,12 @@ const CLIENTS_QUERY = `
         companyName
         isCompany
         isLead
-        emails { address isPrimary }
-        phones { number isPrimary }
+        emails { address primary }
+        phones { number primary }
         balance
         isArchived
         leadSource
-        webUrl
+        jobberWebUri
         customFields {
           ... on CustomFieldText    { label valueText }
           ... on CustomFieldNumeric { label valueNumeric }
@@ -210,8 +210,8 @@ const CLIENTS_QUERY = `
             name
             title
             role
-            emails { address }
-            phones { number }
+            emails { nodes { address } }
+            phones { nodes { number } }
             isBillingContact
             receivesFollowUps
             receivesReminders
@@ -221,13 +221,12 @@ const CLIENTS_QUERY = `
         notes {
           nodes {
             id
-            body
-            author { id }
+            message
             pinned
             createdAt
           }
         }
-        tags { name }
+        tags { nodes { label } }
       }
       pageInfo { hasNextPage endCursor }
     }
@@ -257,8 +256,8 @@ async function syncClients(
     const { nodes, pageInfo } = resp.data.clients
 
     for (const raw of nodes as ClientNode[]) {
-      const primaryEmail = raw.emails?.find(e => e.isPrimary)?.address ?? raw.emails?.[0]?.address ?? null
-      const primaryPhone = raw.phones?.find(p => p.isPrimary)?.number ?? raw.phones?.[0]?.number ?? null
+      const primaryEmail = raw.emails?.find(e => e.primary)?.address ?? raw.emails?.[0]?.address ?? null
+      const primaryPhone = raw.phones?.find(p => p.primary)?.number ?? raw.phones?.[0]?.number ?? null
 
       // Upsert client
       await admin.from('clients').upsert({
@@ -276,7 +275,7 @@ async function syncClients(
         balance: raw.balance ?? null,
         is_archived: raw.isArchived ?? false,
         lead_source: raw.leadSource ?? null,
-        jobber_web_uri: raw.webUrl ?? null,
+        jobber_web_uri: raw.jobberWebUri ?? null,
         custom_fields: raw.customFields ?? null,
         last_synced_at: new Date().toISOString(),
         external_created_at: raw.createdAt ?? null,
@@ -322,8 +321,8 @@ async function syncClients(
             name: c.name ?? null,
             title: c.title ?? null,
             role: c.role ?? null,
-            email: c.emails?.[0]?.address ?? null,
-            phone: c.phones?.[0]?.number ?? null,
+            email: c.emails?.nodes?.[0]?.address ?? null,
+            phone: c.phones?.nodes?.[0]?.number ?? null,
             is_billing_contact: c.isBillingContact ?? false,
             receives_followups: c.receivesFollowUps ?? null,
             receives_reminders: c.receivesReminders ?? null,
@@ -344,8 +343,8 @@ async function syncClients(
             source: 'jobber',
             external_id: note.id,
             client_id: clientRow.id,
-            body: note.body ?? null,
-            author_external_id: note.author?.id ?? null,
+            body: note.message ?? null,
+            author_external_id: null,
             pinned: note.pinned ?? false,
             last_synced_at: new Date().toISOString(),
             external_created_at: note.createdAt ?? null,
@@ -353,10 +352,10 @@ async function syncClients(
         }
 
         // Sync tags
-        for (const tag of raw.tags ?? []) {
+        for (const tag of raw.tags?.nodes ?? []) {
           const { data: tagRow } = await admin
             .from('tags')
-            .upsert({ company_id: companyId, source: 'jobber', name: tag.name }, {
+            .upsert({ company_id: companyId, source: 'jobber', name: tag.label }, {
               onConflict: 'company_id,name' as string,
               ignoreDuplicates: false,
             })
@@ -392,7 +391,6 @@ const PROPERTIES_QUERY = `
         address { street1 street2 city province postalCode }
         client { id }
         createdAt
-        updatedAt
       }
       pageInfo { hasNextPage endCursor }
     }
@@ -479,8 +477,7 @@ const JOBS_QUERY = `
         startAt
         endAt
         completedAt
-        isRecurring
-        webUrl
+        jobberWebUri
         createdAt
         updatedAt
         client { id }
@@ -500,14 +497,6 @@ const JOBS_QUERY = `
             totalPrice
           }
         }
-        notes {
-          nodes {
-            id
-            body
-            author { id }
-            createdAt
-          }
-        }
       }
       pageInfo { hasNextPage endCursor }
     }
@@ -524,11 +513,18 @@ async function syncJobs(
   let total = 0
 
   while (true) {
+    // Jobber's JobFilterAttributes has no updatedAt. Use visitsScheduledBetween
+    // to capture jobs with activity in the YTD window (covers recurring jobs
+    // created in prior years). Delta (Session 68) uses createdAt as a stopgap
+    // until a proper change-cursor strategy is designed — TODO(Session 68).
     const filter: Record<string, unknown> = {}
     if (updatedSince) {
-      filter.updatedAt = { greaterThan: updatedSince.toISOString() }
+      filter.createdAt = { after: updatedSince.toISOString() }
     } else {
-      filter.updatedAt = { greaterThan: '2026-01-01T00:00:00Z' }
+      filter.visitsScheduledBetween = {
+        after: '2026-01-01T00:00:00Z',
+        before: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      }
     }
 
     const resp = await withRateLimit(() =>
@@ -578,7 +574,7 @@ async function syncJobs(
         property_external_id: job.property?.id ?? null,
         title: job.title ?? null,
         job_number: job.jobNumber ?? null,
-        is_recurring: job.isRecurring ?? false,
+        is_recurring: (job.jobType ?? '').toUpperCase().includes('RECURRING'),
         job_status: job.jobStatus ?? null,
         job_type: job.jobType ?? null,
         billing_type: job.billingType ?? null,
@@ -592,7 +588,7 @@ async function syncJobs(
         dept_prefix: deptPrefix,
         ...denormalized,
         custom_fields: raw,
-        jobber_web_uri: job.webUrl ?? null,
+        jobber_web_uri: job.jobberWebUri ?? null,
         last_synced_at: new Date().toISOString(),
         external_created_at: job.createdAt ?? null,
         updated_at: new Date().toISOString(),
@@ -630,19 +626,9 @@ async function syncJobs(
           await admin.from('line_items').upsert(lineItemRows, { onConflict: 'external_id,source' })
         }
 
-        // Sync job notes
-        for (const note of job.notes?.nodes ?? []) {
-          await admin.from('job_notes').upsert({
-            company_id: companyId,
-            source: 'jobber',
-            external_id: note.id,
-            job_id: jobRow.id,
-            body: note.body ?? null,
-            author_external_id: note.author?.id ?? null,
-            last_synced_at: new Date().toISOString(),
-            external_created_at: note.createdAt ?? null,
-          }, { onConflict: 'external_id,source' })
-        }
+        // Job notes are a JobNoteUnionConnection in Jobber's schema (selections
+        // can't be made directly on the union). Deferred — handle with inline
+        // fragments in a later session. TODO(Session 68): job_notes.
       }
     }
 
@@ -669,11 +655,7 @@ const VISITS_SYNC_QUERY = `
         endAt
         completedAt
         visitStatus
-        overrideReason
-        subtotal
-        total
         createdAt
-        updatedAt
         job { id }
         client { id }
         assignedUsers { nodes { id } }
@@ -703,13 +685,16 @@ async function syncVisits(
   let total = 0
 
   while (true) {
+    // Jobber's VisitFilterAttributes has no updatedAt; filter on the visit's
+    // scheduled start (startAt range, proven shape from app/api/visits).
+    // Delta (Session 68) re-pulls the recent window — TODO(Session 68).
     const filter: Record<string, unknown> = {}
     if (updatedSince) {
-      filter.updatedAt = { greaterThan: updatedSince.toISOString() }
+      filter.startAt = { after: updatedSince.toISOString() }
     } else {
-      filter.scheduledBetween = {
-        start: '2026-01-01T00:00:00Z',
-        end: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
+      filter.startAt = {
+        after: '2026-01-01T00:00:00Z',
+        before: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
       }
     }
 
@@ -742,9 +727,9 @@ async function syncVisits(
         completed_at: v.completedAt ?? null,
         visit_status: v.visitStatus ?? null,
         tech_external_user_ids: v.assignedUsers?.nodes?.map((u: { id: string }) => u.id) ?? [],
-        subtotal: v.subtotal ?? null,
-        total: v.total ?? null,
-        override_reason: v.overrideReason ?? null,
+        subtotal: null,
+        total: null,
+        override_reason: null,
         last_synced_at: new Date().toISOString(),
         external_created_at: v.createdAt ?? null,
         updated_at: new Date().toISOString(),
@@ -798,19 +783,17 @@ const INVOICES_QUERY = `
     invoices(first: 100, after: $cursor, filter: $filter) {
       nodes {
         id
+        invoiceNumber
         invoiceStatus
-        invoiceNet
-        subtotal
-        total
-        outstandingBalance
+        amounts { subtotal total invoiceBalance }
         issuedDate
         dueDate
-        paidDate
+        receivedDate
         subject
         createdAt
         updatedAt
         client { id }
-        job { id }
+        jobs(first: 1) { nodes { id } }
         lineItems(first: 50) {
           nodes {
             id
@@ -839,9 +822,9 @@ async function syncInvoices(
   while (true) {
     const filter: Record<string, unknown> = {}
     if (updatedSince) {
-      filter.updatedAt = { greaterThan: updatedSince.toISOString() }
+      filter.updatedAt = { after: updatedSince.toISOString() }
     } else {
-      filter.issuedAfter = '2026-01-01'
+      filter.issuedDate = { after: '2026-01-01T00:00:00Z' }
     }
 
     const resp = await withRateLimit(() =>
@@ -853,10 +836,11 @@ async function syncInvoices(
     const { nodes, pageInfo } = resp.data.invoices
 
     for (const inv of nodes) {
+      const jobExternalId = inv.jobs?.nodes?.[0]?.id ?? null
       const { data: clientRow } = await admin
         .from('clients').select('id').eq('external_id', inv.client?.id ?? '').eq('source', 'jobber').maybeSingle()
       const { data: jobRow } = await admin
-        .from('jobs').select('id').eq('external_id', inv.job?.id ?? '').eq('source', 'jobber').maybeSingle()
+        .from('jobs').select('id').eq('external_id', jobExternalId ?? '').eq('source', 'jobber').maybeSingle()
 
       await admin.from('invoices').upsert({
         company_id: companyId,
@@ -865,16 +849,16 @@ async function syncInvoices(
         client_id: clientRow?.id ?? null,
         client_external_id: inv.client?.id ?? null,
         job_id: jobRow?.id ?? null,
-        job_external_id: inv.job?.id ?? null,
-        invoice_number: inv.invoiceNet ?? null,
+        job_external_id: jobExternalId,
+        invoice_number: inv.invoiceNumber ?? null,
         subject: inv.subject ?? null,
-        subtotal: inv.subtotal ?? null,
-        total: inv.total ?? null,
-        outstanding_balance: inv.outstandingBalance ?? null,
+        subtotal: inv.amounts?.subtotal ?? null,
+        total: inv.amounts?.total ?? null,
+        outstanding_balance: inv.amounts?.invoiceBalance ?? null,
         invoice_status: inv.invoiceStatus ?? null,
         issued_date: inv.issuedDate ?? null,
         due_date: inv.dueDate ?? null,
-        paid_at: inv.paidDate ?? null,
+        paid_at: inv.receivedDate ?? null,
         last_synced_at: new Date().toISOString(),
         external_created_at: inv.createdAt ?? null,
         updated_at: new Date().toISOString(),
@@ -1011,25 +995,25 @@ export async function processJobberWebhookEvent(
 interface ClientNode {
   id: string; name?: string; firstName?: string; lastName?: string
   companyName?: string; isCompany?: boolean; isLead?: boolean
-  emails?: { address: string; isPrimary?: boolean }[]
-  phones?: { number: string; isPrimary?: boolean }[]
-  balance?: number; isArchived?: boolean; leadSource?: string; webUrl?: string
+  emails?: { address: string; primary?: boolean }[]
+  phones?: { number: string; primary?: boolean }[]
+  balance?: number; isArchived?: boolean; leadSource?: string; jobberWebUri?: string
   customFields?: RawCustomField[]; createdAt?: string; updatedAt?: string
   contacts?: { nodes: ContactNode[] }
   notes?: { nodes: NoteNode[] }
-  tags?: { name: string }[]
+  tags?: { nodes: { label: string }[] }
 }
 
 interface ContactNode {
   id: string; firstName?: string; lastName?: string; name?: string
   title?: string; role?: string
-  emails?: { address: string }[]; phones?: { number: string }[]
+  emails?: { nodes: { address: string }[] }; phones?: { nodes: { number: string }[] }
   isBillingContact?: boolean; receivesFollowUps?: boolean
   receivesReminders?: boolean; createdAt?: string
 }
 
 interface NoteNode {
-  id: string; body?: string; author?: { id: string }; pinned?: boolean; createdAt?: string
+  id: string; message?: string; pinned?: boolean; createdAt?: string
 }
 
 interface PropertyNode {
@@ -1041,28 +1025,28 @@ interface PropertyNode {
 interface JobNode {
   id: string; title?: string; jobNumber?: number; jobStatus?: string; jobType?: string
   billingType?: string; total?: number; invoicedTotal?: number; uninvoicedTotal?: number
-  startAt?: string; endAt?: string; completedAt?: string; isRecurring?: boolean; webUrl?: string
+  startAt?: string; endAt?: string; completedAt?: string; jobberWebUri?: string
   createdAt?: string; updatedAt?: string
   client?: { id: string }; property?: { id: string }; salesperson?: { id: string }
   customFields?: RawCustomField[]
   lineItems?: { nodes: LineItemNode[] }
-  notes?: { nodes: NoteNode[] }
 }
 
 interface VisitNode {
   id: string; title?: string; startAt?: string; endAt?: string; completedAt?: string
-  visitStatus?: string; overrideReason?: string; subtotal?: number; total?: number
-  createdAt?: string; updatedAt?: string
+  visitStatus?: string
+  createdAt?: string
   job?: { id: string }; client?: { id: string }
   assignedUsers?: { nodes: { id: string }[] }
   lineItems?: { nodes: LineItemNode[] }
 }
 
 interface InvoiceNode {
-  id: string; invoiceStatus?: string; invoiceNet?: string; subtotal?: number
-  total?: number; outstandingBalance?: number; issuedDate?: string; dueDate?: string
-  paidDate?: string; subject?: string; createdAt?: string; updatedAt?: string
-  client?: { id: string }; job?: { id: string }
+  id: string; invoiceStatus?: string; invoiceNumber?: string
+  amounts?: { subtotal?: number; total?: number; invoiceBalance?: number }
+  issuedDate?: string; dueDate?: string; receivedDate?: string
+  subject?: string; createdAt?: string; updatedAt?: string
+  client?: { id: string }; jobs?: { nodes: { id: string }[] }
   lineItems?: { nodes: LineItemNode[] }
 }
 
