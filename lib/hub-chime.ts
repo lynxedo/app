@@ -205,17 +205,21 @@ function playTones(c: AudioContext): void {
 // so the first tap isn't silent.
 export function playChime(): void {
   const c = getCtx()
-  // Running context (a normal browser tab after the first gesture): use the
-  // crisp Web Audio synth — this is the path that already works.
-  if (c && c.state === 'running') {
+  if (!c) { playFallback(); return }
+  // Running (a normal focused tab after the first gesture): play the synth.
+  if (c.state === 'running') {
     playTones(c)
     return
   }
-  // Suspended or unavailable — typical in a backgrounded installed PWA, where
-  // Chrome won't resume the AudioContext from a background timer. Nudge it for
-  // next time, but play NOW via the pre-unlocked HTMLAudio fallback.
-  if (c && c.state === 'suspended') {
-    c.resume().catch(() => {})
-  }
-  playFallback()
+  // Suspended — a BACKGROUNDED browser tab (Chrome suspends the context) OR an
+  // installed PWA. Resume then play the synth: this is the path that works in a
+  // normal backgrounded tab. Only if the context refuses to resume (the PWA
+  // case, where Chrome blocks a background resume) do we use the pre-unlocked
+  // <audio> fallback.
+  c.resume()
+    .then(() => {
+      if (c.state === 'running') playTones(c)
+      else playFallback()
+    })
+    .catch(() => playFallback())
 }
