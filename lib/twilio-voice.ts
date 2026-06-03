@@ -135,7 +135,7 @@ export function twimlDialPstn(opts: {
   if (from) attrs.push(`callerId="${escapeXmlAttr(from)}"`)
   if (opts.timeoutSeconds) attrs.push(`timeout="${opts.timeoutSeconds}"`)
   if (opts.recordCalls) {
-    attrs.push('record="record-from-answer"')
+    attrs.push('record="record-from-answer-dual"')
     if (opts.recordingStatusCallback) {
       attrs.push(
         `recordingStatusCallback="${escapeXmlAttr(opts.recordingStatusCallback)}"`
@@ -165,7 +165,7 @@ export function twimlDialClient(opts: {
   if (opts.callerId) attrs.push(`callerId="${escapeXmlAttr(opts.callerId)}"`)
   if (opts.timeoutSeconds) attrs.push(`timeout="${opts.timeoutSeconds}"`)
   if (opts.recordCalls) {
-    attrs.push('record="record-from-answer"')
+    attrs.push('record="record-from-answer-dual"')
     if (opts.recordingStatusCallback) {
       attrs.push(
         `recordingStatusCallback="${escapeXmlAttr(opts.recordingStatusCallback)}"`
@@ -273,6 +273,59 @@ export async function downloadTwilioRecording(
     contentType: res.headers.get('content-type') || 'audio/mpeg',
   }
 }
+
+// Start a dual-channel recording on a live call via the REST API. Used for
+// INBOUND calls, which flow through the IVR / ring groups — per-<Dial> record
+// attributes would miss those, but a call-level recording captures the whole
+// thing regardless of routing. The inbound call is already 'in-progress' when
+// our webhook fires (Twilio answers the inbound leg to execute TwiML), so the
+// recording can be started immediately. Fire-and-forget; failures never block
+// the call. Returns the RecordingSid on success, null otherwise.
+export async function startCallRecording(
+  callSid: string,
+  recordingStatusCallback: string
+): Promise<string | null> {
+  if (!ACCOUNT_SID || !AUTH_TOKEN || !callSid) return null
+  const auth = Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString('base64')
+  const body = new URLSearchParams({
+    RecordingChannels: 'dual',
+    RecordingTrack: 'both',
+    RecordingStatusCallback: recordingStatusCallback,
+    RecordingStatusCallbackEvent: 'completed',
+    RecordingStatusCallbackMethod: 'POST',
+  })
+  try {
+    const res = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Calls/${encodeURIComponent(callSid)}/Recordings.json`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Basic ${auth}`,
+          'Content-Type': 'application/x-www-form-urlencoded',
+        },
+        body: body.toString(),
+      }
+    )
+    if (!res.ok) return null
+    const json = (await res.json()) as { sid?: string }
+    return json.sid || null
+  } catch {
+    return null
+  }
+}
+
+// Inject a brief "this call may be recorded" notice at the very start of any
+// TwiML <Response>. Works across every inbound path (IVR menu, dial, voicemail)
+// because every builder here emits `...<Response>...`. Only applied when
+// recording is enabled, so callers hear it exactly when recording happens.
+export function injectConsentNotice(twiml: string, notice: string): string {
+  if (!notice) return twiml
+  const say = `<Say voice="alice">${escapeXmlText(notice)}</Say>`
+  return twiml.replace('<Response>', `<Response>${say}`)
+}
+
+export const DEFAULT_RECORDING_CONSENT_NOTICE =
+  'This call may be recorded for quality and training purposes.'
 
 // ---------------------------------------------------------------------------
 // IVR (Auto-Attendant) — Session 59
