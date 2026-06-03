@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendSms, twilioConfigured, twilioConvSendMessage } from '@/lib/twilio'
 import { resolveFromNumber } from '@/lib/txt-numbers'
+import { buildMessagePreview } from '@/lib/txt-preview'
 
 // Cron-driven delivery of due scheduled Txt messages. Wire on the VPS:
 //   */1 * * * * curl -s -X POST https://lynxedo.com/api/txt/scheduled/process \
@@ -117,7 +118,11 @@ export async function POST(request: Request) {
       }
       await admin
         .from('txt_conversations')
-        .update({ last_message_at: nowIso })
+        .update({
+          last_message_at: nowIso,
+          last_message_preview: buildMessagePreview(sm.body, (sm.media_urls || []).length),
+          last_message_direction: 'outbound',
+        })
         .eq('id', conv.id)
 
       if (!twilioConfigured()) {

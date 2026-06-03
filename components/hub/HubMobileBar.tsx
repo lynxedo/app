@@ -18,12 +18,16 @@ export default function HubMobileBar({
   onHubClick,
   onTxtClick,
   onPhoneClick,
+  onUserSlotNav,
   onTimeClockClick,
   onToolsClick,
   onLinksClick,
   isClockedIn,
   unreadHub,
   unheardVoicemails,
+  txtUnread,
+  missedCall,
+  dailyLogUnread,
   canAccessDialer,
   permissions,
   railConfig,
@@ -36,12 +40,17 @@ export default function HubMobileBar({
   onHubClick: () => void
   onTxtClick: () => void
   onPhoneClick: () => void
+  /** Open the mobile drawer for a sidebar-backed user slot (Txt2 / Dialer). */
+  onUserSlotNav?: () => void
   onTimeClockClick: () => void
   onToolsClick: () => void
   onLinksClick: () => void
   isClockedIn?: boolean
   unreadHub?: boolean
   unheardVoicemails?: number
+  txtUnread?: boolean
+  missedCall?: boolean
+  dailyLogUnread?: boolean
   canAccessDialer?: boolean
   permissions: RailPermissions
   railConfig: RailConfig | null
@@ -55,6 +64,19 @@ export default function HubMobileBar({
   const active = railFromPath(pathname)
   const config = normalizeRailConfig(railConfig)
   const userSlot = config.mobile[0] ?? null
+
+  // Catalog ids whose section has its own mobile drawer sidebar — tapping their
+  // user-slot icon should open/close that drawer (like the fixed Hub/Txt/Phone
+  // buttons), not just navigate.
+  const SIDEBAR_BACKED = new Set<CatalogId>(['txt2', 'dialer'])
+
+  // Orange unread dot for the configurable user slot, mirroring the desktop rail.
+  function slotDot(id: CatalogId): boolean {
+    if (id === 'txt2') return !!txtUnread
+    if (id === 'dialer') return !!missedCall
+    if (id === 'daily-log') return !!dailyLogUnread
+    return false
+  }
 
   function handleHubClick(e: React.MouseEvent) {
     e.preventDefault()
@@ -141,9 +163,18 @@ export default function HubMobileBar({
     const cls = `flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors ${
       isActive ? 'text-amber-300' : 'text-white/60 hover:text-white'
     }`
+    const showDot = slotDot(entry.id)
     const inner = (
       <>
-        {entry.icon}
+        <span className="relative">
+          {entry.icon}
+          {showDot && (
+            <span
+              className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border border-gray-950"
+              aria-label="Unread"
+            />
+          )}
+        </span>
         <span className="truncate max-w-full px-1">{entry.label}</span>
       </>
     )
@@ -152,6 +183,21 @@ export default function HubMobileBar({
     }
     if (entry.id === 'links') {
       return <button key="user" type="button" onClick={wrapToggleable('links', onLinksClick)} className={cls}>{inner}</button>
+    }
+    // Sidebar-backed sections (Txt2, Dialer): tap to open the drawer + navigate,
+    // tap again while already there to close — same toggle as the fixed buttons.
+    if (entry.href && SIDEBAR_BACKED.has(entry.id)) {
+      const href = entry.href
+      const onClick = (e: React.MouseEvent) => {
+        e.preventDefault()
+        if (drawerOpen && active === entry.id && !activeManualRail) {
+          onCloseDrawer?.()
+          return
+        }
+        onUserSlotNav?.()
+        if (active !== entry.id) router.push(href)
+      }
+      return <button key="user" type="button" onClick={onClick} className={cls}>{inner}</button>
     }
     if (entry.href) {
       return <Link key="user" href={entry.href} className={cls}>{inner}</Link>

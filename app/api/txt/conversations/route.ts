@@ -36,7 +36,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from('txt_conversations')
     .select(
-      `id, kind, status, assigned_to, archived_by, last_message_at, last_inbound_at, created_at,
+      `id, kind, status, assigned_to, archived_by, last_message_at, last_inbound_at, last_message_preview, last_message_direction, created_at,
        contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, do_not_text ),
        assignee:hub_users!assigned_to ( id, display_name ),
        members:txt_conversation_members ( user_id, role, member:hub_users!user_id ( id, display_name ) ),

@@ -9,6 +9,7 @@ import {
 import { renderTemplate } from '@/lib/txt-templates'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
 import { resolveFromNumber } from '@/lib/txt-numbers'
+import { buildMessagePreview } from '@/lib/txt-preview'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -173,7 +174,13 @@ export async function POST(
 
   await admin
     .from('txt_conversations')
-    .update({ last_message_at: new Date().toISOString() })
+    .update({
+      last_message_at: new Date().toISOString(),
+      // Preview uses the message body (pre-signature) so the sidebar snippet
+      // isn't dominated by the appended signature.
+      last_message_preview: buildMessagePreview(text, mediaUrls.length),
+      last_message_direction: 'outbound',
+    })
     .eq('id', conversationId)
 
   if (!twilioConfigured()) {

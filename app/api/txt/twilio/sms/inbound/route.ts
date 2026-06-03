@@ -8,6 +8,7 @@ import {
   twilioConfigured,
 } from '@/lib/twilio'
 import { sendHubPush } from '@/lib/hub-push'
+import { buildMessagePreview } from '@/lib/txt-preview'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -239,10 +240,15 @@ export async function POST(req: NextRequest) {
     return twimlResponse(EMPTY_TWIML, 500)
   }
 
-  // Bump conversation timestamps
+  // Bump conversation timestamps + sidebar preview
   await supabase
     .from('txt_conversations')
-    .update({ last_message_at: now, last_inbound_at: now })
+    .update({
+      last_message_at: now,
+      last_inbound_at: now,
+      last_message_preview: buildMessagePreview(body, mediaUrls.length),
+      last_message_direction: 'inbound',
+    })
     .eq('id', conversationId)
 
   // STOP / START / HELP compliance handling

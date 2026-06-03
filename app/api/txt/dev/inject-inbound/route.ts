@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/twilio'
+import { buildMessagePreview } from '@/lib/txt-preview'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -110,7 +111,12 @@ export async function POST(request: Request) {
 
   await admin
     .from('txt_conversations')
-    .update({ last_message_at: now, last_inbound_at: now })
+    .update({
+      last_message_at: now,
+      last_inbound_at: now,
+      last_message_preview: buildMessagePreview(text, 0),
+      last_message_direction: 'inbound',
+    })
     .eq('id', conversationId)
 
   return NextResponse.json({

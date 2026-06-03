@@ -15,6 +15,8 @@ type Conversation = {
   assigned_to: string | null
   last_message_at: string | null
   last_inbound_at: string | null
+  last_message_preview: string | null
+  last_message_direction: 'inbound' | 'outbound' | null
   created_at: string
   contact: { id: string; name: string; phone: string; do_not_text: boolean } | null
   assignee: { id: string; display_name: string } | null
@@ -92,6 +94,31 @@ export default function TxtV2Sidebar({
   const [assignOpenId, setAssignOpenId] = useState<string | null>(null)
   const [users, setUsers] = useState<SimpleUser[]>([])
 
+  // Per-conversation read tracking (per-device, like the rail dot). Maps a
+  // conversation id → the ISO time this device last opened it. A conversation
+  // is "unread" when its last_inbound_at is newer than that stamp. Stored as
+  // one JSON blob so we don't pollute localStorage with a key per thread.
+  const READS_KEY = 'txt-conv-reads'
+  const [reads, setReads] = useState<Record<string, string>>(() => {
+    if (typeof window === 'undefined') return {}
+    try {
+      return JSON.parse(localStorage.getItem(READS_KEY) || '{}') as Record<string, string>
+    } catch {
+      return {}
+    }
+  })
+  const markRead = useCallback((id: string) => {
+    setReads((prev) => {
+      const next = { ...prev, [id]: new Date().toISOString() }
+      try {
+        localStorage.setItem(READS_KEY, JSON.stringify(next))
+      } catch {
+        /* ignore */
+      }
+      return next
+    })
+  }, [])
+
   // Assignable users for the inline Assign menu (managers only).
   useEffect(() => {
     if (!canAssign) return
@@ -144,6 +171,32 @@ export default function TxtV2Sidebar({
       clearInterval(t)
     }
   }, [load])
+
+  // Mark the currently-open conversation read — on navigation AND on every
+  // list refresh, so a thread you're actively viewing stays read as new
+  // inbounds arrive (no stale dot when you leave it).
+  useEffect(() => {
+    const m = pathname.match(/^\/hub\/txt\/([0-9a-fA-F-]+)$/)
+    if (m) markRead(m[1])
+  }, [pathname, conversations, markRead])
+
+  // A conversation is unread when a customer inbound landed after this device
+  // last opened it. The currently-open thread never shows a dot.
+  function isUnread(c: Conversation) {
+    if (c.status === 'archived') return false
+    if (!c.last_inbound_at) return false
+    if (pathname === `/hub/txt/${c.id}`) return false
+    const seen = reads[c.id]
+    return !seen || c.last_inbound_at > seen
+  }
+
+  // Sidebar subline: the last message snippet ("You: …" for outbound), falling
+  // back to the phone / group-size line when there's no preview yet.
+  function previewFor(c: Conversation) {
+    const p = (c.last_message_preview || '').trim()
+    if (!p) return sublineFor(c)
+    return c.last_message_direction === 'outbound' ? `You: ${p}` : p
+  }
 
   const matchesSearch = useCallback(
     (c: Conversation) => {
@@ -345,7 +398,7 @@ export default function TxtV2Sidebar({
                         </span>
                       </div>
                       <div className="text-[11px] text-white/40 truncate mt-0.5">
-                        {sublineFor(c)}
+                        {previewFor(c)}
                       </div>
                     </Link>
                     {/* Inline triage actions */}
@@ -423,11 +476,12 @@ export default function TxtV2Sidebar({
         <ul>
           {filteredMain.map((c) => {
             const active = pathname === `/hub/txt/${c.id}`
+            const unread = isUnread(c)
             return (
               <li key={c.id}>
                 <Link
                   href={`/hub/txt/${c.id}`}
-                  onClick={onClose}
+                  onClick={() => { markRead(c.id); onClose?.() }}
                   className={`block px-4 py-2 border-l-2 ${
                     active
                       ? 'bg-white/5 border-emerald-400'
@@ -435,16 +489,24 @@ export default function TxtV2Sidebar({
                   }`}
                 >
                   <div className="flex items-center justify-between gap-2">
-                    <span className="font-medium text-sm truncate">
-                      {displayNameFor(c)}
+                    <span className="flex items-center gap-1.5 min-w-0">
+                      {unread && (
+                        <span
+                          className="w-2 h-2 rounded-full bg-orange-400 flex-none"
+                          aria-label="Unread"
+                        />
+                      )}
+                      <span className={`text-sm truncate ${unread ? 'font-semibold text-white' : 'font-medium'}`}>
+                        {displayNameFor(c)}
+                      </span>
                     </span>
-                    <span className="text-[10px] text-white/40 flex-none">
+                    <span className={`text-[10px] flex-none ${unread ? 'text-orange-300' : 'text-white/40'}`}>
                       {formatRelative(c.last_message_at || c.created_at)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-0.5">
-                    <span className="text-[11px] text-white/40 truncate">
-                      {sublineFor(c)}
+                    <span className={`text-[11px] truncate ${unread ? 'text-white/70' : 'text-white/40'}`}>
+                      {previewFor(c)}
                     </span>
                     <span className="flex items-center gap-1 text-[10px] flex-none">
                       {c.status === 'assigned' && c.assignee && (
