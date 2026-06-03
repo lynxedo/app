@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { recomputeDayEntry } from '@/lib/timesheet-recompute'
 
 // GET /api/timesheet/admin/punches?employee_id=xxx&start=YYYY-MM-DD&end=YYYY-MM-DD
 export async function GET(req: NextRequest) {
@@ -54,7 +55,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'employee_id, punch_type, and punched_at required' }, { status: 400 })
   }
 
-  const { data, error } = await supabase
+  const admin = createAdminClient()
+  const { data, error } = await admin
     .from('time_punches')
     .insert({ employee_id, punch_type, punched_at, note: note || null, edited_by: user.id })
     .select()
@@ -62,50 +64,11 @@ export async function POST(req: NextRequest) {
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // If this completes an in/out pair, create the time_entry
-  if (punch_type === 'out') {
-    const date = new Date(punched_at).toISOString().split('T')[0]
-    const { data: dayPunches } = await supabase
-      .from('time_punches')
-      .select('*')
-      .eq('employee_id', employee_id)
-      .gte('punched_at', date + 'T00:00:00Z')
-      .lte('punched_at', date + 'T23:59:59Z')
-      .order('punched_at', { ascending: true })
-
-    if (dayPunches) {
-      const inPunch = dayPunches.find((p: { punch_type: string }) => p.punch_type === 'in')
-      const outPunch = dayPunches.find((p: { punch_type: string }) => p.punch_type === 'out')
-      if (inPunch && outPunch) {
-        const clockIn = new Date(inPunch.punched_at)
-        const clockOut = new Date(outPunch.punched_at)
-        const totalHours = Math.max(0, (clockOut.getTime() - clockIn.getTime()) / 3600000)
-        // OT is weekly (>40h), not daily — store all shift hours as regular.
-        // weekSummary() in the admin UI computes weekly OT across all entries.
-        const regularHours = totalHours
-        const overtimeHours = 0
-
-        const day = clockIn.getDay()
-        const daysFromMonday = day === 0 ? 6 : day - 1
-        const monday = new Date(clockIn)
-        monday.setDate(clockIn.getDate() - daysFromMonday)
-        const sunday = new Date(monday)
-        sunday.setDate(monday.getDate() + 6)
-
-        await supabase.from('time_entries').upsert({
-          employee_id,
-          date,
-          clock_in: clockIn.toISOString(),
-          clock_out: clockOut.toISOString(),
-          total_hours: Math.round(totalHours * 100) / 100,
-          regular_hours: Math.round(regularHours * 100) / 100,
-          overtime_hours: Math.round(overtimeHours * 100) / 100,
-          pay_period_start: monday.toISOString().split('T')[0],
-          pay_period_end: sunday.toISOString().split('T')[0],
-        }, { onConflict: 'employee_id,date' })
-      }
-    }
-  }
+  // Recompute the derived entry for this punch's day (punches are the source of
+  // truth; the entry is a rollup). Covers both completing a pair and adding a
+  // stray punch. Weekly-OT policy lives in the shared helper.
+  const date = new Date(punched_at).toISOString().split('T')[0]
+  await recomputeDayEntry(admin, employee_id, date)
 
   return NextResponse.json({ punch: data })
 }
@@ -130,6 +93,16 @@ export async function DELETE(req: NextRequest) {
   // policy, so a user-session delete is silently filtered to 0 rows (no error,
   // nothing removed). The caller is already authenticated + admin-checked above.
   const admin = createAdminClient()
+
+  // Capture the punch's employee/date BEFORE deleting so we can recompute its
+  // day afterward — otherwise a stale time_entries row lingers (the bug where
+  // deleting a bad punch left the wrong hours showing).
+  const { data: target } = await admin
+    .from('time_punches')
+    .select('employee_id, punched_at')
+    .eq('id', id)
+    .single()
+
   const { data: deleted, error } = await admin
     .from('time_punches')
     .delete()
@@ -139,5 +112,11 @@ export async function DELETE(req: NextRequest) {
   if (!deleted || deleted.length === 0) {
     return NextResponse.json({ error: 'Punch not found' }, { status: 404 })
   }
+
+  if (target) {
+    const date = new Date(target.punched_at).toISOString().split('T')[0]
+    await recomputeDayEntry(admin, target.employee_id, date)
+  }
+
   return NextResponse.json({ ok: true })
 }

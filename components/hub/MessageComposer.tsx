@@ -694,6 +694,16 @@ export default function MessageComposer({
         </button>
       </div>
 
+      {/* Uploading banner — prominent while an attachment (esp. a video, which
+          can take several seconds) is still uploading, so it's clear the
+          message isn't ready to send yet. */}
+      {uploading && (
+        <div className="mb-2 px-3 py-2 bg-[#2E7EB8]/10 border border-[#2E7EB8]/30 rounded-lg flex items-center gap-2.5 text-xs text-[#9cc7e6]">
+          <div className="w-4 h-4 border-2 border-[#2E7EB8] border-t-transparent rounded-full animate-spin flex-none" />
+          <span>Uploading attachment… please wait before sending.</span>
+        </div>
+      )}
+
       {/* Input rectangle — clean, just the textarea. Attach/send/emoji
           live in the toolbar bar below. */}
       <div
@@ -911,12 +921,12 @@ export default function MessageComposer({
         {hasContent && (
           <button
             onClick={send}
-            disabled={sending}
+            disabled={sending || uploading}
             style={{ width: '32px', height: '32px' }}
             className={`flex-none rounded-lg disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors ${
               scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-[#2E7EB8] hover:bg-[#2470a8]'
             }`}
-            title={scheduledAt ? 'Schedule message' : 'Send'}
+            title={uploading ? 'Waiting for upload…' : scheduledAt ? 'Schedule message' : 'Send'}
             aria-label={scheduledAt ? 'Schedule message' : 'Send'}
           >
             {scheduledAt ? (

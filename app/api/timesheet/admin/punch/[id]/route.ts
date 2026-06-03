@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { recomputeDayEntry } from '@/lib/timesheet-recompute'
 
 // PATCH /api/timesheet/admin/punch/[id] — admin edits a punch time
 export async function PATCH(
@@ -55,41 +57,9 @@ export async function PATCH(
     .single()
 
   if (punch) {
-    // Find the matching in/out pair and recompute
+    // Recompute the derived entry from the day's punches (source of truth).
     const date = new Date(punch.punched_at).toISOString().split('T')[0]
-    const { data: dayPunches } = await supabase
-      .from('time_punches')
-      .select('*')
-      .eq('employee_id', punch.employee_id)
-      .gte('punched_at', date + 'T00:00:00Z')
-      .lte('punched_at', date + 'T23:59:59Z')
-      .order('punched_at', { ascending: true })
-
-    if (dayPunches && dayPunches.length >= 2) {
-      const inPunch = dayPunches.find((p: { punch_type: string }) => p.punch_type === 'in')
-      const outPunch = dayPunches.find((p: { punch_type: string }) => p.punch_type === 'out')
-      if (inPunch && outPunch) {
-        const clockIn = new Date(inPunch.punched_at)
-        const clockOut = new Date(outPunch.punched_at)
-        const totalHours = Math.max(0, (clockOut.getTime() - clockIn.getTime()) / 3600000)
-        // OT is weekly (>40h), not daily — store all shift hours as regular.
-        const regularHours = totalHours
-        const overtimeHours = 0
-
-        await supabase
-          .from('time_entries')
-          .update({
-            clock_in: clockIn.toISOString(),
-            clock_out: clockOut.toISOString(),
-            total_hours: Math.round(totalHours * 100) / 100,
-            regular_hours: Math.round(regularHours * 100) / 100,
-            overtime_hours: Math.round(overtimeHours * 100) / 100,
-            updated_at: new Date().toISOString(),
-          })
-          .eq('employee_id', punch.employee_id)
-          .eq('date', date)
-      }
-    }
+    await recomputeDayEntry(createAdminClient(), punch.employee_id, date)
   }
 
   return NextResponse.json({ punch: data })
