@@ -279,7 +279,7 @@ function HubTab() {
         </ul>
         <p className="font-medium text-white mt-3">Toolbar buttons (left to right, below the input)</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">📎 Attach</strong> — pick a file or photo. You can also paste images from your clipboard or drag-and-drop a file straight onto the composer.</li>
+          <li><strong className="text-white">📎 Attach</strong> — pick a file, photo, or video. You can also paste images from your clipboard or drag-and-drop a file straight onto the composer. While a file is uploading (videos can take a few seconds) an <strong className="text-white">Uploading attachment…</strong> banner shows above the box and Send stays disabled until it finishes, so a large video can&apos;t be half-sent.</li>
           <li><strong className="text-white">Aa Format</strong> — wraps your selected text (or inserts markers for you to type between) in bold, italic, strike, code, or quote. See the Formatting section below for the full list of markers and keyboard shortcuts.</li>
           <li><strong className="text-white">😀 Emoji</strong> — opens a full emoji picker with search, categories, recents, and skin tones.</li>
           <li><strong className="text-white">@ Mention</strong> — inserts <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> and opens the name picker. Mentioned people get a push notification even if their notifications are set to Mentions only. You can also just type <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> directly.</li>
@@ -297,6 +297,10 @@ function HubTab() {
           <li><strong className="text-white">Videos</strong> — play right in the chat bubble with native controls (play, scrub, fullscreen, volume).</li>
           <li><strong className="text-white">PDFs</strong> — tap the 📄 card to open the document in the lightbox. <strong className="text-white">Pinch to zoom</strong> (iOS + Android apps included) or use the − / + buttons at the bottom; the ⬇ button in the top-right downloads the file.</li>
         </ul>
+      </Section>
+
+      <Section title="Scrolling back through history">
+        <p>A room or DM opens at the newest messages. Just <strong className="text-white">scroll up</strong> and older messages load automatically as you go — no &quot;load more&quot; button. Your place stays put while the older messages slot in above, so you can keep scrolling back through the whole conversation.</p>
       </Section>
 
       <Section title="Formatting Text">
@@ -337,7 +341,7 @@ function HubTab() {
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">React</strong> — tap one of the three quick reactions (✅ 👍 👀), or hit the <strong className="text-white">+</strong> button next to them to open the full emoji picker (search, categories, recents). On desktop, hover a message → 😊 button shows the same three quick picks. Anyone in the conversation can see and click the reaction.</li>
           <li><strong className="text-white">Copy text</strong> — copies the message text to your clipboard.</li>
-          <li><strong className="text-white">Forward</strong> — send the message into another room or DM.</li>
+          <li><strong className="text-white">Forward</strong> — send the message into another room or DM. Any photos or files on the original message come along with it.</li>
           <li><strong className="text-white">Save to Files</strong> — for photos. Saves the image into Hub Files where it&apos;s tagged and searchable.</li>
           <li><strong className="text-white">Add to Board</strong> — saves the message to one of your boards.</li>
           <li><strong className="text-white">Reply in thread</strong> — opens a side thread so the side conversation doesn&apos;t clutter the main room.</li>
@@ -351,6 +355,7 @@ function HubTab() {
         <p>Anyone in the room can read and reply to a thread. When someone replies in a thread you started or participated in, you get a notification.</p>
         <p>Thread replies support the same toolbar as the main composer — <strong className="text-white">📎 attach</strong> photos and files, <strong className="text-white">Aa</strong> format (bold/italic/strike/quote), <strong className="text-white">😀</strong> insert emoji, and <strong className="text-white">⏰</strong> schedule the reply for later. Attachment-only replies (no text) work too.</p>
         <p><strong className="text-white">Resize the thread pane</strong> — on desktop, hover over the left edge of the thread panel to reveal a drag handle. Drag left to widen it (up to about half the screen), drag right to narrow it. Your preferred width is saved automatically.</p>
+        <Note>📱 On phone, opening a thread takes the full screen for the most reading room — tap the <strong className="text-white">←</strong> back arrow at the top-left to return to the room. The original message scrolls up with the replies as you read.</Note>
       </Section>
 
       <Section title="Boards (Saved Messages)">
@@ -358,6 +363,7 @@ function HubTab() {
         <Step n={1}>Long-press a message → <strong className="text-white">Add to Board</strong>.</Step>
         <Step n={2}>Pick an existing board or create a new one (e.g. <em>Follow-ups</em>, <em>Quotes to send</em>, <em>Photos to post</em>).</Step>
         <Step n={3}>Open the board from the sidebar to see everything you&apos;ve saved.</Step>
+        <p className="mt-3"><strong className="text-white">Notes &amp; files on a task</strong> — open a board item and use the <strong className="text-white">Notes</strong> tab to leave a comment and the <strong className="text-white">Files</strong> tab to attach a photo or document. On the card itself, a 💬 chip shows the note count and a 📎 chip shows the attachment count, so you can see at a glance which items have a discussion or files without opening them.</p>
         <Note>Boards are private to you by default. Admins can create shared boards visible to multiple members.</Note>
       </Section>
 
@@ -1093,11 +1099,13 @@ function TimesheetTab() {
           <p>Admins manage all timesheet data at <strong className="text-white">/admin/timesheet</strong> (also reachable from the Hub sidebar under Tools → Time Records).</p>
           <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
             <li>Review every employee&apos;s shifts for the pay period</li>
-            <li>Edit clock in/out times when someone forgets to clock out</li>
+            <li><strong className="text-white">Edit one day at a time</strong> — on the Summary tab, expand an employee and click <strong className="text-white">✎ Edit</strong> on a day. The Clock In / Clock Out / reason editor opens right there on that day&apos;s row — no popup listing the whole week&apos;s punches.</li>
             <li>Add manual shifts for missed days</li>
             <li>Link Lynxedo users to their Gusto employee record</li>
             <li>Import the period into Gusto when payroll runs (via the Gusto MCP integration)</li>
           </ul>
+          <p className="mt-3"><strong className="text-white">Built-in guards against bad times:</strong> a day won&apos;t save if the clock-out isn&apos;t after the clock-in (catches an AM/PM mix-up, like 3:40 <em>am</em> instead of 3:40 <em>pm</em>), or if a single shift would run over 24 hours. A yellow heads-up also appears for any time before 5 AM or a shift longer than 16 hours so you can double-check before saving.</p>
+          <Note>Overtime is calculated <strong className="text-white">weekly</strong> — anything over 40 hours in the Mon–Sun week — not per day. A 10-hour day on its own is all regular time; OT only kicks in once the week passes 40.</Note>
         </AdminOnly>
       </Section>
     </>
