@@ -2,11 +2,14 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   BusinessHoursSchedule,
+  DEFAULT_RECORDING_CONSENT_NOTICE,
   EMPTY_VOICE_TWIML,
   HolidayEntry,
+  injectConsentNotice,
   IvrConfig,
   IvrTreeName,
   pickIvrTree,
+  startCallRecording,
   twimlDialClient,
   twimlRecordVoicemail,
   twimlRenderIvrNode,
@@ -67,12 +70,14 @@ export async function POST(request: NextRequest) {
   const admin = createAdminClient()
   const { data: settings } = await admin
     .from('dialer_settings')
-    .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays')
+    .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays, recording_enabled, recording_consent_notice')
     .eq('company_id', HEROES_COMPANY_ID)
     .single()
 
   const routeToUserId = settings?.inbound_route_user_id
   const ringTimeout = settings?.ring_timeout_sec ?? 20
+  const recordingEnabled = settings?.recording_enabled === true
+  const consentNotice = settings?.recording_consent_notice || DEFAULT_RECORDING_CONSENT_NOTICE
 
   try {
     let contactId: string | null = null
@@ -103,6 +108,19 @@ export async function POST(request: NextRequest) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   const voicemailRender = `${baseUrl}/api/dialer/voice/twiml/voicemail`
 
+  // Call recording (opt-in via dialer_settings.recording_enabled — default OFF
+  // so the live Dialer is unchanged until an admin flips it). Inbound calls flow
+  // through the IVR / ring groups, so per-<Dial> recording would miss them —
+  // instead start a dual-channel call-level recording over the REST API (the
+  // inbound leg is already in-progress when this webhook fires). Fire-and-forget;
+  // a failure never blocks the call. Every caller then hears the consent notice,
+  // injected at the top of whatever TwiML path we return.
+  if (recordingEnabled && callSid) {
+    startCallRecording(callSid, `${baseUrl}/api/dialer/voice/recording`).catch(() => {})
+  }
+  const respond = (body: string) =>
+    twimlResponse(recordingEnabled ? injectConsentNotice(body, consentNotice) : body)
+
   // IVR takes precedence when enabled and the picked tree has a root node.
   // Session 61 picks default/after_hours/holiday based on business_hours +
   // holidays config. If the picked tree is misconfigured, fall back to default.
@@ -123,7 +141,7 @@ export async function POST(request: NextRequest) {
       const ctx = await buildIvrContext(admin, HEROES_COMPANY_ID)
       const gatherActionUrlFor = (t: IvrTreeName, n: string, r: number) =>
         `${baseUrl}/api/dialer/voice/twiml/ivr?tree=${encodeURIComponent(t)}&node=${encodeURIComponent(n)}&r=${r}`
-      return twimlResponse(
+      return respond(
         twimlRenderIvrNode({
           config,
           treeName,
@@ -143,7 +161,7 @@ export async function POST(request: NextRequest) {
   }
 
   if (routeToUserId) {
-    return twimlResponse(
+    return respond(
       twimlDialClient({
         identity: routeToUserId,
         callerId: fromNumber || undefined,
@@ -161,7 +179,7 @@ export async function POST(request: NextRequest) {
     .eq('company_id', HEROES_COMPANY_ID)
     .single()
 
-  return twimlResponse(
+  return respond(
     twimlRecordVoicemail({
       action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,
       greetingUrl: vmSettings?.fallback_voicemail_url || null,

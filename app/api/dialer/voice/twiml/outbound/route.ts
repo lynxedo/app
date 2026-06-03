@@ -129,12 +129,28 @@ export async function POST(request: NextRequest) {
   const statusCb = `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/status`
   const recordingCb = `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/recording`
 
+  // Recording is opt-in per company (dialer_settings.recording_enabled, default
+  // OFF). Outbound is a plain <Dial><Number> with no IVR, so record-from-answer
+  // (dual-channel) on the Dial is reliable here. Best-effort fetch — if it fails
+  // we just don't record; the call still places.
+  let recordCalls = false
+  try {
+    const { data: recSettings } = await createAdminClient()
+      .from('dialer_settings')
+      .select('recording_enabled')
+      .eq('company_id', HEROES_COMPANY_ID)
+      .single()
+    recordCalls = recSettings?.recording_enabled === true
+  } catch {
+    // swallow — default to not recording
+  }
+
   return twimlResponse(
     twimlDialPstn({
       to,
       callerId: voiceCallerId(),
       timeoutSeconds: 30,
-      recordCalls: false, // off by default in v1 — opt-in per company in a later session
+      recordCalls,
       recordingStatusCallback: recordingCb,
       statusCallback: statusCb,
     })
