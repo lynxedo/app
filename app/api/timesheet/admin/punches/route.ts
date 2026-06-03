@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 // GET /api/timesheet/admin/punches?employee_id=xxx&start=YYYY-MM-DD&end=YYYY-MM-DD
 export async function GET(req: NextRequest) {
@@ -123,7 +124,18 @@ export async function DELETE(req: NextRequest) {
   const id = req.nextUrl.searchParams.get('id')
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
 
-  const { error } = await supabase.from('time_punches').delete().eq('id', id)
+  // Use the service-role client for the delete: time_punches has no DELETE RLS
+  // policy, so a user-session delete is silently filtered to 0 rows (no error,
+  // nothing removed). The caller is already authenticated + admin-checked above.
+  const admin = createAdminClient()
+  const { data: deleted, error } = await admin
+    .from('time_punches')
+    .delete()
+    .eq('id', id)
+    .select('id')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!deleted || deleted.length === 0) {
+    return NextResponse.json({ error: 'Punch not found' }, { status: 404 })
+  }
   return NextResponse.json({ ok: true })
 }
