@@ -72,8 +72,9 @@ export async function PATCH(
         const clockIn = new Date(inPunch.punched_at)
         const clockOut = new Date(outPunch.punched_at)
         const totalHours = Math.max(0, (clockOut.getTime() - clockIn.getTime()) / 3600000)
-        const regularHours = Math.min(totalHours, 8)
-        const overtimeHours = Math.max(0, totalHours - 8)
+        // OT is weekly (>40h), not daily — store all shift hours as regular.
+        const regularHours = totalHours
+        const overtimeHours = 0
 
         await supabase
           .from('time_entries')

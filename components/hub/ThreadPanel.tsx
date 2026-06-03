@@ -483,7 +483,7 @@ export default function ThreadPanel({
               <span className="font-semibold text-xs text-white">{parentSender?.display_name ?? 'Unknown'}</span>
               <span className="text-xs text-gray-600">{formatTime(parentMessage.created_at)}</span>
             </div>
-            <p className="text-xs text-gray-300 leading-relaxed whitespace-pre-wrap break-words line-clamp-4">
+            <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap break-words line-clamp-4">
               {renderContent(parentMessage.content, hubUsers)}
             </p>
           </div>
@@ -494,9 +494,9 @@ export default function ThreadPanel({
       </div>
 
       {/* Replies */}
-      <div className="flex-1 overflow-y-auto w-full px-4 py-3 space-y-3">
+      <div className="flex-1 overflow-y-auto w-full px-4 py-4 space-y-5">
         {replies.length === 0 && (
-          <p className="text-xs text-gray-600 text-center py-4">No replies yet — be the first!</p>
+          <p className="text-sm text-gray-600 text-center py-4">No replies yet — be the first!</p>
         )}
         {replies.map(reply => {
           const sender = normSender(reply.sender)
@@ -521,11 +521,11 @@ export default function ThreadPanel({
             }
           }
           return (
-            <div key={reply.id} className="flex items-start gap-2">
+            <div key={reply.id} className="flex items-start gap-3">
               <Avatar sender={sender} />
               <div className="flex-1 min-w-0">
-                <div className="flex items-baseline gap-2 mb-0.5">
-                  <span className="font-semibold text-xs text-white">{sender?.display_name ?? 'Unknown'}</span>
+                <div className="flex items-baseline gap-2 mb-1">
+                  <span className="font-semibold text-sm text-white">{sender?.display_name ?? 'Unknown'}</span>
                   <span className="text-xs text-gray-600">{formatTime(reply.created_at)}</span>
                 </div>
                 {reply.content && reply.content.trim() && (
