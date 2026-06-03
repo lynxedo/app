@@ -751,6 +751,17 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     }
     if (target.type === 'room') body.room_id = target.id
     else body.conversation_id = target.id
+    // Forward the original message's attachments so recipients see the files too
+    if (forwardingMsg.files && forwardingMsg.files.length > 0) {
+      body.files = forwardingMsg.files.map(f => ({
+        storage_path: f.storage_path,
+        filename: f.filename,
+        mime_type: f.mime_type,
+        size_bytes: f.size_bytes,
+        width_px: f.width_px ?? null,
+        height_px: f.height_px ?? null,
+      }))
+    }
     await fetch('/api/hub/messages', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },

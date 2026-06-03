@@ -25,7 +25,27 @@ export async function GET(
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ items: data ?? [] })
+  if (!data || data.length === 0) return NextResponse.json({ items: [] })
+
+  // Fetch comment and attachment counts for all items in two queries
+  const itemIds = data.map((i: { id: string }) => i.id)
+  const [{ data: commentRows }, { data: attachRows }] = await Promise.all([
+    supabase.from('board_item_comments').select('board_item_id').in('board_item_id', itemIds),
+    supabase.from('board_item_attachments').select('board_item_id').in('board_item_id', itemIds),
+  ])
+
+  const commentCounts: Record<string, number> = {}
+  for (const r of commentRows ?? []) commentCounts[r.board_item_id] = (commentCounts[r.board_item_id] ?? 0) + 1
+  const attachCounts: Record<string, number> = {}
+  for (const r of attachRows ?? []) attachCounts[r.board_item_id] = (attachCounts[r.board_item_id] ?? 0) + 1
+
+  const items = data.map((i: { id: string }) => ({
+    ...i,
+    comment_count: commentCounts[i.id] ?? 0,
+    attachment_count: attachCounts[i.id] ?? 0,
+  }))
+
+  return NextResponse.json({ items })
 }
 
 export async function POST(
@@ -63,5 +83,5 @@ export async function POST(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(item, { status: 201 })
+  return NextResponse.json({ ...item, comment_count: 0, attachment_count: 0 }, { status: 201 })
 }

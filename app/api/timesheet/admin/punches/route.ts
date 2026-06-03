@@ -80,8 +80,10 @@ export async function POST(req: NextRequest) {
         const clockIn = new Date(inPunch.punched_at)
         const clockOut = new Date(outPunch.punched_at)
         const totalHours = Math.max(0, (clockOut.getTime() - clockIn.getTime()) / 3600000)
-        const regularHours = Math.min(totalHours, 8)
-        const overtimeHours = Math.max(0, totalHours - 8)
+        // OT is weekly (>40h), not daily — store all shift hours as regular.
+        // weekSummary() in the admin UI computes weekly OT across all entries.
+        const regularHours = totalHours
+        const overtimeHours = 0
 
         const day = clockIn.getDay()
         const daysFromMonday = day === 0 ? 6 : day - 1

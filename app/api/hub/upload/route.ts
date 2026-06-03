@@ -45,6 +45,7 @@ export async function POST(request: Request) {
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     'text/plain', 'text/csv',
+    'video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo', 'video/mpeg', 'video/ogg',
   ])
   if (!ALLOWED_TYPES.has(file.type)) {
     return NextResponse.json({ error: 'File type not allowed' }, { status: 400 })
