@@ -108,18 +108,40 @@ export async function POST(request: NextRequest) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   const voicemailRender = `${baseUrl}/api/dialer/voice/twiml/voicemail`
 
-  // Call recording (opt-in via dialer_settings.recording_enabled — default OFF
-  // so the live Dialer is unchanged until an admin flips it). Inbound calls flow
-  // through the IVR / ring groups, so per-<Dial> recording would miss them —
-  // instead start a dual-channel call-level recording over the REST API (the
-  // inbound leg is already in-progress when this webhook fires). Fire-and-forget;
-  // a failure never blocks the call. Every caller then hears the consent notice,
-  // injected at the top of whatever TwiML path we return.
+  // Call recording (opt-in via dialer_settings.recording_enabled).
+  // Two complementary approaches so EVERY answered call gets captured:
+  //
+  // (A) TwiML <Dial record> injection — inject dual-channel recording attrs
+  //     into every <Dial> verb this webhook returns. This is the reliable path:
+  //     it fires exactly when the rep answers, Twilio owns the recording lifecycle,
+  //     and the recording webhook fires when the call ends. Works for IVR-routed
+  //     calls (transfer_user, extension, ring_group) because those all generate
+  //     <Dial> verbs that this injection catches.
+  //
+  // (B) REST startCallRecording — as a secondary attempt to record the full call
+  //     including IVR audio before the rep answers. Fails with 21220 if the call
+  //     isn't yet in a bridged state (common for IVR flows). We retry a few times
+  //     but (A) is the guaranteed path.
+  const recordingCallback = `${baseUrl}/api/dialer/voice/recording`
+
   if (recordingEnabled && callSid) {
-    startCallRecording(callSid, `${baseUrl}/api/dialer/voice/recording`).catch(() => {})
+    startCallRecording(callSid, recordingCallback).catch(() => {})
   }
-  const respond = (body: string) =>
-    twimlResponse(recordingEnabled ? injectConsentNotice(body, consentNotice) : body)
+
+  // (A) inject record attrs into every <Dial> in the returned TwiML.
+  const injectRecordingIntoDials = (twiml: string): string => {
+    if (!recordingEnabled) return twiml
+    return twiml.replace(
+      /<Dial(\s)/g,
+      `<Dial record="record-from-answer-dual" recordingStatusCallback="${recordingCallback}" recordingStatusCallbackMethod="POST"$1`
+    )
+  }
+
+  const respond = (body: string) => {
+    let twiml = recordingEnabled ? injectConsentNotice(body, consentNotice) : body
+    twiml = injectRecordingIntoDials(twiml)
+    return twimlResponse(twiml)
+  }
 
   // IVR takes precedence when enabled and the picked tree has a root node.
   // Session 61 picks default/after_hours/holiday based on business_hours +

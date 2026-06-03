@@ -59,6 +59,23 @@ export async function POST(request: NextRequest) {
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   const voicemailRouteUrl = `${baseUrl}/api/dialer/voice/twiml/voicemail`
 
+  // Load recording settings so we can inject record attrs into <Dial> verbs.
+  const { data: dialerSettings } = await createAdminClient()
+    .from('dialer_settings')
+    .select('recording_enabled')
+    .eq('company_id', HEROES_COMPANY_ID)
+    .maybeSingle()
+  const recordingEnabled = dialerSettings?.recording_enabled === true
+  const recordingCallback = `${baseUrl}/api/dialer/voice/recording`
+
+  const withRecording = (twiml: string): string => {
+    if (!recordingEnabled) return twiml
+    return twiml.replace(
+      /<Dial(\s)/g,
+      `<Dial record="record-from-answer-dual" recordingStatusCallback="${recordingCallback}" recordingStatusCallbackMethod="POST"$1`
+    )
+  }
+
   // If we're being re-entered after a dial completed/answered, we're done.
   // (Twilio sometimes posts the action callback even when the inner call was
   // answered — this empty TwiML just lets the legged call end cleanly.)
@@ -126,12 +143,12 @@ export async function POST(request: NextRequest) {
   if (group.ring_mode === 'simultaneous') {
     const identities = available.map((m) => m.user_id)
     return twimlResponse(
-      twimlRingGroupSimultaneous({
+      withRecording(twimlRingGroupSimultaneous({
         identities,
         callerId: fromNumber,
         timeoutSec: group.ring_timeout_sec ?? 25,
         actionUrl: voicemailRouteUrl,
-      })
+      }))
     )
   }
 
@@ -144,12 +161,12 @@ export async function POST(request: NextRequest) {
   const current = available[index]
   const nextStepUrl = `${baseUrl}/api/dialer/voice/twiml/ring-group?group=${encodeURIComponent(groupId)}&i=${index + 1}`
   return twimlResponse(
-    twimlRingGroupSequentialStep({
+    withRecording(twimlRingGroupSequentialStep({
       identity: current.user_id,
       callerId: fromNumber,
       timeoutSec: current.member_timeout_sec ?? 20,
       nextStepUrl,
-    })
+    }))
   )
 }
 
