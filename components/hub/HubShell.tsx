@@ -55,6 +55,7 @@ export default function HubShell({
   initialRailConfig,
   canAccessTracker,
   canAccessCallLog,
+  canAccessCallLog2,
   canAccessLawn,
   canAccessTimesheet,
   canAccessRouting,
@@ -98,6 +99,7 @@ export default function HubShell({
   initialRailConfig?: RailConfig | null
   canAccessTracker?: boolean
   canAccessCallLog?: boolean
+  canAccessCallLog2?: boolean
   canAccessLawn?: boolean
   canAccessTimesheet?: boolean
   canAccessRouting?: boolean
@@ -476,6 +478,7 @@ export default function HubShell({
     canAccessBooks: !!canAccessBooks,
     canAccessLawn: !!canAccessLawn,
     canAccessCallLog: !!canAccessCallLog,
+    canAccessCallLog2: !!canAccessCallLog2,
     canAccessTimesheet: !!canAccessTimesheet,
     canAccessZoneSizer: !!canAccessZoneSizer,
     canAccessDialer: !!canAccessDialer,
@@ -518,6 +521,7 @@ export default function HubShell({
             canAccessLawn={!!canAccessLawn}
             canAccessZoneSizer={!!canAccessZoneSizer}
             canAccessCallLog={!!canAccessCallLog}
+            canAccessCallLog2={!!canAccessCallLog2}
             canAccessBooks={!!canAccessBooks}
             canAccessFleet={!!canAccessFleet}
             canAccessTimesheet={!!canAccessTimesheet}

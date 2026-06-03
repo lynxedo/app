@@ -52,6 +52,7 @@ export default function ToolsSidebar({
   canAccessLawn,
   canAccessZoneSizer,
   canAccessCallLog,
+  canAccessCallLog2,
   canAccessBooks,
   canAccessFleet,
   canAccessTimesheet,
@@ -68,6 +69,7 @@ export default function ToolsSidebar({
   canAccessLawn: boolean
   canAccessZoneSizer: boolean
   canAccessCallLog: boolean
+  canAccessCallLog2?: boolean
   canAccessBooks: boolean
   canAccessFleet: boolean
   canAccessTimesheet: boolean
@@ -138,6 +140,7 @@ export default function ToolsSidebar({
             <>
               {canAccessDialer && <ToolRow href="/hub/dialer" iconId="dialer" label="Dialer" prefixMatch onClose={onClose} />}
               {canAccessCallLog && <ToolRow href="/hub/call-log" iconId="call-log" label="Call Log" prefixMatch onClose={onClose} />}
+              {canAccessCallLog2 && <ToolRow href="/hub/call-log2" iconId="call-log2" label="Call Log 2" prefixMatch onClose={onClose} />}
               <ToolRow href="/hub/contacts" iconId="contacts" label="Contacts" prefixMatch onClose={onClose} />
             </>
           )}

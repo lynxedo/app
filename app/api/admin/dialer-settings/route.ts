@@ -33,6 +33,9 @@ const ALLOWED_FIELDS = [
   'ivr_config',
   'business_hours',
   'holidays',
+  'recording_enabled',
+  'recording_consent_notice',
+  'recording_pause_auto_resume_sec',
 ] as const
 
 function sanitizeUuidArray(raw: unknown): string[] | null {
@@ -85,6 +88,18 @@ export async function POST(request: Request) {
         )
       }
       patch[k] = n
+    } else if (k === 'recording_enabled') {
+      patch[k] = Boolean(body[k])
+    } else if (k === 'recording_consent_notice') {
+      const v = body[k]
+      if (v === null || v === '') {
+        patch[k] = null
+      } else if (typeof v === 'string') {
+        patch[k] = v.slice(0, 500)
+      }
+    } else if (k === 'recording_pause_auto_resume_sec') {
+      const n = Number(body[k])
+      if (Number.isInteger(n) && n >= 10 && n <= 600) patch[k] = n
     } else if (k === 'ivr_enabled') {
       patch[k] = Boolean(body[k])
     } else if (k === 'ivr_config') {

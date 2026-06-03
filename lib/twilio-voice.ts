@@ -277,16 +277,20 @@ export async function downloadTwilioRecording(
 // Start a dual-channel recording on a live call via the REST API. Used for
 // INBOUND calls, which flow through the IVR / ring groups — per-<Dial> record
 // attributes would miss those, but a call-level recording captures the whole
-// thing regardless of routing. The inbound call is already 'in-progress' when
-// our webhook fires (Twilio answers the inbound leg to execute TwiML), so the
-// recording can be started immediately. Fire-and-forget; failures never block
-// the call. Returns the RecordingSid on success, null otherwise.
+// thing regardless of routing. Fire-and-forget; failures never block the call.
+// Returns the RecordingSid on success, null otherwise.
+//
+// Twilio error 21220 ("not eligible for recording") fires when the inbound leg
+// hasn't been answered/bridged yet — the webhook fires as TwiML starts but the
+// call isn't recordable until it's in-progress. Retry with backoff so we catch
+// it a beat later without ever blocking the webhook response.
 export async function startCallRecording(
   callSid: string,
   recordingStatusCallback: string
 ): Promise<string | null> {
   if (!ACCOUNT_SID || !AUTH_TOKEN || !callSid) return null
   const auth = Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString('base64')
+  const endpoint = `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Calls/${encodeURIComponent(callSid)}/Recordings.json`
   const body = new URLSearchParams({
     RecordingChannels: 'dual',
     RecordingTrack: 'both',
@@ -294,24 +298,48 @@ export async function startCallRecording(
     RecordingStatusCallbackEvent: 'completed',
     RecordingStatusCallbackMethod: 'POST',
   })
-  try {
-    const res = await fetch(
-      `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Calls/${encodeURIComponent(callSid)}/Recordings.json`,
-      {
-        method: 'POST',
-        headers: {
-          Authorization: `Basic ${auth}`,
-          'Content-Type': 'application/x-www-form-urlencoded',
-        },
-        body: body.toString(),
-      }
-    )
-    if (!res.ok) return null
-    const json = (await res.json()) as { sid?: string }
-    return json.sid || null
-  } catch {
-    return null
+
+  const tryOnce = async () => {
+    const res = await fetch(endpoint, {
+      method: 'POST',
+      headers: {
+        Authorization: `Basic ${auth}`,
+        'Content-Type': 'application/x-www-form-urlencoded',
+      },
+      body: body.toString(),
+    })
+    if (res.ok) {
+      const json = (await res.json()) as { sid?: string }
+      return { ok: true as const, sid: json.sid || null }
+    }
+    const err = await res.json().catch(() => ({})) as { code?: number; message?: string }
+    return { ok: false as const, code: err.code, message: err.message }
   }
+
+  try {
+    const first = await tryOnce()
+    if (first.ok) return first.sid
+
+    // 21220 = leg not yet recordable. Retry with increasing backoff — the call
+    // becomes recordable once it's in-progress (a beat after TwiML executes).
+    if (first.code === 21220) {
+      for (let i = 0; i < 3; i++) {
+        await new Promise(r => setTimeout(r, 1500 * (i + 1)))
+        const retry = await tryOnce()
+        if (retry.ok) {
+          console.log(`[dialer.recording] startCallRecording ok on retry ${i + 1} for ${callSid}`)
+          return retry.sid
+        }
+        console.warn(`[dialer.recording] startCallRecording retry ${i + 1} for ${callSid}: code=${retry.code} ${retry.message}`)
+        if (retry.code !== 21220) break
+      }
+    } else {
+      console.warn(`[dialer.recording] startCallRecording failed for ${callSid}: code=${first.code} ${first.message}`)
+    }
+  } catch (e) {
+    console.warn('[dialer.recording] startCallRecording threw:', e)
+  }
+  return null
 }
 
 // Inject a brief "this call may be recorded" notice at the very start of any

@@ -33,6 +33,7 @@ type UserProfile = {
   can_admin_forms: boolean
   can_admin_products: boolean
   can_access_daily_log_v2: boolean
+  can_access_call_log2: boolean
 }
 
 type User = {
@@ -76,6 +77,7 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_access_marketing', label: 'Marketing' },
   { key: 'can_access_forms', label: 'Forms' },
   { key: 'can_access_daily_log_v2', label: 'Daily Log v2' },
+  { key: 'can_access_call_log2', label: 'Call Log 2' },
 ]
 
 const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
@@ -203,6 +205,7 @@ export default function AdminPanel({
             can_admin_forms: false,
             can_admin_products: false,
             can_access_daily_log_v2: false,
+            can_access_call_log2: false,
           },
         }
         setUsers(prev => [...prev, newUser])
@@ -330,6 +333,7 @@ export default function AdminPanel({
             can_admin_forms: false,
             can_admin_products: false,
             can_access_daily_log_v2: false,
+            can_access_call_log2: false,
           },
         }
         setUsers(prev => [...prev, newUser])
