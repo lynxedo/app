@@ -146,6 +146,20 @@ function formatTime(ts: string): string {
   return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
 }
 
+// Format a stored UTC instant as a LOCAL wall-clock value for a <input type="datetime-local">.
+function toLocalInputValue(iso: string): string {
+  const d = new Date(iso)
+  if (isNaN(d.getTime())) return ''
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 16)
+}
+
+// Parse a datetime-local value (local wall-clock, no zone) into a correct UTC instant.
+function fromLocalInputValue(v: string): string | null {
+  if (!v) return null
+  const d = new Date(v) // datetime-local strings parse as LOCAL time
+  return isNaN(d.getTime()) ? null : d.toISOString()
+}
+
 function formatDateShort(d: string): string {
   return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
@@ -1614,7 +1628,7 @@ export default function AdminTimesheetPage() {
                   </span>
                   {editingPunch?.id === punch.id ? (
                     <div className="flex-1 flex gap-2">
-                      <input type="datetime-local" value={editingPunch.time.slice(0, 16)} onChange={e => setEditingPunch(p => p ? { ...p, time: e.target.value + ':00.000Z' } : p)} className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500" />
+                      <input type="datetime-local" value={toLocalInputValue(editingPunch.time)} onChange={e => { const iso = fromLocalInputValue(e.target.value); if (iso) setEditingPunch(p => p ? { ...p, time: iso } : p) }} className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500" />
                       <input type="text" placeholder="Reason *" value={editingPunch.reason} onChange={e => setEditingPunch(p => p ? { ...p, reason: e.target.value } : p)} className="w-28 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500" />
                       <button onClick={savePunchEdit} className="text-green-400 hover:text-green-300 text-sm px-2">✓</button>
                       <button onClick={() => setEditingPunch(null)} className="text-gray-500 hover:text-white text-sm px-1">✕</button>
@@ -1640,7 +1654,7 @@ export default function AdminTimesheetPage() {
                       <option value="in">Clock In</option>
                       <option value="out">Clock Out</option>
                     </select>
-                    <input type="datetime-local" value={addingPunch.datetime.slice(0, 16)} onChange={e => setAddingPunch(p => p ? { ...p, datetime: e.target.value + ':00.000Z' } : p)} className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500" />
+                    <input type="datetime-local" value={toLocalInputValue(addingPunch.datetime)} onChange={e => { const iso = fromLocalInputValue(e.target.value); if (iso) setAddingPunch(p => p ? { ...p, datetime: iso } : p) }} className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500" />
                   </div>
                   <input type="text" placeholder="Note (optional)" value={addingPunch.note} onChange={e => setAddingPunch(p => p ? { ...p, note: e.target.value } : p)} className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500" />
                   <div className="flex gap-2">
