@@ -119,10 +119,14 @@ export default function RoomView({
       </div>
 
       {openThreadMsg && (
-        /* Mobile: full width. Desktop: resizable side panel. */
+        /* Mobile: full-screen overlay (covers the room header for max room —
+           ThreadPanel provides its own back/close). Desktop: resizable side
+           panel. Width is a CSS var so only the md: class consumes it; on
+           mobile `fixed inset-0` must win (an inline px width would fight the
+           right-inset and clip the overlay). */
         <div
-          className="flex flex-1 md:flex-none"
-          style={{ width: threadWidth }}
+          className="fixed inset-0 z-50 flex bg-gray-950 md:static md:z-auto md:bg-transparent md:flex-none md:w-[var(--thread-w)]"
+          style={{ '--thread-w': `${threadWidth}px` } as React.CSSProperties}
         >
           {/* Drag handle — desktop only. Dragging left widens, right narrows. */}
           <div

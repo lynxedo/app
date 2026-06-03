@@ -463,38 +463,44 @@ export default function ThreadPanel({
       onDrop={handleDrop}
       onDragOver={e => e.preventDefault()}
     >
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800 flex-none">
-        <span className="font-semibold text-sm text-white">Thread</span>
+      {/* Compact header. On mobile the thread is a full-screen takeover (the
+          room-name bar is hidden underneath), so the back arrow returns to the
+          feed; on desktop it collapses the side panel. */}
+      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-800 flex-none">
         <button
           onClick={onClose}
-          className="text-gray-500 hover:text-gray-300 transition-colors w-6 h-6 flex items-center justify-center rounded hover:bg-gray-800"
+          aria-label="Close thread"
+          className="text-gray-400 hover:text-white transition-colors w-7 h-7 flex items-center justify-center rounded-lg hover:bg-gray-800 flex-none"
         >
-          ✕
+          <svg className="w-5 h-5 md:hidden" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+          <span className="hidden md:block text-base leading-none">✕</span>
         </button>
+        <span className="font-semibold text-sm text-white">Thread</span>
+        {replies.length > 0 && (
+          <span className="text-xs text-gray-500">· {replies.length} {replies.length === 1 ? 'reply' : 'replies'}</span>
+        )}
       </div>
 
-      {/* Parent message */}
-      <div className="flex-none px-4 py-3 border-b border-gray-800 bg-gray-900/40">
-        <div className="flex items-start gap-2">
+      {/* Scrollable area — the original message is now the first item here (not
+          a fixed bar), so it scrolls up out of the way as you read replies,
+          giving the reply pane more room. */}
+      <div className="flex-1 overflow-y-auto w-full px-4 py-4 space-y-5">
+        {/* Original message */}
+        <div className="flex items-start gap-3 pb-4 border-b border-gray-800/70">
           <Avatar sender={parentSender} />
           <div className="flex-1 min-w-0">
-            <div className="flex items-baseline gap-2 mb-0.5">
-              <span className="font-semibold text-xs text-white">{parentSender?.display_name ?? 'Unknown'}</span>
+            <div className="flex items-baseline gap-2 mb-1">
+              <span className="font-semibold text-sm text-white">{parentSender?.display_name ?? 'Unknown'}</span>
               <span className="text-xs text-gray-600">{formatTime(parentMessage.created_at)}</span>
             </div>
-            <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap break-words line-clamp-4">
+            <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
               {renderContent(parentMessage.content, hubUsers)}
             </p>
           </div>
         </div>
-        {replies.length > 0 && (
-          <div className="mt-2 text-xs text-gray-500">{replies.length} {replies.length === 1 ? 'reply' : 'replies'}</div>
-        )}
-      </div>
 
-      {/* Replies */}
-      <div className="flex-1 overflow-y-auto w-full px-4 py-4 space-y-5">
         {replies.length === 0 && (
           <p className="text-sm text-gray-600 text-center py-4">No replies yet — be the first!</p>
         )}
@@ -587,6 +593,14 @@ export default function ThreadPanel({
                 <div className="w-5 h-5 border-2 border-[#2E7EB8] border-t-transparent rounded-full animate-spin" />
               </div>
             )}
+          </div>
+        )}
+
+        {/* Uploading banner — prominent while an attachment is still uploading. */}
+        {uploading && (
+          <div className="mb-2 px-3 py-2 bg-[#2E7EB8]/10 border border-[#2E7EB8]/30 rounded-lg flex items-center gap-2.5 text-xs text-[#9cc7e6]">
+            <div className="w-4 h-4 border-2 border-[#2E7EB8] border-t-transparent rounded-full animate-spin flex-none" />
+            <span>Uploading attachment… please wait before sending.</span>
           </div>
         )}
 
@@ -778,7 +792,7 @@ export default function ThreadPanel({
 
           <button
             onClick={sendReply}
-            disabled={!hasContent || sending}
+            disabled={!hasContent || sending || uploading}
             className={`text-xs disabled:opacity-30 text-white px-3 py-1.5 rounded-lg transition-colors ${
               scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-[#2E7EB8] hover:bg-[#2470a8]'
             }`}

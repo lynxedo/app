@@ -164,6 +164,33 @@ function formatDateShort(d: string): string {
   return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
 }
 
+// Blocking validation for a clock-in/out pair (mirrors the server guard in
+// lib/timesheet-recompute). Returns an error string, or null if OK to save.
+function punchTimeError(clockInIso: string, clockOutIso: string): string | null {
+  const inT = new Date(clockInIso).getTime()
+  const outT = new Date(clockOutIso).getTime()
+  if (isNaN(inT)) return 'Enter a valid clock-in time.'
+  if (isNaN(outT)) return 'Enter a valid clock-out time.'
+  if (outT <= inT) return 'Clock-out must be after clock-in.'
+  if ((outT - inT) / 3600000 > 24) return 'A single shift cannot exceed 24 hours.'
+  return null
+}
+
+// Non-blocking warnings — odd but possible times the admin should eyeball.
+function punchTimeWarnings(clockInIso: string, clockOutIso: string): string[] {
+  const warnings: string[] = []
+  const inD = new Date(clockInIso)
+  const outD = new Date(clockOutIso)
+  const beforeFive = (d: Date) => !isNaN(d.getTime()) && d.getHours() < 5
+  if (beforeFive(inD)) warnings.push('Clock-in is before 5 AM — double-check AM vs PM.')
+  if (beforeFive(outD)) warnings.push('Clock-out is before 5 AM — double-check AM vs PM.')
+  const inT = inD.getTime(), outT = outD.getTime()
+  if (!isNaN(inT) && !isNaN(outT) && outT > inT && (outT - inT) / 3600000 > 16) {
+    warnings.push('This shift is over 16 hours — make sure that’s right.')
+  }
+  return warnings
+}
+
 function formatDuration(sinceTs: string): string {
   const ms = Date.now() - new Date(sinceTs).getTime()
   const h = Math.floor(ms / 3600000)
@@ -235,6 +262,13 @@ export default function AdminTimesheetPage() {
   const [editPunchesLoading, setEditPunchesLoading] = useState(false)
   const [editingPunch, setEditingPunch] = useState<{ id: string; time: string; reason: string } | null>(null)
   const [addingPunch, setAddingPunch] = useState<{ type: 'in' | 'out'; datetime: string; note: string } | null>(null)
+  // Per-day inline editor (Summary tab) — edit one day's shift without the
+  // all-week punch modal.
+  const [dayEdit, setDayEdit] = useState<
+    { entryId: string; employeeId: string; date: string; clockIn: string; clockOut: string; reason: string } | null
+  >(null)
+  const [dayEditSaving, setDayEditSaving] = useState(false)
+  const [dayEditError, setDayEditError] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now())
   const [tab, setTab] = useState<'week' | 'summary' | 'employees' | 'holidays' | 'pto'>('week')
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
@@ -393,6 +427,33 @@ export default function AdminTimesheetPage() {
     })
     setEditingPunch(null)
     loadEditPunches(editEmployee, editWeekStart)
+    loadData()
+  }
+
+  async function saveDayEdit() {
+    if (!dayEdit) return
+    if (punchTimeError(dayEdit.clockIn, dayEdit.clockOut)) return
+    if (!dayEdit.reason.trim()) { setDayEditError('Please add a short reason for the edit.'); return }
+    setDayEditSaving(true)
+    setDayEditError(null)
+    const res = await fetch('/api/timesheet/admin/day', {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        employee_id: dayEdit.employeeId,
+        date: dayEdit.date,
+        clock_in: dayEdit.clockIn,
+        clock_out: dayEdit.clockOut,
+        edit_reason: dayEdit.reason.trim(),
+      }),
+    })
+    setDayEditSaving(false)
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Could not save' }))
+      setDayEditError(err.error ?? 'Could not save')
+      return
+    }
+    setDayEdit(null)
     loadData()
   }
 
@@ -1071,10 +1132,72 @@ export default function AdminTimesheetPage() {
                                             <button onClick={() => reviewEditRequest(pendingReq.id, 'reject')} disabled={isReviewing} className="text-xs bg-gray-700 hover:bg-red-900/40 hover:border-red-500/30 disabled:opacity-50 text-gray-300 hover:text-red-400 border border-gray-600 px-3 py-1.5 rounded-lg transition-colors">Reject</button>
                                           </>
                                         ) : (
-                                          <button onClick={() => openEditPunches(emp)} className="text-xs text-gray-500 hover:text-white border border-gray-700 hover:border-gray-500 px-2 py-1.5 rounded-lg transition-colors" title="Edit punches">✎ Edit</button>
+                                          <button
+                                            onClick={() => {
+                                              setDayEditError(null)
+                                              setDayEdit(dayEdit?.entryId === entry.id ? null : {
+                                                entryId: entry.id,
+                                                employeeId: entry.employee_id,
+                                                date: entry.date,
+                                                clockIn: entry.clock_in,
+                                                clockOut: entry.clock_out ?? entry.clock_in,
+                                                reason: '',
+                                              })
+                                            }}
+                                            className={`text-xs border px-2 py-1.5 rounded-lg transition-colors ${dayEdit?.entryId === entry.id ? 'text-white border-blue-500 bg-blue-500/10' : 'text-gray-500 hover:text-white border-gray-700 hover:border-gray-500'}`}
+                                            title="Edit this day"
+                                          >✎ Edit</button>
                                         )}
                                       </div>
                                     </div>
+
+                                    {/* Per-day inline editor */}
+                                    {dayEdit?.entryId === entry.id && (() => {
+                                      const err = punchTimeError(dayEdit.clockIn, dayEdit.clockOut)
+                                      const warnings = err ? [] : punchTimeWarnings(dayEdit.clockIn, dayEdit.clockOut)
+                                      return (
+                                        <div className="mt-3 pt-3 border-t border-gray-700/60 space-y-3">
+                                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                                            <label className="block">
+                                              <span className="text-xs text-gray-500">Clock In</span>
+                                              <input
+                                                type="datetime-local"
+                                                value={toLocalInputValue(dayEdit.clockIn)}
+                                                onChange={e => { const iso = fromLocalInputValue(e.target.value); if (iso) setDayEdit(d => d ? { ...d, clockIn: iso } : d) }}
+                                                className="mt-1 w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                                              />
+                                            </label>
+                                            <label className="block">
+                                              <span className="text-xs text-gray-500">Clock Out</span>
+                                              <input
+                                                type="datetime-local"
+                                                value={toLocalInputValue(dayEdit.clockOut)}
+                                                onChange={e => { const iso = fromLocalInputValue(e.target.value); if (iso) setDayEdit(d => d ? { ...d, clockOut: iso } : d) }}
+                                                className="mt-1 w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                                              />
+                                            </label>
+                                          </div>
+                                          <input
+                                            type="text"
+                                            placeholder="Reason for edit *"
+                                            value={dayEdit.reason}
+                                            onChange={e => setDayEdit(d => d ? { ...d, reason: e.target.value } : d)}
+                                            className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500"
+                                          />
+                                          {err && <p className="text-xs text-red-400">⚠ {err}</p>}
+                                          {warnings.map((w, i) => <p key={i} className="text-xs text-amber-400">⚠ {w}</p>)}
+                                          {dayEditError && <p className="text-xs text-red-400">{dayEditError}</p>}
+                                          <div className="flex gap-2">
+                                            <button
+                                              onClick={saveDayEdit}
+                                              disabled={!!err || !dayEdit.reason.trim() || dayEditSaving}
+                                              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm px-4 py-1.5 rounded-lg transition-colors"
+                                            >{dayEditSaving ? 'Saving…' : 'Save'}</button>
+                                            <button onClick={() => { setDayEdit(null); setDayEditError(null) }} className="text-gray-500 hover:text-white text-sm px-3 py-1.5 transition-colors">Cancel</button>
+                                          </div>
+                                        </div>
+                                      )
+                                    })()}
                                   </div>
                                 )
                               })}
@@ -1657,6 +1780,9 @@ export default function AdminTimesheetPage() {
                     <input type="datetime-local" value={toLocalInputValue(addingPunch.datetime)} onChange={e => { const iso = fromLocalInputValue(e.target.value); if (iso) setAddingPunch(p => p ? { ...p, datetime: iso } : p) }} className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500" />
                   </div>
                   <input type="text" placeholder="Note (optional)" value={addingPunch.note} onChange={e => setAddingPunch(p => p ? { ...p, note: e.target.value } : p)} className="w-full bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white focus:outline-none focus:border-blue-500" />
+                  {new Date(addingPunch.datetime).getHours() < 5 && (
+                    <p className="text-xs text-amber-400">⚠ This time is before 5 AM — double-check AM vs PM.</p>
+                  )}
                   <div className="flex gap-2">
                     <button onClick={addPunch} className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-1.5 rounded-lg transition-colors">Add</button>
                     <button onClick={() => setAddingPunch(null)} className="text-gray-500 hover:text-white text-sm px-3 py-1.5 transition-colors">Cancel</button>

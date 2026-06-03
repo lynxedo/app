@@ -209,6 +209,11 @@ function ForwardedBanner({ original, rooms, hubUsers }: { original: ForwardedOri
   )
 }
 
+// How many older messages to pull per scroll-up fetch. Matches the server-side
+// initial page limit in the room/PM page loaders, so hasMoreOlder can be seeded
+// from whether the first page came back full.
+const MESSAGE_PAGE_SIZE = 50
+
 const MessageFeed = forwardRef<MessageFeedHandle, {
   roomId?: string
   conversationId?: string
@@ -241,6 +246,18 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   // override here, so sidebar and messages stay visually in sync.
 
   const [messages, setMessages] = useState<HubMessage[]>(initialMessages)
+  // Older-message pagination (scroll-up auto-load). The server renders the
+  // newest PAGE_SIZE; older history is fetched on demand from the server (NOT
+  // the device cache, which intentionally stays capped at the newest 50) and
+  // held in memory for this session.
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  const [hasMoreOlder, setHasMoreOlder] = useState(initialMessages.length >= MESSAGE_PAGE_SIZE)
+  // When prepending older messages we must NOT snap to the bottom and must keep
+  // the viewport visually still. These refs carry that intent across the render.
+  const prependingRef = useRef(false)
+  const prevScrollHeightRef = useRef(0)
+  const prevScrollTopRef = useRef(0)
+  const topSentinelRef = useRef<HTMLDivElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
   const [pickerMsgId, setPickerMsgId] = useState<string | null>(null)
@@ -432,7 +449,16 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     }
   }, [])
 
-  useEffect(() => {
+  useLayoutEffect(() => {
+    // When older messages were just prepended, keep the viewport visually still
+    // instead of snapping to the bottom. Restore scrollTop by the exact height
+    // the prepend added, so the message the user was looking at doesn't move.
+    if (prependingRef.current) {
+      const el = scrollContainerRef.current
+      if (el) el.scrollTop = el.scrollHeight - prevScrollHeightRef.current + prevScrollTopRef.current
+      prependingRef.current = false
+      return
+    }
     // Snap to bottom on new messages (own send or incoming). Direct scrollTop
     // assignment is cheaper than scrollTo({behavior:'smooth'}) and feels
     // snappier — the smooth-scroll animation cost ~16 frames per message,
@@ -440,6 +466,108 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     const el = scrollContainerRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [messages.length])
+
+  // ── Auto-load older messages on scroll-up ──────────────────────────────────
+  // Keep the latest messages list reachable from the stable loadOlder closure
+  // without re-creating it (and the observer) on every render.
+  const messagesRef = useRef(messages)
+  messagesRef.current = messages
+  const loadingOlderRef = useRef(false)
+
+  const loadOlder = useCallback(async () => {
+    if (loadingOlderRef.current || !hasMoreOlder) return
+    const current = messagesRef.current
+    const oldest = current[0]
+    if (!oldest?.created_at) return
+
+    loadingOlderRef.current = true
+    setLoadingOlder(true)
+    try {
+      const scopeCol = roomId ? 'room_id' : 'conversation_id'
+      const scopeVal = roomId ?? conversationId
+      const { data } = await supabase
+        .from('messages')
+        .select(`id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from,
+          sender:hub_users!sender_id (id, display_name, avatar_url, is_bot),
+          reactions (message_id, user_id, emoji),
+          files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)`)
+        .eq(scopeCol, scopeVal as string)
+        .is('parent_id', null)
+        .is('deleted_at', null)
+        .lt('created_at', oldest.created_at)
+        .order('created_at', { ascending: false })
+        .limit(MESSAGE_PAGE_SIZE)
+
+      const rows = ((data ?? []) as unknown as HubMessage[]).slice().reverse()
+      if (rows.length < MESSAGE_PAGE_SIZE) setHasMoreOlder(false)
+      if (rows.length === 0) return
+
+      // Enrich forwarded banners (same shape the realtime path builds).
+      const fwdIds = rows.map(m => m.forwarded_from).filter(Boolean) as string[]
+      if (fwdIds.length > 0) {
+        const { data: origs } = await supabase
+          .from('messages')
+          .select('id, content, room_id, conversation_id, sender:hub_users!sender_id (display_name)')
+          .in('id', fwdIds)
+        const fwdMap: Record<string, ForwardedOriginal> = {}
+        for (const o of origs ?? []) {
+          const orig = o as { id: string; content: string; room_id: string | null; conversation_id: string | null; sender: { display_name: string } | { display_name: string }[] | null }
+          fwdMap[orig.id] = { ...orig, sender: Array.isArray(orig.sender) ? orig.sender[0] : orig.sender }
+        }
+        for (const m of rows) if (m.forwarded_from) m.forwarded_original = fwdMap[m.forwarded_from] ?? null
+      }
+
+      // Reply counts for the older batch so their "N replies" indicator shows.
+      const ids = rows.map(m => m.id)
+      const { data: replyRows } = await supabase
+        .from('messages').select('parent_id').in('parent_id', ids).is('deleted_at', null)
+      const counts: Record<string, number> = {}
+      for (const r of (replyRows ?? []) as { parent_id: string }[]) counts[r.parent_id] = (counts[r.parent_id] ?? 0) + 1
+
+      // Capture scroll metrics immediately before the DOM grows, so the layout
+      // effect can restore the viewport exactly (no jump). NOT cached to IDB —
+      // the device cache stays lean at the newest 50.
+      const el = scrollContainerRef.current
+      if (el) { prevScrollHeightRef.current = el.scrollHeight; prevScrollTopRef.current = el.scrollTop }
+      prependingRef.current = true
+      setMessages(prev => {
+        const have = new Set(prev.map(m => m.id))
+        const fresh = rows.filter(m => !have.has(m.id))
+        if (fresh.length === 0) { prependingRef.current = false; return prev }
+        return [...fresh, ...prev]
+      })
+      setRxMap(prev => {
+        const next = { ...prev }
+        for (const m of rows) next[m.id] = normReactions(m.reactions)
+        return next
+      })
+      setReplyCounts(prev => {
+        const next = { ...prev }
+        for (const m of rows) if (next[m.id] === undefined) next[m.id] = counts[m.id] ?? 0
+        return next
+      })
+    } finally {
+      loadingOlderRef.current = false
+      setLoadingOlder(false)
+    }
+  }, [hasMoreOlder, roomId, conversationId, supabase])
+
+  // Fire loadOlder when the top sentinel scrolls into view. Gated on feedReady
+  // so the initial bottom-pin settles first, and on scrollTop being near the
+  // top so it can't fire spuriously while pinned to the bottom.
+  useEffect(() => {
+    if (!feedReady || !hasMoreOlder) return
+    const root = scrollContainerRef.current
+    const sentinel = topSentinelRef.current
+    if (!root || !sentinel) return
+    const io = new IntersectionObserver((entries) => {
+      if (!entries[0]?.isIntersecting) return
+      if (root.scrollTop > 400) return
+      void loadOlder()
+    }, { root, rootMargin: '300px 0px 0px 0px', threshold: 0 })
+    io.observe(sentinel)
+    return () => io.disconnect()
+  }, [feedReady, hasMoreOlder, loadOlder])
 
   // Persist conversation members + initial read receipts (DMs only) to cache
   // so the next entry can hydrate them instantly. The realtime receipts
@@ -818,6 +946,13 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   return (
     <>
       <div ref={scrollContainerRef} style={{ visibility: feedReady ? 'visible' : 'hidden' }} className="flex-1 overflow-y-auto w-full px-1 md:px-4 py-3 space-y-1">
+        {/* Scroll-up sentinel — when it enters view, older messages auto-load. */}
+        {hasMoreOlder && <div ref={topSentinelRef} className="h-px w-full" aria-hidden />}
+        {loadingOlder && (
+          <div className="flex items-center justify-center py-3">
+            <div className="w-5 h-5 border-2 border-gray-600 border-t-transparent rounded-full animate-spin" />
+          </div>
+        )}
         {groups.map(group => (
           <div key={group.date}>
             <div className="flex items-center gap-3 my-4">
