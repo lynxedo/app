@@ -407,9 +407,13 @@ async function syncClients(
 
 // ── Properties ────────────────────────────────────────────────────────────────
 
+// Properties have no updatedAt field and the filter type name is
+// PropertiesFilterAttributes (plural), not PropertyFilterAttributes. Since
+// properties are a small flat table (~1K rows), both initial and delta syncs
+// pull all properties and rely on upsert idempotency — no filter needed.
 const PROPERTIES_QUERY = `
-  query SyncProperties($cursor: String, $filter: PropertyFilterAttributes) {
-    properties(first: 100, after: $cursor, filter: $filter) {
+  query SyncProperties($cursor: String) {
+    properties(first: 100, after: $cursor) {
       nodes {
         id
         address { street1 street2 city province postalCode }
@@ -424,20 +428,16 @@ const PROPERTIES_QUERY = `
 async function syncProperties(
   userId: string,
   companyId: string,
-  updatedSince?: Date
+  _updatedSince?: Date   // Property has no updatedAt — always pull all; upsert is idempotent
 ): Promise<number> {
   const admin = createAdminClient()
   let cursor: string | null = null
   let total = 0
 
   while (true) {
-    const filter = updatedSince
-      ? { updatedAt: { greaterThan: updatedSince.toISOString() } }
-      : undefined
-
     const resp = await withRateLimit(() =>
       jobberGraphQLAdmin<{ data: { properties: { nodes: PropertyNode[]; pageInfo: { hasNextPage: boolean; endCursor: string } } } }>(
-        userId, PROPERTIES_QUERY, { cursor, filter }
+        userId, PROPERTIES_QUERY, { cursor }
       )
     )
 
