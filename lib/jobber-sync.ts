@@ -128,6 +128,9 @@ function parseCustomFields(
   const cf: Record<string, string> = {}
 
   for (const f of rawFields) {
+    // Non-matching inline fragment types (CustomFieldDate, CustomFieldArea, etc.)
+    // return {} with no fields — f.label will be undefined. Skip those.
+    if (!f.label) continue
     const key = f.label.toLowerCase().replace(/:+$/, '').trim()
     const val = (f.valueText ?? (f.valueNumeric != null ? String(f.valueNumeric) : null)) ?? ''
     raw[f.label] = val
@@ -161,7 +164,8 @@ function parseCustomFields(
   }
 }
 
-function parseDeptPrefix(lineItemName: string): string | null {
+function parseDeptPrefix(lineItemName: string | null | undefined): string | null {
+  if (!lineItemName) return null
   const prefixes = ['WF', 'IR', 'PW', 'MO', 'LD']
   const upper = lineItemName.toUpperCase()
   for (const p of prefixes) {
