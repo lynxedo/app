@@ -8,7 +8,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { jobberGraphQL } from '@/lib/jobber'
+import { jobberGraphQLAdmin } from '@/lib/jobber'
 
 const COMPANY_ID = '00000000-0000-0000-0000-000000000002' // Heroes Lawn Care
 
@@ -249,7 +249,7 @@ async function syncClients(
       : undefined
 
     const resp = await withRateLimit(() =>
-      jobberGraphQL<{ data: { clients: { nodes: unknown[]; pageInfo: { hasNextPage: boolean; endCursor: string } } } }>(
+      jobberGraphQLAdmin<{ data: { clients: { nodes: unknown[]; pageInfo: { hasNextPage: boolean; endCursor: string } } } }>(
         userId, CLIENTS_QUERY, { cursor, filter }
       )
     )
@@ -414,7 +414,7 @@ async function syncProperties(
       : undefined
 
     const resp = await withRateLimit(() =>
-      jobberGraphQL<{ data: { properties: { nodes: PropertyNode[]; pageInfo: { hasNextPage: boolean; endCursor: string } } } }>(
+      jobberGraphQLAdmin<{ data: { properties: { nodes: PropertyNode[]; pageInfo: { hasNextPage: boolean; endCursor: string } } } }>(
         userId, PROPERTIES_QUERY, { cursor, filter }
       )
     )
@@ -532,7 +532,7 @@ async function syncJobs(
     }
 
     const resp = await withRateLimit(() =>
-      jobberGraphQL<{ data: { jobs: { nodes: JobNode[]; pageInfo: { hasNextPage: boolean; endCursor: string } } } }>(
+      jobberGraphQLAdmin<{ data: { jobs: { nodes: JobNode[]; pageInfo: { hasNextPage: boolean; endCursor: string } } } }>(
         userId, JOBS_QUERY, { cursor, filter }
       )
     )
@@ -714,7 +714,7 @@ async function syncVisits(
     }
 
     const resp = await withRateLimit(() =>
-      jobberGraphQL<{ data: { visits: { nodes: VisitNode[]; pageInfo: { hasNextPage: boolean; endCursor: string } } } }>(
+      jobberGraphQLAdmin<{ data: { visits: { nodes: VisitNode[]; pageInfo: { hasNextPage: boolean; endCursor: string } } } }>(
         userId, VISITS_SYNC_QUERY, { cursor, filter }
       )
     )
@@ -845,7 +845,7 @@ async function syncInvoices(
     }
 
     const resp = await withRateLimit(() =>
-      jobberGraphQL<{ data: { invoices: { nodes: InvoiceNode[]; pageInfo: { hasNextPage: boolean; endCursor: string } } } }>(
+      jobberGraphQLAdmin<{ data: { invoices: { nodes: InvoiceNode[]; pageInfo: { hasNextPage: boolean; endCursor: string } } } }>(
         userId, INVOICES_QUERY, { cursor, filter }
       )
     )
