@@ -4,7 +4,49 @@ import { requireAdminArea } from '@/lib/admin-auth'
 
 async function requireAdmin() {
   const check = await requireAdminArea('people')
-  return check.ok && check.user ? { id: check.user.id, email: check.user.email } : null
+  return check.ok && check.user
+    ? { id: check.user.id, email: check.user.email, company_id: check.company_id }
+    : null
+}
+
+// Ensure an invited user has a profile + Hub identity in the admin's company.
+// The on-signup trigger only auto-provisions emails that match the company's
+// Google domain, so invites to any other address (personal Gmail, etc.) would
+// otherwise land with no profile and be invisible everywhere. ignoreDuplicates
+// leaves a domain user's trigger-created row untouched.
+async function ensureProvisioned(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+  companyId: string | null,
+  email: string,
+  fullName?: string,
+  displayName?: string,
+) {
+  if (!companyId) return
+  await admin.from('user_profiles').upsert(
+    {
+      id: userId,
+      company_id: companyId,
+      role: 'user',
+      can_access_routing: false,
+      can_access_lawn: false,
+      can_access_call_log: false,
+      can_access_responder: false,
+      can_access_timesheet: false,
+      can_access_books: false,
+      can_access_tracker: false,
+      can_access_hub: true,
+    },
+    { onConflict: 'id', ignoreDuplicates: true },
+  )
+  await admin.from('hub_users').upsert(
+    {
+      id: userId,
+      company_id: companyId,
+      display_name: displayName || fullName || email.split('@')[0],
+    },
+    { onConflict: 'id', ignoreDuplicates: true },
+  )
 }
 
 export async function GET() {
@@ -66,6 +108,7 @@ export async function POST(request: Request) {
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
     if (data.user) {
+      await ensureProvisioned(admin, data.user.id, adminUser.company_id, email, full_name, display_name)
       if (full_name) {
         await admin.from('user_profiles').update({ full_name }).eq('id', data.user.id)
       }
@@ -84,6 +127,7 @@ export async function POST(request: Request) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   if (data.user) {
+    await ensureProvisioned(admin, data.user.id, adminUser.company_id, email, full_name, display_name)
     const profileUpdates: Record<string, string> = { invite_sent_at: new Date().toISOString() }
     if (full_name) profileUpdates.full_name = full_name
     await admin.from('user_profiles').update(profileUpdates).eq('id', data.user.id)
