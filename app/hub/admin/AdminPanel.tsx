@@ -803,7 +803,8 @@ function EmployeeRow({
             <div className="space-y-2">
               <p className="text-xs text-gray-400">
                 Send a Lynxedo invite to <span className="text-white">{name}</span>.
-                Use their <span className="text-white">@heroeslawntx.com</span> work email — personal emails cannot log in.
+                A <span className="text-white">@heroeslawntx.com</span> address can use &ldquo;Sign in with Google.&rdquo;
+                Any other email works too — they&rsquo;ll sign in with the 6-digit code emailed to them.
               </p>
               <div className="flex gap-2">
                 <input
