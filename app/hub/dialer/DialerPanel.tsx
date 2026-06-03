@@ -1,5 +1,6 @@
 'use client'
 
+import { useState, useCallback, useEffect } from 'react'
 import { useTwilioDevice } from '@/hooks/use-twilio-device'
 import Dialpad from '@/components/hub/dialer/Dialpad'
 import ActiveCall from '@/components/hub/dialer/ActiveCall'
@@ -23,6 +24,44 @@ export default function DialerPanel({
   const ctxDevice = useDialerContext()
   const localDevice = useTwilioDevice({ autoRegister: !ctxDevice })
   const device = ctxDevice ?? localDevice
+
+  // Recording settings — fetched once on mount so we know whether to show
+  // the recording indicator + pause button. Defaults to off; if the fetch
+  // fails or the user lacks admin access it stays off (harmless).
+  const [recordingEnabled, setRecordingEnabled] = useState(false)
+  const [pauseAutoResumeSec, setPauseAutoResumeSec] = useState(60)
+  useEffect(() => {
+    fetch('/api/dialer/settings/recording').then(r => r.ok ? r.json() : null).then(d => {
+      if (!d) return
+      setRecordingEnabled(!!d.recording_enabled)
+      if (d.recording_pause_auto_resume_sec) setPauseAutoResumeSec(d.recording_pause_auto_resume_sec)
+    }).catch(() => {})
+  }, [])
+
+  const [recordingPaused, setRecordingPaused] = useState(false)
+
+  // Reset pause state when the call ends.
+  useEffect(() => {
+    if (device.state !== 'in-call') setRecordingPaused(false)
+  }, [device.state])
+
+  const handleToggleRecordingPause = useCallback(async () => {
+    const action = recordingPaused ? 'resume' : 'pause'
+    setRecordingPaused(!recordingPaused)
+    try {
+      const res = await fetch('/api/dialer/voice/recording/pause', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action }),
+      })
+      if (!res.ok) {
+        // Revert if the API call failed.
+        setRecordingPaused(recordingPaused)
+      }
+    } catch {
+      setRecordingPaused(recordingPaused)
+    }
+  }, [recordingPaused])
 
   const showActiveCall = device.state === 'placing' || device.state === 'in-call'
   // When the provider is mounted, DialerProvider already renders the
@@ -53,6 +92,10 @@ export default function DialerPanel({
             onToggleMute={device.toggleMute}
             onSendDigit={device.sendDigit}
             onHangup={device.hangup}
+            recordingEnabled={recordingEnabled}
+            recordingPaused={recordingPaused}
+            onToggleRecordingPause={handleToggleRecordingPause}
+            pauseAutoResumeSec={pauseAutoResumeSec}
           />
         ) : (
           <Dialpad

@@ -35,6 +35,9 @@ type Settings = {
   ivr_config: IvrConfig
   business_hours: BusinessHoursSchedule
   holidays: HolidayEntry[]
+  recording_enabled: boolean
+  recording_consent_notice: string
+  recording_pause_auto_resume_sec: number
 }
 
 type HubUser = { id: string; display_name: string }
@@ -74,6 +77,9 @@ export default function DialerAdminPanel({
           ivr_config: s.ivr_config,
           business_hours: s.business_hours,
           holidays: s.holidays,
+          recording_enabled: s.recording_enabled,
+          recording_consent_notice: s.recording_consent_notice,
+          recording_pause_auto_resume_sec: s.recording_pause_auto_resume_sec,
         }),
       })
       if (!res.ok) {
@@ -346,6 +352,62 @@ export default function DialerAdminPanel({
           {error}
         </div>
       )}
+
+      {/* Recording settings */}
+      <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
+        <header>
+          <h2 className="font-semibold">Call Recording</h2>
+          <p className="text-xs text-white/50 mt-1">
+            When enabled, every inbound and outbound call is recorded in dual-channel
+            (rep + customer separated) and transcribed with AI summaries.
+            All recordings appear in Call Log 2.
+          </p>
+        </header>
+
+        {/* Enable toggle */}
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <div
+            onClick={() => setS(p => ({ ...p, recording_enabled: !p.recording_enabled }))}
+            className={`relative w-10 h-6 rounded-full transition-colors ${s.recording_enabled ? 'bg-[#2E7EB8]' : 'bg-white/20'}`}
+          >
+            <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${s.recording_enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+          </div>
+          <span className="text-sm text-white">{s.recording_enabled ? 'Recording enabled' : 'Recording disabled'}</span>
+        </label>
+
+        {/* Consent notice */}
+        <div>
+          <label className="text-xs font-medium text-white/70 block mb-1">Inbound consent notice</label>
+          <textarea
+            value={s.recording_consent_notice}
+            onChange={e => setS(p => ({ ...p, recording_consent_notice: e.target.value.slice(0, 500) }))}
+            rows={2}
+            placeholder="This call may be recorded for quality and training purposes."
+            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+          />
+          <p className="text-xs text-white/40 mt-1">Played to the caller before connecting. Leave blank to use the default.</p>
+        </div>
+
+        {/* Pause auto-resume */}
+        <div>
+          <label className="text-xs font-medium text-white/70 block mb-1">Pause auto-resume (seconds)</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={10}
+              max={600}
+              value={s.recording_pause_auto_resume_sec}
+              onChange={e => {
+                const n = parseInt(e.target.value, 10)
+                if (!isNaN(n) && n >= 10 && n <= 600) setS(p => ({ ...p, recording_pause_auto_resume_sec: n }))
+              }}
+              className="w-24 bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white text-center focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <span className="text-sm text-white/60">seconds before recording auto-resumes</span>
+          </div>
+          <p className="text-xs text-white/40 mt-1">10–600 seconds. Default 60.</p>
+        </div>
+      </section>
 
       <div className="flex items-center gap-3">
         <button

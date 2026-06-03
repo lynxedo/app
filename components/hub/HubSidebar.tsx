@@ -62,6 +62,7 @@ const TOOL_CATALOG: Record<string, ToolDef> = {
   'tool:zone-sizer':    { id: 'tool:zone-sizer',    label: 'Zone Sizer',      icon: '💧', href: '/hub/zone-sizer',   prefixMatch: false },
   'tool:dialer':        { id: 'tool:dialer',        label: 'Dialer',          icon: '☎️', href: '/hub/dialer',       prefixMatch: true },
   'tool:call-log':      { id: 'tool:call-log',      label: 'Call Log',        icon: '📞', href: '/hub/call-log',     prefixMatch: true },
+  'tool:call-log2':     { id: 'tool:call-log2',     label: 'Call Log 2',      icon: '🤖', href: '/hub/call-log2',    prefixMatch: true },
   'tool:books':         { id: 'tool:books',         label: 'Books',           icon: '📊', href: '/books',            prefixMatch: true },
   'tool:fleet':         { id: 'tool:fleet',         label: 'Fleet',           icon: '🚛', href: '/hub/fleet',        prefixMatch: true },
   'tool:pesticide-records': { id: 'tool:pesticide-records', label: 'Pesticide Records', icon: '🧪', href: '/hub/pesticide-records', prefixMatch: true },
@@ -93,6 +94,7 @@ export default function HubSidebar({
   initialPinnedIds = [],
   canAccessTracker = false,
   canAccessCallLog = false,
+  canAccessCallLog2 = false,
   canAccessLawn = false,
   canAccessZoneSizer = false,
   canAccessDialer = false,
@@ -119,6 +121,7 @@ export default function HubSidebar({
   initialPinnedIds?: string[]
   canAccessTracker?: boolean
   canAccessCallLog?: boolean
+  canAccessCallLog2?: boolean
   canAccessLawn?: boolean
   canAccessZoneSizer?: boolean
   canAccessDialer?: boolean
@@ -870,6 +873,7 @@ export default function HubSidebar({
     'tool:zone-sizer':   canAccessZoneSizer,
     'tool:dialer':       canAccessDialer,
     'tool:call-log':     canAccessCallLog,
+    'tool:call-log2':    canAccessCallLog2,
     'tool:books':        canAccessBooks,
     'tool:fleet':        canAccessFleet,
     'tool:pesticide-records': true,

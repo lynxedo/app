@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 
 const DTMF_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#']
 
@@ -30,6 +30,10 @@ export default function ActiveCall({
   onToggleMute,
   onSendDigit,
   onHangup,
+  recordingEnabled = false,
+  recordingPaused = false,
+  onToggleRecordingPause,
+  pauseAutoResumeSec = 60,
 }: {
   status: 'placing' | 'in-call'
   who: string | null
@@ -38,15 +42,45 @@ export default function ActiveCall({
   onToggleMute: () => void
   onSendDigit: (d: string) => void
   onHangup: () => void
+  recordingEnabled?: boolean
+  recordingPaused?: boolean
+  onToggleRecordingPause?: () => void
+  pauseAutoResumeSec?: number
 }) {
   const [now, setNow] = useState(() => Date.now())
   const [showKeypad, setShowKeypad] = useState(false)
+  // Countdown until auto-resume. Only active when recording is paused.
+  const [countdown, setCountdown] = useState(0)
+  const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
   useEffect(() => {
     if (status !== 'in-call') return
     const t = setInterval(() => setNow(Date.now()), 500)
     return () => clearInterval(t)
   }, [status])
+
+  // Start countdown when recording is paused, clear when resumed.
+  useEffect(() => {
+    if (recordingPaused && pauseAutoResumeSec > 0) {
+      setCountdown(pauseAutoResumeSec)
+      countdownRef.current = setInterval(() => {
+        setCountdown(prev => {
+          if (prev <= 1) {
+            // Time's up — auto-resume.
+            clearInterval(countdownRef.current!)
+            onToggleRecordingPause?.()
+            return 0
+          }
+          return prev - 1
+        })
+      }, 1000)
+    } else {
+      if (countdownRef.current) clearInterval(countdownRef.current)
+      setCountdown(0)
+    }
+    return () => { if (countdownRef.current) clearInterval(countdownRef.current) }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [recordingPaused])
 
   const elapsed = startedAt && status === 'in-call' ? Math.floor((now - startedAt) / 1000) : 0
 
@@ -56,9 +90,31 @@ export default function ActiveCall({
         {status === 'placing' ? 'Calling…' : 'On call'}
       </div>
       <div className="text-2xl font-light text-white mb-1">{formatPhone(who)}</div>
-      <div className="text-white/50 text-sm mb-8">
+      <div className="text-white/50 text-sm mb-2">
         {status === 'in-call' ? formatTimer(elapsed) : '—'}
       </div>
+
+      {/* Recording indicator */}
+      {recordingEnabled && status === 'in-call' && (
+        <div className="mb-4">
+          {recordingPaused ? (
+            <div className="space-y-1">
+              <div className="flex items-center justify-center gap-1.5 text-yellow-400 text-xs font-medium">
+                <span className="w-2 h-2 rounded-full bg-yellow-400" />
+                Recording paused
+              </div>
+              <p className="text-white/40 text-xs">
+                Auto-resume in {countdown}s
+              </p>
+            </div>
+          ) : (
+            <div className="flex items-center justify-center gap-1.5 text-red-400 text-xs font-medium">
+              <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+              REC
+            </div>
+          )}
+        </div>
+      )}
 
       {showKeypad ? (
         <div className="grid grid-cols-3 gap-3 mb-5 max-w-xs mx-auto">
@@ -106,7 +162,30 @@ export default function ActiveCall({
             </svg>
             <span>Keypad</span>
           </button>
-          <div />
+          {recordingEnabled && onToggleRecordingPause ? (
+            <button
+              type="button"
+              onClick={onToggleRecordingPause}
+              disabled={status !== 'in-call'}
+              className={`aspect-square rounded-full flex flex-col items-center justify-center text-xs disabled:opacity-40 ${
+                recordingPaused
+                  ? 'bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30'
+                  : 'bg-white/5 text-white hover:bg-white/10'
+              }`}
+              aria-label={recordingPaused ? 'Resume recording' : 'Pause recording'}
+            >
+              <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                {recordingPaused ? (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+                ) : (
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6" />
+                )}
+              </svg>
+              <span>{recordingPaused ? 'Resume' : 'Pause'}</span>
+            </button>
+          ) : (
+            <div />
+          )}
         </div>
       )}
 
