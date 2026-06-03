@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { buildMessagePreview } from '@/lib/txt-preview'
 
 // GET /api/txt/conversations
 // Query: scope=mine|unassigned|all|archived, search?, limit?
@@ -96,6 +97,39 @@ export async function GET(request: Request) {
         )
       })
     })
+  }
+
+  // Authoritative sidebar preview: recompute from the newest message per
+  // conversation (txt_latest_messages). The denormalized last_message_preview
+  // column can be stale on staging because inbound SMS hits the prod webhook,
+  // whose main-branch code doesn't maintain that column. Reading the live
+  // message is always correct on both branches.
+  const ids = results.map((c) => c.id)
+  if (ids.length > 0) {
+    const { data: latest } = await supabase.rpc('txt_latest_messages', { conv_ids: ids })
+    if (Array.isArray(latest) && latest.length > 0) {
+      const byId = new Map<
+        string,
+        { body: string | null; media_count: number; direction: string }
+      >()
+      for (const row of latest) {
+        byId.set(row.conversation_id, {
+          body: row.body ?? null,
+          media_count: row.media_count ?? 0,
+          direction: row.direction,
+        })
+      }
+      results = results.map((c) => {
+        const lm = byId.get(c.id)
+        return lm
+          ? {
+              ...c,
+              last_message_preview: buildMessagePreview(lm.body, lm.media_count),
+              last_message_direction: lm.direction,
+            }
+          : c
+      })
+    }
   }
 
   return NextResponse.json({ conversations: results })
