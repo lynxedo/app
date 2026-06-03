@@ -21,6 +21,7 @@ interface CallLog {
   avg_confidence: number | null
   transcript_text: string | null
   sentiment: string | null
+  transcript_speakers: { speaker: string; text: string }[] | null
 }
 
 function formatDuration(seconds: number | null) {
@@ -190,8 +191,9 @@ function CallDetail({ call }: { call: CallLog }) {
       )}
 
 
-      {/* Transcript */}
-      {call.transcript_text && (
+      {/* Transcript — speaker-sectioned when diarization is available,
+          otherwise the raw single block (older calls / no speaker data). */}
+      {((call.transcript_speakers && call.transcript_speakers.length > 0) || call.transcript_text) && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
           <button
             onClick={() => setShowTranscript(v => !v)}
@@ -201,9 +203,20 @@ function CallDetail({ call }: { call: CallLog }) {
             <span>{showTranscript ? '▲' : '▼'}</span>
           </button>
           {showTranscript && (
-            <pre className="mt-3 text-xs text-gray-300 whitespace-pre-wrap leading-relaxed font-sans">
-              {call.transcript_text}
-            </pre>
+            call.transcript_speakers && call.transcript_speakers.length > 0 ? (
+              <div className="mt-3 space-y-3">
+                {call.transcript_speakers.map((seg, i) => (
+                  <div key={i}>
+                    <div className="text-xs font-semibold text-purple-300 mb-0.5">{seg.speaker}</div>
+                    <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap">{seg.text}</p>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <pre className="mt-3 text-xs text-gray-300 whitespace-pre-wrap leading-relaxed font-sans">
+                {call.transcript_text}
+              </pre>
+            )
           )}
         </div>
       )}
