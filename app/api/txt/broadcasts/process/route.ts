@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendSms, twilioConfigured } from '@/lib/twilio'
 import { resolveFromNumber } from '@/lib/txt-numbers'
+import { buildMessagePreview } from '@/lib/txt-preview'
 
 // Called by VPS cron every minute:
 //   curl -s -X POST https://staging.lynxedo.com/api/txt/broadcasts/process \
@@ -320,7 +321,11 @@ async function sendOneRecipient(opts: {
     .eq('id', insertedMsg.id)
   await admin
     .from('txt_conversations')
-    .update({ last_message_at: new Date().toISOString() })
+    .update({
+      last_message_at: new Date().toISOString(),
+      last_message_preview: buildMessagePreview(body, 0),
+      last_message_direction: 'outbound',
+    })
     .eq('id', conversationId)
   await admin
     .from('txt_broadcast_recipients')

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ContactModal, { type ContactForModal } from './ContactModal'
 import TemplatePicker, { filterTemplates, type PickerTemplate } from './TemplatePicker'
@@ -179,8 +179,11 @@ export default function TxtConversationView({
   >([])
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
-  const bottomRef = useRef<HTMLDivElement>(null)
+  const scrollContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // Hold the message list hidden until it's pinned to the bottom, so opening a
+  // conversation never shows a scroll jump (mirrors the Hub MessageFeed).
+  const [feedReady, setFeedReady] = useState(false)
 
   const isGroup = conversation.kind === 'group'
   const ownerId = conversation.assigned_to
@@ -350,9 +353,66 @@ export default function TxtConversationView({
     }
   }
 
+  // Open the conversation already pinned to the latest message — no animated
+  // scroll, no landing mid-thread. Same approach the Hub MessageFeed uses:
+  // pin to the bottom behind a visibility shield while late-loading images
+  // settle (ResizeObserver + staggered re-pins), then reveal.
+  useLayoutEffect(() => {
+    const el = scrollContainerRef.current
+    if (!el) return
+    let pinning = true
+    const pin = () => { if (pinning) el.scrollTop = el.scrollHeight }
+    pin()
+
+    let revealed = false
+    const reveal = () => {
+      if (revealed) return
+      revealed = true
+      pin() // one last pin right before the user sees anything
+      setFeedReady(true)
+    }
+
+    const imgs = Array.from(el.querySelectorAll('img'))
+    let pending = imgs.filter((img) => !(img.complete && img.naturalHeight !== 0)).length
+    if (pending === 0) reveal()
+    const onImgSettled = () => {
+      pin()
+      pending -= 1
+      if (pending <= 0) reveal()
+    }
+    imgs.forEach((img) => {
+      if (img.complete && img.naturalHeight !== 0) return
+      img.addEventListener('load', onImgSettled, { once: true })
+      img.addEventListener('error', onImgSettled, { once: true })
+    })
+
+    const revealCap = setTimeout(reveal, 1500)
+    const timers = [0, 50, 150, 400, 900].map((ms) => setTimeout(pin, ms))
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(pin) : null
+    ro?.observe(el)
+    const stopAt = setTimeout(() => { pinning = false; ro?.disconnect() }, 2000)
+    return () => {
+      pinning = false
+      clearTimeout(revealCap)
+      timers.forEach(clearTimeout)
+      clearTimeout(stopAt)
+      ro?.disconnect()
+      imgs.forEach((img) => {
+        img.removeEventListener('load', onImgSettled)
+        img.removeEventListener('error', onImgSettled)
+      })
+    }
+    // Mount-only — the conversation view remounts per conversation (the poll
+    // effect is keyed on conversation.id), so this re-pins on every open.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  // Snap to the bottom on a new message (own send or incoming poll). Instant,
+  // not smooth — matches "just opens to the bottom".
   useEffect(() => {
-    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [messages])
+    const el = scrollContainerRef.current
+    if (el) el.scrollTop = el.scrollHeight
+  }, [messages.length, conversation.id])
 
   // Poll for new messages every 8s (realtime channel can be added later)
   useEffect(() => {
@@ -741,7 +801,7 @@ export default function TxtConversationView({
             <div className="text-xs text-white/50 truncate">{phoneDisplay}</div>
           </button>
         )}
-        <div className="flex items-center gap-2 flex-none">
+        <div className="flex items-center gap-1.5 flex-wrap justify-end">
           {/* Assignment chip */}
           <div className="relative">
             <button
@@ -992,7 +1052,11 @@ export default function TxtConversationView({
 
       {/* Body: messages + optional notes panel */}
       <div className="flex-1 flex min-h-0">
-        <div className="flex-1 overflow-y-auto px-4 py-4 space-y-2">
+        <div
+          ref={scrollContainerRef}
+          style={{ visibility: feedReady ? 'visible' : 'hidden' }}
+          className="flex-1 overflow-y-auto px-4 py-4 space-y-2"
+        >
           {messages.length === 0 && (
             <div className="text-center text-white/40 text-sm py-8">
               No messages yet.
@@ -1101,7 +1165,6 @@ export default function TxtConversationView({
               </div>
             )
           })}
-          <div ref={bottomRef} />
         </div>
 
         {showNotes && (
@@ -1221,6 +1284,103 @@ export default function TxtConversationView({
                 onClose={closePicker}
               />
             )}
+            {/* On-My-Way + Schedule popovers — anchored to the full composer
+                width (like the template picker) so they never run off-screen on
+                mobile. Triggered from the toolbar buttons below. */}
+            {omwOpen && !isGroup && conversation.contact && (
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 p-2">
+                <div className="text-[11px] text-white/50 px-1 pb-1.5">
+                  On my way — pick an ETA
+                </div>
+                <div className="grid grid-cols-3 gap-1.5">
+                  {[5, 10, 15, 20, 30, 45].map((m) => (
+                    <button
+                      key={m}
+                      type="button"
+                      onClick={() => applyOnMyWay(m)}
+                      className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-emerald-600/40 text-sm"
+                    >
+                      {m}m
+                    </button>
+                  ))}
+                </div>
+                <div className="flex items-center gap-1.5 mt-2">
+                  <input
+                    type="number"
+                    min={1}
+                    max={240}
+                    value={omwCustom}
+                    onChange={(e) => setOmwCustom(e.target.value)}
+                    placeholder="custom minutes"
+                    className="flex-1 w-full px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm"
+                    style={{ fontSize: 16 }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => {
+                      const n = parseInt(omwCustom, 10)
+                      if (Number.isFinite(n) && n >= 1 && n <= 240) applyOnMyWay(n)
+                    }}
+                    className="px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm"
+                  >
+                    Use
+                  </button>
+                </div>
+              </div>
+            )}
+            {scheduleOpen && (
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 p-3 max-h-[60vh] overflow-y-auto">
+                <div className="text-[11px] text-white/50 pb-1.5">Schedule for later</div>
+                <input
+                  type="datetime-local"
+                  min={minScheduleDateTime}
+                  value={scheduleAt}
+                  onChange={(e) => setScheduleAt(e.target.value)}
+                  className="w-full px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm"
+                  style={{ fontSize: 16 }}
+                />
+                <button
+                  type="button"
+                  onClick={scheduleMessage}
+                  disabled={scheduling || !scheduleAt}
+                  className="mt-2 w-full px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-500 text-sm font-medium disabled:opacity-50"
+                >
+                  {scheduling ? 'Scheduling…' : 'Schedule this message'}
+                </button>
+                {scheduledList.length > 0 && (
+                  <div className="mt-3 pt-2 border-t border-white/10 space-y-1.5">
+                    <div className="text-[10px] uppercase tracking-wide text-white/40">
+                      Upcoming
+                    </div>
+                    {scheduledList.map((s) => (
+                      <div key={s.id} className="flex items-start gap-2 text-[11px]">
+                        <div className="flex-1 min-w-0">
+                          <div className="text-white/70">
+                            {new Date(s.send_at).toLocaleString('en-US', {
+                              month: 'short',
+                              day: 'numeric',
+                              hour: 'numeric',
+                              minute: '2-digit',
+                            })}
+                          </div>
+                          <div className="text-white/40 truncate">
+                            {s.body || '📎 attachment'}
+                          </div>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={() => cancelScheduled(s.id)}
+                          className="text-white/40 hover:text-red-300 flex-none text-sm leading-none"
+                          aria-label="Cancel scheduled message"
+                        >
+                          ×
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Toolbar — 📎 attach · 📋 templates · ⤢ expand · (spacer) · count · ➤ send */}
@@ -1248,7 +1408,11 @@ export default function TxtConversationView({
             <div className="relative">
               <button
                 type="button"
-                onClick={() => setEmojiOpen((v) => !v)}
+                onClick={() => {
+                  setEmojiOpen((v) => !v)
+                  setOmwOpen(false)
+                  setScheduleOpen(false)
+                }}
                 disabled={sending || !!conversation.contact?.do_not_text}
                 className="text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
                 title="Insert emoji"
@@ -1265,59 +1429,23 @@ export default function TxtConversationView({
               )}
             </div>
             {!isGroup && conversation.contact && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setOmwOpen((v) => !v)}
-                  disabled={sending || !!conversation.contact?.do_not_text}
-                  className="text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
-                  title="On my way — pick an ETA"
-                  aria-label="On my way"
-                >
-                  <span className="text-base leading-none">🚗</span>
-                </button>
-                {omwOpen && (
-                  <div className="absolute bottom-full mb-2 left-0 w-56 bg-[#0F2E47] border border-white/15 rounded-lg shadow-xl z-30 p-2">
-                    <div className="text-[11px] text-white/50 px-1 pb-1.5">
-                      On my way — pick an ETA
-                    </div>
-                    <div className="grid grid-cols-3 gap-1.5">
-                      {[5, 10, 15, 20, 30, 45].map((m) => (
-                        <button
-                          key={m}
-                          type="button"
-                          onClick={() => applyOnMyWay(m)}
-                          className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-emerald-600/40 text-sm"
-                        >
-                          {m}m
-                        </button>
-                      ))}
-                    </div>
-                    <div className="flex items-center gap-1.5 mt-2">
-                      <input
-                        type="number"
-                        min={1}
-                        max={240}
-                        value={omwCustom}
-                        onChange={(e) => setOmwCustom(e.target.value)}
-                        placeholder="custom"
-                        className="flex-1 w-full px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm"
-                        style={{ fontSize: 16 }}
-                      />
-                      <button
-                        type="button"
-                        onClick={() => {
-                          const n = parseInt(omwCustom, 10)
-                          if (Number.isFinite(n) && n >= 1 && n <= 240) applyOnMyWay(n)
-                        }}
-                        className="px-2.5 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm"
-                      >
-                        Use
-                      </button>
-                    </div>
-                  </div>
-                )}
-              </div>
+              <button
+                type="button"
+                onClick={() => {
+                  setOmwOpen((v) => !v)
+                  setScheduleOpen(false)
+                  setEmojiOpen(false)
+                  closePicker()
+                }}
+                disabled={sending || !!conversation.contact?.do_not_text}
+                className={`hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10 ${
+                  omwOpen ? 'text-emerald-300 bg-white/10' : 'text-white/50'
+                }`}
+                title="On my way — pick an ETA"
+                aria-label="On my way"
+              >
+                <span className="text-base leading-none">🚗</span>
+              </button>
             )}
             <button
               type="button"
@@ -1334,13 +1462,21 @@ export default function TxtConversationView({
                 )}
               </svg>
             </button>
-            {/* Scheduled send */}
+            {/* Scheduled send — popover renders full-composer-width above the
+                input (see the textarea wrapper). The count badge stays here. */}
             <div className="relative">
               <button
                 type="button"
-                onClick={() => setScheduleOpen((v) => !v)}
+                onClick={() => {
+                  setScheduleOpen((v) => !v)
+                  setOmwOpen(false)
+                  setEmojiOpen(false)
+                  closePicker()
+                }}
                 disabled={sending || !!conversation.contact?.do_not_text}
-                className="relative text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
+                className={`relative hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10 ${
+                  scheduleOpen ? 'text-amber-300 bg-white/10' : 'text-white/50'
+                }`}
                 title="Schedule send"
                 aria-label="Schedule send"
               >
@@ -1353,59 +1489,6 @@ export default function TxtConversationView({
                   </span>
                 )}
               </button>
-              {scheduleOpen && (
-                <div className="absolute bottom-full mb-2 left-0 w-64 max-w-[calc(100vw-2rem)] bg-[#0F2E47] border border-white/15 rounded-lg shadow-xl z-30 p-3">
-                  <div className="text-[11px] text-white/50 pb-1.5">Schedule for later</div>
-                  <input
-                    type="datetime-local"
-                    min={minScheduleDateTime}
-                    value={scheduleAt}
-                    onChange={(e) => setScheduleAt(e.target.value)}
-                    className="w-full px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm"
-                    style={{ fontSize: 16 }}
-                  />
-                  <button
-                    type="button"
-                    onClick={scheduleMessage}
-                    disabled={scheduling || !scheduleAt}
-                    className="mt-2 w-full px-3 py-1.5 rounded-md bg-amber-600 hover:bg-amber-500 text-sm font-medium disabled:opacity-50"
-                  >
-                    {scheduling ? 'Scheduling…' : 'Schedule this message'}
-                  </button>
-                  {scheduledList.length > 0 && (
-                    <div className="mt-3 pt-2 border-t border-white/10 space-y-1.5 max-h-40 overflow-y-auto">
-                      <div className="text-[10px] uppercase tracking-wide text-white/40">
-                        Upcoming
-                      </div>
-                      {scheduledList.map((s) => (
-                        <div key={s.id} className="flex items-start gap-2 text-[11px]">
-                          <div className="flex-1 min-w-0">
-                            <div className="text-white/70">
-                              {new Date(s.send_at).toLocaleString('en-US', {
-                                month: 'short',
-                                day: 'numeric',
-                                hour: 'numeric',
-                                minute: '2-digit',
-                              })}
-                            </div>
-                            <div className="text-white/40 truncate">
-                              {s.body || '📎 attachment'}
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => cancelScheduled(s.id)}
-                            className="text-white/40 hover:text-red-300 flex-none text-sm leading-none"
-                            aria-label="Cancel scheduled message"
-                          >
-                            ×
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
             </div>
 
             <div className="flex-1" />
@@ -1449,7 +1532,10 @@ export default function TxtConversationView({
           on mobile the 📝 button opens this full-screen panel instead. */}
       {showNotes && (
         <div className="md:hidden fixed inset-0 z-50 bg-[#0B2237] flex flex-col">
-          <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
+          <div
+            className="px-4 pb-3 border-b border-white/10 flex items-center justify-between"
+            style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}
+          >
             <span className="text-sm text-amber-300">Internal notes (not sent to customer)</span>
             <button
               onClick={() => setShowNotes(false)}

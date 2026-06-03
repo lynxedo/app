@@ -388,6 +388,22 @@ export default function HubShell({
     return () => { supabase.removeChannel(channel) }
   }, [canAccessTxt, companyId])
 
+  // Refresh the Txt2 dot when the tab/app regains focus — the realtime inbound
+  // broadcast covers the live case, but if the socket dropped while backgrounded
+  // (common on mobile) this catches up immediately instead of waiting up to 60s.
+  useEffect(() => {
+    if (!canAccessTxt) return
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') refreshTxtUnread()
+    }
+    document.addEventListener('visibilitychange', onVisible)
+    window.addEventListener('focus', onVisible)
+    return () => {
+      document.removeEventListener('visibilitychange', onVisible)
+      window.removeEventListener('focus', onVisible)
+    }
+  }, [canAccessTxt, refreshTxtUnread])
+
   // Clear + stamp last-seen when the user opens Txt2.
   useEffect(() => {
     const onTxt = pathname === '/hub/txt' || pathname.startsWith('/hub/txt/')
@@ -722,12 +738,16 @@ export default function HubShell({
         onHubClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
         onTxtClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
         onPhoneClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
+        onUserSlotNav={() => { setManualRail(null); setMobileDrawerOpen(true) }}
         onTimeClockClick={() => setShowTimeClock(true)}
         onToolsClick={() => { setManualRail('tools'); setMobileDrawerOpen(true) }}
         onLinksClick={() => { setManualRail('links'); setMobileDrawerOpen(true) }}
         isClockedIn={isClockedIn}
         unreadHub={unreadHub}
         unheardVoicemails={unheardVoicemails}
+        txtUnread={txtUnread}
+        missedCall={missedCall}
+        dailyLogUnread={dailyLogUnread}
         canAccessDialer={!!canAccessDialer}
         permissions={permissions}
         railConfig={initialRailConfig ?? null}
