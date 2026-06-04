@@ -101,7 +101,6 @@ interface RawCustomField {
   valueTrueFalse?: boolean | null
   valueArea?: { length?: number | null; width?: number | null } | null
   unit?: string | null
-  valueLink?: unknown
 }
 
 interface DenormalizedFields {
@@ -125,7 +124,6 @@ const CUSTOM_FIELDS_FRAGMENT = `
   ... on CustomFieldTrueFalse { label valueTrueFalse }
   ... on CustomFieldDropdown  { label valueDropdown }
   ... on CustomFieldArea      { label valueArea { length width } unit }
-  ... on CustomFieldLink      { label valueLink }
 `
 
 function extractCustomFieldValue(f: RawCustomField): string | null {
@@ -140,7 +138,6 @@ function extractCustomFieldValue(f: RawCustomField): string | null {
         return `${a.length}x${a.width}${f.unit ? ' ' + f.unit : ''}`
       return null
     }
-    case 'CustomFieldLink':      return f.valueLink != null ? JSON.stringify(f.valueLink) : null
     default:
       // Fallback for missing __typename
       return f.valueText ?? (f.valueNumeric != null ? String(f.valueNumeric) : null)
