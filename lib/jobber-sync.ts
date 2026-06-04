@@ -969,23 +969,53 @@ export async function backfillVisitInvoiceIds(companyId: string): Promise<{ proc
   const admin = createAdminClient()
   const userId = await getJobberUserId(companyId)
 
-  const { data: missing } = await admin
-    .from('visits')
-    .select('external_id')
-    .eq('company_id', companyId)
-    .eq('visit_status', 'COMPLETED')
-    .is('deleted_at', null)
-    .is('invoice_external_id', null)
-
-  const ids = (missing ?? []).map(r => r.external_id)
-  console.log(`[jobber-sync] backfill invoice IDs: ${ids.length} visits missing`)
-
   const BATCH = 40
   let processed = 0
-  for (let i = 0; i < ids.length; i += BATCH) {
-    await syncVisits(userId, companyId, undefined, ids.slice(i, i + BATCH))
-    processed += Math.min(BATCH, ids.length - i)
-    console.log(`[jobber-sync] backfill invoice IDs: ${processed}/${ids.length}`)
+
+  // Helper: total count of completed visits still missing invoice_external_id.
+  const remainingCount = async (): Promise<number> => {
+    const { count } = await admin
+      .from('visits')
+      .select('external_id', { count: 'exact', head: true })
+      .eq('company_id', companyId)
+      .eq('visit_status', 'COMPLETED')
+      .is('deleted_at', null)
+      .is('invoice_external_id', null)
+    return count ?? 0
+  }
+
+  // Loop: Supabase caps .select() at 1000 rows, so page through the NULL set.
+  // Each synced visit with an invoice gets invoice_external_id set, shrinking
+  // the set. Some visits genuinely have no Jobber invoice and stay NULL — so we
+  // stop when a full pass no longer reduces the TOTAL remaining count.
+  let prevTotal = await remainingCount()
+  console.log(`[jobber-sync] backfill invoice IDs: ${prevTotal} visits missing invoice link`)
+
+  while (prevTotal > 0) {
+    const { data: missing } = await admin
+      .from('visits')
+      .select('external_id')
+      .eq('company_id', companyId)
+      .eq('visit_status', 'COMPLETED')
+      .is('deleted_at', null)
+      .is('invoice_external_id', null)
+      .limit(1000)
+
+    const ids = (missing ?? []).map(r => r.external_id)
+    if (ids.length === 0) break
+
+    for (let i = 0; i < ids.length; i += BATCH) {
+      await syncVisits(userId, companyId, undefined, ids.slice(i, i + BATCH))
+      processed += Math.min(BATCH, ids.length - i)
+      console.log(`[jobber-sync] backfill invoice IDs: ${processed} processed`)
+    }
+
+    const newTotal = await remainingCount()
+    if (newTotal >= prevTotal) {
+      console.log(`[jobber-sync] backfill invoice IDs: ${newTotal} visits have no Jobber invoice — stopping`)
+      break
+    }
+    prevTotal = newTotal
   }
   return { processed }
 }
