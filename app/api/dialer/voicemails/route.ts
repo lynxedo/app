@@ -60,6 +60,8 @@ export async function GET(request: Request) {
       heard_by,
       owner_user_id,
       call_id,
+      transcript,
+      summary,
       contact:txt_contacts(id, name, phone)
     `)
     .is('deleted_at', null)

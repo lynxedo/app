@@ -515,6 +515,14 @@ function HubTab() {
         <p>Records are preserved across stop reopen. If a tech reopens then re-completes a stop, the record is updated in place with the fresh timestamp + weather, not duplicated.</p>
       </Section>
 
+      <Section title="Reports">
+        <p>Available at <Link href="/hub/reports/visits" className="text-sky-400 hover:underline">/hub/reports/visits</Link> (admin only). Shows completed visits broken down by technician for any date range you pick.</p>
+        <p><strong className="text-white">Date ranges</strong> — quick-select buttons at the top: This Week, Last Week, This Month, Last Month, YTD, or a Custom date range. The report re-runs instantly when you switch ranges.</p>
+        <p><strong className="text-white">Summary cards</strong> — four at-a-glance numbers across all techs: total visits, total value, recurring visits, and one-off visits.</p>
+        <p><strong className="text-white">Tech table</strong> — one row per technician, sorted by visit count. Each row shows visits, dollar value, and the recurring/one-off split. Tap any row to expand a department breakdown (IR, WF, PW, etc.) for that tech.</p>
+        <p><strong className="text-white">Dollar value note</strong> — visits with per-visit line items (most IR jobs, one-off jobs) show full dollar attribution. Recurring flat-rate visits bill at the job/invoice level and show $0 visit value — the visit count is still accurate, only the dollar attribution differs.</p>
+      </Section>
+
       <Section title="Fleet Tracker">
         <p>Fleet shows all company vehicles on a live map (powered by OneStepGPS). Each vehicle appears as a colored pin with a heading arrow and a popup that gives speed, fuel %, and last ping time. Tap a vehicle in the sidebar list to fly the map to it.</p>
         <p>Pin colors:</p>
@@ -825,6 +833,7 @@ function DialerTab() {
         <p>Each voicemail row shows the caller (name if the number matches a Txt contact, otherwise the formatted phone number), the time it came in, and the recording length. Tap <strong className="text-white">Play</strong> to hear it inline — playing it once marks it as heard. <strong className="text-white">Mark heard</strong> / <strong className="text-white">Mark unheard</strong> lets you toggle without playing. <strong className="text-white">Delete</strong> removes it from the inbox (soft-deleted; admins can recover it from the database for 90 days if needed).</p>
         <p>Tapping the caller name pre-fills the dialpad with their number so you can call back in one tap.</p>
         <p>Voicemail recipients (the people who get a push notification when a new voicemail lands) are configured in <strong className="text-white">Admin → Dialer</strong>. Push notifications respect each recipient&apos;s Do Not Disturb settings.</p>
+        <p><strong className="text-white">AI transcript + summary</strong> — within about 15–30 seconds after a voicemail arrives, Deepgram transcribes the audio and Claude writes a one-sentence summary of what the caller said. The summary appears as a grey snippet below the caller name in the voicemail list so you can triage messages at a glance without playing them. The full transcript is visible in <strong className="text-white">Call Log 2</strong> when you click the matching call row.</p>
       </Section>
 
       <Section title="Ring anywhere in Hub">

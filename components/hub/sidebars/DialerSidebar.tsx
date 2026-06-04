@@ -30,6 +30,8 @@ type VoicemailRow = {
   heard_by: string | null
   owner_user_id: string | null
   call_id: string | null
+  transcript: string | null
+  summary: string | null
   contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null
 }
 
@@ -398,6 +400,13 @@ function VoicemailList({
                 </div>
               </div>
             </div>
+
+            {/* AI transcript summary — shows once transcription is done */}
+            {(v.summary || v.transcript) && !isPlaying && (
+              <p className="mt-1 text-[11px] text-white/40 leading-snug line-clamp-2">
+                {v.summary || v.transcript!.slice(0, 120)}
+              </p>
+            )}
 
             {isPlaying ? (
               <div className="mt-2">
