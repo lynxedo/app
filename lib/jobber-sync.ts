@@ -959,6 +959,50 @@ async function syncInvoices(
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
+/**
+ * Re-fetch all completed visits that are missing line items in the mirror.
+ * Root cause: VISIT_COMPLETE webhook fires before Jobber attaches line items,
+ * so the initial capture gets an empty array. Re-fetching the visit by ID
+ * after the fact picks them up correctly.
+ */
+export async function backfillVisitLineItems(companyId: string): Promise<{ processed: number }> {
+  const admin = createAdminClient()
+  const userId = await getJobberUserId(companyId)
+
+  // All completed visit external_ids
+  const { data: allCompleted } = await admin
+    .from('visits')
+    .select('external_id')
+    .eq('company_id', companyId)
+    .eq('visit_status', 'COMPLETED')
+    .is('deleted_at', null)
+
+  // All visit external_ids that already have line items
+  const { data: withLines } = await admin
+    .from('line_items')
+    .select('parent_external_id')
+    .eq('company_id', companyId)
+    .eq('parent_type', 'visit')
+    .is('deleted_at', null)
+
+  const hasLines = new Set((withLines ?? []).map(r => r.parent_external_id))
+  const missing = (allCompleted ?? []).map(r => r.external_id).filter(id => !hasLines.has(id))
+
+  console.log(`[jobber-sync] backfill: ${missing.length} completed visits missing line items`)
+
+  // Re-fetch in batches of 40 (syncVisits page size)
+  const BATCH = 40
+  let processed = 0
+  for (let i = 0; i < missing.length; i += BATCH) {
+    const batch = missing.slice(i, i + BATCH)
+    await syncVisits(userId, companyId, undefined, batch)
+    processed += batch.length
+    console.log(`[jobber-sync] backfill: ${processed}/${missing.length}`)
+  }
+
+  return { processed }
+}
+
 export interface SyncSummary {
   clients: number
   properties: number
