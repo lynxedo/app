@@ -283,7 +283,7 @@ async function syncClients(
 
   while (true) {
     const filter = updatedSince
-      ? { updatedAt: { greaterThan: updatedSince.toISOString() } }
+      ? { updatedAt: { after: updatedSince.toISOString() } }
       : undefined
 
     const resp = await withRateLimit(() =>
@@ -545,19 +545,23 @@ const JOBS_QUERY = `
 async function syncJobs(
   userId: string,
   companyId: string,
-  updatedSince?: Date
+  updatedSince?: Date,
+  ids?: string[]
 ): Promise<number> {
   const admin = createAdminClient()
   let cursor: string | null = null
   let total = 0
 
   while (true) {
-    // Jobber's JobFilterAttributes has no updatedAt. Use visitsScheduledBetween
-    // to capture jobs with activity in the YTD window (covers recurring jobs
-    // created in prior years). Delta (Session 68) uses createdAt as a stopgap
-    // until a proper change-cursor strategy is designed — TODO(Session 68).
+    // Jobber's JobFilterAttributes has no updatedAt — but it does have `ids`, so
+    // webhook events (Session 68) drive an exact fetch by id, which catches edits
+    // and completions the time-window can't. The nightly cron has no id list, so
+    // it falls back to createdAt (new jobs) / visitsScheduledBetween (YTD scope);
+    // arbitrary edits to old jobs are covered by the real-time webhook.
     const filter: Record<string, unknown> = {}
-    if (updatedSince) {
+    if (ids?.length) {
+      filter.ids = ids
+    } else if (updatedSince) {
       filter.createdAt = { after: updatedSince.toISOString() }
     } else {
       filter.visitsScheduledBetween = {
@@ -717,18 +721,22 @@ const VISITS_SYNC_QUERY = `
 async function syncVisits(
   userId: string,
   companyId: string,
-  updatedSince?: Date
+  updatedSince?: Date,
+  ids?: string[]
 ): Promise<number> {
   const admin = createAdminClient()
   let cursor: string | null = null
   let total = 0
 
   while (true) {
-    // Jobber's VisitFilterAttributes has no updatedAt; filter on the visit's
-    // scheduled start (startAt range, proven shape from app/api/visits).
-    // Delta (Session 68) re-pulls the recent window — TODO(Session 68).
+    // Jobber's VisitFilterAttributes has no updatedAt — but it does have `ids`,
+    // so webhook events (Session 68) drive an exact fetch by id, which reliably
+    // catches VISIT_COMPLETE on a visit scheduled in the past. The nightly cron
+    // has no id list, so it falls back to the startAt window (today + upcoming).
     const filter: Record<string, unknown> = {}
-    if (updatedSince) {
+    if (ids?.length) {
+      filter.ids = ids
+    } else if (updatedSince) {
       filter.startAt = { after: updatedSince.toISOString() }
     } else {
       filter.startAt = {
@@ -1028,11 +1036,13 @@ export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary
  * Handle a single Jobber webhook event (Session 68).
  *
  * DESTROY events soft-delete the mirror row by external_id (no fetch needed).
- * CREATE / UPDATE / COMPLETE events run a *scoped delta* on the matching entity:
- * the existing per-entity sync already filters server-side by `updatedAt`, so
- * anchoring a short window to the event's `occurredAt` reliably re-pulls the
- * changed record while keeping the GraphQL query tiny. The upsert is idempotent,
- * so re-touching a handful of neighbouring recently-changed rows is harmless.
+ * For CREATE / UPDATE / COMPLETE the fetch strategy is per-entity, because
+ * Jobber's filter inputs are asymmetric:
+ *   - Clients & Invoices have `updatedAt` but no `ids` filter → narrow
+ *     updated-since window anchored to the event's occurredAt.
+ *   - Jobs & Visits have `ids` but no `updatedAt` → exact fetch by id, so an
+ *     edit or completion on an older record is never missed by a time window.
+ * Either way the upsert is idempotent, so re-processing is harmless.
  */
 export async function processJobberWebhookEvent(
   event: { topic: string; itemId: string; companyId: string; occurredAt?: string | null }
@@ -1077,24 +1087,28 @@ export async function processJobberWebhookEvent(
 
   try {
     switch (topic) {
+      // Clients & invoices: no `ids` filter, but they have `updatedAt` — use a
+      // narrow updated-since window anchored to the event.
       case 'CLIENT_CREATE':
       case 'CLIENT_UPDATE':
         await syncClients(userId, companyId, since); break
-      case 'JOB_CREATE':
-      case 'JOB_UPDATE':
-        await syncJobs(userId, companyId, since); break
-      case 'VISIT_CREATE':
-      case 'VISIT_UPDATE':
-      case 'VISIT_COMPLETE':
-        await syncVisits(userId, companyId, since); break
       case 'INVOICE_CREATE':
       case 'INVOICE_UPDATE':
         await syncInvoices(userId, companyId, since); break
+      // Jobs & visits: no `updatedAt`, but they have `ids` — fetch the exact
+      // record so edits and completions on older records are never missed.
+      case 'JOB_CREATE':
+      case 'JOB_UPDATE':
+        await syncJobs(userId, companyId, undefined, [itemId]); break
+      case 'VISIT_CREATE':
+      case 'VISIT_UPDATE':
+      case 'VISIT_COMPLETE':
+        await syncVisits(userId, companyId, undefined, [itemId]); break
       default:
         console.log(`[jobber-webhook] ignoring topic ${topic}`)
         return
     }
-    console.log(`[jobber-webhook] processed ${topic} ${itemId} (since ${since.toISOString()})`)
+    console.log(`[jobber-webhook] processed ${topic} ${itemId}`)
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error(`[jobber-webhook] ${topic} ${itemId} failed:`, msg)
