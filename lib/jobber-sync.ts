@@ -485,8 +485,6 @@ const PROPERTIES_QUERY = `
         isBillingAddress
         jobberWebUri
         address { street1 street2 city province postalCode }
-        coordinates { latitude longitude }
-        geoStatus
         client { id }
         customFields {
           ${CUSTOM_FIELDS_FRAGMENT}
@@ -547,8 +545,8 @@ async function syncProperties(
         name: p.name ?? null,
         is_billing_address: p.isBillingAddress ?? null,
         jobber_web_uri: p.jobberWebUri ?? null,
-        latitude: p.coordinates?.latitude ?? null,
-        longitude: p.coordinates?.longitude ?? null,
+        latitude: null,
+        longitude: null,
         address_line1: p.address?.street1 ?? null,
         address_line2: p.address?.street2 ?? null,
         city: p.address?.city ?? null,
@@ -1268,8 +1266,6 @@ interface PropertyNode {
   jobberWebUri?: string
   client?: { id: string }
   address?: { street1?: string; street2?: string; city?: string; province?: string; postalCode?: string }
-  coordinates?: { latitude?: number | null; longitude?: number | null }
-  geoStatus?: string
   customFields?: RawCustomField[]
   createdAt?: string
 }
