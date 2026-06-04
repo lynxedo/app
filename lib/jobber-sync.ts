@@ -319,6 +319,7 @@ async function syncClients(
         last_synced_at: new Date().toISOString(),
         external_created_at: raw.createdAt ?? null,
         updated_at: new Date().toISOString(),
+        deleted_at: null, // a record Jobber returns is alive — resurrect if previously soft-deleted
       }, { onConflict: 'external_id,source' })
 
       // Upsert contacts
@@ -480,6 +481,7 @@ async function syncProperties(
         last_synced_at: new Date().toISOString(),
         external_created_at: p.createdAt ?? null,
         updated_at: new Date().toISOString(),
+        deleted_at: null, // a record Jobber returns is alive — resurrect if previously soft-deleted
       }
     }))
 
@@ -635,6 +637,7 @@ async function syncJobs(
         last_synced_at: new Date().toISOString(),
         external_created_at: job.createdAt ?? null,
         updated_at: new Date().toISOString(),
+        deleted_at: null, // a record Jobber returns is alive — resurrect if previously soft-deleted
       }, { onConflict: 'external_id,source' })
 
       // Sync job line items
@@ -780,6 +783,7 @@ async function syncVisits(
         last_synced_at: new Date().toISOString(),
         external_created_at: v.createdAt ?? null,
         updated_at: new Date().toISOString(),
+        deleted_at: null, // a record Jobber returns is alive — resurrect if previously soft-deleted
       }, { onConflict: 'external_id,source' })
 
       // Sync visit line items
@@ -909,6 +913,7 @@ async function syncInvoices(
         last_synced_at: new Date().toISOString(),
         external_created_at: inv.createdAt ?? null,
         updated_at: new Date().toISOString(),
+        deleted_at: null, // a record Jobber returns is alive — resurrect if previously soft-deleted
       }, { onConflict: 'external_id,source' })
 
       // Sync invoice line items
