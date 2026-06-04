@@ -1,10 +1,16 @@
 /**
- * Jobber → Supabase sync library (Session 67)
+ * Jobber → Supabase sync library (Session 67, updated Session 71)
  *
  * Three public exports:
  *   runInitialJobberSync(companyId)  — full YTD pull, run once
  *   runDeltaJobberSync(companyId)    — delta since last sync, run nightly
  *   processJobberWebhookEvent(...)   — handle a single webhook event (Session 68)
+ *
+ * Session 71 fixes:
+ *   Bug 1 — customFields now reads all 6 Jobber types (was only Text + Numeric)
+ *   Bug 2 — line_items unique key is now composite (external_id, parent_type,
+ *            parent_external_id, source) so recurring-job siblings don't collide
+ *   Enrichment — properties/clients/invoices pull richer fields
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -39,9 +45,6 @@ async function withRateLimit<T>(fn: () => Promise<T>): Promise<T> {
   throw lastErr
 }
 
-// Pace pagination using Jobber's returned query-cost throttle status so the
-// leaky bucket (max 10,000, restores ~500/s) recovers before the next
-// similarly-priced page. Jobber returns the cost block in `extensions.cost`.
 async function throttleSleep(resp: unknown): Promise<void> {
   const cost = (resp as {
     extensions?: { cost?: {
@@ -63,10 +66,8 @@ async function throttleSleep(resp: unknown): Promise<void> {
   }
 }
 
-/** Find the first admin user for the company who has a Jobber token */
 async function getJobberUserId(companyId: string): Promise<string> {
   const admin = createAdminClient()
-  // Find users with jobber_tokens for this company
   const { data: profiles } = await admin
     .from('user_profiles')
     .select('id')
@@ -89,10 +90,18 @@ async function getJobberUserId(companyId: string): Promise<string> {
 
 // ── Custom field parser ───────────────────────────────────────────────────────
 
+// Covers all 6 Jobber CustomFieldUnion concrete types.
+// __typename is required to pick the right value field.
 interface RawCustomField {
-  label: string
+  __typename?: string
+  label?: string
   valueText?: string | null
   valueNumeric?: number | null
+  valueDropdown?: string | null
+  valueTrueFalse?: boolean | null
+  valueArea?: { length?: number | null; width?: number | null } | null
+  unit?: string | null
+  valueLink?: unknown
 }
 
 interface DenormalizedFields {
@@ -108,6 +117,36 @@ interface DenormalizedFields {
   custom_note: string | null
 }
 
+// Shared GraphQL fragment for all 6 custom field types (interpolated into queries below)
+const CUSTOM_FIELDS_FRAGMENT = `
+  __typename
+  ... on CustomFieldText      { label valueText }
+  ... on CustomFieldNumeric   { label valueNumeric }
+  ... on CustomFieldTrueFalse { label valueTrueFalse }
+  ... on CustomFieldDropdown  { label valueDropdown }
+  ... on CustomFieldArea      { label valueArea { length width } unit }
+  ... on CustomFieldLink      { label valueLink }
+`
+
+function extractCustomFieldValue(f: RawCustomField): string | null {
+  switch (f.__typename ?? '') {
+    case 'CustomFieldText':      return f.valueText ?? null
+    case 'CustomFieldNumeric':   return f.valueNumeric != null ? String(f.valueNumeric) : null
+    case 'CustomFieldDropdown':  return f.valueDropdown ?? null
+    case 'CustomFieldTrueFalse': return f.valueTrueFalse != null ? String(f.valueTrueFalse) : null
+    case 'CustomFieldArea': {
+      const a = f.valueArea
+      if (a?.length != null && a?.width != null)
+        return `${a.length}x${a.width}${f.unit ? ' ' + f.unit : ''}`
+      return null
+    }
+    case 'CustomFieldLink':      return f.valueLink != null ? JSON.stringify(f.valueLink) : null
+    default:
+      // Fallback for missing __typename
+      return f.valueText ?? (f.valueNumeric != null ? String(f.valueNumeric) : null)
+  }
+}
+
 function parseRouteCodeFromTitle(title: string | null): string | null {
   if (!title) return null
   const m = title.match(/\b(RC|BP)\d+\b/i)
@@ -121,25 +160,29 @@ function deriveRouteType(routeCode: string | null): 'RC' | 'BP' | null {
   return null
 }
 
+/**
+ * Parse a Jobber customFields array into:
+ *   raw  — structured { type, value } map keyed by label (stored in the custom_fields jsonb column)
+ *   cf   — lowercase-label → string value map (used for denormalization lookups)
+ *   denormalized — job-specific extracted columns
+ */
 function parseCustomFields(
   rawFields: RawCustomField[],
   jobTitle: string | null
-): { raw: Record<string, unknown>; denormalized: DenormalizedFields } {
-  const raw: Record<string, unknown> = {}
+): { raw: Record<string, { type: string; value: string | null }>; cf: Record<string, string>; denormalized: DenormalizedFields } {
+  const raw: Record<string, { type: string; value: string | null }> = {}
   const cf: Record<string, string> = {}
 
   for (const f of rawFields) {
-    // Non-matching inline fragment types (CustomFieldDate, CustomFieldArea, etc.)
-    // return {} with no fields — f.label will be undefined. Skip those.
+    // Missing label = an inline fragment type we didn't request, or truly empty — skip.
     if (!f.label) continue
+    const value = extractCustomFieldValue(f)
+    raw[f.label] = { type: f.__typename ?? 'unknown', value }
     const key = f.label.toLowerCase().replace(/:+$/, '').trim()
-    const val = (f.valueText ?? (f.valueNumeric != null ? String(f.valueNumeric) : null)) ?? ''
-    raw[f.label] = val
-    cf[key] = val
+    cf[key] = value ?? ''
   }
 
   const lawnSizeRaw = cf['lawn size'] ? Number(cf['lawn size']) : null
-  // numeric(5,1) max is 9999.9 — cap to avoid overflow on atypically large values
   const lawn_size_k = isFinite(lawnSizeRaw ?? NaN) && Math.abs(lawnSizeRaw!) < 10000 ? lawnSizeRaw : null
   const lawn_size_sqft = lawn_size_k != null ? Math.round(lawn_size_k * 1000) : null
 
@@ -151,6 +194,7 @@ function parseCustomFields(
 
   return {
     raw,
+    cf,
     denormalized: {
       route_code,
       route_type,
@@ -166,12 +210,17 @@ function parseCustomFields(
   }
 }
 
-/** Deduplicate line_item rows by external_id within a batch page.
- *  Jobber can return the same line item ID on multiple visits in one page,
- *  causing "ON CONFLICT DO UPDATE command cannot affect row a second time". */
+/**
+ * Deduplicate line_item rows by composite key within a batch page.
+ * Recurring-job visits share the same JobLineItem IDs — the composite key
+ * (external_id + parent_type + parent_external_id) makes them distinct.
+ */
 function dedupLineItems(rows: Record<string, unknown>[]): Record<string, unknown>[] {
   const seen = new Map<string, Record<string, unknown>>()
-  for (const r of rows) seen.set(r.external_id as string, r)
+  for (const r of rows) {
+    const key = `${r.external_id}|${r.parent_type}|${r.parent_external_id}`
+    seen.set(key, r)
+  }
   return Array.from(seen.values())
 }
 
@@ -236,8 +285,7 @@ const CLIENTS_QUERY = `
         leadSource
         jobberWebUri
         customFields {
-          ... on CustomFieldText    { label valueText }
-          ... on CustomFieldNumeric { label valueNumeric }
+          ${CUSTOM_FIELDS_FRAGMENT}
         }
         createdAt
         updatedAt
@@ -298,7 +346,17 @@ async function syncClients(
       const primaryEmail = raw.emails?.find(e => e.primary)?.address ?? raw.emails?.[0]?.address ?? null
       const primaryPhone = raw.phones?.find(p => p.primary)?.number ?? raw.phones?.[0]?.number ?? null
 
-      // Upsert client
+      // Parse custom fields — all 6 types now captured
+      const { raw: cfRaw, cf } = parseCustomFields(
+        (raw.customFields ?? []) as RawCustomField[],
+        null
+      )
+
+      // Client-level denormalized fields
+      const customer_since = cf['customer since date'] || cf['customer since'] || null
+      const sales_person   = cf['sales person'] || cf['salesperson'] || null
+      const cancellation_reason = cf['cancellation reason'] || null
+
       await admin.from('clients').upsert({
         company_id: companyId,
         source: 'jobber',
@@ -315,14 +373,16 @@ async function syncClients(
         is_archived: raw.isArchived ?? false,
         lead_source: raw.leadSource ?? null,
         jobber_web_uri: raw.jobberWebUri ?? null,
-        custom_fields: raw.customFields ?? null,
+        custom_fields: Object.keys(cfRaw).length > 0 ? cfRaw : null,
+        customer_since: customer_since ?? null,
+        sales_person: sales_person ?? null,
+        cancellation_reason: cancellation_reason ?? null,
         last_synced_at: new Date().toISOString(),
         external_created_at: raw.createdAt ?? null,
         updated_at: new Date().toISOString(),
-        deleted_at: null, // a record Jobber returns is alive — resurrect if previously soft-deleted
+        deleted_at: null,
       }, { onConflict: 'external_id,source' })
 
-      // Upsert contacts
       const { data: clientRow } = await admin
         .from('clients')
         .select('id')
@@ -331,7 +391,6 @@ async function syncClients(
         .single()
 
       if (clientRow) {
-        // Primary contact from client fields
         const contacts: ContactUpsert[] = [{
           company_id: companyId,
           source: 'jobber',
@@ -348,7 +407,6 @@ async function syncClients(
           updated_at: new Date().toISOString(),
         }]
 
-        // Additional contacts
         for (const c of raw.contacts?.nodes ?? []) {
           contacts.push({
             company_id: companyId,
@@ -376,7 +434,6 @@ async function syncClients(
           await admin.from('contacts').upsert(contacts, { onConflict: 'external_id,source' })
         }
 
-        // Sync client notes
         for (const note of raw.notes?.nodes ?? []) {
           await admin.from('client_notes').upsert({
             company_id: companyId,
@@ -391,7 +448,6 @@ async function syncClients(
           }, { onConflict: 'external_id,source' })
         }
 
-        // Sync tags
         for (const tag of raw.tags?.nodes ?? []) {
           const { data: tagRow } = await admin
             .from('tags')
@@ -423,17 +479,21 @@ async function syncClients(
 
 // ── Properties ────────────────────────────────────────────────────────────────
 
-// Properties have no updatedAt field and the filter type name is
-// PropertiesFilterAttributes (plural), not PropertyFilterAttributes. Since
-// properties are a small flat table (~1K rows), both initial and delta syncs
-// pull all properties and rely on upsert idempotency — no filter needed.
 const PROPERTIES_QUERY = `
   query SyncProperties($cursor: String) {
     properties(first: 100, after: $cursor) {
       nodes {
         id
+        name
+        isBillingAddress
+        jobberWebUri
         address { street1 street2 city province postalCode }
+        coordinates { latitude longitude }
+        geoStatus
         client { id }
+        customFields {
+          ${CUSTOM_FIELDS_FRAGMENT}
+        }
         createdAt
       }
       pageInfo { hasNextPage endCursor }
@@ -444,7 +504,7 @@ const PROPERTIES_QUERY = `
 async function syncProperties(
   userId: string,
   companyId: string,
-  _updatedSince?: Date   // Property has no updatedAt — always pull all; upsert is idempotent
+  _updatedSince?: Date
 ): Promise<number> {
   const admin = createAdminClient()
   let cursor: string | null = null
@@ -467,21 +527,47 @@ async function syncProperties(
         .eq('source', 'jobber')
         .maybeSingle()
 
+      // Parse property-level custom fields
+      const { raw: cfRaw, cf } = parseCustomFields(p.customFields ?? [], null)
+
+      // Denormalize physical attributes
+      const lawnSizeRaw = cf['lawn size'] ? Number(cf['lawn size']) : null
+      const propLawnSizeK = isFinite(lawnSizeRaw ?? NaN) && Math.abs(lawnSizeRaw!) < 10000 ? lawnSizeRaw : null
+      const propLawnSizeSqft = propLawnSizeK != null ? Math.round(propLawnSizeK * 1000) : null
+      const irrigZonesRaw = cf['irrigation zones'] ?? cf['irrigation zone'] ?? null
+      const irrigation_zones = irrigZonesRaw ? (parseInt(irrigZonesRaw) || null) : null
+      const sprinklerRaw = cf['sprinkler system'] ?? cf['sprinklers'] ?? null
+      const sprinkler_system = sprinklerRaw != null && sprinklerRaw !== ''
+        ? (sprinklerRaw.toLowerCase() === 'true' || sprinklerRaw.toLowerCase() === 'yes')
+        : null
+
       return {
         company_id: companyId,
         source: 'jobber',
         external_id: p.id,
         client_id: clientRow?.id ?? null,
         client_external_id: p.client?.id ?? null,
+        name: p.name ?? null,
+        is_billing_address: p.isBillingAddress ?? null,
+        jobber_web_uri: p.jobberWebUri ?? null,
+        latitude: p.coordinates?.latitude ?? null,
+        longitude: p.coordinates?.longitude ?? null,
         address_line1: p.address?.street1 ?? null,
         address_line2: p.address?.street2 ?? null,
         city: p.address?.city ?? null,
         state: p.address?.province ?? null,
         zip: p.address?.postalCode ?? null,
+        custom_fields: Object.keys(cfRaw).length > 0 ? cfRaw : null,
+        lawn_size_k: propLawnSizeK,
+        lawn_size_sqft: propLawnSizeSqft,
+        irrigation_zones,
+        sprinkler_system,
+        gate_code: cf['gate code'] || null,
+        neighborhood: cf['neighborhood'] || null,
         last_synced_at: new Date().toISOString(),
         external_created_at: p.createdAt ?? null,
         updated_at: new Date().toISOString(),
-        deleted_at: null, // a record Jobber returns is alive — resurrect if previously soft-deleted
+        deleted_at: null,
       }
     }))
 
@@ -525,8 +611,7 @@ const JOBS_QUERY = `
         property { id }
         salesperson { id }
         customFields {
-          ... on CustomFieldText    { label valueText }
-          ... on CustomFieldNumeric { label valueNumeric }
+          ${CUSTOM_FIELDS_FRAGMENT}
         }
         lineItems(first: 25) {
           nodes {
@@ -555,11 +640,6 @@ async function syncJobs(
   let total = 0
 
   while (true) {
-    // Jobber's JobFilterAttributes has no updatedAt — but it does have `ids`, so
-    // webhook events (Session 68) drive an exact fetch by id, which catches edits
-    // and completions the time-window can't. The nightly cron has no id list, so
-    // it falls back to createdAt (new jobs) / visitsScheduledBetween (YTD scope);
-    // arbitrary edits to old jobs are covered by the real-time webhook.
     const filter: Record<string, unknown> = {}
     if (ids?.length) {
       filter.ids = ids
@@ -586,7 +666,6 @@ async function syncJobs(
         job.title ?? null
       )
 
-      // Derive dept_prefix from line items
       const deptPrefix = (() => {
         for (const li of job.lineItems?.nodes ?? []) {
           const p = parseDeptPrefix(li.name)
@@ -632,15 +711,14 @@ async function syncJobs(
         salesperson_external_id: job.salesperson?.id ?? null,
         dept_prefix: deptPrefix,
         ...denormalized,
-        custom_fields: raw,
+        custom_fields: Object.keys(raw).length > 0 ? raw : null,
         jobber_web_uri: job.jobberWebUri ?? null,
         last_synced_at: new Date().toISOString(),
         external_created_at: job.createdAt ?? null,
         updated_at: new Date().toISOString(),
-        deleted_at: null, // a record Jobber returns is alive — resurrect if previously soft-deleted
+        deleted_at: null,
       }, { onConflict: 'external_id,source' })
 
-      // Sync job line items
       const { data: jobRow } = await admin
         .from('jobs')
         .select('id')
@@ -669,12 +747,11 @@ async function syncJobs(
         }))
 
         if (lineItemRows.length) {
-          await admin.from('line_items').upsert(dedupLineItems(lineItemRows), { onConflict: 'external_id,source' })
+          await admin.from('line_items').upsert(
+            dedupLineItems(lineItemRows),
+            { onConflict: 'external_id,parent_type,parent_external_id,source' }
+          )
         }
-
-        // Job notes are a JobNoteUnionConnection in Jobber's schema (selections
-        // can't be made directly on the union). Deferred — handle with inline
-        // fragments in a later session. TODO(Session 68): job_notes.
       }
     }
 
@@ -732,10 +809,6 @@ async function syncVisits(
   let total = 0
 
   while (true) {
-    // Jobber's VisitFilterAttributes has no updatedAt — but it does have `ids`,
-    // so webhook events (Session 68) drive an exact fetch by id, which reliably
-    // catches VISIT_COMPLETE on a visit scheduled in the past. The nightly cron
-    // has no id list, so it falls back to the startAt window (today + upcoming).
     const filter: Record<string, unknown> = {}
     if (ids?.length) {
       filter.ids = ids
@@ -783,10 +856,9 @@ async function syncVisits(
         last_synced_at: new Date().toISOString(),
         external_created_at: v.createdAt ?? null,
         updated_at: new Date().toISOString(),
-        deleted_at: null, // a record Jobber returns is alive — resurrect if previously soft-deleted
+        deleted_at: null,
       }, { onConflict: 'external_id,source' })
 
-      // Sync visit line items
       const { data: visitRow } = await admin
         .from('visits').select('id').eq('external_id', v.id).eq('source', 'jobber').single()
 
@@ -811,7 +883,10 @@ async function syncVisits(
         }))
 
         if (lineItemRows.length) {
-          await admin.from('line_items').upsert(dedupLineItems(lineItemRows), { onConflict: 'external_id,source' })
+          await admin.from('line_items').upsert(
+            dedupLineItems(lineItemRows),
+            { onConflict: 'external_id,parent_type,parent_external_id,source' }
+          )
         }
       }
     }
@@ -836,15 +911,30 @@ const INVOICES_QUERY = `
         id
         invoiceNumber
         invoiceStatus
-        amounts { subtotal total invoiceBalance }
+        invoiceNet
+        subject
+        jobberWebUri
+        amounts {
+          subtotal
+          total
+          invoiceBalance
+          taxAmount
+          discountAmount
+          paymentsTotal
+          depositAmount
+          tipsTotal
+        }
         issuedDate
         dueDate
         receivedDate
-        subject
         createdAt
         updatedAt
         client { id }
+        salesperson { id }
         jobs(first: 1) { nodes { id } }
+        customFields {
+          ${CUSTOM_FIELDS_FRAGMENT}
+        }
         lineItems(first: 25) {
           nodes {
             id
@@ -893,6 +983,11 @@ async function syncInvoices(
       const { data: jobRow } = await admin
         .from('jobs').select('id').eq('external_id', jobExternalId ?? '').eq('source', 'jobber').maybeSingle()
 
+      const { raw: cfRaw } = parseCustomFields(
+        (inv.customFields ?? []) as RawCustomField[],
+        null
+      )
+
       await admin.from('invoices').upsert({
         company_id: companyId,
         source: 'jobber',
@@ -903,20 +998,28 @@ async function syncInvoices(
         job_external_id: jobExternalId,
         invoice_number: inv.invoiceNumber ?? null,
         subject: inv.subject ?? null,
+        jobber_web_uri: inv.jobberWebUri ?? null,
         subtotal: inv.amounts?.subtotal ?? null,
         total: inv.amounts?.total ?? null,
         outstanding_balance: inv.amounts?.invoiceBalance ?? null,
+        tax_amount: inv.amounts?.taxAmount ?? null,
+        discount_amount: inv.amounts?.discountAmount ?? null,
+        payments_total: inv.amounts?.paymentsTotal ?? null,
+        deposit_amount: inv.amounts?.depositAmount ?? null,
+        tips_total: inv.amounts?.tipsTotal ?? null,
+        invoice_net_days: inv.invoiceNet ?? null,
+        salesperson_external_id: inv.salesperson?.id ?? null,
         invoice_status: inv.invoiceStatus ?? null,
         issued_date: inv.issuedDate ?? null,
         due_date: inv.dueDate ?? null,
         paid_at: inv.receivedDate ?? null,
+        custom_fields: Object.keys(cfRaw).length > 0 ? cfRaw : null,
         last_synced_at: new Date().toISOString(),
         external_created_at: inv.createdAt ?? null,
         updated_at: new Date().toISOString(),
-        deleted_at: null, // a record Jobber returns is alive — resurrect if previously soft-deleted
+        deleted_at: null,
       }, { onConflict: 'external_id,source' })
 
-      // Sync invoice line items
       const { data: invRow } = await admin
         .from('invoices').select('id').eq('external_id', inv.id).eq('source', 'jobber').single()
 
@@ -941,7 +1044,10 @@ async function syncInvoices(
         }))
 
         if (lineItemRows.length) {
-          await admin.from('line_items').upsert(dedupLineItems(lineItemRows), { onConflict: 'external_id,source' })
+          await admin.from('line_items').upsert(
+            dedupLineItems(lineItemRows),
+            { onConflict: 'external_id,parent_type,parent_external_id,source' }
+          )
         }
       }
     }
@@ -1001,7 +1107,6 @@ export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary
   const summary: SyncSummary = { clients: 0, properties: 0, jobs: 0, visits: 0, invoices: 0, errors: [] }
 
   try {
-    // Find the last successful sync
     const { data: lastSync } = await admin
       .from('sync_log')
       .select('completed_at')
@@ -1013,7 +1118,7 @@ export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary
 
     const updatedSince = lastSync?.completed_at
       ? new Date(lastSync.completed_at)
-      : new Date(Date.now() - 25 * 60 * 60 * 1000) // 25h fallback
+      : new Date(Date.now() - 25 * 60 * 60 * 1000)
 
     console.log('[jobber-sync] Delta pull since:', updatedSince.toISOString())
 
@@ -1047,7 +1152,6 @@ export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary
  *     updated-since window anchored to the event's occurredAt.
  *   - Jobs & Visits have `ids` but no `updatedAt` → exact fetch by id, so an
  *     edit or completion on an older record is never missed by a time window.
- * Either way the upsert is idempotent, so re-processing is harmless.
  */
 export async function processJobberWebhookEvent(
   event: { topic: string; itemId: string; companyId: string; occurredAt?: string | null }
@@ -1055,7 +1159,6 @@ export async function processJobberWebhookEvent(
   const { topic, itemId, companyId, occurredAt } = event
   const admin = createAdminClient()
 
-  // DESTROY → soft-delete by external_id, no GraphQL fetch.
   const destroyTable: Record<string, string> = {
     CLIENT_DESTROY: 'clients',
     JOB_DESTROY: 'jobs',
@@ -1075,8 +1178,6 @@ export async function processJobberWebhookEvent(
     return
   }
 
-  // CREATE / UPDATE / COMPLETE → scoped delta. Anchor to occurredAt so a delayed
-  // webhook can't fall outside the window; fall back to a 30-min window.
   const anchor = occurredAt ? Date.parse(occurredAt) : NaN
   const since = !Number.isNaN(anchor)
     ? new Date(anchor - 10 * 60 * 1000)
@@ -1092,16 +1193,12 @@ export async function processJobberWebhookEvent(
 
   try {
     switch (topic) {
-      // Clients & invoices: no `ids` filter, but they have `updatedAt` — use a
-      // narrow updated-since window anchored to the event.
       case 'CLIENT_CREATE':
       case 'CLIENT_UPDATE':
         await syncClients(userId, companyId, since); break
       case 'INVOICE_CREATE':
       case 'INVOICE_UPDATE':
         await syncInvoices(userId, companyId, since); break
-      // Jobs & visits: no `updatedAt`, but they have `ids` — fetch the exact
-      // record so edits and completions on older records are never missed.
       case 'JOB_CREATE':
       case 'JOB_UPDATE':
         await syncJobs(userId, companyId, undefined, [itemId]); break
@@ -1120,7 +1217,6 @@ export async function processJobberWebhookEvent(
   }
 }
 
-/** DM every company admin via @Guardian when a sync run fails. */
 export async function notifyJobberSyncFailure(companyId: string, errorMessage: string): Promise<void> {
   try {
     const admin = createAdminClient()
@@ -1169,9 +1265,16 @@ interface NoteNode {
 }
 
 interface PropertyNode {
-  id: string; client?: { id: string }
+  id: string
+  name?: string
+  isBillingAddress?: boolean
+  jobberWebUri?: string
+  client?: { id: string }
   address?: { street1?: string; street2?: string; city?: string; province?: string; postalCode?: string }
-  createdAt?: string; updatedAt?: string
+  coordinates?: { latitude?: number | null; longitude?: number | null }
+  geoStatus?: string
+  customFields?: RawCustomField[]
+  createdAt?: string
 }
 
 interface JobNode {
@@ -1195,10 +1298,19 @@ interface VisitNode {
 
 interface InvoiceNode {
   id: string; invoiceStatus?: string; invoiceNumber?: string
-  amounts?: { subtotal?: number; total?: number; invoiceBalance?: number }
+  invoiceNet?: number
+  jobberWebUri?: string
+  amounts?: {
+    subtotal?: number; total?: number; invoiceBalance?: number
+    taxAmount?: number; discountAmount?: number; paymentsTotal?: number
+    depositAmount?: number; tipsTotal?: number
+  }
   issuedDate?: string; dueDate?: string; receivedDate?: string
   subject?: string; createdAt?: string; updatedAt?: string
-  client?: { id: string }; jobs?: { nodes: { id: string }[] }
+  client?: { id: string }
+  salesperson?: { id: string }
+  jobs?: { nodes: { id: string }[] }
+  customFields?: RawCustomField[]
   lineItems?: { nodes: LineItemNode[] }
 }
 
