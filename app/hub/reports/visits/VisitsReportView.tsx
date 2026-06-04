@@ -13,20 +13,25 @@ type RawRow = {
   total_value: string | number
 }
 
-type DeptBreakdown = {
-  visits: number
-  value: number
-}
-
 type TechRow = {
   name: string
+  externalId: string
   totalVisits: number
   totalValue: number
   recurringVisits: number
   recurringValue: number
   oneOffVisits: number
   oneOffValue: number
-  byDept: Record<string, DeptBreakdown>
+}
+
+type VisitDetail = {
+  visit_id: string
+  scheduled_date: string
+  client_name: string | null
+  job_title: string | null
+  dept_prefix: string | null
+  is_recurring: boolean | null
+  total_value: string | number
 }
 
 type DateRange = { start: string; end: string; label: string }
@@ -37,17 +42,23 @@ function fmt(d: Date): string {
   return d.toISOString().slice(0, 10)
 }
 
+function fmtDate(iso: string): string {
+  const [y, m, day] = iso.split('-').map(Number)
+  const d = new Date(y, m - 1, day)
+  return d.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 function getQuickRanges(): DateRange[] {
   const today = new Date()
-  const dow = today.getDay() // 0=Sun
+  const dow = today.getDay()
   const monday = new Date(today)
   monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1))
 
   const thisMonStart = new Date(today.getFullYear(), today.getMonth(), 1)
-  const thisMonEnd = new Date(today.getFullYear(), today.getMonth() + 1, 0)
+  const thisMonEnd   = new Date(today.getFullYear(), today.getMonth() + 1, 0)
   const lastMonStart = new Date(today.getFullYear(), today.getMonth() - 1, 1)
-  const lastMonEnd = new Date(today.getFullYear(), today.getMonth(), 0)
-  const ytdStart = new Date(today.getFullYear(), 0, 1)
+  const lastMonEnd   = new Date(today.getFullYear(), today.getMonth(), 0)
+  const ytdStart     = new Date(today.getFullYear(), 0, 1)
 
   const thisWeekEnd = new Date(monday)
   thisWeekEnd.setDate(monday.getDate() + 6)
@@ -58,11 +69,11 @@ function getQuickRanges(): DateRange[] {
   lastWeekSun.setDate(lastWeekMon.getDate() + 6)
 
   return [
-    { label: 'This Week',  start: fmt(monday),      end: fmt(thisWeekEnd)  },
-    { label: 'Last Week',  start: fmt(lastWeekMon), end: fmt(lastWeekSun)  },
-    { label: 'This Month', start: fmt(thisMonStart), end: fmt(thisMonEnd)  },
-    { label: 'Last Month', start: fmt(lastMonStart), end: fmt(lastMonEnd)  },
-    { label: 'YTD',        start: fmt(ytdStart),     end: fmt(today)       },
+    { label: 'This Week',  start: fmt(monday),       end: fmt(thisWeekEnd)  },
+    { label: 'Last Week',  start: fmt(lastWeekMon),  end: fmt(lastWeekSun)  },
+    { label: 'This Month', start: fmt(thisMonStart), end: fmt(thisMonEnd)   },
+    { label: 'Last Month', start: fmt(lastMonStart), end: fmt(lastMonEnd)   },
+    { label: 'YTD',        start: fmt(ytdStart),     end: fmt(today)        },
   ]
 }
 
@@ -75,10 +86,10 @@ function aggregate(rows: RawRow[]): TechRow[] {
     if (!map.has(r.tech_name)) {
       map.set(r.tech_name, {
         name: r.tech_name,
+        externalId: r.tech_external_id,
         totalVisits: 0, totalValue: 0,
         recurringVisits: 0, recurringValue: 0,
         oneOffVisits: 0, oneOffValue: 0,
-        byDept: {},
       })
     }
     const t = map.get(r.tech_name)!
@@ -95,11 +106,6 @@ function aggregate(rows: RawRow[]): TechRow[] {
       t.oneOffVisits += cnt
       t.oneOffValue  += val
     }
-
-    const dept = r.dept_prefix ?? '—'
-    if (!t.byDept[dept]) t.byDept[dept] = { visits: 0, value: 0 }
-    t.byDept[dept].visits += cnt
-    t.byDept[dept].value  += val
   }
 
   return Array.from(map.values()).sort((a, b) => b.totalVisits - a.totalVisits)
@@ -108,7 +114,8 @@ function aggregate(rows: RawRow[]): TechRow[] {
 // ── Formatting ───────────────────────────────────────────────────────────────
 
 function usd(n: number) {
-  return n === 0 ? '—' : '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  if (n === 0) return '—'
+  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 function pct(num: number, den: number) {
@@ -120,17 +127,22 @@ function pct(num: number, den: number) {
 
 export default function VisitsReportView() {
   const ranges = getQuickRanges()
-  const [selected, setSelected] = useState<DateRange>(ranges[0])
-  const [custom, setCustom] = useState({ start: '', end: '' })
+  const [selected, setSelected]   = useState<DateRange>(ranges[0])
+  const [custom, setCustom]       = useState({ start: '', end: '' })
   const [showCustom, setShowCustom] = useState(false)
-  const [rows, setRows] = useState<TechRow[]>([])
-  const [loading, setLoading] = useState(false)
-  const [error, setError] = useState<string | null>(null)
-  const [expanded, setExpanded] = useState<Set<string>>(new Set())
+  const [rows, setRows]           = useState<TechRow[]>([])
+  const [loading, setLoading]     = useState(false)
+  const [error, setError]         = useState<string | null>(null)
+  const [expanded, setExpanded]   = useState<Set<string>>(new Set())
+  // key = tech name, value = visit list (null = not yet loaded)
+  const [detailCache, setDetailCache]   = useState<Record<string, VisitDetail[]>>({})
+  const [detailLoading, setDetailLoading] = useState<Set<string>>(new Set())
 
   const fetchReport = useCallback(async (range: DateRange) => {
     setLoading(true)
     setError(null)
+    setExpanded(new Set())
+    setDetailCache({})
     try {
       const res = await fetch(`/api/hub/reports/visits?start=${range.start}&end=${range.end}`)
       const json = await res.json()
@@ -147,25 +159,41 @@ export default function VisitsReportView() {
 
   function applyCustom() {
     if (!custom.start || !custom.end) return
-    const range: DateRange = { ...custom, label: 'Custom' }
-    setSelected(range)
+    setSelected({ ...custom, label: 'Custom' })
     setShowCustom(false)
   }
 
-  function toggleExpand(name: string) {
+  async function toggleExpand(tech: TechRow) {
+    const name = tech.name
     setExpanded(prev => {
       const next = new Set(prev)
       next.has(name) ? next.delete(name) : next.add(name)
       return next
     })
+
+    // Fetch detail on first open
+    if (!expanded.has(name) && !(name in detailCache) && !detailLoading.has(name)) {
+      setDetailLoading(prev => new Set(prev).add(name))
+      try {
+        const res = await fetch(
+          `/api/hub/reports/visits/detail?start=${selected.start}&end=${selected.end}&tech=${encodeURIComponent(tech.externalId)}`
+        )
+        const json = await res.json()
+        setDetailCache(prev => ({ ...prev, [name]: json.visits ?? [] }))
+      } catch {
+        setDetailCache(prev => ({ ...prev, [name]: [] }))
+      } finally {
+        setDetailLoading(prev => { const s = new Set(prev); s.delete(name); return s })
+      }
+    }
   }
 
-  const totalVisits  = rows.reduce((s, r) => s + r.totalVisits,  0)
-  const totalValue   = rows.reduce((s, r) => s + r.totalValue,   0)
-  const totalRec     = rows.reduce((s, r) => s + r.recurringVisits, 0)
-  const totalRecVal  = rows.reduce((s, r) => s + r.recurringValue,  0)
-  const totalOne     = rows.reduce((s, r) => s + r.oneOffVisits,  0)
-  const totalOneVal  = rows.reduce((s, r) => s + r.oneOffValue,   0)
+  const totalVisits = rows.reduce((s, r) => s + r.totalVisits, 0)
+  const totalValue  = rows.reduce((s, r) => s + r.totalValue,  0)
+  const totalRec    = rows.reduce((s, r) => s + r.recurringVisits, 0)
+  const totalRecVal = rows.reduce((s, r) => s + r.recurringValue,  0)
+  const totalOne    = rows.reduce((s, r) => s + r.oneOffVisits, 0)
+  const totalOneVal = rows.reduce((s, r) => s + r.oneOffValue,  0)
 
   return (
     <div className="flex flex-col h-full bg-slate-950 text-white">
@@ -224,7 +252,7 @@ export default function VisitsReportView() {
             </div>
           )}
         </div>
-        {selected.label !== 'Custom' ? null : (
+        {selected.label === 'Custom' && (
           <p className="text-xs text-white/40 mt-1">{selected.start} → {selected.end}</p>
         )}
       </div>
@@ -251,11 +279,11 @@ export default function VisitsReportView() {
               <SummaryCard label="One-Off" value={`${totalOne} visits`} sub={totalOneVal > 0 ? usd(totalOneVal) : undefined} />
             </div>
 
-            {/* Table */}
+            {/* Tech table */}
             <div className="px-4 pb-6">
               <div className="rounded-xl border border-white/10 overflow-hidden">
-                {/* Table header */}
-                <div className="grid grid-cols-[1fr_80px_100px_120px_120px] gap-0 bg-white/5 px-4 py-2 text-xs font-semibold text-white/50 uppercase tracking-wider hidden md:grid">
+                {/* Header row */}
+                <div className="hidden md:grid grid-cols-[1fr_80px_100px_120px_120px] bg-white/5 px-4 py-2 text-xs font-semibold text-white/50 uppercase tracking-wider">
                   <div>Technician</div>
                   <div className="text-right">Visits</div>
                   <div className="text-right">Value</div>
@@ -264,7 +292,7 @@ export default function VisitsReportView() {
                 </div>
 
                 {/* Totals row */}
-                <div className="grid grid-cols-[1fr_80px_100px_120px_120px] gap-0 bg-white/10 px-4 py-2.5 text-sm font-semibold border-b border-white/10 hidden md:grid">
+                <div className="hidden md:grid grid-cols-[1fr_80px_100px_120px_120px] bg-white/10 px-4 py-2.5 text-sm font-semibold border-b border-white/10">
                   <div className="text-white/70">All Technicians</div>
                   <div className="text-right">{totalVisits}</div>
                   <div className="text-right text-emerald-400">{totalValue === 0 ? '—' : '$' + totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
@@ -274,29 +302,37 @@ export default function VisitsReportView() {
 
                 {/* Tech rows */}
                 {rows.map((tech, i) => {
-                  const isExpanded = expanded.has(tech.name)
-                  const deptKeys = Object.keys(tech.byDept).sort()
+                  const isExpanded   = expanded.has(tech.name)
+                  const isLoading    = detailLoading.has(tech.name)
+                  const visitList    = detailCache[tech.name] ?? null
+
                   return (
                     <div key={tech.name} className={i > 0 ? 'border-t border-white/5' : ''}>
+                      {/* Tech summary row — tap to expand */}
                       <button
-                        onClick={() => toggleExpand(tech.name)}
+                        onClick={() => toggleExpand(tech)}
                         className="w-full text-left hover:bg-white/5 transition-colors"
                       >
-                        {/* Mobile layout */}
+                        {/* Mobile */}
                         <div className="md:hidden px-4 py-3">
                           <div className="flex justify-between items-start">
                             <span className="font-medium">{tech.name}</span>
-                            <span className="text-emerald-400 font-medium">{tech.totalValue > 0 ? usd(tech.totalValue) : `${tech.totalVisits} visits`}</span>
+                            <span className="text-emerald-400 font-medium">
+                              {tech.totalValue > 0 ? usd(tech.totalValue) : `${tech.totalVisits} visits`}
+                            </span>
                           </div>
                           <div className="text-xs text-white/50 mt-0.5">
                             {tech.totalVisits} visits · {tech.recurringVisits} recurring · {tech.oneOffVisits} one-off
                           </div>
                         </div>
 
-                        {/* Desktop layout */}
-                        <div className="hidden md:grid grid-cols-[1fr_80px_100px_120px_120px] gap-0 px-4 py-3 items-center">
+                        {/* Desktop */}
+                        <div className="hidden md:grid grid-cols-[1fr_80px_100px_120px_120px] px-4 py-3 items-center">
                           <div className="flex items-center gap-2">
-                            <svg className={`w-3.5 h-3.5 text-white/30 transition-transform flex-none ${isExpanded ? 'rotate-90' : ''}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+                            <svg
+                              className={`w-3.5 h-3.5 text-white/30 transition-transform flex-none ${isExpanded ? 'rotate-90' : ''}`}
+                              viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"
+                            >
                               <path d="M9 18l6-6-6-6" />
                             </svg>
                             <span className="font-medium">{tech.name}</span>
@@ -305,32 +341,90 @@ export default function VisitsReportView() {
                           <div className="text-right text-emerald-400">{tech.totalValue > 0 ? usd(tech.totalValue) : '—'}</div>
                           <div className="text-right text-white/60">
                             {tech.recurringVisits}
-                            {tech.recurringValue > 0 && <span className="text-white/40 text-xs ml-1">({usd(tech.recurringValue)})</span>}
+                            {tech.recurringValue > 0 && (
+                              <span className="text-white/40 text-xs ml-1">({usd(tech.recurringValue)})</span>
+                            )}
                           </div>
                           <div className="text-right text-white/60">
                             {tech.oneOffVisits}
-                            {tech.oneOffValue > 0 && <span className="text-white/40 text-xs ml-1">({usd(tech.oneOffValue)})</span>}
+                            {tech.oneOffValue > 0 && (
+                              <span className="text-white/40 text-xs ml-1">({usd(tech.oneOffValue)})</span>
+                            )}
                           </div>
                         </div>
                       </button>
 
-                      {/* Dept breakdown */}
-                      {isExpanded && deptKeys.length > 0 && (
+                      {/* Visit list — shown when expanded */}
+                      {isExpanded && (
                         <div className="bg-white/[0.03] border-t border-white/5">
-                          {deptKeys.map(dept => (
-                            <div
-                              key={dept}
-                              className="grid grid-cols-[1fr_80px_100px] md:grid-cols-[1fr_80px_100px_120px_120px] gap-0 px-4 md:px-10 py-2 text-sm text-white/60 border-b border-white/5 last:border-0"
-                            >
-                              <div className="flex items-center gap-2">
-                                <DeptChip dept={dept} />
+                          {isLoading && (
+                            <div className="px-8 py-4 text-sm text-white/40">Loading visits…</div>
+                          )}
+
+                          {!isLoading && visitList && visitList.length === 0 && (
+                            <div className="px-8 py-4 text-sm text-white/40">No visits found.</div>
+                          )}
+
+                          {!isLoading && visitList && visitList.length > 0 && (
+                            <>
+                              {/* Visit list header — desktop */}
+                              <div className="hidden md:grid grid-cols-[110px_1fr_1fr_60px_80px_100px] px-8 py-2 text-xs font-semibold text-white/30 uppercase tracking-wider border-b border-white/5">
+                                <div>Date</div>
+                                <div>Customer</div>
+                                <div>Job</div>
+                                <div>Dept</div>
+                                <div>Type</div>
+                                <div className="text-right">Value</div>
                               </div>
-                              <div className="text-right">{tech.byDept[dept].visits}</div>
-                              <div className="text-right">{tech.byDept[dept].value > 0 ? usd(tech.byDept[dept].value) : '—'}</div>
-                              <div className="hidden md:block" />
-                              <div className="hidden md:block" />
-                            </div>
-                          ))}
+
+                              {visitList.map(v => (
+                                <div
+                                  key={v.visit_id}
+                                  className="border-b border-white/5 last:border-0"
+                                >
+                                  {/* Desktop row */}
+                                  <div className="hidden md:grid grid-cols-[110px_1fr_1fr_60px_80px_100px] px-8 py-2.5 text-sm items-center hover:bg-white/5">
+                                    <div className="text-white/50 text-xs">{fmtDate(v.scheduled_date)}</div>
+                                    <div className="text-white/90 truncate pr-3">{v.client_name ?? '—'}</div>
+                                    <div className="text-white/60 truncate pr-3 text-xs">{v.job_title ?? '—'}</div>
+                                    <div>
+                                      {v.dept_prefix ? <DeptChip dept={v.dept_prefix} /> : <span className="text-white/20 text-xs">—</span>}
+                                    </div>
+                                    <div>
+                                      <span className={`text-xs font-medium ${v.is_recurring ? 'text-sky-400' : 'text-amber-400'}`}>
+                                        {v.is_recurring ? 'Recurring' : 'One-off'}
+                                      </span>
+                                    </div>
+                                    <div className="text-right text-emerald-400 text-sm">
+                                      {Number(v.total_value) > 0 ? usd(Number(v.total_value)) : <span className="text-white/20">—</span>}
+                                    </div>
+                                  </div>
+
+                                  {/* Mobile row */}
+                                  <div className="md:hidden px-4 py-2.5">
+                                    <div className="flex justify-between items-start gap-2">
+                                      <div className="min-w-0">
+                                        <div className="text-white/90 text-sm font-medium truncate">{v.client_name ?? '—'}</div>
+                                        <div className="text-white/50 text-xs truncate mt-0.5">{v.job_title ?? '—'}</div>
+                                      </div>
+                                      <div className="flex-none text-right">
+                                        <div className="text-emerald-400 text-sm">
+                                          {Number(v.total_value) > 0 ? usd(Number(v.total_value)) : <span className="text-white/20">—</span>}
+                                        </div>
+                                        <div className="text-white/40 text-xs mt-0.5">{fmtDate(v.scheduled_date)}</div>
+                                      </div>
+                                    </div>
+                                    <div className="flex items-center gap-2 mt-1">
+                                      {v.dept_prefix && <DeptChip dept={v.dept_prefix} />}
+                                      <span className={`text-xs ${v.is_recurring ? 'text-sky-400' : 'text-amber-400'}`}>
+                                        {v.is_recurring ? 'Recurring' : 'One-off'}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </div>
+                              ))}
+                            </>
+                          )}
                         </div>
                       )}
                     </div>
@@ -364,7 +458,6 @@ const DEPT_COLORS: Record<string, string> = {
   WF: 'bg-green-500/20 text-green-300',
   PW: 'bg-purple-500/20 text-purple-300',
   MO: 'bg-amber-500/20 text-amber-300',
-  '—': 'bg-white/10 text-white/40',
 }
 
 function DeptChip({ dept }: { dept: string }) {
