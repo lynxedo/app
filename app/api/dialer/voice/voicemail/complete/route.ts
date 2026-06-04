@@ -8,6 +8,7 @@ import {
   validateTwilioVoiceSignature,
   voiceConfigured,
 } from '@/lib/twilio-voice'
+import { processVoicemail } from '@/lib/voicemail-transcribe'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -136,6 +137,12 @@ export async function POST(request: NextRequest) {
     console.warn('[voicemail.complete] insert failed', insertErr)
     return twimlResponse(EMPTY_VOICE_TWIML)
   }
+
+  // Fire transcription async — runs Deepgram + Claude in the background so
+  // the push notification fires immediately while transcription catches up.
+  processVoicemail(voicemail.id).catch((err) => {
+    console.warn('[voicemail.complete] transcription failed', voicemail.id, err)
+  })
 
   // Mark the underlying call as missed-to-voicemail so the Recent tab can show
   // the link inline. Only stamp if the call row hasn't already been marked.

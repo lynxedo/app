@@ -904,6 +904,7 @@ function DialerTab() {
         <p>Each voicemail row shows the caller (name if the number matches a Txt contact, otherwise the formatted phone number), the time it came in, and the recording length. Tap <strong className="text-white">Play</strong> to hear it inline — playing it once marks it as heard. <strong className="text-white">Mark heard</strong> / <strong className="text-white">Mark unheard</strong> lets you toggle without playing. <strong className="text-white">Delete</strong> removes it from the inbox (soft-deleted; admins can recover it from the database for 90 days if needed).</p>
         <p>Tapping the caller name pre-fills the dialpad with their number so you can call back in one tap.</p>
         <p>Voicemail recipients (the people who get a push notification when a new voicemail lands) are configured in <strong className="text-white">Admin → Dialer</strong>. Push notifications respect each recipient&apos;s Do Not Disturb settings.</p>
+        <p><strong className="text-white">AI transcript + summary</strong> — within about 15–30 seconds after a voicemail arrives, Deepgram transcribes the audio and Claude writes a one-sentence summary of what the caller said. The summary appears as a grey snippet below the caller name in the voicemail list so you can triage messages at a glance without playing them. The full transcript is visible in <strong className="text-white">Call Log 2</strong> when you click the matching call row.</p>
       </Section>
 
       <Section title="Ring anywhere in Hub">
