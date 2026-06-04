@@ -6,9 +6,14 @@ import { runInitialJobberSync, runDeltaJobberSync } from '@/lib/jobber-sync'
 const COMPANY_ID = '00000000-0000-0000-0000-000000000002'
 
 async function isAuthorized(req: NextRequest): Promise<boolean> {
-  // Cron secret auth (for nightly cron in Session 68)
-  const authHeader = req.headers.get('Authorization')
-  if (authHeader === `Bearer ${process.env.CRON_SECRET}`) return true
+  // Cron secret auth (nightly delta cron, Session 68). Accept both the
+  // x-cron-secret header used by every other cron on the VPS and the legacy
+  // Authorization: Bearer form.
+  const cronSecret = process.env.CRON_SECRET
+  if (cronSecret) {
+    if (req.headers.get('x-cron-secret') === cronSecret) return true
+    if (req.headers.get('Authorization') === `Bearer ${cronSecret}`) return true
+  }
 
   // Admin session auth
   const supabase = await createClient()
