@@ -109,6 +109,7 @@ export default function ToolsSidebar({
               {canAccessTimesheet && <ToolRow href="/hub/timesheet" iconId="time-records" label="Timesheet" prefixMatch onClose={onClose} />}
               {canAccessForms && <ToolRow href="/hub/forms" iconId="forms" label="Forms" prefixMatch onClose={onClose} />}
               {canAccessFleet && <ToolRow href="/hub/fleet" iconId="fleet" label="Fleet" prefixMatch onClose={onClose} />}
+              {isAdmin && <ToolRow href="/hub/reports/visits" iconId="reports" label="Reports" prefixMatch onClose={onClose} />}
             </>
           )}
         </div>

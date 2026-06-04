@@ -30,6 +30,7 @@ export type CatalogId =
   | 'marketing'
   | 'pesticide-records'
   | 'forms'
+  | 'reports'
 
 export type CatalogEntry = {
   id: CatalogId
@@ -108,6 +109,7 @@ const PATHS = {
   // Pesticide records — chemistry flask with a marker dot, plus a cap notch
   pesticideRecords: 'M9 3h6M10 3v5l-5 9a2 2 0 001.7 3h10.6a2 2 0 001.7-3l-5-9V3M8 14h8M13 11.5a.5.5 0 11-1 0 .5.5 0 011 0z',
   forms: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h6M9 16h3',
+  reports: 'M3 18h4v-5H3v5zm6 0h4V6H9v12zm6 0h4V10h-4v8z',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   search: 'M21 21l-4.34-4.34M17 10a7 7 0 11-14 0 7 7 0 0114 0z',
   settings: 'M10.325 4.317a2 2 0 013.35 0l.554.916a2 2 0 002.146.96l1.05-.224a2 2 0 012.39 2.39l-.224 1.05a2 2 0 00.96 2.146l.916.554a2 2 0 010 3.35l-.916.554a2 2 0 00-.96 2.146l.224 1.05a2 2 0 01-2.39 2.39l-1.05-.224a2 2 0 00-2.146.96l-.554.916a2 2 0 01-3.35 0l-.554-.916a2 2 0 00-2.146-.96l-1.05.224a2 2 0 01-2.39-2.39l.224-1.05a2 2 0 00-.96-2.146l-.916-.554a2 2 0 010-3.35l.916-.554a2 2 0 00.96-2.146l-.224-1.05a2 2 0 012.39-2.39l1.05.224a2 2 0 002.146-.96l.554-.916zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
@@ -143,6 +145,7 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
     case 'marketing':     return <I d={PATHS.marketing} />
     case 'pesticide-records': return <I d={PATHS.pesticideRecords} />
     case 'forms':         return <I d={PATHS.forms} />
+    case 'reports':       return <I d={PATHS.reports} />
   }
 }
 
@@ -196,6 +199,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'marketing', label: 'Marketing', href: '/hub/marketing/social', prefixMatch: true, pickable: true, requires: 'canAccessMarketing' },
   { id: 'pesticide-records', label: 'Pesticide Records', href: '/hub/pesticide-records', prefixMatch: true, pickable: true },
   { id: 'forms',     label: 'Forms',     href: '/hub/forms', prefixMatch: true, pickable: true, requires: 'canAccessForms' },
+  { id: 'reports',   label: 'Reports',   href: '/hub/reports/visits', prefixMatch: true, pickable: true, requires: 'isAdmin' },
 ]
 
 export function catalogEntriesFor(perms: RailPermissions): CatalogEntry[] {
