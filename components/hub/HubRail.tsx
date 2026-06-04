@@ -96,6 +96,7 @@ export default function HubRail({
   onLinksClick,
   onTimeClockClick,
   onActivityClick,
+  onOpenLauncher,
   currentUserId,
   currentUserDisplayName,
   currentUserAvatarUrl,
@@ -106,6 +107,7 @@ export default function HubRail({
   activeManualRail,
   permissions,
   railConfig,
+  launcherOpen = false,
 }: {
   showAdmin: boolean
   unreadActivity?: number
@@ -127,6 +129,7 @@ export default function HubRail({
   onLinksClick: () => void
   onTimeClockClick: () => void
   onActivityClick: () => void
+  onOpenLauncher: () => void
   currentUserId?: string
   currentUserDisplayName?: string
   currentUserAvatarUrl?: string | null
@@ -137,6 +140,7 @@ export default function HubRail({
   activeManualRail?: 'tools' | 'links' | 'profile' | 'activity' | null
   permissions: RailPermissions
   railConfig: RailConfig | null
+  launcherOpen?: boolean
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -487,6 +491,36 @@ export default function HubRail({
             )
           })}
         </div>
+      </div>
+
+      {/* All Apps launcher button — opens the app launcher panel */}
+      <div className="flex-none border-t border-white/5 py-1">
+        <button
+          type="button"
+          onClick={onOpenLauncher}
+          className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium w-full transition-colors ${
+            launcherOpen ? 'text-amber-400 bg-white/5' : 'text-white/55 hover:text-white hover:bg-white/5'
+          }`}
+          title="All Apps"
+          aria-pressed={launcherOpen}
+        >
+          {launcherOpen && (
+            <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-amber-400" aria-hidden="true" />
+          )}
+          {/* 3×3 grid icon */}
+          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+            <rect x="4" y="4" width="4" height="4" rx="1" />
+            <rect x="10" y="4" width="4" height="4" rx="1" />
+            <rect x="16" y="4" width="4" height="4" rx="1" />
+            <rect x="4" y="10" width="4" height="4" rx="1" />
+            <rect x="10" y="10" width="4" height="4" rx="1" />
+            <rect x="16" y="10" width="4" height="4" rx="1" />
+            <rect x="4" y="16" width="4" height="4" rx="1" />
+            <rect x="10" y="16" width="4" height="4" rx="1" />
+            <rect x="16" y="16" width="4" height="4" rx="1" />
+          </svg>
+          <span>Apps</span>
+        </button>
       </div>
 
       {/* Fixed footer: Settings, Admin (gated), You */}

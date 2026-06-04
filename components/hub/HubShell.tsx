@@ -6,6 +6,7 @@ import HubSidebar from './HubSidebar'
 import HubRail, { railFromPath } from './HubRail'
 import HubMobileBar from './HubMobileBar'
 import HubMobileMore from './HubMobileMore'
+import AppLauncherPanel from './AppLauncherPanel'
 import HubActivityPanel from './HubActivityBell'
 import ToolsSidebar from './sidebars/ToolsSidebar'
 import LinksSidebar from './sidebars/LinksSidebar'
@@ -27,7 +28,7 @@ import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
 import { HubTextSizeContext } from './HubTextSizeContext'
 import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
-import type { RailConfig, RailPermissions } from './railCatalog'
+import { catalogEntriesFor, normalizeRailConfig, type RailConfig, type RailPermissions } from './railCatalog'
 import { persistStorage } from '@/lib/hub-cache'
 
 type Room = { id: string; name: string; is_private: boolean }
@@ -138,6 +139,8 @@ export default function HubShell({
 
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [showMobileMore, setShowMobileMore] = useState(false)
+  const [showDesktopLauncher, setShowDesktopLauncher] = useState(false)
+  const [liveRailConfig, setLiveRailConfig] = useState<RailConfig | null>(initialRailConfig ?? null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showCompose, setShowCompose] = useState(false)
   const [showTimeClock, setShowTimeClock] = useState(false)
@@ -458,6 +461,21 @@ export default function HubShell({
 
   const closeMobileDrawer = useCallback(() => setMobileDrawerOpen(false), [])
 
+  const saveRailConfig = useCallback(async (config: RailConfig) => {
+    const prev = liveRailConfig
+    setLiveRailConfig(config)
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ rail_config: config }),
+      })
+      if (!res.ok) setLiveRailConfig(prev)
+    } catch {
+      setLiveRailConfig(prev)
+    }
+  }, [liveRailConfig])
+
   const rawGrants = adminGrants ?? {
     people: !!isAdmin, hub: !!isAdmin, routing: !!isAdmin,
     timesheet: !!isAdmin, fleet: !!isAdmin, daily_log: !!isAdmin, zone_sizer: !!isAdmin,
@@ -628,6 +646,7 @@ export default function HubShell({
         onLinksClick={() => setManualRail('links')}
         onTimeClockClick={() => setShowTimeClock(true)}
         onActivityClick={() => setShowActivity(true)}
+        onOpenLauncher={() => setShowDesktopLauncher(v => !v)}
         currentUserId={currentUserId}
         currentUserDisplayName={currentUserDisplayName}
         currentUserAvatarUrl={currentUserAvatarUrl ?? null}
@@ -637,7 +656,8 @@ export default function HubShell({
         onOpenSidebar={openSidebar}
         activeManualRail={manualRail}
         permissions={permissions}
-        railConfig={initialRailConfig ?? null}
+        railConfig={liveRailConfig}
+        launcherOpen={showDesktopLauncher}
       />
 
       <div
@@ -754,7 +774,7 @@ export default function HubShell({
         dailyLogUnread={dailyLogUnread}
         canAccessDialer={!!canAccessDialer}
         permissions={permissions}
-        railConfig={initialRailConfig ?? null}
+        railConfig={liveRailConfig}
         hidden={keyboardOpen}
         drawerOpen={mobileDrawerOpen}
         activeManualRail={manualRail}
@@ -787,6 +807,23 @@ export default function HubShell({
         onLinksClick={() => { setShowMobileMore(false); setManualRail('links'); setMobileDrawerOpen(true) }}
         onProfileClick={() => { setShowMobileMore(false); setManualRail('profile'); setMobileDrawerOpen(true) }}
         onActivityClick={() => { setShowMobileMore(false); setShowActivity(true) }}
+        permissions={permissions}
+        railConfig={liveRailConfig}
+        onSaveConfig={saveRailConfig}
+      />
+    )}
+    {showDesktopLauncher && (
+      <AppLauncherPanel
+        items={catalogEntriesFor(permissions)}
+        railConfig={liveRailConfig}
+        onSaveConfig={saveRailConfig}
+        onClose={() => setShowDesktopLauncher(false)}
+        onSearch={() => { setShowDesktopLauncher(false); setShowCompose(true) }}
+        onActivity={() => { setShowDesktopLauncher(false); setShowActivity(true) }}
+        onProfile={() => { setShowDesktopLauncher(false); setManualRail('profile'); openSidebar() }}
+        onTools={() => { setShowDesktopLauncher(false); setManualRail('tools'); openSidebar() }}
+        onLinks={() => { setShowDesktopLauncher(false); setManualRail('links'); openSidebar() }}
+        showAdmin={showAdminRail}
       />
     )}
     <HubActivityPanel open={showActivity} onClose={() => setShowActivity(false)} />

@@ -396,6 +396,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
           rail_config: {
             desktop: desktopSlots,
             mobile: [mobileSlot],
+            drawer_pins: normalized.drawer_pins ?? [],
           },
         }),
       })

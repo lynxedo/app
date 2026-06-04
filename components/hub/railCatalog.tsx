@@ -202,13 +202,17 @@ export const DEFAULT_RAIL_CONFIG: { desktop: (CatalogId | null)[]; mobile: (Cata
 export type RailConfig = {
   desktop: (CatalogId | string | null)[]   // string = "url:https://..."
   mobile: (CatalogId | string | null)[]
+  drawer_pins?: CatalogId[]               // items pinned to the top of the app drawer
 }
 
 export function normalizeRailConfig(raw: unknown): RailConfig {
   const safe = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {}
   const desktop = Array.isArray(safe.desktop) ? safe.desktop.slice(0, 4) : DEFAULT_RAIL_CONFIG.desktop
   const mobile  = Array.isArray(safe.mobile)  ? safe.mobile.slice(0, 1)  : DEFAULT_RAIL_CONFIG.mobile
+  const drawer_pins = Array.isArray(safe.drawer_pins)
+    ? (safe.drawer_pins as unknown[]).filter((v): v is CatalogId => typeof v === 'string' && CATALOG.some(c => c.id === v))
+    : []
   while (desktop.length < 4) desktop.push(null)
   while (mobile.length  < 1) mobile.push(null)
-  return { desktop: desktop as RailConfig['desktop'], mobile: mobile as RailConfig['mobile'] }
+  return { desktop: desktop as RailConfig['desktop'], mobile: mobile as RailConfig['mobile'], drawer_pins }
 }
