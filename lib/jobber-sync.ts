@@ -9,6 +9,7 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { jobberGraphQLAdmin } from '@/lib/jobber'
+import { postGuardianToUserDm } from '@/lib/guardian-post'
 
 const COMPANY_ID = '00000000-0000-0000-0000-000000000002' // Heroes Lawn Care
 
@@ -975,6 +976,7 @@ export async function runInitialJobberSync(companyId: string): Promise<SyncSumma
     summary.errors.push(msg)
     console.error('[jobber-sync] Initial pull failed:', msg)
     await completeSyncLog(logId, 0, 0, msg)
+    await notifyJobberSyncFailure(companyId, `Initial pull: ${msg}`)
   }
 
   return summary
@@ -1016,16 +1018,109 @@ export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary
     summary.errors.push(msg)
     console.error('[jobber-sync] Delta pull failed:', msg)
     await completeSyncLog(logId, 0, 0, msg)
+    await notifyJobberSyncFailure(companyId, `Delta pull: ${msg}`)
   }
 
   return summary
 }
 
+/**
+ * Handle a single Jobber webhook event (Session 68).
+ *
+ * DESTROY events soft-delete the mirror row by external_id (no fetch needed).
+ * CREATE / UPDATE / COMPLETE events run a *scoped delta* on the matching entity:
+ * the existing per-entity sync already filters server-side by `updatedAt`, so
+ * anchoring a short window to the event's `occurredAt` reliably re-pulls the
+ * changed record while keeping the GraphQL query tiny. The upsert is idempotent,
+ * so re-touching a handful of neighbouring recently-changed rows is harmless.
+ */
 export async function processJobberWebhookEvent(
-  event: { topic: string; itemId: string; companyId: string }
+  event: { topic: string; itemId: string; companyId: string; occurredAt?: string | null }
 ): Promise<void> {
-  // Implemented in Session 68
-  console.log('[jobber-sync] Webhook event received (Session 68 not yet built):', event.topic, event.itemId)
+  const { topic, itemId, companyId, occurredAt } = event
+  const admin = createAdminClient()
+
+  // DESTROY → soft-delete by external_id, no GraphQL fetch.
+  const destroyTable: Record<string, string> = {
+    CLIENT_DESTROY: 'clients',
+    JOB_DESTROY: 'jobs',
+    VISIT_DESTROY: 'visits',
+    INVOICE_DESTROY: 'invoices',
+  }
+  if (topic in destroyTable) {
+    const table = destroyTable[topic]
+    const { error } = await admin
+      .from(table)
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('external_id', itemId)
+      .eq('source', 'jobber')
+      .is('deleted_at', null)
+    if (error) console.error(`[jobber-webhook] soft-delete ${table} ${itemId} failed:`, error.message)
+    else console.log(`[jobber-webhook] soft-deleted ${table} ${itemId}`)
+    return
+  }
+
+  // CREATE / UPDATE / COMPLETE → scoped delta. Anchor to occurredAt so a delayed
+  // webhook can't fall outside the window; fall back to a 30-min window.
+  const anchor = occurredAt ? Date.parse(occurredAt) : NaN
+  const since = !Number.isNaN(anchor)
+    ? new Date(anchor - 10 * 60 * 1000)
+    : new Date(Date.now() - 30 * 60 * 1000)
+
+  let userId: string
+  try {
+    userId = await getJobberUserId(companyId)
+  } catch (e) {
+    console.error('[jobber-webhook] no Jobber token, cannot process', topic, e)
+    return
+  }
+
+  try {
+    switch (topic) {
+      case 'CLIENT_CREATE':
+      case 'CLIENT_UPDATE':
+        await syncClients(userId, companyId, since); break
+      case 'JOB_CREATE':
+      case 'JOB_UPDATE':
+        await syncJobs(userId, companyId, since); break
+      case 'VISIT_CREATE':
+      case 'VISIT_UPDATE':
+      case 'VISIT_COMPLETE':
+        await syncVisits(userId, companyId, since); break
+      case 'INVOICE_CREATE':
+      case 'INVOICE_UPDATE':
+        await syncInvoices(userId, companyId, since); break
+      default:
+        console.log(`[jobber-webhook] ignoring topic ${topic}`)
+        return
+    }
+    console.log(`[jobber-webhook] processed ${topic} ${itemId} (since ${since.toISOString()})`)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error(`[jobber-webhook] ${topic} ${itemId} failed:`, msg)
+  }
+}
+
+/** DM every company admin via @Guardian when a sync run fails. */
+export async function notifyJobberSyncFailure(companyId: string, errorMessage: string): Promise<void> {
+  try {
+    const admin = createAdminClient()
+    const { data: admins } = await admin
+      .from('user_profiles')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('role', 'admin')
+    if (!admins?.length) return
+    const body =
+      `⚠️ Jobber sync failed.\n\n${errorMessage}\n\n` +
+      `Check /api/jobber/sync/status or pm2 logs for details. The nightly cron will retry at 2 AM.`
+    for (const a of admins) {
+      await postGuardianToUserDm(companyId, a.id, body).catch(err =>
+        console.error('[jobber-sync] failure DM error for', a.id, err))
+    }
+  } catch (e) {
+    console.error('[jobber-sync] notifyJobberSyncFailure error:', e)
+  }
 }
 
 // ── Type stubs ────────────────────────────────────────────────────────────────
