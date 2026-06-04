@@ -5,7 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { railFromPath } from './HubRail'
 import {
   CatalogIcon,
-  MoreIcon,
+  AppsIcon,
   catalogById,
   normalizeRailConfig,
   type RailConfig,
@@ -287,15 +287,15 @@ export default function HubMobileBar({
       {/* User-configurable slot */}
       {renderUserSlot()}
 
-      {/* More */}
+      {/* Apps — opens the full app drawer */}
       <button
         type="button"
         onClick={onMoreClick}
         className="flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-white/60 hover:text-white"
-        aria-label="More"
+        aria-label="Apps"
       >
-        <MoreIcon />
-        <span>More</span>
+        <AppsIcon />
+        <span>Apps</span>
       </button>
     </nav>
   )

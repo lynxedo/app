@@ -8,6 +8,7 @@ import {
   SearchIcon,
   SettingsIcon,
   AdminIcon,
+  AppsIcon,
   catalogById,
   normalizeRailConfig,
   type CatalogId,
@@ -507,18 +508,7 @@ export default function HubRail({
           {launcherOpen && (
             <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-amber-400" aria-hidden="true" />
           )}
-          {/* 3×3 grid icon */}
-          <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
-            <rect x="4" y="4" width="4" height="4" rx="1" />
-            <rect x="10" y="4" width="4" height="4" rx="1" />
-            <rect x="16" y="4" width="4" height="4" rx="1" />
-            <rect x="4" y="10" width="4" height="4" rx="1" />
-            <rect x="10" y="10" width="4" height="4" rx="1" />
-            <rect x="16" y="10" width="4" height="4" rx="1" />
-            <rect x="4" y="16" width="4" height="4" rx="1" />
-            <rect x="10" y="16" width="4" height="4" rx="1" />
-            <rect x="16" y="16" width="4" height="4" rx="1" />
-          </svg>
+          <AppsIcon />
           <span>Apps</span>
         </button>
       </div>

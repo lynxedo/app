@@ -148,6 +148,24 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
 
 // More + Search aren't first-class catalog ids but use the same factory.
 export function MoreIcon() { return <I d={PATHS.more} /> }
+
+// 3×3 grid "all apps" glyph — shared by the desktop rail launcher button and
+// the mobile bottom-bar Apps button so the entry point reads the same on both.
+export function AppsIcon() {
+  return (
+    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="4" width="4" height="4" rx="1" />
+      <rect x="10" y="4" width="4" height="4" rx="1" />
+      <rect x="16" y="4" width="4" height="4" rx="1" />
+      <rect x="4" y="10" width="4" height="4" rx="1" />
+      <rect x="10" y="10" width="4" height="4" rx="1" />
+      <rect x="16" y="10" width="4" height="4" rx="1" />
+      <rect x="4" y="16" width="4" height="4" rx="1" />
+      <rect x="10" y="16" width="4" height="4" rx="1" />
+      <rect x="16" y="16" width="4" height="4" rx="1" />
+    </svg>
+  )
+}
 export function SearchIcon() { return <I d={PATHS.search} /> }
 export function SettingsIcon() { return <I d={PATHS.settings} /> }
 export function AdminIcon() { return <I d={PATHS.admin} /> }
