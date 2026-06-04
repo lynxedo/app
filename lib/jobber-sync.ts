@@ -705,6 +705,7 @@ const VISITS_SYNC_QUERY = `
         job { id }
         client { id }
         assignedUsers(first: 10) { nodes { id } }
+        invoice { id }
         lineItems(first: 25) {
           nodes {
             id
@@ -777,6 +778,7 @@ async function syncVisits(
         completed_at: v.completedAt ?? null,
         visit_status: v.visitStatus ?? null,
         tech_external_user_ids: v.assignedUsers?.nodes?.map((u: { id: string }) => u.id) ?? [],
+        invoice_external_id: v.invoice?.id ?? null,
         subtotal: null,
         total: null,
         override_reason: null,
@@ -958,6 +960,35 @@ async function syncInvoices(
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
+
+/**
+ * Re-fetch all completed visits that are missing invoice_external_id so the
+ * report can join visit → invoice → line_items for accurate per-visit value.
+ */
+export async function backfillVisitInvoiceIds(companyId: string): Promise<{ processed: number }> {
+  const admin = createAdminClient()
+  const userId = await getJobberUserId(companyId)
+
+  const { data: missing } = await admin
+    .from('visits')
+    .select('external_id')
+    .eq('company_id', companyId)
+    .eq('visit_status', 'COMPLETED')
+    .is('deleted_at', null)
+    .is('invoice_external_id', null)
+
+  const ids = (missing ?? []).map(r => r.external_id)
+  console.log(`[jobber-sync] backfill invoice IDs: ${ids.length} visits missing`)
+
+  const BATCH = 40
+  let processed = 0
+  for (let i = 0; i < ids.length; i += BATCH) {
+    await syncVisits(userId, companyId, undefined, ids.slice(i, i + BATCH))
+    processed += Math.min(BATCH, ids.length - i)
+    console.log(`[jobber-sync] backfill invoice IDs: ${processed}/${ids.length}`)
+  }
+  return { processed }
+}
 
 /**
  * Re-fetch all completed visits that are missing line items in the mirror.
@@ -1234,6 +1265,7 @@ interface VisitNode {
   createdAt?: string
   job?: { id: string }; client?: { id: string }
   assignedUsers?: { nodes: { id: string }[] }
+  invoice?: { id: string } | null
   lineItems?: { nodes: LineItemNode[] }
 }
 
