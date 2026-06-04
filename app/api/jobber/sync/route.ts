@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { runInitialJobberSync, runDeltaJobberSync, backfillVisitLineItems, backfillVisitInvoiceIds } from '@/lib/jobber-sync'
+import { runInitialJobberSync, runDeltaJobberSync, backfillVisitLineItems } from '@/lib/jobber-sync'
 
 const COMPANY_ID = '00000000-0000-0000-0000-000000000002'
 
@@ -38,19 +38,12 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const type = body.type === 'delta' ? 'delta'
     : body.type === 'backfill-visit-lines' ? 'backfill-visit-lines'
-    : body.type === 'backfill-visit-invoices' ? 'backfill-visit-invoices'
     : 'initial'
 
   if (type === 'backfill-visit-lines') {
+    // Await — typically completes in < 60s for ~1400 visits
     const result = await backfillVisitLineItems(COMPANY_ID)
     return NextResponse.json({ status: 'complete', type, ...result })
-  }
-  if (type === 'backfill-visit-invoices') {
-    // Fire in background — 1,200+ visits takes > Cloudflare's 100s timeout
-    void backfillVisitInvoiceIds(COMPANY_ID).catch(err =>
-      console.error('[jobber-sync] backfill-visit-invoices error:', err)
-    )
-    return NextResponse.json({ status: 'started', type })
   }
 
   // Kick off in background — don't await (initial pull takes 10–20 min)
