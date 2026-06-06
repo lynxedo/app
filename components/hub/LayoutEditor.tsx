@@ -146,7 +146,7 @@ export default function LayoutEditor({
         <div className="flex-1 min-h-0 overflow-y-auto px-4 py-3">
           {list.length > MOBILE_VISIBLE && (
             <p className="text-[11px] text-amber-300/90 bg-amber-500/10 border border-amber-500/20 rounded-lg px-3 py-2 mb-2">
-              On phones the first {MOBILE_VISIBLE} show on the bottom bar; the rest live under the <strong>Apps</strong> button. On desktop the rail shows them all (it scrolls).
+              The top of this list fills your rail/bar; the rest live under the <strong>Apps</strong> button. Phones show the first {MOBILE_VISIBLE}; desktop shows as many as fit the screen.
             </p>
           )}
 

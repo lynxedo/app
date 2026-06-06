@@ -20,7 +20,6 @@ export default function AppLauncherPanel({
   rooms,
   conversations,
   currentUserId,
-  onToggleItem,
   onOpenLayoutEditor,
   onClose,
   onSearch,
@@ -39,8 +38,6 @@ export default function AppLauncherPanel({
   rooms: Room[]
   conversations: Conversation[]
   currentUserId?: string
-  /** Remove an item from the list (the ✕ on a tile). */
-  onToggleItem: (token: string) => void
   onOpenLayoutEditor: () => void
   onClose: () => void
   onSearch: () => void
@@ -108,26 +105,15 @@ export default function AppLauncherPanel({
     }
 
     return (
-      <div className="relative group">
-        <button
-          type="button"
-          onClick={onClick}
-          className="w-full flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
-          title={label}
-        >
-          <span className="text-white/80 [&_svg]:w-5 [&_svg]:h-5">{icon}</span>
-          <span className="text-[10px] font-medium text-center leading-tight text-white/65 truncate max-w-full">{label}</span>
-        </button>
-        <button
-          type="button"
-          onClick={() => onToggleItem(token)}
-          className="absolute top-1 right-1 w-5 h-5 rounded flex items-center justify-center opacity-0 group-hover:opacity-100 bg-white/10 text-white/60 hover:text-rose-300 hover:bg-white/20 transition-all"
-          title={`Hide ${label}`}
-          aria-label={`Hide ${label}`}
-        >
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
+      <button
+        type="button"
+        onClick={onClick}
+        className="w-full flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+        title={label}
+      >
+        <span className="text-white/80 [&_svg]:w-5 [&_svg]:h-5">{icon}</span>
+        <span className="text-[10px] font-medium text-center leading-tight text-white/65 truncate max-w-full">{label}</span>
+      </button>
     )
   }
 

@@ -183,8 +183,8 @@ function HubTab() {
         <p>The whole middle of the rail is <strong className="text-white">fully customizable</strong> — see &quot;My Hub&quot; below. Only a few anchors are fixed:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">🔍 Search</strong> (top) — opens the quick-jump palette (same as <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> / <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">Ctrl+K</kbd>).</li>
-          <li className="text-gray-300"><em>Your custom icons fill the middle</em> — apps, a Do Not Disturb toggle, rooms, custom links — in any order, as many as you like (it scrolls).</li>
-          <li><strong className="text-white">▦ Apps</strong> (always present) — the launcher for every app, and where you re-add anything you&apos;ve hidden.</li>
+          <li className="text-gray-300"><em>Your custom icons fill the middle</em> — apps, a Do Not Disturb toggle, rooms, custom links — in any order. The rail shows as many as fit your screen; the rest live in the Apps drawer.</li>
+          <li><strong className="text-white">▦ Apps</strong> (always present) — the full menu / app drawer (a <strong className="text-white">+N</strong> shows how many more are tucked in there), and where you re-add anything you&apos;ve hidden.</li>
           <li><strong className="text-white">✎ Edit</strong> — opens the layout customizer.</li>
           <li><strong className="text-white">⚙️ Settings</strong> — your profile, notifications, integrations, and My Hub.</li>
           <li><strong className="text-white">🛡️ Admin</strong> — only visible if you have admin access.</li>
@@ -204,7 +204,7 @@ function HubTab() {
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Add anything</strong> — every app as its own icon (Routing, Fleet, Daily Log, Books, Tracker, Reports…), plus a <strong className="text-white">Do Not Disturb</strong> toggle, a shortcut to any <strong className="text-white">room</strong>, or a <strong className="text-white">custom link</strong>.</li>
           <li><strong className="text-white">Drag to reorder</strong> (or use the ↑/↓ buttons), and tap <strong className="text-white">✕</strong> to hide what you don&apos;t use.</li>
-          <li><strong className="text-white">Go minimalist or load it up</strong> — there&apos;s no limit; the rail scrolls.</li>
+          <li><strong className="text-white">Go minimalist or load it up</strong> — there&apos;s no limit; the rail shows what fits and the Apps drawer holds the rest.</li>
           <li><strong className="text-white">One menu, everywhere</strong> — the rail, the mobile bar, and the Apps drawer all show the same list (the rail shows more; the mobile bar shows the first 5). It follows your account to every device.</li>
         </ul>
         <p>Changes save instantly — the rail updates as you edit. The <strong className="text-white">Apps ▦</strong> button is always there, so even a fully stripped-down rail can always reach everything. The <strong className="text-white">Do Not Disturb</strong> icon flips your status on/off in one tap (turns red when on).</p>

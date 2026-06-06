@@ -32,7 +32,6 @@ export default function HubMobileMore({
   conversations,
   currentUserId,
   currentUserStatus,
-  onToggleItem,
 }: {
   onClose: () => void
   showAdmin: boolean
@@ -52,8 +51,6 @@ export default function HubMobileMore({
   conversations: Conversation[]
   currentUserId?: string
   currentUserStatus?: string | null
-  /** Remove an item from the list (the ✕ on a tile). */
-  onToggleItem: (token: string) => void
 }) {
   const router = useRouter()
 
@@ -109,15 +106,10 @@ export default function HubMobileMore({
     }
 
     return (
-      <div className="relative">
-        <button type="button" onClick={onClick} className="w-full flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
-          <span className="text-white/80 [&_svg]:w-5 [&_svg]:h-5">{icon}</span>
-          <span className="text-[10px] font-medium text-center leading-tight px-1 text-white/70 truncate max-w-full">{label}</span>
-        </button>
-        <button type="button" onClick={() => onToggleItem(token)} className="absolute top-1 right-1 w-5 h-5 rounded-full bg-black/30 text-white/60 flex items-center justify-center" aria-label={`Hide ${label}`}>
-          <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-        </button>
-      </div>
+      <button type="button" onClick={onClick} className="w-full flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
+        <span className="text-white/80 [&_svg]:w-5 [&_svg]:h-5">{icon}</span>
+        <span className="text-[10px] font-medium text-center leading-tight px-1 text-white/70 truncate max-w-full">{label}</span>
+      </button>
     )
   }
 

@@ -898,7 +898,6 @@ export default function HubShell({
         conversations={railConversations}
         currentUserId={currentUserId}
         currentUserStatus={liveStatus}
-        onToggleItem={toggleLayoutItem}
       />
     )}
     {showDesktopLauncher && (
@@ -908,7 +907,6 @@ export default function HubShell({
         rooms={rooms}
         conversations={railConversations}
         currentUserId={currentUserId}
-        onToggleItem={toggleLayoutItem}
         onOpenLayoutEditor={() => { setShowDesktopLauncher(false); setShowLayoutEditor(true) }}
         onClose={() => setShowDesktopLauncher(false)}
         onSearch={() => { setShowDesktopLauncher(false); setShowCompose(true) }}

@@ -150,36 +150,27 @@ export default function HubRail({
   // again can toggle collapse even when the section has no URL of its own.
   const effectiveActive: RailId = (activeManualRail as RailId) ?? active
 
-  // Scroll-affordance state for the configurable section. Updated on
-  // scroll/resize so the up/down chevrons only render when there's actual
-  // overflow to scroll through.
-  const slotsScrollRef = useRef<HTMLDivElement | null>(null)
-  const [canScrollUp, setCanScrollUp] = useState(false)
-  const [canScrollDown, setCanScrollDown] = useState(false)
+  // The rail never scrolls — it shows as many icons as fit in the available
+  // height; the rest live in the Apps drawer (the expanded-rail view). The fit
+  // count is measured from the container so it adapts to screen size.
+  const ITEM_H = 54 // approx height of one rail item (icon + label + padding)
+  const railListRef = useRef<HTMLDivElement | null>(null)
+  const [fitCount, setFitCount] = useState(99)
   useEffect(() => {
-    const el = slotsScrollRef.current
+    const el = railListRef.current
     if (!el) return
-    function update() {
-      if (!el) return
-      setCanScrollUp(el.scrollTop > 2)
-      setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 2)
+    const compute = () => {
+      const h = el.clientHeight
+      if (h > 0) setFitCount(Math.max(1, Math.floor(h / ITEM_H)))
     }
-    update()
-    el.addEventListener('scroll', update, { passive: true })
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null
+    compute()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(compute) : null
     ro?.observe(el)
-    window.addEventListener('resize', update)
-    return () => {
-      el.removeEventListener('scroll', update)
-      ro?.disconnect()
-      window.removeEventListener('resize', update)
-    }
-  }, [items.length])
-  function scrollSlots(direction: 'up' | 'down') {
-    const el = slotsScrollRef.current
-    if (!el) return
-    el.scrollBy({ top: direction === 'up' ? -80 : 80, behavior: 'smooth' })
-  }
+    window.addEventListener('resize', compute)
+    return () => { ro?.disconnect(); window.removeEventListener('resize', compute) }
+  }, [])
+  const visibleItems = items.slice(0, fitCount)
+  const hiddenCount = Math.max(0, items.length - visibleItems.length)
 
   // Cmd/Ctrl + 1..5 keyboard shortcuts for the common sections.
   useEffect(() => {
@@ -560,36 +551,10 @@ export default function HubRail({
 
       <div className="h-px bg-white/5 mx-3" />
 
-      {/* User-configurable list — the whole middle, scrollable if it overflows.
-          Explicit up/down chevrons appear only when overflow exists. */}
-      <div className="flex-1 min-h-0 relative">
-        {canScrollUp && (
-          <button
-            type="button"
-            onClick={() => scrollSlots('up')}
-            className="absolute top-0 left-0 right-0 z-10 flex items-center justify-center h-5 bg-gradient-to-b from-[#0a1f33] via-[#0a1f33]/95 to-transparent text-white/60 hover:text-white"
-            aria-label="Scroll rail up"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-            </svg>
-          </button>
-        )}
-        {canScrollDown && (
-          <button
-            type="button"
-            onClick={() => scrollSlots('down')}
-            className="absolute bottom-0 left-0 right-0 z-10 flex items-center justify-center h-5 bg-gradient-to-t from-[#0a1f33] via-[#0a1f33]/95 to-transparent text-white/60 hover:text-white"
-            aria-label="Scroll rail down"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-        )}
-        <div ref={slotsScrollRef} className="absolute inset-0 overflow-y-auto py-1 flex flex-col">
-          {items.map((token, idx) => renderItem(token, idx))}
-        </div>
+      {/* User-configurable list — shows what fits (no scroll); the rest go to
+          the Apps drawer. */}
+      <div ref={railListRef} className="flex-1 min-h-0 overflow-hidden py-1 flex flex-col">
+        {visibleItems.map((token, idx) => renderItem(token, idx))}
       </div>
 
       {/* All Apps launcher + Customize */}
@@ -600,13 +565,20 @@ export default function HubRail({
           className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium w-full transition-colors ${
             launcherOpen ? 'text-amber-400 bg-white/5' : 'text-white/55 hover:text-white hover:bg-white/5'
           }`}
-          title="All Apps"
+          title={hiddenCount > 0 ? `All Apps — ${hiddenCount} more` : 'All Apps'}
           aria-pressed={launcherOpen}
         >
           {launcherOpen && (
             <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-amber-400" aria-hidden="true" />
           )}
-          <AppsIcon />
+          <span className="relative">
+            <AppsIcon />
+            {hiddenCount > 0 && !launcherOpen && (
+              <span className="absolute -top-1 -right-2 min-w-[15px] h-[15px] px-1 rounded-full bg-white/20 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                {hiddenCount > 9 ? '9+' : `+${hiddenCount}`}
+              </span>
+            )}
+          </span>
           <span>Apps</span>
         </button>
         <button
