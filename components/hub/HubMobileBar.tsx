@@ -14,9 +14,16 @@ import {
 import { classifyToken } from '@/lib/hub-layout'
 
 type Room = { id: string; name: string; is_private: boolean }
+type RailConversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
 
-// The bottom bar physically fits ~5 icons before the Apps escape hatch. Extra
-// mobile-layout items overflow into the Apps drawer; the editor warns about it.
+function convFirstNames(conv: RailConversation, currentUserId?: string): string {
+  const others = conv.participants.filter(p => p.id !== currentUserId)
+  if (others.length === 0) return conv.participants[0]?.display_name ?? 'You'
+  return others.map(p => (p.display_name || '?').split(' ')[0]).join(', ')
+}
+
+// The bottom bar shows the first few list items before the Apps button. Extra
+// items overflow into the Apps drawer.
 const MAX_MOBILE_ITEMS = 5
 
 export default function HubMobileBar({
@@ -36,8 +43,10 @@ export default function HubMobileBar({
   missedCall,
   dailyLogUnread,
   permissions,
-  mobileItems,
+  items: itemsProp,
   rooms = [],
+  conversations = [],
+  currentUserId,
   currentUserStatus,
   hidden,
   drawerOpen,
@@ -61,9 +70,11 @@ export default function HubMobileBar({
   missedCall?: boolean
   dailyLogUnread?: boolean
   permissions: RailPermissions
-  /** Ordered mobile layout tokens (already permission-filtered). */
-  mobileItems: string[]
+  /** The one shared layout list (already permission-filtered). */
+  items: string[]
   rooms?: Room[]
+  conversations?: RailConversation[]
+  currentUserId?: string
   currentUserStatus?: string | null
   hidden?: boolean
   drawerOpen?: boolean
@@ -74,7 +85,7 @@ export default function HubMobileBar({
   const router = useRouter()
   const active = railFromPath(pathname)
 
-  const items = mobileItems.slice(0, MAX_MOBILE_ITEMS)
+  const items = itemsProp.slice(0, MAX_MOBILE_ITEMS)
 
   const SIDEBAR_BACKED = new Set<CatalogId>(['txt2', 'dialer'])
   const roomById = (id: string) => rooms.find(r => r.id === id)
@@ -163,7 +174,19 @@ export default function HubMobileBar({
       )
     }
 
-    if (c.kind === 'dm') return null
+    if (c.kind === 'dm') {
+      const conv = conversations.find(cv => cv.id === c.id)
+      if (!conv) return null
+      const isActive = pathname === `/hub/pm/${conv.id}`
+      const label = convFirstNames(conv, currentUserId)
+      const letter = (label || '?').trim().charAt(0).toUpperCase() || '?'
+      return (
+        <Link key={`dm-${idx}`} href={`/hub/pm/${conv.id}`} onClick={() => onUserSlotNav?.()} className={btn(isActive)}>
+          <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${isActive ? 'bg-amber-400 text-gray-950' : 'bg-sky-700 text-white'}`}>{letter}</span>
+          <span className="truncate max-w-full px-1">{label}</span>
+        </Link>
+      )
+    }
 
     const id = c.id
 

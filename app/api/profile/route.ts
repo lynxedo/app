@@ -76,11 +76,16 @@ export async function PUT(request: Request) {
     if (hub_layout !== null && !isValidLayoutShape(hub_layout)) {
       return NextResponse.json({ error: 'invalid hub_layout shape' }, { status: 400 })
     }
-    // Store a minimal, well-formed object (drop any stray fields).
-    profileUpdates.hub_layout = hub_layout === null ? null : {
-      version: 2,
-      desktop: (hub_layout as { desktop: string[] }).desktop,
-      mobile: (hub_layout as { mobile: string[] }).mobile,
+    // Store a minimal, well-formed v3 object (one ordered list). Accept a
+    // stray legacy v2 body too, flattening it to items.
+    if (hub_layout === null) {
+      profileUpdates.hub_layout = null
+    } else {
+      const hl = hub_layout as { items?: string[]; desktop?: string[]; mobile?: string[] }
+      const items = Array.isArray(hl.items)
+        ? hl.items
+        : [...(hl.desktop ?? []), ...(hl.mobile ?? [])]
+      profileUpdates.hub_layout = { version: 3, items }
     }
   }
   if (txt_signature !== undefined) {

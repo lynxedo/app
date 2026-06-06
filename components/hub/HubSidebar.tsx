@@ -8,6 +8,7 @@ import type { HubUser } from './MessageFeed'
 import StatusPicker, { StatusDot } from './StatusPicker'
 import ClientsSidebar from './ClientsSidebar'
 import { CatalogIcon } from './railCatalog'
+import { classifyToken, pinIdToToken } from '@/lib/hub-layout'
 import {
   getConversationsList,
   saveConversationsList,
@@ -92,6 +93,9 @@ export default function HubSidebar({
   textSize,
   onTextSizeChange,
   initialPinnedIds = [],
+  layoutItems = [],
+  onToggleLayoutItem,
+  onAddLayoutItems,
   canAccessTracker = false,
   canAccessCallLog = false,
   canAccessCallLog2 = false,
@@ -119,6 +123,10 @@ export default function HubSidebar({
   textSize?: string
   onTextSizeChange?: (size: string) => void
   initialPinnedIds?: string[]
+  /** The one shared launcher list — Favorites is a view of this. */
+  layoutItems?: string[]
+  onToggleLayoutItem?: (token: string) => void
+  onAddLayoutItems?: (tokens: string[]) => void
   canAccessTracker?: boolean
   canAccessCallLog?: boolean
   canAccessCallLog2?: boolean
@@ -187,8 +195,38 @@ export default function HubSidebar({
   const conversationsRef = useRef<Conversation[]>(conversations)
   conversationsRef.current = conversations
 
-  // Favorites / pinning state
-  const [pinnedIds, setPinnedIds] = useState<string[]>(initialPinnedIds)
+  // Favorites / pinning state — now a VIEW of the one shared launcher list.
+  // Convert each list token back to the sidebar's pin-id grammar (bare room/
+  // conv uuid, or 'tool:x') so the rest of the Favorites code is unchanged.
+  const pinnedIds = useMemo(() => {
+    const out: string[] = []
+    for (const tok of layoutItems) {
+      const c = classifyToken(tok)
+      if (c.kind === 'room' || c.kind === 'dm') out.push(c.id)
+      else if (c.kind === 'catalog' && TOOL_CATALOG[`tool:${c.id}`]) out.push(`tool:${c.id}`)
+    }
+    return out
+  }, [layoutItems])
+
+  // One-time migration: fold any legacy hub_pinned_ids favorites (bare room/
+  // conv uuids + 'tool:x') into the shared list so pins from before the merge
+  // still show. Runs until DMs can be classified (convs loaded), then stops so
+  // it never re-adds something the user later removes.
+  const reconciledRef = useRef(false)
+  useEffect(() => {
+    if (reconciledRef.current) return
+    if (!initialPinnedIds || initialPinnedIds.length === 0) { reconciledRef.current = true; return }
+    const tokens: string[] = []
+    let pendingUnknown = false
+    for (const id of initialPinnedIds) {
+      if (id.startsWith('tool:')) tokens.push(pinIdToToken(id, false))
+      else if (rooms.some(r => r.id === id)) tokens.push(pinIdToToken(id, true))
+      else if (conversations.some(c => c.id === id)) tokens.push(pinIdToToken(id, false))
+      else pendingUnknown = true
+    }
+    if (tokens.length) onAddLayoutItems?.(tokens)
+    if (!pendingUnknown || conversations.length > 0) reconciledRef.current = true
+  }, [initialPinnedIds, rooms, conversations, onAddLayoutItems])
 
   // Collapsible sections — persisted per-user in localStorage so each section
   // (Favorites, Rooms, DMs, Boards, Tools subcategories, Pages, Links) remembers
@@ -746,17 +784,11 @@ export default function HubSidebar({
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
   }
 
-  // Pin / unpin
+  // Pin / unpin — writes to the one shared launcher list (so a pin shows on the
+  // rail/dock/drawer AND here). Convert the sidebar pin-id to a list token.
   function togglePin(id: string) {
-    setPinnedIds(prev => {
-      const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
-      fetch('/api/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hub_pinned_ids: next }),
-      }).catch(() => {})
-      return next
-    })
+    const isRoom = rooms.some(r => r.id === id)
+    onToggleLayoutItem?.(pinIdToToken(id, isRoom))
     setContextMenu(null)
   }
 

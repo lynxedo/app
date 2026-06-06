@@ -1,41 +1,41 @@
-/* Customizable Hub launcher — the single source of truth for what icons appear
- * on the desktop rail and the mobile bottom bar, in what order.
+/* Customizable Hub launcher — the single source of truth for the user's app
+ * menu. ONE ordered list of "tokens" powers everything:
+ *   - the desktop rail  = the list rendered vertically (shows many, scrolls)
+ *   - the mobile dock    = the first MOBILE_VISIBLE items + a fixed Apps button
+ *   - the app drawer     = the full list (this is where you add/hide/reorder)
+ *   - the sidebar Favorites = the room/DM/tool items in the same list
  *
- * A layout is two ordered lists of string "tokens" (desktop + mobile). Each
- * token is one of:
- *   - a CatalogId  ('routing', 'fleet', 'daily-log', 'tools', 'links', …) — an
- *     app/tool. 'hub' | 'txt' | 'time-clock' are CatalogIds too (system items
- *     with bespoke click behavior); 'txt2'/'dialer' are permission-gated apps.
+ * The rail/dock are literally the top of the drawer list — there's no separate
+ * "rail config" vs "favorites" vs "drawer." Add anything, hide anything,
+ * rearrange; the rail shows more than the mobile dock, that's the only diff.
+ *
+ * A token is one of:
+ *   - a CatalogId  ('routing', 'fleet', 'daily-log', 'tools', 'links', and the
+ *     system items 'hub' | 'txt' | 'time-clock' | 'txt2' | 'dialer')
  *   - 'sys:dnd'        — Do Not Disturb quick-toggle (flips your status)
  *   - 'url:<href>'     — a custom external link
- *   - 'room:<uuid>'    — jump straight to a Hub room
- *   - 'dm:<uuid>'      — jump straight to a DM (reserved; rendered in the
- *                        sidebar today, on the rail in a later phase)
+ *   - 'room:<uuid>'    — jump to a Hub room
+ *   - 'dm:<uuid>'      — jump to a DM / group conversation
  *
- * Anything NOT in a list is simply hidden. Order in the list = order on screen.
- * Two separate lists mean a lean phone and a loaded desktop can coexist on one
- * account (Ben's call). This module is pure + framework-free so it can run
- * server-side (layout.tsx) and client-side (the editor) identically.
+ * Pure + framework-free so it runs identically server-side (layout.tsx) and
+ * client-side (the editor / sidebar).
  */
 
 import { catalogById, type CatalogId, type RailPermissions } from '@/components/hub/railCatalog'
 
 export type HubLayout = {
-  version: 2
-  desktop: string[]
-  mobile: string[]
+  version: 3
+  items: string[]
 }
 
-// What a brand-new user (no legacy config, no pins) starts with. Existing users
-// are migrated from their current rail instead (see migrateLegacyLayout).
-// Permission filtering drops anything the user can't access (e.g. dialer).
-export const DEFAULT_DESKTOP_LAYOUT: string[] = ['hub', 'txt', 'dialer', 'time-clock', 'daily-log', 'tools']
-export const DEFAULT_MOBILE_LAYOUT: string[] = ['hub', 'txt', 'dialer', 'time-clock']
+// How many list items the mobile bottom bar shows before the Apps button.
+export const MOBILE_VISIBLE = 5
 
-// CatalogIds that are "system" items — present in the rail with bespoke click
-// behavior but NOT in the pickable CATALOG list (so catalogById returns null).
+// Brand-new user default (no legacy config, no pins). Permission filtering drops
+// anything they can't access (e.g. dialer).
+export const DEFAULT_ITEMS: string[] = ['hub', 'txt', 'dialer', 'time-clock', 'daily-log', 'tools']
+
 const SYSTEM_CATALOG_IDS = new Set<CatalogId>(['hub', 'txt', 'time-clock'])
-// CatalogIds that are always allowed regardless of permissions.
 const ALWAYS_ALLOWED = new Set<CatalogId>(['hub', 'txt', 'time-clock', 'tools', 'links'])
 
 export type Classified =
@@ -59,35 +59,51 @@ export function tokenAllowed(token: string, perms: RailPermissions): boolean {
   const c = classifyToken(token)
   if (c.kind !== 'catalog') return true
   const id = c.id
-  if (id === ('activity' as CatalogId)) return false // Activity is the floating bell, never a rail icon
+  if (id === ('activity' as CatalogId)) return false // Activity is the floating bell, never a list icon
   if (ALWAYS_ALLOWED.has(id) || SYSTEM_CATALOG_IDS.has(id)) return true
   return catalogById(id, perms) !== null
 }
 
-// Strip junk, drop disallowed/duplicate tokens, keep order. Used on every read
-// so a layout written before a permission was revoked self-heals at render.
+// Add a token if missing, remove it if present. Returns a new array.
+export function toggleItem(items: string[], token: string): string[] {
+  return items.includes(token) ? items.filter(t => t !== token) : [...items, token]
+}
+
+// Convert a sidebar "pin id" (bare room/conv uuid, or 'tool:x') to a list token.
+// `isRoom` disambiguates a bare uuid (the sidebar knows from its rooms list).
+export function pinIdToToken(id: string, isRoom: boolean): string {
+  if (id.startsWith('tool:')) return id.slice(5) // 'tool:routing' → 'routing'
+  return isRoom ? `room:${id}` : `dm:${id}`
+}
+
+// Strip junk, drop disallowed/duplicate tokens, keep order. Reads a v3 `items`
+// list, or merges a legacy v2 `{ desktop, mobile }` layout into one list.
 export function normalizeLayout(raw: unknown, perms: RailPermissions): HubLayout {
   const safe = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {}
-  const clean = (arr: unknown): string[] => {
-    if (!Array.isArray(arr)) return []
-    const seen = new Set<string>()
-    const out: string[] = []
-    for (const v of arr) {
-      if (typeof v !== 'string' || !v) continue
-      if (seen.has(v)) continue
-      if (!tokenAllowed(v, perms)) continue
-      seen.add(v)
-      out.push(v)
-    }
-    return out
+  let rawItems: unknown[] = []
+  if (Array.isArray(safe.items)) {
+    rawItems = safe.items
+  } else if (Array.isArray(safe.desktop) || Array.isArray(safe.mobile)) {
+    // v2 → v3: merge the two old lists (desktop order first).
+    rawItems = [...(Array.isArray(safe.desktop) ? safe.desktop : []), ...(Array.isArray(safe.mobile) ? safe.mobile : [])]
   }
-  return { version: 2, desktop: clean(safe.desktop), mobile: clean(safe.mobile) }
+  const seen = new Set<string>()
+  const items: string[] = []
+  for (const v of rawItems) {
+    if (typeof v !== 'string' || !v) continue
+    if (seen.has(v)) continue
+    if (!tokenAllowed(v, perms)) continue
+    seen.add(v)
+    items.push(v)
+  }
+  return { version: 3, items }
 }
 
 type LegacyRailConfig = { desktop?: (string | null)[]; mobile?: (string | null)[] } | null | undefined
 
-// Reproduce a user's CURRENT rail (so the cutover is invisible), then merge in
-// their pinned tools so Favorites and the rail become one list (Ben's "merge").
+// Reproduce a user's CURRENT rail (so the cutover is invisible) and merge in
+// their pinned tools. Pinned rooms/DMs are reconciled client-side (the sidebar
+// can classify bare uuids; the server can't without an extra query).
 export function migrateLegacyLayout(
   railConfig: LegacyRailConfig,
   pinnedIds: string[] | null | undefined,
@@ -95,49 +111,45 @@ export function migrateLegacyLayout(
 ): HubLayout {
   const rc = railConfig ?? {}
   const pins = Array.isArray(pinnedIds) ? pinnedIds : []
-  // 'tool:routing' → 'routing' (TOOL_CATALOG ids map 1:1 onto CatalogIds).
-  const toolPins = pins.filter((id) => id.startsWith('tool:')).map((id) => id.slice(5))
+  const toolPins = pins.filter(id => id.startsWith('tool:')).map(id => id.slice(5))
 
-  // Desktop: the fixed primary order today is Clock, Hub, Txt, [Txt2], [Dialer],
-  // then the 4 picker slots — then their pinned tools appended.
-  const desktop: string[] = ['time-clock', 'hub', 'txt']
-  if (perms.canAccessTxt) desktop.push('txt2')
-  if (perms.canAccessDialer) desktop.push('dialer')
-  for (const v of rc.desktop ?? []) if (v && v !== 'activity') desktop.push(v)
-  for (const t of toolPins) desktop.push(t)
+  const items: string[] = ['time-clock', 'hub', 'txt']
+  if (perms.canAccessTxt) items.push('txt2')
+  if (perms.canAccessDialer) items.push('dialer')
+  for (const v of rc.desktop ?? []) if (v && v !== 'activity') items.push(v)
+  for (const v of rc.mobile ?? []) if (v && v !== 'activity') items.push(v)
+  for (const t of toolPins) items.push(t)
 
-  // Mobile: today's fixed bar is Hub, Txt, [Phone], Clock, then the 1 user slot.
-  const mobile: string[] = ['hub', 'txt']
-  if (perms.canAccessDialer) mobile.push('dialer')
-  mobile.push('time-clock')
-  for (const v of rc.mobile ?? []) if (v && v !== 'activity') mobile.push(v)
-
-  return normalizeLayout({ version: 2, desktop, mobile }, perms)
+  return normalizeLayout({ version: 3, items }, perms)
 }
 
-// The one entry point: given the stored hub_layout plus the legacy columns,
-// return the layout to render. Stored layout wins; otherwise migrate; otherwise
-// brand-new defaults.
+// The one entry point: stored layout wins; else migrate legacy; else defaults.
 export function resolveLayout(
   hubLayout: unknown,
   legacyRailConfig: LegacyRailConfig,
   legacyPinnedIds: string[] | null | undefined,
   perms: RailPermissions,
 ): HubLayout {
-  if (hubLayout && typeof hubLayout === 'object' && Array.isArray((hubLayout as { desktop?: unknown }).desktop)) {
+  if (
+    hubLayout && typeof hubLayout === 'object' &&
+    (Array.isArray((hubLayout as { items?: unknown }).items) ||
+      Array.isArray((hubLayout as { desktop?: unknown }).desktop))
+  ) {
     return normalizeLayout(hubLayout, perms)
   }
   const hasLegacy =
     (!!legacyRailConfig && (Array.isArray(legacyRailConfig.desktop) || Array.isArray(legacyRailConfig.mobile))) ||
     (Array.isArray(legacyPinnedIds) && legacyPinnedIds.length > 0)
   if (hasLegacy) return migrateLegacyLayout(legacyRailConfig, legacyPinnedIds, perms)
-  return normalizeLayout({ version: 2, desktop: DEFAULT_DESKTOP_LAYOUT, mobile: DEFAULT_MOBILE_LAYOUT }, perms)
+  return normalizeLayout({ version: 3, items: DEFAULT_ITEMS }, perms)
 }
 
 // Validate a layout object coming in over the API (PUT /api/profile).
 export function isValidLayoutShape(v: unknown): boolean {
   if (!v || typeof v !== 'object') return false
   const o = v as Record<string, unknown>
-  const okArr = (a: unknown) => Array.isArray(a) && a.every((x) => typeof x === 'string')
+  const okArr = (a: unknown) => Array.isArray(a) && a.every(x => typeof x === 'string')
+  if (okArr(o.items)) return true
+  // tolerate a legacy v2 shape so an older client can't 400
   return okArr(o.desktop) && okArr(o.mobile)
 }

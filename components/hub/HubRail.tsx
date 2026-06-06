@@ -17,6 +17,13 @@ import {
 import { classifyToken } from '@/lib/hub-layout'
 
 type Room = { id: string; name: string; is_private: boolean }
+type RailConversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
+
+function convFirstNames(conv: RailConversation, currentUserId?: string): string {
+  const others = conv.participants.filter(p => p.id !== currentUserId)
+  if (others.length === 0) return conv.participants[0]?.display_name ?? 'You'
+  return others.map(p => (p.display_name || '?').split(' ')[0]).join(', ')
+}
 
 export type RailId =
   | 'time-clock'
@@ -90,8 +97,9 @@ export default function HubRail({
   onOpenSidebar,
   activeManualRail,
   permissions,
-  desktopItems,
+  items,
   rooms = [],
+  conversations = [],
   launcherOpen = false,
 }: {
   showAdmin: boolean
@@ -128,9 +136,10 @@ export default function HubRail({
   onOpenSidebar: () => void
   activeManualRail?: 'tools' | 'links' | 'profile' | 'activity' | null
   permissions: RailPermissions
-  /** Ordered desktop layout tokens (already permission-filtered). */
-  desktopItems: string[]
+  /** The one shared layout list (already permission-filtered). */
+  items: string[]
   rooms?: Room[]
+  conversations?: RailConversation[]
   launcherOpen?: boolean
 }) {
   const pathname = usePathname()
@@ -140,8 +149,6 @@ export default function HubRail({
   // pathless rails (tools, links, profile). Means clicking the same icon
   // again can toggle collapse even when the section has no URL of its own.
   const effectiveActive: RailId = (activeManualRail as RailId) ?? active
-
-  const items = desktopItems
 
   // Scroll-affordance state for the configurable section. Updated on
   // scroll/resize so the up/down chevrons only render when there's actual
@@ -342,8 +349,34 @@ export default function HubRail({
       )
     }
 
-    // ── DM shortcut — sidebar-only for now; skip on the rail. ──
-    if (c.kind === 'dm') return null
+    // ── DM shortcut ──
+    if (c.kind === 'dm') {
+      const conv = conversations.find(cv => cv.id === c.id)
+      if (!conv) return null
+      const isActive = pathname === `/hub/pm/${conv.id}`
+      const label = convFirstNames(conv, currentUserId)
+      const others = conv.participants.filter(p => p.id !== currentUserId)
+      const avatarUser = others[0] ?? conv.participants[0]
+      const letter = (label || '?').trim().charAt(0).toUpperCase() || '?'
+      return (
+        <Link
+          key={`dm-${idx}`}
+          href={`/hub/pm/${conv.id}`}
+          onClick={() => onOpenSidebar()}
+          className={railBtnClass(isActive)}
+          title={label}
+        >
+          <ActiveBar show={isActive} />
+          <span className="relative w-5 h-5 rounded-full overflow-hidden bg-gradient-to-br from-sky-600 to-sky-800 flex items-center justify-center text-white text-[11px] font-bold">
+            {avatarUser?.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={`/api/profile/avatar/${avatarUser.id}?v=${encodeURIComponent(avatarUser.avatar_url)}`} alt="" className="w-full h-full object-cover" />
+            ) : letter}
+          </span>
+          <span className="truncate max-w-[58px]">{label}</span>
+        </Link>
+      )
+    }
 
     // ── Catalog app / system item ──
     const id = c.id

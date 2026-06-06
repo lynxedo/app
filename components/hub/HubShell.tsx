@@ -34,6 +34,7 @@ import { type HubLayout } from '@/lib/hub-layout'
 import { persistStorage } from '@/lib/hub-cache'
 
 type Room = { id: string; name: string; is_private: boolean }
+type RailConversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
 
 export const HUB_CONV_CREATED_EVENT = 'hub-conversation-created'
 
@@ -153,8 +154,19 @@ export default function HubShell({
   const [showMobileMore, setShowMobileMore] = useState(false)
   const [showDesktopLauncher, setShowDesktopLauncher] = useState(false)
   const [showLayoutEditor, setShowLayoutEditor] = useState(false)
-  const EMPTY_LAYOUT: HubLayout = { version: 2, desktop: [], mobile: [] }
+  const EMPTY_LAYOUT: HubLayout = { version: 3, items: [] }
   const [liveLayout, setLiveLayout] = useState<HubLayout>(initialLayout ?? EMPTY_LAYOUT)
+  // Lightweight conversation list so DM tokens on the rail/dock/drawer can show
+  // a label + avatar. (The sidebar fetches its own richer copy.)
+  const [railConversations, setRailConversations] = useState<RailConversation[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/hub/conversations')
+      .then(r => (r.ok ? r.json() : { conversations: [] }))
+      .then(d => { if (!cancelled) setRailConversations((d.conversations ?? []) as RailConversation[]) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showCompose, setShowCompose] = useState(false)
   const [showTimeClock, setShowTimeClock] = useState(false)
@@ -491,13 +503,29 @@ export default function HubShell({
     })
   }, [])
 
-  // Add/remove a single catalog app token on a given surface (used by the app
-  // launcher tiles). Toggling on appends; toggling off removes.
-  const toggleLayoutItem = useCallback((surface: 'desktop' | 'mobile', token: string) => {
+  // Add/remove a single token from the one shared list (used by the launcher
+  // tiles, the sidebar pin star, etc.). Toggling on appends; off removes.
+  const toggleLayoutItem = useCallback((token: string) => {
     setLiveLayout(prev => {
-      const list = prev[surface]
-      const next = list.includes(token) ? list.filter(t => t !== token) : [...list, token]
-      const updated: HubLayout = { ...prev, [surface]: next }
+      const items = prev.items.includes(token) ? prev.items.filter(t => t !== token) : [...prev.items, token]
+      const updated: HubLayout = { version: 3, items }
+      fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hub_layout: updated }),
+      }).catch(() => {})
+      return updated
+    })
+  }, [])
+
+  // Add several tokens at once if missing (used by the sidebar's one-time
+  // reconciliation of legacy room/DM/tool favorites into the shared list).
+  const addLayoutItems = useCallback((tokens: string[]) => {
+    setLiveLayout(prev => {
+      const have = new Set(prev.items)
+      const fresh = tokens.filter(t => t && !have.has(t))
+      if (fresh.length === 0) return prev
+      const updated: HubLayout = { version: 3, items: [...prev.items, ...fresh] }
       fetch('/api/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -638,6 +666,9 @@ export default function HubShell({
             textSize={textSize}
             onTextSizeChange={setTextSize}
             initialPinnedIds={initialPinnedIds ?? []}
+            layoutItems={liveLayout.items}
+            onToggleLayoutItem={toggleLayoutItem}
+            onAddLayoutItems={addLayoutItems}
             canAccessTracker={canAccessTracker}
             canAccessCallLog={canAccessCallLog}
             canAccessLawn={canAccessLawn}
@@ -702,8 +733,9 @@ export default function HubShell({
         onOpenSidebar={openSidebar}
         activeManualRail={manualRail}
         permissions={permissions}
-        desktopItems={liveLayout.desktop}
+        items={liveLayout.items}
         rooms={rooms}
+        conversations={railConversations}
         launcherOpen={showDesktopLauncher}
       />
 
@@ -821,8 +853,9 @@ export default function HubShell({
         missedCall={missedCall}
         dailyLogUnread={dailyLogUnread}
         permissions={permissions}
-        mobileItems={liveLayout.mobile}
+        items={liveLayout.items}
         rooms={rooms}
+        conversations={railConversations}
         currentUserStatus={liveStatus}
         hidden={keyboardOpen}
         drawerOpen={mobileDrawerOpen}
@@ -856,17 +889,26 @@ export default function HubShell({
         onLinksClick={() => { setShowMobileMore(false); setManualRail('links'); setMobileDrawerOpen(true) }}
         onProfileClick={() => { setShowMobileMore(false); setManualRail('profile'); setMobileDrawerOpen(true) }}
         onActivityClick={() => { setShowMobileMore(false); setShowActivity(true) }}
+        onTimeClockClick={() => { setShowMobileMore(false); setShowTimeClock(true) }}
+        onToggleDnd={toggleDnd}
         onOpenLayoutEditor={() => { setShowMobileMore(false); setShowLayoutEditor(true) }}
         permissions={permissions}
-        mobileItems={liveLayout.mobile}
-        onToggleMobile={(id) => toggleLayoutItem('mobile', id)}
+        items={liveLayout.items}
+        rooms={rooms}
+        conversations={railConversations}
+        currentUserId={currentUserId}
+        currentUserStatus={liveStatus}
+        onToggleItem={toggleLayoutItem}
       />
     )}
     {showDesktopLauncher && (
       <AppLauncherPanel
-        items={catalogEntriesFor(permissions)}
-        desktopItems={liveLayout.desktop}
-        onToggleDesktop={(id) => toggleLayoutItem('desktop', id)}
+        items={liveLayout.items}
+        permissions={permissions}
+        rooms={rooms}
+        conversations={railConversations}
+        currentUserId={currentUserId}
+        onToggleItem={toggleLayoutItem}
         onOpenLayoutEditor={() => { setShowDesktopLauncher(false); setShowLayoutEditor(true) }}
         onClose={() => setShowDesktopLauncher(false)}
         onSearch={() => { setShowDesktopLauncher(false); setShowCompose(true) }}
@@ -874,6 +916,9 @@ export default function HubShell({
         onProfile={() => { setShowDesktopLauncher(false); setManualRail('profile'); openSidebar() }}
         onTools={() => { setShowDesktopLauncher(false); setManualRail('tools'); openSidebar() }}
         onLinks={() => { setShowDesktopLauncher(false); setManualRail('links'); openSidebar() }}
+        onTimeClock={() => { setShowDesktopLauncher(false); setShowTimeClock(true) }}
+        onToggleDnd={toggleDnd}
+        currentUserStatus={liveStatus}
         showAdmin={showAdminRail}
       />
     )}
@@ -882,6 +927,8 @@ export default function HubShell({
         layout={liveLayout}
         permissions={permissions}
         rooms={rooms}
+        conversations={railConversations}
+        currentUserId={currentUserId}
         onChange={saveLayout}
         onClose={() => setShowLayoutEditor(false)}
       />
