@@ -2,12 +2,13 @@
 
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
-import { CatalogIcon, normalizeRailConfig, type CatalogEntry, type CatalogId, type RailConfig } from './railCatalog'
+import { CatalogIcon, type CatalogEntry, type CatalogId } from './railCatalog'
 
 export default function AppLauncherPanel({
   items,
-  railConfig,
-  onSaveConfig,
+  desktopItems,
+  onToggleDesktop,
+  onOpenLayoutEditor,
   onClose,
   onSearch,
   onActivity,
@@ -17,8 +18,12 @@ export default function AppLauncherPanel({
   showAdmin,
 }: {
   items: CatalogEntry[]
-  railConfig: RailConfig | null
-  onSaveConfig: (config: RailConfig) => Promise<void>
+  /** Tokens currently on the desktop rail (drives the on-rail highlight). */
+  desktopItems: string[]
+  /** Add/remove a catalog app to/from the desktop rail. */
+  onToggleDesktop: (id: CatalogId) => void
+  /** Open the full drag-and-drop layout customizer. */
+  onOpenLayoutEditor: () => void
   onClose: () => void
   onSearch: () => void
   onActivity: () => void
@@ -28,23 +33,14 @@ export default function AppLauncherPanel({
   showAdmin: boolean
 }) {
   const router = useRouter()
-  const config = normalizeRailConfig(railConfig)
-  const railSlots = config.desktop
-  const pinned = railSlots.filter((s): s is CatalogId => typeof s === 'string' && s !== null)
-  const railFull = pinned.length >= 4
+  const pinnedSet = new Set(desktopItems)
+  // Catalog apps currently on the rail (for the "On Rail" chips).
+  const pinned = items.filter(i => pinnedSet.has(i.id)).map(i => i.id)
+  // No slot cap anymore — the rail scrolls.
+  const railFull = false
 
   function togglePin(id: CatalogId) {
-    if (pinned.includes(id)) {
-      const newDesktop = railSlots.map(s => s === id ? null : s)
-      void onSaveConfig({ ...config, desktop: newDesktop })
-    } else if (!railFull) {
-      const newDesktop = [...railSlots]
-      const emptyIdx = newDesktop.findIndex(s => !s)
-      if (emptyIdx >= 0) {
-        newDesktop[emptyIdx] = id
-        void onSaveConfig({ ...config, desktop: newDesktop })
-      }
-    }
+    onToggleDesktop(id)
   }
 
   function handleNavigate(href: string) {
@@ -209,6 +205,11 @@ export default function AppLauncherPanel({
             <SysBtn onClick={() => { onClose(); onProfile() }} label="You">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M16 7a4 4 0 11-8 0 4 4 0 018 0zM12 14a7 7 0 00-7 7h14a7 7 0 00-7-7z" />
+              </svg>
+            </SysBtn>
+            <SysBtn onClick={() => { onClose(); onOpenLayoutEditor() }} label="Customize">
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
               </svg>
             </SysBtn>
             {showAdmin && (

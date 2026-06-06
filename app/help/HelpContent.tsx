@@ -179,13 +179,13 @@ function HubTab() {
 
       <Section title="Navigation — rail + sidebars">
         <p>Hub is organized around a thin <strong className="text-white">icon rail</strong> on the left edge of the screen (or as a bottom tab bar on phones). Each icon opens its own sidebar with that section&apos;s contents.</p>
-        <p className="font-medium text-white mt-3">Desktop rail — fixed icons</p>
+        <p className="font-medium text-white mt-3">Desktop rail — it&apos;s yours to arrange</p>
+        <p>The whole middle of the rail is <strong className="text-white">fully customizable</strong> — see &quot;My Hub&quot; below. Only a few anchors are fixed:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">🔍 Search</strong> — opens the quick-jump palette (same as <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> / <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">Ctrl+K</kbd>).</li>
-          <li><strong className="text-white">🕐 Clock</strong> — opens the Time Clock modal. A small green dot appears on the icon when you&apos;re punched in.</li>
-          <li><strong className="text-white">💬 Hub</strong> — team conversations. Sidebar lists My Time Clock · Daily Log · Unread · Favorites · Rooms · DMs · Boards.</li>
-          <li><strong className="text-white">📱 Txt</strong> — client SMS conversations (Captivated).</li>
-          <li className="text-gray-300"><em>Then 4 user-configurable slots</em> (see &quot;My Hub&quot; below).</li>
+          <li><strong className="text-white">🔍 Search</strong> (top) — opens the quick-jump palette (same as <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> / <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">Ctrl+K</kbd>).</li>
+          <li className="text-gray-300"><em>Your custom icons fill the middle</em> — apps, a Do Not Disturb toggle, rooms, custom links — in any order, as many as you like (it scrolls).</li>
+          <li><strong className="text-white">▦ Apps</strong> (always present) — the launcher for every app, and where you re-add anything you&apos;ve hidden.</li>
+          <li><strong className="text-white">✎ Edit</strong> — opens the layout customizer.</li>
           <li><strong className="text-white">⚙️ Settings</strong> — your profile, notifications, integrations, and My Hub.</li>
           <li><strong className="text-white">🛡️ Admin</strong> — only visible if you have admin access.</li>
           <li><strong className="text-white">👤 You</strong> (at the bottom) — your avatar with status dot. Opens the profile sidebar where you set Available / Busy / DND, change text size, and sign out.</li>
@@ -197,10 +197,17 @@ function HubTab() {
           <li><kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘1</kbd> Time Clock · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘2</kbd> Hub · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘3</kbd> Txt · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘4</kbd> Activity · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘5</kbd> Tools · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> Search (use Ctrl on Windows).</li>
         </ul>
         <p className="font-medium text-white mt-3">Mobile bottom bar</p>
-        <p>Five tabs always within thumb reach: <strong className="text-white">Clock · Hub · Txt · [your pick] · More</strong>. The fourth slot is configurable in Settings → My Hub. Tap <strong className="text-white">More</strong> for everything else (Tools, Links, Settings, Admin if you have it, and your profile). A floating <strong className="text-white">+</strong> button in the bottom-right opens the quick compose / search palette.</p>
+        <p>The bottom bar is <strong className="text-white">fully customizable too</strong> — its own separate layout from your desktop. It shows the first 5 items you choose, then a fixed <strong className="text-white">Apps</strong> button. New accounts start with <strong className="text-white">Hub · Txt · Phone · Clock</strong>. Tap <strong className="text-white">Apps</strong> for everything else (and anything past the first 5), to tap any app on/off the bar, or to open <strong className="text-white">Customize</strong>. A floating <strong className="text-white">+</strong> button in the bottom-right opens the quick compose / search palette.</p>
         <Note>📱 The top bar is gone on phones — just tap the bottom tab for the section you want. When the keyboard pops up, the bottom bar and the floating <strong className="text-white">+</strong> button slide out of the way so you see the most messages possible.</Note>
-        <p className="font-medium text-white mt-3">My Hub — pick your own rail icons</p>
-        <p>In <strong className="text-white">Settings → My Hub</strong>, pick what fills the 4 user-configurable rail slots (desktop) and the 1 mobile slot. Options include Tools, Links, Activity, Daily Log, Tracker, Routing, Fleet, Books, Lawn Sizer, Call Log, Time Records (admins), Files, Company News, or a custom URL of your choosing. The defaults give everyone Activity, Tools, and Links with one slot empty — but if you live in Tracker, put it directly on the rail and skip a click.</p>
+        <p className="font-medium text-white mt-3">My Hub — make the rail your own</p>
+        <p>Open the customizer from the <strong className="text-white">✎ Edit</strong> button on the rail, the <strong className="text-white">Customize</strong> button in the Apps launcher, or <strong className="text-white">Settings → My Hub</strong>. You can:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Add anything</strong> — every app as its own icon (Routing, Fleet, Daily Log, Books, Tracker, Reports…), plus a <strong className="text-white">Do Not Disturb</strong> toggle, a shortcut to any <strong className="text-white">room</strong>, or a <strong className="text-white">custom link</strong>.</li>
+          <li><strong className="text-white">Drag to reorder</strong> (or use the ↑/↓ buttons), and tap <strong className="text-white">✕</strong> to hide what you don&apos;t use.</li>
+          <li><strong className="text-white">Go minimalist or load it up</strong> — there&apos;s no limit; the rail scrolls.</li>
+          <li><strong className="text-white">Desktop and mobile are separate</strong> layouts, and both follow your account to every device you sign into.</li>
+        </ul>
+        <p>Changes save instantly — the rail updates as you edit. The <strong className="text-white">Apps ▦</strong> button is always there, so even a fully stripped-down rail can always reach everything. The <strong className="text-white">Do Not Disturb</strong> icon flips your status on/off in one tap (turns red when on).</p>
         <p className="font-medium text-white mt-3">Hub sidebar contents</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">My Time Clock</strong> — backup access to the clock-in modal (same as the rail icon).</li>

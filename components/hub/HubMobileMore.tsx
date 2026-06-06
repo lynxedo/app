@@ -5,10 +5,8 @@ import { useRouter } from 'next/navigation'
 import { useState } from 'react'
 import {
   catalogEntriesFor,
-  normalizeRailConfig,
   CatalogIcon,
   type CatalogId,
-  type RailConfig,
   type RailPermissions,
 } from './railCatalog'
 
@@ -21,9 +19,10 @@ export default function HubMobileMore({
   onLinksClick,
   onProfileClick,
   onActivityClick,
+  onOpenLayoutEditor,
   permissions,
-  railConfig,
-  onSaveConfig,
+  mobileItems,
+  onToggleMobile,
 }: {
   onClose: () => void
   showAdmin: boolean
@@ -33,33 +32,28 @@ export default function HubMobileMore({
   onLinksClick: () => void
   onProfileClick: () => void
   onActivityClick: () => void
+  /** Open the full drag-and-drop layout customizer. */
+  onOpenLayoutEditor: () => void
   permissions: RailPermissions
-  railConfig: RailConfig | null
-  onSaveConfig: (config: RailConfig) => Promise<void>
+  /** Tokens currently on the mobile bottom bar. */
+  mobileItems: string[]
+  /** Add/remove a catalog app to/from the mobile bottom bar. */
+  onToggleMobile: (id: CatalogId) => void
 }) {
   const router = useRouter()
   const [editMode, setEditMode] = useState(false)
-  const [saving, setSaving] = useState(false)
+  const saving = false
 
-  const config = normalizeRailConfig(railConfig)
-  const drawerPins: CatalogId[] = config.drawer_pins ?? []
+  const onBar = new Set(mobileItems)
 
   const allItems = catalogEntriesFor(permissions)
-  // Pinned items sorted to top, then the rest
-  const pinnedItems = allItems.filter(i => drawerPins.includes(i.id))
-  const unpinnedItems = allItems.filter(i => !drawerPins.includes(i.id))
+  // On-bar items sorted to top, then the rest
+  const pinnedItems = allItems.filter(i => onBar.has(i.id))
+  const unpinnedItems = allItems.filter(i => !onBar.has(i.id))
   const pinCount = pinnedItems.length
 
-  async function togglePin(id: CatalogId) {
-    const next = drawerPins.includes(id)
-      ? drawerPins.filter(p => p !== id)
-      : [...drawerPins, id]
-    setSaving(true)
-    try {
-      await onSaveConfig({ ...config, drawer_pins: next })
-    } finally {
-      setSaving(false)
-    }
+  function togglePin(id: CatalogId) {
+    onToggleMobile(id)
   }
 
   function handleItemClick(id: CatalogId, href: string | undefined) {
@@ -150,7 +144,7 @@ export default function HubMobileMore({
         {/* Edit hint */}
         {editMode && (
           <p className="text-xs text-amber-400/80 px-4 py-2 bg-amber-500/10 flex-none border-b border-amber-500/20">
-            Tap any app to {pinCount > 0 ? 'pin or unpin it' : 'pin it to the top'}
+            Tap any app to add or remove it from your bottom bar. Use Customize for ordering, rooms &amp; more.
           </p>
         )}
 
@@ -187,7 +181,7 @@ export default function HubMobileMore({
               <AppTile key={item.id} id={item.id} label={item.label} pinned={false} />
             ))}
             {editMode && [...pinnedItems, ...unpinnedItems].map(item => (
-              <AppTile key={item.id} id={item.id} label={item.label} pinned={drawerPins.includes(item.id)} />
+              <AppTile key={item.id} id={item.id} label={item.label} pinned={onBar.has(item.id)} />
             ))}
           </div>
 
@@ -226,6 +220,11 @@ export default function HubMobileMore({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8.228 9c.549-1.165 2.03-2 3.772-2 2.21 0 4 1.343 4 3 0 1.4-1.278 2.575-3.006 2.907-.542.104-.994.54-.994 1.093m0 3h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
             </SysTileLink>
+            <SysTile onClick={() => { onClose(); onOpenLayoutEditor() }} label="Customize">
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+              </svg>
+            </SysTile>
           </div>
         </div>
       </div>

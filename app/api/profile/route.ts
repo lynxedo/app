@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { isValidLayoutShape } from '@/lib/hub-layout'
 
 export async function GET() {
   const supabase = await createClient()
@@ -35,7 +36,7 @@ export async function PUT(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, txt_signature, dialer_global_ring, dialer_dnd_enabled, dialer_dnd_schedule } = await request.json()
+  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, hub_layout, txt_signature, dialer_global_ring, dialer_dnd_enabled, dialer_dnd_schedule } = await request.json()
 
   if (landing_page !== undefined && landing_page !== 'hub' && landing_page !== 'dashboard') {
     return NextResponse.json({ error: 'landing_page must be "hub" or "dashboard"' }, { status: 400 })
@@ -71,6 +72,17 @@ export async function PUT(request: Request) {
   if (hub_pinned_ids !== undefined) profileUpdates.hub_pinned_ids = hub_pinned_ids
   if (landing_page !== undefined) profileUpdates.landing_page = landing_page
   if (rail_config !== undefined) profileUpdates.rail_config = rail_config
+  if (hub_layout !== undefined) {
+    if (hub_layout !== null && !isValidLayoutShape(hub_layout)) {
+      return NextResponse.json({ error: 'invalid hub_layout shape' }, { status: 400 })
+    }
+    // Store a minimal, well-formed object (drop any stray fields).
+    profileUpdates.hub_layout = hub_layout === null ? null : {
+      version: 2,
+      desktop: (hub_layout as { desktop: string[] }).desktop,
+      mobile: (hub_layout as { mobile: string[] }).mobile,
+    }
+  }
   if (txt_signature !== undefined) {
     if (txt_signature !== null && typeof txt_signature !== 'string') {
       return NextResponse.json({ error: 'txt_signature must be a string or null' }, { status: 400 })

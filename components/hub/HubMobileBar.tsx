@@ -6,12 +6,18 @@ import { railFromPath } from './HubRail'
 import {
   CatalogIcon,
   AppsIcon,
+  DndIcon,
   catalogById,
-  normalizeRailConfig,
-  type RailConfig,
   type RailPermissions,
   type CatalogId,
 } from './railCatalog'
+import { classifyToken } from '@/lib/hub-layout'
+
+type Room = { id: string; name: string; is_private: boolean }
+
+// The bottom bar physically fits ~5 icons before the Apps escape hatch. Extra
+// mobile-layout items overflow into the Apps drawer; the editor warns about it.
+const MAX_MOBILE_ITEMS = 5
 
 export default function HubMobileBar({
   onMoreClick,
@@ -22,15 +28,17 @@ export default function HubMobileBar({
   onTimeClockClick,
   onToolsClick,
   onLinksClick,
+  onToggleDnd,
   isClockedIn,
   unreadHub,
   unheardVoicemails,
   txtUnread,
   missedCall,
   dailyLogUnread,
-  canAccessDialer,
   permissions,
-  railConfig,
+  mobileItems,
+  rooms = [],
+  currentUserStatus,
   hidden,
   drawerOpen,
   activeManualRail,
@@ -40,20 +48,23 @@ export default function HubMobileBar({
   onHubClick: () => void
   onTxtClick: () => void
   onPhoneClick: () => void
-  /** Open the mobile drawer for a sidebar-backed user slot (Txt2 / Dialer). */
+  /** Open the mobile drawer for a sidebar-backed item (Txt2 / Dialer). */
   onUserSlotNav?: () => void
   onTimeClockClick: () => void
   onToolsClick: () => void
   onLinksClick: () => void
+  onToggleDnd: () => void
   isClockedIn?: boolean
   unreadHub?: boolean
   unheardVoicemails?: number
   txtUnread?: boolean
   missedCall?: boolean
   dailyLogUnread?: boolean
-  canAccessDialer?: boolean
   permissions: RailPermissions
-  railConfig: RailConfig | null
+  /** Ordered mobile layout tokens (already permission-filtered). */
+  mobileItems: string[]
+  rooms?: Room[]
+  currentUserStatus?: string | null
   hidden?: boolean
   drawerOpen?: boolean
   activeManualRail?: string | null
@@ -62,29 +73,15 @@ export default function HubMobileBar({
   const pathname = usePathname() ?? ''
   const router = useRouter()
   const active = railFromPath(pathname)
-  const config = normalizeRailConfig(railConfig)
-  const userSlot = config.mobile[0] ?? null
 
-  // Catalog ids whose section has its own mobile drawer sidebar — tapping their
-  // user-slot icon should open/close that drawer (like the fixed Hub/Txt/Phone
-  // buttons), not just navigate.
+  const items = mobileItems.slice(0, MAX_MOBILE_ITEMS)
+
   const SIDEBAR_BACKED = new Set<CatalogId>(['txt2', 'dialer'])
-
-  // Orange unread dot for the configurable user slot, mirroring the desktop rail.
-  function slotDot(id: CatalogId): boolean {
-    if (id === 'txt2') return !!txtUnread
-    if (id === 'dialer') return !!missedCall
-    if (id === 'daily-log') return !!dailyLogUnread
-    return false
-  }
+  const roomById = (id: string) => rooms.find(r => r.id === id)
 
   function handleHubClick(e: React.MouseEvent) {
     e.preventDefault()
-    // Tap-to-toggle: if the drawer is open showing the Hub sidebar, close it.
-    if (drawerOpen && active === 'hub' && !activeManualRail) {
-      onCloseDrawer?.()
-      return
-    }
+    if (drawerOpen && active === 'hub' && !activeManualRail) { onCloseDrawer?.(); return }
     onHubClick()
     let last: string | null = null
     try {
@@ -99,110 +96,183 @@ export default function HubMobileBar({
 
   function handleTxtClick(e: React.MouseEvent) {
     e.preventDefault()
-    // Tap-to-toggle: if already on a txt path with drawer open, close it.
-    if (drawerOpen && active === 'txt' && !activeManualRail) {
-      onCloseDrawer?.()
-      return
-    }
+    if (drawerOpen && active === 'txt' && !activeManualRail) { onCloseDrawer?.(); return }
     onTxtClick()
-    // Fixed mobile "Txt" = old Captivated /hub/clients (everyone keeps it).
-    // New Txt2 (/hub/txt) reaches mobile via the user slot / More picker,
-    // which is gated by canAccessTxt. If already on a clients path, just open
-    // the drawer; don't re-navigate (which would drop the open conversation).
-    if (active !== 'txt') {
-      router.push('/hub/clients')
-    }
+    if (active !== 'txt') router.push('/hub/clients')
   }
 
   function handlePhoneClick(e: React.MouseEvent) {
     e.preventDefault()
-    // Tap-to-toggle: if already on dialer with drawer open, close it.
-    if (drawerOpen && active === 'dialer' && !activeManualRail) {
-      onCloseDrawer?.()
-      return
-    }
+    if (drawerOpen && active === 'dialer' && !activeManualRail) { onCloseDrawer?.(); return }
     onPhoneClick()
-    if (active !== 'dialer') {
-      router.push('/hub/dialer')
-    }
+    if (active !== 'dialer') router.push('/hub/dialer')
   }
 
   function wrapToggleable(slotId: string, openFn: () => void) {
     return (e: React.MouseEvent) => {
       e.preventDefault()
-      if (drawerOpen && activeManualRail === slotId) {
-        onCloseDrawer?.()
-        return
-      }
+      if (drawerOpen && activeManualRail === slotId) { onCloseDrawer?.(); return }
       openFn()
     }
   }
 
-  function renderUserSlot() {
-    if (!userSlot) return null
-    if (typeof userSlot === 'string' && userSlot.startsWith('url:')) {
-      const url = userSlot.slice(4)
-      let label = url
-      try { label = new URL(url).hostname.replace(/^www\./, '') } catch {}
+  const btn = (isActive: boolean) =>
+    `flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors ${
+      isActive ? 'text-amber-300' : 'text-white/60 hover:text-white'
+    }`
+
+  function dot(extra = false) {
+    if (!extra) return null
+    return <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border border-gray-950" aria-label="Unread" />
+  }
+
+  function renderItem(token: string, idx: number) {
+    const c = classifyToken(token)
+
+    if (c.kind === 'dnd') {
+      const on = currentUserStatus === 'dnd'
       return (
-        <a
-          key="user"
-          href={url}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-white/60 hover:text-white"
-        >
+        <button key={`dnd-${idx}`} type="button" onClick={onToggleDnd} className={btn(false)} aria-pressed={on}>
+          <span className={on ? 'text-red-400' : ''}><DndIcon /></span>
+          <span>{on ? 'DND on' : 'DND'}</span>
+        </button>
+      )
+    }
+
+    if (c.kind === 'url') {
+      let label = c.href
+      try { label = new URL(c.href).hostname.replace(/^www\./, '') } catch {}
+      return (
+        <a key={`url-${idx}`} href={c.href} target="_blank" rel="noopener noreferrer" className={btn(false)}>
           <CatalogIcon id="links" />
           <span className="truncate max-w-full px-1">{label}</span>
         </a>
       )
     }
-    const entry = catalogById(userSlot as CatalogId, permissions)
-    if (!entry) return null
-    const isActive = active === entry.id
-    const cls = `flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors ${
-      isActive ? 'text-amber-300' : 'text-white/60 hover:text-white'
-    }`
-    const showDot = slotDot(entry.id)
-    const inner = (
-      <>
-        <span className="relative">
-          {entry.icon}
-          {showDot && (
-            <span
-              className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border border-gray-950"
-              aria-label="Unread"
-            />
-          )}
-        </span>
-        <span className="truncate max-w-full px-1">{entry.label}</span>
-      </>
-    )
-    if (entry.id === 'tools') {
-      return <button key="user" type="button" onClick={wrapToggleable('tools', onToolsClick)} className={cls}>{inner}</button>
+
+    if (c.kind === 'room') {
+      const room = roomById(c.id)
+      if (!room) return null
+      const isActive = pathname === `/hub/${room.id}`
+      const letter = (room.name || '#').trim().charAt(0).toUpperCase() || '#'
+      return (
+        <Link key={`room-${idx}`} href={`/hub/${room.id}`} onClick={() => onUserSlotNav?.()} className={btn(isActive)}>
+          <span className={`flex items-center justify-center w-5 h-5 rounded-md text-[11px] font-bold ${isActive ? 'bg-amber-400 text-gray-950' : 'bg-white/15 text-white/80'}`}>{letter}</span>
+          <span className="truncate max-w-full px-1">{room.name}</span>
+        </Link>
+      )
     }
-    if (entry.id === 'links') {
-      return <button key="user" type="button" onClick={wrapToggleable('links', onLinksClick)} className={cls}>{inner}</button>
+
+    if (c.kind === 'dm') return null
+
+    const id = c.id
+
+    if (id === 'hub') {
+      return (
+        <button key={`hub-${idx}`} type="button" onClick={handleHubClick} className={btn(active === 'hub')}>
+          <span className="relative"><CatalogIcon id="hub" />{dot(!!unreadHub)}</span>
+          <span>Hub</span>
+        </button>
+      )
     }
-    // Sidebar-backed sections (Txt2, Dialer): tap to open the drawer + navigate,
-    // tap again while already there to close — same toggle as the fixed buttons.
-    if (entry.href && SIDEBAR_BACKED.has(entry.id)) {
+    if (id === 'txt') {
+      return (
+        <button key={`txt-${idx}`} type="button" onClick={handleTxtClick} className={btn(active === 'txt')}>
+          <CatalogIcon id="txt" />
+          <span>Txt</span>
+        </button>
+      )
+    }
+    if (id === 'dialer') {
+      return (
+        <button key={`dialer-${idx}`} type="button" onClick={handlePhoneClick} className={btn(active === 'dialer')} aria-label="Phone">
+          <span className="relative">
+            <CatalogIcon id="dialer" />
+            {missedCall && active !== 'dialer' && (
+              <span className="absolute -top-0.5 -left-1 w-2 h-2 rounded-full bg-orange-400 border border-gray-950" aria-label="Missed call" />
+            )}
+            {unheardVoicemails != null && unheardVoicemails > 0 && (
+              <span className="absolute -top-0.5 -right-1.5 min-w-[16px] h-[16px] px-0.5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center border border-gray-950" aria-label={`${unheardVoicemails} unheard voicemails`}>
+                {unheardVoicemails > 9 ? '9+' : unheardVoicemails}
+              </span>
+            )}
+          </span>
+          <span>Phone</span>
+        </button>
+      )
+    }
+    if (id === 'time-clock') {
+      return (
+        <button key={`clock-${idx}`} type="button" onClick={onTimeClockClick} className={btn(false)} aria-label="Time clock">
+          <span className="relative">
+            <CatalogIcon id="time-clock" />
+            {isClockedIn && (
+              <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-gray-950 bg-emerald-500" aria-hidden="true" />
+            )}
+          </span>
+          <span>Clock</span>
+        </button>
+      )
+    }
+    if (id === 'txt2') {
+      const onClick = (e: React.MouseEvent) => {
+        e.preventDefault()
+        if (drawerOpen && active === 'txt2' && !activeManualRail) { onCloseDrawer?.(); return }
+        onUserSlotNav?.()
+        if (active !== 'txt2') router.push('/hub/txt')
+      }
+      return (
+        <button key={`txt2-${idx}`} type="button" onClick={onClick} className={btn(active === 'txt2')}>
+          <span className="relative"><CatalogIcon id="txt2" />{dot(!!txtUnread && active !== 'txt2')}</span>
+          <span>Txt2</span>
+        </button>
+      )
+    }
+    if (id === 'tools') {
+      return (
+        <button key={`tools-${idx}`} type="button" onClick={wrapToggleable('tools', onToolsClick)} className={btn(false)}>
+          <CatalogIcon id="tools" />
+          <span>Tools</span>
+        </button>
+      )
+    }
+    if (id === 'links') {
+      return (
+        <button key={`links-${idx}`} type="button" onClick={wrapToggleable('links', onLinksClick)} className={btn(false)}>
+          <CatalogIcon id="links" />
+          <span>Links</span>
+        </button>
+      )
+    }
+    if (SIDEBAR_BACKED.has(id)) {
+      // Any remaining sidebar-backed id (none beyond txt2/dialer today).
+      const entry = catalogById(id, permissions)
+      if (!entry || !entry.href) return null
       const href = entry.href
       const onClick = (e: React.MouseEvent) => {
         e.preventDefault()
-        if (drawerOpen && active === entry.id && !activeManualRail) {
-          onCloseDrawer?.()
-          return
-        }
+        if (drawerOpen && active === id && !activeManualRail) { onCloseDrawer?.(); return }
         onUserSlotNav?.()
-        if (active !== entry.id) router.push(href)
+        if (active !== id) router.push(href)
       }
-      return <button key="user" type="button" onClick={onClick} className={cls}>{inner}</button>
+      return (
+        <button key={`sb-${idx}`} type="button" onClick={onClick} className={btn(active === id)}>
+          <CatalogIcon id={id} />
+          <span className="truncate max-w-full px-1">{entry.label}</span>
+        </button>
+      )
     }
-    if (entry.href) {
-      return <Link key="user" href={entry.href} className={cls}>{inner}</Link>
-    }
-    return null
+
+    const entry = catalogById(id, permissions)
+    if (!entry || !entry.href) return null
+    const isActive = active === id
+    const showDot = id === 'daily-log' && !!dailyLogUnread && !isActive
+    return (
+      <Link key={`cat-${idx}`} href={entry.href} className={btn(isActive)}>
+        <span className="relative">{entry.icon}{dot(showDot)}</span>
+        <span className="truncate max-w-full px-1">{entry.label}</span>
+      </Link>
+    )
   }
 
   return (
@@ -211,83 +281,9 @@ export default function HubMobileBar({
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
       aria-label="Hub bottom navigation"
     >
-      {/* Hub */}
-      <button
-        type="button"
-        onClick={handleHubClick}
-        className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors ${
-          active === 'hub' ? 'text-amber-300' : 'text-white/60 hover:text-white'
-        }`}
-      >
-        <span className="relative">
-          <CatalogIcon id="hub" />
-          {unreadHub && (
-            <span
-              className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border border-gray-950"
-              aria-label="Unread messages"
-            />
-          )}
-        </span>
-        <span>Hub</span>
-      </button>
+      {items.map((token, idx) => renderItem(token, idx))}
 
-      {/* Txt */}
-      <button
-        type="button"
-        onClick={handleTxtClick}
-        className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors ${
-          active === 'txt' ? 'text-amber-300' : 'text-white/60 hover:text-white'
-        }`}
-      >
-        <CatalogIcon id="txt" />
-        <span>Txt</span>
-      </button>
-
-      {/* Phone (Dialer) — only when user has access */}
-      {canAccessDialer && (
-        <button
-          type="button"
-          onClick={handlePhoneClick}
-          className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors ${
-            active === 'dialer' ? 'text-amber-300' : 'text-white/60 hover:text-white'
-          }`}
-          aria-label="Phone"
-        >
-          <span className="relative">
-            <CatalogIcon id="dialer" />
-            {unheardVoicemails != null && unheardVoicemails > 0 && (
-              <span
-                className="absolute -top-0.5 -right-1.5 min-w-[16px] h-[16px] px-0.5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center border border-gray-950"
-                aria-label={`${unheardVoicemails} unheard voicemails`}
-              >
-                {unheardVoicemails > 9 ? '9+' : unheardVoicemails}
-              </span>
-            )}
-          </span>
-          <span>Phone</span>
-        </button>
-      )}
-
-      {/* Time Clock — quick action, opens modal */}
-      <button
-        type="button"
-        onClick={onTimeClockClick}
-        className="flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium text-white/60 hover:text-white"
-        aria-label="Time clock"
-      >
-        <span className="relative">
-          <CatalogIcon id="time-clock" />
-          {isClockedIn && (
-            <span className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full border border-gray-950 bg-emerald-500" aria-hidden="true" />
-          )}
-        </span>
-        <span>Clock</span>
-      </button>
-
-      {/* User-configurable slot */}
-      {renderUserSlot()}
-
-      {/* Apps — opens the full app drawer */}
+      {/* Apps — always present; the escape hatch + overflow for hidden items. */}
       <button
         type="button"
         onClick={onMoreClick}
