@@ -517,6 +517,22 @@ function HubTab() {
         <p>Records are preserved across stop reopen. If a tech reopens then re-completes a stop, the record is updated in place with the fresh timestamp + weather, not duplicated.</p>
       </Section>
 
+      <Section title="Reports">
+        <p>Available at <Link href="/hub/reports" className="text-sky-400 hover:underline">/hub/reports</Link> (admin only) — the index page lists every report. Today there are two: the Visit Report and the Customer Report.</p>
+        <p className="text-white font-semibold mt-3">Visit Report</p>
+        <p>Completed visits broken down by technician for any date range you pick.</p>
+        <p><strong className="text-white">Date ranges</strong> — quick-select buttons at the top: This Week, Last Week, This Month, Last Month, YTD, or a Custom date range. The report re-runs instantly when you switch ranges.</p>
+        <p><strong className="text-white">Summary cards</strong> — four at-a-glance numbers across all techs: total visits, total value, recurring visits, and one-off visits.</p>
+        <p><strong className="text-white">Tech table</strong> — one row per technician, sorted by visit count. Each row shows visits, dollar value, and the recurring/one-off split. Tap any row to expand a department breakdown (IR, WF, PW, etc.) for that tech.</p>
+        <p><strong className="text-white">Dollar value note</strong> — visits with per-visit line items (most IR jobs, one-off jobs) show full dollar attribution. Recurring flat-rate visits bill at the job/invoice level and show $0 visit value — the visit count is still accurate, only the dollar attribution differs.</p>
+        <p className="text-white font-semibold mt-3">Customer Report</p>
+        <p>Every customer and property pulled from Jobber, one row per property. A normal customer is a single row; an HOA or management account with several properties shows as several rows.</p>
+        <p><strong className="text-white">Columns</strong> — tap the <em>Columns</em> button to choose exactly which columns to show. The catalog is grouped into Customer fields (name, email, phone, balance, status, lead source, sales person, cancellation reason…), Property fields (address, lawn size, irrigation zones, sprinkler, gate code, neighborhood, lat/long…), and Custom Fields — every custom field from Jobber is a checkbox you can turn on or off. Your selection is remembered on that device.</p>
+        <p><strong className="text-white">Search &amp; filter</strong> — the search box matches name, address, email, or phone. The status buttons filter to Active, Lead, Cancelled, or Archived customers.</p>
+        <p><strong className="text-white">Sort</strong> — click any column header to sort by it; click again to reverse.</p>
+        <p><strong className="text-white">Export CSV</strong> — downloads exactly the columns you have showing, for the rows currently filtered in.</p>
+      </Section>
+
       <Section title="Fleet Tracker">
         <p>Fleet shows all company vehicles on a live map (powered by OneStepGPS). Each vehicle appears as a colored pin with a heading arrow and a popup that gives speed, fuel %, and last ping time. Tap a vehicle in the sidebar list to fly the map to it.</p>
         <p>Pin colors:</p>
