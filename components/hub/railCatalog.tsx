@@ -199,7 +199,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'marketing', label: 'Marketing', href: '/hub/marketing/social', prefixMatch: true, pickable: true, requires: 'canAccessMarketing' },
   { id: 'pesticide-records', label: 'Pesticide Records', href: '/hub/pesticide-records', prefixMatch: true, pickable: true },
   { id: 'forms',     label: 'Forms',     href: '/hub/forms', prefixMatch: true, pickable: true, requires: 'canAccessForms' },
-  { id: 'reports',   label: 'Reports',   href: '/hub/reports/visits', prefixMatch: true, pickable: true, requires: 'isAdmin' },
+  { id: 'reports',   label: 'Reports',   href: '/hub/reports', prefixMatch: true, pickable: true, requires: 'isAdmin' },
 ]
 
 export function catalogEntriesFor(perms: RailPermissions): CatalogEntry[] {
