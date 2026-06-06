@@ -503,38 +503,6 @@ export default function HubShell({
     })
   }, [])
 
-  // Add/remove a single token from the one shared list (used by the launcher
-  // tiles, the sidebar pin star, etc.). Toggling on appends; off removes.
-  const toggleLayoutItem = useCallback((token: string) => {
-    setLiveLayout(prev => {
-      const items = prev.items.includes(token) ? prev.items.filter(t => t !== token) : [...prev.items, token]
-      const updated: HubLayout = { version: 3, items }
-      fetch('/api/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hub_layout: updated }),
-      }).catch(() => {})
-      return updated
-    })
-  }, [])
-
-  // Add several tokens at once if missing (used by the sidebar's one-time
-  // reconciliation of legacy room/DM/tool favorites into the shared list).
-  const addLayoutItems = useCallback((tokens: string[]) => {
-    setLiveLayout(prev => {
-      const have = new Set(prev.items)
-      const fresh = tokens.filter(t => t && !have.has(t))
-      if (fresh.length === 0) return prev
-      const updated: HubLayout = { version: 3, items: [...prev.items, ...fresh] }
-      fetch('/api/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ hub_layout: updated }),
-      }).catch(() => {})
-      return updated
-    })
-  }, [])
-
   // DND quick-toggle (sys:dnd rail/bar item). Flips status dnd ⇄ available.
   const toggleDnd = useCallback(() => {
     setLiveStatus(prev => {
@@ -666,9 +634,6 @@ export default function HubShell({
             textSize={textSize}
             onTextSizeChange={setTextSize}
             initialPinnedIds={initialPinnedIds ?? []}
-            layoutItems={liveLayout.items}
-            onToggleLayoutItem={toggleLayoutItem}
-            onAddLayoutItems={addLayoutItems}
             canAccessTracker={canAccessTracker}
             canAccessCallLog={canAccessCallLog}
             canAccessLawn={canAccessLawn}

@@ -101,24 +101,21 @@ export function normalizeLayout(raw: unknown, perms: RailPermissions): HubLayout
 
 type LegacyRailConfig = { desktop?: (string | null)[]; mobile?: (string | null)[] } | null | undefined
 
-// Reproduce a user's CURRENT rail (so the cutover is invisible) and merge in
-// their pinned tools. Pinned rooms/DMs are reconciled client-side (the sidebar
-// can classify bare uuids; the server can't without an extra query).
+// Reproduce a user's CURRENT rail (so the cutover is invisible). The launcher
+// (hub_layout) is intentionally SEPARATE from the sidebar Hub Favorites
+// (hub_pinned_ids), so pinned rooms/DMs/tools are NOT pulled in here.
 export function migrateLegacyLayout(
   railConfig: LegacyRailConfig,
-  pinnedIds: string[] | null | undefined,
+  _pinnedIds: string[] | null | undefined,
   perms: RailPermissions,
 ): HubLayout {
   const rc = railConfig ?? {}
-  const pins = Array.isArray(pinnedIds) ? pinnedIds : []
-  const toolPins = pins.filter(id => id.startsWith('tool:')).map(id => id.slice(5))
 
   const items: string[] = ['time-clock', 'hub', 'txt']
   if (perms.canAccessTxt) items.push('txt2')
   if (perms.canAccessDialer) items.push('dialer')
   for (const v of rc.desktop ?? []) if (v && v !== 'activity') items.push(v)
   for (const v of rc.mobile ?? []) if (v && v !== 'activity') items.push(v)
-  for (const t of toolPins) items.push(t)
 
   return normalizeLayout({ version: 3, items }, perms)
 }
