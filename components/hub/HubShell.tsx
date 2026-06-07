@@ -6,6 +6,8 @@ import HubSidebar from './HubSidebar'
 import HubRail, { railFromPath } from './HubRail'
 import HubMobileBar from './HubMobileBar'
 import HubMobileMore from './HubMobileMore'
+import AppLauncherPanel from './AppLauncherPanel'
+import LayoutEditor from './LayoutEditor'
 import HubActivityPanel from './HubActivityBell'
 import ToolsSidebar from './sidebars/ToolsSidebar'
 import LinksSidebar from './sidebars/LinksSidebar'
@@ -27,10 +29,12 @@ import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
 import { HubTextSizeContext } from './HubTextSizeContext'
 import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
-import type { RailConfig, RailPermissions } from './railCatalog'
+import { catalogEntriesFor, type RailPermissions } from './railCatalog'
+import { type HubLayout } from '@/lib/hub-layout'
 import { persistStorage } from '@/lib/hub-cache'
 
 type Room = { id: string; name: string; is_private: boolean }
+type RailConversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
 
 export const HUB_CONV_CREATED_EVENT = 'hub-conversation-created'
 
@@ -52,7 +56,7 @@ export default function HubShell({
   initialTextSize,
   initialPinnedIds,
   initialIsClockedIn,
-  initialRailConfig,
+  initialLayout,
   canAccessTracker,
   canAccessCallLog,
   canAccessCallLog2,
@@ -96,7 +100,7 @@ export default function HubShell({
   initialTextSize?: string
   initialPinnedIds?: string[]
   initialIsClockedIn?: boolean
-  initialRailConfig?: RailConfig | null
+  initialLayout?: HubLayout | null
   canAccessTracker?: boolean
   canAccessCallLog?: boolean
   canAccessCallLog2?: boolean
@@ -129,6 +133,16 @@ export default function HubShell({
   const [manualRail, setManualRail] = useState<ManualRail>(null)
   useEffect(() => { setManualRail(null) }, [pathname])
 
+  // Deep link from Settings → My Hub: /hub?customize=1 opens the layout editor.
+  // Read on the client to avoid a Suspense requirement from useSearchParams.
+  useEffect(() => {
+    try {
+      if (new URLSearchParams(window.location.search).get('customize') === '1') {
+        setShowLayoutEditor(true)
+      }
+    } catch { /* ignore */ }
+  }, [])
+
   // Ask the platform for durable IndexedDB storage so the Hub cache survives
   // memory pressure on iOS WKWebView and other constrained environments.
   // Idempotent; no UI prompt; safe to ignore the result.
@@ -138,6 +152,21 @@ export default function HubShell({
 
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [showMobileMore, setShowMobileMore] = useState(false)
+  const [showDesktopLauncher, setShowDesktopLauncher] = useState(false)
+  const [showLayoutEditor, setShowLayoutEditor] = useState(false)
+  const EMPTY_LAYOUT: HubLayout = { version: 3, items: [] }
+  const [liveLayout, setLiveLayout] = useState<HubLayout>(initialLayout ?? EMPTY_LAYOUT)
+  // Lightweight conversation list so DM tokens on the rail/dock/drawer can show
+  // a label + avatar. (The sidebar fetches its own richer copy.)
+  const [railConversations, setRailConversations] = useState<RailConversation[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/hub/conversations')
+      .then(r => (r.ok ? r.json() : { conversations: [] }))
+      .then(d => { if (!cancelled) setRailConversations((d.conversations ?? []) as RailConversation[]) })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
   const [showCompose, setShowCompose] = useState(false)
   const [showTimeClock, setShowTimeClock] = useState(false)
@@ -458,6 +487,35 @@ export default function HubShell({
 
   const closeMobileDrawer = useCallback(() => setMobileDrawerOpen(false), [])
 
+  // Persist the customizable Hub launcher layout (rail + mobile bar). Optimistic:
+  // the rail/bar update instantly behind the editor, reverting only on failure.
+  const saveLayout = useCallback(async (next: HubLayout) => {
+    setLiveLayout(prev => {
+      const rollback = prev
+      fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hub_layout: next }),
+      })
+        .then(res => { if (!res.ok) setLiveLayout(rollback) })
+        .catch(() => setLiveLayout(rollback))
+      return next
+    })
+  }, [])
+
+  // DND quick-toggle (sys:dnd rail/bar item). Flips status dnd ⇄ available.
+  const toggleDnd = useCallback(() => {
+    setLiveStatus(prev => {
+      const next = prev === 'dnd' ? 'available' : 'dnd'
+      fetch('/api/hub/users/me', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ status: next }),
+      }).then(res => { if (!res.ok) setLiveStatus(prev) }).catch(() => setLiveStatus(prev))
+      return next
+    })
+  }, [])
+
   const rawGrants = adminGrants ?? {
     people: !!isAdmin, hub: !!isAdmin, routing: !!isAdmin,
     timesheet: !!isAdmin, fleet: !!isAdmin, daily_log: !!isAdmin, zone_sizer: !!isAdmin,
@@ -628,6 +686,9 @@ export default function HubShell({
         onLinksClick={() => setManualRail('links')}
         onTimeClockClick={() => setShowTimeClock(true)}
         onActivityClick={() => setShowActivity(true)}
+        onOpenLauncher={() => setShowDesktopLauncher(v => !v)}
+        onToggleDnd={toggleDnd}
+        onOpenLayoutEditor={() => setShowLayoutEditor(true)}
         currentUserId={currentUserId}
         currentUserDisplayName={currentUserDisplayName}
         currentUserAvatarUrl={currentUserAvatarUrl ?? null}
@@ -637,7 +698,10 @@ export default function HubShell({
         onOpenSidebar={openSidebar}
         activeManualRail={manualRail}
         permissions={permissions}
-        railConfig={initialRailConfig ?? null}
+        items={liveLayout.items}
+        rooms={rooms}
+        conversations={railConversations}
+        launcherOpen={showDesktopLauncher}
       />
 
       <div
@@ -746,15 +810,18 @@ export default function HubShell({
         onTimeClockClick={() => setShowTimeClock(true)}
         onToolsClick={() => { setManualRail('tools'); setMobileDrawerOpen(true) }}
         onLinksClick={() => { setManualRail('links'); setMobileDrawerOpen(true) }}
+        onToggleDnd={toggleDnd}
         isClockedIn={isClockedIn}
         unreadHub={unreadHub}
         unheardVoicemails={unheardVoicemails}
         txtUnread={txtUnread}
         missedCall={missedCall}
         dailyLogUnread={dailyLogUnread}
-        canAccessDialer={!!canAccessDialer}
         permissions={permissions}
-        railConfig={initialRailConfig ?? null}
+        items={liveLayout.items}
+        rooms={rooms}
+        conversations={railConversations}
+        currentUserStatus={liveStatus}
         hidden={keyboardOpen}
         drawerOpen={mobileDrawerOpen}
         activeManualRail={manualRail}
@@ -787,6 +854,46 @@ export default function HubShell({
         onLinksClick={() => { setShowMobileMore(false); setManualRail('links'); setMobileDrawerOpen(true) }}
         onProfileClick={() => { setShowMobileMore(false); setManualRail('profile'); setMobileDrawerOpen(true) }}
         onActivityClick={() => { setShowMobileMore(false); setShowActivity(true) }}
+        onTimeClockClick={() => { setShowMobileMore(false); setShowTimeClock(true) }}
+        onToggleDnd={toggleDnd}
+        onOpenLayoutEditor={() => { setShowMobileMore(false); setShowLayoutEditor(true) }}
+        permissions={permissions}
+        items={liveLayout.items}
+        rooms={rooms}
+        conversations={railConversations}
+        currentUserId={currentUserId}
+        currentUserStatus={liveStatus}
+      />
+    )}
+    {showDesktopLauncher && (
+      <AppLauncherPanel
+        items={liveLayout.items}
+        permissions={permissions}
+        rooms={rooms}
+        conversations={railConversations}
+        currentUserId={currentUserId}
+        onOpenLayoutEditor={() => { setShowDesktopLauncher(false); setShowLayoutEditor(true) }}
+        onClose={() => setShowDesktopLauncher(false)}
+        onSearch={() => { setShowDesktopLauncher(false); setShowCompose(true) }}
+        onActivity={() => { setShowDesktopLauncher(false); setShowActivity(true) }}
+        onProfile={() => { setShowDesktopLauncher(false); setManualRail('profile'); openSidebar() }}
+        onTools={() => { setShowDesktopLauncher(false); setManualRail('tools'); openSidebar() }}
+        onLinks={() => { setShowDesktopLauncher(false); setManualRail('links'); openSidebar() }}
+        onTimeClock={() => { setShowDesktopLauncher(false); setShowTimeClock(true) }}
+        onToggleDnd={toggleDnd}
+        currentUserStatus={liveStatus}
+        showAdmin={showAdminRail}
+      />
+    )}
+    {showLayoutEditor && (
+      <LayoutEditor
+        layout={liveLayout}
+        permissions={permissions}
+        rooms={rooms}
+        conversations={railConversations}
+        currentUserId={currentUserId}
+        onChange={saveLayout}
+        onClose={() => setShowLayoutEditor(false)}
       />
     )}
     <HubActivityPanel open={showActivity} onClose={() => setShowActivity(false)} />

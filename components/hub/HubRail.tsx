@@ -8,12 +8,23 @@ import {
   SearchIcon,
   SettingsIcon,
   AdminIcon,
+  AppsIcon,
+  DndIcon,
+  LockIcon,
   catalogById,
-  normalizeRailConfig,
   type CatalogId,
   type RailPermissions,
-  type RailConfig,
 } from './railCatalog'
+import { classifyToken } from '@/lib/hub-layout'
+
+type Room = { id: string; name: string; is_private: boolean }
+type RailConversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
+
+function convFirstNames(conv: RailConversation, currentUserId?: string): string {
+  const others = conv.participants.filter(p => p.id !== currentUserId)
+  if (others.length === 0) return conv.participants[0]?.display_name ?? 'You'
+  return others.map(p => (p.display_name || '?').split(' ')[0]).join(', ')
+}
 
 export type RailId =
   | 'time-clock'
@@ -58,27 +69,6 @@ export function railFromPath(pathname: string | null | undefined): RailId {
   return 'hub'
 }
 
-type SlotItem =
-  | { kind: 'catalog'; id: CatalogId; href: string | null; label: string; icon: React.ReactNode }
-  | { kind: 'url'; url: string; label: string; icon: React.ReactNode }
-  | { kind: 'empty' }
-
-function resolveSlot(value: CatalogId | string | null, perms: RailPermissions): SlotItem {
-  if (!value) return { kind: 'empty' }
-  // Activity is always the floating bell now — silently ignore old configs
-  // that still have 'activity' in a rail slot.
-  if (value === 'activity') return { kind: 'empty' }
-  if (typeof value === 'string' && value.startsWith('url:')) {
-    const url = value.slice(4)
-    let label = url
-    try { label = new URL(url).hostname.replace(/^www\./, '') } catch {}
-    return { kind: 'url', url, label, icon: <CatalogIcon id="links" /> }
-  }
-  const entry = catalogById(value as CatalogId, perms)
-  if (!entry) return { kind: 'empty' }
-  return { kind: 'catalog', id: entry.id, href: entry.href ?? null, label: entry.label, icon: entry.icon }
-}
-
 export default function HubRail({
   showAdmin,
   unreadActivity: _unreadActivity, // unused — Activity is now a floating bell
@@ -96,16 +86,22 @@ export default function HubRail({
   onLinksClick,
   onTimeClockClick,
   onActivityClick,
+  onOpenLauncher,
+  onToggleDnd,
+  onOpenLayoutEditor,
   currentUserId,
   currentUserDisplayName,
   currentUserAvatarUrl,
   currentUserStatus,
-  collapsed,
+  collapsed: _collapsed,
   onToggleCollapsed,
   onOpenSidebar,
   activeManualRail,
   permissions,
-  railConfig,
+  items,
+  rooms = [],
+  conversations = [],
+  launcherOpen = false,
 }: {
   showAdmin: boolean
   unreadActivity?: number
@@ -127,6 +123,11 @@ export default function HubRail({
   onLinksClick: () => void
   onTimeClockClick: () => void
   onActivityClick: () => void
+  onOpenLauncher: () => void
+  /** Flip DND status (sys:dnd rail item). */
+  onToggleDnd: () => void
+  /** Open the layout customizer modal. */
+  onOpenLayoutEditor: () => void
   currentUserId?: string
   currentUserDisplayName?: string
   currentUserAvatarUrl?: string | null
@@ -136,7 +137,11 @@ export default function HubRail({
   onOpenSidebar: () => void
   activeManualRail?: 'tools' | 'links' | 'profile' | 'activity' | null
   permissions: RailPermissions
-  railConfig: RailConfig | null
+  /** The one shared layout list (already permission-filtered). */
+  items: string[]
+  rooms?: Room[]
+  conversations?: RailConversation[]
+  launcherOpen?: boolean
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -146,41 +151,29 @@ export default function HubRail({
   // again can toggle collapse even when the section has no URL of its own.
   const effectiveActive: RailId = (activeManualRail as RailId) ?? active
 
-  const config = normalizeRailConfig(railConfig)
-  const slots = config.desktop.map(v => resolveSlot(v, permissions))
-
-  // Scroll-affordance state for the configurable middle section. Updated on
-  // scroll/resize so the up/down chevrons only render when there's actual
-  // overflow to scroll through.
-  const slotsScrollRef = useRef<HTMLDivElement | null>(null)
-  const [canScrollUp, setCanScrollUp] = useState(false)
-  const [canScrollDown, setCanScrollDown] = useState(false)
+  // The rail never scrolls — it shows as many icons as fit in the available
+  // height; the rest live in the Apps drawer (the expanded-rail view). The fit
+  // count is measured from the container so it adapts to screen size.
+  const ITEM_H = 54 // approx height of one rail item (icon + label + padding)
+  const railListRef = useRef<HTMLDivElement | null>(null)
+  const [fitCount, setFitCount] = useState(99)
   useEffect(() => {
-    const el = slotsScrollRef.current
+    const el = railListRef.current
     if (!el) return
-    function update() {
-      if (!el) return
-      setCanScrollUp(el.scrollTop > 2)
-      setCanScrollDown(el.scrollTop + el.clientHeight < el.scrollHeight - 2)
+    const compute = () => {
+      const h = el.clientHeight
+      if (h > 0) setFitCount(Math.max(1, Math.floor(h / ITEM_H)))
     }
-    update()
-    el.addEventListener('scroll', update, { passive: true })
-    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(update) : null
+    compute()
+    const ro = typeof ResizeObserver !== 'undefined' ? new ResizeObserver(compute) : null
     ro?.observe(el)
-    window.addEventListener('resize', update)
-    return () => {
-      el.removeEventListener('scroll', update)
-      ro?.disconnect()
-      window.removeEventListener('resize', update)
-    }
-  }, [slots.length])
-  function scrollSlots(direction: 'up' | 'down') {
-    const el = slotsScrollRef.current
-    if (!el) return
-    el.scrollBy({ top: direction === 'up' ? -80 : 80, behavior: 'smooth' })
-  }
+    window.addEventListener('resize', compute)
+    return () => { ro?.disconnect(); window.removeEventListener('resize', compute) }
+  }, [])
+  const visibleItems = items.slice(0, fitCount)
+  const hiddenCount = Math.max(0, items.length - visibleItems.length)
 
-  // Cmd/Ctrl + 1..5 keyboard shortcuts for the fixed primary sections.
+  // Cmd/Ctrl + 1..5 keyboard shortcuts for the common sections.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (!(e.metaKey || e.ctrlKey)) return
@@ -214,9 +207,6 @@ export default function HubRail({
     }
     // Navigating to a different section: always ensure sidebar is visible.
     onOpenSidebar()
-    // Read both keys: hub_last_chat_route (set by HubShell on chat paths)
-    // and hub_last_route (set by HubIdleTracker on every hub route load).
-    // Either one means we can jump directly to a real room/DM.
     let last: string | null = null
     try {
       last = localStorage.getItem('hub_last_chat_route') || localStorage.getItem('hub_last_route')
@@ -225,9 +215,6 @@ export default function HubRail({
       router.push(last)
       return
     }
-    // Nothing saved — go to /hub with ?source=push to bypass the 14h-idle
-    // redirect (which would send us right back to /hub/home and look like
-    // the click did nothing).
     router.push('/hub?source=push')
   }
 
@@ -252,7 +239,7 @@ export default function HubRail({
   }
 
   // Used for any nav item that links elsewhere (Txt, Settings, Admin, catalog
-  // slots). Same icon clicked while already on it → toggle collapse and stop
+  // items). Same icon clicked while already on it → toggle collapse and stop
   // the navigation. Different section → force the sidebar open and let the
   // Link navigate normally.
   function handleNavLinkClick(thisRail: RailId) {
@@ -281,14 +268,275 @@ export default function HubRail({
 
   function ActiveBar({ show }: { show: boolean }) {
     return show ? (
-      <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-amber-400" aria-hidden="true" />
+      <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r" style={{ background: 'linear-gradient(180deg,#38bdf8,#2E7EB8)', boxShadow: '0 0 10px #2E7EB8' }} aria-hidden="true" />
     ) : null
+  }
+
+  const roomById = (id: string) => rooms.find(r => r.id === id)
+
+  // Render one layout token into a rail button/link.
+  function renderItem(token: string, idx: number) {
+    const c = classifyToken(token)
+
+    // ── DND quick-toggle ──
+    if (c.kind === 'dnd') {
+      const on = currentUserStatus === 'dnd'
+      return (
+        <button
+          key={`dnd-${idx}`}
+          type="button"
+          onClick={onToggleDnd}
+          className={railBtnClass(false)}
+          title={on ? 'Do Not Disturb — on (tap to turn off)' : 'Do Not Disturb — off (tap to turn on)'}
+          aria-pressed={on}
+        >
+          <span className={on ? 'text-red-400' : ''}><DndIcon /></span>
+          <span>{on ? 'DND on' : 'DND'}</span>
+        </button>
+      )
+    }
+
+    // ── Custom URL ──
+    if (c.kind === 'url') {
+      let label = c.href
+      try { label = new URL(c.href).hostname.replace(/^www\./, '') } catch {}
+      return (
+        <a
+          key={`url-${idx}`}
+          href={c.href}
+          target="_blank"
+          rel="noopener noreferrer"
+          className={railBtnClass(false)}
+          title={c.href}
+        >
+          <CatalogIcon id="links" />
+          <span className="truncate max-w-[58px]">{label}</span>
+        </a>
+      )
+    }
+
+    // ── Room shortcut ──
+    if (c.kind === 'room') {
+      const room = roomById(c.id)
+      if (!room) return null
+      const isActive = pathname === `/hub/${room.id}`
+      const letter = (room.name || '#').trim().charAt(0).toUpperCase() || '#'
+      return (
+        <Link
+          key={`room-${idx}`}
+          href={`/hub/${room.id}`}
+          onClick={() => onOpenSidebar()}
+          className={railBtnClass(isActive)}
+          title={room.name}
+        >
+          <ActiveBar show={isActive} />
+          <span className={`relative flex items-center justify-center w-5 h-5 rounded-md text-[11px] font-bold ${isActive ? 'bg-sky-400 text-[#0a1120]' : 'bg-white/15 text-white/80'}`}>
+            {letter}
+            {room.is_private && (
+              <span className="absolute -bottom-1 -right-1 flex items-center justify-center w-3 h-3 rounded-full bg-[#0a1120] text-white/85" aria-hidden="true"><LockIcon className="w-2 h-2" /></span>
+            )}
+          </span>
+          <span className="truncate max-w-[58px]">{room.name}</span>
+        </Link>
+      )
+    }
+
+    // ── DM shortcut ──
+    if (c.kind === 'dm') {
+      const conv = conversations.find(cv => cv.id === c.id)
+      if (!conv) return null
+      const isActive = pathname === `/hub/pm/${conv.id}`
+      const label = convFirstNames(conv, currentUserId)
+      const others = conv.participants.filter(p => p.id !== currentUserId)
+      const avatarUser = others[0] ?? conv.participants[0]
+      const letter = (label || '?').trim().charAt(0).toUpperCase() || '?'
+      return (
+        <Link
+          key={`dm-${idx}`}
+          href={`/hub/pm/${conv.id}`}
+          onClick={() => onOpenSidebar()}
+          className={railBtnClass(isActive)}
+          title={label}
+        >
+          <ActiveBar show={isActive} />
+          <span className="relative w-5 h-5 rounded-full overflow-hidden bg-gradient-to-br from-sky-600 to-sky-800 flex items-center justify-center text-white text-[11px] font-bold">
+            {avatarUser?.avatar_url ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img src={`/api/profile/avatar/${avatarUser.id}?v=${encodeURIComponent(avatarUser.avatar_url)}`} alt="" className="w-full h-full object-cover" />
+            ) : letter}
+          </span>
+          <span className="truncate max-w-[58px]">{label}</span>
+        </Link>
+      )
+    }
+
+    // ── Catalog app / system item ──
+    const id = c.id
+
+    // Hub (home) — bespoke jump-to-last-chat + toggle behavior.
+    if (id === 'hub') {
+      return (
+        <button
+          key={`hub-${idx}`}
+          type="button"
+          onClick={handleHubClick}
+          className={railBtnClass(active === 'hub')}
+          aria-pressed={active === 'hub'}
+          title="Hub"
+        >
+          <ActiveBar show={active === 'hub'} />
+          <span className={`relative ${active === 'hub' ? 'text-sky-300' : ''}`}>
+            <CatalogIcon id="hub" />
+            {unreadHub && (
+              <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]" aria-label="Unread messages" />
+            )}
+          </span>
+          <span>Hub</span>
+        </button>
+      )
+    }
+
+    // Time Clock — opens the modal; green dot when clocked in.
+    if (id === 'time-clock') {
+      return (
+        <button
+          key={`clock-${idx}`}
+          type="button"
+          onClick={onTimeClockClick}
+          className={railBtnClass(false)}
+          title={isClockedIn ? 'Clocked in — tap to clock out' : 'Clock in / out'}
+        >
+          <span className="relative">
+            <CatalogIcon id="time-clock" />
+            {isClockedIn && (
+              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#0a1f33] bg-emerald-500" aria-hidden="true" />
+            )}
+          </span>
+          <span>Clock</span>
+        </button>
+      )
+    }
+
+    // Txt (old Captivated /hub/clients) — everyone.
+    if (id === 'txt') {
+      return (
+        <Link
+          key={`txt-${idx}`}
+          href="/hub/clients"
+          onClick={handleNavLinkClick('txt')}
+          className={railBtnClass(active === 'txt')}
+          aria-current={active === 'txt' ? 'page' : undefined}
+          title="Client texts"
+        >
+          <ActiveBar show={active === 'txt'} />
+          <span className={active === 'txt' ? 'text-sky-300' : ''}><CatalogIcon id="txt" /></span>
+          <span>Txt</span>
+        </Link>
+      )
+    }
+
+    // Txt2 (new Twilio /hub/txt) — gated; token only present if allowed.
+    if (id === 'txt2') {
+      return (
+        <Link
+          key={`txt2-${idx}`}
+          href="/hub/txt"
+          onClick={handleNavLinkClick('txt2')}
+          className={railBtnClass(active === 'txt2')}
+          aria-current={active === 'txt2' ? 'page' : undefined}
+          title="Txt2 — new texting"
+        >
+          <ActiveBar show={active === 'txt2'} />
+          <span className={`relative ${active === 'txt2' ? 'text-sky-300' : ''}`}>
+            <CatalogIcon id="txt2" />
+            {txtUnread && active !== 'txt2' && (
+              <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]" aria-label="Unread texts" />
+            )}
+          </span>
+          <span>Txt2</span>
+        </Link>
+      )
+    }
+
+    // Dialer — gated; missed-call dot + unheard-voicemail badge.
+    if (id === 'dialer') {
+      return (
+        <Link
+          key={`dialer-${idx}`}
+          href="/hub/dialer"
+          onClick={handleNavLinkClick('dialer')}
+          className={railBtnClass(active === 'dialer')}
+          aria-current={active === 'dialer' ? 'page' : undefined}
+          title={unheardVoicemails > 0 ? `Dialer — ${unheardVoicemails} unheard voicemail${unheardVoicemails === 1 ? '' : 's'}` : 'Dialer'}
+        >
+          <ActiveBar show={active === 'dialer'} />
+          <span className={`relative ${active === 'dialer' ? 'text-sky-300' : ''}`}>
+            <CatalogIcon id="dialer" />
+            {missedCall && active !== 'dialer' && (
+              <span className="absolute -top-0.5 -left-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]" aria-label="Missed call" />
+            )}
+            {unheardVoicemails > 0 && (
+              <span className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 border-2 border-[#0a1f33] text-[9px] font-bold text-white flex items-center justify-center leading-none" aria-label={`${unheardVoicemails} unheard voicemail${unheardVoicemails === 1 ? '' : 's'}`}>
+                {unheardVoicemails > 9 ? '9+' : unheardVoicemails}
+              </span>
+            )}
+          </span>
+          <span>Dialer</span>
+        </Link>
+      )
+    }
+
+    // Tools / Links — open their sidebar (toggle on re-click).
+    if (id === 'tools') {
+      return (
+        <button key={`tools-${idx}`} type="button" onClick={handleToolsClick} className={railBtnClass(effectiveActive === 'tools')} title="Tools">
+          <ActiveBar show={effectiveActive === 'tools'} />
+          <span className={effectiveActive === 'tools' ? 'text-sky-300' : ''}><CatalogIcon id="tools" /></span>
+          <span>Tools</span>
+        </button>
+      )
+    }
+    if (id === 'links') {
+      return (
+        <button key={`links-${idx}`} type="button" onClick={handleLinksClick} className={railBtnClass(effectiveActive === 'links')} title="Links">
+          <ActiveBar show={effectiveActive === 'links'} />
+          <span className={effectiveActive === 'links' ? 'text-sky-300' : ''}><CatalogIcon id="links" /></span>
+          <span>Links</span>
+        </button>
+      )
+    }
+
+    // Generic catalog app with a real href (routing, fleet, daily-log, …).
+    const entry = catalogById(id, permissions)
+    if (!entry) return null
+    const isActive = active === id
+    const showDailyLogDot = id === 'daily-log' && dailyLogUnread && !isActive
+    const body = (
+      <>
+        <ActiveBar show={isActive} />
+        <span className={`relative ${isActive ? 'text-sky-300' : ''}`}>
+          {entry.icon}
+          {showDailyLogDot && (
+            <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]" aria-label="New Daily Log updates" />
+          )}
+        </span>
+        <span className="truncate max-w-[58px]">{entry.label}</span>
+      </>
+    )
+    if (entry.href) {
+      return (
+        <Link key={`cat-${idx}`} href={entry.href} onClick={handleNavLinkClick(id)} className={railBtnClass(isActive)} title={entry.label}>{body}</Link>
+      )
+    }
+    return (
+      <button key={`cat-${idx}`} type="button" onClick={() => { onOpenSidebar() }} className={railBtnClass(isActive)} title={entry.label}>{body}</button>
+    )
   }
 
   return (
     <nav
-      className="hidden md:flex flex-col w-16 bg-[#0a1f33] border-r border-white/5 flex-none"
-      style={{ paddingTop: 'env(safe-area-inset-top, 0)' }}
+      className="hidden md:flex flex-col w-16 flex-none"
+      style={{ paddingTop: 'env(safe-area-inset-top, 0)', background: 'linear-gradient(180deg,#0b1626,#0a1120)', borderRight: '1px solid rgba(255,255,255,.06)' }}
       aria-label="Hub navigation"
     >
       {/* Search */}
@@ -304,189 +552,47 @@ export default function HubRail({
 
       <div className="h-px bg-white/5 mx-3" />
 
-      {/* Fixed primary section — Clock, Hub, Txt never scroll */}
-      <div className="flex-none flex flex-col py-1">
-        <button
-          type="button"
-          onClick={onTimeClockClick}
-          className={railBtnClass(false)}
-          title={isClockedIn ? 'Clocked in — tap to clock out' : 'Clock in / out'}
-        >
-          <span className="relative">
-            <CatalogIcon id="time-clock" />
-            {isClockedIn && (
-              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#0a1f33] bg-emerald-500" aria-hidden="true" />
-            )}
-          </span>
-          <span>Clock</span>
-        </button>
-
-        <button
-          type="button"
-          onClick={handleHubClick}
-          className={railBtnClass(active === 'hub')}
-          aria-pressed={active === 'hub'}
-          title="Hub"
-        >
-          <ActiveBar show={active === 'hub'} />
-          <span className={`relative ${active === 'hub' ? 'text-amber-300' : ''}`}>
-            <CatalogIcon id="hub" />
-            {unreadHub && (
-              <span
-                className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]"
-                aria-label="Unread messages"
-              />
-            )}
-          </span>
-          <span>Hub</span>
-        </button>
-
-        <Link
-          href="/hub/clients"
-          onClick={handleNavLinkClick('txt')}
-          className={railBtnClass(active === 'txt')}
-          aria-current={active === 'txt' ? 'page' : undefined}
-          title="Client texts"
-        >
-          <ActiveBar show={active === 'txt'} />
-          <span className={active === 'txt' ? 'text-amber-300' : ''}><CatalogIcon id="txt" /></span>
-          <span>Txt</span>
-        </Link>
-
-        {permissions.canAccessTxt && (
-          <Link
-            href="/hub/txt"
-            onClick={handleNavLinkClick('txt2')}
-            className={railBtnClass(active === 'txt2')}
-            aria-current={active === 'txt2' ? 'page' : undefined}
-            title="Txt2 — new texting"
-          >
-            <ActiveBar show={active === 'txt2'} />
-            <span className={`relative ${active === 'txt2' ? 'text-amber-300' : ''}`}>
-              <CatalogIcon id="txt2" />
-              {txtUnread && active !== 'txt2' && (
-                <span
-                  className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]"
-                  aria-label="Unread texts"
-                />
-              )}
-            </span>
-            <span>Txt2</span>
-          </Link>
-        )}
-
-        {permissions.canAccessDialer && (
-          <Link
-            href="/hub/dialer"
-            onClick={handleNavLinkClick('dialer')}
-            className={railBtnClass(active === 'dialer')}
-            aria-current={active === 'dialer' ? 'page' : undefined}
-            title={unheardVoicemails > 0 ? `Dialer — ${unheardVoicemails} unheard voicemail${unheardVoicemails === 1 ? '' : 's'}` : 'Dialer'}
-          >
-            <ActiveBar show={active === 'dialer'} />
-            <span className={`relative ${active === 'dialer' ? 'text-amber-300' : ''}`}>
-              <CatalogIcon id="dialer" />
-              {missedCall && active !== 'dialer' && (
-                <span
-                  className="absolute -top-0.5 -left-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]"
-                  aria-label="Missed call"
-                />
-              )}
-              {unheardVoicemails > 0 && (
-                <span
-                  className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 border-2 border-[#0a1f33] text-[9px] font-bold text-white flex items-center justify-center leading-none"
-                  aria-label={`${unheardVoicemails} unheard voicemail${unheardVoicemails === 1 ? '' : 's'}`}
-                >
-                  {unheardVoicemails > 9 ? '9+' : unheardVoicemails}
-                </span>
-              )}
-            </span>
-            <span>Dialer</span>
-          </Link>
-        )}
+      {/* User-configurable list — shows what fits (no scroll); the rest go to
+          the Apps drawer. */}
+      <div ref={railListRef} className="flex-1 min-h-0 overflow-hidden py-1 flex flex-col">
+        {visibleItems.map((token, idx) => renderItem(token, idx))}
       </div>
 
-      {/* User-configurable slots — scrollable if they overflow. Explicit
-          up/down chevrons appear only when overflow exists. */}
-      <div className="flex-1 min-h-0 relative">
-        {canScrollUp && (
-          <button
-            type="button"
-            onClick={() => scrollSlots('up')}
-            className="absolute top-0 left-0 right-0 z-10 flex items-center justify-center h-5 bg-gradient-to-b from-[#0a1f33] via-[#0a1f33]/95 to-transparent text-white/60 hover:text-white"
-            aria-label="Scroll rail up"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" />
-            </svg>
-          </button>
-        )}
-        {canScrollDown && (
-          <button
-            type="button"
-            onClick={() => scrollSlots('down')}
-            className="absolute bottom-0 left-0 right-0 z-10 flex items-center justify-center h-5 bg-gradient-to-t from-[#0a1f33] via-[#0a1f33]/95 to-transparent text-white/60 hover:text-white"
-            aria-label="Scroll rail down"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-        )}
-        <div ref={slotsScrollRef} className="absolute inset-0 overflow-y-auto py-1 flex flex-col">
-          {slots.map((slot, idx) => {
-            if (slot.kind === 'empty') return null
-            const isActiveSlot = slot.kind === 'catalog' && active === slot.id
-            if (slot.kind === 'catalog') {
-              const onClick = (e: React.MouseEvent) => {
-                if (slot.id === 'tools') { handleToolsClick(e); return }
-                if (slot.id === 'links') { handleLinksClick(e); return }
-                if (slot.id === 'activity') { e.preventDefault(); onActivityClick(); return }
-                // Generic navigable slot: same icon → toggle collapse; else open.
-                handleNavLinkClick(slot.id)(e)
-              }
-              const cls = railBtnClass(isActiveSlot)
-              const showDailyLogDot = slot.id === 'daily-log' && dailyLogUnread && !isActiveSlot
-              const body = (
-                <>
-                  <ActiveBar show={isActiveSlot} />
-                  <span className={`relative ${isActiveSlot ? 'text-amber-300' : ''}`}>
-                    {slot.icon}
-                    {showDailyLogDot && (
-                      <span
-                        className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]"
-                        aria-label="New Daily Log updates"
-                      />
-                    )}
-                  </span>
-                  <span className="truncate max-w-[58px]">{slot.label}</span>
-                </>
-              )
-              if (slot.href) {
-                return (
-                  <Link key={idx} href={slot.href} onClick={onClick} className={cls} title={slot.label}>{body}</Link>
-                )
-              }
-              return (
-                <button key={idx} type="button" onClick={onClick} className={cls} title={slot.label}>{body}</button>
-              )
-            }
-            // url
-            return (
-              <a
-                key={idx}
-                href={slot.url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className={railBtnClass(false)}
-                title={slot.url}
-              >
-                {slot.icon}
-                <span className="truncate max-w-[58px]">{slot.label}</span>
-              </a>
-            )
-          })}
-        </div>
+      {/* All Apps launcher + Customize */}
+      <div className="flex-none border-t border-white/5 py-1">
+        <button
+          type="button"
+          onClick={onOpenLauncher}
+          className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium w-full transition-colors ${
+            launcherOpen ? 'text-sky-300 bg-white/[0.06]' : 'text-white/55 hover:text-white hover:bg-white/5'
+          }`}
+          title={hiddenCount > 0 ? `All Apps — ${hiddenCount} more` : 'All Apps'}
+          aria-pressed={launcherOpen}
+        >
+          {launcherOpen && (
+            <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r" style={{ background: 'linear-gradient(180deg,#38bdf8,#2E7EB8)', boxShadow: '0 0 10px #2E7EB8' }} aria-hidden="true" />
+          )}
+          <span className="relative">
+            <AppsIcon />
+            {hiddenCount > 0 && !launcherOpen && (
+              <span className="absolute -top-1 -right-2 min-w-[15px] h-[15px] px-1 rounded-full bg-white/20 text-white text-[9px] font-bold flex items-center justify-center leading-none">
+                {hiddenCount > 9 ? '9+' : `+${hiddenCount}`}
+              </span>
+            )}
+          </span>
+          <span>Apps</span>
+        </button>
+        <button
+          type="button"
+          onClick={onOpenLayoutEditor}
+          className="flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium w-full text-white/55 hover:text-white hover:bg-white/5 transition-colors"
+          title="Customize this rail"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+          <span>Edit</span>
+        </button>
       </div>
 
       {/* Fixed footer: Settings, Admin (gated), You */}
@@ -499,7 +605,7 @@ export default function HubRail({
           title="Settings"
         >
           <ActiveBar show={active === 'settings'} />
-          <span className={active === 'settings' ? 'text-amber-300' : ''}><SettingsIcon /></span>
+          <span className={active === 'settings' ? 'text-sky-300' : ''}><SettingsIcon /></span>
           <span>Settings</span>
         </Link>
         {showAdmin && (
@@ -511,7 +617,7 @@ export default function HubRail({
             title="Admin"
           >
             <ActiveBar show={active === 'admin'} />
-            <span className={active === 'admin' ? 'text-amber-300' : ''}><AdminIcon /></span>
+            <span className={active === 'admin' ? 'text-sky-300' : ''}><AdminIcon /></span>
             <span>Admin</span>
           </Link>
         )}

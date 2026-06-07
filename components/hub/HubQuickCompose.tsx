@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { LockIcon } from './railCatalog'
 import type { HubUser } from './MessageFeed'
 
 type Room = { id: string; name: string; is_private: boolean }
@@ -125,7 +126,7 @@ export default function HubQuickCompose({
                 className="w-full text-left px-4 py-2.5 hover:bg-gray-800/60 transition-colors flex items-center gap-3"
               >
                 <div className="flex-none w-8 h-8 rounded-lg bg-[#1A3D5C] flex items-center justify-center text-sm text-white/60 font-medium">
-                  {room.is_private ? '🔒' : '#'}
+                  {room.is_private ? <LockIcon className="w-4 h-4" /> : '#'}
                 </div>
                 <span className="text-sm text-white">{room.name}</span>
               </button>

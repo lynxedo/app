@@ -9,6 +9,8 @@ import WebChimeNotifier from '@/components/hub/WebChimeNotifier'
 import HubIdleTracker from '@/components/hub/HubIdleTracker'
 import { markActive } from '@/lib/hub-activity'
 import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
+import { resolveLayout } from '@/lib/hub-layout'
+import type { RailPermissions } from '@/components/hub/railCatalog'
 
 export const metadata: Metadata = {
   title: 'Hub',
@@ -65,7 +67,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       .eq('user_id', user.id),
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
     supabase.from('hub_users').select('display_name, status, avatar_url, last_active_at').eq('id', user.id).single(),
-    supabase.from('user_profiles').select('role, company_id, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_call_log2, can_access_lawn, can_access_zone_sizer, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet, can_access_dialer, can_access_txt, can_access_marketing, can_admin_marketing, can_access_forms, can_admin_forms, can_access_daily_log_v2, dialer_global_ring, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, rail_config').eq('id', user.id).single(),
+    supabase.from('user_profiles').select('role, company_id, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_call_log2, can_access_lawn, can_access_zone_sizer, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet, can_access_dialer, can_access_txt, can_access_marketing, can_admin_marketing, can_access_forms, can_admin_forms, can_access_daily_log_v2, dialer_global_ring, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, rail_config, hub_layout').eq('id', user.id).single(),
     // Active rows for BOTH types — DB returns latest first; we keep newest per type below.
     supabase
       .from('hub_announcements')
@@ -132,7 +134,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   }
   const initialTextSize = profileResult.data?.hub_text_size ?? 'default'
   const initialPinnedIds: string[] = profileResult.data?.hub_pinned_ids ?? []
-  const initialRailConfig = (profileResult.data?.rail_config ?? null) as null | {
+  const legacyRailConfig = (profileResult.data?.rail_config ?? null) as null | {
     desktop?: (string | null)[]
     mobile?: (string | null)[]
   }
@@ -155,6 +157,33 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   // Session 58.5: per-user opt-out. Defaults true server-side so any user
   // with can_access_dialer gets Hub-wide ringing on first login.
   const dialerGlobalRing = profileResult.data?.dialer_global_ring ?? true
+
+  // Resolve the customizable Hub launcher layout. Uses the stored hub_layout if
+  // set; otherwise migrates the legacy rail_config + pinned tools so existing
+  // users keep their current rail; brand-new users get sensible defaults.
+  const railPermsForLayout: RailPermissions = {
+    isAdmin: !!isAdmin,
+    canAccessTracker: !!canAccessTracker,
+    canAccessRouting: !!canAccessRouting,
+    canAccessFleet: !!canAccessFleet,
+    canAccessBooks: !!canAccessBooks,
+    canAccessLawn: !!canAccessLawn,
+    canAccessZoneSizer: !!canAccessZoneSizer,
+    canAccessDialer: !!canAccessDialer,
+    canAccessTxt: !!canAccessTxt,
+    canAccessCallLog: !!canAccessCallLog,
+    canAccessCallLog2: !!canAccessCallLog2,
+    canAccessTimesheet: !!canAccessTimesheet,
+    canAccessMarketing: !!canAccessMarketing,
+    canAccessForms: !!canAccessForms,
+    canAccessDailyLogV2: !!canAccessDailyLogV2,
+  }
+  const initialLayout = resolveLayout(
+    profileResult.data?.hub_layout ?? null,
+    legacyRailConfig,
+    initialPinnedIds,
+    railPermsForLayout,
+  )
   // Hourly path = linked to an employees row with pay_type='hourly'.
   // Everyone else (salary, unlinked, bots) is on the activity path.
   const myPayType = (myPresenceResult.data?.pay_type as string | null) ?? null
@@ -206,7 +235,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         initialTextSize={initialTextSize}
         initialPinnedIds={initialPinnedIds}
         initialIsClockedIn={initialIsClockedIn}
-        initialRailConfig={initialRailConfig as never}
+        initialLayout={initialLayout}
         canAccessTracker={canAccessTracker}
         canAccessCallLog={canAccessCallLog}
         canAccessCallLog2={canAccessCallLog2}

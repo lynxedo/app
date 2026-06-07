@@ -6,7 +6,7 @@ import ReactCrop, { type Crop, centerCrop, makeAspectCrop } from 'react-image-cr
 import 'react-image-crop/dist/ReactCrop.css'
 import { createClient } from '@/lib/supabase/client'
 import NotificationDeviceControls from '@/components/hub/NotificationDeviceControls'
-import { CATALOG, CatalogIcon, type CatalogId, type RailPermissions, normalizeRailConfig } from '@/components/hub/railCatalog'
+import { type RailPermissions } from '@/components/hub/railCatalog'
 import TxtPersonalTemplates from './TxtPersonalTemplates'
 import DialerPersonalSettings from './DialerPersonalSettings'
 
@@ -82,7 +82,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, jobberConnected, landingPage, notifPref, railConfig, railPermissions, txtSignature, dialerGlobalRing }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, jobberConnected, landingPage, notifPref, railPermissions, txtSignature, dialerGlobalRing }: Props) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>('profile')
 
@@ -375,43 +375,6 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
     { id: 'account',      label: 'Account' },
   ]
 
-  // ── My Hub (rail config) state ─────────────────────────────────────────────
-  const normalized = normalizeRailConfig(railConfig ?? undefined)
-  const [desktopSlots, setDesktopSlots] = useState<(string | null)[]>(normalized.desktop)
-  const [mobileSlot, setMobileSlot] = useState<string | null>(normalized.mobile[0] ?? null)
-  const [railSave, setRailSave] = useState<SaveState>('idle')
-  const [railErr, setRailErr] = useState<string | null>(null)
-
-  const pickableCatalog = CATALOG
-    .filter(e => e.pickable)
-    .filter(e => !e.requires || railPermissions[e.requires])
-
-  async function saveRailConfig() {
-    setRailSave('saving'); setRailErr(null)
-    try {
-      const res = await fetch('/api/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          rail_config: {
-            desktop: desktopSlots,
-            mobile: [mobileSlot],
-          },
-        }),
-      })
-      if (!res.ok) {
-        const d = await res.json().catch(() => ({}))
-        throw new Error(d.error ?? 'Save failed')
-      }
-      setRailSave('saved')
-      // Reload so the rail re-renders with the new config server-side.
-      setTimeout(() => { router.refresh() }, 400)
-    } catch (e) {
-      setRailErr(e instanceof Error ? e.message : 'Save failed')
-      setRailSave('error')
-    }
-  }
-
   const initials = getInitials(hubName || null, email)
 
   return (
@@ -573,47 +536,31 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
       <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
         <h2 className="font-semibold text-lg mb-1">My Hub</h2>
         <p className="text-gray-400 text-sm mb-6">
-          Customize the icon rail on the left (and the bottom tab bar on mobile). Time Clock, Hub, and Txt are always there — these slots are yours.
+          Make the icon rail (and the mobile bottom bar) your own — show only what you use, in the order you want.
+          Add any app, a Do&nbsp;Not&nbsp;Disturb toggle, a room, or a custom link; drag to reorder; hide the rest.
+          Your desktop and phone each keep their own layout, and both follow your account to every device.
         </p>
 
-        <h3 className="text-sm font-semibold text-white mb-2">Desktop rail — 4 slots</h3>
-        <p className="text-xs text-gray-500 mb-3">The 4 icons between Txt and Settings. Pick any combination, in any order.</p>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 mb-6">
-          {desktopSlots.map((value, i) => (
-            <div key={i} className="flex items-center gap-3">
-              <span className="text-xs text-gray-500 w-12 flex-none">Slot {i + 1}</span>
-              <SlotPicker
-                value={value}
-                onChange={v => setDesktopSlots(prev => prev.map((p, idx) => idx === i ? v : p))}
-                catalog={pickableCatalog}
-              />
-            </div>
-          ))}
-        </div>
+        <ul className="text-sm text-gray-300 space-y-1.5 mb-6 list-disc pl-5">
+          <li><strong className="text-white">Add anything</strong> — every tool as its own icon, plus DND, rooms, and custom links.</li>
+          <li><strong className="text-white">Drag to reorder</strong> and tap the ✕ to hide what you don&apos;t need.</li>
+          <li><strong className="text-white">Separate desktop &amp; mobile</strong> layouts — lean phone, loaded desktop.</li>
+          <li>The <strong className="text-white">Apps</strong> button is always there, so you can never lose your way back.</li>
+        </ul>
 
-        <h3 className="text-sm font-semibold text-white mb-2">Mobile bottom bar — 1 slot</h3>
-        <p className="text-xs text-gray-500 mb-3">Between Txt and More.</p>
-        <div className="flex items-center gap-3 mb-6">
-          <span className="text-xs text-gray-500 w-12 flex-none">Slot 4</span>
-          <SlotPicker
-            value={mobileSlot}
-            onChange={setMobileSlot}
-            catalog={pickableCatalog}
-          />
-        </div>
-
-        <div className="flex items-center gap-3 mt-4">
-          <button
-            type="button"
-            onClick={saveRailConfig}
-            disabled={railSave === 'saving'}
-            className="bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:cursor-not-allowed text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm"
-          >
-            {railSave === 'saving' ? 'Saving…' : 'Save layout'}
-          </button>
-          {railSave === 'saved' && <span className="text-emerald-400 text-xs">Saved ✓</span>}
-          {railErr && <span className="text-rose-400 text-xs">{railErr}</span>}
-        </div>
+        <button
+          type="button"
+          onClick={() => router.push('/hub?customize=1')}
+          className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm"
+        >
+          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
+          </svg>
+          Open layout customizer
+        </button>
+        <p className="text-xs text-gray-500 mt-3">
+          Tip: you can also open this any time from the <strong>Apps ▦</strong> button on the rail → <strong>Customize</strong>.
+        </p>
       </section>
       )}
 
@@ -858,51 +805,3 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
   )
 }
 
-// ── SlotPicker ──────────────────────────────────────────────────────────────
-// Dropdown for a single rail slot. Value is either a catalog id, a "url:..."
-// string, or null (empty).
-
-function SlotPicker({
-  value,
-  onChange,
-  catalog,
-}: {
-  value: string | null
-  onChange: (v: string | null) => void
-  catalog: { id: CatalogId; label: string }[]
-}) {
-  const isUrl = typeof value === 'string' && value.startsWith('url:')
-  const url = isUrl ? value!.slice(4) : ''
-  return (
-    <div className="flex-1 flex items-center gap-2 min-w-0">
-      <div className="w-7 h-7 rounded bg-gray-800 flex items-center justify-center text-white/70 flex-none">
-        {value && !isUrl ? <CatalogIcon id={value as CatalogId} /> : isUrl ? <CatalogIcon id="links" /> : <span className="text-xs">—</span>}
-      </div>
-      <select
-        value={isUrl ? '__url__' : (value ?? '__none__')}
-        onChange={e => {
-          const v = e.target.value
-          if (v === '__none__') onChange(null)
-          else if (v === '__url__') onChange('url:https://')
-          else onChange(v)
-        }}
-        className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-orange-500"
-      >
-        <option value="__none__">— Empty —</option>
-        {catalog.map(e => (
-          <option key={e.id} value={e.id}>{e.label}</option>
-        ))}
-        <option value="__url__">Custom URL…</option>
-      </select>
-      {isUrl && (
-        <input
-          type="url"
-          value={url}
-          onChange={e => onChange(`url:${e.target.value}`)}
-          placeholder="https://example.com"
-          className="flex-1 bg-gray-950 border border-gray-800 rounded-lg px-2 py-1.5 text-sm focus:outline-none focus:border-orange-500 min-w-0"
-        />
-      )}
-    </div>
-  )
-}

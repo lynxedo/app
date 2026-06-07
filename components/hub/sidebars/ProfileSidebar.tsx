@@ -97,10 +97,10 @@ export default function ProfileSidebar({
             type="button"
             onClick={() => pickStatus(opt.value)}
             disabled={saving}
-            className={`w-full flex items-center gap-2.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+            className={`w-full flex items-center gap-2.5 px-2 py-2 md:py-1.5 rounded-lg text-lg md:text-sm transition-colors ${
               status === opt.value
-                ? 'bg-[#2E7EB8] text-white font-medium'
-                : 'text-white/70 hover:bg-white/10 hover:text-white'
+                ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30'
+                : 'text-white/70 hover:bg-white/[0.06] hover:text-white'
             }`}
           >
             <span className={`w-2.5 h-2.5 rounded-full ${opt.dot} flex-none`} />
@@ -120,7 +120,7 @@ export default function ProfileSidebar({
                   type="button"
                   onClick={() => onTextSizeChange(size)}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                    textSize === size ? 'bg-[#2E7EB8] text-white' : 'text-white/60 hover:text-white'
+                    textSize === size ? 'bg-gradient-to-br from-[#38bdf8] to-[#2E7EB8] text-white shadow-sm' : 'text-white/60 hover:text-white'
                   }`}
                 >
                   {size === 'small' ? 'S' : size === 'default' ? 'M' : 'L'}

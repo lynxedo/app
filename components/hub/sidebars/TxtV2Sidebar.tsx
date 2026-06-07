@@ -285,7 +285,8 @@ export default function TxtV2Sidebar({
 
   return (
     <aside
-      className="h-full w-72 bg-[#0F2E47] text-white flex flex-col flex-none border-r border-white/5 min-h-0"
+      className="h-full w-72 text-white flex flex-col flex-none min-h-0"
+      style={{ background: 'linear-gradient(180deg,#0f2236,#0b1726)', borderRight: '1px solid rgba(255,255,255,.06)' }}
       aria-label="Txt sidebar"
     >
       <SidebarHeader title="Txt" onClose={onClose} onDesktopCollapse={onDesktopCollapse} />

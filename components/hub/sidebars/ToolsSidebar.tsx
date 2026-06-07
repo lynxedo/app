@@ -31,10 +31,10 @@ function ToolRow({
     <Link
       href={href}
       onClick={() => onClose?.()}
-      className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+      className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded-lg text-lg md:text-sm transition-colors ${
         isActive
-          ? 'bg-[#2E7EB8] text-white font-medium'
-          : 'text-white/70 hover:bg-white/10 hover:text-white'
+          ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30'
+          : 'text-white/70 hover:bg-white/[0.06] hover:text-white'
       }`}
     >
       <span className="text-white/70 flex-none w-5 h-5 flex items-center justify-center">

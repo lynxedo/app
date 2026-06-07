@@ -111,6 +111,8 @@ const PATHS = {
   forms: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h6M9 16h3',
   reports: 'M3 18h4v-5H3v5zm6 0h4V6H9v12zm6 0h4V10h-4v8z',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
+  // Do Not Disturb — classic minus-in-circle.
+  dnd: 'M12 21a9 9 0 100-18 9 9 0 000 18zM8 12h8',
   search: 'M21 21l-4.34-4.34M17 10a7 7 0 11-14 0 7 7 0 0114 0z',
   settings: 'M10.325 4.317a2 2 0 013.35 0l.554.916a2 2 0 002.146.96l1.05-.224a2 2 0 012.39 2.39l-.224 1.05a2 2 0 00.96 2.146l.916.554a2 2 0 010 3.35l-.916.554a2 2 0 00-.96 2.146l.224 1.05a2 2 0 01-2.39 2.39l-1.05-.224a2 2 0 00-2.146.96l-.554.916a2 2 0 01-3.35 0l-.554-.916a2 2 0 00-2.146-.96l-1.05.224a2 2 0 01-2.39-2.39l.224-1.05a2 2 0 00-.96-2.146l-.916-.554a2 2 0 010-3.35l.916-.554a2 2 0 00.96-2.146l-.224-1.05a2 2 0 012.39-2.39l1.05.224a2 2 0 002.146-.96l.554-.916zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
   admin: 'M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-4z',
@@ -151,9 +153,39 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
 
 // More + Search aren't first-class catalog ids but use the same factory.
 export function MoreIcon() { return <I d={PATHS.more} /> }
+
+// 3×3 grid "all apps" glyph — shared by the desktop rail launcher button and
+// the mobile bottom-bar Apps button so the entry point reads the same on both.
+export function AppsIcon() {
+  return (
+    <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 24 24" aria-hidden="true">
+      <rect x="4" y="4" width="4" height="4" rx="1" />
+      <rect x="10" y="4" width="4" height="4" rx="1" />
+      <rect x="16" y="4" width="4" height="4" rx="1" />
+      <rect x="4" y="10" width="4" height="4" rx="1" />
+      <rect x="10" y="10" width="4" height="4" rx="1" />
+      <rect x="16" y="10" width="4" height="4" rx="1" />
+      <rect x="4" y="16" width="4" height="4" rx="1" />
+      <rect x="10" y="16" width="4" height="4" rx="1" />
+      <rect x="16" y="16" width="4" height="4" rx="1" />
+    </svg>
+  )
+}
 export function SearchIcon() { return <I d={PATHS.search} /> }
 export function SettingsIcon() { return <I d={PATHS.settings} /> }
 export function AdminIcon() { return <I d={PATHS.admin} /> }
+export function DndIcon() { return <I d={PATHS.dnd} /> }
+
+// Stylized padlock for private rooms (replaces the 🔒 emoji). Inherits the
+// current text color; size via className.
+export function LockIcon({ className = 'w-3 h-3' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.1} aria-hidden="true">
+      <rect x="5" y="10.5" width="14" height="9.5" rx="2.4" />
+      <path strokeLinecap="round" d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+    </svg>
+  )
+}
 
 // Catalog definition. Order is the order they appear in the picker.
 // Note: 'activity' is NOT pickable — the floating bell in the top-right is
@@ -206,13 +238,17 @@ export const DEFAULT_RAIL_CONFIG: { desktop: (CatalogId | null)[]; mobile: (Cata
 export type RailConfig = {
   desktop: (CatalogId | string | null)[]   // string = "url:https://..."
   mobile: (CatalogId | string | null)[]
+  drawer_pins?: CatalogId[]               // items pinned to the top of the app drawer
 }
 
 export function normalizeRailConfig(raw: unknown): RailConfig {
   const safe = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {}
   const desktop = Array.isArray(safe.desktop) ? safe.desktop.slice(0, 4) : DEFAULT_RAIL_CONFIG.desktop
   const mobile  = Array.isArray(safe.mobile)  ? safe.mobile.slice(0, 1)  : DEFAULT_RAIL_CONFIG.mobile
+  const drawer_pins = Array.isArray(safe.drawer_pins)
+    ? (safe.drawer_pins as unknown[]).filter((v): v is CatalogId => typeof v === 'string' && CATALOG.some(c => c.id === v))
+    : []
   while (desktop.length < 4) desktop.push(null)
   while (mobile.length  < 1) mobile.push(null)
-  return { desktop: desktop as RailConfig['desktop'], mobile: mobile as RailConfig['mobile'] }
+  return { desktop: desktop as RailConfig['desktop'], mobile: mobile as RailConfig['mobile'], drawer_pins }
 }

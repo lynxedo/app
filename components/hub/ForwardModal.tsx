@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { LockIcon } from './railCatalog'
 
 type Room = { id: string; name: string; is_private: boolean }
 type Participant = { id: string; display_name: string }
@@ -107,7 +108,7 @@ export default function ForwardModal({ currentUserId, onClose, onForward, messag
                     }`}>
                       {isSelected && <span className="text-white text-xs">✓</span>}
                     </div>
-                    <span className="text-gray-400 text-xs">{room.is_private ? '🔒' : '#'}</span>
+                    <span className="text-gray-400 text-xs">{room.is_private ? <LockIcon className="w-3 h-3" /> : '#'}</span>
                     <span className="truncate">{room.name}</span>
                   </button>
                 )

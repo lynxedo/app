@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
 import StatusPicker, { StatusDot } from './StatusPicker'
 import ClientsSidebar from './ClientsSidebar'
-import { CatalogIcon } from './railCatalog'
+import { CatalogIcon, LockIcon } from './railCatalog'
 import {
   getConversationsList,
   saveConversationsList,
@@ -187,7 +187,9 @@ export default function HubSidebar({
   const conversationsRef = useRef<Conversation[]>(conversations)
   conversationsRef.current = conversations
 
-  // Favorites / pinning state
+  // Favorites / pinning state — Hub-specific favorites (pinned rooms, DMs, and
+  // tools), stored in hub_pinned_ids. Intentionally SEPARATE from the icon
+  // rail / app drawer (hub_layout): the sidebar Favorites is just your Hub favs.
   const [pinnedIds, setPinnedIds] = useState<string[]>(initialPinnedIds)
 
   // Collapsible sections — persisted per-user in localStorage so each section
@@ -746,7 +748,8 @@ export default function HubSidebar({
     setSelectedIds(prev => prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id])
   }
 
-  // Pin / unpin
+  // Pin / unpin — Hub Favorites only (hub_pinned_ids). Does NOT touch the icon
+  // rail / app drawer.
   function togglePin(id: string) {
     setPinnedIds(prev => {
       const next = prev.includes(id) ? prev.filter(x => x !== id) : [...prev, id]
@@ -897,10 +900,10 @@ export default function HubSidebar({
         onTouchEnd={onTouchEnd}
         onTouchMove={onTouchEnd}
         className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-          isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+          isActive ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : 'text-white/70 hover:bg-white/10 hover:text-white'
         }`}
       >
-        {showPrefix && <span className="text-white/40 text-xs flex-none">{room.is_private ? '🔒' : '#'}</span>}
+        {showPrefix && <span className="text-white/40 text-xs flex-none">{room.is_private ? <LockIcon className="w-3 h-3" /> : '#'}</span>}
         <span className="truncate flex-1">{room.name}</span>
         {hasUnread && !isActive && (
           <span className="flex-none w-2 h-2 rounded-full bg-[#f97316]" />
@@ -933,7 +936,7 @@ export default function HubSidebar({
           onTouchEnd={onTouchEnd}
           onTouchMove={onTouchEnd}
           className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 min-w-0 ${
-            isActive ? 'bg-[#2E7EB8] text-white font-medium' : baseColor
+            isActive ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : baseColor
           }`}
         >
           {soloPerson ? (
@@ -964,7 +967,7 @@ export default function HubSidebar({
 
   return (
     <>
-      <aside className="w-screen md:w-72 flex-none bg-[#1A3D5C] flex flex-col h-full">
+      <aside className="w-screen md:w-72 flex-none flex flex-col h-full" style={{ background: 'linear-gradient(180deg,#0f2236,#0b1726)' }}>
         {/* Workspace header */}
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
           <div className="font-bold text-white text-lg md:text-sm tracking-wide min-w-0 truncate">Hub</div>
@@ -1018,7 +1021,7 @@ export default function HubSidebar({
               href="/hub/daily-log"
               onClick={() => onClose?.()}
               className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                dlActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                dlActive ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : 'text-white/70 hover:bg-white/10 hover:text-white'
               }`}
             >
               <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="daily-log" /></span>
@@ -1034,7 +1037,7 @@ export default function HubSidebar({
                 href="/hub/daily-log-v2"
                 onClick={() => onClose?.()}
                 className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                  pathname === '/hub/daily-log-v2' || pathname.startsWith('/hub/daily-log-v2/') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                  pathname === '/hub/daily-log-v2' || pathname.startsWith('/hub/daily-log-v2/') ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : 'text-white/70 hover:bg-white/10 hover:text-white'
                 }`}
               >
                 <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="daily-log-v2" /></span>
@@ -1075,7 +1078,7 @@ export default function HubSidebar({
                           href={tool.href}
                           onClick={() => onClose?.()}
                           className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
-                            isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                            isActive ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : 'text-white/70 hover:bg-white/10 hover:text-white'
                           }`}
                         >
                           <span className="text-xs flex-none">{tool.icon}</span>
@@ -1189,7 +1192,7 @@ export default function HubSidebar({
                     href={`/hub/board/${board.id}`}
                     onClick={() => onClose?.()}
                     className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 min-w-0 ${
-                      isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                      isActive ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : 'text-white/70 hover:bg-white/10 hover:text-white'
                     }`}
                   >
                     <span className="text-white/40 text-xs flex-none">
