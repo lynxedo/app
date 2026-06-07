@@ -26,7 +26,7 @@ export function SidebarHeader({
 }) {
   return (
     <div
-      className="flex-none px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2"
+      className="flex-none px-4 py-3 border-b border-white/[0.07] flex items-center justify-between gap-2"
       style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 12px)' }}
     >
       <h2 className="text-base font-bold text-white truncate">{title}</h2>
@@ -80,10 +80,10 @@ export function SidebarLinkRow({
 }: SidebarItem) {
   const pathname = usePathname() ?? ''
   const isActive = !external && (prefixMatch ? pathname.startsWith(href) : pathname === href)
-  const className = `flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
+  const className = `flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded-lg text-lg md:text-sm transition-colors ${
     isActive
-      ? 'bg-[#2E7EB8] text-white font-medium'
-      : 'text-white/70 hover:bg-white/10 hover:text-white'
+      ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30'
+      : 'text-white/70 hover:bg-white/[0.06] hover:text-white'
   }`
   if (external) {
     return (
@@ -122,7 +122,8 @@ export default function SidebarShell({
 }) {
   return (
     <aside
-      className="h-full w-72 bg-[#0F2E47] text-white flex flex-col flex-none border-r border-white/5"
+      className="h-full w-72 text-white flex flex-col flex-none"
+      style={{ background: 'linear-gradient(180deg,#0f2236,#0b1726)', borderRight: '1px solid rgba(255,255,255,.06)' }}
       aria-label={`${title} sidebar`}
     >
       <SidebarHeader title={title} action={action} onClose={onClose} onDesktopCollapse={onDesktopCollapse} />
