@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
 import StatusPicker, { StatusDot } from './StatusPicker'
 import ClientsSidebar from './ClientsSidebar'
-import { CatalogIcon } from './railCatalog'
+import { CatalogIcon, LockIcon } from './railCatalog'
 import {
   getConversationsList,
   saveConversationsList,
@@ -903,7 +903,7 @@ export default function HubSidebar({
           isActive ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : 'text-white/70 hover:bg-white/10 hover:text-white'
         }`}
       >
-        {showPrefix && <span className="text-white/40 text-xs flex-none">{room.is_private ? '🔒' : '#'}</span>}
+        {showPrefix && <span className="text-white/40 text-xs flex-none">{room.is_private ? <LockIcon className="w-3 h-3" /> : '#'}</span>}
         <span className="truncate flex-1">{room.name}</span>
         {hasUnread && !isActive && (
           <span className="flex-none w-2 h-2 rounded-full bg-[#f97316]" />

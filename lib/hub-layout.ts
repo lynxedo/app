@@ -35,6 +35,33 @@ export const MOBILE_VISIBLE = 5
 // anything they can't access (e.g. dialer).
 export const DEFAULT_ITEMS: string[] = ['hub', 'txt', 'dialer', 'time-clock', 'daily-log', 'tools']
 
+// These items are LOCKED to the front of every user's menu (rail + mobile bar)
+// and can't be removed or reordered in the customizer. Permission-filtered: if a
+// user can't access one (e.g. no Dialer access), it's simply skipped and their
+// own customized items slide up to fill the space. Everything after these is
+// fully customizable.
+export const LOCKED_PREFIX: string[] = ['hub', 'txt', 'dialer', 'time-clock']
+
+// Force the allowed locked items to the front (canonical order), with the user's
+// remaining custom items after. Removes any locked ids from the tail so they
+// can't be duplicated or dragged out of place.
+export function applyLockedPrefix(items: string[], perms: RailPermissions): string[] {
+  const locked = LOCKED_PREFIX.filter(t => tokenAllowed(t, perms))
+  const lockedSet = new Set(locked)
+  const rest = items.filter(t => !lockedSet.has(t))
+  return [...locked, ...rest]
+}
+
+// How many of a (normalized) list's leading items are locked — i.e. the count
+// the customizer should render as non-editable. Locked items are always a
+// contiguous prefix after normalizeLayout.
+export function lockedCount(items: string[]): number {
+  const lockedSet = new Set(LOCKED_PREFIX)
+  let n = 0
+  for (const t of items) { if (lockedSet.has(t)) n++; else break }
+  return n
+}
+
 const SYSTEM_CATALOG_IDS = new Set<CatalogId>(['hub', 'txt', 'time-clock'])
 const ALWAYS_ALLOWED = new Set<CatalogId>(['hub', 'txt', 'time-clock', 'tools', 'links'])
 
@@ -96,7 +123,7 @@ export function normalizeLayout(raw: unknown, perms: RailPermissions): HubLayout
     seen.add(v)
     items.push(v)
   }
-  return { version: 3, items }
+  return { version: 3, items: applyLockedPrefix(items, perms) }
 }
 
 type LegacyRailConfig = { desktop?: (string | null)[]; mobile?: (string | null)[] } | null | undefined

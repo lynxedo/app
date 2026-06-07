@@ -4,6 +4,7 @@ import { selectInChunks } from '@/lib/supabase/chunked-in'
 import RoomView from '@/components/hub/RoomView'
 import RoomNotifBell from '@/components/hub/RoomNotifBell'
 import RoomMembersButton from '@/components/hub/RoomMembersButton'
+import { LockIcon } from '@/components/hub/railCatalog'
 
 export default async function RoomPage({
   params,
@@ -80,7 +81,7 @@ export default async function RoomPage({
   return (
     <div className="flex flex-col flex-1 min-h-0">
       <header data-hide-on-keyboard className="flex-none border-b border-gray-800 px-5 py-3 flex items-center gap-3">
-        <span className="text-gray-400 text-lg">{room.is_private ? '🔒' : '#'}</span>
+        <span className="text-gray-400 text-lg flex items-center">{room.is_private ? <LockIcon className="w-5 h-5" /> : '#'}</span>
         <div className="flex-1 min-w-0">
           <h1 className="font-semibold text-white leading-tight">{room.name}</h1>
         </div>

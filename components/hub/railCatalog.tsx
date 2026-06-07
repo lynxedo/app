@@ -176,6 +176,17 @@ export function SettingsIcon() { return <I d={PATHS.settings} /> }
 export function AdminIcon() { return <I d={PATHS.admin} /> }
 export function DndIcon() { return <I d={PATHS.dnd} /> }
 
+// Stylized padlock for private rooms (replaces the 🔒 emoji). Inherits the
+// current text color; size via className.
+export function LockIcon({ className = 'w-3 h-3' }: { className?: string }) {
+  return (
+    <svg className={className} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2.1} aria-hidden="true">
+      <rect x="5" y="10.5" width="14" height="9.5" rx="2.4" />
+      <path strokeLinecap="round" d="M8 10.5V8a4 4 0 0 1 8 0v2.5" />
+    </svg>
+  )
+}
+
 // Catalog definition. Order is the order they appear in the picker.
 // Note: 'activity' is NOT pickable — the floating bell in the top-right is
 // always present and is the only Activity entry point.

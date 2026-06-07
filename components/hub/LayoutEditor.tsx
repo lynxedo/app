@@ -5,10 +5,11 @@ import {
   CATALOG,
   CatalogIcon,
   DndIcon,
+  LockIcon,
   type CatalogId,
   type RailPermissions,
 } from './railCatalog'
-import { classifyToken, tokenAllowed, MOBILE_VISIBLE, type HubLayout } from '@/lib/hub-layout'
+import { classifyToken, tokenAllowed, MOBILE_VISIBLE, lockedCount, type HubLayout } from '@/lib/hub-layout'
 
 type Room = { id: string; name: string; is_private: boolean }
 type Conversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
@@ -87,22 +88,27 @@ export default function LayoutEditor({
 
   const list = layout.items
   const inList = useMemo(() => new Set(list), [list])
+  // The leading locked items (Hub/Txt/Dialer/Time Clock) can't be removed or
+  // reordered — they're pinned for everyone.
+  const lockCount = lockedCount(list)
 
   function setList(next: string[]) { onChange({ version: 3, items: next }) }
   function addToken(token: string) { if (!inList.has(token)) setList([...list, token]) }
-  function removeAt(i: number) { setList(list.filter((_, idx) => idx !== i)) }
+  function removeAt(i: number) { if (i < lockCount) return; setList(list.filter((_, idx) => idx !== i)) }
   function move(i: number, dir: -1 | 1) {
+    if (i < lockCount) return
     const j = i + dir
-    if (j < 0 || j >= list.length) return
+    if (j < lockCount || j >= list.length) return
     const next = [...list]
     ;[next[i], next[j]] = [next[j], next[i]]
     setList(next)
   }
   function reorder(from: number, to: number) {
-    if (from === to) return
+    if (from < lockCount || from === to) return
+    const dest = Math.max(to, lockCount)
     const next = [...list]
     const [moved] = next.splice(from, 1)
-    next.splice(to, 0, moved)
+    next.splice(dest, 0, moved)
     setList(next)
   }
 
@@ -136,7 +142,7 @@ export default function LayoutEditor({
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 flex-none">
           <div>
             <h2 className="font-semibold text-white">Customize your menu</h2>
-            <p className="text-xs text-gray-400 mt-0.5">One list powers your rail, mobile bar, and the Apps drawer. Drag to reorder, hide what you don&apos;t use, add anything. Saves instantly.</p>
+            <p className="text-xs text-gray-400 mt-0.5">One list powers your rail, mobile bar, and the Apps drawer. The first few (🔒) are pinned for everyone; reorder, hide, or add anything below them. Saves instantly.</p>
           </div>
           <button type="button" onClick={onClose} className="text-white/50 hover:text-white p-1" aria-label="Close">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -154,32 +160,45 @@ export default function LayoutEditor({
             <p className="text-sm text-gray-500 text-center py-6">Nothing here yet — add items below.</p>
           ) : (
             <ul className="space-y-1.5 mb-4">
-              {list.map((token, i) => (
+              {list.map((token, i) => {
+                const locked = i < lockCount
+                return (
                 <li
                   key={`${token}-${i}`}
-                  draggable
-                  onDragStart={() => setDragIndex(i)}
+                  draggable={!locked}
+                  onDragStart={() => { if (!locked) setDragIndex(i) }}
                   onDragOver={e => e.preventDefault()}
                   onDrop={() => { if (dragIndex !== null) reorder(dragIndex, i); setDragIndex(null) }}
                   onDragEnd={() => setDragIndex(null)}
-                  className={`flex items-center gap-2 bg-gray-800/70 border border-gray-700 rounded-xl px-2.5 py-2 ${dragIndex === i ? 'opacity-50' : ''} ${i < MOBILE_VISIBLE ? '' : 'opacity-90'}`}
+                  className={`flex items-center gap-2 border rounded-xl px-2.5 py-2 ${locked ? 'bg-sky-500/[0.06] border-sky-400/20' : 'bg-gray-800/70 border-gray-700'} ${dragIndex === i ? 'opacity-50' : ''} ${i < MOBILE_VISIBLE ? '' : 'opacity-90'}`}
                 >
-                  <span className="text-gray-500 cursor-grab select-none" title="Drag to reorder" aria-hidden="true">
-                    <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zM7 10a1 1 0 11-2 0 1 1 0 012 0zM7 16a1 1 0 11-2 0 1 1 0 012 0zM15 4a1 1 0 11-2 0 1 1 0 012 0zM15 10a1 1 0 11-2 0 1 1 0 012 0zM15 16a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
-                  </span>
+                  {locked ? (
+                    <span className="text-sky-300/70" title="Pinned for everyone — can't be removed or moved"><LockIcon className="w-4 h-4" /></span>
+                  ) : (
+                    <span className="text-gray-500 cursor-grab select-none" title="Drag to reorder" aria-hidden="true">
+                      <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 20 20"><path d="M7 4a1 1 0 11-2 0 1 1 0 012 0zM7 10a1 1 0 11-2 0 1 1 0 012 0zM7 16a1 1 0 11-2 0 1 1 0 012 0zM15 4a1 1 0 11-2 0 1 1 0 012 0zM15 10a1 1 0 11-2 0 1 1 0 012 0zM15 16a1 1 0 11-2 0 1 1 0 012 0z" /></svg>
+                    </span>
+                  )}
                   <TokenIcon token={token} rooms={rooms} conversations={conversations} currentUserId={currentUserId} />
                   <span className="flex-1 text-sm text-white truncate">{tokenLabel(token, rooms, conversations, currentUserId)}</span>
-                  <button type="button" onClick={() => move(i, -1)} disabled={i === 0} className="text-white/40 hover:text-white disabled:opacity-20 p-1" aria-label="Move up">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4}><path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" /></svg>
-                  </button>
-                  <button type="button" onClick={() => move(i, 1)} disabled={i === list.length - 1} className="text-white/40 hover:text-white disabled:opacity-20 p-1" aria-label="Move down">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                  </button>
-                  <button type="button" onClick={() => removeAt(i)} className="text-white/40 hover:text-rose-400 p-1" aria-label="Remove">
-                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-                  </button>
+                  {locked ? (
+                    <span className="text-[10px] font-semibold text-sky-300/60 uppercase tracking-wide pr-1.5">Pinned</span>
+                  ) : (
+                    <>
+                      <button type="button" onClick={() => move(i, -1)} disabled={i === lockCount} className="text-white/40 hover:text-white disabled:opacity-20 p-1" aria-label="Move up">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4}><path strokeLinecap="round" strokeLinejoin="round" d="M5 15l7-7 7 7" /></svg>
+                      </button>
+                      <button type="button" onClick={() => move(i, 1)} disabled={i === list.length - 1} className="text-white/40 hover:text-white disabled:opacity-20 p-1" aria-label="Move down">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.4}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
+                      </button>
+                      <button type="button" onClick={() => removeAt(i)} className="text-white/40 hover:text-rose-400 p-1" aria-label="Remove">
+                        <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </>
+                  )}
                 </li>
-              ))}
+                )
+              })}
             </ul>
           )}
 
@@ -220,7 +239,7 @@ export default function LayoutEditor({
                 <div className="space-y-1.5 max-h-52 overflow-y-auto">
                   {addableRooms.map(room => (
                     <button key={room.id} type="button" onClick={() => addToken(`room:${room.id}`)} className="w-full flex items-center gap-2 bg-gray-800/50 hover:bg-gray-800 border border-gray-700/60 rounded-lg px-2.5 py-2 text-left">
-                      <span className="text-white/50">{room.is_private ? '🔒' : '#'}</span>
+                      <span className="text-white/50">{room.is_private ? <LockIcon className="w-3.5 h-3.5" /> : '#'}</span>
                       <span className="text-sm text-white truncate flex-1">{room.name}</span>
                       <span className="text-orange-400 text-lg leading-none">+</span>
                     </button>
