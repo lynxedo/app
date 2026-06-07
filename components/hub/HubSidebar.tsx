@@ -900,7 +900,7 @@ export default function HubSidebar({
         onTouchEnd={onTouchEnd}
         onTouchMove={onTouchEnd}
         className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-          isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+          isActive ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : 'text-white/70 hover:bg-white/10 hover:text-white'
         }`}
       >
         {showPrefix && <span className="text-white/40 text-xs flex-none">{room.is_private ? '🔒' : '#'}</span>}
@@ -936,7 +936,7 @@ export default function HubSidebar({
           onTouchEnd={onTouchEnd}
           onTouchMove={onTouchEnd}
           className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 min-w-0 ${
-            isActive ? 'bg-[#2E7EB8] text-white font-medium' : baseColor
+            isActive ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : baseColor
           }`}
         >
           {soloPerson ? (
@@ -1021,7 +1021,7 @@ export default function HubSidebar({
               href="/hub/daily-log"
               onClick={() => onClose?.()}
               className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                dlActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                dlActive ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : 'text-white/70 hover:bg-white/10 hover:text-white'
               }`}
             >
               <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="daily-log" /></span>
@@ -1037,7 +1037,7 @@ export default function HubSidebar({
                 href="/hub/daily-log-v2"
                 onClick={() => onClose?.()}
                 className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors ${
-                  pathname === '/hub/daily-log-v2' || pathname.startsWith('/hub/daily-log-v2/') ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                  pathname === '/hub/daily-log-v2' || pathname.startsWith('/hub/daily-log-v2/') ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : 'text-white/70 hover:bg-white/10 hover:text-white'
                 }`}
               >
                 <span className="flex-none w-5 h-5 flex items-center justify-center"><CatalogIcon id="daily-log-v2" /></span>
@@ -1078,7 +1078,7 @@ export default function HubSidebar({
                           href={tool.href}
                           onClick={() => onClose?.()}
                           className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 ${
-                            isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                            isActive ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : 'text-white/70 hover:bg-white/10 hover:text-white'
                           }`}
                         >
                           <span className="text-xs flex-none">{tool.icon}</span>
@@ -1192,7 +1192,7 @@ export default function HubSidebar({
                     href={`/hub/board/${board.id}`}
                     onClick={() => onClose?.()}
                     className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 min-w-0 ${
-                      isActive ? 'bg-[#2E7EB8] text-white font-medium' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                      isActive ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : 'text-white/70 hover:bg-white/10 hover:text-white'
                     }`}
                   >
                     <span className="text-white/40 text-xs flex-none">

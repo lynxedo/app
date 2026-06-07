@@ -570,7 +570,7 @@ export default function MessageComposer({
 
   return (
     <div
-      className="flex-none border-t border-gray-800 px-4 py-3"
+      className="flex-none border-t border-white/[0.06] px-4 py-3"
       onDrop={handleDrop}
       onDragOver={e => e.preventDefault()}
     >
@@ -688,7 +688,7 @@ export default function MessageComposer({
           all live in the toolbar bar below (no dedicated chevron row, so no
           empty band above the box). */}
       <div
-        className={`bg-gray-900 border border-gray-700 rounded-xl px-4 py-2.5 focus-within:border-[#2E7EB8] transition-colors ${
+        className={`bg-white/[0.03] border border-white/10 rounded-2xl px-4 py-2.5 focus-within:border-[#38bdf8] focus-within:bg-white/[0.05] transition-colors ${
           expanded ? 'h-[50vh] flex' : ''
         }`}
       >
@@ -923,8 +923,8 @@ export default function MessageComposer({
             onClick={send}
             disabled={sending || uploading}
             style={{ width: '32px', height: '32px' }}
-            className={`flex-none rounded-lg disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-colors ${
-              scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-[#2E7EB8] hover:bg-[#2470a8]'
+            className={`flex-none rounded-xl disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-all hover:scale-105 ${
+              scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-gradient-to-br from-[#38bdf8] to-[#2E7EB8] shadow-lg shadow-sky-900/40'
             }`}
             title={uploading ? 'Waiting for upload…' : scheduledAt ? 'Schedule message' : 'Send'}
             aria-label={scheduledAt ? 'Schedule message' : 'Send'}
