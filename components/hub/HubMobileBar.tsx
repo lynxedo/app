@@ -129,7 +129,7 @@ export default function HubMobileBar({
 
   const btn = (isActive: boolean) =>
     `flex-1 flex flex-col items-center justify-center gap-0.5 py-1.5 text-[10px] font-medium transition-colors ${
-      isActive ? 'text-amber-300' : 'text-white/60 hover:text-white'
+      isActive ? 'text-sky-300' : 'text-white/60 hover:text-white'
     }`
 
   function dot(extra = false) {
@@ -168,7 +168,7 @@ export default function HubMobileBar({
       const letter = (room.name || '#').trim().charAt(0).toUpperCase() || '#'
       return (
         <Link key={`room-${idx}`} href={`/hub/${room.id}`} onClick={() => onUserSlotNav?.()} className={btn(isActive)}>
-          <span className={`flex items-center justify-center w-5 h-5 rounded-md text-[11px] font-bold ${isActive ? 'bg-amber-400 text-gray-950' : 'bg-white/15 text-white/80'}`}>{letter}</span>
+          <span className={`flex items-center justify-center w-5 h-5 rounded-md text-[11px] font-bold ${isActive ? 'bg-sky-400 text-gray-950' : 'bg-white/15 text-white/80'}`}>{letter}</span>
           <span className="truncate max-w-full px-1">{room.name}</span>
         </Link>
       )
@@ -182,7 +182,7 @@ export default function HubMobileBar({
       const letter = (label || '?').trim().charAt(0).toUpperCase() || '?'
       return (
         <Link key={`dm-${idx}`} href={`/hub/pm/${conv.id}`} onClick={() => onUserSlotNav?.()} className={btn(isActive)}>
-          <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${isActive ? 'bg-amber-400 text-gray-950' : 'bg-sky-700 text-white'}`}>{letter}</span>
+          <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${isActive ? 'bg-sky-400 text-gray-950' : 'bg-sky-700 text-white'}`}>{letter}</span>
           <span className="truncate max-w-full px-1">{label}</span>
         </Link>
       )
@@ -300,8 +300,8 @@ export default function HubMobileBar({
 
   return (
     <nav
-      className={`md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-stretch border-t border-gray-800 bg-gray-950 transition-transform duration-200 ${hidden ? 'translate-y-full' : 'translate-y-0'}`}
-      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
+      className={`md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-stretch transition-transform duration-200 ${hidden ? 'translate-y-full' : 'translate-y-0'}`}
+      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)', background: 'linear-gradient(180deg,#0c1726,#0a1120)', borderTop: '1px solid rgba(255,255,255,.07)' }}
       aria-label="Hub bottom navigation"
     >
       {items.map((token, idx) => renderItem(token, idx))}

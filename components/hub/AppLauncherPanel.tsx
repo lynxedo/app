@@ -5,6 +5,24 @@ import { useRouter } from 'next/navigation'
 import { CatalogIcon, DndIcon, catalogById, type CatalogId, type RailPermissions } from './railCatalog'
 import { classifyToken } from '@/lib/hub-layout'
 
+// Per-app accent colors for the launcher tiles (presentational only).
+const APP_ACCENT: Record<string, string> = {
+  hub: '#38bdf8', txt: '#2dd4bf', txt2: '#60a5fa', dialer: '#34d399', 'time-clock': '#fbbf24',
+  'daily-log': '#fb923c', 'daily-log-v2': '#fb923c', routing: '#818cf8', reports: '#a78bfa',
+  fleet: '#22d3ee', tracker: '#f472b6', books: '#10b981', marketing: '#fb7185', files: '#38bdf8',
+  contacts: '#7dd3fc', forms: '#a3e635', 'pesticide-records': '#34d399', 'call-log': '#c084fc',
+  'call-log2': '#c084fc', tools: '#94a3b8', 'company-news': '#f59e0b', 'zone-sizer': '#2dd4bf',
+  lawn: '#a3e635', 'time-records': '#fbbf24', links: '#7dd3fc',
+}
+function accentForToken(token: string): string {
+  const c = classifyToken(token)
+  if (c.kind === 'dnd') return '#f87171'
+  if (c.kind === 'url') return '#7dd3fc'
+  if (c.kind === 'room') return '#818cf8'
+  if (c.kind === 'dm') return '#34d399'
+  return APP_ACCENT[c.id] ?? '#38bdf8'
+}
+
 type Room = { id: string; name: string; is_private: boolean }
 type Conversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
 
@@ -104,15 +122,21 @@ export default function AppLauncherPanel({
       }
     }
 
+    const accent = accentForToken(token)
     return (
       <button
         type="button"
         onClick={onClick}
-        className="w-full flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors"
+        className="group w-full flex flex-col items-center justify-center gap-2 p-2.5 rounded-2xl hover:bg-white/[0.05] hover:-translate-y-0.5 transition-all"
         title={label}
       >
-        <span className="text-white/80 [&_svg]:w-5 [&_svg]:h-5">{icon}</span>
-        <span className="text-[10px] font-medium text-center leading-tight text-white/65 truncate max-w-full">{label}</span>
+        <span
+          className="flex items-center justify-center w-11 h-11 rounded-2xl transition-transform group-hover:scale-105 [&_svg]:w-5 [&_svg]:h-5"
+          style={{ color: accent, background: accent + '1f', boxShadow: `inset 0 0 0 1px ${accent}44` }}
+        >
+          {icon}
+        </span>
+        <span className="text-[10px] font-medium text-center leading-tight text-white/65 group-hover:text-white truncate max-w-full">{label}</span>
       </button>
     )
   }
@@ -121,11 +145,11 @@ export default function AppLauncherPanel({
     <>
       <div className="hidden md:block fixed inset-0 z-[49]" onClick={onClose} aria-hidden="true" />
 
-      <div className="hidden md:flex fixed left-16 top-0 bottom-0 z-50 w-72 bg-[#0a1f33] border-r border-white/10 flex-col shadow-2xl overflow-hidden">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-none" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0) + 0.75rem)' }}>
+      <div className="hidden md:flex fixed left-16 top-0 bottom-0 z-50 w-72 flex-col overflow-hidden shadow-2xl" style={{ background: 'linear-gradient(180deg,#0d1a2c,#0a1422)', borderRight: '1px solid rgba(255,255,255,.08)' }}>
+        <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.07] flex-none" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0) + 0.75rem)' }}>
           <span className="font-semibold text-sm text-white">Your apps</span>
           <div className="flex items-center gap-1">
-            <button onClick={() => { onClose(); onOpenLayoutEditor() }} className="text-white/60 hover:text-white text-xs font-medium px-2 py-1 rounded hover:bg-white/10 transition-colors flex items-center gap-1" title="Customize">
+            <button onClick={() => { onClose(); onOpenLayoutEditor() }} className="text-sky-200/90 hover:text-white text-xs font-semibold px-2.5 py-1 rounded-lg transition-colors flex items-center gap-1" style={{ background: 'rgba(56,189,248,.12)', boxShadow: 'inset 0 0 0 1px rgba(56,189,248,.25)' }} title="Customize">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z" /></svg>
               Customize
             </button>
@@ -146,14 +170,14 @@ export default function AppLauncherPanel({
           <button
             type="button"
             onClick={() => { onClose(); onOpenLayoutEditor() }}
-            className="w-full mt-2 flex flex-col items-center justify-center gap-1.5 p-3 rounded-xl border border-dashed border-white/20 text-white/55 hover:text-white hover:border-white/40 transition-colors"
+            className="w-full mt-2 flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl border border-dashed border-white/15 text-white/55 hover:text-white hover:border-sky-400/40 hover:bg-white/[0.03] transition-colors"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
             <span className="text-[10px] font-medium">Add / edit</span>
           </button>
         </div>
 
-        <div className="flex-none border-t border-white/10 px-4 py-3">
+        <div className="flex-none border-t border-white/[0.07] px-4 py-3">
           <div className="grid grid-cols-3 gap-2">
             <SysBtn onClick={() => { onClose(); onSearch() }} label="Search">
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.34-4.34M17 10a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
@@ -181,7 +205,7 @@ export default function AppLauncherPanel({
 
 function SysBtn({ onClick, label, children }: { onClick: () => void; label: string; children: React.ReactNode }) {
   return (
-    <button type="button" onClick={onClick} className="flex flex-col items-center justify-center gap-1 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-white/55 hover:text-white">
+    <button type="button" onClick={onClick} className="flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] ring-1 ring-inset ring-white/[0.06] transition-colors text-white/55 hover:text-white">
       {children}
       <span className="text-[10px] font-medium">{label}</span>
     </button>
@@ -190,7 +214,7 @@ function SysBtn({ onClick, label, children }: { onClick: () => void; label: stri
 
 function SysBtnLink({ href, label, onNavigate, children }: { href: string; label: string; onNavigate: () => void; children: React.ReactNode }) {
   return (
-    <Link href={href} onClick={onNavigate} className="flex flex-col items-center justify-center gap-1 py-2.5 rounded-lg bg-white/5 hover:bg-white/10 transition-colors text-white/55 hover:text-white">
+    <Link href={href} onClick={onNavigate} className="flex flex-col items-center justify-center gap-1 py-2.5 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] ring-1 ring-inset ring-white/[0.06] transition-colors text-white/55 hover:text-white">
       {children}
       <span className="text-[10px] font-medium">{label}</span>
     </Link>

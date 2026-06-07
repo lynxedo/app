@@ -5,6 +5,24 @@ import { useRouter } from 'next/navigation'
 import { CatalogIcon, DndIcon, catalogById, type RailPermissions } from './railCatalog'
 import { classifyToken, MOBILE_VISIBLE } from '@/lib/hub-layout'
 
+// Per-app accent colors for the launcher tiles (presentational only).
+const APP_ACCENT: Record<string, string> = {
+  hub: '#38bdf8', txt: '#2dd4bf', txt2: '#60a5fa', dialer: '#34d399', 'time-clock': '#fbbf24',
+  'daily-log': '#fb923c', 'daily-log-v2': '#fb923c', routing: '#818cf8', reports: '#a78bfa',
+  fleet: '#22d3ee', tracker: '#f472b6', books: '#10b981', marketing: '#fb7185', files: '#38bdf8',
+  contacts: '#7dd3fc', forms: '#a3e635', 'pesticide-records': '#34d399', 'call-log': '#c084fc',
+  'call-log2': '#c084fc', tools: '#94a3b8', 'company-news': '#f59e0b', 'zone-sizer': '#2dd4bf',
+  lawn: '#a3e635', 'time-records': '#fbbf24', links: '#7dd3fc',
+}
+function accentForToken(token: string): string {
+  const c = classifyToken(token)
+  if (c.kind === 'dnd') return '#f87171'
+  if (c.kind === 'url') return '#7dd3fc'
+  if (c.kind === 'room') return '#818cf8'
+  if (c.kind === 'dm') return '#34d399'
+  return APP_ACCENT[c.id] ?? '#38bdf8'
+}
+
 type Room = { id: string; name: string; is_private: boolean }
 type Conversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
 
@@ -105,9 +123,10 @@ export default function HubMobileMore({
       }
     }
 
+    const accent = accentForToken(token)
     return (
-      <button type="button" onClick={onClick} className="w-full flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl bg-white/5 hover:bg-white/10 transition-colors">
-        <span className="text-white/80 [&_svg]:w-5 [&_svg]:h-5">{icon}</span>
+      <button type="button" onClick={onClick} className="group w-full flex flex-col items-center justify-center gap-2 py-3 rounded-2xl hover:bg-white/[0.05] active:scale-95 transition-all">
+        <span className="flex items-center justify-center w-12 h-12 rounded-2xl [&_svg]:w-5 [&_svg]:h-5" style={{ color: accent, background: accent + '1f', boxShadow: `inset 0 0 0 1px ${accent}44` }}>{icon}</span>
         <span className="text-[10px] font-medium text-center leading-tight px-1 text-white/70 truncate max-w-full">{label}</span>
       </button>
     )
@@ -116,8 +135,8 @@ export default function HubMobileMore({
   return (
     <div className="md:hidden fixed inset-0 z-[60] bg-black/70 flex flex-col" onClick={onClose}>
       <div
-        className="mt-auto bg-[#0F2E47] text-white rounded-t-2xl overflow-hidden flex flex-col"
-        style={{ maxHeight: '90vh', paddingBottom: 'env(safe-area-inset-bottom, 0)' }}
+        className="mt-auto text-white rounded-t-3xl overflow-hidden flex flex-col"
+        style={{ maxHeight: '90vh', paddingBottom: 'env(safe-area-inset-bottom, 0)', background: 'linear-gradient(180deg,#11233a,#0c1626)', boxShadow: '0 -20px 50px -20px rgba(0,0,0,.7)' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-none">
@@ -142,7 +161,7 @@ export default function HubMobileMore({
             <button
               type="button"
               onClick={() => { onClose(); onOpenLayoutEditor() }}
-              className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-xl border border-dashed border-white/20 text-white/55"
+              className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl border border-dashed border-white/15 text-white/55 active:scale-95 transition-transform"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
               <span className="text-[10px] font-medium">Add</span>
@@ -180,7 +199,7 @@ export default function HubMobileMore({
 
 function SysTile({ onClick, label, badge, children }: { onClick: () => void; label: string; badge?: number; children: React.ReactNode }) {
   return (
-    <button type="button" onClick={onClick} className="relative flex flex-col items-center justify-center gap-1 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 transition-colors text-white/70 hover:text-white">
+    <button type="button" onClick={onClick} className="relative flex flex-col items-center justify-center gap-1 py-3.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] ring-1 ring-inset ring-white/[0.06] transition-colors text-white/70 hover:text-white">
       {children}
       <span className="text-xs font-medium">{label}</span>
       {badge != null && badge > 0 && (
@@ -192,7 +211,7 @@ function SysTile({ onClick, label, badge, children }: { onClick: () => void; lab
 
 function SysTileLink({ href, label, onNavigate, children }: { href: string; label: string; onNavigate: () => void; children: React.ReactNode }) {
   return (
-    <Link href={href} onClick={onNavigate} className="flex flex-col items-center justify-center gap-1 py-3.5 rounded-xl bg-white/5 hover:bg-white/10 transition-colors text-white/70 hover:text-white">
+    <Link href={href} onClick={onNavigate} className="flex flex-col items-center justify-center gap-1 py-3.5 rounded-2xl bg-white/[0.04] hover:bg-white/[0.08] ring-1 ring-inset ring-white/[0.06] transition-colors text-white/70 hover:text-white">
       {children}
       <span className="text-xs font-medium">{label}</span>
     </Link>

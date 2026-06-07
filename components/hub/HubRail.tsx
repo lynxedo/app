@@ -267,7 +267,7 @@ export default function HubRail({
 
   function ActiveBar({ show }: { show: boolean }) {
     return show ? (
-      <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-amber-400" aria-hidden="true" />
+      <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r" style={{ background: 'linear-gradient(180deg,#38bdf8,#2E7EB8)', boxShadow: '0 0 10px #2E7EB8' }} aria-hidden="true" />
     ) : null
   }
 
@@ -329,7 +329,7 @@ export default function HubRail({
           title={room.name}
         >
           <ActiveBar show={isActive} />
-          <span className={`relative flex items-center justify-center w-5 h-5 rounded-md text-[11px] font-bold ${isActive ? 'bg-amber-400 text-[#0a1f33]' : 'bg-white/15 text-white/80'}`}>
+          <span className={`relative flex items-center justify-center w-5 h-5 rounded-md text-[11px] font-bold ${isActive ? 'bg-sky-400 text-[#0a1120]' : 'bg-white/15 text-white/80'}`}>
             {letter}
             {room.is_private && (
               <span className="absolute -bottom-1 -right-1 text-[7px]" aria-hidden="true">🔒</span>
@@ -384,7 +384,7 @@ export default function HubRail({
           title="Hub"
         >
           <ActiveBar show={active === 'hub'} />
-          <span className={`relative ${active === 'hub' ? 'text-amber-300' : ''}`}>
+          <span className={`relative ${active === 'hub' ? 'text-sky-300' : ''}`}>
             <CatalogIcon id="hub" />
             {unreadHub && (
               <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]" aria-label="Unread messages" />
@@ -428,7 +428,7 @@ export default function HubRail({
           title="Client texts"
         >
           <ActiveBar show={active === 'txt'} />
-          <span className={active === 'txt' ? 'text-amber-300' : ''}><CatalogIcon id="txt" /></span>
+          <span className={active === 'txt' ? 'text-sky-300' : ''}><CatalogIcon id="txt" /></span>
           <span>Txt</span>
         </Link>
       )
@@ -446,7 +446,7 @@ export default function HubRail({
           title="Txt2 — new texting"
         >
           <ActiveBar show={active === 'txt2'} />
-          <span className={`relative ${active === 'txt2' ? 'text-amber-300' : ''}`}>
+          <span className={`relative ${active === 'txt2' ? 'text-sky-300' : ''}`}>
             <CatalogIcon id="txt2" />
             {txtUnread && active !== 'txt2' && (
               <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]" aria-label="Unread texts" />
@@ -469,7 +469,7 @@ export default function HubRail({
           title={unheardVoicemails > 0 ? `Dialer — ${unheardVoicemails} unheard voicemail${unheardVoicemails === 1 ? '' : 's'}` : 'Dialer'}
         >
           <ActiveBar show={active === 'dialer'} />
-          <span className={`relative ${active === 'dialer' ? 'text-amber-300' : ''}`}>
+          <span className={`relative ${active === 'dialer' ? 'text-sky-300' : ''}`}>
             <CatalogIcon id="dialer" />
             {missedCall && active !== 'dialer' && (
               <span className="absolute -top-0.5 -left-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]" aria-label="Missed call" />
@@ -490,7 +490,7 @@ export default function HubRail({
       return (
         <button key={`tools-${idx}`} type="button" onClick={handleToolsClick} className={railBtnClass(effectiveActive === 'tools')} title="Tools">
           <ActiveBar show={effectiveActive === 'tools'} />
-          <span className={effectiveActive === 'tools' ? 'text-amber-300' : ''}><CatalogIcon id="tools" /></span>
+          <span className={effectiveActive === 'tools' ? 'text-sky-300' : ''}><CatalogIcon id="tools" /></span>
           <span>Tools</span>
         </button>
       )
@@ -499,7 +499,7 @@ export default function HubRail({
       return (
         <button key={`links-${idx}`} type="button" onClick={handleLinksClick} className={railBtnClass(effectiveActive === 'links')} title="Links">
           <ActiveBar show={effectiveActive === 'links'} />
-          <span className={effectiveActive === 'links' ? 'text-amber-300' : ''}><CatalogIcon id="links" /></span>
+          <span className={effectiveActive === 'links' ? 'text-sky-300' : ''}><CatalogIcon id="links" /></span>
           <span>Links</span>
         </button>
       )
@@ -513,7 +513,7 @@ export default function HubRail({
     const body = (
       <>
         <ActiveBar show={isActive} />
-        <span className={`relative ${isActive ? 'text-amber-300' : ''}`}>
+        <span className={`relative ${isActive ? 'text-sky-300' : ''}`}>
           {entry.icon}
           {showDailyLogDot && (
             <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]" aria-label="New Daily Log updates" />
@@ -534,8 +534,8 @@ export default function HubRail({
 
   return (
     <nav
-      className="hidden md:flex flex-col w-16 bg-[#0a1f33] border-r border-white/5 flex-none"
-      style={{ paddingTop: 'env(safe-area-inset-top, 0)' }}
+      className="hidden md:flex flex-col w-16 flex-none"
+      style={{ paddingTop: 'env(safe-area-inset-top, 0)', background: 'linear-gradient(180deg,#0b1626,#0a1120)', borderRight: '1px solid rgba(255,255,255,.06)' }}
       aria-label="Hub navigation"
     >
       {/* Search */}
@@ -563,13 +563,13 @@ export default function HubRail({
           type="button"
           onClick={onOpenLauncher}
           className={`relative flex flex-col items-center justify-center gap-0.5 py-2.5 text-[10px] font-medium w-full transition-colors ${
-            launcherOpen ? 'text-amber-400 bg-white/5' : 'text-white/55 hover:text-white hover:bg-white/5'
+            launcherOpen ? 'text-sky-300 bg-white/[0.06]' : 'text-white/55 hover:text-white hover:bg-white/5'
           }`}
           title={hiddenCount > 0 ? `All Apps — ${hiddenCount} more` : 'All Apps'}
           aria-pressed={launcherOpen}
         >
           {launcherOpen && (
-            <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r bg-amber-400" aria-hidden="true" />
+            <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r" style={{ background: 'linear-gradient(180deg,#38bdf8,#2E7EB8)', boxShadow: '0 0 10px #2E7EB8' }} aria-hidden="true" />
           )}
           <span className="relative">
             <AppsIcon />
@@ -604,7 +604,7 @@ export default function HubRail({
           title="Settings"
         >
           <ActiveBar show={active === 'settings'} />
-          <span className={active === 'settings' ? 'text-amber-300' : ''}><SettingsIcon /></span>
+          <span className={active === 'settings' ? 'text-sky-300' : ''}><SettingsIcon /></span>
           <span>Settings</span>
         </Link>
         {showAdmin && (
@@ -616,7 +616,7 @@ export default function HubRail({
             title="Admin"
           >
             <ActiveBar show={active === 'admin'} />
-            <span className={active === 'admin' ? 'text-amber-300' : ''}><AdminIcon /></span>
+            <span className={active === 'admin' ? 'text-sky-300' : ''}><AdminIcon /></span>
             <span>Admin</span>
           </Link>
         )}
