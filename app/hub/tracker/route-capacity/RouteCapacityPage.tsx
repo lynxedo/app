@@ -155,8 +155,8 @@ export default function RouteCapacityPage() {
 
   return (
     <div className="flex flex-1 overflow-hidden">
-      <div className="flex-1 overflow-auto min-w-0">
-        <div className="sticky top-0 z-20 bg-gray-950 border-b border-gray-800">
+      <div className="flex-1 flex flex-col overflow-hidden min-w-0">
+        <div className="bg-gray-950 border-b border-gray-800">
           <div className="px-4 pt-2.5 pb-1.5 flex items-center gap-2">
             <Link href="/hub/tracker" className="text-gray-500 hover:text-white text-sm transition-colors whitespace-nowrap" title="Back to Trackers">← Trackers</Link>
             <span className="text-gray-700">/</span>
@@ -176,10 +176,11 @@ export default function RouteCapacityPage() {
           </div>
         </div>
 
+        <div className="flex-1 min-h-0 overflow-auto">
         {loading ? (
           <div className="flex items-center justify-center py-20 text-gray-600 text-sm">Loading…</div>
         ) : (
-          <div className="space-y-3 p-3">
+          <div className="space-y-3 p-3" style={{ minWidth: totalWidth + 24 }}>
             {grouped.map(group => {
               const isCollapsed = collapsed.has(group.name)
               const summary = summarizeRouteCapacity(group.rows)
@@ -267,6 +268,7 @@ export default function RouteCapacityPage() {
             })}
           </div>
         )}
+        </div>
       </div>
     </div>
   )
