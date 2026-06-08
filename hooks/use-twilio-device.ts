@@ -51,6 +51,13 @@ export type UseTwilioDevice = {
   callStartedAt: number | null
   muted: boolean
   toggleMute: () => void
+  // Hold — native only (the Twilio JS SDK has no client-side hold; that needs
+  // the conference re-architecture). `holdSupported` is true only when the
+  // installed native app reports the 'hold' capability, so the UI can stay
+  // hidden on web + on older app builds.
+  held: boolean
+  toggleHold: () => void
+  holdSupported: boolean
   sendDigit: (digit: string) => void
   hangup: () => void
   // Lifecycle
@@ -65,6 +72,8 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   const [inCallWith, setInCallWith] = useState<string | null>(null)
   const [callStartedAt, setCallStartedAt] = useState<number | null>(null)
   const [muted, setMuted] = useState(false)
+  const [held, setHeld] = useState(false)
+  const [holdSupported, setHoldSupported] = useState(false)
 
   const deviceRef = useRef<DeviceType | null>(null)
   const incomingCallRef = useRef<Call | null>(null)
@@ -145,6 +154,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
             setCallStartedAt(null)
             setIncomingFrom(null)
             setMuted(false)
+            setHeld(false)
             if (err) {
               setErrorMessage(err)
               setState('error')
@@ -152,6 +162,19 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
               setState('ready')
             }
           }))
+          // Hold state — kept in sync whether hold was toggled from the web
+          // button or the native CallKit / lock-screen / CarPlay Hold control.
+          handles.push(await nv.addListener('callHold', (data) => {
+            setHeld(!!data?.held)
+          }))
+          // Feature-detect hold so the web Hold button only appears on a
+          // hold-capable native build (decouples this web deploy from the app).
+          nv.getVersion()
+            .then((v) => {
+              const caps = Array.isArray(v?.capabilities) ? v.capabilities : []
+              if (caps.includes('hold')) setHoldSupported(true)
+            })
+            .catch(() => { /* old build without capabilities — leave hold hidden */ })
         }
         const token = await fetchAndApplyToken()
         if (!token) {
@@ -369,6 +392,15 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     setMuted(next)
   }, [muted])
 
+  const toggleHold = useCallback(() => {
+    // Native only. Optimistically flip; the native `callHold` event confirms
+    // (and corrects, if the CallKit action is denied) the real state.
+    if (!nativeVoiceAvailable()) return
+    const next = !held
+    getNativeVoice()?.setOnHold({ onHold: next })
+    setHeld(next)
+  }, [held])
+
   const sendDigit = useCallback((digit: string) => {
     activeCallRef.current?.sendDigits(digit)
   }, [])
@@ -394,6 +426,9 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     callStartedAt,
     muted,
     toggleMute,
+    held,
+    toggleHold,
+    holdSupported,
     sendDigit,
     hangup,
     ensureRegistered,
