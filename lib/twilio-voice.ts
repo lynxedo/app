@@ -97,19 +97,26 @@ export async function mintVoiceAccessToken(opts: {
   const exp = now + ttl
   const jti = `${API_KEY_SID}-${crypto.randomBytes(8).toString('hex')}`
 
-  const incoming: { allow: boolean; push_credential_sid?: string } = { allow: true }
+  // push_credential_sid is a sibling of incoming/outgoing at the voice-grant
+  // level (matches Twilio's VoiceGrant.toPayload). Nesting it inside `incoming`
+  // makes Twilio silently ignore it — and no incoming VoIP push is sent.
+  const voice: {
+    incoming: { allow: boolean }
+    outgoing: { application_sid: string }
+    push_credential_sid?: string
+  } = {
+    incoming: { allow: true },
+    outgoing: {
+      application_sid: TWIML_APP_SID,
+    },
+  }
   if (opts.pushCredentialSid) {
-    incoming.push_credential_sid = opts.pushCredentialSid
+    voice.push_credential_sid = opts.pushCredentialSid
   }
 
   const grants = {
     identity: opts.identity,
-    voice: {
-      incoming,
-      outgoing: {
-        application_sid: TWIML_APP_SID,
-      },
-    },
+    voice,
   }
 
   const secret = new TextEncoder().encode(API_KEY_SECRET)
