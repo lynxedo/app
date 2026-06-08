@@ -1,8 +1,9 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { computeFormulas, summarize, type RecurringRow, type RecurringFormulas } from '@/lib/recurring-formulas'
+import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
 
 // ---- Option lists (mirrored exactly from Monday board 18188676554) ----
 const SERVICE_OPTIONS = ['IRR Install', 'WF - Lawn Health', 'Pet Waste', 'Other', 'Landscape', 'IRR', 'IRR SC', 'Winterize', 'Spam/Sales', 'Drain', 'Aeration', 'Mow', 'MOS', 'phc', 'Upgrade', 'IR- Gold']
@@ -87,6 +88,16 @@ function lightText(hex: string): boolean {
   const r = parseInt(h.slice(0, 2), 16), g = parseInt(h.slice(2, 4), 16), b = parseInt(h.slice(4, 6), 16)
   return (0.299 * r + 0.587 * g + 0.114 * b) > 160
 }
+function sortValue(row: RecurringRow, col: Col): unknown {
+  if (col.kind === 'formula') {
+    return (computeFormulas(row) as unknown as Record<string, unknown>)[col.key]
+  }
+  const raw = (row as unknown as Record<string, unknown>)[col.key]
+  if (col.type === 'multi') return Array.isArray(raw) ? (raw as string[]).join(', ') : raw
+  if (col.type === 'check') return raw ? 1 : 0
+  return raw
+}
+
 function fmtMoney(n: number | null): string { return n == null ? '' : `$${Math.round(n).toLocaleString()}` }
 function fmtInt(n: number | null): string { return n == null ? '' : `${Math.round(n).toLocaleString()}` }
 function fmtPct(n: number | null): string { return n == null ? '' : `${Math.round(n * 10) / 10}%` }
@@ -207,6 +218,7 @@ export default function RecurringServicesPage() {
   const [cancelledFilter, setCancelledFilter] = useState('')
   const [salespersonFilter, setSalespersonFilter] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [sort, setSort] = useState<SortState>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -247,10 +259,20 @@ export default function RecurringServicesPage() {
     await fetch(`/api/tracker/recurring/${id}`, { method: 'DELETE' })
   }
 
+  const sortedRows = useMemo(() => {
+    if (!sort) return rows
+    const col = COLS.find(c => c.key === sort.key)
+    if (!col) return rows
+    return rows
+      .map(r => ({ r, v: sortValue(r, col) }))
+      .sort((a, b) => compareValues(a.v, b.v, sort.dir))
+      .map(d => d.r)
+  }, [rows, sort])
+
   // group rows
   const groupNames = [...GROUP_ORDER, ...Array.from(new Set(rows.map(r => r.monday_group || 'Customers'))).filter(g => !GROUP_ORDER.includes(g))]
   const grouped = groupNames
-    .map(g => ({ name: g, rows: rows.filter(r => (r.monday_group || 'Customers') === g) }))
+    .map(g => ({ name: g, rows: sortedRows.filter(r => (r.monday_group || 'Customers') === g) }))
     .filter(g => g.rows.length > 0)
 
   const totalWidth = COLS.reduce((s, c) => s + c.width, 0) + 40 // + actions col
@@ -322,8 +344,16 @@ export default function RecurringServicesPage() {
                         <thead>
                           <tr className="bg-gray-900 border-b border-gray-800">
                             {COLS.map(c => (
-                              <th key={c.key} className={`px-2 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 ${c.kind === 'formula' ? 'text-right' : ''}`}>
-                                {c.label}
+                              <th
+                                key={c.key}
+                                onClick={() => setSort(s => cycleSort(s, c.key))}
+                                title="Click to sort"
+                                className={`px-2 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 cursor-pointer select-none hover:text-gray-200 ${c.kind === 'formula' ? 'text-right' : ''}`}
+                              >
+                                <span className="inline-flex items-center gap-1">
+                                  {c.label}
+                                  {sort?.key === c.key && <span className="text-indigo-400">{sort.dir === 'asc' ? '▲' : '▼'}</span>}
+                                </span>
                               </th>
                             ))}
                             <th className="px-1" />

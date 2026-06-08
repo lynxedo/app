@@ -1,13 +1,14 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import {
   computeRouteCapacity,
   summarizeRouteCapacity,
   type RouteCapacityRow,
   type RouteCapacityFormulas,
 } from '@/lib/route-capacity-formulas'
+import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
 
 type ColKind = 'data' | 'formula'
 type DataType = 'text' | 'date' | 'number'
@@ -43,6 +44,13 @@ const COLS: Col[] = [
   { key: 'drive_time', label: 'Drive Time', kind: 'data', type: 'number', width: 100, fmt: 'hours', footer: 'sum' },
   { key: 'totalTime', label: 'Total Time', kind: 'formula', width: 100, fmt: 'hours', footer: 'sum' },
 ]
+
+function sortValue(row: RouteCapacityRow, col: Col): unknown {
+  if (col.kind === 'formula') {
+    return (computeRouteCapacity(row) as unknown as Record<string, unknown>)[col.key]
+  }
+  return (row as unknown as Record<string, unknown>)[col.key]
+}
 
 function fmtMoney(n: number | null): string { return n == null ? '' : `$${Math.round(n).toLocaleString()}` }
 function fmtNum(n: number | null): string { return n == null ? '' : `${Math.round(n * 100) / 100}` }
@@ -90,6 +98,7 @@ export default function RouteCapacityPage() {
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
   const [collapsed, setCollapsed] = useState<Set<string>>(new Set())
+  const [sort, setSort] = useState<SortState>(null)
 
   const load = useCallback(async () => {
     setLoading(true)
@@ -127,9 +136,19 @@ export default function RouteCapacityPage() {
     await fetch(`/api/tracker/route-capacity/${id}`, { method: 'DELETE' })
   }
 
+  const sortedRows = useMemo(() => {
+    if (!sort) return rows
+    const col = COLS.find(c => c.key === sort.key)
+    if (!col) return rows
+    return rows
+      .map(r => ({ r, v: sortValue(r, col) }))
+      .sort((a, b) => compareValues(a.v, b.v, sort.dir))
+      .map(d => d.r)
+  }, [rows, sort])
+
   const groupNames = Array.from(new Set(rows.map(r => r.monday_group || 'Jobs')))
   const grouped = groupNames
-    .map(g => ({ name: g, rows: rows.filter(r => (r.monday_group || 'Jobs') === g) }))
+    .map(g => ({ name: g, rows: sortedRows.filter(r => (r.monday_group || 'Jobs') === g) }))
     .filter(g => g.rows.length > 0)
 
   const totalWidth = COLS.reduce((s, c) => s + c.width, 0) + 40
@@ -186,8 +205,16 @@ export default function RouteCapacityPage() {
                         <thead>
                           <tr className="bg-gray-900 border-b border-gray-800">
                             {COLS.map(c => (
-                              <th key={c.key} className={`px-2 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 ${c.kind === 'formula' || c.fmt ? 'text-right' : ''}`}>
-                                {c.label}
+                              <th
+                                key={c.key}
+                                onClick={() => setSort(s => cycleSort(s, c.key))}
+                                title="Click to sort"
+                                className={`px-2 py-2 text-[11px] font-semibold uppercase tracking-wide text-gray-400 cursor-pointer select-none hover:text-gray-200 ${c.kind === 'formula' || c.fmt ? 'text-right' : ''}`}
+                              >
+                                <span className="inline-flex items-center gap-1">
+                                  {c.label}
+                                  {sort?.key === c.key && <span className="text-indigo-400">{sort.dir === 'asc' ? '▲' : '▼'}</span>}
+                                </span>
                               </th>
                             ))}
                             <th className="px-1" />
