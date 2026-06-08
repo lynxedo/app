@@ -54,6 +54,8 @@ export type BoardReport = {
   rekeyMatched?: number
   newInserts?: number
   unmatchedExistingLeads?: number
+  newInsertNames?: string[]
+  unmatchedNames?: string[]
 }
 
 export type SyncReport = {
@@ -297,23 +299,19 @@ async function guardedDelete(
 
 // ---- leads re-key (full-tuple positional match) -----------------------------
 
+// Re-key match uses only STABLE identity fields — first/last/phone/creation date
+// don't change once a lead exists, so the match survives later Monday edits to
+// volatile fields (status, value, sold date). These 4 collide on only ~7 tuples
+// (14 rows); positional ranking pairs those 1:1. (This key is used only for the
+// one-time re-key of pre-existing leads; once keyed, upsert is by monday_item_id.)
 function leadKey(r: {
   first_name: string | null
   last_name: string | null
   phone: string | null
   lead_creation_date: string | null
-  sold_date: string | null
-  annual_value: number | null
-  base_program_sold: string | null
-  status: string | null
-  salesperson: string | null
 }): string {
   const s = (x: string | null) => (x ?? '').trim().toLowerCase()
-  const n = (x: number | null) => (x == null ? '' : String(Number(x)))
-  return [
-    s(r.first_name), s(r.last_name), s(r.phone), s(r.lead_creation_date),
-    s(r.sold_date), n(r.annual_value), s(r.base_program_sold), s(r.status), s(r.salesperson),
-  ].join('|')
+  return [s(r.first_name), s(r.last_name), s(r.phone), s(r.lead_creation_date)].join('|')
 }
 
 async function syncLeads(admin: SupabaseClient, dryRun: boolean, report: BoardReport) {
@@ -323,12 +321,15 @@ async function syncLeads(admin: SupabaseClient, dryRun: boolean, report: BoardRe
 
   const { data: existing, error } = await admin
     .from('leads')
-    .select('id, monday_item_id, first_name, last_name, phone, lead_creation_date, sold_date, annual_value, base_program_sold, status, salesperson')
+    .select('id, monday_item_id, first_name, last_name, phone, lead_creation_date')
   if (error) throw new Error(`leads read: ${error.message}`)
   const rows = existing ?? []
+  const nameById = new Map(
+    rows.map(r => [r.id as string, [r.first_name, r.last_name].filter(Boolean).join(' ') || '(unnamed)'])
+  )
 
   const alreadyKeyed = new Set(rows.filter(r => r.monday_item_id).map(r => r.monday_item_id as string))
-  // Bucket UNKEYED existing leads by full-tuple key -> queue of ids.
+  // Bucket UNKEYED existing leads by stable identity key -> queue of ids.
   const buckets = new Map<string, string[]>()
   for (const r of rows) {
     if (r.monday_item_id) continue
@@ -345,9 +346,14 @@ async function syncLeads(admin: SupabaseClient, dryRun: boolean, report: BoardRe
     if (q && q.length) assignments.push({ leadId: q.shift()!, mondayId: ml.monday_item_id })
     else newLeads.push(ml)
   }
+  const leftoverIds = [...buckets.values()].flat()
   report.rekeyMatched = assignments.length
   report.newInserts = newLeads.length
-  report.unmatchedExistingLeads = [...buckets.values()].reduce((a, q) => a + q.length, 0)
+  report.unmatchedExistingLeads = leftoverIds.length
+  report.newInsertNames = newLeads
+    .map(l => [l.first_name, l.last_name].filter(Boolean).join(' ') || '(unnamed)')
+    .slice(0, 25)
+  report.unmatchedNames = leftoverIds.map(id => nameById.get(id) ?? '(unknown)').slice(0, 25)
 
   if (!dryRun) {
     // 1. backfill monday_item_id onto matched existing leads
