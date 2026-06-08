@@ -27,6 +27,13 @@ const BOARDS: TrackerBoard[] = [
     href: '/hub/tracker/recurring',
     icon: '🔁',
   },
+  {
+    id: 'route-capacity',
+    title: 'Route Capacity',
+    description: 'Recurring jobs by route — production time, drive time, and capacity.',
+    href: '/hub/tracker/route-capacity',
+    icon: '🚐',
+  },
 ]
 
 export default async function HubTrackerRoute() {
