@@ -561,16 +561,15 @@ function HubTab() {
         </AdminOnly>
       </Section>
 
-      <Section title="Tracker (Lead Pipeline)">
-        <p>Tracker is the lead pipeline — every inbound lead from any source ends up here as a card you move through stages (New → Quoted → Won / Lost).</p>
+      <Section title="Trackers">
+        <p>Tracker is now a home for several boards. Opening <strong className="text-white">Tracker</strong> shows a menu of boards; pick one to open it. Each board shows its name at the top, next to a <strong className="text-white">← Trackers</strong> link to get back to the menu.</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">Pipeline</strong> — kanban view, drag cards between stages.</li>
-          <li><strong className="text-white">Dashboard</strong> — counts and conversion rates by source, by month.</li>
-          <li><strong className="text-white">Import</strong> — bulk-add leads from a spreadsheet.</li>
+          <li><strong className="text-white">Lead Tracker</strong> — the lead pipeline. Every inbound lead ends up here as a card you move through stages (Leads–Current, Appointment Set, Follow Up–Long Term, Closed Won, Upsells, Closed Lost, Closed Other, Saves). Resize or reorder columns by dragging the header / its right edge; your layout is saved per-user.</li>
+          <li><strong className="text-white">Recurring Services</strong> — your recurring customers, grouped into Customers and Upgraded, with programs, retention, cancellation reasons, and annual value. Computed columns (Active/Total Jobs, Retention Rate, Total Annual Value, WF/MO/IR/PW value, PHC/BWP/Aux %) match the old Monday board, with group totals at the bottom.</li>
+          <li><strong className="text-white">Route Capacity</strong> — recurring jobs by route, with computed WF Route, Program, Size, Production Time, and Total Time, plus drive-time and capacity totals.</li>
         </ul>
-        <p className="mt-3"><strong className="text-white">Resize or reorder columns.</strong> Drag a column header to reorder it. Drag the right edge of any header to resize. Your layout is saved per-user and follows you across devices.</p>
         <AdminOnly>
-          <p>Admins configure lead sources, stages, and field defaults under <strong className="text-white">Tracker → Settings</strong>.</p>
+          <p>Lead Tracker sources, stages, and field defaults are configured under <strong className="text-white">Tracker → Lead Tracker → Settings</strong>.</p>
         </AdminOnly>
       </Section>
     </>
