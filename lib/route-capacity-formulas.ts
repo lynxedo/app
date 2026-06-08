@@ -66,27 +66,27 @@ export function computeRouteCapacity(row: RouteCapacityRow): RouteCapacityFormul
   else if (contains(t, 'RC') || contains(t, 'BP')) program = t.substring(3, 8) // MID(T,4,5): 1-based pos 4, len 5
   else program = 'NULL'
 
-  // Size = VALUE(SizeHelper)
-  let size: number | null = null
+  // Size = VALUE(SizeHelper). In Monday, VALUE("") evaluates to 0 — the Size
+  // column shows 0 for an empty/blank Size Helper — so empty must map to 0, not
+  // null. (The prior null short-circuited Production Time to blank on the ~52% of
+  // rows with no Size Helper, understating the board's total production time.)
   const sh = (row.size_helper ?? '').trim()
-  if (sh !== '') {
+  let size: number
+  if (sh === '') {
+    size = 0
+  } else {
     const v = parseFloat(sh.replace(/,/g, ''))
-    size = Number.isNaN(v) ? null : v
+    size = Number.isNaN(v) ? 0 : v
   }
 
-  // Production Time (hours)
-  let productionTime: number | null = null
-  if (size !== null) {
-    const phc = contains(t, 'PHC') ? 10 : 0
-    const bwp = contains(t, 'BWP') ? 5 : 0
-    const raw = (size + 10 + phc + bwp) / 60
-    productionTime = Math.max(Math.round(raw * 100) / 100, 0.25)
-  }
+  // Production Time (hours) — always defined now that size is always numeric.
+  // MAX(ROUND((Size + 10 + PHC?10 + BWP?5) / 60, 2), 0.25)
+  const phc = contains(t, 'PHC') ? 10 : 0
+  const bwp = contains(t, 'BWP') ? 5 : 0
+  const productionTime = Math.max(Math.round(((size + 10 + phc + bwp) / 60) * 100) / 100, 0.25)
 
-  // Total Time = DriveTime + ProductionTime
-  let totalTime: number | null
-  if (productionTime === null && row.drive_time == null) totalTime = null
-  else totalTime = (row.drive_time ?? 0) + (productionTime ?? 0)
+  // Total Time = DriveTime + ProductionTime (Monday treats a blank Drive Time as 0).
+  const totalTime = (row.drive_time ?? 0) + productionTime
 
   return { wfRoute, program, size, productionTime, totalTime }
 }
