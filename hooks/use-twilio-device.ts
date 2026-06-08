@@ -70,6 +70,16 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   const incomingCallRef = useRef<Call | null>(null)
   const activeCallRef = useRef<Call | null>(null)
 
+  // Native (Capacitor) call state. The native Twilio Voice SDK drives the call
+  // through CallKit/PushKit — there's no JS Call object — so we mirror its
+  // lifecycle into the same state the web path uses via persistent plugin
+  // listeners (bound once in ensureRegistered). `nativeActiveFromRef` carries
+  // the caller/callee so callConnected can label the in-call screen (the
+  // connected event itself only includes the callSid).
+  const nativeActiveFromRef = useRef<string | null>(null)
+  const nativeHandlesRef = useRef<Array<{ remove: () => void }>>([])
+  const nativeBoundRef = useRef(false)
+
   const fetchAndApplyToken = useCallback(async (): Promise<string | null> => {
     // Native clients send their platform so the token carries the matching push
     // credential SID (required for incoming VoIP push). Browser sends no body.
@@ -101,6 +111,48 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       setState('connecting')
       setErrorMessage(null)
       try {
+        const nv = getNativeVoice()
+        // Bind the native call-lifecycle listeners ONCE. These are the only way
+        // the JS/Hub UI learns a native call is live: incoming calls arrive via
+        // PushKit→CallKit and outbound goes through the native Twilio Voice SDK,
+        // so without these the dialer would sit on "Ready" while the user is
+        // mid-call (the call lives entirely in the native layer). Single source
+        // of truth for both directions — placeCall no longer binds its own.
+        if (nv && !nativeBoundRef.current) {
+          nativeBoundRef.current = true
+          const handles = nativeHandlesRef.current
+          // Incoming VoIP push. CallKit owns the native ring UX, so we do NOT
+          // raise the web IncomingCall overlay here (it would be a dead,
+          // duplicate ring screen on top of CallKit). We only stash the caller
+          // so callConnected can label the in-call screen once answered.
+          handles.push(await nv.addListener('incomingCall', (data) => {
+            nativeActiveFromRef.current = typeof data?.from === 'string' ? data.from : null
+          }))
+          // Connected — inbound (answered in CallKit) OR outbound. Drives the
+          // Hub Dialer into the in-call state so it reflects the live call.
+          handles.push(await nv.addListener('callConnected', () => {
+            if (nativeActiveFromRef.current) setInCallWith(nativeActiveFromRef.current)
+            setCallStartedAt(Date.now())
+            setIncomingFrom(null)
+            setState('in-call')
+          }))
+          // Disconnected — local hangup (web button or CallKit), remote hangup,
+          // or a declined/cancelled incoming call. Resets back to ready.
+          handles.push(await nv.addListener('callDisconnected', (data) => {
+            const err = typeof data?.error === 'string' ? data.error : ''
+            nativeActiveFromRef.current = null
+            setInCallWith(null)
+            setCallStartedAt(null)
+            setIncomingFrom(null)
+            setMuted(false)
+            if (err) {
+              setErrorMessage(err)
+              setState('error')
+            } else {
+              setState('ready')
+            }
+          }))
+        }
         const token = await fetchAndApplyToken()
         if (!token) {
           setState('not-configured')
@@ -109,7 +161,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         // Register for incoming calls (native VoIP push). Best-effort — outbound
         // still works even if registration fails.
         try {
-          await getNativeVoice()?.register({ accessToken: token })
+          await nv?.register({ accessToken: token })
         } catch { /* surfaced via the native registrationFailed event */ }
         setState('ready')
       } catch (err) {
@@ -205,6 +257,9 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         try { d.destroy() } catch { /* ignore */ }
         deviceRef.current = null
       }
+      nativeHandlesRef.current.forEach((h) => { try { h.remove() } catch { /* ignore */ } })
+      nativeHandlesRef.current = []
+      nativeBoundRef.current = false
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options?.autoRegister])
@@ -225,6 +280,12 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     // and the To/extras params are identical to the web path, so the outbound TwiML
     // webhook behaves the same — only the audio transport differs.
     if (nativeVoiceAvailable()) {
+      // Make sure the persistent call-lifecycle listeners are bound (they own
+      // the in-call → ready transitions for native). ensureRegistered is a
+      // no-op for binding once nativeBoundRef is set.
+      if (!nativeBoundRef.current) {
+        await ensureRegistered()
+      }
       const nv = getNativeVoice()
       if (!nv) {
         setErrorMessage('Native voice unavailable')
@@ -243,30 +304,14 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         if (extras?.conversationId) params.txt_conversation_id = extras.conversationId
         if (extras?.contactId) params.txt_contact_id = extras.contactId
 
+        // The persistent callConnected / callDisconnected listeners bound in
+        // ensureRegistered drive the rest of the lifecycle.
+        nativeActiveFromRef.current = number
         setInCallWith(number)
-        const handles: Array<{ remove: () => void }> = []
-        const cleanup = () => {
-          handles.forEach((h) => { try { h.remove() } catch { /* ignore */ } })
-        }
-        handles.push(await nv.addListener('callConnected', () => {
-          setCallStartedAt(Date.now())
-          setState('in-call')
-        }))
-        handles.push(await nv.addListener('callDisconnected', (data) => {
-          const err = typeof data?.error === 'string' ? data.error : ''
-          setInCallWith(null)
-          setCallStartedAt(null)
-          setMuted(false)
-          if (err) {
-            setErrorMessage(err)
-            setState('error')
-          } else {
-            setState('ready')
-          }
-          cleanup()
-        }))
         await nv.connect({ accessToken: token, params })
       } catch (err) {
+        nativeActiveFromRef.current = null
+        setInCallWith(null)
         setErrorMessage(err instanceof Error ? err.message : 'place_call_failed')
         setState('error')
       }
