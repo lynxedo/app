@@ -17,7 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Call, Device as DeviceType } from '@twilio/voice-sdk'
-import { nativeVoiceAvailable, getNativeVoice } from '@/lib/native-voice'
+import { nativeVoiceAvailable, getNativeVoice, nativePlatform } from '@/lib/native-voice'
 
 export type DialerState =
   | 'idle'                  // no token yet
@@ -71,7 +71,15 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   const activeCallRef = useRef<Call | null>(null)
 
   const fetchAndApplyToken = useCallback(async (): Promise<string | null> => {
-    const res = await fetch('/api/dialer/voice/access-token', { method: 'POST' })
+    // Native clients send their platform so the token carries the matching push
+    // credential SID (required for incoming VoIP push). Browser sends no body.
+    const platform = nativePlatform()
+    const res = await fetch('/api/dialer/voice/access-token', {
+      method: 'POST',
+      ...(platform
+        ? { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ platform }) }
+        : {}),
+    })
     if (!res.ok) {
       const body = await res.json().catch(() => ({}))
       throw new Error(body.error || `token_fetch_failed_${res.status}`)
