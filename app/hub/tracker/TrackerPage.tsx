@@ -1,7 +1,8 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
+import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
 
 type Lead = {
   id: string
@@ -476,6 +477,25 @@ const LEAD_COLUMNS: ColumnDef[] = [
   },
 ]
 
+// Maps a sortable value out of a lead for a given column id.
+function leadSortValue(lead: Lead, id: string): unknown {
+  switch (id) {
+    case 'name': return `${lead.first_name ?? ''} ${lead.last_name ?? ''}`.trim()
+    case 'phone': return lead.phone
+    case 'stage': return PIPELINE_GROUPS.find(g => g.key === lead.stage)?.label ?? lead.stage
+    case 'service': return (lead.service ?? []).join(', ')
+    case 'status': return lead.status
+    case 'lead_source': return lead.lead_source
+    case 'salesperson': return lead.salesperson
+    case 'base_program': return lead.base_program_sold
+    case 'aux_services': return (lead.auxiliary_services ?? []).join(', ')
+    case 'annual_value': return lead.annual_value
+    case 'created': return lead.lead_creation_date
+    case 'latest_note': return lead.latest_note?.note ?? null
+    default: return null
+  }
+}
+
 type ColumnEntry = { id: string; width: number }
 
 function resolveColumns(layout: ColumnEntry[] | null): Array<ColumnDef & { width: number }> {
@@ -598,6 +618,8 @@ function GroupSection({
   columns,
   onColumnResize,
   onColumnReorder,
+  sort,
+  onToggleSort,
 }: {
   group: { key: string; label: string; leads: Lead[] }
   collapsed: boolean
@@ -614,6 +636,8 @@ function GroupSection({
   columns: Array<ColumnDef & { width: number }>
   onColumnResize: (id: string, width: number) => void
   onColumnReorder: (fromId: string, toId: string) => void
+  sort: SortState
+  onToggleSort: (id: string) => void
 }) {
   const totalWidth = columns.reduce((sum, c) => sum + c.width, 0) + 32 + 56 // checkbox col + actions col
   return (
@@ -662,9 +686,15 @@ function GroupSection({
                       const fromId = e.dataTransfer.getData('text/x-tracker-col')
                       if (fromId && fromId !== col.id) onColumnReorder(fromId, col.id)
                     }}
-                    title="Drag to reorder · drag right edge to resize"
+                    title="Click to sort · drag to reorder · drag right edge to resize"
                   >
-                    <span className="cursor-grab active:cursor-grabbing">{col.label}</span>
+                    <span
+                      onClick={() => onToggleSort(col.id)}
+                      className="cursor-pointer hover:text-gray-300 inline-flex items-center gap-1"
+                    >
+                      {col.label}
+                      {sort?.key === col.id && <span className="text-indigo-400">{sort.dir === 'asc' ? '▲' : '▼'}</span>}
+                    </span>
                     <span
                       role="separator"
                       aria-orientation="vertical"
@@ -1319,6 +1349,7 @@ export default function TrackerPage({
   const [stageFilter, setStageFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
   const [salespersonFilter, setSalespersonFilter] = useState('')
+  const [sort, setSort] = useState<SortState>(null)
   const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const [notesLeadId, setNotesLeadId] = useState<string | null>(null)
   const [newLeadOpen, setNewLeadOpen] = useState(false)
@@ -1527,9 +1558,17 @@ export default function TrackerPage({
     setBulkWorking(false)
   }
 
+  const sortedLeads = useMemo(() => {
+    if (!sort) return leads
+    return leads
+      .map(l => ({ l, v: leadSortValue(l, sort.key) }))
+      .sort((a, b) => compareValues(a.v, b.v, sort.dir))
+      .map(d => d.l)
+  }, [leads, sort])
+
   const groupedLeads = PIPELINE_GROUPS.map(g => ({
     ...g,
-    leads: leads.filter(l => l.stage === g.key),
+    leads: sortedLeads.filter(l => l.stage === g.key),
   }))
 
   const notesLead = notesLeadId ? leads.find(l => l.id === notesLeadId) ?? null : null
@@ -1634,6 +1673,8 @@ export default function TrackerPage({
                 columns={effectiveColumns}
                 onColumnResize={handleColumnResize}
                 onColumnReorder={handleColumnReorder}
+                sort={sort}
+                onToggleSort={id => setSort(s => cycleSort(s, id))}
               />
             ))}
           </div>
