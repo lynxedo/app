@@ -99,6 +99,35 @@ async function refreshJobberToken(
   return tokens.access_token
 }
 
+// ── Token retrieval (service-role / no user session) ─────────────────────────
+
+// Same as getJobberToken, but reads the jobber_tokens row via the admin
+// (service-role) client instead of the user-session client. Use this from
+// background jobs / cron / detached tasks that have NO authenticated user —
+// e.g. the Jobber→Supabase sync (lib/jobber-sync.ts), which runs fire-and-forget
+// after the HTTP request has already returned. With the user-session client the
+// RLS SELECT policy (auth.uid() = user_id) returns zero rows and the token reads
+// back null ("user needs to reconnect") even though a valid token exists.
+export async function getJobberTokenAdmin(userId: string): Promise<string | null> {
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('jobber_tokens')
+    .select('access_token, refresh_token, expires_at')
+    .eq('user_id', userId)
+    .single()
+
+  if (error || !data) return null
+
+  // Refresh if < 5 min from expiry (refreshJobberToken already writes via admin)
+  const expiresAt = new Date(data.expires_at).getTime()
+  const bufferMs = 5 * 60 * 1000
+  if (Date.now() + bufferMs >= expiresAt) {
+    return refreshJobberToken(userId, data.refresh_token)
+  }
+
+  return data.access_token
+}
+
 // ── GraphQL wrapper ──────────────────────────────────────────────────────────
 
 export async function jobberGraphQL<T = unknown>(
@@ -106,7 +135,29 @@ export async function jobberGraphQL<T = unknown>(
   query: string,
   variables?: Record<string, unknown>
 ): Promise<T> {
-  const token = await getJobberToken(userId)
+  return jobberGraphQLWith(getJobberToken, userId, query, variables)
+}
+
+// Admin-client variant — see getJobberTokenAdmin. Use from background/cron jobs.
+// Throws on GraphQL errors returned in the 200 body (Jobber returns "Throttled"
+// and field errors this way) so callers' retry/backoff can react and the error
+// surfaces instead of crashing later on an undefined `data`.
+export async function jobberGraphQLAdmin<T = unknown>(
+  userId: string,
+  query: string,
+  variables?: Record<string, unknown>
+): Promise<T> {
+  return jobberGraphQLWith(getJobberTokenAdmin, userId, query, variables, true)
+}
+
+async function jobberGraphQLWith<T = unknown>(
+  getToken: (userId: string) => Promise<string | null>,
+  userId: string,
+  query: string,
+  variables?: Record<string, unknown>,
+  throwOnGraphQLErrors = false
+): Promise<T> {
+  const token = await getToken(userId)
   if (!token) throw new Error('No Jobber token — user needs to reconnect')
 
   const res = await fetch(JOBBER_API_URL, {
@@ -117,14 +168,18 @@ export async function jobberGraphQL<T = unknown>(
       'X-JOBBER-GRAPHQL-VERSION': JOBBER_API_VERSION,
     },
     body: JSON.stringify({ query, variables }),
-    signal: AbortSignal.timeout(15000),
+    signal: AbortSignal.timeout(30000),
   })
 
   if (!res.ok) {
     throw new Error(`Jobber API HTTP ${res.status}: ${await res.text()}`)
   }
 
-  return res.json() as Promise<T>
+  const json = await res.json()
+  if (throwOnGraphQLErrors && Array.isArray(json?.errors) && json.errors.length) {
+    throw new Error('Jobber GraphQL errors: ' + JSON.stringify(json.errors))
+  }
+  return json as T
 }
 
 // ── Connection check ─────────────────────────────────────────────────────────
