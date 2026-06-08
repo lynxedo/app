@@ -17,6 +17,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Call, Device as DeviceType } from '@twilio/voice-sdk'
+import { nativeVoiceAvailable, getNativeVoice } from '@/lib/native-voice'
 
 export type DialerState =
   | 'idle'                  // no token yet
@@ -84,6 +85,22 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   }, [])
 
   const ensureRegistered = useCallback(async () => {
+    // Native app: outbound calls go through the native Twilio Voice SDK. We don't
+    // initialize the in-webview JS Device (WKWebView restricts WebRTC mic access);
+    // we just need a token to resolve identity and report readiness. Incoming-call
+    // registration lands with CallKit in a later phase.
+    if (nativeVoiceAvailable()) {
+      setState('connecting')
+      setErrorMessage(null)
+      try {
+        const token = await fetchAndApplyToken()
+        setState(token ? 'ready' : 'not-configured')
+      } catch (err) {
+        setErrorMessage(err instanceof Error ? err.message : 'device_init_failed')
+        setState('error')
+      }
+      return
+    }
     if (deviceRef.current) return
     setState('connecting')
     setErrorMessage(null)
@@ -187,6 +204,57 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     number: string,
     extras?: { conversationId?: string | null; contactId?: string | null }
   ) => {
+    // Native path: drive the call through the native Twilio Voice SDK. Token fetch
+    // and the To/extras params are identical to the web path, so the outbound TwiML
+    // webhook behaves the same — only the audio transport differs.
+    if (nativeVoiceAvailable()) {
+      const nv = getNativeVoice()
+      if (!nv) {
+        setErrorMessage('Native voice unavailable')
+        setState('error')
+        return
+      }
+      setState('placing')
+      setMuted(false)
+      try {
+        const token = await fetchAndApplyToken()
+        if (!token) {
+          setState('not-configured')
+          return
+        }
+        const params: Record<string, string> = { To: number }
+        if (extras?.conversationId) params.txt_conversation_id = extras.conversationId
+        if (extras?.contactId) params.txt_contact_id = extras.contactId
+
+        setInCallWith(number)
+        const handles: Array<{ remove: () => void }> = []
+        const cleanup = () => {
+          handles.forEach((h) => { try { h.remove() } catch { /* ignore */ } })
+        }
+        handles.push(await nv.addListener('callConnected', () => {
+          setCallStartedAt(Date.now())
+          setState('in-call')
+        }))
+        handles.push(await nv.addListener('callDisconnected', (data) => {
+          const err = typeof data?.error === 'string' ? data.error : ''
+          setInCallWith(null)
+          setCallStartedAt(null)
+          setMuted(false)
+          if (err) {
+            setErrorMessage(err)
+            setState('error')
+          } else {
+            setState('ready')
+          }
+          cleanup()
+        }))
+        await nv.connect({ accessToken: token, params })
+      } catch (err) {
+        setErrorMessage(err instanceof Error ? err.message : 'place_call_failed')
+        setState('error')
+      }
+      return
+    }
     if (!deviceRef.current) {
       await ensureRegistered()
     }
@@ -227,9 +295,14 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   }, [ensureRegistered])
 
   const toggleMute = useCallback(() => {
+    const next = !muted
+    if (nativeVoiceAvailable()) {
+      getNativeVoice()?.setMuted({ muted: next })
+      setMuted(next)
+      return
+    }
     const call = activeCallRef.current
     if (!call) return
-    const next = !muted
     call.mute(next)
     setMuted(next)
   }, [muted])
@@ -239,6 +312,10 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   }, [])
 
   const hangup = useCallback(() => {
+    if (nativeVoiceAvailable()) {
+      getNativeVoice()?.disconnect()
+      return
+    }
     activeCallRef.current?.disconnect()
     incomingCallRef.current?.reject()
   }, [])
