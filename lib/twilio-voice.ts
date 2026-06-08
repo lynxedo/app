@@ -60,9 +60,30 @@ export type VoiceAccessTokenResult =
   | { ok: true; token: string; identity: string; ttlSeconds: number; expiresAt: number }
   | { ok: false; error: string }
 
+// Twilio Mobile Push Credential SIDs — the resources that let Twilio deliver an
+// incoming-call VoIP push to a native device. These are resource identifiers
+// (not secrets); an env var overrides the default if ever rotated.
+const IOS_PUSH_CREDENTIAL_SID =
+  process.env.TWILIO_PUSH_CREDENTIAL_SID_IOS || 'CR8dedcf7141f714818318ef127ceae13a'
+const ANDROID_PUSH_CREDENTIAL_SID =
+  process.env.TWILIO_PUSH_CREDENTIAL_SID_ANDROID || 'CRe74ebc43db49f54eda74cb2042d1d42e'
+
+/** The push-credential SID to embed in a native client's access token, or
+ *  undefined for web (which receives calls over its live signaling socket). */
+export function pushCredentialSidForPlatform(platform?: string): string | undefined {
+  if (platform === 'ios') return IOS_PUSH_CREDENTIAL_SID || undefined
+  if (platform === 'android') return ANDROID_PUSH_CREDENTIAL_SID || undefined
+  return undefined
+}
+
 export async function mintVoiceAccessToken(opts: {
   identity: string
   ttlSeconds?: number
+  // Native clients (iOS/Android) receive incoming calls via a push notification.
+  // Twilio only sends that push if the VoiceGrant names the platform's push
+  // credential SID. The browser SDK holds a live signaling socket and doesn't
+  // need this. Omit for web; pass the matching CR... SID for native.
+  pushCredentialSid?: string
 }): Promise<VoiceAccessTokenResult> {
   if (!voiceConfigured()) {
     return { ok: false, error: 'twilio_not_configured' }
@@ -76,10 +97,15 @@ export async function mintVoiceAccessToken(opts: {
   const exp = now + ttl
   const jti = `${API_KEY_SID}-${crypto.randomBytes(8).toString('hex')}`
 
+  const incoming: { allow: boolean; push_credential_sid?: string } = { allow: true }
+  if (opts.pushCredentialSid) {
+    incoming.push_credential_sid = opts.pushCredentialSid
+  }
+
   const grants = {
     identity: opts.identity,
     voice: {
-      incoming: { allow: true },
+      incoming,
       outgoing: {
         application_sid: TWIML_APP_SID,
       },

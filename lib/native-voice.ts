@@ -36,6 +36,7 @@ export interface NativeVoicePlugin {
 
 interface CapacitorGlobal {
   isNativePlatform?: () => boolean
+  getPlatform?: () => string
   Plugins?: { TwilioVoice?: NativeVoicePlugin }
 }
 
@@ -53,4 +54,12 @@ export function nativeVoiceAvailable(): boolean {
 /** The native plugin, or null if not running natively. */
 export function getNativeVoice(): NativeVoicePlugin | null {
   return nativeVoiceAvailable() ? capacitor()!.Plugins!.TwilioVoice! : null
+}
+
+/** 'ios' | 'android' when running natively, else null. Used to request a token
+ *  carrying the right push-credential SID for incoming VoIP push. */
+export function nativePlatform(): string | null {
+  const c = capacitor()
+  if (!c?.isNativePlatform?.()) return null
+  return c.getPlatform?.() ?? null
 }
