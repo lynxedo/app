@@ -85,16 +85,25 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   }, [])
 
   const ensureRegistered = useCallback(async () => {
-    // Native app: outbound calls go through the native Twilio Voice SDK. We don't
-    // initialize the in-webview JS Device (WKWebView restricts WebRTC mic access);
-    // we just need a token to resolve identity and report readiness. Incoming-call
-    // registration lands with CallKit in a later phase.
+    // Native app: outbound calls go through the native Twilio Voice SDK, and we
+    // register the device with Twilio for incoming calls (PushKit + CallKit handle
+    // the native ring). We don't initialize the in-webview JS Device — WKWebView
+    // restricts WebRTC mic access, which is the whole reason for the native path.
     if (nativeVoiceAvailable()) {
       setState('connecting')
       setErrorMessage(null)
       try {
         const token = await fetchAndApplyToken()
-        setState(token ? 'ready' : 'not-configured')
+        if (!token) {
+          setState('not-configured')
+          return
+        }
+        // Register for incoming calls (native VoIP push). Best-effort — outbound
+        // still works even if registration fails.
+        try {
+          await getNativeVoice()?.register({ accessToken: token })
+        } catch { /* surfaced via the native registrationFailed event */ }
+        setState('ready')
       } catch (err) {
         setErrorMessage(err instanceof Error ? err.message : 'device_init_failed')
         setState('error')

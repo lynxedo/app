@@ -14,6 +14,8 @@
 
 export interface NativeVoicePlugin {
   getVersion(): Promise<{ version: string; platform: string }>
+  register(opts: { accessToken: string }): Promise<{ registered: boolean }>
+  unregister(): Promise<void>
   connect(opts: { accessToken: string; params?: Record<string, string> }): Promise<{
     connected: boolean
     callSid?: string
