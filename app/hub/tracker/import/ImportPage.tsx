@@ -249,10 +249,10 @@ export default function ImportPage() {
               Import Another File
             </button>
             <a
-              href="/hub/tracker"
+              href="/hub/tracker/leads"
               className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors"
             >
-              Go to Tracker →
+              Go to Lead Tracker →
             </a>
           </div>
         </div>

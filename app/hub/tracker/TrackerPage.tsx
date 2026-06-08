@@ -1,5 +1,6 @@
 'use client'
 
+import Link from 'next/link'
 import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react'
 
 type Lead = {
@@ -1540,7 +1541,21 @@ export default function TrackerPage({
       {/* Main */}
       <div className="flex-1 overflow-auto min-w-0">
         {/* Toolbar */}
-        <div className="sticky top-0 z-10 bg-gray-950 border-b border-gray-800 px-4 py-2.5 flex items-center gap-2 flex-wrap">
+        <div className="sticky top-0 z-10 bg-gray-950 border-b border-gray-800">
+          {/* Board title */}
+          <div className="px-4 pt-2.5 pb-1.5 flex items-center gap-2">
+            <Link
+              href="/hub/tracker"
+              className="text-gray-500 hover:text-white text-sm transition-colors whitespace-nowrap"
+              title="Back to Trackers"
+            >
+              ← Trackers
+            </Link>
+            <span className="text-gray-700">/</span>
+            <h1 className="text-base font-semibold text-white">Lead Tracker</h1>
+          </div>
+          {/* Filters / actions */}
+          <div className="px-4 pb-2.5 flex items-center gap-2 flex-wrap">
           <input
             type="text"
             placeholder="Search name, phone, email…"
@@ -1593,6 +1608,7 @@ export default function TrackerPage({
           >
             + New Lead
           </button>
+          </div>
         </div>
 
         {/* Groups */}
