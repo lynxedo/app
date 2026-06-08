@@ -90,6 +90,9 @@ export default function DialerPanel({
             startedAt={device.callStartedAt}
             muted={device.muted}
             onToggleMute={device.toggleMute}
+            held={device.held}
+            holdSupported={device.holdSupported}
+            onToggleHold={device.toggleHold}
             onSendDigit={device.sendDigit}
             onHangup={device.hangup}
             recordingEnabled={recordingEnabled}

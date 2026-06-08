@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, type ReactNode } from 'react'
 
 const DTMF_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#']
 
@@ -28,6 +28,9 @@ export default function ActiveCall({
   startedAt,
   muted,
   onToggleMute,
+  held = false,
+  holdSupported = false,
+  onToggleHold,
   onSendDigit,
   onHangup,
   recordingEnabled = false,
@@ -40,6 +43,9 @@ export default function ActiveCall({
   startedAt: number | null
   muted: boolean
   onToggleMute: () => void
+  held?: boolean
+  holdSupported?: boolean
+  onToggleHold?: () => void
   onSendDigit: (d: string) => void
   onHangup: () => void
   recordingEnabled?: boolean
@@ -84,10 +90,99 @@ export default function ActiveCall({
 
   const elapsed = startedAt && status === 'in-call' ? Math.floor((now - startedAt) / 1000) : 0
 
+  // In-call action buttons, assembled so the grid stays centered regardless of
+  // which optional controls (Hold, recording Pause) are present.
+  const actionButtons: ReactNode[] = [
+    <button
+      key="mute"
+      type="button"
+      onClick={onToggleMute}
+      className={`aspect-square rounded-full flex flex-col items-center justify-center text-xs ${
+        muted ? 'bg-white text-gray-900' : 'bg-white/5 text-white hover:bg-white/10'
+      }`}
+      aria-label="Mute"
+    >
+      <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        {muted ? (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l4-4m0 4l-4-4" />
+        ) : (
+          <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M19.07 4.929a10 10 0 010 14.142M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
+        )}
+      </svg>
+      <span>{muted ? 'Muted' : 'Mute'}</span>
+    </button>,
+    <button
+      key="keypad"
+      type="button"
+      onClick={() => setShowKeypad(true)}
+      disabled={status !== 'in-call'}
+      className="aspect-square rounded-full bg-white/5 hover:bg-white/10 flex flex-col items-center justify-center text-xs text-white disabled:opacity-40"
+      aria-label="Keypad"
+    >
+      <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M5 7h.01M5 12h.01M5 17h.01M12 7h.01M12 12h.01M12 17h.01M19 7h.01M19 12h.01M19 17h.01" />
+      </svg>
+      <span>Keypad</span>
+    </button>,
+  ]
+
+  if (holdSupported && onToggleHold) {
+    actionButtons.push(
+      <button
+        key="hold"
+        type="button"
+        onClick={onToggleHold}
+        disabled={status !== 'in-call'}
+        className={`aspect-square rounded-full flex flex-col items-center justify-center text-xs disabled:opacity-40 ${
+          held ? 'bg-amber-500/20 text-amber-300 hover:bg-amber-500/30' : 'bg-white/5 text-white hover:bg-white/10'
+        }`}
+        aria-label={held ? 'Resume call' : 'Hold call'}
+      >
+        <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          {held ? (
+            <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+          ) : (
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6" />
+          )}
+        </svg>
+        <span>{held ? 'Resume' : 'Hold'}</span>
+      </button>
+    )
+  }
+
+  if (recordingEnabled && onToggleRecordingPause) {
+    actionButtons.push(
+      <button
+        key="rec"
+        type="button"
+        onClick={onToggleRecordingPause}
+        disabled={status !== 'in-call'}
+        className={`aspect-square rounded-full flex flex-col items-center justify-center text-xs disabled:opacity-40 ${
+          recordingPaused ? 'bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30' : 'bg-white/5 text-white hover:bg-white/10'
+        }`}
+        aria-label={recordingPaused ? 'Resume recording' : 'Pause recording'}
+      >
+        <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          {recordingPaused ? (
+            <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
+          ) : (
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6" />
+          )}
+        </svg>
+        <span>{recordingPaused ? 'Resume' : 'Pause'}</span>
+      </button>
+    )
+  }
+
+  // Pad to a full row of three so an incomplete last row stays centered.
+  while (actionButtons.length % 3 !== 0) {
+    actionButtons.push(<div key={`filler-${actionButtons.length}`} />)
+  }
+
   return (
     <div className="w-full max-w-xs mx-auto text-center">
       <div className="text-white/50 text-sm mb-2">
-        {status === 'placing' ? 'Calling…' : 'On call'}
+        {status === 'placing' ? 'Calling…' : held ? 'On hold' : 'On call'}
       </div>
       <div className="text-2xl font-light text-white mb-1">{formatPhone(who)}</div>
       <div className="text-white/50 text-sm mb-2">
@@ -131,61 +226,7 @@ export default function ActiveCall({
         </div>
       ) : (
         <div className="grid grid-cols-3 gap-3 mb-5 max-w-xs mx-auto">
-          <button
-            type="button"
-            onClick={onToggleMute}
-            className={`aspect-square rounded-full flex flex-col items-center justify-center text-xs ${
-              muted
-                ? 'bg-white text-gray-900'
-                : 'bg-white/5 text-white hover:bg-white/10'
-            }`}
-            aria-label="Mute"
-          >
-            <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-              {muted ? (
-                <path strokeLinecap="round" strokeLinejoin="round" d="M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15zM17 14l4-4m0 4l-4-4" />
-              ) : (
-                <path strokeLinecap="round" strokeLinejoin="round" d="M15.536 8.464a5 5 0 010 7.072M19.07 4.929a10 10 0 010 14.142M5.586 15H4a1 1 0 01-1-1v-4a1 1 0 011-1h1.586l4.707-4.707C10.923 3.663 12 4.109 12 5v14c0 .891-1.077 1.337-1.707.707L5.586 15z" />
-              )}
-            </svg>
-            <span>{muted ? 'Muted' : 'Mute'}</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowKeypad(true)}
-            disabled={status !== 'in-call'}
-            className="aspect-square rounded-full bg-white/5 hover:bg-white/10 flex flex-col items-center justify-center text-xs text-white disabled:opacity-40"
-            aria-label="Keypad"
-          >
-            <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M5 7h.01M5 12h.01M5 17h.01M12 7h.01M12 12h.01M12 17h.01M19 7h.01M19 12h.01M19 17h.01" />
-            </svg>
-            <span>Keypad</span>
-          </button>
-          {recordingEnabled && onToggleRecordingPause ? (
-            <button
-              type="button"
-              onClick={onToggleRecordingPause}
-              disabled={status !== 'in-call'}
-              className={`aspect-square rounded-full flex flex-col items-center justify-center text-xs disabled:opacity-40 ${
-                recordingPaused
-                  ? 'bg-yellow-500/20 text-yellow-300 hover:bg-yellow-500/30'
-                  : 'bg-white/5 text-white hover:bg-white/10'
-              }`}
-              aria-label={recordingPaused ? 'Resume recording' : 'Pause recording'}
-            >
-              <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-                {recordingPaused ? (
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M14.752 11.168l-3.197-2.132A1 1 0 0010 9.87v4.263a1 1 0 001.555.832l3.197-2.132a1 1 0 000-1.664z" />
-                ) : (
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6" />
-                )}
-              </svg>
-              <span>{recordingPaused ? 'Resume' : 'Pause'}</span>
-            </button>
-          ) : (
-            <div />
-          )}
+          {actionButtons}
         </div>
       )}
 

@@ -13,7 +13,10 @@
 // website never bundles the plugin itself.
 
 export interface NativeVoicePlugin {
-  getVersion(): Promise<{ version: string; platform: string }>
+  // `capabilities` lets the web feature-detect what the installed app build
+  // supports (e.g. 'hold'), so web UI can ship ahead of / independently of a
+  // native rebuild without exposing controls the native plugin can't honor.
+  getVersion(): Promise<{ version: string; platform: string; capabilities?: string[] }>
   register(opts: { accessToken: string }): Promise<{ registered: boolean }>
   unregister(): Promise<void>
   connect(opts: { accessToken: string; params?: Record<string, string> }): Promise<{
@@ -22,6 +25,7 @@ export interface NativeVoicePlugin {
   }>
   disconnect(): Promise<void>
   setMuted(opts: { muted: boolean }): Promise<{ muted: boolean }>
+  setOnHold(opts: { onHold: boolean }): Promise<{ onHold: boolean }>
   addListener(
     eventName:
       | 'registered'
@@ -29,7 +33,9 @@ export interface NativeVoicePlugin {
       | 'incomingCall'
       | 'callConnected'
       | 'callDisconnected'
-      | 'callRinging',
+      | 'callRinging'
+      | 'callHold'
+      | 'callHoldFailed',
     listenerFunc: (data: Record<string, unknown>) => void
   ): Promise<{ remove: () => void }>
 }
