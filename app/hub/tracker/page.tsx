@@ -20,6 +20,13 @@ const BOARDS: TrackerBoard[] = [
     href: '/hub/tracker/leads',
     icon: '🎯',
   },
+  {
+    id: 'recurring',
+    title: 'Recurring Services',
+    description: 'Recurring customers — programs, retention, and annual value.',
+    href: '/hub/tracker/recurring',
+    icon: '🔁',
+  },
 ]
 
 export default async function HubTrackerRoute() {
