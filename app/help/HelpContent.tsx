@@ -568,6 +568,7 @@ function HubTab() {
           <li><strong className="text-white">Recurring Services</strong> — your recurring customers, grouped into Customers and Upgraded, with programs, retention, cancellation reasons, and annual value. Computed columns (Active/Total Jobs, Retention Rate, Total Annual Value, WF/MO/IR/PW value, PHC/BWP/Aux %) match the old Monday board, with group totals at the bottom.</li>
           <li><strong className="text-white">Route Capacity</strong> — recurring jobs by route, with computed WF Route, Program, Size, Production Time, and Total Time, plus drive-time and capacity totals.</li>
         </ul>
+        <p><strong className="text-white">Sort any column</strong> — click a column header to sort by it. Click again to reverse the order (▲ ascending → ▼ descending), and a third time to turn sorting off. Works on every column, including the computed ones; blank values always sort to the bottom. Sorting is applied within each group and doesn&apos;t affect the filters.</p>
         <AdminOnly>
           <p>Lead Tracker sources, stages, and field defaults are configured under <strong className="text-white">Tracker → Lead Tracker → Settings</strong>.</p>
         </AdminOnly>
