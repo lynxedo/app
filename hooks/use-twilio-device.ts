@@ -33,6 +33,21 @@ function genConferenceRoom(): string {
   return `conf_${uuid.replace(/[^a-zA-Z0-9]/g, '')}`
 }
 
+// Look up the user's active conference room. Used on INBOUND connect — inbound
+// rooms are generated server-side, so the agent's dialer has to ask for its
+// room to light up the in-call Transfer / Hold controls. Returns null if the
+// active call isn't a conference (e.g. legacy ring-group path).
+async function fetchActiveConferenceRoom(): Promise<string | null> {
+  try {
+    const res = await fetch('/api/dialer/voice/conference/active')
+    if (!res.ok) return null
+    const body = (await res.json()) as { room?: string | null }
+    return typeof body?.room === 'string' ? body.room : null
+  } catch {
+    return null
+  }
+}
+
 export type DialerState =
   | 'idle'                  // no token yet
   | 'not-configured'        // Twilio creds empty server-side
@@ -172,6 +187,9 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
             setCallStartedAt(Date.now())
             setIncomingFrom(null)
             setState('in-call')
+            // Inbound: discover the server-generated conference room so the
+            // in-call Transfer / Hold controls light up. (Outbound already set it.)
+            fetchActiveConferenceRoom().then((r) => { if (r) setConferenceRoom(r) })
           }))
           // Disconnected — local hangup (web button or CallKit), remote hangup,
           // or a declined/cancelled incoming call. Resets back to ready.
@@ -268,6 +286,9 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           setCallStartedAt(Date.now())
           setIncomingFrom(null)
           setState('in-call')
+          // Inbound: discover the server-generated conference room so the
+          // in-call Transfer / Hold controls light up.
+          fetchActiveConferenceRoom().then((r) => { if (r) setConferenceRoom(r) })
         })
         call.on('disconnect', () => {
           activeCallRef.current = null

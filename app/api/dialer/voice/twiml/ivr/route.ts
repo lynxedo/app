@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
+  DEFAULT_RECORDING_CONSENT_NOTICE,
   EMPTY_VOICE_TWIML,
   IvrAction,
   IvrConfig,
@@ -12,6 +13,8 @@ import {
   voiceConfigured,
 } from '@/lib/twilio-voice'
 import { buildIvrContext } from '@/lib/dialer-ivr-context'
+import { conferenceRoomName } from '@/lib/twilio-conference'
+import { connectInboundToAgentViaConference } from '@/lib/dialer-conference-connect'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -58,7 +61,7 @@ export async function POST(request: NextRequest) {
   const admin = createAdminClient()
   const { data: settings } = await admin
     .from('dialer_settings')
-    .select('ivr_config, ivr_enabled, default_caller_id_number')
+    .select('ivr_config, ivr_enabled, default_caller_id_number, recording_enabled, recording_consent_notice, ring_timeout_sec')
     .eq('company_id', HEROES_COMPANY_ID)
     .single()
 
@@ -137,6 +140,51 @@ export async function POST(request: NextRequest) {
         perUserVoicemailUrlFor: ctx.perUserVoicemailUrlFor,
       })
     )
+  }
+
+  // Phase 3: connect transfer_user / extension through a conference so an
+  // answered inbound call can be held + transferred. ring_group + transfer_pstn
+  // keep the legacy inline <Dial> (they still work; just no in-call transfer).
+  if (action.kind === 'transfer_user' || action.kind === 'extension') {
+    const callSid = params.get('CallSid') || ''
+    let agentIdentity: string | null = null
+    let voicemailOwner: string | null = null
+    let ringTimeout = settings.ring_timeout_sec ?? 20
+    if (action.kind === 'transfer_user') {
+      agentIdentity = action.identity
+      voicemailOwner = action.user_id
+      ringTimeout = action.timeout_sec ?? ringTimeout
+    } else {
+      const resolved = ctx.extensionResolver(action.extension)
+      if (resolved) {
+        agentIdentity = resolved.identity
+        voicemailOwner = resolved.ownerUserId
+      }
+    }
+    if (agentIdentity && callSid) {
+      const room = conferenceRoomName()
+      // Stamp the room + the answering agent on the calls row so the web/native
+      // dialer can discover its conference (enables in-call hold + transfer).
+      await admin
+        .from('calls')
+        .update({ conference_name: room, handled_by: voicemailOwner || agentIdentity })
+        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('twilio_call_sid', callSid)
+      const twiml = await connectInboundToAgentViaConference({
+        baseUrl,
+        room,
+        callerCallSid: callSid,
+        callerNumber: fromNumber,
+        agentIdentity,
+        voicemailOwnerUserId: voicemailOwner || undefined,
+        ringTimeoutSec: ringTimeout,
+        recordingEnabled: settings.recording_enabled === true,
+        recordingConsentNotice: settings.recording_consent_notice || DEFAULT_RECORDING_CONSENT_NOTICE,
+      })
+      return twimlResponse(twiml)
+    }
+    // Couldn't resolve an agent — fall through to the legacy render, which sends
+    // an unassigned extension to voicemail.
   }
 
   // Terminal action (voicemail / transfer_* / say / hangup / extension / ring_group).

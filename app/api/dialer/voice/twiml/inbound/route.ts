@@ -10,13 +10,14 @@ import {
   IvrTreeName,
   pickIvrTree,
   startCallRecording,
-  twimlDialClient,
   twimlRecordVoicemail,
   twimlRenderIvrNode,
   validateTwilioVoiceSignature,
   voiceConfigured,
 } from '@/lib/twilio-voice'
 import { buildIvrContext } from '@/lib/dialer-ivr-context'
+import { conferenceRoomName } from '@/lib/twilio-conference'
+import { connectInboundToAgentViaConference } from '@/lib/dialer-conference-connect'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -79,6 +80,12 @@ export async function POST(request: NextRequest) {
   const recordingEnabled = settings?.recording_enabled === true
   const consentNotice = settings?.recording_consent_notice || DEFAULT_RECORDING_CONSENT_NOTICE
 
+  // Phase 3: each inbound call gets a conference room so it can be held /
+  // transferred once an agent answers. We stamp it on the calls row up front for
+  // the single-user route; the IVR connect path generates + stamps its own room
+  // at the moment it rings an agent.
+  const room = conferenceRoomName()
+
   try {
     let contactId: string | null = null
     if (fromNumber) {
@@ -100,6 +107,7 @@ export async function POST(request: NextRequest) {
       status: 'ringing',
       contact_id: contactId,
       handled_by: routeToUserId || null,
+      conference_name: room,
     })
   } catch {
     // swallow — call still proceeds
@@ -183,14 +191,21 @@ export async function POST(request: NextRequest) {
   }
 
   if (routeToUserId) {
-    return respond(
-      twimlDialClient({
-        identity: routeToUserId,
-        callerId: fromNumber || undefined,
-        timeoutSeconds: ringTimeout,
-        statusCallback: voicemailRender,
-      })
-    )
+    // Phase 3: bridge the caller through a conference and ring the configured
+    // user as the 'agent' participant. No-answer falls to voicemail via the
+    // agent participant's status callback. (Recording + consent handled inside.)
+    const callerTwiml = await connectInboundToAgentViaConference({
+      baseUrl,
+      room,
+      callerCallSid: callSid,
+      callerNumber: fromNumber || undefined,
+      agentIdentity: routeToUserId,
+      voicemailOwnerUserId: routeToUserId,
+      ringTimeoutSec: ringTimeout,
+      recordingEnabled,
+      recordingConsentNotice: consentNotice,
+    })
+    return twimlResponse(callerTwiml)
   }
 
   // No route configured — go straight to general voicemail. We need to fetch
