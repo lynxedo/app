@@ -3,6 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { StatusDot } from './StatusPicker'
+import { useOnCallUsers } from './OnCallPresenceProvider'
 
 // Live DM-header dot + title. Subscribes to the same hub-status-broadcast
 // channel HubSidebar uses so the colored dot at the top of a DM flips the
@@ -28,6 +29,7 @@ export default function DMHeader({
 }) {
   const [effectiveStatus, setEffectiveStatus] = useState<string | null>(initialEffectiveStatus)
   const [manualStatus, setManualStatus] = useState<string | null>(initialManualStatus)
+  const onCallUsers = useOnCallUsers()
 
   useEffect(() => {
     if (!solo) return
@@ -62,7 +64,7 @@ export default function DMHeader({
   return (
     <header data-hide-on-keyboard className="flex-none border-b border-gray-800 px-5 py-3 flex items-center gap-3">
       {solo ? (
-        <StatusDot status={effectiveStatus ?? manualStatus ?? null} />
+        <StatusDot status={effectiveStatus ?? manualStatus ?? null} onCall={onCallUsers.has(solo.id)} />
       ) : (
         <span className="text-gray-400">💬</span>
       )}

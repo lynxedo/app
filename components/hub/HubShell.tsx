@@ -24,6 +24,7 @@ import TimesheetClockModal from './TimesheetClockModal'
 import NotifPrefsModal from './NotifPrefsModal'
 import DialerProvider from './dialer/DialerProvider'
 import GlobalCallBar from './dialer/GlobalCallBar'
+import OnCallPresenceProvider from './OnCallPresenceProvider'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
 import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
 import { HubTextSizeContext } from './HubTextSizeContext'
@@ -902,9 +903,19 @@ export default function HubShell({
     </HubTextSizeContext.Provider>
   )
 
+  // OnCallPresenceProvider wraps the shell so the purple "on a call" dot works
+  // for everyone: dialer users (mounted inside DialerProvider, so it reads the
+  // shared call state and tracks themselves) AND non-dialer users (no device —
+  // they only observe teammates' dots).
+  const withPresence = (
+    <OnCallPresenceProvider companyId={companyId} currentUserId={currentUserId}>
+      {shell}
+    </OnCallPresenceProvider>
+  )
+
   // Lift the Twilio Voice Device + IncomingCall overlay to shell level when
   // the user has dialer access AND hasn't opted out via Settings. Anyone else
   // gets the original Session 56 behavior: Device only registers when
   // DialerPanel mounts on /hub/dialer.
-  return liftDialerDevice ? <DialerProvider>{shell}</DialerProvider> : shell
+  return liftDialerDevice ? <DialerProvider>{withPresence}</DialerProvider> : withPresence
 }
