@@ -23,7 +23,7 @@ import HubQuickCompose from './HubQuickCompose'
 import TimesheetClockModal from './TimesheetClockModal'
 import NotifPrefsModal from './NotifPrefsModal'
 import DialerProvider from './dialer/DialerProvider'
-import ActiveCallBanner from './dialer/ActiveCallBanner'
+import GlobalCallBar from './dialer/GlobalCallBar'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
 import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
 import { HubTextSizeContext } from './HubTextSizeContext'
@@ -773,9 +773,11 @@ export default function HubShell({
           aria-hidden="true"
         />
 
-        {/* Session 58.5: active-call banner. No-ops when no provider context
-            or no in-progress call OR we're already on /hub/dialer. */}
-        <ActiveCallBanner />
+        {/* Desktop Dialer Control S1: persistent global call bar with inline
+            controls (Mute / Hold / Transfer / End) + expand-to-full-dialer.
+            No-ops when no provider context, no in-progress call, or on
+            /hub/dialer. Supersedes the navigate-only Session 58.5 banner. */}
+        <GlobalCallBar />
 
         {/* Announcement ticker — Hub-section paths only. */}
         {activeRail === 'hub' && !pathname.startsWith('/hub/home') && (
