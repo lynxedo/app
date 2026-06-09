@@ -56,11 +56,15 @@ export async function POST(request: Request) {
   const companyId = profile.company_id || HEROES_COMPANY_ID
   const active = await resolveActiveConferenceRoom({ bodyRoom: body.room, userId: user.id, companyId })
   if (!active) return NextResponse.json({ error: 'No active conference call found' }, { status: 404 })
-  const room = active.room
+  const { conferenceSid, agentSid, customerSid, transferSid } = active
+  if (!conferenceSid) {
+    return NextResponse.json({ error: 'Conference not fully connected yet' }, { status: 409 })
+  }
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   const holdUrl = `${baseUrl}/api/dialer/voice/twiml/hold-music`
   const callerId = voiceCallerId() || undefined
+  const admin = createAdminClient()
 
   // Modes that ADD a target need a resolved dial target.
   let target: string | null = null
@@ -68,13 +72,17 @@ export async function POST(request: Request) {
     target = await resolveTarget(body.to, companyId)
     if (!target) return NextResponse.json({ error: 'Invalid or unassigned transfer target' }, { status: 400 })
   }
+  // Modes that DROP the agent need the agent leg SID.
+  if ((mode === 'cold' || mode === 'warm-complete') && !agentSid) {
+    return NextResponse.json({ error: 'Agent leg not found' }, { status: 409 })
+  }
 
   try {
     if (mode === 'cold') {
       // Add the target, then drop the agent (after flipping the agent's
       // endConferenceOnExit so leaving doesn't tear down the conference).
       const add = await addConferenceParticipant({
-        room,
+        room: active.room,
         to: target!,
         from: callerId || '',
         label: 'transfer',
@@ -83,17 +91,19 @@ export async function POST(request: Request) {
         timeoutSec: 30,
       })
       if (!add.ok) return NextResponse.json({ error: add.error }, { status: 502 })
-      await updateParticipant({ room, label: 'agent', endConferenceOnExit: false })
-      await removeParticipant({ room, label: 'agent' })
+      await updateParticipant({ conferenceSid, callSid: agentSid!, endConferenceOnExit: false })
+      const rem = await removeParticipant({ conferenceSid, callSid: agentSid! })
+      if (!rem.ok) return NextResponse.json({ error: `transfer added but agent not dropped: ${rem.error}` }, { status: 502 })
       return NextResponse.json({ ok: true, mode })
     }
 
     if (mode === 'warm-consult') {
+      if (!customerSid) return NextResponse.json({ error: 'Customer leg not found' }, { status: 409 })
       // Hold the customer (music), then bring the target in to consult.
-      const held = await holdParticipant({ room, label: 'customer', hold: true, holdUrl })
+      const held = await holdParticipant({ conferenceSid, callSid: customerSid, hold: true, holdUrl })
       if (!held.ok) return NextResponse.json({ error: held.error }, { status: 502 })
       const add = await addConferenceParticipant({
-        room,
+        room: active.room,
         to: target!,
         from: callerId || '',
         label: 'transfer',
@@ -103,23 +113,27 @@ export async function POST(request: Request) {
       })
       if (!add.ok) {
         // Roll back the hold so the customer isn't stranded on music.
-        await holdParticipant({ room, label: 'customer', hold: false })
+        await holdParticipant({ conferenceSid, callSid: customerSid, hold: false })
         return NextResponse.json({ error: add.error }, { status: 502 })
       }
+      // Persist the consult target's leg SID so warm-cancel can drop exactly it.
+      await admin.from('calls').update({ conference_transfer_sid: add.callSid }).eq('id', active.callId)
       return NextResponse.json({ ok: true, mode })
     }
 
     if (mode === 'warm-complete') {
       // Merge: customer off hold, drop the agent → customer + target remain.
-      await holdParticipant({ room, label: 'customer', hold: false })
-      await updateParticipant({ room, label: 'agent', endConferenceOnExit: false })
-      await removeParticipant({ room, label: 'agent' })
+      if (customerSid) await holdParticipant({ conferenceSid, callSid: customerSid, hold: false })
+      await updateParticipant({ conferenceSid, callSid: agentSid!, endConferenceOnExit: false })
+      const rem = await removeParticipant({ conferenceSid, callSid: agentSid! })
+      if (!rem.ok) return NextResponse.json({ error: `agent not dropped: ${rem.error}` }, { status: 502 })
       return NextResponse.json({ ok: true, mode })
     }
 
     // warm-cancel: remove the target, customer off hold → back to agent + customer.
-    await removeParticipant({ room, label: 'transfer' })
-    await holdParticipant({ room, label: 'customer', hold: false })
+    if (transferSid) await removeParticipant({ conferenceSid, callSid: transferSid })
+    if (customerSid) await holdParticipant({ conferenceSid, callSid: customerSid, hold: false })
+    await admin.from('calls').update({ conference_transfer_sid: null }).eq('id', active.callId)
     return NextResponse.json({ ok: true, mode })
   } catch (e) {
     return NextResponse.json(

@@ -226,8 +226,10 @@ async function twilioDelete(path: string): Promise<RestResult> {
 
 // Add a participant to a conference. Twilio DIALS `to` (a PSTN number like
 // '+1...' or a Client like 'client:<identity>') and joins them into `room` on
-// answer — creating the conference if it doesn't yet exist. Returns the new
-// participant's CallSid on success.
+// answer — creating the conference (by FriendlyName) if it doesn't yet exist.
+// Returns BOTH the new participant's CallSid AND the resolved ConferenceSid
+// (CFxxxx) so callers can persist them and address this leg later by real SID
+// (NOT by room name / label, which don't reliably resolve for update/delete).
 export async function addConferenceParticipant(opts: {
   room: string
   to: string
@@ -238,7 +240,7 @@ export async function addConferenceParticipant(opts: {
   timeoutSec?: number
   statusCallback?: string
   earlyMedia?: boolean
-}): Promise<{ ok: true; callSid: string | null } | { ok: false; error: string }> {
+}): Promise<{ ok: true; callSid: string | null; conferenceSid: string | null } | { ok: false; error: string }> {
   const form: Record<string, string> = {
     To: opts.to,
     From: opts.from,
@@ -254,34 +256,40 @@ export async function addConferenceParticipant(opts: {
     form.StatusCallbackMethod = 'POST'
   }
   const res = await twilioPost(`/Conferences/${encodeURIComponent(opts.room)}/Participants.json`, form)
-  if (res.ok) return { ok: true, callSid: (res.data.call_sid as string) || null }
+  if (res.ok) {
+    return {
+      ok: true,
+      callSid: (res.data.call_sid as string) || null,
+      conferenceSid: (res.data.conference_sid as string) || null,
+    }
+  }
   return { ok: false, error: `${res.code ?? res.status}: ${res.message ?? 'add_participant_failed'}` }
 }
 
-// Hold / unhold a participant (addressed by label). Holding plays HoldUrl TwiML
-// (our looping music) to that participant and drops them out of the audio mix;
-// the rest of the conference is unaffected.
+// Hold / unhold a participant, addressed by real ConferenceSid + CallSid.
+// Holding plays HoldUrl TwiML (our looping music) to that participant and drops
+// them out of the audio mix; the rest of the conference is unaffected.
 export async function holdParticipant(opts: {
-  room: string
-  label: string
+  conferenceSid: string
+  callSid: string
   hold: boolean
   holdUrl?: string
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const form: Record<string, string> = { Hold: String(opts.hold) }
   if (opts.hold && opts.holdUrl) form.HoldUrl = opts.holdUrl
   const res = await twilioPost(
-    `/Conferences/${encodeURIComponent(opts.room)}/Participants/${encodeURIComponent(opts.label)}.json`,
+    `/Conferences/${encodeURIComponent(opts.conferenceSid)}/Participants/${encodeURIComponent(opts.callSid)}.json`,
     form
   )
   return res.ok ? { ok: true } : { ok: false, error: `${res.code ?? res.status}: ${res.message ?? 'hold_failed'}` }
 }
 
-// Update a participant's flags (addressed by label) — used to flip the agent's
+// Update a participant's flags (by real SID) — used to flip the agent's
 // endConferenceOnExit to false right before a transfer removes them, so the
 // conference survives the agent leaving.
 export async function updateParticipant(opts: {
-  room: string
-  label: string
+  conferenceSid: string
+  callSid: string
   endConferenceOnExit?: boolean
   muted?: boolean
 }): Promise<{ ok: true } | { ok: false; error: string }> {
@@ -290,20 +298,20 @@ export async function updateParticipant(opts: {
   if (opts.muted !== undefined) form.Muted = String(opts.muted)
   if (Object.keys(form).length === 0) return { ok: true }
   const res = await twilioPost(
-    `/Conferences/${encodeURIComponent(opts.room)}/Participants/${encodeURIComponent(opts.label)}.json`,
+    `/Conferences/${encodeURIComponent(opts.conferenceSid)}/Participants/${encodeURIComponent(opts.callSid)}.json`,
     form
   )
   return res.ok ? { ok: true } : { ok: false, error: `${res.code ?? res.status}: ${res.message ?? 'update_failed'}` }
 }
 
-// Remove a participant (addressed by label) — drops that one leg, leaving the
-// rest of the conference connected. Used to drop the agent after a transfer.
+// Remove a participant (by real SID) — drops that one leg, leaving the rest of
+// the conference connected. Used to drop the agent after a transfer.
 export async function removeParticipant(opts: {
-  room: string
-  label: string
+  conferenceSid: string
+  callSid: string
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   const res = await twilioDelete(
-    `/Conferences/${encodeURIComponent(opts.room)}/Participants/${encodeURIComponent(opts.label)}.json`
+    `/Conferences/${encodeURIComponent(opts.conferenceSid)}/Participants/${encodeURIComponent(opts.callSid)}.json`
   )
   return res.ok ? { ok: true } : { ok: false, error: `${res.code ?? res.status}: ${res.message ?? 'remove_failed'}` }
 }
