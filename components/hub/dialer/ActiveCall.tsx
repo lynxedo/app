@@ -76,6 +76,7 @@ export default function ActiveCall({
   recordingPaused = false,
   onToggleRecordingPause,
   pauseAutoResumeSec = 60,
+  autoOpenTransfer = false,
 }: {
   status: 'placing' | 'in-call'
   who: string | null
@@ -98,12 +99,16 @@ export default function ActiveCall({
   recordingPaused?: boolean
   onToggleRecordingPause?: () => void
   pauseAutoResumeSec?: number
+  // When true, mount with the transfer entry panel already open. Used by the
+  // GlobalCallBar so its slim-bar Transfer button is a one-tap shortcut into
+  // the transfer form instead of dropping the user on the generic action grid.
+  autoOpenTransfer?: boolean
 }) {
   const [now, setNow] = useState(() => Date.now())
   const [showKeypad, setShowKeypad] = useState(false)
   const [showAudio, setShowAudio] = useState(false)
   // Transfer panel state.
-  const [showTransfer, setShowTransfer] = useState(false)
+  const [showTransfer, setShowTransfer] = useState(autoOpenTransfer)
   const [transferTarget, setTransferTarget] = useState('')
   const [transferBusy, setTransferBusy] = useState(false)
   const [transferError, setTransferError] = useState<string | null>(null)

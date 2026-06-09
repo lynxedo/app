@@ -45,6 +45,9 @@ export default function GlobalCallBar() {
   const pathname = usePathname() ?? ''
   const router = useRouter()
   const [expanded, setExpanded] = useState(false)
+  // When the slim-bar Transfer button is what opened the panel, mount ActiveCall
+  // straight into its transfer form (vs. the generic action grid the chevron opens).
+  const [transferIntent, setTransferIntent] = useState(false)
   const [now, setNow] = useState(() => Date.now())
 
   const inActiveCall = !!device && (device.state === 'placing' || device.state === 'in-call')
@@ -58,7 +61,10 @@ export default function GlobalCallBar() {
 
   // Collapse the expanded dialer when the call ends.
   useEffect(() => {
-    if (!inActiveCall) setExpanded(false)
+    if (!inActiveCall) {
+      setExpanded(false)
+      setTransferIntent(false)
+    }
   }, [inActiveCall])
 
   // Recording settings — mirror DialerPanel so the expanded ActiveCall shows the
@@ -172,8 +178,8 @@ export default function GlobalCallBar() {
 
           {showTransfer && (
             <BarButton
-              active={false}
-              onClick={() => setExpanded(true)}
+              active={expanded && transferIntent}
+              onClick={() => { setTransferIntent(true); setExpanded(true) }}
               label="Transfer"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -184,8 +190,8 @@ export default function GlobalCallBar() {
 
           {/* Expand / collapse the full inline dialer */}
           <BarButton
-            active={expanded}
-            onClick={() => setExpanded((v) => !v)}
+            active={expanded && !transferIntent}
+            onClick={() => { setTransferIntent(false); setExpanded((v) => !v) }}
             label={expanded ? 'Collapse' : 'Expand'}
           >
             <svg
@@ -240,6 +246,7 @@ export default function GlobalCallBar() {
             recordingPaused={recordingPaused}
             onToggleRecordingPause={handleToggleRecordingPause}
             pauseAutoResumeSec={pauseAutoResumeSec}
+            autoOpenTransfer={transferIntent}
           />
         </div>
       )}
