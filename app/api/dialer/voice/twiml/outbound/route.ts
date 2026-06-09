@@ -10,6 +10,11 @@ import {
   voiceCallerId,
   voiceConfigured,
 } from '@/lib/twilio-voice'
+import {
+  addConferenceParticipant,
+  sanitizeRoomName,
+  twimlAgentJoinConference,
+} from '@/lib/twilio-conference'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -23,11 +28,13 @@ function twimlResponse(body: string, status = 200) {
 
 // Twilio webhook target — configured as the Voice Request URL on the Twilio
 // TwiML App that the Voice JS SDK references via TWILIO_TWIML_APP_SID.
-// When the SDK initiates an outbound call, Twilio POSTs here with form params
-// including the caller's identity, the dialed number, and standard call SIDs.
+// When the SDK initiates an outbound call, Twilio POSTs here.
 //
-// We respond with TwiML telling Twilio to dial the requested PSTN number,
-// and insert a `calls` row so the call shows up in Recent.
+// Phase 3 (conference): the dialer now passes a client-generated `room` param.
+// When present, the agent (this SDK leg) joins a <Conference> room and we
+// REST-add the dialed party as the 'customer' participant — so the in-call UI
+// can hold-with-music + transfer. Without a room (older client / safety), we
+// fall back to the legacy point-to-point <Dial>.
 export async function POST(request: NextRequest) {
   const raw = await request.text()
   const params = new URLSearchParams(raw)
@@ -44,98 +51,26 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  // The SDK's `device.connect({ params: { To: '+1...' } })` flows To: into
-  // this webhook. Identity is the user's hub_users.id from the access token.
-  // Session 57: click-to-call from Txt passes txt_conversation_id +
-  // txt_contact_id through the same params dict so the row links back.
+  // The SDK's `device.connect({ params: { To, room } })` flows these into this
+  // webhook. Identity is the user's hub_users.id from the access token.
   const toRaw = (params.get('To') || '').trim()
   const identity = params.get('From') || params.get('Caller') || ''
   const callSid = params.get('CallSid') || ''
   const txtConversationId = params.get('txt_conversation_id') || null
   const txtContactId = params.get('txt_contact_id') || null
+  const room = sanitizeRoomName(params.get('room'))
 
-  // Session 60: 3-digit extension dialing. If To is exactly a 3-digit numeric
-  // string in the 100-999 range, look up the user that owns that extension
-  // and connect via <Client>identity</Client>. Falls through to "extension not
-  // assigned" hangup if no match.
-  if (/^[1-9][0-9]{2}$/.test(toRaw)) {
-    const admin = createAdminClient()
-    const { data: owner } = await admin
-      .from('user_profiles')
-      .select('id')
-      .eq('company_id', HEROES_COMPANY_ID)
-      .eq('dialer_extension', toRaw)
-      .maybeSingle()
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+  const statusCb = `${baseUrl}/api/dialer/voice/status`
+  const recordingCb = `${baseUrl}/api/dialer/voice/recording`
+  const confStatusCb = `${baseUrl}/api/dialer/voice/conference/status`
 
-    if (!owner) {
-      return twimlResponse(
-        twimlSayAndHangup(`Extension ${toRaw} is not assigned. Goodbye.`),
-        200
-      )
-    }
+  const admin = createAdminClient()
 
-    try {
-      await admin.from('calls').insert({
-        company_id: HEROES_COMPANY_ID,
-        twilio_call_sid: callSid || null,
-        direction: 'outbound',
-        from_number: voiceCallerId() || 'app',
-        to_number: toRaw, // store the 3-digit extension, not a phone number
-        status: 'initiated',
-        initiated_by: identity || null,
-        handled_by: identity || null,
-      })
-    } catch {
-      // swallow — call still proceeds
-    }
-
-    const statusCb = `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/status`
-    return twimlResponse(
-      twimlDialClient({
-        identity: owner.id,
-        callerId: identity || undefined, // caller's own identity for internal calls
-        timeoutSeconds: 25,
-        statusCallback: statusCb,
-      })
-    )
-  }
-
-  const to = toE164(toRaw)
-  if (!to) {
-    return twimlResponse(twimlSayAndHangup('Invalid number. Goodbye.'), 200)
-  }
-
-  // Best-effort calls-row insert. Failures here do NOT block the call — we
-  // still return the dial TwiML so Twilio places the call. The user just
-  // won't see the row in Recent (rare).
-  try {
-    const admin = createAdminClient()
-    await admin.from('calls').insert({
-      company_id: HEROES_COMPANY_ID,
-      twilio_call_sid: callSid || null,
-      direction: 'outbound',
-      from_number: voiceCallerId() || 'app',
-      to_number: to,
-      status: 'initiated',
-      initiated_by: identity || null,
-      handled_by: identity || null,
-      conversation_id: txtConversationId,
-      contact_id: txtContactId,
-    })
-  } catch {
-    // swallow — call still proceeds
-  }
-
-  const statusCb = `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/status`
-  const recordingCb = `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/recording`
-
-  // Recording is opt-in per company (dialer_settings.recording_enabled, default
-  // OFF). Outbound is a plain <Dial><Number> with no IVR, so record-from-answer
-  // (dual-channel) on the Dial is reliable here. Best-effort fetch — if it fails
-  // we just don't record; the call still places.
+  // Recording is opt-in per company (default OFF).
   let recordCalls = false
   try {
-    const { data: recSettings } = await createAdminClient()
+    const { data: recSettings } = await admin
       .from('dialer_settings')
       .select('recording_enabled')
       .eq('company_id', HEROES_COMPANY_ID)
@@ -145,9 +80,99 @@ export async function POST(request: NextRequest) {
     // swallow — default to not recording
   }
 
+  // Resolve the dialed party. Two kinds:
+  //   3-digit extension → an internal Hub user (Client identity)
+  //   phone number      → PSTN
+  let customerTo: string        // what Twilio dials for the 'customer' participant
+  let customerFrom: string      // From on that dial
+  let toNumberStored: string    // what we store on the calls row
+
+  if (/^[1-9][0-9]{2}$/.test(toRaw)) {
+    const { data: owner } = await admin
+      .from('user_profiles')
+      .select('id')
+      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('dialer_extension', toRaw)
+      .maybeSingle()
+    if (!owner) {
+      return twimlResponse(twimlSayAndHangup(`Extension ${toRaw} is not assigned. Goodbye.`), 200)
+    }
+    customerTo = `client:${owner.id}`
+    customerFrom = identity || voiceCallerId() // internal: show the caller
+    toNumberStored = toRaw
+  } else {
+    const e164 = toE164(toRaw)
+    if (!e164) {
+      return twimlResponse(twimlSayAndHangup('Invalid number. Goodbye.'), 200)
+    }
+    customerTo = e164
+    customerFrom = voiceCallerId() // PSTN: must be our owned caller ID
+    toNumberStored = e164
+  }
+
+  // Best-effort calls-row insert. Failure never blocks the call.
+  try {
+    await admin.from('calls').insert({
+      company_id: HEROES_COMPANY_ID,
+      twilio_call_sid: callSid || null,
+      direction: 'outbound',
+      from_number: voiceCallerId() || 'app',
+      to_number: toNumberStored,
+      status: 'initiated',
+      initiated_by: identity || null,
+      handled_by: identity || null,
+      conversation_id: txtConversationId,
+      contact_id: txtContactId,
+      conference_name: room || null,
+    })
+  } catch {
+    // swallow — call still proceeds
+  }
+
+  // ---- Conference mode (Phase 3) ----
+  if (room) {
+    // Bring the dialed party into the room as 'customer'. Twilio dials them and
+    // joins on answer; the agent joins via the TwiML we return below.
+    const add = await addConferenceParticipant({
+      room,
+      to: customerTo,
+      from: customerFrom || '',
+      label: 'customer',
+      startConferenceOnEnter: true,
+      endConferenceOnExit: true, // customer hangup ends the call cleanly
+      timeoutSec: 30,
+    })
+    if (!add.ok) {
+      console.warn('[dialer.outbound] addConferenceParticipant failed:', add.error)
+      return twimlResponse(twimlSayAndHangup('Could not connect the call. Please try again.'), 200)
+    }
+    return twimlResponse(
+      twimlAgentJoinConference({
+        room,
+        label: 'agent',
+        endConferenceOnExit: true, // flipped to false by the transfer endpoint on drop
+        record: recordCalls,
+        recordingStatusCallback: recordingCb,
+        statusCallback: confStatusCb,
+        callerId: voiceCallerId() || undefined,
+      })
+    )
+  }
+
+  // ---- Legacy point-to-point fallback (no room — older client) ----
+  if (customerTo.startsWith('client:')) {
+    return twimlResponse(
+      twimlDialClient({
+        identity: customerTo.slice('client:'.length),
+        callerId: identity || undefined,
+        timeoutSeconds: 25,
+        statusCallback: statusCb,
+      })
+    )
+  }
   return twimlResponse(
     twimlDialPstn({
-      to,
+      to: customerTo,
       callerId: voiceCallerId(),
       timeoutSeconds: 30,
       recordCalls,
