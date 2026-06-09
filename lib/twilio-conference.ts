@@ -239,6 +239,7 @@ export async function addConferenceParticipant(opts: {
   endConferenceOnExit?: boolean
   timeoutSec?: number
   statusCallback?: string
+  conferenceStatusCallback?: string
   earlyMedia?: boolean
 }): Promise<{ ok: true; callSid: string | null; conferenceSid: string | null } | { ok: false; error: string }> {
   const form: Record<string, string> = {
@@ -252,8 +253,24 @@ export async function addConferenceParticipant(opts: {
   if (opts.earlyMedia !== undefined) form.EarlyMedia = String(opts.earlyMedia)
   if (opts.statusCallback) {
     form.StatusCallback = opts.statusCallback
-    form.StatusCallbackEvent = 'initiated ringing answered completed'
+    // ⚠ Deliberately NO StatusCallbackEvent: the docs list the call-style values
+    // ('initiated ringing answered completed') as valid here, but the runtime
+    // rejects that list with error 21626 on every create (seen live in Monitor
+    // Alerts), which can silently kill the callback entirely. Omitting the param
+    // uses Twilio's default — the terminal 'completed' event, which carries the
+    // leg's final CallStatus (completed / no-answer / busy / failed) — exactly
+    // what the agent-status no-answer→voicemail handler needs.
     form.StatusCallbackMethod = 'POST'
+  }
+  // ⚠ Conference-level callbacks must be registered by the participant that
+  // CREATES the conference — and in both call directions that's this REST add
+  // (it runs before the TwiML leg joins). The statusCallback attribute on the
+  // later-joining <Conference> TwiML is ignored, which is why answered_at /
+  // ended_at were never stamped on conference calls.
+  if (opts.conferenceStatusCallback) {
+    form.ConferenceStatusCallback = opts.conferenceStatusCallback
+    form.ConferenceStatusCallbackEvent = 'start end join leave'
+    form.ConferenceStatusCallbackMethod = 'POST'
   }
   const res = await twilioPost(`/Conferences/${encodeURIComponent(opts.room)}/Participants.json`, form)
   if (res.ok) {

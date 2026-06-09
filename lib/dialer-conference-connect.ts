@@ -45,6 +45,9 @@ export async function connectInboundToAgentViaConference(opts: {
 
   // Ring the agent into the room. From = the caller's number so the agent sees
   // who's calling (cosmetic for a Client leg). Timeout drives the ring duration.
+  // This REST add CREATES the conference (it runs before the caller's TwiML leg
+  // joins), so it must register the conference status callback — the TwiML
+  // statusCallback attr on the caller's <Conference> is ignored by Twilio.
   const add = await addConferenceParticipant({
     room,
     to: `client:${agentIdentity}`,
@@ -54,6 +57,7 @@ export async function connectInboundToAgentViaConference(opts: {
     endConferenceOnExit: true, // agent hangup ends the call; flipped false on transfer
     timeoutSec: ringTimeoutSec,
     statusCallback: agentStatusCb,
+    conferenceStatusCallback: confStatusCb,
   })
 
   // Persist the real Twilio SIDs so hold/transfer act on the exact legs. The

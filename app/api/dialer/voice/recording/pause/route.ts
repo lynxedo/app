@@ -101,7 +101,17 @@ export async function POST(request: Request) {
     } catch { /* skip this source */ }
   }
 
-  const targets = recordings.filter(r => r.status === 'in-progress' || r.status === 'paused')
+  // ⚠ Twilio reports an ACTIVELY-RECORDING recording's status as 'processing' —
+  // that's its initial status; 'in-progress' only appears after a pause→resume
+  // cycle (verified live + per Twilio's own Flex pause/resume guide). Filtering
+  // for 'in-progress' alone matched nothing, which is why Pause 404'd on every
+  // call. A truly-finished recording also reads 'processing' briefly after the
+  // call ends — pausing one of those just fails per-recording below.
+  const targets = recordings.filter(r =>
+    action === 'pause'
+      ? r.status === 'processing' || r.status === 'in-progress'
+      : r.status === 'paused'
+  )
   console.log(
     '[dialer.recording.pause]', action,
     'call', activeCall.id,
@@ -125,11 +135,15 @@ export async function POST(request: Request) {
         ? `${API}/Calls/${encodeURIComponent(rec.call_sid)}/Recordings/${encodeURIComponent(rec.sid)}.json`
         : null
     if (!base) continue
+    // PauseBehavior is only valid when pausing; 'silence' keeps the recording
+    // timeline intact (silent gap) so transcript timestamps stay aligned.
+    const form: Record<string, string> = { Status: newStatus }
+    if (action === 'pause') form.PauseBehavior = 'silence'
     try {
       const patchRes = await fetch(base, {
         method: 'POST',
         headers: { ...headers, 'Content-Type': 'application/x-www-form-urlencoded' },
-        body: new URLSearchParams({ Status: newStatus, PauseBehavior: 'silence' }).toString(),
+        body: new URLSearchParams(form).toString(),
       })
       if (patchRes.ok) {
         toggled++

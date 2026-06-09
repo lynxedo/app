@@ -38,33 +38,71 @@ export async function POST(request: NextRequest) {
   }
 
   const callSid = params.get('CallSid') || params.get('ParentCallSid') || ''
+  const conferenceSid = params.get('ConferenceSid') || ''
   const recordingUrl = params.get('RecordingUrl') || ''
   const recordingSid = params.get('RecordingSid') || ''
   const recordingDuration = params.get('RecordingDuration')
   const recordingStatus = params.get('RecordingStatus') || ''
 
-  if (!callSid || !recordingUrl) return twimlResponse()
+  if ((!callSid && !conferenceSid) || !recordingUrl) return twimlResponse()
   // Only act on the final completed recording. Twilio also fires interim
   // 'in-progress' callbacks for long calls — those would overwrite each other.
   if (recordingStatus && recordingStatus !== 'completed') return twimlResponse()
 
   const admin = createAdminClient()
 
-  // Resolve the owning call row for company scoping + the R2 key.
-  const { data: callRow } = await admin
-    .from('calls')
-    .select('id, company_id')
-    .eq('twilio_call_sid', callSid)
-    .maybeSingle()
+  // Resolve the owning call row for company scoping + the R2 key. Call-leg
+  // recordings carry CallSid; CONFERENCE recordings may only carry
+  // ConferenceSid, so fall back to the conference_sid stamped on the row.
+  type CallRow = {
+    id: string
+    company_id: string | null
+    recording_duration_seconds: number | null
+    recording_storage_path: string | null
+  }
+  let callRow: CallRow | null = null
+  if (callSid) {
+    const { data } = await admin
+      .from('calls')
+      .select('id, company_id, recording_duration_seconds, recording_storage_path')
+      .eq('twilio_call_sid', callSid)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    callRow = data
+  }
+  if (!callRow && conferenceSid) {
+    const { data } = await admin
+      .from('calls')
+      .select('id, company_id, recording_duration_seconds, recording_storage_path')
+      .eq('conference_sid', conferenceSid)
+      .order('created_at', { ascending: false })
+      .limit(1)
+      .maybeSingle()
+    callRow = data
+  }
   const companyId = callRow?.company_id || HEROES_COMPANY_ID
+
+  const seconds = recordingDuration ? parseInt(recordingDuration, 10) : NaN
+
+  // A conference call can produce TWO recordings: the REST call-leg recording
+  // (dual-channel, covers the whole call) and the conference recording (mono,
+  // starts only when the conference bridges). Whichever completes last would
+  // overwrite the row — don't let a shorter recording clobber a longer one
+  // that's already stored.
+  if (
+    callRow?.recording_storage_path &&
+    typeof callRow.recording_duration_seconds === 'number' &&
+    !isNaN(seconds) &&
+    seconds < callRow.recording_duration_seconds
+  ) {
+    return twimlResponse()
+  }
 
   const update: Record<string, unknown> = {
     recording_url: recordingUrl,
   }
-  if (recordingDuration) {
-    const seconds = parseInt(recordingDuration, 10)
-    if (!isNaN(seconds)) update.recording_duration_seconds = seconds
-  }
+  if (!isNaN(seconds)) update.recording_duration_seconds = seconds
 
   // Best-effort: copy the recording from Twilio into R2 so we own the audio and
   // can avoid Twilio storage fees. On success, flag it pending for transcription.
@@ -101,7 +139,9 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  await admin.from('calls').update(update).eq('twilio_call_sid', callSid)
+  if (callRow) {
+    await admin.from('calls').update(update).eq('id', callRow.id)
+  }
 
   // Fire-and-forget the Phase 3 transcription pipeline for the call we just
   // flagged pending. Runs on the long-lived PM2 server, so it completes even
