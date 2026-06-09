@@ -422,6 +422,32 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [options?.autoRegister])
 
+  // Backstop: while a native call is up but we still have no conference room,
+  // poll for it. This is the robust path that does NOT depend on catching the
+  // one-shot callConnected event — which on Android can be missed entirely
+  // (answering from the lock-screen notification reloads the webview) or fire
+  // before the server has stamped the room. Inbound rooms are created
+  // server-side, so this is how the in-call screen lights up Hold / Transfer /
+  // Record. Stops as soon as the room resolves, the call ends, or ~18s passes.
+  useEffect(() => {
+    if (!nativeVoiceAvailable()) return
+    if ((state !== 'in-call' && state !== 'placing') || conferenceRoom) return
+    let cancelled = false
+    let tries = 0
+    const id = setInterval(async () => {
+      tries += 1
+      const r = await fetchActiveConferenceRoom()
+      if (cancelled) return
+      if (r) {
+        setConferenceRoom(r)
+        clearInterval(id)
+      } else if (tries >= 12) {
+        clearInterval(id)
+      }
+    }, 1500)
+    return () => { cancelled = true; clearInterval(id) }
+  }, [state, conferenceRoom])
+
   const acceptIncoming = useCallback(() => {
     incomingCallRef.current?.accept()
   }, [])
