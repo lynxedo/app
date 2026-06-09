@@ -24,6 +24,11 @@ export interface NativeVoicePlugin {
     callSid?: string
   }>
   disconnect(): Promise<void>
+  // Answer / reject a pending incoming call from the in-app overlay (Android —
+  // no system call UI, so the web overlay drives these). Optional: present only
+  // on builds that support it.
+  acceptCall?(): Promise<void>
+  rejectCall?(): Promise<void>
   setMuted(opts: { muted: boolean }): Promise<{ muted: boolean }>
   setOnHold(opts: { onHold: boolean }): Promise<{ onHold: boolean }>
   // Audio output routing (native only — the OS owns this, WKWebView can't).
@@ -38,6 +43,7 @@ export interface NativeVoicePlugin {
   // Record stay dark because the conference room was never (re)fetched.
   getActiveCall?(): Promise<{
     active: boolean
+    ringing?: boolean
     callSid?: string
     from?: string
     muted?: boolean
