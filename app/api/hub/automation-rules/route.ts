@@ -19,7 +19,7 @@ export async function GET() {
   const { data, error } = await admin
     .from('hub_automation_rules')
     .select(`
-      id, name, trigger_source, keyword, recipient_type, trigger_config, condition_config,
+      id, name, trigger_source, keyword, recipient_type, deliver_via, trigger_config, condition_config,
       action_type, message_template, active, created_at, last_fired_at,
       trigger_room:rooms!trigger_room_id (id, name),
       target_room:rooms!target_room_id (id, name),
@@ -54,6 +54,10 @@ export async function POST(request: Request) {
     recipient_type, trigger_config, condition_config,
   } = body
   const trigger_source: string = body.trigger_source || 'room_message'
+  const EVENT_SOURCES = ['daily_log_stop_complete', 'txt_inbound', 'clock_event']
+  const NON_KEYWORD = ['schedule', 'fleet_geofence', ...EVENT_SOURCES]
+  let deliver_via: string = body.deliver_via || 'guardian'
+  if (!['guardian', 'sms', 'both'].includes(deliver_via)) deliver_via = 'guardian'
 
   if (!message_template?.trim()) {
     return NextResponse.json({ error: 'message_template required' }, { status: 400 })
@@ -93,17 +97,20 @@ export async function POST(request: Request) {
     row.target_room_id = action_type === 'post_room' ? target_room_id : null
     row.target_user_id = action_type === 'dm_user' ? target_user_id : null
     row.target_board_id = action_type === 'create_board_task' ? target_board_id : null
-  } else if (trigger_source === 'schedule' || trigger_source === 'fleet_geofence') {
+  } else if (NON_KEYWORD.includes(trigger_source)) {
     const rt: string = recipient_type || 'fixed_user'
-    if (!['fixed_user', 'room', 'assigned_tech', 'condition_matches', 'created_by'].includes(rt)) {
+    if (!['fixed_user', 'room', 'assigned_tech', 'condition_matches', 'created_by', 'event_actor', 'phone_number'].includes(rt)) {
       return NextResponse.json({ error: 'invalid recipient_type' }, { status: 400 })
     }
     if (rt === 'room' && !target_room_id) return NextResponse.json({ error: 'target_room_id required for room recipient' }, { status: 400 })
     if (rt === 'fixed_user' && !target_user_id) return NextResponse.json({ error: 'target_user_id required for fixed_user recipient' }, { status: 400 })
+    if (rt === 'phone_number' && !trigger_config?.target_phone) return NextResponse.json({ error: 'trigger_config.target_phone required for phone_number recipient' }, { status: 400 })
     if (trigger_source === 'schedule' && !trigger_config?.time) return NextResponse.json({ error: 'trigger_config.time required for schedule' }, { status: 400 })
     if (trigger_source === 'fleet_geofence' && !trigger_config?.geofence_id) return NextResponse.json({ error: 'trigger_config.geofence_id required for fleet_geofence' }, { status: 400 })
+    // phone_number can only be reached by text; event_actor/condition_matches imply a user DM by default.
     row.keyword = null
     row.recipient_type = rt
+    row.deliver_via = rt === 'phone_number' ? 'sms' : deliver_via
     row.action_type = rt === 'room' ? 'post_room' : 'dm_user'
     row.target_room_id = rt === 'room' ? target_room_id : null
     row.target_user_id = rt === 'fixed_user' ? target_user_id : null
@@ -115,7 +122,7 @@ export async function POST(request: Request) {
     .from('hub_automation_rules')
     .insert(row)
     .select(`
-      id, name, trigger_source, keyword, recipient_type, trigger_config, condition_config,
+      id, name, trigger_source, keyword, recipient_type, deliver_via, trigger_config, condition_config,
       action_type, message_template, active, created_at, last_fired_at,
       trigger_room:rooms!trigger_room_id (id, name),
       target_room:rooms!target_room_id (id, name),

@@ -9,6 +9,7 @@ import {
 } from '@/lib/twilio'
 import { sendHubPush } from '@/lib/hub-push'
 import { buildMessagePreview } from '@/lib/txt-preview'
+import { evaluateEventAutomations } from '@/lib/automations'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -268,6 +269,21 @@ export async function POST(req: NextRequest) {
       .from('txt_contacts')
       .update({ do_not_text: false, updated_at: now })
       .eq('id', contactId)
+  }
+
+  // Fire any "inbound text" automations — real messages only, not STOP/START/HELP.
+  if (!compliance) {
+    void evaluateEventAutomations({
+      companyId: HEROES_COMPANY_ID,
+      source: 'txt_inbound',
+      vars: {
+        from: from ?? '',
+        message: body ?? '',
+        time: new Date(now).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }),
+        date: now.slice(0, 10),
+      },
+      filter: { keyword: body ?? '' },
+    })
   }
 
   // Push notification fan-out — same machinery Hub messages use.
