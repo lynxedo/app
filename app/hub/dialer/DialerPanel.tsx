@@ -5,7 +5,7 @@ import { useTwilioDevice } from '@/hooks/use-twilio-device'
 import Dialpad from '@/components/hub/dialer/Dialpad'
 import ActiveCall from '@/components/hub/dialer/ActiveCall'
 import IncomingCall from '@/components/hub/dialer/IncomingCall'
-import { useDialerContext } from '@/components/hub/dialer/DialerProvider'
+import { useDialerContext, usePipControls } from '@/components/hub/dialer/DialerProvider'
 
 export default function DialerPanel({
   initialNumber = null,
@@ -24,6 +24,12 @@ export default function DialerPanel({
   const ctxDevice = useDialerContext()
   const localDevice = useTwilioDevice({ autoRegister: !ctxDevice })
   const device = ctxDevice ?? localDevice
+
+  // Session 3: pop the dialer out into a floating Document PiP window. Available
+  // even when idle, so the PiP is a standalone floating softphone (it shows the
+  // full dial pad until a call starts). Only present when the shell provider is
+  // mounted (global-ring users) and Document PiP is supported (Chromium).
+  const pip = usePipControls()
 
   // Recording settings — fetched once on mount so we know whether to show
   // the recording indicator + pause button. Defaults to off; if the fetch
@@ -73,7 +79,22 @@ export default function DialerPanel({
       <div className="flex-none px-4 py-2 md:py-3 border-b border-white/5">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-semibold">Dialer</h1>
-          <StatusPill state={device.state} />
+          <div className="flex items-center gap-2">
+            {pip?.supported && !pip.isOpen && (
+              <button
+                type="button"
+                onClick={pip.open}
+                className="flex items-center gap-1 text-xs px-2 py-1 rounded-md bg-white/10 hover:bg-white/20 text-white/80 transition-colors"
+                title="Pop the dialer out into a floating window"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M14 4h6m0 0v6m0-6L10 14M19 14v4a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2h4" />
+                </svg>
+                Pop out
+              </button>
+            )}
+            <StatusPill state={device.state} />
+          </div>
         </div>
         {device.errorMessage && device.state === 'error' && (
           <div className="mt-2 text-xs text-red-300 bg-red-900/30 border border-red-800 rounded px-2 py-1">

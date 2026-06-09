@@ -90,8 +90,10 @@ export function useDocumentPip(): UseDocumentPip {
       openingRef.current = true
       try {
         const w = await api.requestWindow({
-          width: size?.width ?? 320,
-          height: size?.height ?? 480,
+          // Sized for the full floating dialer (number field + keypad + Call).
+          // The shorter in-call view fits comfortably inside the same window.
+          width: size?.width ?? 340,
+          height: size?.height ?? 540,
         })
         copyStyles(w)
         w.document.title = 'Hub Dialer'

@@ -22,6 +22,7 @@
 import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useDialerContext } from './DialerProvider'
+import Dialpad from './Dialpad'
 
 function formatPhone(raw: string | null): string {
   if (!raw) return ''
@@ -57,13 +58,7 @@ const KEYPAD: Array<{ d: string; sub?: string }> = [
   { d: '#' },
 ]
 
-export default function PipDialer({
-  pipWindow,
-  onClose,
-}: {
-  pipWindow: Window
-  onClose: () => void
-}) {
+export default function PipDialer({ pipWindow }: { pipWindow: Window }) {
   const device = useDialerContext()
   const [now, setNow] = useState(() => Date.now())
   const [showKeypad, setShowKeypad] = useState(false)
@@ -213,21 +208,15 @@ export default function PipDialer({
       </div>
     )
   } else {
-    // Idle — the window persists between calls so it can catch the next incoming.
+    // Idle — the window is a full floating dialer: type a number + keypad +
+    // Call (device.placeCall). It also persists between calls so it can catch
+    // the next incoming. So the PiP is a standalone softphone, not just an
+    // in-call remote.
     body = (
-      <div className="flex flex-col items-center gap-4 py-8 text-center">
-        <svg className="w-8 h-8 text-white/40" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.6}>
-          <path strokeLinecap="round" strokeLinejoin="round" d="M6 4h3l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v3a2 2 0 01-2 2A14 14 0 014 6a2 2 0 012-2z" />
-        </svg>
-        <div className="text-sm text-white/60">No active call</div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="text-xs px-3 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-white/80 transition-colors"
-        >
-          Close
-        </button>
-      </div>
+      <Dialpad
+        onCall={(num) => device.placeCall(num)}
+        disabled={device.state === 'not-configured' || device.state === 'connecting'}
+      />
     )
   }
 

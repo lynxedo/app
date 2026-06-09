@@ -68,7 +68,7 @@ export default function DialerProvider({ children }: { children: ReactNode }) {
             onReject={device.rejectIncoming}
           />
         )}
-        {pip.pipWindow && <PipDialer pipWindow={pip.pipWindow} onClose={pip.close} />}
+        {pip.pipWindow && <PipDialer pipWindow={pip.pipWindow} />}
       </DialerContext.Provider>
     </PipContext.Provider>
   )
