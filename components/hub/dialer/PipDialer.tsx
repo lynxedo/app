@@ -62,6 +62,12 @@ export default function PipDialer({ pipWindow }: { pipWindow: Window }) {
   const device = useDialerContext()
   const [now, setNow] = useState(() => Date.now())
   const [showKeypad, setShowKeypad] = useState(false)
+  // Transfer panel state — mirrors ActiveCall so the PiP can warm/cold transfer
+  // a conference call without returning to the main window.
+  const [showTransfer, setShowTransfer] = useState(false)
+  const [transferTarget, setTransferTarget] = useState('')
+  const [transferBusy, setTransferBusy] = useState(false)
+  const [transferError, setTransferError] = useState<string | null>(null)
 
   const state = device?.state
   const inActiveCall = state === 'placing' || state === 'in-call'
@@ -74,14 +80,39 @@ export default function PipDialer({ pipWindow }: { pipWindow: Window }) {
     return () => clearInterval(id)
   }, [inActiveCall])
 
-  // Reset the keypad each time a call ends.
+  // Reset the keypad + transfer panel each time a call ends.
   useEffect(() => {
-    if (!inActiveCall) setShowKeypad(false)
+    if (!inActiveCall) {
+      setShowKeypad(false)
+      setShowTransfer(false)
+      setTransferTarget('')
+      setTransferError(null)
+    }
   }, [inActiveCall])
 
   if (!device) return null
 
   const elapsed = device.callStartedAt ? now - device.callStartedAt : 0
+
+  async function runTransfer(mode: 'cold' | 'warm-consult' | 'warm-complete' | 'warm-cancel') {
+    if (!device) return
+    if ((mode === 'cold' || mode === 'warm-consult') && !transferTarget.trim()) {
+      setTransferError('Enter a number or extension')
+      return
+    }
+    setTransferBusy(true)
+    setTransferError(null)
+    const res = await device.transfer(mode, transferTarget.trim() || undefined)
+    setTransferBusy(false)
+    if (!res.ok) {
+      setTransferError(res.error || 'Transfer failed')
+      return
+    }
+    // On success close the entry panel; a warm-consult flips device.consulting
+    // true so the consult panel renders instead.
+    setShowTransfer(false)
+    setTransferTarget('')
+  }
 
   let body: ReactNode
   if (incoming) {
@@ -167,9 +198,28 @@ export default function PipDialer({ pipWindow }: { pipWindow: Window }) {
             </RoundButton>
           )}
 
+          {device.conferenceActive && (
+            <RoundButton
+              active={showTransfer}
+              onClick={() => {
+                setShowKeypad(false)
+                setShowTransfer((v) => !v)
+                setTransferError(null)
+              }}
+              label="Transfer"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+            </RoundButton>
+          )}
+
           <RoundButton
             active={showKeypad}
-            onClick={() => setShowKeypad((v) => !v)}
+            onClick={() => {
+              setShowTransfer(false)
+              setShowKeypad((v) => !v)
+            }}
             label={showKeypad ? 'Hide keypad' : 'Keypad'}
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
@@ -189,8 +239,68 @@ export default function PipDialer({ pipWindow }: { pipWindow: Window }) {
           </button>
         </div>
 
+        {/* Warm transfer mid-consult: customer on hold, agent talking to target.
+            Merge (drop self) or cancel back to the customer. */}
+        {device.consulting && (
+          <div className="space-y-3 mt-1">
+            <div className="text-amber-300 text-xs text-center">Consulting — customer is on hold</div>
+            {transferError && <div className="text-red-300 text-xs text-center">{transferError}</div>}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => runTransfer('warm-complete')}
+                disabled={transferBusy}
+                className="rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs py-2.5 disabled:opacity-50"
+              >
+                Complete
+              </button>
+              <button
+                type="button"
+                onClick={() => runTransfer('warm-cancel')}
+                disabled={transferBusy}
+                className="rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs py-2.5 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* Transfer entry: pick a target, then warm (consult) or cold (blind). */}
+        {!device.consulting && showTransfer && (
+          <div className="space-y-3 mt-1">
+            <input
+              type="tel"
+              inputMode="tel"
+              value={transferTarget}
+              onChange={(e) => setTransferTarget(e.target.value)}
+              placeholder="Number or extension"
+              className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-base text-white placeholder-white/30 text-center"
+            />
+            {transferError && <div className="text-red-300 text-xs text-center">{transferError}</div>}
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => runTransfer('warm-consult')}
+                disabled={transferBusy}
+                className="rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs py-2.5 disabled:opacity-50"
+              >
+                Warm
+              </button>
+              <button
+                type="button"
+                onClick={() => runTransfer('cold')}
+                disabled={transferBusy}
+                className="rounded-lg bg-white/10 hover:bg-white/20 text-white text-xs py-2.5 disabled:opacity-50"
+              >
+                Cold
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* DTMF keypad — sends tones into the live call (extensions / IVR menus) */}
-        {showKeypad && (
+        {showKeypad && !showTransfer && !device.consulting && (
           <div className="grid grid-cols-3 gap-2 mt-1">
             {KEYPAD.map((k) => (
               <button
