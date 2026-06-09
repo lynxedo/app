@@ -146,6 +146,22 @@ export async function POST(request: NextRequest) {
       console.warn('[dialer.outbound] addConferenceParticipant failed:', add.error)
       return twimlResponse(twimlSayAndHangup('Could not connect the call. Please try again.'), 200)
     }
+    // Persist the real Twilio SIDs so hold/transfer act on the exact legs. The
+    // agent leg = this outbound webhook's CallSid (the SDK call). The customer
+    // leg + the conference SID come back from the participant create.
+    try {
+      await admin
+        .from('calls')
+        .update({
+          conference_sid: add.conferenceSid,
+          conference_agent_sid: callSid || null,
+          conference_customer_sid: add.callSid,
+        })
+        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('twilio_call_sid', callSid)
+    } catch {
+      // swallow — call still connects; transfer/hold would just fall back to lookup
+    }
     return twimlResponse(
       twimlAgentJoinConference({
         room,

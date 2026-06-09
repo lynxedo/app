@@ -36,11 +36,19 @@ export async function POST(request: Request) {
     companyId: profile.company_id,
   })
   if (!active) return NextResponse.json({ error: 'No active conference call found' }, { status: 404 })
+  if (!active.conferenceSid || !active.customerSid) {
+    return NextResponse.json({ error: 'Conference not fully connected yet' }, { status: 409 })
+  }
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   const holdUrl = `${baseUrl}/api/dialer/voice/twiml/hold-music`
 
-  const res = await holdParticipant({ room: active.room, label: 'customer', hold, holdUrl })
+  const res = await holdParticipant({
+    conferenceSid: active.conferenceSid,
+    callSid: active.customerSid,
+    hold,
+    holdUrl,
+  })
   if (!res.ok) {
     return NextResponse.json({ error: res.error }, { status: 502 })
   }

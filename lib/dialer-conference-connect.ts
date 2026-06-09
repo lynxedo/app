@@ -15,6 +15,9 @@ import {
   twimlRecordVoicemail,
   voiceCallerId,
 } from '@/lib/twilio-voice'
+import { createAdminClient } from '@/lib/supabase/admin'
+
+const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 export async function connectInboundToAgentViaConference(opts: {
   baseUrl: string
@@ -52,6 +55,25 @@ export async function connectInboundToAgentViaConference(opts: {
     timeoutSec: ringTimeoutSec,
     statusCallback: agentStatusCb,
   })
+
+  // Persist the real Twilio SIDs so hold/transfer act on the exact legs. The
+  // customer leg = the caller's CallSid (the inbound call this row was created
+  // for); the agent leg + conference SID come back from the participant create.
+  if (add.ok) {
+    try {
+      await createAdminClient()
+        .from('calls')
+        .update({
+          conference_sid: add.conferenceSid,
+          conference_agent_sid: add.callSid,
+          conference_customer_sid: callerCallSid,
+        })
+        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('twilio_call_sid', callerCallSid)
+    } catch {
+      // swallow — call still connects
+    }
+  }
 
   // If we couldn't even ring the agent, don't strand the caller on hold music —
   // send them straight to voicemail.

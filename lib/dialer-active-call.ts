@@ -9,18 +9,28 @@ import { sanitizeRoomName } from '@/lib/twilio-conference'
 
 const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
+export type ActiveConference = {
+  room: string
+  callId: string
+  callerNumber: string
+  conferenceSid: string | null
+  agentSid: string | null
+  customerSid: string | null
+  transferSid: string | null
+}
+
 export async function resolveActiveConferenceRoom(opts: {
   bodyRoom: string | undefined
   userId: string
   companyId?: string | null
-}): Promise<{ room: string; callId: string; callerNumber: string } | null> {
+}): Promise<ActiveConference | null> {
   const admin = createAdminClient()
   const sanitized = sanitizeRoomName(opts.bodyRoom)
   const companyId = opts.companyId || HEROES_COMPANY_ID
 
   let query = admin
     .from('calls')
-    .select('id, conference_name, from_number, to_number, direction')
+    .select('id, conference_name, from_number, to_number, direction, conference_sid, conference_agent_sid, conference_customer_sid, conference_transfer_sid')
     .eq('company_id', companyId)
     .is('ended_at', null)
     .not('conference_name', 'is', null)
@@ -39,5 +49,9 @@ export async function resolveActiveConferenceRoom(opts: {
     room: data.conference_name as string,
     callId: data.id as string,
     callerNumber: callerNumber || '',
+    conferenceSid: (data.conference_sid as string) || null,
+    agentSid: (data.conference_agent_sid as string) || null,
+    customerSid: (data.conference_customer_sid as string) || null,
+    transferSid: (data.conference_transfer_sid as string) || null,
   }
 }
