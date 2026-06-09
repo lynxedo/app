@@ -205,7 +205,17 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           // duplicate ring screen on top of CallKit). We only stash the caller
           // so callConnected can label the in-call screen once answered.
           handles.push(await nv.addListener('incomingCall', (data) => {
-            nativeActiveFromRef.current = typeof data?.from === 'string' ? data.from : null
+            const from = typeof data?.from === 'string' ? data.from : null
+            nativeActiveFromRef.current = from
+            // Android has no system call UI (iOS has CallKit), so raise the
+            // in-app incoming overlay here when the app is open — otherwise the
+            // ONLY way to answer is the notification's Answer button, even with
+            // the dialer on screen. iOS deliberately stays notification/CallKit-
+            // driven to avoid a duplicate dead overlay over CallKit.
+            if (nativePlatform() === 'android') {
+              setIncomingFrom(from || 'Unknown')
+              setState('incoming')
+            }
           }))
           // Connected — inbound (answered in CallKit) OR outbound. Drives the
           // Hub Dialer into the in-call state so it reflects the live call.
@@ -292,6 +302,16 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         // rebuilt) lack getActiveCall, so this no-ops there.
         try {
           const active = await nv?.getActiveCall?.()
+          // App opened while a call is still RINGING (e.g. tapped the incoming
+          // notification on Android) — raise the in-app overlay so it can be
+          // answered in-app, not only from the notification.
+          if (active?.ringing && nativePlatform() === 'android') {
+            const from = typeof active.from === 'string' && active.from ? active.from : 'Unknown'
+            nativeActiveFromRef.current = from
+            setIncomingFrom(from)
+            setState('incoming')
+            return
+          }
           if (active?.active) {
             const from = typeof active.from === 'string' && active.from ? active.from : null
             nativeActiveFromRef.current = from
@@ -449,10 +469,22 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   }, [state, conferenceRoom])
 
   const acceptIncoming = useCallback(() => {
+    // Native (Android overlay): answer the pending invite through the plugin —
+    // there's no JS Call object. callConnected then drives the in-call screen.
+    if (nativeVoiceAvailable()) {
+      getNativeVoice()?.acceptCall?.()
+      return
+    }
     incomingCallRef.current?.accept()
   }, [])
 
   const rejectIncoming = useCallback(() => {
+    if (nativeVoiceAvailable()) {
+      getNativeVoice()?.rejectCall?.()
+      setIncomingFrom(null)
+      setState('ready')
+      return
+    }
     incomingCallRef.current?.reject()
   }, [])
 
