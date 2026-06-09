@@ -404,6 +404,26 @@ function HubTab() {
         </AdminOnly>
       </Section>
 
+      <Section title="Automations">
+        <p>Automations send a message automatically when something happens — on a schedule, when a vehicle moves, when work is logged, on a clock punch, or when a customer texts. Each rule is a simple <strong className="text-white">When → Notify → Message</strong>.</p>
+        <AdminOnly>
+          <p>Build them under <strong className="text-white">/admin/hub → Automation → Scheduled &amp; Event Automations</strong>. Pick a trigger, who to notify, and how to deliver it.</p>
+          <p><strong className="text-white">Triggers (the &quot;when&quot;):</strong></p>
+          <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+            <li><strong className="text-white">At a scheduled time</strong> — e.g. weekdays at 5:30 PM. Optionally only for people <em>still clocked in</em> at that time.</li>
+            <li><strong className="text-white">A vehicle arrives / leaves</strong> — when a truck enters or exits a <em>Place</em> (an address + radius you define), optionally only within a time window.</li>
+            <li><strong className="text-white">A Daily Log stop is completed</strong> — fires when a tech marks a stop done.</li>
+            <li><strong className="text-white">Someone clocks in / out</strong>.</li>
+            <li><strong className="text-white">A text comes in</strong> — optionally only when the message contains a word (e.g. <em>cancel</em>).</li>
+          </ul>
+          <p><strong className="text-white">Notify (the &quot;who&quot;):</strong> each matching person, a specific person, a room, the vehicle&apos;s assigned driver, the person involved in the event, the rule creator, or a phone number.</p>
+          <p><strong className="text-white">Deliver as:</strong> an <strong className="text-orange-300">@Guardian</strong> message (in-app + push), a <strong className="text-white">text message</strong> (sent from the company number, skips anyone marked do-not-text), or both. Texting a person uses the phone on their Lynxedo profile.</p>
+          <p><strong className="text-white">Message placeholders</strong> fill in details: <code className="bg-gray-800 px-1 rounded">{'{tech_name}'}</code>, <code className="bg-gray-800 px-1 rounded">{'{vehicle}'}</code>, <code className="bg-gray-800 px-1 rounded">{'{geofence}'}</code>, <code className="bg-gray-800 px-1 rounded">{'{customer}'}</code>, <code className="bg-gray-800 px-1 rounded">{'{address}'}</code>, <code className="bg-gray-800 px-1 rounded">{'{from}'}</code>, <code className="bg-gray-800 px-1 rounded">{'{message}'}</code>, <code className="bg-gray-800 px-1 rounded">{'{event}'}</code>, <code className="bg-gray-800 px-1 rounded">{'{time}'}</code>, <code className="bg-gray-800 px-1 rounded">{'{date}'}</code>.</p>
+          <p>Two extra panels on the same tab: <strong className="text-white">Places</strong> (manage geofence addresses + radius) and <strong className="text-white">Vehicle drivers</strong> (assign a driver to each truck — used by &quot;notify the assigned driver&quot;). Toggle any rule On/Off or Delete it from the list.</p>
+          <p>The older <strong className="text-white">Keyword Rules</strong> (post when a word appears in a room) still live at the top of the same tab.</p>
+        </AdminOnly>
+      </Section>
+
       <Section title="@Guardian Bot">
         <p>Guardian is an AI helper that lives in Hub. @mention <strong className="text-orange-300">@Guardian</strong> in any room or DM and ask it questions about Lynxedo or the business — it has context on your data and replies in-thread.</p>
         <p className="text-gray-400 text-xs">Examples: <em>&ldquo;@Guardian how many visits do we have tomorrow?&rdquo;</em> · <em>&ldquo;@Guardian who&apos;s clocked in right now?&rdquo;</em></p>
