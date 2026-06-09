@@ -33,15 +33,16 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient()
 
-  // Find the user's active call (answered but not yet ended).
+  // Find the user's active call (not yet ended). NB: we key on ended_at only —
+  // inbound conference calls don't reliably stamp answered_at, so requiring it
+  // made pause/resume 404 on every inbound call.
   const { data: activeCall } = await admin
     .from('calls')
     .select('id, twilio_call_sid, conference_sid, recording_paused')
     .eq('company_id', profile.company_id || HEROES_COMPANY_ID)
-    .not('answered_at', 'is', null)
     .is('ended_at', null)
     .or(`handled_by.eq.${user.id},initiated_by.eq.${user.id}`)
-    .order('answered_at', { ascending: false })
+    .order('created_at', { ascending: false })
     .limit(1)
     .maybeSingle()
 
