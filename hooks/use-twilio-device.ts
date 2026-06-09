@@ -49,6 +49,20 @@ async function fetchActiveConferenceRoom(): Promise<string | null> {
   }
 }
 
+// Resolve the room with a few short retries. The server stamps conference_name
+// on the calls row at connect, but a missed/slow status callback (or a re-attach
+// firing the instant the call connects) can briefly return null — and a null
+// room leaves Hold / Transfer / Record dark. Retrying for a couple seconds
+// closes that gap. Returns null only if every attempt comes back empty.
+async function fetchActiveConferenceRoomResilient(attempts = 4): Promise<string | null> {
+  for (let i = 0; i < attempts; i++) {
+    const room = await fetchActiveConferenceRoom()
+    if (room) return room
+    if (i < attempts - 1) await new Promise((r) => setTimeout(r, 800))
+  }
+  return null
+}
+
 export type DialerState =
   | 'idle'                  // no token yet
   | 'not-configured'        // Twilio creds empty server-side
@@ -202,7 +216,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
             setState('in-call')
             // Inbound: discover the server-generated conference room so the
             // in-call Transfer / Hold controls light up. (Outbound already set it.)
-            fetchActiveConferenceRoom().then((r) => { if (r) setConferenceRoom(r) })
+            fetchActiveConferenceRoomResilient().then((r) => { if (r) setConferenceRoom(r) })
             // Initialize the audio-route picker with the call's starting route +
             // which routes are available (e.g. Bluetooth if a headset is paired).
             getNativeVoice()?.getAudioRoutes()
@@ -266,6 +280,41 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         try {
           await nv?.register({ accessToken: token })
         } catch { /* surfaced via the native registrationFailed event */ }
+        // RE-ATTACH to a call that's already live. The native call object lives
+        // in the app process, not the webview — so answering from the lock-screen
+        // notification (which relaunches/navigates the webview to /hub/dialer)
+        // can blow away the page that was listening for callConnected, leaving the
+        // remounted dialer sitting on "Ready" mid-call. Mute/hangup still work
+        // (they hit the persistent native call), but conferenceRoom is null so
+        // Hold/Transfer/Record stay dark. Ask the native side if a call is live
+        // and rebuild the in-call state — including re-fetching the conference
+        // room, which is the whole fix. Best-effort: older builds (and iOS until
+        // rebuilt) lack getActiveCall, so this no-ops there.
+        try {
+          const active = await nv?.getActiveCall?.()
+          if (active?.active) {
+            const from = typeof active.from === 'string' && active.from ? active.from : null
+            nativeActiveFromRef.current = from
+            if (from) setInCallWith(from)
+            setCallStartedAt(
+              typeof active.startedAtMs === 'number' && active.startedAtMs > 0
+                ? active.startedAtMs
+                : Date.now()
+            )
+            setMuted(!!active.muted)
+            setHeld(!!active.onHold)
+            setIncomingFrom(null)
+            setState('in-call')
+            fetchActiveConferenceRoomResilient().then((r) => { if (r) setConferenceRoom(r) })
+            getNativeVoice()?.getAudioRoutes()
+              .then((s) => {
+                if (s?.current) setAudioRouteState(s.current)
+                if (Array.isArray(s?.routes)) setAudioRoutesAvailable(s.routes)
+              })
+              .catch(() => { /* non-route-capable build — picker stays hidden */ })
+            return
+          }
+        } catch { /* no getActiveCall on this build — fall through to ready */ }
         setState('ready')
       } catch (err) {
         setErrorMessage(err instanceof Error ? err.message : 'device_init_failed')
@@ -320,7 +369,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           setState('in-call')
           // Inbound: discover the server-generated conference room so the
           // in-call Transfer / Hold controls light up.
-          fetchActiveConferenceRoom().then((r) => { if (r) setConferenceRoom(r) })
+          fetchActiveConferenceRoomResilient().then((r) => { if (r) setConferenceRoom(r) })
         })
         call.on('disconnect', () => {
           activeCallRef.current = null

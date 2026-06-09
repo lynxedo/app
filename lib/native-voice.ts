@@ -31,6 +31,19 @@ export interface NativeVoicePlugin {
   // until a route-capable app build is installed.
   setAudioRoute(opts: { route: NativeAudioRoute }): Promise<{ route: NativeAudioRoute }>
   getAudioRoutes(): Promise<NativeAudioRouteState>
+  // Re-attach (optional — present only on builds that support it). The JS dialer
+  // calls this on mount to rebuild its in-call state for a call that's already
+  // live (e.g. answered from the lock-screen notification, which reloads the
+  // webview and misses the live callConnected event). Without it Hold/Transfer/
+  // Record stay dark because the conference room was never (re)fetched.
+  getActiveCall?(): Promise<{
+    active: boolean
+    callSid?: string
+    from?: string
+    muted?: boolean
+    onHold?: boolean
+    startedAtMs?: number
+  }>
   addListener(
     eventName:
       | 'registered'
