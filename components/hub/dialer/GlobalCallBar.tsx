@@ -18,7 +18,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { useDialerContext } from './DialerProvider'
+import { useDialerContext, usePipControls } from './DialerProvider'
 import ActiveCall from './ActiveCall'
 
 function formatPhone(raw: string | null): string {
@@ -42,6 +42,7 @@ function formatDuration(ms: number): string {
 
 export default function GlobalCallBar() {
   const device = useDialerContext()
+  const pip = usePipControls()
   const pathname = usePathname() ?? ''
   const router = useRouter()
   const [expanded, setExpanded] = useState(false)
@@ -184,6 +185,22 @@ export default function GlobalCallBar() {
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+            </BarButton>
+          )}
+
+          {/* Pop out to a floating Picture-in-Picture window (Chromium only —
+              hidden where Document PiP is unsupported: Safari / native / Electron
+              old). Floats above all desktop apps so the user keeps call control
+              while working elsewhere; persists across calls once opened. */}
+          {pip?.supported && (
+            <BarButton
+              active={pip.isOpen}
+              onClick={() => (pip.isOpen ? pip.close() : pip.open())}
+              label={pip.isOpen ? 'Close pop-out' : 'Pop out'}
+            >
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M14 4h6m0 0v6m0-6L10 14M19 14v4a2 2 0 01-2 2H6a2 2 0 01-2-2V7a2 2 0 012-2h4" />
               </svg>
             </BarButton>
           )}
