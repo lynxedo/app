@@ -3,6 +3,7 @@
 import { useState, useRef } from 'react'
 import { useRouter } from 'next/navigation'
 import EmojiPicker from '@/components/hub/EmojiPicker'
+import AutomationBuilder from '@/components/hub/admin/AutomationBuilder'
 
 type Room = { id: string; name: string; description: string | null; is_private: boolean; archived_at: string | null; claude_enabled: boolean }
 type HubUser = { id: string; display_name: string; claude_allowed?: boolean }
@@ -1265,18 +1266,18 @@ Content-Type: application/json
             </div>
           </div>
 
-          {/* Rules list */}
+          {/* Keyword rules list */}
           <div>
             <h2 className="font-semibold text-white mb-3">
-              Rules ({automationRules.length})
+              Keyword Rules ({automationRules.filter(r => (r.trigger_source ?? 'room_message') === 'room_message').length})
             </h2>
             {!automationLoaded ? (
               <p className="text-sm text-gray-500 px-1">Loading…</p>
-            ) : automationRules.length === 0 ? (
-              <p className="text-sm text-gray-500 px-1">No automation rules yet.</p>
+            ) : automationRules.filter(r => (r.trigger_source ?? 'room_message') === 'room_message').length === 0 ? (
+              <p className="text-sm text-gray-500 px-1">No keyword rules yet.</p>
             ) : (
               <div className="space-y-2">
-                {automationRules.map(rule => (
+                {automationRules.filter(r => (r.trigger_source ?? 'room_message') === 'room_message').map(rule => (
                   <div
                     key={rule.id}
                     className={`bg-gray-900 border rounded-xl px-4 py-3.5 flex items-start gap-4 ${
@@ -1326,6 +1327,9 @@ Content-Type: application/json
               </div>
             )}
           </div>
+
+          {/* Scheduled & fleet-geofence automations */}
+          <AutomationBuilder rooms={activeRooms} hubUsers={hubUsers} />
         </div>
       )}
 
