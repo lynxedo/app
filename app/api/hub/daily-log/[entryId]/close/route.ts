@@ -5,17 +5,18 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // POST = mark closed (office review done)
 // DELETE = un-mark closed
 //
-// Allowed for: admins (role='admin') or anyone with can_admin_daily_log.
+// Allowed for: anyone in the entry's company. Closing is a lightweight
+// "office reviewed it" flag and is freely reversible, so the whole team can
+// toggle it. Cross-company access is still blocked (company match required).
 // Does NOT fire a DM (per spec — office check is silent).
 
-async function authorize(userId: string) {
+async function authorize(userId: string, entryId: string) {
   const supabase = await createClient()
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('role, can_admin_daily_log')
-    .eq('id', userId)
-    .single()
-  return profile?.role === 'admin' || profile?.can_admin_daily_log === true
+  const [{ data: profile }, { data: entry }] = await Promise.all([
+    supabase.from('user_profiles').select('company_id').eq('id', userId).single(),
+    supabase.from('daily_log_entries').select('company_id').eq('id', entryId).single(),
+  ])
+  return Boolean(profile?.company_id) && profile?.company_id === entry?.company_id
 }
 
 export async function POST(
@@ -28,7 +29,7 @@ export async function POST(
 
   const { entryId } = await params
 
-  if (!(await authorize(user.id))) {
+  if (!(await authorize(user.id, entryId))) {
     return NextResponse.json({ error: 'Not authorized to close entries' }, { status: 403 })
   }
 
@@ -54,7 +55,7 @@ export async function DELETE(
 
   const { entryId } = await params
 
-  if (!(await authorize(user.id))) {
+  if (!(await authorize(user.id, entryId))) {
     return NextResponse.json({ error: 'Not authorized' }, { status: 403 })
   }
 

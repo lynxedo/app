@@ -202,7 +202,7 @@ function ForwardedBanner({ original, rooms, hubUsers }: { original: ForwardedOri
       <div className="text-xs text-gray-500 mb-0.5">
         ↗ Forwarded from {source} · {senderName}
       </div>
-      <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap break-words line-clamp-4">
+      <p className="text-sm text-gray-300 leading-relaxed whitespace-pre-wrap break-words">
         {original.content ? renderContent(original.content, hubUsers) : <span className="italic text-gray-500">Attachment</span>}
       </p>
     </div>
