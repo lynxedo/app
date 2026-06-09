@@ -91,10 +91,12 @@ export async function POST(request: Request) {
         timeoutSec: 30,
       })
       if (!add.ok) return NextResponse.json({ error: add.error }, { status: 502 })
+      // Flip the agent's flag so the conference survives the agent leaving, then
+      // let the CLIENT hang up its own leg (so the native CallKit call ends
+      // cleanly). We deliberately do NOT remove the agent server-side — a remote
+      // kill leaves the native call lingering in the iPhone's phone UI.
       await updateParticipant({ conferenceSid, callSid: agentSid!, endConferenceOnExit: false })
-      const rem = await removeParticipant({ conferenceSid, callSid: agentSid! })
-      if (!rem.ok) return NextResponse.json({ error: `transfer added but agent not dropped: ${rem.error}` }, { status: 502 })
-      return NextResponse.json({ ok: true, mode })
+      return NextResponse.json({ ok: true, mode, dropSelf: true })
     }
 
     if (mode === 'warm-consult') {
@@ -122,12 +124,11 @@ export async function POST(request: Request) {
     }
 
     if (mode === 'warm-complete') {
-      // Merge: customer off hold, drop the agent → customer + target remain.
+      // Merge: customer off hold + flip the agent's flag, then let the CLIENT
+      // hang up its own leg (clean native CallKit end) → customer + target remain.
       if (customerSid) await holdParticipant({ conferenceSid, callSid: customerSid, hold: false })
       await updateParticipant({ conferenceSid, callSid: agentSid!, endConferenceOnExit: false })
-      const rem = await removeParticipant({ conferenceSid, callSid: agentSid! })
-      if (!rem.ok) return NextResponse.json({ error: `agent not dropped: ${rem.error}` }, { status: 502 })
-      return NextResponse.json({ ok: true, mode })
+      return NextResponse.json({ ok: true, mode, dropSelf: true })
     }
 
     // warm-cancel: remove the target, customer off hold → back to agent + customer.

@@ -488,11 +488,18 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       })
       const body = (await res.json().catch(() => ({}))) as { error?: string }
       if (!res.ok) return { ok: false, error: body.error || `transfer_failed_${res.status}` }
-      // Track the warm-consult phase so the UI can show Merge / Cancel. A
-      // completed (or cold) transfer drops the agent → the disconnect handler
-      // resets all call state, so no explicit reset needed there.
+      // Track the warm-consult phase so the UI can show Merge / Cancel.
       if (mode === 'warm-consult') setConsulting(true)
       else if (mode === 'warm-cancel') setConsulting(false)
+      // cold / warm-complete: the server kept our leg bridged + flagged the
+      // conference to survive our exit, then asked us to drop ourselves. Hang up
+      // our OWN leg via the normal disconnect path so the native CallKit call
+      // ends cleanly (a server-side remote kill leaves it lingering in the
+      // iPhone's phone UI). The disconnect handler resets all call state.
+      if ((mode === 'cold' || mode === 'warm-complete')) {
+        if (nativeVoiceAvailable()) getNativeVoice()?.disconnect()
+        else activeCallRef.current?.disconnect()
+      }
       return { ok: true }
     } catch (e) {
       return { ok: false, error: e instanceof Error ? e.message : 'transfer_failed' }
