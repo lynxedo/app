@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { jobberGraphQL } from '@/lib/jobber'
+import { evaluateEventAutomations } from '@/lib/automations'
 import type { WeatherSnapshot } from '@/lib/nws-weather'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -334,6 +335,20 @@ export async function POST(
         : 'Jobber push failed (unknown error)'
     }
   }
+
+  // Fire any "daily log stop completed" automations (best-effort, non-blocking).
+  void evaluateEventAutomations({
+    companyId: entry.company_id,
+    source: 'daily_log_stop_complete',
+    actorUserId: entry.tech_user_id,
+    vars: {
+      tech_name: technicianName ?? '',
+      customer: stop.client_name ?? '',
+      address: stop.address ?? '',
+      time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }),
+      date: nowIso.slice(0, 10),
+    },
+  })
 
   return NextResponse.json({
     stop: {

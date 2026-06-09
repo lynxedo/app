@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
+import { evaluateEventAutomations } from '@/lib/automations'
 
 function getPayPeriod(date: Date): { start: string; end: string } {
   const d = new Date(date)
@@ -157,6 +158,38 @@ export async function POST(req: NextRequest) {
     if (emp?.user_id) await broadcastPresenceForUser(emp.user_id)
   } catch {
     // Non-fatal — broadcast is best-effort.
+  }
+
+  // Fire any clock-in/out automations (best-effort, non-blocking).
+  try {
+    const admin = createAdminClient()
+    const { data: emp } = await admin
+      .from('employees')
+      .select('user_id')
+      .eq('id', employee_id)
+      .single()
+    if (emp?.user_id) {
+      const [{ data: prof }, { data: hu }] = await Promise.all([
+        admin.from('user_profiles').select('company_id').eq('id', emp.user_id).single(),
+        admin.from('hub_users').select('display_name').eq('id', emp.user_id).maybeSingle(),
+      ])
+      if (prof?.company_id) {
+        void evaluateEventAutomations({
+          companyId: prof.company_id,
+          source: 'clock_event',
+          actorUserId: emp.user_id,
+          vars: {
+            tech_name: hu?.display_name ?? '',
+            event: action === 'in' ? 'clocked in' : 'clocked out',
+            time: now.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }),
+            date: now.toISOString().slice(0, 10),
+          },
+          filter: { event: action },
+        })
+      }
+    }
+  } catch {
+    // Non-fatal — automations are best-effort.
   }
 
   return NextResponse.json({ punch: newPunch, action })

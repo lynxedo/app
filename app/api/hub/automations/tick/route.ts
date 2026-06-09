@@ -9,8 +9,9 @@ import {
   haversineMeters,
   stillClockedInUserIds,
   assignedTechForDevice,
+  userDisplayNames,
   renderTemplate,
-  fireAutomation,
+  deliver,
 } from '@/lib/automations'
 
 export const dynamic = 'force-dynamic'
@@ -19,7 +20,7 @@ type SupabaseAdmin = ReturnType<typeof createAdminClient>
 const DEFAULT_TZ = 'America/Chicago'
 
 const RULE_SELECT =
-  'id, company_id, name, trigger_source, trigger_config, condition_config, recipient_type, target_user_id, target_room_id, message_template, active, created_by, last_fired_at'
+  'id, company_id, name, trigger_source, trigger_config, condition_config, recipient_type, deliver_via, target_user_id, target_room_id, message_template, active, created_by, last_fired_at'
 
 export async function POST(request: Request) {
   const secret = request.headers.get('x-cron-secret')
@@ -191,20 +192,36 @@ async function dispatch(
   },
 ): Promise<boolean> {
   const { baseVars, conditionUsers, deviceId, ymd } = ctx
+  const deliverVia = rule.deliver_via || 'guardian'
 
   // Room target — single post, no per-user personalization.
   if (rule.recipient_type === 'room') {
     if (!rule.target_room_id) return false
     const body = renderTemplate(rule.message_template, { ...baseVars, tech_name: '' })
-    await fireAutomation({
-      admin, companyId: rule.company_id, ruleId: rule.id, source: rule.trigger_source,
-      dmUserIds: [], roomIds: [rule.target_room_id], body, ruleName: rule.name,
+    await deliver({
+      admin, companyId: rule.company_id, ruleId: rule.id, ruleName: rule.name,
+      source: rule.trigger_source, deliverVia,
+      userTargets: [], roomTargets: [{ roomId: rule.target_room_id, body }],
       detail: { ...baseVars },
     })
     return true
   }
 
-  // Resolve the DM recipient user id(s)
+  // Fixed external phone number (text only).
+  if (rule.recipient_type === 'phone_number') {
+    const phone = rule.trigger_config?.target_phone
+    if (!phone) return false
+    const body = renderTemplate(rule.message_template, { ...baseVars, tech_name: '' })
+    await deliver({
+      admin, companyId: rule.company_id, ruleId: rule.id, ruleName: rule.name,
+      source: rule.trigger_source, deliverVia: 'sms',
+      userTargets: [], phoneTargets: [{ phone, body }],
+      detail: { ...baseVars },
+    })
+    return true
+  }
+
+  // Resolve the recipient user id(s)
   let userIds: string[] = []
   switch (rule.recipient_type) {
     case 'fixed_user':
@@ -227,25 +244,17 @@ async function dispatch(
   if (userIds.length === 0) return false
 
   // Per-user personalization ({tech_name})
-  const { data: nameRows } = await admin
-    .from('hub_users')
-    .select('id, display_name')
-    .in('id', userIds)
-  const names = new Map<string, string>()
-  for (const r of (nameRows ?? []) as { id: string; display_name: string | null }[]) {
-    names.set(r.id, r.display_name ?? '')
-  }
+  const names = await userDisplayNames(admin, userIds)
+  const userTargets = userIds.map((uid) => ({
+    userId: uid,
+    body: renderTemplate(rule.message_template, { ...baseVars, tech_name: names.get(uid) ?? '' }),
+  }))
 
-  for (const uid of userIds) {
-    const body = renderTemplate(rule.message_template, {
-      ...baseVars,
-      tech_name: names.get(uid) ?? '',
-    })
-    await fireAutomation({
-      admin, companyId: rule.company_id, ruleId: rule.id, source: rule.trigger_source,
-      dmUserIds: [uid], roomIds: [], body, ruleName: rule.name,
-      detail: { ...baseVars, user_id: uid },
-    })
-  }
+  await deliver({
+    admin, companyId: rule.company_id, ruleId: rule.id, ruleName: rule.name,
+    source: rule.trigger_source, deliverVia,
+    userTargets,
+    detail: { ...baseVars },
+  })
   return true
 }
