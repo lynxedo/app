@@ -1,8 +1,40 @@
 'use client'
 
 import { useEffect, useState, useRef, type ReactNode } from 'react'
+import type { NativeAudioRoute } from '@/lib/native-voice'
 
 const DTMF_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#']
+
+const AUDIO_ROUTE_LABELS: Record<NativeAudioRoute, string> = {
+  earpiece: 'iPhone',
+  speaker: 'Speaker',
+  bluetooth: 'Bluetooth',
+}
+
+// Stroked-outline glyphs (24×24, stroke-width 1.8) for each output route.
+function AudioRouteIcon({ route }: { route: NativeAudioRoute }) {
+  if (route === 'speaker') {
+    return (
+      <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M11 5L6 9H2v6h4l5 4V5z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M15.54 8.46a5 5 0 010 7.07M18.36 5.64a9 9 0 010 12.73" />
+      </svg>
+    )
+  }
+  if (route === 'bluetooth') {
+    return (
+      <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+        <path strokeLinecap="round" strokeLinejoin="round" d="M7 7l10 10-5 4V3l5 4L7 17" />
+      </svg>
+    )
+  }
+  // earpiece / default — a phone handset
+  return (
+    <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+      <path strokeLinecap="round" strokeLinejoin="round" d="M22 16.92v3a2 2 0 01-2.18 2 19.79 19.79 0 01-8.63-3.07 19.5 19.5 0 01-6-6 19.79 19.79 0 01-3.07-8.67A2 2 0 014.11 2h3a2 2 0 012 1.72c.13.96.37 1.9.72 2.8a2 2 0 01-.45 2.11L8.09 9.91a16 16 0 006 6l1.27-1.27a2 2 0 012.11-.45c.9.35 1.84.59 2.8.72A2 2 0 0122 16.92z" />
+    </svg>
+  )
+}
 
 function formatTimer(seconds: number): string {
   const m = Math.floor(seconds / 60)
@@ -31,6 +63,10 @@ export default function ActiveCall({
   held = false,
   holdSupported = false,
   onToggleHold,
+  audioRoute = 'earpiece',
+  audioRouteSupported = false,
+  audioRoutesAvailable = ['earpiece', 'speaker'],
+  onSetAudioRoute,
   conferenceActive = false,
   consulting = false,
   onTransfer,
@@ -49,6 +85,10 @@ export default function ActiveCall({
   held?: boolean
   holdSupported?: boolean
   onToggleHold?: () => void
+  audioRoute?: NativeAudioRoute
+  audioRouteSupported?: boolean
+  audioRoutesAvailable?: NativeAudioRoute[]
+  onSetAudioRoute?: (route: NativeAudioRoute) => void
   conferenceActive?: boolean
   consulting?: boolean
   onTransfer?: (mode: 'cold' | 'warm-consult' | 'warm-complete' | 'warm-cancel', to?: string) => Promise<{ ok: boolean; error?: string }>
@@ -61,6 +101,7 @@ export default function ActiveCall({
 }) {
   const [now, setNow] = useState(() => Date.now())
   const [showKeypad, setShowKeypad] = useState(false)
+  const [showAudio, setShowAudio] = useState(false)
   // Transfer panel state.
   const [showTransfer, setShowTransfer] = useState(false)
   const [transferTarget, setTransferTarget] = useState('')
@@ -179,6 +220,24 @@ export default function ActiveCall({
           )}
         </svg>
         <span>{held ? 'Resume' : 'Hold'}</span>
+      </button>
+    )
+  }
+
+  if (audioRouteSupported && onSetAudioRoute) {
+    actionButtons.push(
+      <button
+        key="audio"
+        type="button"
+        onClick={() => setShowAudio(true)}
+        disabled={status !== 'in-call'}
+        className={`aspect-square rounded-full flex flex-col items-center justify-center text-xs disabled:opacity-40 ${
+          audioRoute !== 'earpiece' ? 'bg-sky-500/20 text-sky-300 hover:bg-sky-500/30' : 'bg-white/5 text-white hover:bg-white/10'
+        }`}
+        aria-label="Audio output"
+      >
+        <AudioRouteIcon route={audioRoute} />
+        <span>{AUDIO_ROUTE_LABELS[audioRoute]}</span>
       </button>
     )
   }
@@ -321,6 +380,36 @@ export default function ActiveCall({
             type="button"
             onClick={() => { setShowTransfer(false); setTransferError(null) }}
             className="text-white/50 hover:text-white text-xs"
+          >
+            Back
+          </button>
+        </div>
+      ) : showAudio ? (
+        // Audio output picker. Only routes the device actually offers are shown
+        // (Bluetooth appears when a headset is connected).
+        <div className="mb-5 max-w-xs mx-auto space-y-2">
+          {audioRoutesAvailable.map((r) => (
+            <button
+              key={r}
+              type="button"
+              onClick={() => { onSetAudioRoute?.(r); setShowAudio(false) }}
+              className={`w-full flex items-center gap-3 rounded-lg px-4 py-2.5 text-sm ${
+                audioRoute === r
+                  ? 'bg-sky-500/20 text-sky-200 ring-1 ring-sky-400/30'
+                  : 'bg-white/5 text-white hover:bg-white/10'
+              }`}
+            >
+              <span className="[&>svg]:w-5 [&>svg]:h-5 [&>svg]:mb-0 flex">
+                <AudioRouteIcon route={r} />
+              </span>
+              <span>{AUDIO_ROUTE_LABELS[r]}</span>
+              {audioRoute === r && <span className="ml-auto text-sky-300">✓</span>}
+            </button>
+          ))}
+          <button
+            type="button"
+            onClick={() => setShowAudio(false)}
+            className="text-white/50 hover:text-white text-xs pt-1"
           >
             Back
           </button>

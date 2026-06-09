@@ -18,6 +18,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Call, Device as DeviceType } from '@twilio/voice-sdk'
 import { nativeVoiceAvailable, getNativeVoice, nativePlatform } from '@/lib/native-voice'
+import type { NativeAudioRoute } from '@/lib/native-voice'
 
 // Phase 3 transfer modes — mirror the /conference/transfer endpoint.
 export type TransferMode = 'cold' | 'warm-consult' | 'warm-complete' | 'warm-cancel'
@@ -88,6 +89,13 @@ export type UseTwilioDevice = {
   held: boolean
   toggleHold: () => void
   holdSupported: boolean
+  // Audio output route (native app only). `audioRouteSupported` gates the in-call
+  // picker (true only on a route-capable native build). `audioRoutesAvailable`
+  // lists the routes to offer (Bluetooth only when a device is connected).
+  audioRoute: NativeAudioRoute
+  audioRouteSupported: boolean
+  audioRoutesAvailable: NativeAudioRoute[]
+  setAudioRoute: (route: NativeAudioRoute) => void
   // Transfer (Phase 3) — available when the active call is a conference call.
   // `conferenceActive` gates the in-call Transfer button. `consulting` is true
   // while a warm transfer is mid-consult (customer on hold, target being talked
@@ -111,6 +119,11 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   const [muted, setMuted] = useState(false)
   const [held, setHeld] = useState(false)
   const [holdSupported, setHoldSupported] = useState(false)
+  // Audio output route (native only). Default earpiece; the picker is gated on
+  // the native build reporting the 'audio-route' capability.
+  const [audioRoute, setAudioRouteState] = useState<NativeAudioRoute>('earpiece')
+  const [audioRouteSupported, setAudioRouteSupported] = useState(false)
+  const [audioRoutesAvailable, setAudioRoutesAvailable] = useState<NativeAudioRoute[]>(['earpiece', 'speaker'])
   // Phase 3 conference state. `conferenceRoom` is set whenever the active call
   // is bridged through a <Conference> (always, for outbound). It gates hold +
   // transfer and is passed to those endpoints. `consulting` tracks a warm
@@ -190,6 +203,14 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
             // Inbound: discover the server-generated conference room so the
             // in-call Transfer / Hold controls light up. (Outbound already set it.)
             fetchActiveConferenceRoom().then((r) => { if (r) setConferenceRoom(r) })
+            // Initialize the audio-route picker with the call's starting route +
+            // which routes are available (e.g. Bluetooth if a headset is paired).
+            getNativeVoice()?.getAudioRoutes()
+              .then((s) => {
+                if (s?.current) setAudioRouteState(s.current)
+                if (Array.isArray(s?.routes)) setAudioRoutesAvailable(s.routes)
+              })
+              .catch(() => { /* non-route-capable build — picker stays hidden */ })
           }))
           // Disconnected — local hangup (web button or CallKit), remote hangup,
           // or a declined/cancelled incoming call. Resets back to ready.
@@ -201,6 +222,8 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
             setIncomingFrom(null)
             setMuted(false)
             setHeld(false)
+            setAudioRouteState('earpiece')
+            setAudioRoutesAvailable(['earpiece', 'speaker'])
             setConferenceRoom(null)
             setConsulting(false)
             if (err) {
@@ -215,14 +238,23 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           handles.push(await nv.addListener('callHold', (data) => {
             setHeld(!!data?.held)
           }))
-          // Feature-detect hold so the web Hold button only appears on a
-          // hold-capable native build (decouples this web deploy from the app).
+          // Audio route — kept in sync whether the route was changed from the
+          // web picker, the native CallKit UI route button, or a Bluetooth
+          // device connecting / disconnecting mid-call.
+          handles.push(await nv.addListener('audioRouteChanged', (data) => {
+            if (typeof data?.current === 'string') setAudioRouteState(data.current as NativeAudioRoute)
+            if (Array.isArray(data?.routes)) setAudioRoutesAvailable(data.routes as NativeAudioRoute[])
+          }))
+          // Feature-detect capabilities so the web Hold button + audio-route
+          // picker only appear on a build that supports them (decouples this web
+          // deploy from the app build).
           nv.getVersion()
             .then((v) => {
               const caps = Array.isArray(v?.capabilities) ? v.capabilities : []
               if (caps.includes('hold')) setHoldSupported(true)
+              if (caps.includes('audio-route')) setAudioRouteSupported(true)
             })
-            .catch(() => { /* old build without capabilities — leave hold hidden */ })
+            .catch(() => { /* old build without capabilities — leave controls hidden */ })
         }
         const token = await fetchAndApplyToken()
         if (!token) {
@@ -475,6 +507,14 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     setHeld(next)
   }, [held, conferenceRoom])
 
+  const setAudioRoute = useCallback((route: NativeAudioRoute) => {
+    if (!nativeVoiceAvailable()) return
+    // Optimistic; the native `audioRouteChanged` event confirms / corrects the
+    // route the session actually settled on.
+    setAudioRouteState(route)
+    getNativeVoice()?.setAudioRoute({ route }).catch(() => { /* surfaced via audioRouteFailed */ })
+  }, [])
+
   const transfer = useCallback(async (
     mode: TransferMode,
     to?: string
@@ -536,6 +576,10 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     // Hold works on any conference call (server-side music) OR a hold-capable
     // native build (legacy client-side).
     holdSupported: holdSupported || !!conferenceRoom,
+    audioRoute,
+    audioRouteSupported,
+    audioRoutesAvailable,
+    setAudioRoute,
     conferenceActive: !!conferenceRoom,
     consulting,
     transfer,
