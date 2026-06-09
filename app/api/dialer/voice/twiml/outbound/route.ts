@@ -60,6 +60,17 @@ export async function POST(request: NextRequest) {
   const txtContactId = params.get('txt_contact_id') || null
   const room = sanitizeRoomName(params.get('room'))
 
+  // For SDK-originated outbound calls Twilio sends `From` as "client:<hub_users.id>".
+  // The calls-row FK columns (initiated_by / handled_by → hub_users.id) need a BARE
+  // uuid — inserting the "client:" form throws an invalid-uuid error, and since the
+  // insert is best-effort (swallowed) the calls row was NEVER written for outbound.
+  // That's why outbound calls never persisted a conference row and Hold/Transfer
+  // couldn't resolve them (inbound resolves the agent id server-side, so it worked).
+  const actorUserId = (() => {
+    const bare = identity.startsWith('client:') ? identity.slice('client:'.length) : identity
+    return /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(bare) ? bare : null
+  })()
+
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
   const statusCb = `${baseUrl}/api/dialer/voice/status`
   const recordingCb = `${baseUrl}/api/dialer/voice/recording`
@@ -119,8 +130,8 @@ export async function POST(request: NextRequest) {
       from_number: voiceCallerId() || 'app',
       to_number: toNumberStored,
       status: 'initiated',
-      initiated_by: identity || null,
-      handled_by: identity || null,
+      initiated_by: actorUserId,
+      handled_by: actorUserId,
       conversation_id: txtConversationId,
       contact_id: txtContactId,
       conference_name: room || null,
