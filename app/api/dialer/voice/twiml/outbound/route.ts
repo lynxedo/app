@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   EMPTY_VOICE_TWIML,
+  startCallRecording,
   toE164,
   twimlDialClient,
   twimlDialPstn,
@@ -142,8 +143,20 @@ export async function POST(request: NextRequest) {
 
   // ---- Conference mode (Phase 3) ----
   if (room) {
+    // Record the agent's leg via REST (dual-channel, full call) — same pattern
+    // as inbound. The conference-level record attr on the agent TwiML is kept as
+    // a backup, but its recording callback isn't reliably registered (the
+    // conference is created by the REST add below, not the TwiML), so this REST
+    // recording is what actually lands in call-log2 for outbound calls.
+    // Fire-and-forget with built-in 21220 retries; never blocks the webhook.
+    if (recordCalls && callSid) {
+      startCallRecording(callSid, recordingCb).catch(() => {})
+    }
+
     // Bring the dialed party into the room as 'customer'. Twilio dials them and
-    // joins on answer; the agent joins via the TwiML we return below.
+    // joins on answer; the agent joins via the TwiML we return below. This REST
+    // add CREATES the conference, so it must register the conference status
+    // callback (answered_at / ended_at lifecycle) — TwiML attrs can't.
     const add = await addConferenceParticipant({
       room,
       to: customerTo,
@@ -152,6 +165,7 @@ export async function POST(request: NextRequest) {
       startConferenceOnEnter: true,
       endConferenceOnExit: true, // customer hangup ends the call cleanly
       timeoutSec: 30,
+      conferenceStatusCallback: confStatusCb,
     })
     if (!add.ok) {
       console.warn('[dialer.outbound] addConferenceParticipant failed:', add.error)

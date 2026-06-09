@@ -34,6 +34,15 @@ export async function POST(request: NextRequest) {
   const owner = reqUrl.searchParams.get('owner') || ''
 
   const unanswered = ['no-answer', 'busy', 'failed', 'canceled'].includes(callStatus)
+  // Log every delivery — this callback is the no-answer→voicemail trigger, and
+  // its registration silently broke once before (invalid StatusCallbackEvent
+  // list, Twilio 21626). A no-answer test call should always show a line here.
+  console.log(
+    '[dialer.conference.agent-status]',
+    'status', callStatus || '(none)',
+    'unanswered', unanswered,
+    'caller', callerSid ? 'present' : 'missing'
+  )
   if (unanswered && callerSid) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
     const voicemailUrl = `${baseUrl}/api/dialer/voice/twiml/voicemail${owner ? `?owner=${encodeURIComponent(owner)}` : ''}`

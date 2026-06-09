@@ -29,18 +29,25 @@ export async function POST(request: NextRequest) {
 
   const event = params.get('StatusCallbackEvent') || ''
   const room = params.get('FriendlyName') || ''
+  const eventCallSid = params.get('CallSid') || ''
   if (!room) return xml(EMPTY_VOICE_TWIML)
 
   const admin = createAdminClient()
   try {
     if (event === 'conference-start' || event === 'participant-join') {
-      // First real bridge — stamp answered_at once.
-      await admin
+      // The call is "answered" when the OTHER party joins. The calls row's own
+      // twilio_call_sid leg (outbound: the agent; inbound: the caller) joins at
+      // ring time — stamping on that join would mark every outbound call
+      // answered the instant it started ringing. So only stamp when the joining
+      // leg differs from the row's own.
+      let q = admin
         .from('calls')
         .update({ status: 'in-progress', answered_at: new Date().toISOString() })
         .eq('company_id', HEROES_COMPANY_ID)
         .eq('conference_name', room)
         .is('answered_at', null)
+      if (eventCallSid) q = q.neq('twilio_call_sid', eventCallSid)
+      await q
     } else if (event === 'conference-end') {
       await admin
         .from('calls')
