@@ -36,7 +36,7 @@ export async function POST(request: Request) {
   // Find the user's active call (answered but not yet ended).
   const { data: activeCall } = await admin
     .from('calls')
-    .select('id, twilio_call_sid, recording_paused')
+    .select('id, twilio_call_sid, conference_sid, recording_paused')
     .eq('company_id', profile.company_id || HEROES_COMPANY_ID)
     .not('answered_at', 'is', null)
     .is('ended_at', null)
@@ -55,11 +55,18 @@ export async function POST(request: Request) {
 
   const auth = Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString('base64')
 
-  // List recordings for this call to find the active RecordingSid.
-  const listRes = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Calls/${encodeURIComponent(activeCall.twilio_call_sid)}/Recordings.json`,
-    { headers: { Authorization: `Basic ${auth}` } }
-  )
+  // Phase-3 conference calls record on the CONFERENCE (record="record-from-start"
+  // on <Conference>), NOT on the agent's call leg — so the recording lives under
+  // /Conferences/{sid}/Recordings, and the old /Calls/{sid}/Recordings lookup
+  // always came back empty (404 "No active recording"). Prefer the conference
+  // resource when this is a conference call; fall back to the call leg for legacy
+  // point-to-point <Dial> recordings.
+  const recBase = activeCall.conference_sid
+    ? `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Conferences/${encodeURIComponent(activeCall.conference_sid)}/Recordings`
+    : `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Calls/${encodeURIComponent(activeCall.twilio_call_sid)}/Recordings`
+
+  // List recordings for this call/conference to find the active RecordingSid.
+  const listRes = await fetch(`${recBase}.json`, { headers: { Authorization: `Basic ${auth}` } })
   if (!listRes.ok) {
     return NextResponse.json({ error: 'Failed to list recordings' }, { status: 502 })
   }
@@ -74,7 +81,7 @@ export async function POST(request: Request) {
   // Pause or resume — Twilio's status values for recording: 'paused' | 'in-progress'
   const newStatus = action === 'pause' ? 'paused' : 'in-progress'
   const patchRes = await fetch(
-    `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Calls/${encodeURIComponent(activeCall.twilio_call_sid)}/Recordings/${encodeURIComponent(target.sid)}.json`,
+    `${recBase}/${encodeURIComponent(target.sid)}.json`,
     {
       method: 'POST',
       headers: {
