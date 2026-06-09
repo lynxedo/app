@@ -19,6 +19,20 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Call, Device as DeviceType } from '@twilio/voice-sdk'
 import { nativeVoiceAvailable, getNativeVoice, nativePlatform } from '@/lib/native-voice'
 
+// Phase 3 transfer modes — mirror the /conference/transfer endpoint.
+export type TransferMode = 'cold' | 'warm-consult' | 'warm-complete' | 'warm-cancel'
+
+// Generate a Twilio-safe conference room name client-side (outbound passes it as
+// a Voice SDK param so the agent + dialed party land in the same room, and the
+// in-call UI knows which room to hold/transfer on).
+function genConferenceRoom(): string {
+  const uuid =
+    typeof crypto !== 'undefined' && 'randomUUID' in crypto
+      ? crypto.randomUUID()
+      : `${Date.now()}${Math.random().toString(16).slice(2)}`
+  return `conf_${uuid.replace(/[^a-zA-Z0-9]/g, '')}`
+}
+
 export type DialerState =
   | 'idle'                  // no token yet
   | 'not-configured'        // Twilio creds empty server-side
@@ -51,13 +65,21 @@ export type UseTwilioDevice = {
   callStartedAt: number | null
   muted: boolean
   toggleMute: () => void
-  // Hold — native only (the Twilio JS SDK has no client-side hold; that needs
-  // the conference re-architecture). `holdSupported` is true only when the
-  // installed native app reports the 'hold' capability, so the UI can stay
-  // hidden on web + on older app builds.
+  // Hold. On a Phase-3 conference call (the default once the call is bridged
+  // through a <Conference>) this is real server-side hold-with-music and works
+  // on web, desktop AND native. The legacy native-only client-side hold (silent)
+  // is the fallback when there's no conference room. `holdSupported` is true on
+  // any conference call, or on a hold-capable native build.
   held: boolean
   toggleHold: () => void
   holdSupported: boolean
+  // Transfer (Phase 3) — available when the active call is a conference call.
+  // `conferenceActive` gates the in-call Transfer button. `consulting` is true
+  // while a warm transfer is mid-consult (customer on hold, target being talked
+  // to). `transfer` drives all modes against /conference/transfer.
+  conferenceActive: boolean
+  consulting: boolean
+  transfer: (mode: TransferMode, to?: string) => Promise<{ ok: boolean; error?: string }>
   sendDigit: (digit: string) => void
   hangup: () => void
   // Lifecycle
@@ -74,6 +96,12 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   const [muted, setMuted] = useState(false)
   const [held, setHeld] = useState(false)
   const [holdSupported, setHoldSupported] = useState(false)
+  // Phase 3 conference state. `conferenceRoom` is set whenever the active call
+  // is bridged through a <Conference> (always, for outbound). It gates hold +
+  // transfer and is passed to those endpoints. `consulting` tracks a warm
+  // transfer mid-flight.
+  const [conferenceRoom, setConferenceRoom] = useState<string | null>(null)
+  const [consulting, setConsulting] = useState(false)
 
   const deviceRef = useRef<DeviceType | null>(null)
   const incomingCallRef = useRef<Call | null>(null)
@@ -155,6 +183,8 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
             setIncomingFrom(null)
             setMuted(false)
             setHeld(false)
+            setConferenceRoom(null)
+            setConsulting(false)
             if (err) {
               setErrorMessage(err)
               setState('error')
@@ -246,6 +276,9 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           setCallStartedAt(null)
           setIncomingFrom(null)
           setMuted(false)
+          setHeld(false)
+          setConferenceRoom(null)
+          setConsulting(false)
           setState('ready')
         })
         call.on('cancel', () => {
@@ -323,7 +356,8 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           setState('not-configured')
           return
         }
-        const params: Record<string, string> = { To: number }
+        const room = genConferenceRoom()
+        const params: Record<string, string> = { To: number, room }
         if (extras?.conversationId) params.txt_conversation_id = extras.conversationId
         if (extras?.contactId) params.txt_contact_id = extras.contactId
 
@@ -331,6 +365,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         // ensureRegistered drive the rest of the lifecycle.
         nativeActiveFromRef.current = number
         setInCallWith(number)
+        setConferenceRoom(room)
         await nv.connect({ accessToken: token, params })
       } catch (err) {
         nativeActiveFromRef.current = null
@@ -352,12 +387,14 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     setState('placing')
     setMuted(false)
     try {
-      const params: Record<string, string> = { To: number }
+      const room = genConferenceRoom()
+      const params: Record<string, string> = { To: number, room }
       if (extras?.conversationId) params.txt_conversation_id = extras.conversationId
       if (extras?.contactId) params.txt_contact_id = extras.contactId
       const call = await device.connect({ params })
       activeCallRef.current = call
       setInCallWith(number)
+      setConferenceRoom(room)
       call.on('accept', () => {
         setCallStartedAt(Date.now())
         setState('in-call')
@@ -367,6 +404,9 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         setInCallWith(null)
         setCallStartedAt(null)
         setMuted(false)
+        setHeld(false)
+        setConferenceRoom(null)
+        setConsulting(false)
         setState('ready')
       })
       call.on('error', (e: Error) => {
@@ -393,13 +433,50 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   }, [muted])
 
   const toggleHold = useCallback(() => {
-    // Native only. Optimistically flip; the native `callHold` event confirms
-    // (and corrects, if the CallKit action is denied) the real state.
-    if (!nativeVoiceAvailable()) return
     const next = !held
+    // Conference call → real server-side hold-with-music. Works on web, desktop,
+    // and native (holds the 'customer' participant). Optimistic; revert on error.
+    if (conferenceRoom) {
+      setHeld(next)
+      fetch('/api/dialer/voice/conference/hold', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room: conferenceRoom, hold: next }),
+      })
+        .then((r) => { if (!r.ok) setHeld(!next) })
+        .catch(() => setHeld(!next))
+      return
+    }
+    // Legacy native-only client-side hold (silent). The native `callHold` event
+    // confirms / corrects the real state.
+    if (!nativeVoiceAvailable()) return
     getNativeVoice()?.setOnHold({ onHold: next })
     setHeld(next)
-  }, [held])
+  }, [held, conferenceRoom])
+
+  const transfer = useCallback(async (
+    mode: TransferMode,
+    to?: string
+  ): Promise<{ ok: boolean; error?: string }> => {
+    if (!conferenceRoom) return { ok: false, error: 'No conference call' }
+    try {
+      const res = await fetch('/api/dialer/voice/conference/transfer', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room: conferenceRoom, mode, to }),
+      })
+      const body = (await res.json().catch(() => ({}))) as { error?: string }
+      if (!res.ok) return { ok: false, error: body.error || `transfer_failed_${res.status}` }
+      // Track the warm-consult phase so the UI can show Merge / Cancel. A
+      // completed (or cold) transfer drops the agent → the disconnect handler
+      // resets all call state, so no explicit reset needed there.
+      if (mode === 'warm-consult') setConsulting(true)
+      else if (mode === 'warm-cancel') setConsulting(false)
+      return { ok: true }
+    } catch (e) {
+      return { ok: false, error: e instanceof Error ? e.message : 'transfer_failed' }
+    }
+  }, [conferenceRoom])
 
   const sendDigit = useCallback((digit: string) => {
     activeCallRef.current?.sendDigits(digit)
@@ -428,7 +505,12 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     toggleMute,
     held,
     toggleHold,
-    holdSupported,
+    // Hold works on any conference call (server-side music) OR a hold-capable
+    // native build (legacy client-side).
+    holdSupported: holdSupported || !!conferenceRoom,
+    conferenceActive: !!conferenceRoom,
+    consulting,
+    transfer,
     sendDigit,
     hangup,
     ensureRegistered,

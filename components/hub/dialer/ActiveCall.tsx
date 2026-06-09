@@ -31,6 +31,9 @@ export default function ActiveCall({
   held = false,
   holdSupported = false,
   onToggleHold,
+  conferenceActive = false,
+  consulting = false,
+  onTransfer,
   onSendDigit,
   onHangup,
   recordingEnabled = false,
@@ -46,6 +49,9 @@ export default function ActiveCall({
   held?: boolean
   holdSupported?: boolean
   onToggleHold?: () => void
+  conferenceActive?: boolean
+  consulting?: boolean
+  onTransfer?: (mode: 'cold' | 'warm-consult' | 'warm-complete' | 'warm-cancel', to?: string) => Promise<{ ok: boolean; error?: string }>
   onSendDigit: (d: string) => void
   onHangup: () => void
   recordingEnabled?: boolean
@@ -55,6 +61,11 @@ export default function ActiveCall({
 }) {
   const [now, setNow] = useState(() => Date.now())
   const [showKeypad, setShowKeypad] = useState(false)
+  // Transfer panel state.
+  const [showTransfer, setShowTransfer] = useState(false)
+  const [transferTarget, setTransferTarget] = useState('')
+  const [transferBusy, setTransferBusy] = useState(false)
+  const [transferError, setTransferError] = useState<string | null>(null)
   // Countdown until auto-resume. Only active when recording is paused.
   const [countdown, setCountdown] = useState(0)
   const countdownRef = useRef<ReturnType<typeof setInterval> | null>(null)
@@ -89,6 +100,28 @@ export default function ActiveCall({
   }, [recordingPaused])
 
   const elapsed = startedAt && status === 'in-call' ? Math.floor((now - startedAt) / 1000) : 0
+
+  async function runTransfer(mode: 'cold' | 'warm-consult' | 'warm-complete' | 'warm-cancel') {
+    if (!onTransfer) return
+    if ((mode === 'cold' || mode === 'warm-consult') && !transferTarget.trim()) {
+      setTransferError('Enter a number or extension')
+      return
+    }
+    setTransferBusy(true)
+    setTransferError(null)
+    const res = await onTransfer(mode, transferTarget.trim() || undefined)
+    setTransferBusy(false)
+    if (!res.ok) {
+      setTransferError(res.error || 'Transfer failed')
+      return
+    }
+    // cold / warm-complete drop our leg → the call ends and this unmounts.
+    // warm-consult moves into the consult panel; warm-cancel returns to the call.
+    if (mode === 'warm-cancel') {
+      setShowTransfer(false)
+      setTransferTarget('')
+    }
+  }
 
   // In-call action buttons, assembled so the grid stays centered regardless of
   // which optional controls (Hold, recording Pause) are present.
@@ -146,6 +179,24 @@ export default function ActiveCall({
           )}
         </svg>
         <span>{held ? 'Resume' : 'Hold'}</span>
+      </button>
+    )
+  }
+
+  if (conferenceActive && onTransfer) {
+    actionButtons.push(
+      <button
+        key="transfer"
+        type="button"
+        onClick={() => { setShowTransfer(true); setTransferError(null) }}
+        disabled={status !== 'in-call'}
+        className="aspect-square rounded-full bg-white/5 hover:bg-white/10 flex flex-col items-center justify-center text-xs text-white disabled:opacity-40"
+        aria-label="Transfer call"
+      >
+        <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
+        </svg>
+        <span>Transfer</span>
       </button>
     )
   }
@@ -211,7 +262,70 @@ export default function ActiveCall({
         </div>
       )}
 
-      {showKeypad ? (
+      {consulting ? (
+        // Warm transfer mid-consult: customer is on hold, agent talking to the
+        // target. Merge them (drop self) or cancel back to the customer.
+        <div className="mb-5 max-w-xs mx-auto space-y-3">
+          <div className="text-amber-300 text-sm">Consulting — customer is on hold</div>
+          {transferError && <div className="text-red-300 text-xs">{transferError}</div>}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => runTransfer('warm-complete')}
+              disabled={transferBusy}
+              className="rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-sm py-2.5 disabled:opacity-50"
+            >
+              Complete transfer
+            </button>
+            <button
+              type="button"
+              onClick={() => runTransfer('warm-cancel')}
+              disabled={transferBusy}
+              className="rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm py-2.5 disabled:opacity-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      ) : showTransfer ? (
+        // Transfer entry: pick a target, then warm (consult first) or cold (blind).
+        <div className="mb-5 max-w-xs mx-auto space-y-3">
+          <input
+            type="tel"
+            inputMode="tel"
+            value={transferTarget}
+            onChange={(e) => setTransferTarget(e.target.value)}
+            placeholder="Number or extension"
+            className="w-full rounded-lg bg-white/5 border border-white/10 px-3 py-2 text-base text-white placeholder-white/30 text-center"
+          />
+          {transferError && <div className="text-red-300 text-xs">{transferError}</div>}
+          <div className="grid grid-cols-2 gap-3">
+            <button
+              type="button"
+              onClick={() => runTransfer('warm-consult')}
+              disabled={transferBusy}
+              className="rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-sm py-2.5 disabled:opacity-50"
+            >
+              Warm (talk first)
+            </button>
+            <button
+              type="button"
+              onClick={() => runTransfer('cold')}
+              disabled={transferBusy}
+              className="rounded-lg bg-white/10 hover:bg-white/20 text-white text-sm py-2.5 disabled:opacity-50"
+            >
+              Cold (blind)
+            </button>
+          </div>
+          <button
+            type="button"
+            onClick={() => { setShowTransfer(false); setTransferError(null) }}
+            className="text-white/50 hover:text-white text-xs"
+          >
+            Back
+          </button>
+        </div>
+      ) : showKeypad ? (
         <div className="grid grid-cols-3 gap-3 mb-5 max-w-xs mx-auto">
           {DTMF_KEYS.map((k) => (
             <button
@@ -230,7 +344,7 @@ export default function ActiveCall({
         </div>
       )}
 
-      {showKeypad && (
+      {showKeypad && !showTransfer && !consulting && (
         <button
           type="button"
           onClick={() => setShowKeypad(false)}

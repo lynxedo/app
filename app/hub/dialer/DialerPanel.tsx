@@ -93,6 +93,9 @@ export default function DialerPanel({
             held={device.held}
             holdSupported={device.holdSupported}
             onToggleHold={device.toggleHold}
+            conferenceActive={device.conferenceActive}
+            consulting={device.consulting}
+            onTransfer={device.transfer}
             onSendDigit={device.sendDigit}
             onHangup={device.hangup}
             recordingEnabled={recordingEnabled}
