@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
 import StatusPicker, { StatusDot } from './StatusPicker'
+import { useOnCallUsers } from './OnCallPresenceProvider'
 import ClientsSidebar from './ClientsSidebar'
 import { CatalogIcon, LockIcon } from './railCatalog'
 import {
@@ -136,6 +137,8 @@ export default function HubSidebar({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  // Teammates currently on a phone call → purple dot on their DM rows (S2).
+  const onCallUsers = useOnCallUsers()
   const [sidebarRooms, setSidebarRooms] = useState<Room[]>(rooms)
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [boards, setBoards] = useState<Board[]>([])
@@ -940,7 +943,7 @@ export default function HubSidebar({
           }`}
         >
           {soloPerson ? (
-            <StatusDot status={soloPerson.effective_status ?? soloPerson.status ?? null} />
+            <StatusDot status={soloPerson.effective_status ?? soloPerson.status ?? null} onCall={onCallUsers.has(soloPerson.id)} />
           ) : showPrefix ? (
             <span className={`text-xs flex-none ${muted ? 'text-white/20' : 'text-white/30'}`}>💬</span>
           ) : null}

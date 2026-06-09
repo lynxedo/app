@@ -16,6 +16,7 @@ import {
   type RailPermissions,
 } from './railCatalog'
 import { classifyToken } from '@/lib/hub-layout'
+import { useOnCallUsers } from './OnCallPresenceProvider'
 
 type Room = { id: string; name: string; is_private: boolean }
 type RailConversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
@@ -145,6 +146,7 @@ export default function HubRail({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const onCallUsers = useOnCallUsers()
   const active = railFromPath(pathname)
   // Effective rail for active-icon detection — manual overrides win for the
   // pathless rails (tools, links, profile). Means clicking the same icon
@@ -253,8 +255,11 @@ export default function HubRail({
     }
   }
 
+  // On a phone call → purple, outranking every other state (S2 self dot).
+  const selfOnCall = !!currentUserId && onCallUsers.has(currentUserId)
   const statusColor =
-    currentUserStatus === 'dnd' ? 'bg-red-500'
+    selfOnCall ? 'bg-purple-500'
+    : currentUserStatus === 'dnd' ? 'bg-red-500'
     : currentUserStatus === 'busy' ? 'bg-yellow-400'
     : currentUserStatus === 'offline' ? 'bg-gray-500'
     : 'bg-emerald-500'
