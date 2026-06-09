@@ -28,7 +28,7 @@ export async function GET(request: Request) {
       creator:hub_users!created_by(id, display_name),
       completer:hub_users!completed_by(id, display_name),
       closer:hub_users!closed_by(id, display_name),
-      updates:daily_log_updates(id, content, media_urls, created_at, created_by, creator:hub_users!created_by(id, display_name, avatar_url)),
+      updates:daily_log_updates(id, content, media_urls, created_at, created_by, creator:hub_users!created_by(id, display_name, avatar_url), reactions:daily_log_update_reactions(user_id, emoji)),
       subscribers:daily_log_subscribers(user_id)
     `)
     .eq('company_id', profile.company_id)

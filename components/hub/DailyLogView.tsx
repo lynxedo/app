@@ -12,6 +12,8 @@ type AttachmentItem = {
   type: string
 }
 
+type UpdateReaction = { user_id: string; emoji: string }
+
 type DailyLogUpdate = {
   id: string
   content: string
@@ -19,7 +21,13 @@ type DailyLogUpdate = {
   created_at: string
   created_by: string
   creator?: HubUser | null
+  reactions?: UpdateReaction[] | null
 }
+
+// Quick-pick emojis offered on a Daily Log update — kept to a clip-safe
+// horizontal bar (the entry card is overflow-hidden, so a full emoji-mart
+// picker would be clipped). Covers the common acknowledgement set.
+const UPDATE_REACTION_CHOICES = ['✅', '👍', '❤️', '🎉', '🙏', '👀', '🔥', '😂']
 
 type DailyLogEntry = {
   id: string
@@ -165,6 +173,7 @@ function EntryCard({
   const [uploadError, setUploadError] = useState('')
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [boardPickerUpdateId, setBoardPickerUpdateId] = useState<string | null>(null)
+  const [reactionPickerUpdateId, setReactionPickerUpdateId] = useState<string | null>(null)
   const [notesBoardOpen, setNotesBoardOpen] = useState(false)
   const [isSubscribed, setIsSubscribed] = useState(entry.subscriber_ids.includes(currentUserId))
   const [togglingSubscribe, setTogglingSubscribe] = useState(false)
@@ -200,7 +209,7 @@ function EntryCard({
     entry.tech?.id === currentUserId ||
     entry.secondary_tech_user_ids.includes(currentUserId)
   const canToggleComplete = isAdmin || isOnEntry
-  const canToggleClose = isAdmin // gated to admin / can_admin_daily_log (resolved upstream)
+  const canToggleClose = true // anyone in the company can close/reopen an entry
   const isComplete = Boolean(entry.completed_at)
   const isClosed = Boolean(entry.closed_at)
 
@@ -330,6 +339,27 @@ function EntryCard({
   async function deleteUpdate(updateId: string) {
     await fetch(`/api/hub/daily-log/${entry.id}/updates/${updateId}`, { method: 'DELETE' })
     setUpdates(prev => prev.filter(u => u.id !== updateId))
+  }
+
+  async function toggleUpdateReaction(updateId: string, emoji: string) {
+    setReactionPickerUpdateId(null)
+    // Optimistic — flip the current user's reaction locally, then persist.
+    setUpdates(prev => prev.map(u => {
+      if (u.id !== updateId) return u
+      const rx = u.reactions ?? []
+      const mine = rx.some(r => r.user_id === currentUserId && r.emoji === emoji)
+      return {
+        ...u,
+        reactions: mine
+          ? rx.filter(r => !(r.user_id === currentUserId && r.emoji === emoji))
+          : [...rx, { user_id: currentUserId, emoji }],
+      }
+    }))
+    await fetch(`/api/hub/daily-log/updates/${updateId}/reactions`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ emoji }),
+    })
   }
 
   async function saveNotes() {
@@ -533,11 +563,9 @@ function EntryCard({
               canToggleClose ? 'cursor-pointer hover:text-sky-300' : 'cursor-not-allowed opacity-50'
             } ${isClosed ? 'text-sky-300' : 'text-gray-400'}`}
             title={
-              !canToggleClose
-                ? 'Only admins or daily-log managers can close entries'
-                : isClosed
-                  ? 'Click to reopen — clears closed status'
-                  : 'Office: mark when you have reviewed updates and handled anything required'
+              isClosed
+                ? 'Click to reopen — clears closed status'
+                : 'Mark when you have reviewed updates and handled anything required'
             }
           >
             <span
@@ -771,8 +799,62 @@ function EntryCard({
                         </div>
                       )
                     })()}
+                    {/* Reactions */}
+                    {(() => {
+                      const rx = u.reactions ?? []
+                      if (rx.length === 0) return null
+                      const groups: Record<string, string[]> = {}
+                      for (const r of rx) (groups[r.emoji] ??= []).push(r.user_id)
+                      return (
+                        <div className="flex flex-wrap gap-1 mt-1.5">
+                          {Object.entries(groups).map(([emoji, ids]) => (
+                            <button
+                              key={emoji}
+                              onClick={() => toggleUpdateReaction(u.id, emoji)}
+                              className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                                ids.includes(currentUserId)
+                                  ? 'bg-[#2E7EB8]/20 border-[#2E7EB8]/50 text-[#2E7EB8]'
+                                  : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
+                              }`}
+                            >
+                              <span>{emoji}</span>
+                              <span>{ids.length}</span>
+                            </button>
+                          ))}
+                        </div>
+                      )
+                    })()}
                   </div>
-                  <div className="flex-none flex items-start gap-1 opacity-0 group-hover:opacity-100 transition-opacity pt-0.5">
+                  <div className="flex-none flex items-start gap-1 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity pt-0.5">
+                    {/* Add reaction */}
+                    <div className="relative">
+                      <button
+                        onClick={() => { setBoardPickerUpdateId(null); setReactionPickerUpdateId(prev => prev === u.id ? null : u.id) }}
+                        className="text-gray-600 hover:text-white transition-colors p-1 rounded"
+                        title="Add reaction"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.828 14.828a4 4 0 01-5.656 0M9 10h.01M15 10h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                        </svg>
+                      </button>
+                      {reactionPickerUpdateId === u.id && (
+                        <div
+                          className="absolute bottom-full right-0 mb-1 z-50 flex items-center gap-0.5 bg-gray-900 border border-gray-700 rounded-full shadow-2xl px-1.5 py-1"
+                          onClick={e => e.stopPropagation()}
+                        >
+                          {UPDATE_REACTION_CHOICES.map(emoji => (
+                            <button
+                              key={emoji}
+                              onClick={() => toggleUpdateReaction(u.id, emoji)}
+                              className="w-7 h-7 flex items-center justify-center text-base rounded-full hover:bg-gray-800"
+                              title={`React with ${emoji}`}
+                            >
+                              {emoji}
+                            </button>
+                          ))}
+                        </div>
+                      )}
+                    </div>
                     {/* Push to Board */}
                     <div className="relative">
                       <button
