@@ -26,6 +26,11 @@ export interface NativeVoicePlugin {
   disconnect(): Promise<void>
   setMuted(opts: { muted: boolean }): Promise<{ muted: boolean }>
   setOnHold(opts: { onHold: boolean }): Promise<{ onHold: boolean }>
+  // Audio output routing (native only — the OS owns this, WKWebView can't).
+  // Gated behind the 'audio-route' capability so the web control stays hidden
+  // until a route-capable app build is installed.
+  setAudioRoute(opts: { route: NativeAudioRoute }): Promise<{ route: NativeAudioRoute }>
+  getAudioRoutes(): Promise<NativeAudioRouteState>
   addListener(
     eventName:
       | 'registered'
@@ -35,9 +40,19 @@ export interface NativeVoicePlugin {
       | 'callDisconnected'
       | 'callRinging'
       | 'callHold'
-      | 'callHoldFailed',
+      | 'callHoldFailed'
+      | 'audioRouteChanged'
+      | 'audioRouteFailed',
     listenerFunc: (data: Record<string, unknown>) => void
   ): Promise<{ remove: () => void }>
+}
+
+export type NativeAudioRoute = 'earpiece' | 'speaker' | 'bluetooth'
+
+export interface NativeAudioRouteState {
+  current: NativeAudioRoute
+  routes: NativeAudioRoute[]
+  bluetoothAvailable: boolean
 }
 
 interface CapacitorGlobal {
