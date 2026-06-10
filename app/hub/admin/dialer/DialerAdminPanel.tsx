@@ -5,6 +5,7 @@ import IvrEditor, { type IvrConfig } from './IvrEditor'
 import ExtensionsPanel, { type ExtensionRow } from './ExtensionsPanel'
 import RingGroupsPanel, { type RingGroup } from './RingGroupsPanel'
 import { DEFAULT_DISPOSITIONS } from '@/lib/dialer-dispositions'
+import { type ResponderSettings, type ResponderCall, RESPONDER_DEFAULTS } from '@/lib/responder'
 
 type DayKey = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat'
 type BusinessHoursWindow = { from: string; to: string }
@@ -45,16 +46,26 @@ type Settings = {
 
 type HubUser = { id: string; display_name: string }
 
+const RESP_DAY_LABELS = [
+  { num: 1, label: 'Mon' }, { num: 2, label: 'Tue' }, { num: 3, label: 'Wed' },
+  { num: 4, label: 'Thu' }, { num: 5, label: 'Fri' }, { num: 6, label: 'Sat' },
+  { num: 0, label: 'Sun' },
+]
+
 export default function DialerAdminPanel({
   initial,
   hubUsers,
   initialExtensions,
   initialRingGroups,
+  initialResponder,
+  initialResponderCalls,
 }: {
   initial: Settings
   hubUsers: HubUser[]
   initialExtensions: ExtensionRow[]
   initialRingGroups: RingGroup[]
+  initialResponder: Omit<ResponderSettings, 'id' | 'company_id'> | null
+  initialResponderCalls: ResponderCall[]
 }) {
   const [s, setS] = useState<Settings>(initial)
   const [extensions, setExtensions] = useState<ExtensionRow[]>(initialExtensions)
@@ -64,6 +75,39 @@ export default function DialerAdminPanel({
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+
+  // Responder — separate state + save from main dialer settings
+  const [resp, setResp] = useState<Omit<ResponderSettings, 'id' | 'company_id'>>(
+    initialResponder ?? RESPONDER_DEFAULTS
+  )
+  const [respSaving, setRespSaving] = useState(false)
+  const [respSavedAt, setRespSavedAt] = useState<number | null>(null)
+  const [respError, setRespError] = useState<string | null>(null)
+  const [respCalls, setRespCalls] = useState<ResponderCall[]>(initialResponderCalls)
+
+  async function saveResp() {
+    setRespSaving(true)
+    setRespError(null)
+    try {
+      const res = await fetch('/api/admin/responder-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(resp),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error ?? `Save failed (${res.status})`)
+      }
+      setRespSavedAt(Date.now())
+      // Refresh the activity log
+      const callsRes = await fetch('/api/admin/responder-calls')
+      if (callsRes.ok) setRespCalls(await callsRes.json())
+    } catch (err) {
+      setRespError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setRespSaving(false)
+    }
+  }
 
   async function save() {
     setSaving(true)
@@ -430,6 +474,180 @@ export default function DialerAdminPanel({
           <span className="text-xs text-emerald-300">Saved ✓</span>
         )}
       </div>
+
+      {/* ── Responder ─────────────────────────────────────────────── */}
+      <section className="border border-white/10 rounded-lg p-4 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-white">Responder</h2>
+          <p className="text-xs text-white/50 mt-0.5">Auto-text callers and send them straight to voicemail</p>
+        </div>
+
+        {/* Active toggle */}
+        <label className="flex items-center gap-3 cursor-pointer select-none">
+          <div
+            className={`relative w-10 h-5 rounded-full transition-colors ${resp.is_active ? 'bg-emerald-500' : 'bg-white/20'}`}
+          >
+            <span
+              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${resp.is_active ? 'translate-x-5' : ''}`}
+            />
+          </div>
+          <input
+            type="checkbox"
+            className="sr-only"
+            checked={resp.is_active}
+            onChange={e => setResp(p => ({ ...p, is_active: e.target.checked }))}
+          />
+          <span className="text-sm text-white">
+            {resp.is_active ? <span className="text-emerald-300 font-medium">● Responder active</span> : 'Enable Responder'}
+          </span>
+        </label>
+
+        {resp.is_active && (
+          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200 leading-relaxed">
+            When active, <strong>all inbound calls go straight to voicemail</strong> — IVR and agent routing are bypassed. An auto-text is sent to the caller immediately.
+          </div>
+        )}
+
+        {/* Business days */}
+        <div className="space-y-2">
+          <label className="text-xs font-medium text-white/70 block">Business days</label>
+          <div className="flex gap-1.5 flex-wrap">
+            {RESP_DAY_LABELS.map(d => (
+              <button
+                key={d.num}
+                type="button"
+                onClick={() => setResp(p => ({
+                  ...p,
+                  business_days: p.business_days.includes(d.num)
+                    ? p.business_days.filter(x => x !== d.num)
+                    : [...p.business_days, d.num],
+                }))}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                  resp.business_days.includes(d.num)
+                    ? 'bg-[#2E7EB8] text-white'
+                    : 'bg-white/10 text-white/60 hover:bg-white/20'
+                }`}
+              >
+                {d.label}
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {/* Business hours */}
+        <div className="flex gap-4">
+          <div className="flex-1">
+            <label className="text-xs font-medium text-white/70 block mb-1">Opens</label>
+            <input
+              type="time"
+              value={resp.business_hours_start}
+              onChange={e => setResp(p => ({ ...p, business_hours_start: e.target.value }))}
+              className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+          <div className="flex-1">
+            <label className="text-xs font-medium text-white/70 block mb-1">Closes</label>
+            <input
+              type="time"
+              value={resp.business_hours_end}
+              onChange={e => setResp(p => ({ ...p, business_hours_end: e.target.value }))}
+              className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+          </div>
+        </div>
+
+        {/* Business hours template */}
+        <div>
+          <label className="text-xs font-medium text-white/70 block mb-1">Business hours text message</label>
+          <textarea
+            value={resp.business_hours_template}
+            onChange={e => setResp(p => ({ ...p, business_hours_template: e.target.value.slice(0, 600) }))}
+            rows={3}
+            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+          />
+          <p className="text-xs text-white/40 mt-1">Sent during business hours. Variable: <code className="bg-white/10 px-1 rounded">{'{first_name}'}</code></p>
+        </div>
+
+        {/* After-hours template */}
+        <div>
+          <label className="text-xs font-medium text-white/70 block mb-1">After-hours text message</label>
+          <textarea
+            value={resp.afterhours_template}
+            onChange={e => setResp(p => ({ ...p, afterhours_template: e.target.value.slice(0, 600) }))}
+            rows={3}
+            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+          />
+          <p className="text-xs text-white/40 mt-1">Sent evenings, weekends, and holidays.</p>
+        </div>
+
+        {/* Voicemail greeting */}
+        <div>
+          <label className="text-xs font-medium text-white/70 block mb-1">Voicemail greeting (text-to-speech)</label>
+          <textarea
+            value={resp.voicemail_greeting}
+            onChange={e => setResp(p => ({ ...p, voicemail_greeting: e.target.value.slice(0, 500) }))}
+            rows={2}
+            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+          />
+          <p className="text-xs text-white/40 mt-1">Read to the caller before the recording beep.</p>
+        </div>
+
+        {/* Save */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={saveResp}
+            disabled={respSaving}
+            className="px-4 py-2 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50 text-sm font-medium"
+          >
+            {respSaving ? 'Saving…' : 'Save Responder'}
+          </button>
+          {respSavedAt && !respError && <span className="text-xs text-emerald-300">Saved ✓</span>}
+          {respError && <span className="text-xs text-red-400">{respError}</span>}
+        </div>
+
+        {/* Recent activity */}
+        {respCalls.length > 0 && (
+          <div>
+            <h3 className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2">Recent Activity</h3>
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs">
+                <thead>
+                  <tr className="border-b border-white/10 text-white/40">
+                    <th className="text-left pb-1.5 font-medium">Time</th>
+                    <th className="text-left pb-1.5 font-medium">From</th>
+                    <th className="text-left pb-1.5 font-medium">Texted</th>
+                    <th className="text-left pb-1.5 font-medium">VM</th>
+                    <th className="text-left pb-1.5 font-medium">Template</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {respCalls.map(c => (
+                    <tr key={c.id} className="border-b border-white/5 text-white/70">
+                      <td className="py-1.5 pr-3 whitespace-nowrap">
+                        {new Date(c.called_at).toLocaleString('en-US', {
+                          month: 'short', day: 'numeric',
+                          hour: 'numeric', minute: '2-digit', hour12: true,
+                          timeZone: 'America/Chicago',
+                        })}
+                      </td>
+                      <td className="py-1.5 pr-3 font-mono">{c.from_number || '—'}</td>
+                      <td className="py-1.5 pr-3">
+                        {c.text_sent ? <span className="text-emerald-300">✓</span> : <span className="text-white/30">—</span>}
+                      </td>
+                      <td className="py-1.5 pr-3">
+                        {c.has_voicemail ? <span className="text-sky-300">✓</span> : <span className="text-white/30">—</span>}
+                      </td>
+                      <td className="py-1.5 text-white/40">
+                        {c.error_message === 'do_not_text' ? 'opted out' : (c.template_used || '—')}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   )
 }
