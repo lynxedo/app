@@ -346,3 +346,31 @@ export async function redirectCall(opts: {
   })
   return res.ok ? { ok: true } : { ok: false, error: `${res.code ?? res.status}: ${res.message ?? 'redirect_failed'}` }
 }
+
+// Current status of a call leg ('queued' | 'ringing' | 'in-progress' |
+// 'completed' | 'busy' | 'no-answer' | 'canceled' | 'failed'), or null if the
+// lookup fails. Used by the ring-group chain to check the caller is still
+// waiting before ringing the next member.
+export async function fetchCallStatus(callSid: string): Promise<string | null> {
+  if (!conferenceConfigured() || !callSid) return null
+  try {
+    const res = await fetch(`${accountBase()}/Calls/${encodeURIComponent(callSid)}.json`, {
+      headers: { Authorization: authHeader() },
+    })
+    if (!res.ok) return null
+    const json = (await res.json()) as { status?: string }
+    return json.status ?? null
+  } catch {
+    return null
+  }
+}
+
+// End a call leg (cancels it if still ringing). Used by simultaneous ring
+// groups to stop the other members' phones the moment someone answers, and to
+// stop ringing members whose caller already hung up. Best-effort.
+export async function cancelCall(callSid: string): Promise<{ ok: boolean }> {
+  const res = await twilioPost(`/Calls/${encodeURIComponent(callSid)}.json`, {
+    Status: 'completed',
+  })
+  return { ok: res.ok }
+}
