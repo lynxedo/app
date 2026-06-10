@@ -82,17 +82,17 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
 
 const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_admin_people', label: 'People' },
-  { key: 'can_admin_hub', label: 'Hub' },
+  { key: 'can_admin_hub', label: 'Hub / Guardian / Txt / Announcements / File Tags' },
+  { key: 'can_admin_contacts', label: 'Contacts' },
   { key: 'can_admin_routing', label: 'Routing' },
   { key: 'can_admin_timesheet', label: 'Time Records' },
   { key: 'can_admin_fleet', label: 'Fleet' },
   { key: 'can_admin_daily_log', label: 'Daily Log' },
+  { key: 'can_admin_products', label: 'Products' },
   { key: 'can_admin_zone_sizer', label: 'Zone Sizer' },
   { key: 'can_admin_dialer', label: 'Dialer' },
-  { key: 'can_admin_contacts', label: 'Contacts' },
-  { key: 'can_admin_marketing', label: 'Marketing' },
   { key: 'can_admin_forms', label: 'Form Builder' },
-  { key: 'can_admin_products', label: 'Products' },
+  { key: 'can_admin_marketing', label: 'Marketing' },
 ]
 
 function getInitials(name: string | null, email: string): string {
