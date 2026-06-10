@@ -114,10 +114,12 @@ export default function GlobalCallBar() {
   if (onDialerPage) return null
 
   const elapsed = device.callStartedAt ? now - device.callStartedAt : 0
+  // Screen-pop (S4): prefer the matched customer name over the raw number.
+  const who = device.contactMatch?.name || formatPhone(device.inCallWith)
   const label =
     device.state === 'placing'
-      ? `Dialing ${formatPhone(device.inCallWith)}…`
-      : `${formatPhone(device.inCallWith) || 'On call'} · ${formatDuration(elapsed)}`
+      ? `Dialing ${who || ''}…`
+      : `${who || 'On call'} · ${formatDuration(elapsed)}`
 
   const showHold = device.holdSupported
   const showTransfer = device.conferenceActive
@@ -264,6 +266,7 @@ export default function GlobalCallBar() {
             onToggleRecordingPause={handleToggleRecordingPause}
             pauseAutoResumeSec={pauseAutoResumeSec}
             autoOpenTransfer={transferIntent}
+            contact={device.contactMatch}
           />
         </div>
       )}

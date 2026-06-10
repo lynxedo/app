@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Call, Device as DeviceType } from '@twilio/voice-sdk'
 import { nativeVoiceAvailable, getNativeVoice, nativePlatform } from '@/lib/native-voice'
 import type { NativeAudioRoute } from '@/lib/native-voice'
+import type { DialerLookupMatch } from '@/lib/dialer-lookup'
 
 // Phase 3 transfer modes — mirror the /conference/transfer endpoint.
 export type TransferMode = 'cold' | 'warm-consult' | 'warm-complete' | 'warm-cancel'
@@ -78,6 +79,11 @@ export type UseTwilioDevice = {
   state: DialerState
   errorMessage: string | null
   identity: string | null
+  // Screen-pop (Session 4). The matched customer identity for the current call's
+  // far-end number (inbound caller or outbound dialed party). Looked up once and
+  // shared so the bar, PiP, incoming popup, and notification all show the same
+  // identity. null = unknown number or no match yet.
+  contactMatch: DialerLookupMatch | null
   // Incoming call surface
   incomingFrom: string | null
   acceptIncoming: () => void
@@ -129,6 +135,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   const [identity, setIdentity] = useState<string | null>(null)
   const [incomingFrom, setIncomingFrom] = useState<string | null>(null)
   const [inCallWith, setInCallWith] = useState<string | null>(null)
+  const [contactMatch, setContactMatch] = useState<DialerLookupMatch | null>(null)
   const [callStartedAt, setCallStartedAt] = useState<number | null>(null)
   const [muted, setMuted] = useState(false)
   const [held, setHeld] = useState(false)
@@ -468,6 +475,34 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     return () => { cancelled = true; clearInterval(id) }
   }, [state, conferenceRoom])
 
+  // Screen-pop lookup (Session 4). Keyed on the current far-end number, which is
+  // `incomingFrom` while ringing and `inCallWith` once placing/connected — so a
+  // single effect covers every path (web + native, inbound + outbound, and the
+  // native re-attach). Looks up the customer identity once per distinct number
+  // and clears it when the call ends. A failed/empty lookup just leaves the raw
+  // number — never blocks the call UI.
+  const remoteNumber = incomingFrom || inCallWith
+  const lookedUpRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!remoteNumber) {
+      setContactMatch(null)
+      lookedUpRef.current = null
+      return
+    }
+    if (lookedUpRef.current === remoteNumber) return
+    lookedUpRef.current = remoteNumber
+    setContactMatch(null)
+    // Skip obviously non-lookupable numbers (extensions, "Unknown", anonymous).
+    const digits = remoteNumber.replace(/\D/g, '')
+    if (digits.length < 10) return
+    let cancelled = false
+    fetch(`/api/dialer/lookup?phone=${encodeURIComponent(remoteNumber)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.match) setContactMatch(d.match) })
+      .catch(() => { /* degrade to raw number */ })
+    return () => { cancelled = true }
+  }, [remoteNumber])
+
   const acceptIncoming = useCallback(() => {
     // Native (Android overlay): answer the pending invite through the plugin —
     // there's no JS Call object. callConnected then drives the in-call screen.
@@ -670,6 +705,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     state,
     errorMessage,
     identity,
+    contactMatch,
     incomingFrom,
     acceptIncoming,
     rejectIncoming,

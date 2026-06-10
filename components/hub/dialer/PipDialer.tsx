@@ -23,6 +23,8 @@ import { useEffect, useState, type ReactNode } from 'react'
 import { createPortal } from 'react-dom'
 import { useDialerContext } from './DialerProvider'
 import Dialpad from './Dialpad'
+import CallContactCard from './CallContactCard'
+import { StatusPill } from './IncomingCall'
 
 function formatPhone(raw: string | null): string {
   if (!raw) return ''
@@ -124,8 +126,17 @@ export default function PipDialer({ pipWindow }: { pipWindow: Window }) {
             Incoming call
           </div>
           <div className="mt-1 text-lg font-semibold text-white">
-            {formatPhone(device.incomingFrom) || 'Unknown'}
+            {device.contactMatch?.name || formatPhone(device.incomingFrom) || 'Unknown'}
           </div>
+          <div className="mt-1 flex items-center justify-center gap-2">
+            {device.contactMatch?.name && (
+              <span className="text-xs text-white/60">{formatPhone(device.incomingFrom)}</span>
+            )}
+            {device.contactMatch?.status && <StatusPill status={device.contactMatch.status} />}
+          </div>
+          {device.contactMatch?.address && (
+            <div className="mt-1 text-xs text-white/60">{device.contactMatch.address}</div>
+          )}
         </div>
         <div className="flex items-center gap-8">
           <button
@@ -152,10 +163,11 @@ export default function PipDialer({ pipWindow }: { pipWindow: Window }) {
       </div>
     )
   } else if (inActiveCall) {
+    const who = device.contactMatch?.name || formatPhone(device.inCallWith)
     const label =
       state === 'placing'
-        ? `Dialing ${formatPhone(device.inCallWith)}…`
-        : formatPhone(device.inCallWith) || 'On call'
+        ? `Dialing ${who}…`
+        : who || 'On call'
     body = (
       <div className="flex flex-col gap-4">
         {/* Caller + timer */}
@@ -238,6 +250,13 @@ export default function PipDialer({ pipWindow }: { pipWindow: Window }) {
             </svg>
           </button>
         </div>
+
+        {/* Screen-pop identity + quick actions (Sessions 4 + 6). Hidden while a
+            sub-panel is open and for extension/internal dials. */}
+        {device.inCallWith && device.inCallWith.replace(/\D/g, '').length >= 10 &&
+          !showTransfer && !showKeypad && !device.consulting && (
+            <CallContactCard contact={device.contactMatch} number={device.inCallWith} compact />
+          )}
 
         {/* Warm transfer mid-consult: customer on hold, agent talking to target.
             Merge (drop self) or cancel back to the customer. */}
