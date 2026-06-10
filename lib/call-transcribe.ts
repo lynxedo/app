@@ -569,6 +569,44 @@ async function writeEngineResult(
 }
 
 // ---------------------------------------------------------------------------
+// Realtime broadcast
+// ---------------------------------------------------------------------------
+
+// Tell any open /hub/call-log2 page that a call's transcription finished (or
+// errored) so it refreshes live instead of waiting for a manual Search. Same
+// server-side broadcast pattern as broadcastDailyLogUpdate — `calls` is not in
+// the Realtime publication, so postgres_changes won't deliver this.
+// Fire-and-forget; never throws.
+async function broadcastCallTranscribed(
+  companyId: string | null,
+  callId: string,
+  status: 'complete' | 'error'
+): Promise<void> {
+  if (!companyId) return
+  const admin = createAdminClient()
+  const channel = admin.channel(`call-log2:${companyId}`)
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timeout = setTimeout(() => reject(new Error('subscribe timeout')), 5000)
+      channel.subscribe((s) => {
+        const st = String(s)
+        if (st === 'SUBSCRIBED') { clearTimeout(timeout); resolve() }
+        else if (st === 'CHANNEL_ERROR' || st === 'TIMED_OUT' || st === 'CLOSED') { clearTimeout(timeout); reject(new Error(st)) }
+      })
+    })
+    await channel.send({
+      type: 'broadcast',
+      event: 'call-updated',
+      payload: { call_id: callId, transcription_status: status },
+    })
+  } catch (err) {
+    console.warn('[call-transcribe] broadcast failed:', (err as Error).message)
+  } finally {
+    await admin.removeChannel(channel)
+  }
+}
+
+// ---------------------------------------------------------------------------
 // Orchestrator
 // ---------------------------------------------------------------------------
 
@@ -660,6 +698,7 @@ export async function processPendingCall(
       .from('calls')
       .update({ transcription_status: 'error', error_message: firstErr.slice(0, 300) })
       .eq('id', callId)
+    broadcastCallTranscribed(call.company_id, callId, 'error').catch(() => {})
     return { callId, status: 'error', engines, error: firstErr }
   }
 
@@ -678,6 +717,8 @@ export async function processPendingCall(
       error_message: null,
     })
     .eq('id', callId)
+
+  broadcastCallTranscribed(call.company_id, callId, 'complete').catch(() => {})
 
   return { callId, status: 'complete', engines }
 }
