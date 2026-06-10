@@ -101,16 +101,17 @@ export async function POST(request: Request) {
     } catch { /* skip this source */ }
   }
 
-  // ⚠ Twilio reports an ACTIVELY-RECORDING recording's status as 'processing' —
-  // that's its initial status; 'in-progress' only appears after a pause→resume
-  // cycle (verified live + per Twilio's own Flex pause/resume guide). Filtering
-  // for 'in-progress' alone matched nothing, which is why Pause 404'd on every
-  // call. A truly-finished recording also reads 'processing' briefly after the
-  // call ends — pausing one of those just fails per-recording below.
-  const targets = recordings.filter(r =>
-    action === 'pause'
-      ? r.status === 'processing' || r.status === 'in-progress'
-      : r.status === 'paused'
+  // ⚠ The Recordings LIST is not a reliable source of live pause-state: an
+  // actively-recording recording lists as 'processing' (its initial status),
+  // and a PAUSED recording ALSO lists as 'processing' (both verified live in
+  // prod — filtering resume targets to status 'paused' matched nothing, which
+  // is why Resume 404'd while Pause worked). So don't infer state from the
+  // list at all: target every non-terminal recording and PATCH it to the
+  // desired status. A same-state PATCH is a harmless no-op, per-recording
+  // failures are tolerated as long as one toggles, and a recording that also
+  // reads 'processing' because the call already ended just fails its PATCH.
+  const targets = recordings.filter(
+    r => r.status === 'processing' || r.status === 'in-progress' || r.status === 'paused'
   )
   console.log(
     '[dialer.recording.pause]', action,
