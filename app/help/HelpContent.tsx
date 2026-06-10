@@ -183,7 +183,7 @@ function HubTab() {
         <p>Hub is organized around a thin <strong className="text-white">icon rail</strong> on the left edge of the screen (or as a bottom tab bar on phones). Each icon opens its own sidebar with that section&apos;s contents.</p>
         <p className="font-medium text-white mt-3">Desktop rail — fixed icons</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">🔍 Search</strong> — opens the quick-jump palette (same as <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> / <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">Ctrl+K</kbd>).</li>
+          <li><strong className="text-white">🔍 Search</strong> — opens the search palette (same as <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> / <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">Ctrl+K</kbd>). Jump to a room or person by name, or <strong className="text-white">type any keyword to search messages</strong> across every room and DM you&apos;re in — results show who said it, where, and when, with your keyword highlighted. Tap a result to open that conversation. The Apps drawer also has a <strong className="text-white">search bar at the top</strong> that filters the icons as you type.</li>
           <li><strong className="text-white">🕐 Clock</strong> — opens the Time Clock modal. A small green dot appears on the icon when you&apos;re punched in.</li>
           <li><strong className="text-white">💬 Hub</strong> — team conversations. Sidebar lists My Time Clock · Daily Log · Unread · Favorites · Rooms · DMs · Boards.</li>
           <li><strong className="text-white">📱 Txt</strong> — client SMS conversations (Captivated).</li>

@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CatalogIcon, DndIcon, catalogById, type CatalogId, type RailPermissions } from './railCatalog'
 import { classifyToken } from '@/lib/hub-layout'
@@ -69,6 +70,7 @@ export default function AppLauncherPanel({
   showAdmin: boolean
 }) {
   const router = useRouter()
+  const [appSearch, setAppSearch] = useState('')
 
   function navigate(href: string) { onClose(); router.push(href) }
   function openHub() {
@@ -77,6 +79,30 @@ export default function AppLauncherPanel({
     try { last = localStorage.getItem('hub_last_chat_route') || localStorage.getItem('hub_last_route') } catch {}
     router.push(last && last.startsWith('/hub/') && last !== '/hub/home' ? last : '/hub?source=push')
   }
+
+  // Resolve the same label a Tile would render, so the search filter matches what the user sees.
+  function labelForToken(token: string): string | null {
+    const c = classifyToken(token)
+    if (c.kind === 'dnd') return currentUserStatus === 'dnd' ? 'DND on' : 'DND'
+    if (c.kind === 'url') { try { return new URL(c.href).hostname.replace(/^www\./, '') } catch { return c.href } }
+    if (c.kind === 'room') return rooms.find(r => r.id === c.id)?.name ?? null
+    if (c.kind === 'dm') {
+      const conv = conversations.find(cv => cv.id === c.id)
+      return conv ? convFirstNames(conv, currentUserId) : null
+    }
+    const id = c.id
+    if (id === 'hub') return 'Hub'
+    if (id === 'txt') return 'Txt'
+    if (id === 'time-clock') return 'Clock'
+    if (id === 'tools') return 'Tools'
+    if (id === 'links') return 'Links'
+    return catalogById(id, permissions)?.label ?? null
+  }
+
+  const searchQ = appSearch.trim().toLowerCase()
+  const visibleItems = searchQ
+    ? items.filter(t => (labelForToken(t) ?? '').toLowerCase().includes(searchQ))
+    : items
 
   // Render one list token as a launch tile.
   function Tile({ token }: { token: string }) {
@@ -159,22 +185,44 @@ export default function AppLauncherPanel({
           </div>
         </div>
 
+        <div className="flex-none px-4 pt-3">
+          <div className="relative">
+            <svg className="w-4 h-4 text-white/35 absolute left-2.5 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.34-4.34M17 10a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <input
+              autoFocus
+              value={appSearch}
+              onChange={e => setAppSearch(e.target.value)}
+              placeholder="Search apps…"
+              className="w-full bg-white/[0.06] ring-1 ring-inset ring-white/10 focus:ring-sky-400/40 rounded-xl pl-8 pr-8 py-2 text-sm text-white placeholder-white/40 outline-none transition-shadow"
+            />
+            {appSearch && (
+              <button onClick={() => setAppSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-0.5" aria-label="Clear search">
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="flex-1 overflow-y-auto px-4 py-3">
           {items.length === 0 ? (
             <p className="text-xs text-white/40 text-center py-6">Your menu is empty — tap <strong>Customize</strong> to add apps.</p>
+          ) : visibleItems.length === 0 ? (
+            <p className="text-xs text-white/40 text-center py-6">No apps match &ldquo;{appSearch.trim()}&rdquo;</p>
           ) : (
             <div className="grid grid-cols-3 gap-2 mb-2">
-              {items.map((token, i) => <Tile key={`${token}-${i}`} token={token} />)}
+              {visibleItems.map((token, i) => <Tile key={`${token}-${i}`} token={token} />)}
             </div>
           )}
-          <button
-            type="button"
-            onClick={() => { onClose(); onOpenLayoutEditor() }}
-            className="w-full mt-2 flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl border border-dashed border-white/15 text-white/55 hover:text-white hover:border-sky-400/40 hover:bg-white/[0.03] transition-colors"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-            <span className="text-[10px] font-medium">Add / edit</span>
-          </button>
+          {!searchQ && (
+            <button
+              type="button"
+              onClick={() => { onClose(); onOpenLayoutEditor() }}
+              className="w-full mt-2 flex flex-col items-center justify-center gap-1.5 p-3 rounded-2xl border border-dashed border-white/15 text-white/55 hover:text-white hover:border-sky-400/40 hover:bg-white/[0.03] transition-colors"
+            >
+              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+              <span className="text-[10px] font-medium">Add / edit</span>
+            </button>
+          )}
         </div>
 
         <div className="flex-none border-t border-white/[0.07] px-4 py-3">
