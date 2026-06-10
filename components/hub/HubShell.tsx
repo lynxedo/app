@@ -838,6 +838,7 @@ export default function HubShell({
         rooms={rooms}
         hubUsers={hubUsers}
         currentUserId={currentUserId}
+        conversations={railConversations}
         onConversationCreated={handleConversationCreated}
       />
     )}

@@ -17,6 +17,11 @@ export async function GET(request: Request) {
   const q = searchParams.get('q')?.trim() ?? ''
   if (q.length < 2) return NextResponse.json({ results: [] })
 
+  // Escape ilike wildcards so a literal % or _ in the query can't match everything.
+  const escaped = q.replace(/[\\%_]/g, ch => `\\${ch}`)
+
+  // Membership scoping comes from the messages_select RLS policy on the
+  // user-session client (can_access_room / is_conversation_member).
   const { data, error } = await supabase
     .from('messages')
     .select(`
@@ -25,15 +30,15 @@ export async function GET(request: Request) {
       created_at,
       room_id,
       conversation_id,
+      parent_id,
       sender:hub_users!sender_id(display_name, avatar_url),
       room:rooms!room_id(name)
     `)
     .eq('company_id', profile.company_id)
-    .ilike('content', `%${q}%`)
+    .ilike('content', `%${escaped}%`)
     .is('deleted_at', null)
-    .is('parent_id', null)
     .order('created_at', { ascending: false })
-    .limit(25)
+    .limit(30)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ results: data ?? [] })

@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CatalogIcon, DndIcon, catalogById, type RailPermissions } from './railCatalog'
 import { classifyToken, MOBILE_VISIBLE } from '@/lib/hub-layout'
@@ -71,6 +72,7 @@ export default function HubMobileMore({
   currentUserStatus?: string | null
 }) {
   const router = useRouter()
+  const [appSearch, setAppSearch] = useState('')
 
   function navigate(href: string) { onClose(); router.push(href) }
   function openHub() {
@@ -79,6 +81,30 @@ export default function HubMobileMore({
     try { last = window.localStorage.getItem('hub_last_chat_route') || window.localStorage.getItem('hub_last_route') } catch {}
     router.push(last && last.startsWith('/hub/') && last !== '/hub/home' ? last : '/hub?source=push')
   }
+
+  // Resolve the same label a Tile would render, so the search filter matches what the user sees.
+  function labelForToken(token: string): string | null {
+    const c = classifyToken(token)
+    if (c.kind === 'dnd') return currentUserStatus === 'dnd' ? 'DND on' : 'DND'
+    if (c.kind === 'url') { try { return new URL(c.href).hostname.replace(/^www\./, '') } catch { return c.href } }
+    if (c.kind === 'room') return rooms.find(r => r.id === c.id)?.name ?? null
+    if (c.kind === 'dm') {
+      const conv = conversations.find(cv => cv.id === c.id)
+      return conv ? convFirstNames(conv, currentUserId) : null
+    }
+    const id = c.id
+    if (id === 'hub') return 'Hub'
+    if (id === 'txt') return 'Txt'
+    if (id === 'time-clock') return 'Clock'
+    if (id === 'tools') return 'Tools'
+    if (id === 'links') return 'Links'
+    return catalogById(id, permissions)?.label ?? null
+  }
+
+  const searchQ = appSearch.trim().toLowerCase()
+  const visibleItems = searchQ
+    ? items.filter(t => (labelForToken(t) ?? '').toLowerCase().includes(searchQ))
+    : items
 
   function Tile({ token }: { token: string }) {
     const c = classifyToken(token)
@@ -152,20 +178,43 @@ export default function HubMobileMore({
           </div>
         </div>
 
+        <div className="flex-none px-4 pt-3">
+          <div className="relative">
+            <svg className="w-4 h-4 text-white/35 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.34-4.34M17 10a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+            <input
+              type="search"
+              value={appSearch}
+              onChange={e => setAppSearch(e.target.value)}
+              placeholder="Search apps…"
+              className="w-full bg-white/[0.06] ring-1 ring-inset ring-white/10 focus:ring-sky-400/40 rounded-xl pl-9 pr-9 py-2.5 text-base text-white placeholder-white/40 outline-none transition-shadow"
+            />
+            {appSearch && (
+              <button onClick={() => setAppSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-white/40 hover:text-white p-1" aria-label="Clear search">
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            )}
+          </div>
+        </div>
+
         <div className="overflow-y-auto flex-1 px-4 py-4">
           <p className="text-[10px] font-semibold text-white/30 uppercase tracking-wider mb-2">
-            Your menu{items.length > MOBILE_VISIBLE ? ` — first ${MOBILE_VISIBLE} show on the bar` : ''}
+            Your menu{!searchQ && items.length > MOBILE_VISIBLE ? ` — first ${MOBILE_VISIBLE} show on the bar` : ''}
           </p>
+          {searchQ && visibleItems.length === 0 && (
+            <p className="text-xs text-white/40 text-center py-6">No apps match &ldquo;{appSearch.trim()}&rdquo;</p>
+          )}
           <div className="grid grid-cols-4 gap-2.5 mb-2">
-            {items.map((token, i) => <Tile key={`${token}-${i}`} token={token} />)}
-            <button
-              type="button"
-              onClick={() => { onClose(); onOpenLayoutEditor() }}
-              className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl border border-dashed border-white/15 text-white/55 active:scale-95 transition-transform"
-            >
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
-              <span className="text-[10px] font-medium">Add</span>
-            </button>
+            {visibleItems.map((token, i) => <Tile key={`${token}-${i}`} token={token} />)}
+            {!searchQ && (
+              <button
+                type="button"
+                onClick={() => { onClose(); onOpenLayoutEditor() }}
+                className="flex flex-col items-center justify-center gap-1.5 py-3 rounded-2xl border border-dashed border-white/15 text-white/55 active:scale-95 transition-transform"
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" /></svg>
+                <span className="text-[10px] font-medium">Add</span>
+              </button>
+            )}
           </div>
 
           <div className="h-px bg-white/10 my-4" />
