@@ -31,6 +31,11 @@ export type CatalogId =
   | 'pesticide-records'
   | 'forms'
   | 'reports'
+  | 'people'        // admin-only (Admin → People)
+  | 'guardian'      // admin-only (Admin → Guardian)
+  | 'products'      // admin-only (Admin → Products)
+  | 'announcements' // admin-only (Admin → Announcements)
+  | 'file-tags'     // admin-only (Admin → File Tags)
 
 export type CatalogEntry = {
   id: CatalogId
@@ -116,6 +121,18 @@ const PATHS = {
   search: 'M21 21l-4.34-4.34M17 10a7 7 0 11-14 0 7 7 0 0114 0z',
   settings: 'M10.325 4.317a2 2 0 013.35 0l.554.916a2 2 0 002.146.96l1.05-.224a2 2 0 012.39 2.39l-.224 1.05a2 2 0 00.96 2.146l.916.554a2 2 0 010 3.35l-.916.554a2 2 0 00-.96 2.146l.224 1.05a2 2 0 01-2.39 2.39l-1.05-.224a2 2 0 00-2.146.96l-.554.916a2 2 0 01-3.35 0l-.554-.916a2 2 0 00-2.146-.96l-1.05.224a2 2 0 01-2.39-2.39l.224-1.05a2 2 0 00-.96-2.146l-.916-.554a2 2 0 010-3.35l.916-.554a2 2 0 00.96-2.146l-.224-1.05a2 2 0 012.39-2.39l1.05.224a2 2 0 002.146-.96l.554-.916zM15 12a3 3 0 11-6 0 3 3 0 016 0z',
   admin: 'M12 2l8 4v6c0 5-3.5 9-8 10-4.5-1-8-5-8-10V6l8-4z',
+  // People (team members) — a pair of figures, distinct from the single-figure
+  // 'contacts' (customers) glyph.
+  people: 'M9 11.5a3.25 3.25 0 100-6.5 3.25 3.25 0 000 6.5zM3 20v-1a5 5 0 015-5h2a5 5 0 015 5v1M16.5 5.3a3.25 3.25 0 010 6.4M22 20v-1a5 5 0 00-3.8-4.85',
+  // Guardian (the AI assistant bot) — a friendly robot head with antenna.
+  guardian: 'M12 3.5h.01M12 4.2v2.3M7.5 6.5h9A1.5 1.5 0 0118 8v8a1.5 1.5 0 01-1.5 1.5h-9A1.5 1.5 0 016 16V8a1.5 1.5 0 011.5-1.5zM9.75 11h.01M14.25 11h.01M10 14.5h4',
+  // Products / inventory — a 3D cube.
+  products: 'M12 2.5l8.5 4.75v9.5L12 21.5 3.5 16.75v-9.5L12 2.5zM3.5 7.25 12 12l8.5-4.75M12 12v9.5',
+  // Announcements — a bullhorn with sound waves (distinct from the filled
+  // megaphone used for Marketing).
+  announcements: 'M3 9v6h4l5 4V5L7 9H3zM15.5 9a4 4 0 010 6M17.5 7a7 7 0 010 10',
+  // File Tags — a luggage-style tag with its hole.
+  fileTags: 'M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3zM6.5 6.5h.01',
 }
 
 // Reusable icon factory (also used by the Tools sidebar and Hub sidebar
@@ -148,6 +165,11 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
     case 'pesticide-records': return <I d={PATHS.pesticideRecords} />
     case 'forms':         return <I d={PATHS.forms} />
     case 'reports':       return <I d={PATHS.reports} />
+    case 'people':        return <I d={PATHS.people} />
+    case 'guardian':      return <I d={PATHS.guardian} />
+    case 'products':      return <I d={PATHS.products} />
+    case 'announcements': return <I d={PATHS.announcements} />
+    case 'file-tags':     return <I d={PATHS.fileTags} />
   }
 }
 

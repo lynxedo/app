@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef } from 'react'
+import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import EmojiPicker from '@/components/hub/EmojiPicker'
 import AutomationBuilder from '@/components/hub/admin/AutomationBuilder'
@@ -99,11 +99,16 @@ export default function HubAdminPanel({
   hubUsers,
   allowMemberRoomCreation,
   activeAnnouncements,
+  only,
 }: {
   initialRooms: Room[]
   hubUsers: HubUser[]
   allowMemberRoomCreation: boolean
   activeAnnouncements: Announcement[]
+  // When set, the panel renders ONLY that one section (no tab bar). Used by the
+  // standalone /hub/admin/announcements and /hub/admin/file-tags pages, which
+  // surface these as their own top-level sidebar entries instead of Hub sub-tabs.
+  only?: 'announcements' | 'file-tags'
 }) {
   const router = useRouter()
   const [rooms, setRooms] = useState<Room[]>(initialRooms)
@@ -218,7 +223,15 @@ export default function HubAdminPanel({
   const [showEditLinkEmojiPicker, setShowEditLinkEmojiPicker] = useState(false)
 
   // Section tabs
-  const [tab, setTab] = useState<'rooms' | 'members' | 'settings' | 'announcements' | 'api-keys' | 'automation' | 'chat-synx' | 'file-tags' | 'external-links'>('rooms')
+  const [tab, setTab] = useState<'rooms' | 'members' | 'settings' | 'announcements' | 'api-keys' | 'automation' | 'chat-synx' | 'file-tags' | 'external-links'>(only ?? 'rooms')
+
+  // In single-section ("only") mode the tab bar is hidden, so load that
+  // section's lazy data on mount instead of on a tab click.
+  useEffect(() => {
+    if (only === 'file-tags') loadFileTags()
+    if (only === 'announcements') loadPastAnns()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [only])
 
   async function createRoom() {
     if (!newName.trim() || creating) return
@@ -732,22 +745,22 @@ export default function HubAdminPanel({
 
   return (
     <div>
-      {/* Tab nav */}
+      {/* Tab nav — hidden in single-section "only" mode (Announcements and File
+          Tags are their own top-level admin pages, not Hub sub-tabs). */}
+      {!only && (
       <div className="flex gap-1 mb-8 border-b border-gray-800">
         {([
           ['rooms', 'Rooms'],
           ['members', 'Members'],
           ['settings', 'Settings'],
-          ['announcements', 'Announcements'],
           ['api-keys', 'API Keys'],
           ['automation', 'Automation'],
           ['chat-synx', 'Chat Synx'],
-          ['file-tags', 'File Tags'],
           ['external-links', 'External Links'],
         ] as const).map(([key, label]) => (
           <button
             key={key}
-            onClick={() => { setTab(key); if (key === 'api-keys') loadApiKeys(); if (key === 'automation') loadAutomationRules(); if (key === 'chat-synx') { if (!chatSynxLinksLoaded) loadChatSynxLinks(); if (!chatSynxBridgesLoaded) loadChatSynxBridges(); } if (key === 'file-tags' && !fileTagsLoaded) loadFileTags(); if (key === 'external-links' && !externalLinksLoaded) loadExternalLinks(); if (key === 'announcements') loadPastAnns() }}
+            onClick={() => { setTab(key); if (key === 'api-keys') loadApiKeys(); if (key === 'automation') loadAutomationRules(); if (key === 'chat-synx') { if (!chatSynxLinksLoaded) loadChatSynxLinks(); if (!chatSynxBridgesLoaded) loadChatSynxBridges(); } if (key === 'external-links' && !externalLinksLoaded) loadExternalLinks() }}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === key ? 'border-[#2E7EB8] text-white' : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}
@@ -756,6 +769,7 @@ export default function HubAdminPanel({
           </button>
         ))}
       </div>
+      )}
 
       {/* ── ROOMS TAB ── */}
       {tab === 'rooms' && (

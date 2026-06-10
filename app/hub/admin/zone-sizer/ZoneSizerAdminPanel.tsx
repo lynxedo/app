@@ -1,7 +1,6 @@
 'use client'
 
 import { useState } from 'react'
-import AdminTabNav from '@/components/AdminTabNav'
 
 type Settings = {
   turf_sqft_per_zone: number
@@ -42,11 +41,6 @@ export default function ZoneSizerAdminPanel({ initial }: { initial: Settings }) 
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-gray-950 text-white">
-      <div className="border-b border-gray-800">
-        <div className="px-4 md:px-6">
-          <AdminTabNav />
-        </div>
-      </div>
       <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-6">
         <header>
           <h1 className="text-xl font-semibold">Zone Sizer</h1>

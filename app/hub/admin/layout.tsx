@@ -1,10 +1,12 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import AdminTabNav from '@/components/AdminTabNav'
 
 // Rendered inside the Hub shell (parent app/hub/layout.tsx provides the rail
-// and sidebar). We only render the AdminTabNav strip and the admin content —
-// no separate header.
+// and the Admin sidebar, which is now the single cross-section navigation).
+// This layout only enforces the admin permission gate and wraps the content —
+// the old cross-section AdminTabNav was removed in favor of the sidebar. Each
+// section's own sub-tabs (e.g. Hub's rooms/members/settings) still render as a
+// top bar inside their own panel.
 export default async function HubAdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -35,23 +37,6 @@ export default async function HubAdminLayout({ children }: { children: React.Rea
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto bg-gray-950 text-white">
-      <div className="border-b border-gray-800 px-4 md:px-6">
-        <AdminTabNav
-          isSuperAdmin={isSuperAdmin}
-          grants={{
-            people: !!profile?.can_admin_people,
-            hub: !!profile?.can_admin_hub,
-            routing: !!profile?.can_admin_routing,
-            timesheet: !!profile?.can_admin_timesheet,
-            fleet: !!profile?.can_admin_fleet,
-            daily_log: !!profile?.can_admin_daily_log,
-            zone_sizer: !!profile?.can_admin_zone_sizer,
-            dialer: !!profile?.can_admin_dialer,
-            contacts: !!profile?.can_admin_contacts,
-            products: !!profile?.can_admin_products,
-          }}
-        />
-      </div>
       <main className="max-w-4xl mx-auto px-4 md:px-6 py-6 md:py-10">
         {children}
       </main>
