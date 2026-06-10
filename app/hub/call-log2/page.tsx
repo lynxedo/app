@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
+import { createClient } from '@/lib/supabase/client'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -345,9 +346,23 @@ export default function CallLog2Page() {
   const [dateTo, setDateTo] = useState('')
   const [phone, setPhone] = useState('')
 
-  const fetchCalls = useCallback(async (params: { dateFrom: string; dateTo: string; phone: string }) => {
-    setLoading(true)
-    setError('')
+  // companyId (from the API response) keys the realtime channel; filtersRef
+  // lets a background refetch reuse whatever filters are currently applied.
+  const [companyId, setCompanyId] = useState('')
+  const filtersRef = useRef({ dateFrom: '', dateTo: '', phone: '' })
+
+  // silent = background refresh from the realtime broadcast: no loading
+  // flash, and the open detail panel stays open (swapped to the fresh row so
+  // a just-finished transcript appears in place).
+  const fetchCalls = useCallback(async (
+    params: { dateFrom: string; dateTo: string; phone: string },
+    opts: { silent?: boolean } = {}
+  ) => {
+    filtersRef.current = params
+    if (!opts.silent) {
+      setLoading(true)
+      setError('')
+    }
     try {
       const qs = new URLSearchParams({ limit: '100' })
       if (params.dateFrom) qs.set('date_from', params.dateFrom)
@@ -357,18 +372,47 @@ export default function CallLog2Page() {
       const res = await fetch(`/api/dialer/calls/call-log2?${qs}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to load')
-      setCalls(data.calls ?? [])
-      setSelected(null)
+      const list: Call[] = data.calls ?? []
+      setCalls(list)
+      if (data.company_id) setCompanyId(data.company_id)
+      if (opts.silent) {
+        setSelected(prev => (prev ? list.find(c => c.id === prev.id) ?? prev : null))
+      } else {
+        setSelected(null)
+      }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Unknown error')
+      if (!opts.silent) setError(e instanceof Error ? e.message : 'Unknown error')
     } finally {
-      setLoading(false)
+      if (!opts.silent) setLoading(false)
     }
   }, [])
 
   useEffect(() => {
     fetchCalls({ dateFrom: '', dateTo: '', phone: '' })
   }, [fetchCalls])
+
+  // Live updates: the transcription pipeline broadcasts `call-updated` on
+  // `call-log2:{companyId}` when a transcript finishes — refresh the list in
+  // the background instead of waiting for a manual Search. Debounced so a
+  // burst of completions triggers one refetch.
+  useEffect(() => {
+    if (!companyId) return
+    const supabase = createClient()
+    let timer: ReturnType<typeof setTimeout> | null = null
+    const channel = supabase
+      .channel(`call-log2:${companyId}`)
+      .on('broadcast', { event: 'call-updated' }, () => {
+        if (timer) clearTimeout(timer)
+        timer = setTimeout(() => {
+          fetchCalls(filtersRef.current, { silent: true })
+        }, 800)
+      })
+      .subscribe()
+    return () => {
+      if (timer) clearTimeout(timer)
+      supabase.removeChannel(channel)
+    }
+  }, [companyId, fetchCalls])
 
   function handleSearch() { fetchCalls({ dateFrom, dateTo, phone }) }
   function handleClear() {

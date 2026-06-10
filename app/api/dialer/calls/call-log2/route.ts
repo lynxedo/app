@@ -93,5 +93,7 @@ export async function GET(request: NextRequest) {
     voicemail: vmByCallId[c.id] ?? null,
   }))
 
-  return NextResponse.json({ calls: enriched })
+  // company_id lets the client subscribe to the `call-log2:{companyId}`
+  // realtime broadcast (fired when a transcription completes) for live updates.
+  return NextResponse.json({ calls: enriched, company_id: companyId })
 }

@@ -307,6 +307,26 @@ export async function downloadTwilioRecording(
   }
 }
 
+// Delete a recording from Twilio's storage. Called after the audio has been
+// copied to R2 so we don't pay Twilio storage fees on a duplicate. A 404 counts
+// as success (already gone). Never throws.
+export async function deleteTwilioRecording(recordingSid: string): Promise<boolean> {
+  if (!ACCOUNT_SID || !AUTH_TOKEN || !recordingSid) return false
+  const auth = Buffer.from(`${ACCOUNT_SID}:${AUTH_TOKEN}`).toString('base64')
+  try {
+    const res = await fetch(
+      `https://api.twilio.com/2010-04-01/Accounts/${ACCOUNT_SID}/Recordings/${encodeURIComponent(recordingSid)}.json`,
+      { method: 'DELETE', headers: { Authorization: `Basic ${auth}` } }
+    )
+    if (res.ok || res.status === 404) return true
+    console.warn(`[dialer.recording] deleteTwilioRecording failed for ${recordingSid}: HTTP ${res.status}`)
+    return false
+  } catch (e) {
+    console.warn('[dialer.recording] deleteTwilioRecording threw:', e)
+    return false
+  }
+}
+
 // Start a dual-channel recording on a live call via the REST API. Used for
 // INBOUND calls, which flow through the IVR / ring groups — per-<Dial> record
 // attributes would miss those, but a call-level recording captures the whole

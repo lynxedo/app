@@ -3,10 +3,20 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   EMPTY_VOICE_TWIML,
+  deleteTwilioRecording,
   downloadTwilioRecording,
   validateTwilioVoiceSignature,
   voiceConfigured,
 } from '@/lib/twilio-voice'
+
+// Once a recording is safely in R2 we delete Twilio's copy to avoid paying
+// their per-minute storage fees on a duplicate. EXCEPT while the Twilio Voice
+// Intelligence compare engine is enabled — VI transcribes from the recording
+// stored IN Twilio (source_sid), so deleting would break Engine B. VI is
+// currently off (env var unset) pending the local-number port.
+function shouldDeleteTwilioCopy(): boolean {
+  return !process.env.TWILIO_VI_SERVICE_SID
+}
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -96,6 +106,10 @@ export async function POST(request: NextRequest) {
     !isNaN(seconds) &&
     seconds < callRow.recording_duration_seconds
   ) {
+    // This recording is being discarded — clean its Twilio copy up too.
+    if (recordingSid && shouldDeleteTwilioCopy()) {
+      deleteTwilioRecording(recordingSid).catch(() => {})
+    }
     return twimlResponse()
   }
 
@@ -133,6 +147,11 @@ export async function POST(request: NextRequest) {
         )
         update.recording_storage_path = storageKey
         update.transcription_status = 'pending'
+        // We own the audio in R2 now — drop Twilio's copy (fire-and-forget).
+        // Skipped while Twilio VI is enabled; see shouldDeleteTwilioCopy().
+        if (shouldDeleteTwilioCopy()) {
+          deleteTwilioRecording(recordingSid).catch(() => {})
+        }
       } catch (err) {
         console.warn('[dialer.recording] R2 PutObject failed', err)
       }

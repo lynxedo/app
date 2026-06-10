@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 import {
   EMPTY_VOICE_TWIML,
+  deleteTwilioRecording,
   downloadTwilioRecording,
   validateTwilioVoiceSignature,
   voiceConfigured,
@@ -137,6 +138,11 @@ export async function POST(request: NextRequest) {
     console.warn('[voicemail.complete] insert failed', insertErr)
     return twimlResponse(EMPTY_VOICE_TWIML)
   }
+
+  // The audio is safely in R2 and the voicemails row points at it — delete
+  // Twilio's copy so we don't pay their storage fees on a duplicate.
+  // (Voicemail transcription reads from R2, never from Twilio.)
+  deleteTwilioRecording(recordingSid).catch(() => {})
 
   // Fire transcription async — runs Deepgram + Claude in the background so
   // the push notification fires immediately while transcription catches up.
