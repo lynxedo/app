@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { EMPTY_VOICE_TWIML, validateTwilioVoiceSignature, voiceConfigured } from '@/lib/twilio-voice'
+import { cancelCall } from '@/lib/twilio-conference'
+import type { RingPendingEntry } from '@/lib/dialer-conference-connect'
 
 const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
@@ -48,6 +50,43 @@ export async function POST(request: NextRequest) {
         .is('answered_at', null)
       if (eventCallSid) q = q.neq('twilio_call_sid', eventCallSid)
       await q
+
+      // Ring-group attribution: while a group call rings, ring_pending holds
+      // [{ call_sid, user_id }] for every leg being dialed. The joining leg
+      // identifies who actually answered — stamp them as handled_by (this is
+      // what lets THEIR hold/transfer/pause resolve the call) and cancel any
+      // sibling legs still ringing (simultaneous mode). The atomic null-out of
+      // ring_pending doubles as the claim that stops the agent-status chain
+      // from voicemailing an already-answered call.
+      if (eventCallSid) {
+        const { data: row } = await admin
+          .from('calls')
+          .select('id, ring_pending')
+          .eq('company_id', HEROES_COMPANY_ID)
+          .eq('conference_name', room)
+          .not('ring_pending', 'is', null)
+          .maybeSingle()
+        const pending = ((row?.ring_pending as RingPendingEntry[] | null) ?? [])
+        const joined = pending.find(p => p.call_sid === eventCallSid)
+        if (row && joined) {
+          const { data: claimRows } = await admin
+            .from('calls')
+            .update({
+              ring_pending: null,
+              handled_by: joined.user_id,
+              conference_agent_sid: joined.call_sid,
+            })
+            .eq('id', row.id)
+            .not('ring_pending', 'is', null)
+            .select('id')
+          if ((claimRows?.length ?? 0) > 0) {
+            for (const p of pending) {
+              if (p.call_sid === eventCallSid) continue
+              try { await cancelCall(p.call_sid) } catch { /* best-effort */ }
+            }
+          }
+        }
+      }
     } else if (event === 'conference-end') {
       await admin
         .from('calls')

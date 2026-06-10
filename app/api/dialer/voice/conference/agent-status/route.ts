@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { EMPTY_VOICE_TWIML, validateTwilioVoiceSignature, voiceConfigured } from '@/lib/twilio-voice'
 import { redirectCall } from '@/lib/twilio-conference'
+import { advanceRingGroup } from '@/lib/dialer-conference-connect'
 
 function xml(body: string, status = 200) {
   return new NextResponse(body, { status, headers: { 'Content-Type': 'text/xml' } })
@@ -30,8 +31,14 @@ export async function POST(request: NextRequest) {
   }
 
   const callStatus = (params.get('CallStatus') || '').toLowerCase()
+  const endedLegSid = params.get('CallSid') || ''
   const callerSid = reqUrl.searchParams.get('caller_sid') || ''
   const owner = reqUrl.searchParams.get('owner') || ''
+  // Ring-group chain params (set by connectInboundToRingGroupViaConference).
+  const room = reqUrl.searchParams.get('room') || ''
+  const groupId = reqUrl.searchParams.get('group') || ''
+  const mode = reqUrl.searchParams.get('mode') === 'sim' ? ('sim' as const) : ('seq' as const)
+  const nextIndex = parseInt(reqUrl.searchParams.get('i') || '0', 10) || 0
 
   const unanswered = ['no-answer', 'busy', 'failed', 'canceled'].includes(callStatus)
   // Log every delivery — this callback is the no-answer→voicemail trigger, and
@@ -41,13 +48,28 @@ export async function POST(request: NextRequest) {
     '[dialer.conference.agent-status]',
     'status', callStatus || '(none)',
     'unanswered', unanswered,
-    'caller', callerSid ? 'present' : 'missing'
+    'caller', callerSid ? 'present' : 'missing',
+    groupId ? `group ${groupId} mode ${mode} i ${nextIndex}` : 'single-agent'
   )
   if (unanswered && callerSid) {
     const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
-    const voicemailUrl = `${baseUrl}/api/dialer/voice/twiml/voicemail${owner ? `?owner=${encodeURIComponent(owner)}` : ''}`
-    // Best-effort — if the caller already hung up, the redirect just no-ops.
-    await redirectCall({ callSid: callerSid, twimlUrl: voicemailUrl }).catch(() => {})
+    if (groupId && room) {
+      // Group leg ended unanswered — ring the next member (sequential), or
+      // check whether the whole group is exhausted (simultaneous) → voicemail.
+      await advanceRingGroup({
+        baseUrl,
+        room,
+        callerCallSid: callerSid,
+        groupId,
+        mode,
+        nextIndex,
+        endedLegSid: endedLegSid || undefined,
+      }).catch(() => {})
+    } else {
+      const voicemailUrl = `${baseUrl}/api/dialer/voice/twiml/voicemail${owner ? `?owner=${encodeURIComponent(owner)}` : ''}`
+      // Best-effort — if the caller already hung up, the redirect just no-ops.
+      await redirectCall({ callSid: callerSid, twimlUrl: voicemailUrl }).catch(() => {})
+    }
   }
 
   return xml(EMPTY_VOICE_TWIML)

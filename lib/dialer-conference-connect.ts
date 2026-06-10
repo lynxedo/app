@@ -8,12 +8,17 @@
 
 import {
   addConferenceParticipant,
+  cancelCall,
+  fetchCallStatus,
+  redirectCall,
   twimlCustomerJoinConference,
 } from '@/lib/twilio-conference'
 import {
   injectConsentNotice,
+  isInDndSchedule,
   twimlRecordVoicemail,
   voiceCallerId,
+  type DndSchedule,
 } from '@/lib/twilio-voice'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -104,4 +109,307 @@ export async function connectInboundToAgentViaConference(opts: {
   })
   if (recordingEnabled && recordingConsentNotice) twiml = injectConsentNotice(twiml, recordingConsentNotice)
   return twiml
+}
+
+// ---------------------------------------------------------------------------
+// Ring groups via conference (replaces the legacy sequential/simultaneous
+// <Dial> chains, so group-answered calls get in-call hold + transfer).
+//
+// Model: the caller joins the conference and waits on hold music; group
+// members are REST-added as participants. While legs are being rung, the
+// calls row's `ring_pending` jsonb holds [{ call_sid, user_id }] for every
+// live leg:
+//   - the conference status callback uses it to stamp handled_by with the
+//     member who actually answered, and to CANCEL sibling legs (simultaneous);
+//   - the agent-status chain atomically nulls it as the claim that exactly one
+//     handler sends the caller to voicemail when the group is exhausted.
+//
+// Sequential mode rings one member at a time: each unanswered leg's terminal
+// agent-status callback adds the next available member. Simultaneous mode adds
+// every available member at once (unique labels — participant labels must be
+// unique per conference); first to answer wins, the rest are canceled.
+// ---------------------------------------------------------------------------
+
+export type RingPendingEntry = { call_sid: string; user_id: string }
+
+type RingGroupInfo = {
+  id: string
+  ring_mode: string | null
+  ring_timeout_sec: number | null
+}
+type RingGroupMember = { user_id: string; member_timeout_sec: number | null }
+
+// Group + members minus anyone who is DND right now. Re-resolved at every
+// sequential step (matching the legacy chain, which re-filtered per step) so
+// a member flipping DND mid-ring is skipped.
+export async function resolveRingGroupAvailableMembers(
+  admin: ReturnType<typeof createAdminClient>,
+  groupId: string
+): Promise<{ group: RingGroupInfo | null; available: RingGroupMember[] }> {
+  const { data: group } = await admin
+    .from('dialer_ring_groups')
+    .select('id, ring_mode, ring_timeout_sec')
+    .eq('id', groupId)
+    .maybeSingle()
+  if (!group) return { group: null, available: [] }
+
+  const { data: memberRows } = await admin
+    .from('dialer_ring_group_members')
+    .select('user_id, position, member_timeout_sec')
+    .eq('group_id', groupId)
+    .order('position')
+  const members = (memberRows ?? []) as (RingGroupMember & { position: number })[]
+  if (members.length === 0) return { group, available: [] }
+
+  const { data: profileRows } = await admin
+    .from('user_profiles')
+    .select('id, dialer_dnd_enabled, dialer_dnd_schedule')
+    .in('id', members.map(m => m.user_id))
+  const dndById = new Map<string, boolean>()
+  for (const p of profileRows ?? []) {
+    const sched = (p.dialer_dnd_schedule || null) as DndSchedule | null
+    dndById.set(p.id, Boolean(p.dialer_dnd_enabled) || isInDndSchedule(sched))
+  }
+  return { group, available: members.filter(m => !dndById.get(m.user_id)) }
+}
+
+function voicemailRedirectTwiml(baseUrl: string): string {
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${baseUrl}/api/dialer/voice/twiml/voicemail</Redirect></Response>`
+}
+
+function groupAgentStatusCb(opts: {
+  baseUrl: string
+  callerCallSid: string
+  room: string
+  groupId: string
+  mode: 'seq' | 'sim'
+  nextIndex: number
+}): string {
+  return (
+    `${opts.baseUrl}/api/dialer/voice/conference/agent-status` +
+    `?caller_sid=${encodeURIComponent(opts.callerCallSid)}` +
+    `&room=${encodeURIComponent(opts.room)}` +
+    `&group=${encodeURIComponent(opts.groupId)}` +
+    `&mode=${opts.mode}&i=${opts.nextIndex}`
+  )
+}
+
+// Entry point — returns the TwiML for the CALLER's leg. Mirrors
+// connectInboundToAgentViaConference but rings a group instead of one user.
+export async function connectInboundToRingGroupViaConference(opts: {
+  baseUrl: string
+  room: string
+  callerCallSid: string
+  callerNumber?: string
+  groupId: string
+  recordingEnabled: boolean
+}): Promise<string> {
+  const { baseUrl, room, callerCallSid, callerNumber, groupId, recordingEnabled } = opts
+  const admin = createAdminClient()
+
+  const { group, available } = await resolveRingGroupAvailableMembers(admin, groupId)
+  // No group / no members / everyone DND — straight to general voicemail,
+  // exactly like the legacy route.
+  if (!group || available.length === 0) return voicemailRedirectTwiml(baseUrl)
+
+  const holdMusic = `${baseUrl}/api/dialer/voice/twiml/hold-music`
+  const recordingCb = `${baseUrl}/api/dialer/voice/recording`
+  const confStatusCb = `${baseUrl}/api/dialer/voice/conference/status`
+  const from = callerNumber || voiceCallerId() || ''
+  const simultaneous = group.ring_mode === 'simultaneous'
+
+  const pending: RingPendingEntry[] = []
+  let conferenceSid: string | null = null
+
+  if (simultaneous) {
+    const timeout = group.ring_timeout_sec ?? 25
+    let n = 0
+    for (const member of available) {
+      n++
+      const add = await addConferenceParticipant({
+        room,
+        to: `client:${member.user_id}`,
+        from,
+        // Participant labels must be unique within a conference — concurrent
+        // legs can't all be 'agent'.
+        label: `agent_${n}`,
+        startConferenceOnEnter: true,
+        endConferenceOnExit: true,
+        timeoutSec: timeout,
+        statusCallback: groupAgentStatusCb({ baseUrl, callerCallSid, room, groupId, mode: 'sim', nextIndex: 0 }),
+        // Registered by whichever add CREATES the conference (the first).
+        conferenceStatusCallback: confStatusCb,
+      })
+      if (add.ok && add.callSid) {
+        pending.push({ call_sid: add.callSid, user_id: member.user_id })
+        if (!conferenceSid && add.conferenceSid) conferenceSid = add.conferenceSid
+      }
+    }
+  } else {
+    // Sequential: ring available[0]; the no-answer callback chains to the next.
+    // If an add fails outright, try the next member here so one bad leg doesn't
+    // send the caller straight to voicemail (legacy parity: a failed <Dial>
+    // step advanced the chain).
+    for (let i = 0; i < available.length; i++) {
+      const member = available[i]
+      const add = await addConferenceParticipant({
+        room,
+        to: `client:${member.user_id}`,
+        from,
+        label: 'agent',
+        startConferenceOnEnter: true,
+        endConferenceOnExit: true,
+        timeoutSec: member.member_timeout_sec ?? 20,
+        statusCallback: groupAgentStatusCb({ baseUrl, callerCallSid, room, groupId, mode: 'seq', nextIndex: i + 1 }),
+        conferenceStatusCallback: confStatusCb,
+      })
+      if (add.ok && add.callSid) {
+        pending.push({ call_sid: add.callSid, user_id: member.user_id })
+        conferenceSid = add.conferenceSid
+        break
+      }
+    }
+  }
+
+  if (pending.length === 0) return voicemailRedirectTwiml(baseUrl)
+
+  // Stamp the room + SIDs + ringing state on the calls row so the answering
+  // member's hold/transfer/pause can resolve this call. handled_by is set per
+  // ring for sequential (the one member being rung); for simultaneous it's
+  // stamped when someone actually joins (conference status callback).
+  try {
+    await admin
+      .from('calls')
+      .update({
+        conference_name: room,
+        conference_sid: conferenceSid,
+        conference_customer_sid: callerCallSid,
+        conference_agent_sid: simultaneous ? null : pending[0].call_sid,
+        handled_by: simultaneous ? null : pending[0].user_id,
+        ring_pending: pending,
+      })
+      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('twilio_call_sid', callerCallSid)
+  } catch {
+    // swallow — call still connects
+  }
+
+  // Caller waits on hold music; consent (if any) already played at IVR entry.
+  return twimlCustomerJoinConference({
+    room,
+    waitUrl: holdMusic,
+    action: `${baseUrl}/api/dialer/voice/twiml/voicemail`,
+    record: recordingEnabled,
+    recordingStatusCallback: recordingCb,
+    statusCallback: confStatusCb,
+  })
+}
+
+// Called from the agent-status callback when a group leg ends unanswered
+// (no-answer / busy / failed / canceled). Sequential: ring the next member.
+// Simultaneous: if no sibling leg is still live, the group is exhausted.
+// Either way, exhaustion claims the row (atomic ring_pending null-out) and
+// redirects the still-waiting caller to general voicemail.
+export async function advanceRingGroup(opts: {
+  baseUrl: string
+  room: string
+  callerCallSid: string
+  groupId: string
+  mode: 'seq' | 'sim'
+  nextIndex: number
+  endedLegSid?: string
+}): Promise<void> {
+  const admin = createAdminClient()
+  const { data: row } = await admin
+    .from('calls')
+    .select('id, answered_at, ring_pending, from_number')
+    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('twilio_call_sid', opts.callerCallSid)
+    .maybeSingle()
+
+  // Someone already answered (the join handler stamps answered_at + clears
+  // ring_pending) — this is just a sibling leg reporting in. Nothing to do.
+  if (row?.answered_at) return
+  const pending = ((row?.ring_pending as RingPendingEntry[] | null) ?? []).filter(
+    p => p.call_sid !== opts.endedLegSid
+  )
+
+  // Caller gone? Stop the chain and silence any legs still ringing.
+  const callerStatus = await fetchCallStatus(opts.callerCallSid)
+  const callerAlive =
+    callerStatus === 'queued' || callerStatus === 'ringing' || callerStatus === 'in-progress'
+  if (!callerAlive) {
+    for (const p of pending) {
+      try { await cancelCall(p.call_sid) } catch { /* best-effort */ }
+    }
+    if (row) {
+      await admin.from('calls').update({ ring_pending: null }).eq('id', row.id)
+    }
+    return
+  }
+
+  if (opts.mode === 'seq') {
+    const { available } = await resolveRingGroupAvailableMembers(admin, opts.groupId)
+    // Ring the next available member (skipping past failed adds like the entry
+    // loop does).
+    for (let i = opts.nextIndex; i < available.length; i++) {
+      const member = available[i]
+      const add = await addConferenceParticipant({
+        room: opts.room,
+        to: `client:${member.user_id}`,
+        from: row?.from_number || voiceCallerId() || '',
+        label: 'agent',
+        startConferenceOnEnter: true,
+        endConferenceOnExit: true,
+        timeoutSec: member.member_timeout_sec ?? 20,
+        statusCallback: groupAgentStatusCb({
+          baseUrl: opts.baseUrl,
+          callerCallSid: opts.callerCallSid,
+          room: opts.room,
+          groupId: opts.groupId,
+          mode: 'seq',
+          nextIndex: i + 1,
+        }),
+      })
+      if (add.ok && add.callSid) {
+        if (row) {
+          await admin
+            .from('calls')
+            .update({
+              conference_agent_sid: add.callSid,
+              handled_by: member.user_id,
+              ring_pending: [{ call_sid: add.callSid, user_id: member.user_id }],
+            })
+            .eq('id', row.id)
+        }
+        return
+      }
+    }
+    // fell through — exhausted
+  } else {
+    // Simultaneous: another leg may still be ringing. Check Twilio directly
+    // (stateless — immune to ring_pending update races between sibling events).
+    for (const p of pending) {
+      const s = await fetchCallStatus(p.call_sid)
+      if (s === 'queued' || s === 'ringing' || s === 'in-progress') return
+    }
+  }
+
+  // Group exhausted. Claim the redirect by atomically nulling ring_pending so
+  // racing sibling events can't send the caller to voicemail twice (a second
+  // redirect would restart the voicemail prompt mid-recording).
+  if (row) {
+    const { data: claimRows } = await admin
+      .from('calls')
+      .update({ ring_pending: null })
+      .eq('id', row.id)
+      .not('ring_pending', 'is', null)
+      .select('id')
+    if ((claimRows?.length ?? 0) === 0) return
+  }
+  console.log('[dialer.conference.ring-group] group exhausted → voicemail for', opts.callerCallSid)
+  await redirectCall({
+    callSid: opts.callerCallSid,
+    twimlUrl: `${opts.baseUrl}/api/dialer/voice/twiml/voicemail`,
+  }).catch(() => {})
 }
