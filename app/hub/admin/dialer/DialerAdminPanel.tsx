@@ -545,6 +545,36 @@ export default function DialerAdminPanel({
           </div>
         )}
 
+        {/* AI personalized reply */}
+        <div className="border border-white/10 rounded-lg p-3 space-y-2">
+          <div className="flex items-center justify-between">
+            <div>
+              <p className="text-sm font-medium text-white">AI personalized reply</p>
+              <p className="text-xs text-white/50 mt-0.5">
+                After transcribing a voicemail, sends a second SMS that references what the caller actually said — feels human, not automated.
+              </p>
+            </div>
+            <button
+              type="button"
+              role="switch"
+              aria-checked={resp.ai_reply_enabled}
+              onClick={() => setResp(p => ({ ...p, ai_reply_enabled: !p.ai_reply_enabled }))}
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors ${
+                resp.ai_reply_enabled ? 'bg-[#2E7EB8]' : 'bg-white/20'
+              }`}
+            >
+              <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+                resp.ai_reply_enabled ? 'translate-x-4' : 'translate-x-0'
+              }`} />
+            </button>
+          </div>
+          {resp.ai_reply_enabled && (
+            <p className="text-xs text-amber-300/80">
+              Only fires when the caller leaves a voicemail. SMS #1 (the generic template above) sends at call time; this AI reply sends ~30–90s later once transcription completes.
+            </p>
+          )}
+        </div>
+
         {/* Business days */}
         <div className="space-y-2">
           <label className="text-xs font-medium text-white/70 block">Business days</label>

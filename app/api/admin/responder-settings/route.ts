@@ -25,6 +25,7 @@ export async function POST(req: NextRequest) {
     'mode', 'business_days', 'business_hours_start', 'business_hours_end',
     'business_hours_template', 'business_hours_no_message_template',
     'afterhours_template', 'afterhours_no_message_template',
+    'ai_reply_enabled',
   ]
 
   const update: Record<string, unknown> = {}
