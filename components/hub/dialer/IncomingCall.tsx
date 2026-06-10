@@ -1,5 +1,7 @@
 'use client'
 
+import type { DialerLookupMatch, DialerContactStatus } from '@/lib/dialer-lookup'
+
 function formatPhone(raw: string | null): string {
   if (!raw) return ''
   const digits = raw.replace(/\D/g, '')
@@ -12,18 +14,42 @@ function formatPhone(raw: string | null): string {
   return raw
 }
 
+const STATUS_LABEL: Record<DialerContactStatus, string> = {
+  lead: 'Lead',
+  customer: 'Customer',
+  archived: 'Archived',
+}
+const STATUS_CLASS: Record<DialerContactStatus, string> = {
+  lead: 'bg-amber-400/20 text-amber-100',
+  customer: 'bg-emerald-400/20 text-emerald-100',
+  archived: 'bg-white/15 text-white/70',
+}
+
+export function StatusPill({ status }: { status: DialerContactStatus }) {
+  return (
+    <span className={`px-1.5 py-px rounded text-[10px] font-medium uppercase tracking-wide ${STATUS_CLASS[status]}`}>
+      {STATUS_LABEL[status]}
+    </span>
+  )
+}
+
 export default function IncomingCall({
   from,
-  contactName,
+  contact,
   onAccept,
   onReject,
 }: {
   from: string | null
-  contactName?: string | null
+  // Session 4 screen-pop: the matched customer identity, if known.
+  contact?: DialerLookupMatch | null
   onAccept: () => void
   onReject: () => void
 }) {
-  const caller = contactName || formatPhone(from) || 'Unknown'
+  const name = contact?.name || null
+  const caller = name || formatPhone(from) || 'Unknown'
+  const subtitle = [
+    contact?.address || null,
+  ].filter(Boolean).join(' · ')
 
   // Slim top bar (not a full-screen takeover) so an incoming call is prominent
   // but doesn't hijack the whole window — the user can still see what they were
@@ -41,10 +67,14 @@ export default function IncomingCall({
           <div className="text-[11px] uppercase tracking-wider text-white/70 animate-pulse leading-tight">
             Incoming call
           </div>
-          <div className="text-sm font-semibold truncate leading-tight">
-            {caller}
-            {contactName && from && <span className="font-normal text-white/70"> · {formatPhone(from)}</span>}
+          <div className="text-sm font-semibold truncate leading-tight flex items-center gap-1.5">
+            <span className="truncate">{caller}</span>
+            {name && from && <span className="font-normal text-white/70 flex-none">· {formatPhone(from)}</span>}
+            {contact?.status && <StatusPill status={contact.status} />}
           </div>
+          {subtitle && (
+            <div className="text-[11px] text-white/60 truncate leading-tight">{subtitle}</div>
+          )}
         </div>
         <button
           type="button"

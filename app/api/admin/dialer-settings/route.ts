@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdminArea } from '@/lib/admin-auth'
+import { sanitizeDispositions } from '@/lib/dialer-dispositions'
 
 export const dynamic = 'force-dynamic'
 
@@ -36,6 +37,7 @@ const ALLOWED_FIELDS = [
   'recording_enabled',
   'recording_consent_notice',
   'recording_pause_auto_resume_sec',
+  'disposition_options',
 ] as const
 
 function sanitizeUuidArray(raw: unknown): string[] | null {
@@ -100,6 +102,10 @@ export async function POST(request: Request) {
     } else if (k === 'recording_pause_auto_resume_sec') {
       const n = Number(body[k])
       if (Number.isInteger(n) && n >= 10 && n <= 600) patch[k] = n
+    } else if (k === 'disposition_options') {
+      // null/empty → store null so the app falls back to the default set.
+      const cleaned = sanitizeDispositions(body[k])
+      patch[k] = cleaned && cleaned.length > 0 ? cleaned : null
     } else if (k === 'ivr_enabled') {
       patch[k] = Boolean(body[k])
     } else if (k === 'ivr_config') {

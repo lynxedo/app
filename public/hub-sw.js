@@ -67,10 +67,39 @@ self.addEventListener('push', event => {
 })
 
 self.addEventListener('notificationclick', event => {
+  const data = event.notification.data || {}
   event.notification.close()
+
+  // Dialer answer-from-notification (Desktop Dialer Control — Session 5). The
+  // incoming call is live in an open Hub window's JS context; route the chosen
+  // action back to it via postMessage. A body click (no action button) just
+  // focuses the window — it must NOT auto-answer.
+  if (data.kind === 'dialer-incoming') {
+    const action =
+      event.action === 'dialer-answer' ? 'answer'
+      : event.action === 'dialer-decline' ? 'decline'
+      : 'focus'
+    event.waitUntil(
+      clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
+        const hubClients = clientList.filter(c => c.url.includes(self.location.origin))
+        for (const client of hubClients) {
+          client.postMessage({ type: 'dialer-incoming-action', action })
+        }
+        const focusable = hubClients.find(c => 'focus' in c)
+        if (focusable) return focusable.focus()
+        // No open Hub window → the WebRTC session is already gone (a PWA call
+        // can't survive window close). Open the dialer unless they declined.
+        if (action !== 'decline' && clients.openWindow) {
+          return clients.openWindow(data.url || '/hub/dialer')
+        }
+      })
+    )
+    return
+  }
+
   event.waitUntil(
     clients.matchAll({ type: 'window', includeUncontrolled: true }).then(clientList => {
-      const targetUrl = event.notification.data?.url ?? '/hub'
+      const targetUrl = data.url ?? '/hub'
       for (const client of clientList) {
         if (client.url.includes(self.location.origin) && 'focus' in client) {
           client.navigate(targetUrl)

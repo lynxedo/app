@@ -2,6 +2,8 @@
 
 import { useEffect, useState, useRef, type ReactNode } from 'react'
 import type { NativeAudioRoute } from '@/lib/native-voice'
+import type { DialerLookupMatch } from '@/lib/dialer-lookup'
+import CallContactCard from './CallContactCard'
 
 const DTMF_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#']
 
@@ -77,6 +79,7 @@ export default function ActiveCall({
   onToggleRecordingPause,
   pauseAutoResumeSec = 60,
   autoOpenTransfer = false,
+  contact = null,
 }: {
   status: 'placing' | 'in-call'
   who: string | null
@@ -103,6 +106,9 @@ export default function ActiveCall({
   // GlobalCallBar so its slim-bar Transfer button is a one-tap shortcut into
   // the transfer form instead of dropping the user on the generic action grid.
   autoOpenTransfer?: boolean
+  // Session 4/6: the matched customer identity for the screen-pop card + the
+  // in-call quick actions (text / on-my-way / note / open-in-Jobber).
+  contact?: DialerLookupMatch | null
 }) {
   const [now, setNow] = useState(() => Date.now())
   const [showKeypad, setShowKeypad] = useState(false)
@@ -323,6 +329,14 @@ export default function ActiveCall({
               REC
             </div>
           )}
+        </div>
+      )}
+
+      {/* Screen-pop identity + in-call quick actions (Sessions 4 + 6). Shown for
+          real outside numbers, hidden for extension/internal dials. */}
+      {who && who.replace(/\D/g, '').length >= 10 && !showTransfer && !consulting && !showAudio && (
+        <div className="mb-4 max-w-xs mx-auto">
+          <CallContactCard contact={contact} number={who} />
         </div>
       )}
 

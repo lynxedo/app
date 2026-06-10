@@ -78,6 +78,7 @@ export default async function AdminDialerPage() {
     recording_enabled: row?.recording_enabled ?? false,
     recording_consent_notice: row?.recording_consent_notice ?? '',
     recording_pause_auto_resume_sec: row?.recording_pause_auto_resume_sec ?? 60,
+    disposition_options: Array.isArray(row?.disposition_options) ? (row!.disposition_options as string[]) : null,
   }
 
   // Build the extension grid (every hub_user + their current extension).

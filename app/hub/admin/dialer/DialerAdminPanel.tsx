@@ -4,6 +4,7 @@ import { useMemo, useState, useRef } from 'react'
 import IvrEditor, { type IvrConfig } from './IvrEditor'
 import ExtensionsPanel, { type ExtensionRow } from './ExtensionsPanel'
 import RingGroupsPanel, { type RingGroup } from './RingGroupsPanel'
+import { DEFAULT_DISPOSITIONS } from '@/lib/dialer-dispositions'
 
 type DayKey = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat'
 type BusinessHoursWindow = { from: string; to: string }
@@ -38,6 +39,8 @@ type Settings = {
   recording_enabled: boolean
   recording_consent_notice: string
   recording_pause_auto_resume_sec: number
+  // After-call disposition options. null = use the built-in default set.
+  disposition_options: string[] | null
 }
 
 type HubUser = { id: string; display_name: string }
@@ -80,6 +83,7 @@ export default function DialerAdminPanel({
           recording_enabled: s.recording_enabled,
           recording_consent_notice: s.recording_consent_notice,
           recording_pause_auto_resume_sec: s.recording_pause_auto_resume_sec,
+          disposition_options: s.disposition_options,
         }),
       })
       if (!res.ok) {
@@ -408,6 +412,11 @@ export default function DialerAdminPanel({
           <p className="text-xs text-white/40 mt-1">10–600 seconds. Default 60.</p>
         </div>
       </section>
+
+      <DispositionsSection
+        options={s.disposition_options}
+        onChange={(next) => setS((prev) => ({ ...prev, disposition_options: next }))}
+      />
 
       <div className="flex items-center gap-3">
         <button
@@ -767,6 +776,97 @@ function parseHm(s: string): number | null {
   const min = parseInt(m[2], 10)
   if (h < 0 || h > 23 || min < 0 || min > 59) return null
   return h * 60 + min
+}
+
+function DispositionsSection({
+  options,
+  onChange,
+}: {
+  options: string[] | null
+  onChange: (next: string[] | null) => void
+}) {
+  const usingDefault = options === null
+  const list = options ?? []
+
+  function setAt(i: number, v: string) {
+    const next = list.slice()
+    next[i] = v
+    onChange(next)
+  }
+
+  return (
+    <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
+      <header>
+        <h2 className="font-semibold">Call dispositions</h2>
+        <p className="text-xs text-white/50 mt-1">
+          The quick outcome buttons shown when a call ends (logged to Call Log 2).
+          Leave the default set or customize the list.
+        </p>
+      </header>
+
+      {usingDefault ? (
+        <div className="space-y-3">
+          <div className="flex flex-wrap gap-1.5">
+            {DEFAULT_DISPOSITIONS.map((d) => (
+              <span key={d} className="px-2.5 py-1 rounded-md text-xs bg-white/10 text-white/80">
+                {d}
+              </span>
+            ))}
+          </div>
+          <button
+            type="button"
+            onClick={() => onChange([...DEFAULT_DISPOSITIONS])}
+            className="text-xs px-3 py-1.5 rounded border border-white/15 hover:bg-white/10"
+          >
+            Customize
+          </button>
+          <p className="text-xs text-white/40">Using the default set.</p>
+        </div>
+      ) : (
+        <div className="space-y-2">
+          {list.map((opt, i) => (
+            <div key={i} className="flex items-center gap-2">
+              <input
+                type="text"
+                value={opt}
+                maxLength={40}
+                onChange={(e) => setAt(i, e.target.value)}
+                placeholder="Disposition label"
+                className="bg-gray-900 border border-white/15 rounded px-2 py-1.5 text-sm flex-1 min-w-0"
+              />
+              <button
+                type="button"
+                onClick={() => onChange(list.filter((_, idx) => idx !== i))}
+                className="text-xs text-white/40 hover:text-red-400 px-1"
+                aria-label="Remove"
+              >
+                ✕
+              </button>
+            </div>
+          ))}
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => onChange([...list, ''])}
+              className="text-xs px-3 py-1.5 rounded border border-white/15 hover:bg-white/10"
+            >
+              + Add option
+            </button>
+            <button
+              type="button"
+              onClick={() => onChange(null)}
+              className="text-xs px-3 py-1.5 rounded border border-white/15 hover:bg-white/10 text-white/60"
+            >
+              Reset to default
+            </button>
+          </div>
+          <p className="text-xs text-white/40">
+            Blank rows are ignored on save. Reset to use the built-in default set.
+          </p>
+        </div>
+      )}
+    </section>
+  )
 }
 
 function RecipientGrid({

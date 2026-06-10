@@ -127,6 +127,7 @@ export default function DialerPanel({
             recordingPaused={recordingPaused}
             onToggleRecordingPause={handleToggleRecordingPause}
             pauseAutoResumeSec={pauseAutoResumeSec}
+            contact={device.contactMatch}
           />
         ) : (
           <Dialpad
@@ -159,6 +160,7 @@ export default function DialerPanel({
       {showIncoming && (
         <IncomingCall
           from={device.incomingFrom}
+          contact={device.contactMatch}
           onAccept={device.acceptIncoming}
           onReject={device.rejectIncoming}
         />

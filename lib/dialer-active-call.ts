@@ -55,3 +55,33 @@ export async function resolveActiveConferenceRoom(opts: {
     transferSid: (data.conference_transfer_sid as string) || null,
   }
 }
+
+// Resolve the calls row for an in-call note / after-call disposition. Unlike
+// resolveActiveConferenceRoom this does NOT require the call to still be live —
+// disposition fires right after hang-up, when ended_at is set and the conference
+// is gone. Matches the explicit room when supplied, else the user's most recent
+// call in the last few hours. Returns just the calls.id (null if none).
+export async function resolveRecentCallId(opts: {
+  bodyRoom?: string | undefined
+  userId: string
+  companyId?: string | null
+}): Promise<string | null> {
+  const admin = createAdminClient()
+  const sanitized = sanitizeRoomName(opts.bodyRoom)
+  const companyId = opts.companyId || HEROES_COMPANY_ID
+  const since = new Date(Date.now() - 6 * 60 * 60 * 1000).toISOString()
+
+  let query = admin
+    .from('calls')
+    .select('id')
+    .eq('company_id', companyId)
+    .gte('created_at', since)
+    .or(`handled_by.eq.${opts.userId},initiated_by.eq.${opts.userId}`)
+    .order('created_at', { ascending: false })
+    .limit(1)
+
+  if (sanitized) query = query.eq('conference_name', sanitized)
+
+  const { data } = await query.maybeSingle()
+  return (data?.id as string) || null
+}
