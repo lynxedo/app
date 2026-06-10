@@ -13,6 +13,9 @@ function LoginForm() {
   const [verifying, setVerifying] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
   const [error, setError] = useState('')
+  const [passwordMode, setPasswordMode] = useState(false)
+  const [password, setPassword] = useState('')
+  const [passwordLoading, setPasswordLoading] = useState(false)
   const searchParams = useSearchParams()
 
   useEffect(() => {
@@ -121,6 +124,30 @@ function LoginForm() {
     setError('')
   }
 
+  const handlePasswordLogin = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setPasswordLoading(true)
+    setError('')
+    const supabase = createClient()
+    const { error: signInError } = await supabase.auth.signInWithPassword({ email, password })
+    if (signInError) {
+      setError(signInError.message)
+      setPasswordLoading(false)
+      return
+    }
+    const { data: { user } } = await supabase.auth.getUser()
+    let landing = '/hub/home'
+    if (user) {
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('landing_page')
+        .eq('id', user.id)
+        .single()
+      if (profile?.landing_page === 'dashboard') landing = '/dashboard'
+    }
+    router.push(landing)
+  }
+
   return (
     <div className="min-h-screen bg-gray-950 flex items-center justify-center px-4">
       <div className="w-full max-w-md">
@@ -170,60 +197,109 @@ function LoginForm() {
             </div>
           </div>
 
-          <form onSubmit={sent ? handleVerifyCode : handleSendCode} className="space-y-4">
-            <div>
-              <label className="block text-sm text-gray-400 mb-1.5">Email address</label>
-              <input
-                type="email"
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-                placeholder="you@heroeslawntx.com"
-                required
-                disabled={sent}
-                className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-60"
-              />
-            </div>
-
-            {sent && (
+          {!passwordMode ? (
+            <form onSubmit={sent ? handleVerifyCode : handleSendCode} className="space-y-4">
               <div>
-                <label className="block text-sm text-gray-400 mb-1.5">
-                  6-digit code <span className="text-gray-600">(check your email)</span>
-                </label>
+                <label className="block text-sm text-gray-400 mb-1.5">Email address</label>
                 <input
-                  type="text"
-                  inputMode="numeric"
-                  pattern="[0-9]*"
-                  autoComplete="one-time-code"
-                  value={code}
-                  onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
-                  placeholder="000000"
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@heroeslawntx.com"
                   required
-                  autoFocus
-                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-2.5 text-center text-2xl tracking-[0.5em] font-mono placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                  disabled={sent}
+                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors disabled:opacity-60"
                 />
               </div>
-            )}
 
-            <button
-              type="submit"
-              disabled={sent ? (verifying || code.length !== 6) : (loading || !email)}
-              className="w-full bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-white font-medium rounded-lg py-2.5 text-sm transition-colors"
-            >
-              {sent
-                ? (verifying ? 'Verifying...' : 'Verify code')
-                : (loading ? 'Sending...' : 'Send code')}
-            </button>
+              {sent && (
+                <div>
+                  <label className="block text-sm text-gray-400 mb-1.5">
+                    6-digit code <span className="text-gray-600">(check your email)</span>
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    pattern="[0-9]*"
+                    autoComplete="one-time-code"
+                    value={code}
+                    onChange={(e) => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                    placeholder="000000"
+                    required
+                    autoFocus
+                    className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-2.5 text-center text-2xl tracking-[0.5em] font-mono placeholder-gray-600 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                  />
+                </div>
+              )}
 
-            {sent && (
+              <button
+                type="submit"
+                disabled={sent ? (verifying || code.length !== 6) : (loading || !email)}
+                className="w-full bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-white font-medium rounded-lg py-2.5 text-sm transition-colors"
+              >
+                {sent
+                  ? (verifying ? 'Verifying...' : 'Verify code')
+                  : (loading ? 'Sending...' : 'Send code')}
+              </button>
+
+              {sent && (
+                <button
+                  type="button"
+                  onClick={handleUseDifferentEmail}
+                  className="w-full text-sm text-gray-500 hover:text-gray-300 transition-colors"
+                >
+                  Use a different email
+                </button>
+              )}
+
               <button
                 type="button"
-                onClick={handleUseDifferentEmail}
-                className="w-full text-sm text-gray-500 hover:text-gray-300 transition-colors"
+                onClick={() => { setPasswordMode(true); setError(''); setSent(false); setCode('') }}
+                className="w-full text-xs text-gray-600 hover:text-gray-400 transition-colors pt-1"
               >
-                Use a different email
+                Sign in with password
               </button>
-            )}
-          </form>
+            </form>
+          ) : (
+            <form onSubmit={handlePasswordLogin} className="space-y-4">
+              <div>
+                <label className="block text-sm text-gray-400 mb-1.5">Email address</label>
+                <input
+                  type="email"
+                  value={email}
+                  onChange={(e) => setEmail(e.target.value)}
+                  placeholder="you@heroeslawntx.com"
+                  required
+                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                />
+              </div>
+              <div>
+                <label className="block text-sm text-gray-400 mb-1.5">Password</label>
+                <input
+                  type="password"
+                  value={password}
+                  onChange={(e) => setPassword(e.target.value)}
+                  placeholder="••••••••"
+                  required
+                  className="w-full bg-gray-800 border border-gray-700 text-white rounded-lg px-4 py-2.5 text-sm placeholder-gray-500 focus:outline-none focus:border-blue-500 focus:ring-1 focus:ring-blue-500 transition-colors"
+                />
+              </div>
+              <button
+                type="submit"
+                disabled={passwordLoading || !email || !password}
+                className="w-full bg-gray-700 hover:bg-gray-600 disabled:bg-gray-800 disabled:text-gray-600 text-white font-medium rounded-lg py-2.5 text-sm transition-colors"
+              >
+                {passwordLoading ? 'Signing in...' : 'Sign in'}
+              </button>
+              <button
+                type="button"
+                onClick={() => { setPasswordMode(false); setError(''); setPassword('') }}
+                className="w-full text-xs text-gray-600 hover:text-gray-400 transition-colors pt-1"
+              >
+                Use a code instead
+              </button>
+            </form>
+          )}
         </div>
       </div>
     </div>
