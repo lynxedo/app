@@ -18,8 +18,7 @@ import {
 import { buildIvrContext } from '@/lib/dialer-ivr-context'
 import { conferenceRoomName } from '@/lib/twilio-conference'
 import { connectInboundToAgentViaConference } from '@/lib/dialer-conference-connect'
-import { isInBusinessHours, renderTemplate } from '@/lib/responder'
-import { sendSms } from '@/lib/twilio'
+import type { ResponderMode } from '@/lib/responder'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -74,12 +73,12 @@ export async function POST(request: NextRequest) {
   const [{ data: settings }, { data: responder }] = await Promise.all([
     admin
       .from('dialer_settings')
-      .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays, recording_enabled, recording_consent_notice')
+      .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays, recording_enabled, recording_consent_notice, fallback_voicemail_url')
       .eq('company_id', HEROES_COMPANY_ID)
       .single(),
     admin
       .from('responder_settings')
-      .select('is_active, business_days, business_hours_start, business_hours_end, business_hours_template, afterhours_template, voicemail_greeting')
+      .select('mode')
       .eq('company_id', HEROES_COMPANY_ID)
       .maybeSingle(),
   ])
@@ -88,6 +87,7 @@ export async function POST(request: NextRequest) {
   const ringTimeout = settings?.ring_timeout_sec ?? 20
   const recordingEnabled = settings?.recording_enabled === true
   const consentNotice = settings?.recording_consent_notice || DEFAULT_RECORDING_CONSENT_NOTICE
+  const responderMode = (responder?.mode as ResponderMode | undefined) ?? 'off'
 
   // Phase 3: each inbound call gets a conference room so it can be held /
   // transferred once an agent answers. We stamp it on the calls row up front for
@@ -96,20 +96,16 @@ export async function POST(request: NextRequest) {
   const room = conferenceRoomName()
 
   let contactId: string | null = null
-  let contactFirstName: string | null = null
-  let contactDoNotText = false
 
   try {
     if (fromNumber) {
       const { data: contact } = await admin
         .from('txt_contacts')
-        .select('id, first_name, do_not_text')
+        .select('id')
         .eq('company_id', HEROES_COMPANY_ID)
         .eq('phone', fromNumber)
         .maybeSingle()
       contactId = contact?.id ?? null
-      contactFirstName = contact?.first_name ?? null
-      contactDoNotText = contact?.do_not_text === true
     }
 
     await admin.from('calls').insert({
@@ -122,6 +118,10 @@ export async function POST(request: NextRequest) {
       contact_id: contactId,
       handled_by: routeToUserId || null,
       conference_name: room,
+      // Stamp the active responder mode so the reconciler (which fires the
+      // auto-text after the call ends) knows this call is responder-eligible
+      // and which mode it ran under. Null when the responder is off.
+      responder_mode: responderMode !== 'off' ? responderMode : null,
     })
   } catch {
     // swallow — call still proceeds
@@ -165,49 +165,25 @@ export async function POST(request: NextRequest) {
     return twimlResponse(twiml)
   }
 
-  // Responder: when active, skip IVR/routing entirely — send an auto-text and
-  // go straight to voicemail. This is the temp fix for the call-forwarding
-  // setup (local number → 888) until the local number is ported into Twilio.
-  if (responder?.is_active) {
-    ;(async () => {
-      try {
-        const inBiz = isInBusinessHours(responder)
-        const template = inBiz ? responder.business_hours_template : responder.afterhours_template
-        let textSent = false
-        let errorMsg: string | null = null
-
-        if (fromNumber && !contactDoNotText) {
-          const body = renderTemplate(template, { first_name: contactFirstName })
-          const smsResult = await sendSms({ to: fromNumber, body })
-          textSent = smsResult.ok
-          if (!smsResult.ok) errorMsg = (smsResult as { ok: false; error: string }).error
-        } else if (fromNumber && contactDoNotText) {
-          errorMsg = 'do_not_text'
-        }
-
-        await admin.from('responder_calls').insert({
-          company_id: HEROES_COMPANY_ID,
-          call_sid: callSid || null,
-          from_number: fromNumber || null,
-          called_at: new Date().toISOString(),
-          has_voicemail: true,
-          text_sent: textSent,
-          email_sent: false,
-          template_used: fromNumber && !contactDoNotText ? (inBiz ? 'business_hours' : 'afterhours') : null,
-          error_message: errorMsg,
-        })
-      } catch {
-        // swallow — do not block TwiML response
-      }
-    })()
-
+  // Responder — Forwarded Line mode: the inbound call has already been
+  // forwarded here (local Unitel number → 888) after we didn't answer, so the
+  // 888 must NOT ring anyone. Skip IVR/routing and go straight to voicemail
+  // using the SAME greeting configured in the regular Dialer settings. The
+  // auto-text is fired later by the reconciler (/api/dialer/responder/reconcile)
+  // once the call ends, so we can pick the right template based on whether the
+  // caller actually left a message.
+  //
+  // Main Line mode (post-port, Twilio owns the local number) is NOT handled
+  // here — it falls through to normal IVR/agent routing so the call can be
+  // answered. The reconciler still texts the caller, but only if the call lands
+  // in voicemail (an answered call never reaches the voicemail flow → no text).
+  if (responderMode === 'forwarded_line') {
     return respond(
       twimlRecordVoicemail({
         action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,
-        greetingUrl: null,
+        greetingUrl: settings?.fallback_voicemail_url || null,
         spokenFallback:
-          responder.voicemail_greeting ||
-          "Thanks for calling. Please leave a message after the beep and we'll get back to you.",
+          "Thanks for calling. Please leave a message after the beep and we'll get back to you. Press pound when finished.",
       })
     )
   }

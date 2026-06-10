@@ -22,8 +22,9 @@ export async function POST(req: NextRequest) {
 
   const body = await req.json()
   const allowed = [
-    'is_active', 'business_days', 'business_hours_start', 'business_hours_end',
-    'business_hours_template', 'afterhours_template', 'voicemail_greeting',
+    'mode', 'business_days', 'business_hours_start', 'business_hours_end',
+    'business_hours_template', 'business_hours_no_message_template',
+    'afterhours_template', 'afterhours_no_message_template',
   ]
 
   const update: Record<string, unknown> = {}

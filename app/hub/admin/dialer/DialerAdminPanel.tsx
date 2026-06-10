@@ -479,32 +479,43 @@ export default function DialerAdminPanel({
       <section className="border border-white/10 rounded-lg p-4 space-y-4">
         <div>
           <h2 className="text-sm font-semibold text-white">Responder</h2>
-          <p className="text-xs text-white/50 mt-0.5">Auto-text callers and send them straight to voicemail</p>
+          <p className="text-xs text-white/50 mt-0.5">Auto-text callers who reach voicemail</p>
         </div>
 
-        {/* Active toggle */}
-        <label className="flex items-center gap-3 cursor-pointer select-none">
-          <div
-            className={`relative w-10 h-5 rounded-full transition-colors ${resp.is_active ? 'bg-emerald-500' : 'bg-white/20'}`}
-          >
-            <span
-              className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${resp.is_active ? 'translate-x-5' : ''}`}
-            />
+        {/* Mode selector */}
+        <div className="space-y-2">
+          <label className="text-xs font-medium text-white/70 block">Mode</label>
+          <div className="grid gap-2">
+            {[
+              { val: 'off', title: 'Off', desc: 'Normal IVR and agent routing. No auto-text.' },
+              { val: 'forwarded_line', title: 'Forwarded Line', desc: 'For the 888 today. Calls forwarded here skip ringing → straight to voicemail. Auto-text sent after the call.' },
+              { val: 'main_line', title: 'Main Line', desc: 'For after we port our local number. Calls ring the team normally; only unanswered calls get the voicemail + auto-text.' },
+            ].map(opt => (
+              <button
+                key={opt.val}
+                type="button"
+                onClick={() => setResp(p => ({ ...p, mode: opt.val as typeof p.mode }))}
+                className={`text-left rounded-lg border px-3 py-2 transition-colors ${
+                  resp.mode === opt.val
+                    ? 'border-[#2E7EB8] bg-[#2E7EB8]/15'
+                    : 'border-white/10 bg-white/5 hover:bg-white/10'
+                }`}
+              >
+                <div className="flex items-center gap-2">
+                  <span className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${resp.mode === opt.val ? 'border-[#2E7EB8]' : 'border-white/30'}`}>
+                    {resp.mode === opt.val && <span className="w-1.5 h-1.5 rounded-full bg-[#2E7EB8]" />}
+                  </span>
+                  <span className="text-sm font-medium text-white">{opt.title}</span>
+                </div>
+                <p className="text-xs text-white/50 mt-1 ml-[22px]">{opt.desc}</p>
+              </button>
+            ))}
           </div>
-          <input
-            type="checkbox"
-            className="sr-only"
-            checked={resp.is_active}
-            onChange={e => setResp(p => ({ ...p, is_active: e.target.checked }))}
-          />
-          <span className="text-sm text-white">
-            {resp.is_active ? <span className="text-emerald-300 font-medium">● Responder active</span> : 'Enable Responder'}
-          </span>
-        </label>
+        </div>
 
-        {resp.is_active && (
-          <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200 leading-relaxed">
-            When active, <strong>all inbound calls go straight to voicemail</strong> — IVR and agent routing are bypassed. An auto-text is sent to the caller immediately.
+        {resp.mode !== 'off' && (
+          <div className="bg-sky-500/10 border border-sky-500/30 rounded-lg p-3 text-xs text-sky-200 leading-relaxed">
+            Callers hear the <strong>voicemail greeting from your regular Dialer settings above</strong> — there's no separate greeting here. The auto-text is sent a moment after the call ends.
           </div>
         )}
 
@@ -556,40 +567,59 @@ export default function DialerAdminPanel({
           </div>
         </div>
 
-        {/* Business hours template */}
-        <div>
-          <label className="text-xs font-medium text-white/70 block mb-1">Business hours text message</label>
-          <textarea
-            value={resp.business_hours_template}
-            onChange={e => setResp(p => ({ ...p, business_hours_template: e.target.value.slice(0, 600) }))}
-            rows={3}
-            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-          />
-          <p className="text-xs text-white/40 mt-1">Sent during business hours. Variable: <code className="bg-white/10 px-1 rounded">{'{first_name}'}</code></p>
-        </div>
+        {/* Templates — time-of-day × voicemail-or-not */}
+        <div className="space-y-4">
+          <p className="text-xs text-white/50">
+            Text messages vary by time of day and whether the caller left a voicemail. Variable: <code className="bg-white/10 px-1 rounded">{'{first_name}'}</code>
+          </p>
 
-        {/* After-hours template */}
-        <div>
-          <label className="text-xs font-medium text-white/70 block mb-1">After-hours text message</label>
-          <textarea
-            value={resp.afterhours_template}
-            onChange={e => setResp(p => ({ ...p, afterhours_template: e.target.value.slice(0, 600) }))}
-            rows={3}
-            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-          />
-          <p className="text-xs text-white/40 mt-1">Sent evenings, weekends, and holidays.</p>
-        </div>
+          <div className="grid md:grid-cols-2 gap-4">
+            {/* Business hours column */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-white/80">Business hours</p>
+              <div>
+                <label className="text-xs font-medium text-white/60 block mb-1">Left a voicemail</label>
+                <textarea
+                  value={resp.business_hours_template}
+                  onChange={e => setResp(p => ({ ...p, business_hours_template: e.target.value.slice(0, 600) }))}
+                  rows={3}
+                  className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-white/60 block mb-1">No message left</label>
+                <textarea
+                  value={resp.business_hours_no_message_template}
+                  onChange={e => setResp(p => ({ ...p, business_hours_no_message_template: e.target.value.slice(0, 600) }))}
+                  rows={3}
+                  className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                />
+              </div>
+            </div>
 
-        {/* Voicemail greeting */}
-        <div>
-          <label className="text-xs font-medium text-white/70 block mb-1">Voicemail greeting (text-to-speech)</label>
-          <textarea
-            value={resp.voicemail_greeting}
-            onChange={e => setResp(p => ({ ...p, voicemail_greeting: e.target.value.slice(0, 500) }))}
-            rows={2}
-            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-          />
-          <p className="text-xs text-white/40 mt-1">Read to the caller before the recording beep.</p>
+            {/* After-hours column */}
+            <div className="space-y-3">
+              <p className="text-xs font-semibold text-white/80">After hours / weekends</p>
+              <div>
+                <label className="text-xs font-medium text-white/60 block mb-1">Left a voicemail</label>
+                <textarea
+                  value={resp.afterhours_template}
+                  onChange={e => setResp(p => ({ ...p, afterhours_template: e.target.value.slice(0, 600) }))}
+                  rows={3}
+                  className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                />
+              </div>
+              <div>
+                <label className="text-xs font-medium text-white/60 block mb-1">No message left</label>
+                <textarea
+                  value={resp.afterhours_no_message_template}
+                  onChange={e => setResp(p => ({ ...p, afterhours_no_message_template: e.target.value.slice(0, 600) }))}
+                  rows={3}
+                  className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                />
+              </div>
+            </div>
+          </div>
         </div>
 
         {/* Save */}
