@@ -146,10 +146,11 @@ export async function sendResponderText(
     return { textSent: false, templateUsed: null, error: 'no_from_number' }
   }
 
-  // Find-or-create the contact for this phone.
+  // Find-or-create the contact for this phone. (txt_contacts stores a single
+  // `name` column — there is no first_name — so derive the first name below.)
   const { data: existingContact } = await admin
     .from('txt_contacts')
-    .select('id, first_name, do_not_text')
+    .select('id, name, do_not_text')
     .eq('company_id', companyId)
     .eq('phone', fromNumber)
     .maybeSingle()
@@ -159,7 +160,10 @@ export async function sendResponderText(
   }
 
   let contactId = existingContact?.id ?? null
-  const firstName = existingContact?.first_name ?? null
+  // First name for the template; fall back to "there" (handled in renderTemplate)
+  // when the name is missing or is just the phone-number placeholder.
+  const rawName = existingContact?.name ?? null
+  const firstName = rawName && rawName !== fromNumber ? rawName.trim().split(/\s+/)[0] : null
   if (!contactId) {
     const { data: created } = await admin
       .from('txt_contacts')
@@ -167,6 +171,16 @@ export async function sendResponderText(
       .select('id')
       .single()
     contactId = created?.id ?? null
+    if (!contactId) {
+      // Insert may have lost a race or hit a unique constraint — re-read.
+      const { data: again } = await admin
+        .from('txt_contacts')
+        .select('id')
+        .eq('company_id', companyId)
+        .eq('phone', fromNumber)
+        .maybeSingle()
+      contactId = again?.id ?? null
+    }
   }
   if (!contactId) {
     return { textSent: false, templateUsed: null, error: 'contact_create_failed' }
