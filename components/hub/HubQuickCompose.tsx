@@ -163,8 +163,8 @@ export default function HubQuickCompose({
 
   return (
     <div className="fixed inset-0 z-[200] flex flex-col bg-gray-950/95 backdrop-blur-sm">
-      {/* Header */}
-      <div className="flex-none border-b border-gray-800 px-4 py-3 flex items-center gap-3">
+      {/* Header — pad the top past the iOS status bar / notch */}
+      <div className="flex-none border-b border-gray-800 px-4 py-3 flex items-center gap-3" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}>
         <svg className="w-5 h-5 text-gray-400 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
         </svg>
