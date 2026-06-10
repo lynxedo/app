@@ -95,6 +95,8 @@ export default function HubShell({
     daily_log: boolean
     zone_sizer: boolean
     dialer: boolean
+    contacts?: boolean
+    products?: boolean
     forms?: boolean
   }
   initialActiveAnnouncements?: Announcement[]
@@ -520,14 +522,26 @@ export default function HubShell({
   const rawGrants = adminGrants ?? {
     people: !!isAdmin, hub: !!isAdmin, routing: !!isAdmin,
     timesheet: !!isAdmin, fleet: !!isAdmin, daily_log: !!isAdmin, zone_sizer: !!isAdmin,
-    dialer: !!isAdmin,
+    dialer: !!isAdmin, contacts: !!isAdmin, products: !!isAdmin,
   }
-  const grants = { ...rawGrants, forms: !!(rawGrants.forms ?? isAdmin) }
+  const grants = {
+    people: !!rawGrants.people,
+    hub: !!rawGrants.hub,
+    routing: !!rawGrants.routing,
+    timesheet: !!rawGrants.timesheet,
+    fleet: !!rawGrants.fleet,
+    daily_log: !!rawGrants.daily_log,
+    zone_sizer: !!rawGrants.zone_sizer,
+    dialer: !!rawGrants.dialer,
+    contacts: !!rawGrants.contacts,
+    products: !!rawGrants.products,
+    forms: !!(rawGrants.forms ?? isAdmin),
+  }
   const isSuperAdmin = !!isAdmin
   const showAdminRail =
     isSuperAdmin || grants.people || grants.hub || grants.routing ||
     grants.timesheet || grants.fleet || grants.daily_log || grants.zone_sizer ||
-    grants.dialer || grants.forms
+    grants.dialer || grants.contacts || grants.products || grants.forms
 
   const permissions: RailPermissions = {
     isAdmin: !!isAdmin,

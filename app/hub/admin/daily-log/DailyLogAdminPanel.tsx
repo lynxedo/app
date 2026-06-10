@@ -1,7 +1,6 @@
 'use client'
 
 import { useState, useRef } from 'react'
-import AdminTabNav from '@/components/AdminTabNav'
 
 type HubUser = { id: string; display_name: string }
 type Room = { id: string; name: string }
@@ -135,11 +134,6 @@ export default function DailyLogAdminPanel({
 
   return (
     <div className="min-h-[calc(100vh-4rem)] bg-gray-950 text-white">
-      <div className="border-b border-gray-800">
-        <div className="px-4 md:px-6">
-          <AdminTabNav />
-        </div>
-      </div>
       <div className="max-w-3xl mx-auto px-4 md:px-6 py-6 space-y-6">
         <header>
           <div className="flex items-center justify-between gap-3">

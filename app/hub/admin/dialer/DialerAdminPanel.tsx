@@ -208,15 +208,43 @@ export default function DialerAdminPanel({
     })
   }
 
+  // Sub-section tabs. Inbound routing / IVR / ring groups / hours+holidays are
+  // grouped; voicemail bundles greeting + notify + recording + dispositions;
+  // extensions and the responder each stand alone.
+  const [dtab, setDtab] = useState<'inbound' | 'voicemail' | 'extensions' | 'responder'>('inbound')
+
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-xl font-semibold">Dialer</h1>
         <p className="text-sm text-white/60 mt-1">
-          Inbound call routing, ring timeout, and voicemail notifications.
+          Inbound call routing, voicemail, extensions, and the auto-text responder.
         </p>
       </header>
 
+      {/* Sub-section tabs */}
+      <div className="flex gap-1 border-b border-gray-800 flex-wrap">
+        {([
+          ['inbound', 'Inbound & IVR'],
+          ['voicemail', 'Voicemail'],
+          ['extensions', 'Extensions'],
+          ['responder', 'Responder'],
+        ] as const).map(([key, label]) => (
+          <button
+            key={key}
+            type="button"
+            onClick={() => setDtab(key)}
+            className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
+              dtab === key ? 'border-[#2E7EB8] text-white' : 'border-transparent text-gray-500 hover:text-gray-300'
+            }`}
+          >
+            {label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── INBOUND & IVR ── */}
+      {dtab === 'inbound' && (
       <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
         <header>
           <h2 className="font-semibold">Inbound routing</h2>
@@ -263,7 +291,10 @@ export default function DialerAdminPanel({
           <p className="text-xs text-white/40 mt-1">5–120 seconds. Default 20.</p>
         </div>
       </section>
+      )}
 
+      {/* ── VOICEMAIL ── */}
+      {dtab === 'voicemail' && (<>
       <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
         <header>
           <h2 className="font-semibold">Voicemail greeting</h2>
@@ -326,7 +357,10 @@ export default function DialerAdminPanel({
           onToggle={(id) => toggleId('voicemail_recipient_user_ids', id)}
         />
       </section>
+      </>)}
 
+      {/* ── INBOUND & IVR (cont.) ── */}
+      {dtab === 'inbound' && (<>
       <BusinessHoursSection
         schedule={s.business_hours}
         onChange={(next) => setS((prev) => ({ ...prev, business_hours: next }))}
@@ -370,7 +404,10 @@ export default function DialerAdminPanel({
           ringGroups={ringGroups.map((g) => ({ id: g.id, name: g.name }))}
         />
       </section>
+      </>)}
 
+      {/* ── EXTENSIONS ── */}
+      {dtab === 'extensions' && (
       <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
         <header>
           <h2 className="font-semibold">Extensions</h2>
@@ -380,7 +417,10 @@ export default function DialerAdminPanel({
         </header>
         <ExtensionsPanel initial={extensions} onChange={setExtensions} />
       </section>
+      )}
 
+      {/* ── INBOUND & IVR (cont.) ── */}
+      {dtab === 'inbound' && (
       <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
         <header>
           <h2 className="font-semibold">Ring groups</h2>
@@ -394,13 +434,10 @@ export default function DialerAdminPanel({
           onChange={setRingGroups}
         />
       </section>
-
-      {error && (
-        <div className="rounded-md border border-red-700 bg-red-900/30 text-red-200 px-3 py-2 text-sm">
-          {error}
-        </div>
       )}
 
+      {/* ── VOICEMAIL (cont.) — recording + dispositions ── */}
+      {dtab === 'voicemail' && (<>
       {/* Recording settings */}
       <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
         <header>
@@ -461,21 +498,10 @@ export default function DialerAdminPanel({
         options={s.disposition_options}
         onChange={(next) => setS((prev) => ({ ...prev, disposition_options: next }))}
       />
+      </>)}
 
-      <div className="flex items-center gap-3">
-        <button
-          onClick={save}
-          disabled={saving}
-          className="px-4 py-2 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50 text-sm font-medium"
-        >
-          {saving ? 'Saving…' : 'Save'}
-        </button>
-        {savedAt && !error && (
-          <span className="text-xs text-emerald-300">Saved ✓</span>
-        )}
-      </div>
-
-      {/* ── Responder ─────────────────────────────────────────────── */}
+      {/* ── RESPONDER ── */}
+      {dtab === 'responder' && (
       <section className="border border-white/10 rounded-lg p-4 space-y-4">
         <div>
           <h2 className="text-sm font-semibold text-white">Responder</h2>
@@ -678,6 +704,26 @@ export default function DialerAdminPanel({
           </div>
         )}
       </section>
+      )}
+
+      {/* Save — applies to every tab except Responder (which has its own Save). */}
+      {dtab !== 'responder' && (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={save}
+            disabled={saving}
+            className="px-4 py-2 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50 text-sm font-medium"
+          >
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+          {savedAt && !error && (
+            <span className="text-xs text-emerald-300">Saved ✓</span>
+          )}
+          {error && (
+            <span className="text-xs text-red-400">{error}</span>
+          )}
+        </div>
+      )}
     </div>
   )
 }
