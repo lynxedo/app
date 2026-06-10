@@ -12,6 +12,8 @@
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import Anthropic from '@anthropic-ai/sdk'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { generateAndSendResponderReply } from '@/lib/responder-ai'
+import { twilioFromNumber } from '@/lib/twilio'
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
 
@@ -167,7 +169,7 @@ export async function processVoicemail(
 
   const { data: vm } = await admin
     .from('voicemails')
-    .select('id, recording_storage_path, transcript')
+    .select('id, recording_storage_path, transcript, from_number, company_id')
     .eq('id', voicemailId)
     .is('deleted_at', null)
     .maybeSingle()
@@ -210,6 +212,21 @@ export async function processVoicemail(
       `[voicemail-transcribe] ${voicemailId} done in ${Date.now() - start}ms — ${transcript.length} chars`
     )
 
+    // AI auto-reply: if responder_settings.ai_reply_enabled, send a personalized
+    // SMS back to the caller based on what they actually said in the voicemail.
+    // Fire-and-forget — never blocks the transcription result.
+    if (transcript && vm.from_number && vm.company_id) {
+      triggerAutoReply({
+        voicemailId,
+        transcript,
+        summary: summary || null,
+        callerPhone: vm.from_number as string,
+        companyId: vm.company_id as string,
+      }).catch((err) => {
+        console.warn('[voicemail-transcribe] auto-reply failed', voicemailId, err)
+      })
+    }
+
     return {
       voicemailId,
       transcript: transcript || null,
@@ -223,4 +240,72 @@ export async function processVoicemail(
     console.warn('[voicemail-transcribe] failed', voicemailId, msg)
     return { voicemailId, transcript: null, summary: null, sentiment: null, latency_ms: Date.now() - start, error: msg }
   }
+}
+
+// ---------------------------------------------------------------------------
+// Auto-reply helper — runs async after transcription
+// ---------------------------------------------------------------------------
+
+async function triggerAutoReply(opts: {
+  voicemailId: string
+  transcript: string
+  summary: string | null
+  callerPhone: string
+  companyId: string
+}): Promise<void> {
+  const admin = createAdminClient()
+
+  // Check if AI auto-reply is enabled for this company's responder.
+  const { data: responder } = await admin
+    .from('responder_settings')
+    .select('ai_reply_enabled')
+    .eq('company_id', opts.companyId)
+    .maybeSingle()
+
+  if (!responder?.ai_reply_enabled) return
+
+  // Respect do_not_text — same check the inbound webhook does.
+  const { data: contact } = await admin
+    .from('txt_contacts')
+    .select('do_not_text, name')
+    .eq('company_id', opts.companyId)
+    .eq('phone', opts.callerPhone)
+    .maybeSingle()
+
+  if (contact?.do_not_text) {
+    console.log('[responder-ai] skipping — do_not_text', opts.callerPhone)
+    return
+  }
+
+  // Pull first name: from txt_contacts.name if it looks like a real name
+  // (not just the phone number placeholder the inbound webhook auto-creates).
+  let firstName: string | null = null
+  if (contact?.name && contact.name !== opts.callerPhone) {
+    firstName = contact.name.trim().split(/\s+/)[0] || null
+  }
+
+  // Use the company's default outbound number (env var; txt_phone_numbers is
+  // per-conversation — for this auto-reply the env default is fine).
+  const fromNumber = twilioFromNumber() || undefined
+
+  const result = await generateAndSendResponderReply({
+    transcript: opts.transcript,
+    summary: opts.summary,
+    callerPhone: opts.callerPhone,
+    callerFirstName: firstName,
+    fromNumber: fromNumber ?? '',
+    companyId: opts.companyId,
+  })
+
+  // Log the result back to the voicemails row so it's visible in call-log2.
+  if (result.smsSent && result.smsBody) {
+    await admin
+      .from('voicemails')
+      .update({ ai_reply_body: result.smsBody, ai_reply_sent_at: new Date().toISOString() })
+      .eq('id', opts.voicemailId)
+  }
+
+  console.log(
+    `[responder-ai] ${opts.voicemailId} — sent=${result.smsSent} ${result.error ?? ''} ${result.latency_ms}ms`
+  )
 }
