@@ -40,6 +40,8 @@ export default async function AdminDialerPage() {
     { data: extProfiles },
     { data: ringGroupRows },
     { data: ringMemberRows },
+    { data: responderRow },
+    { data: responderCalls },
   ] = await Promise.all([
     admin
       .from('dialer_settings')
@@ -65,6 +67,17 @@ export default async function AdminDialerPage() {
       .from('dialer_ring_group_members')
       .select('group_id, user_id, position, member_timeout_sec')
       .order('position'),
+    admin
+      .from('responder_settings')
+      .select('*')
+      .eq('company_id', profile.company_id)
+      .maybeSingle(),
+    admin
+      .from('responder_calls')
+      .select('id, call_sid, from_number, called_at, has_voicemail, text_sent, email_sent, template_used, error_message')
+      .eq('company_id', profile.company_id)
+      .order('called_at', { ascending: false })
+      .limit(20),
   ])
 
   const settings = {
@@ -115,6 +128,10 @@ export default async function AdminDialerPage() {
       hubUsers={hubUsersRaw ?? []}
       initialExtensions={extensions}
       initialRingGroups={ringGroups}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      initialResponder={responderRow as any ?? null}
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      initialResponderCalls={(responderCalls ?? []) as any}
     />
   )
 }

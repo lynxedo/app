@@ -18,6 +18,8 @@ import {
 import { buildIvrContext } from '@/lib/dialer-ivr-context'
 import { conferenceRoomName } from '@/lib/twilio-conference'
 import { connectInboundToAgentViaConference } from '@/lib/dialer-conference-connect'
+import { isInBusinessHours, renderTemplate } from '@/lib/responder'
+import { sendSms } from '@/lib/twilio'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -69,11 +71,18 @@ export async function POST(request: NextRequest) {
   // and only surface in All / Missed. When ring groups / IVR route to multiple
   // users in later sessions, this will need to widen to a per-leg attribution.
   const admin = createAdminClient()
-  const { data: settings } = await admin
-    .from('dialer_settings')
-    .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays, recording_enabled, recording_consent_notice')
-    .eq('company_id', HEROES_COMPANY_ID)
-    .single()
+  const [{ data: settings }, { data: responder }] = await Promise.all([
+    admin
+      .from('dialer_settings')
+      .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays, recording_enabled, recording_consent_notice')
+      .eq('company_id', HEROES_COMPANY_ID)
+      .single(),
+    admin
+      .from('responder_settings')
+      .select('is_active, business_days, business_hours_start, business_hours_end, business_hours_template, afterhours_template, voicemail_greeting')
+      .eq('company_id', HEROES_COMPANY_ID)
+      .maybeSingle(),
+  ])
 
   const routeToUserId = settings?.inbound_route_user_id
   const ringTimeout = settings?.ring_timeout_sec ?? 20
@@ -86,16 +95,21 @@ export async function POST(request: NextRequest) {
   // at the moment it rings an agent.
   const room = conferenceRoomName()
 
+  let contactId: string | null = null
+  let contactFirstName: string | null = null
+  let contactDoNotText = false
+
   try {
-    let contactId: string | null = null
     if (fromNumber) {
       const { data: contact } = await admin
         .from('txt_contacts')
-        .select('id')
+        .select('id, first_name, do_not_text')
         .eq('company_id', HEROES_COMPANY_ID)
         .eq('phone', fromNumber)
         .maybeSingle()
       contactId = contact?.id ?? null
+      contactFirstName = contact?.first_name ?? null
+      contactDoNotText = contact?.do_not_text === true
     }
 
     await admin.from('calls').insert({
@@ -149,6 +163,53 @@ export async function POST(request: NextRequest) {
     let twiml = recordingEnabled ? injectConsentNotice(body, consentNotice) : body
     twiml = injectRecordingIntoDials(twiml)
     return twimlResponse(twiml)
+  }
+
+  // Responder: when active, skip IVR/routing entirely — send an auto-text and
+  // go straight to voicemail. This is the temp fix for the call-forwarding
+  // setup (local number → 888) until the local number is ported into Twilio.
+  if (responder?.is_active) {
+    ;(async () => {
+      try {
+        const inBiz = isInBusinessHours(responder)
+        const template = inBiz ? responder.business_hours_template : responder.afterhours_template
+        let textSent = false
+        let errorMsg: string | null = null
+
+        if (fromNumber && !contactDoNotText) {
+          const body = renderTemplate(template, { first_name: contactFirstName })
+          const smsResult = await sendSms({ to: fromNumber, body })
+          textSent = smsResult.ok
+          if (!smsResult.ok) errorMsg = (smsResult as { ok: false; error: string }).error
+        } else if (fromNumber && contactDoNotText) {
+          errorMsg = 'do_not_text'
+        }
+
+        await admin.from('responder_calls').insert({
+          company_id: HEROES_COMPANY_ID,
+          call_sid: callSid || null,
+          from_number: fromNumber || null,
+          called_at: new Date().toISOString(),
+          has_voicemail: true,
+          text_sent: textSent,
+          email_sent: false,
+          template_used: fromNumber && !contactDoNotText ? (inBiz ? 'business_hours' : 'afterhours') : null,
+          error_message: errorMsg,
+        })
+      } catch {
+        // swallow — do not block TwiML response
+      }
+    })()
+
+    return respond(
+      twimlRecordVoicemail({
+        action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,
+        greetingUrl: null,
+        spokenFallback:
+          responder.voicemail_greeting ||
+          "Thanks for calling. Please leave a message after the beep and we'll get back to you.",
+      })
+    )
   }
 
   // IVR takes precedence when enabled and the picked tree has a root node.
