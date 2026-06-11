@@ -1,11 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
 
-export type AdminArea = 'people' | 'hub' | 'routing' | 'timesheet' | 'fleet' | 'daily_log' | 'zone_sizer' | 'dialer' | 'contacts' | 'guardian' | 'marketing' | 'forms' | 'products'
+export type AdminArea = 'people' | 'hub' | 'routing' | 'timesheet' | 'fleet' | 'daily_log' | 'zone_sizer' | 'dialer' | 'contacts' | 'guardian' | 'marketing' | 'forms' | 'products' | 'txt' | 'announcements' | 'file_tags'
 
-// Guardian shares the Hub grant for now (see GUARDIAN_UPGRADE_PLAN.md — dedicated grant deferred).
 const AREA_TO_FLAG: Record<AdminArea, string> = {
   people: 'can_admin_people',
   hub: 'can_admin_hub',
+  guardian: 'can_admin_guardian',
+  txt: 'can_admin_txt',
+  announcements: 'can_admin_announcements',
+  file_tags: 'can_admin_file_tags',
   routing: 'can_admin_routing',
   timesheet: 'can_admin_timesheet',
   fleet: 'can_admin_fleet',
@@ -13,7 +16,6 @@ const AREA_TO_FLAG: Record<AdminArea, string> = {
   zone_sizer: 'can_admin_zone_sizer',
   dialer: 'can_admin_dialer',
   contacts: 'can_admin_contacts',
-  guardian: 'can_admin_hub',
   marketing: 'can_admin_marketing',
   forms: 'can_admin_forms',
   products: 'can_admin_products',
@@ -38,7 +40,7 @@ export async function requireAdminArea(area: AdminArea): Promise<AdminCheckResul
   const flag = AREA_TO_FLAG[area]
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, company_id, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing, can_admin_forms, can_admin_products')
+    .select('role, company_id, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing, can_admin_forms, can_admin_products')
     .eq('id', user.id)
     .single()
 

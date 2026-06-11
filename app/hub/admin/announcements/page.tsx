@@ -13,10 +13,10 @@ export default async function AdminAnnouncementsPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, company_id, can_admin_hub')
+    .select('role, company_id, can_admin_announcements')
     .eq('id', user.id)
     .single()
-  if (profile?.role !== 'admin' && !profile?.can_admin_hub) redirect('/hub/home')
+  if (profile?.role !== 'admin' && !profile?.can_admin_announcements) redirect('/hub/home')
 
   const { data: activeAnnouncementsRaw } = await supabase
     .from('hub_announcements')

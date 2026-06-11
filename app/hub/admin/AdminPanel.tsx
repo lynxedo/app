@@ -20,6 +20,10 @@ type UserProfile = {
   can_post_shout_outs: boolean
   can_admin_people: boolean
   can_admin_hub: boolean
+  can_admin_guardian: boolean
+  can_admin_txt: boolean
+  can_admin_announcements: boolean
+  can_admin_file_tags: boolean
   can_admin_routing: boolean
   can_admin_timesheet: boolean
   can_admin_fleet: boolean
@@ -82,7 +86,11 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
 
 const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_admin_people', label: 'People' },
-  { key: 'can_admin_hub', label: 'Hub / Guardian / Txt / Announcements / File Tags' },
+  { key: 'can_admin_hub', label: 'Hub' },
+  { key: 'can_admin_guardian', label: 'Guardian' },
+  { key: 'can_admin_txt', label: 'Txt' },
+  { key: 'can_admin_announcements', label: 'Announcements' },
+  { key: 'can_admin_file_tags', label: 'File Tags' },
   { key: 'can_admin_contacts', label: 'Contacts' },
   { key: 'can_admin_routing', label: 'Routing' },
   { key: 'can_admin_timesheet', label: 'Time Records' },
@@ -192,6 +200,10 @@ export default function AdminPanel({
             can_post_shout_outs: false,
             can_admin_people: false,
             can_admin_hub: false,
+            can_admin_guardian: false,
+            can_admin_txt: false,
+            can_admin_announcements: false,
+            can_admin_file_tags: false,
             can_admin_routing: false,
             can_admin_timesheet: false,
             can_admin_fleet: false,
@@ -320,6 +332,10 @@ export default function AdminPanel({
             can_post_shout_outs: false,
             can_admin_people: false,
             can_admin_hub: false,
+            can_admin_guardian: false,
+            can_admin_txt: false,
+            can_admin_announcements: false,
+            can_admin_file_tags: false,
             can_admin_routing: false,
             can_admin_timesheet: false,
             can_admin_fleet: false,

@@ -53,6 +53,10 @@ export default function AdminSidebar({
   grants: {
     people: boolean
     hub: boolean
+    guardian?: boolean
+    txt?: boolean
+    announcements?: boolean
+    file_tags?: boolean
     routing: boolean
     timesheet: boolean
     fleet: boolean
@@ -73,19 +77,16 @@ export default function AdminSidebar({
       {show(grants.people) && (
         <AdminRow href="/hub/admin" iconId="people" label="People" exact onClose={onClose} />
       )}
-      {/* Hub, Guardian, and Txt all share the "Hub" admin permission. */}
       {show(grants.hub) && (
         <AdminRow href="/hub/admin/hub" iconId="hub" label="Hub" onClose={onClose} />
       )}
-      {show(grants.hub) && (
+      {show(!!(grants.guardian ?? grants.hub)) && (
         <AdminRow href="/hub/admin/guardian" iconId="guardian" label="Guardian" onClose={onClose} />
       )}
-      {show(grants.hub) && (
+      {show(!!(grants.txt ?? grants.hub)) && (
         <AdminRow href="/hub/admin/txt" iconId="txt2" label="Txt" onClose={onClose} />
       )}
-      {/* Announcements and File Tags were pulled out of the Hub panel's sub-tabs
-          into their own top-level pages. They still share the Hub admin grant. */}
-      {show(grants.hub) && (
+      {show(!!(grants.announcements ?? grants.hub)) && (
         <AdminRow href="/hub/admin/announcements" iconId="announcements" label="Announcements" onClose={onClose} />
       )}
       {show(grants.contacts) && (
@@ -112,7 +113,7 @@ export default function AdminSidebar({
       {show(grants.dialer) && (
         <AdminRow href="/hub/admin/dialer" iconId="dialer" label="Dialer" onClose={onClose} />
       )}
-      {show(grants.hub) && (
+      {show(!!(grants.file_tags ?? grants.hub)) && (
         <AdminRow href="/hub/admin/file-tags" iconId="file-tags" label="File Tags" onClose={onClose} />
       )}
       {show(grants.forms) && (

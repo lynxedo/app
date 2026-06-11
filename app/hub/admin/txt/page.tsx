@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import TxtAdminShell from './TxtAdminShell'
 
 export default async function TxtAdminPage() {
-  const auth = await requireAdminArea('hub')
+  const auth = await requireAdminArea('txt')
   if (!auth.ok || !auth.company_id) {
     redirect('/hub/home')
   }

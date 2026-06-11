@@ -55,12 +55,12 @@ export async function POST(request: Request) {
   // Manager-only: broadcasts can hit hundreds of customers; not a one-tap action.
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_hub, can_assign_txt_threads')
+    .select('role, can_admin_txt, can_assign_txt_threads')
     .eq('id', user.id)
     .single()
   const isManager =
     profile?.role === 'admin' ||
-    profile?.can_admin_hub === true ||
+    profile?.can_admin_txt === true ||
     profile?.can_assign_txt_threads === true
   if (!isManager) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })

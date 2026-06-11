@@ -19,11 +19,11 @@ export async function POST(request: Request) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_hub')
+    .select('role, can_admin_txt')
     .eq('id', user.id)
     .single()
   const isAdmin =
-    profile?.role === 'admin' || profile?.can_admin_hub === true
+    profile?.role === 'admin' || profile?.can_admin_txt === true
   if (!isAdmin) {
     return NextResponse.json({ error: 'Admin only' }, { status: 403 })
   }

@@ -9,7 +9,7 @@ export default async function TxtIndexPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_hub, can_assign_txt_threads, can_access_txt')
+    .select('role, can_admin_txt, can_assign_txt_threads, can_access_txt')
     .eq('id', user.id)
     .single()
 
@@ -17,7 +17,7 @@ export default async function TxtIndexPage() {
   // old Captivated inbox they still have.
   if (!profile?.can_access_txt) redirect('/hub/clients')
 
-  const isAdmin = profile?.role === 'admin' || profile?.can_admin_hub === true
+  const isAdmin = profile?.role === 'admin' || profile?.can_admin_txt === true
 
   return <TxtLandingPanel isAdmin={!!isAdmin} />
 }

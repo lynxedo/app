@@ -40,7 +40,7 @@ export async function proxy(request: NextRequest) {
     // Single fetch: profile + company — used for domain check and permission enforcement
     const { data: profile } = await supabase
       .from('user_profiles')
-      .select('role, company_id, landing_page, can_access_routing, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, can_access_dialer, can_access_marketing, can_admin_people, can_admin_hub, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing, companies(google_domain)')
+      .select('role, company_id, landing_page, can_access_routing, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, can_access_dialer, can_access_marketing, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing, companies(google_domain)')
       .eq('id', user.id)
       .single()
 
@@ -107,8 +107,10 @@ export async function proxy(request: NextRequest) {
         const isSuperAdmin = profile.role === 'admin'
         const adminFlagMap: Record<string, keyof typeof profile> = {
           '/hub/admin/hub': 'can_admin_hub',
-          '/hub/admin/guardian': 'can_admin_hub',
-          '/hub/admin/txt': 'can_admin_hub',
+          '/hub/admin/guardian': 'can_admin_guardian',
+          '/hub/admin/txt': 'can_admin_txt',
+          '/hub/admin/announcements': 'can_admin_announcements',
+          '/hub/admin/file-tags': 'can_admin_file_tags',
           '/hub/admin/routing': 'can_admin_routing',
           '/hub/admin/timesheet': 'can_admin_timesheet',
           '/hub/admin/fleet': 'can_admin_fleet',
@@ -121,6 +123,10 @@ export async function proxy(request: NextRequest) {
         const anyAdminGrant =
           profile.can_admin_people ||
           profile.can_admin_hub ||
+          profile.can_admin_guardian ||
+          profile.can_admin_txt ||
+          profile.can_admin_announcements ||
+          profile.can_admin_file_tags ||
           profile.can_admin_routing ||
           profile.can_admin_timesheet ||
           profile.can_admin_fleet ||

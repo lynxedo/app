@@ -324,13 +324,13 @@ export async function POST(req: NextRequest) {
         // Fall back to all managers if the list is not configured yet.
         const { data: managers } = await supabase
           .from('user_profiles')
-          .select('id, role, can_admin_hub, can_assign_txt_threads')
+          .select('id, role, can_admin_txt, can_assign_txt_threads')
           .eq('company_id', HEROES_COMPANY_ID)
         recipients = (managers ?? [])
           .filter(
             (m) =>
               m.role === 'admin' ||
-              m.can_admin_hub === true ||
+              m.can_admin_txt === true ||
               m.can_assign_txt_threads === true
           )
           .map((m) => m.id)
@@ -339,13 +339,13 @@ export async function POST(req: NextRequest) {
       // Anyone who could pick this up from the Queue tab.
       const { data: managers } = await supabase
         .from('user_profiles')
-        .select('id, role, can_admin_hub, can_assign_txt_threads')
+        .select('id, role, can_admin_txt, can_assign_txt_threads')
         .eq('company_id', HEROES_COMPANY_ID)
       recipients = (managers ?? [])
         .filter(
           (m) =>
             m.role === 'admin' ||
-            m.can_admin_hub === true ||
+            m.can_admin_txt === true ||
             m.can_assign_txt_threads === true
         )
         .map((m) => m.id)
