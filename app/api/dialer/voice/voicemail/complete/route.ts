@@ -10,6 +10,7 @@ import {
   voiceConfigured,
 } from '@/lib/twilio-voice'
 import { processVoicemail } from '@/lib/voicemail-transcribe'
+import { enrichTxtContactName } from '@/lib/dialer-lookup'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -175,14 +176,13 @@ export async function POST(request: NextRequest) {
     recipients = settings?.voicemail_recipient_user_ids ?? []
   }
   if (recipients.length > 0) {
+    // Resolve the caller's name with the same lookup the screen-pop uses —
+    // txt_contacts first, falling through to the Jobber clients/contacts mirror
+    // (a webhook-created txt_contact often has the bare phone as its name).
+    // Also persists the resolved name onto a placeholder-named txt_contacts row.
     let contactName: string | null = null
-    if (contactId) {
-      const { data: contact } = await admin
-        .from('txt_contacts')
-        .select('name')
-        .eq('id', contactId)
-        .maybeSingle()
-      contactName = contact?.name ?? null
+    if (fromNumber) {
+      contactName = await enrichTxtContactName(HEROES_COMPANY_ID, fromNumber)
     }
     const caller = contactName || formatPhone(fromNumber) || 'Unknown caller'
     const duration = durationSec ? `${durationSec}s` : ''

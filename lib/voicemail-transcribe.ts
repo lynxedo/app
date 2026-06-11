@@ -15,6 +15,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { generateAndSendResponderReply } from '@/lib/responder-ai'
 import { twilioFromNumber } from '@/lib/twilio'
 import { isInBusinessHours, sendResponderText } from '@/lib/responder'
+import { enrichTxtContactName } from '@/lib/dialer-lookup'
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
 
@@ -289,9 +290,16 @@ async function triggerAutoReply(opts: {
 
   // Pull first name: from txt_contacts.name if it looks like a real name
   // (not just the phone number placeholder the inbound webhook auto-creates).
+  // When it IS the placeholder, fall through to the Jobber clients/contacts
+  // mirror — enrichTxtContactName also persists the resolved name onto the
+  // contact row so the Txt2 sidebar shows the real name.
   let firstName: string | null = null
   if (contact?.name && contact.name !== opts.callerPhone) {
     firstName = contact.name.trim().split(/\s+/)[0] || null
+  }
+  if (!firstName) {
+    const enriched = await enrichTxtContactName(opts.companyId, opts.callerPhone)
+    firstName = enriched ? enriched.trim().split(/\s+/)[0] || null : null
   }
 
   // Use the company's default outbound number (env var; txt_phone_numbers is

@@ -2,6 +2,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { sendSms } from '@/lib/twilio'
 import { resolveFromNumber } from '@/lib/txt-numbers'
 import { buildMessagePreview } from '@/lib/txt-preview'
+import { enrichTxtContactName } from '@/lib/dialer-lookup'
 
 export type ResponderMode = 'off' | 'forwarded_line' | 'main_line'
 
@@ -162,14 +163,20 @@ export async function sendResponderText(
   }
 
   let contactId = existingContact?.id ?? null
-  // First name for the template; fall back to "there" (handled in renderTemplate)
-  // when the name is missing or is just the phone-number placeholder.
+  // First name for the template; when the stored name is missing or is just the
+  // phone-number placeholder, fall through to the Jobber clients/contacts mirror
+  // (enrichTxtContactName also persists the resolved name onto the existing
+  // row). renderTemplate falls back to "there" when nothing resolves.
   const rawName = existingContact?.name ?? null
-  const firstName = rawName && rawName !== fromNumber ? rawName.trim().split(/\s+/)[0] : null
+  let bestName = rawName && rawName !== fromNumber ? rawName : null
+  if (!bestName) {
+    bestName = await enrichTxtContactName(companyId, fromNumber)
+  }
+  const firstName = bestName ? bestName.trim().split(/\s+/)[0] || null : null
   if (!contactId) {
     const { data: created } = await admin
       .from('txt_contacts')
-      .insert({ company_id: companyId, phone: fromNumber, name: fromNumber })
+      .insert({ company_id: companyId, phone: fromNumber, name: bestName || fromNumber })
       .select('id')
       .single()
     contactId = created?.id ?? null
