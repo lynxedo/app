@@ -11,7 +11,7 @@ export default async function TxtAdminPage() {
 
   const admin = createAdminClient()
 
-  const [{ data: templates }, { data: numbers }, { data: settings }] = await Promise.all([
+  const [{ data: templates }, { data: numbers }, { data: settings }, { data: users }] = await Promise.all([
     admin
       .from('txt_templates')
       .select('id, scope, title, body, sort_order, owner_user_id, updated_at')
@@ -27,16 +27,25 @@ export default async function TxtAdminPage() {
       .order('label', { ascending: true }),
     admin
       .from('txt_settings')
-      .select('on_my_way_template')
+      .select('on_my_way_template, responder_notify_user_ids')
       .eq('company_id', auth.company_id)
       .maybeSingle(),
+    admin
+      .from('hub_users')
+      .select('id, display_name')
+      .eq('company_id', auth.company_id)
+      .order('display_name', { ascending: true }),
   ])
+
+  const settingsTyped = settings as { on_my_way_template?: string | null; responder_notify_user_ids?: string[] } | null
 
   return (
     <TxtAdminShell
       initialTemplates={templates || []}
       initialNumbers={numbers || []}
-      initialOnMyWayTemplate={settings?.on_my_way_template ?? null}
+      initialOnMyWayTemplate={settingsTyped?.on_my_way_template ?? null}
+      initialResponderNotifyIds={settingsTyped?.responder_notify_user_ids ?? []}
+      users={users || []}
     />
   )
 }

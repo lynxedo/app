@@ -295,12 +295,38 @@ export async function POST(req: NextRequest) {
   try {
     const { data: convForPush } = await supabase
       .from('txt_conversations')
-      .select('status, assigned_to')
+      .select('status, assigned_to, source')
       .eq('id', conversationId)
       .maybeSingle()
 
     let recipients: string[] = []
-    if (convForPush?.status === 'unassigned') {
+    if (convForPush?.status === 'unassigned' && convForPush?.source === 'responder') {
+      // Customer replied to a Guardian/Responder auto-text — notify the
+      // configured responder notify list instead of all managers.
+      const { data: txtSettings } = await supabase
+        .from('txt_settings')
+        .select('responder_notify_user_ids')
+        .eq('company_id', HEROES_COMPANY_ID)
+        .maybeSingle()
+      const notifyIds: string[] = (txtSettings as { responder_notify_user_ids?: string[] } | null)?.responder_notify_user_ids ?? []
+      if (notifyIds.length > 0) {
+        recipients = notifyIds
+      } else {
+        // Fall back to all managers if the list is not configured yet.
+        const { data: managers } = await supabase
+          .from('user_profiles')
+          .select('id, role, can_admin_hub, can_assign_txt_threads')
+          .eq('company_id', HEROES_COMPANY_ID)
+        recipients = (managers ?? [])
+          .filter(
+            (m) =>
+              m.role === 'admin' ||
+              m.can_admin_hub === true ||
+              m.can_assign_txt_threads === true
+          )
+          .map((m) => m.id)
+      }
+    } else if (convForPush?.status === 'unassigned') {
       // Anyone who could pick this up from the Queue tab.
       const { data: managers } = await supabase
         .from('user_profiles')

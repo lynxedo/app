@@ -12,6 +12,7 @@ type Conversation = {
   id: string
   kind?: 'direct' | 'group'
   status: 'unassigned' | 'assigned' | 'archived'
+  source?: string | null
   assigned_to: string | null
   last_message_at: string | null
   last_inbound_at: string | null
@@ -23,7 +24,7 @@ type Conversation = {
   group_contacts?: Array<{ contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null }>
 }
 
-type Scope = 'mine' | 'all' | 'archived'
+type Scope = 'mine' | 'all' | 'archived' | 'responder'
 
 type SimpleUser = { id: string; display_name: string }
 
@@ -135,7 +136,7 @@ export default function TxtV2Sidebar({
 
   const load = useCallback(async () => {
     setLoading(true)
-    const showQueue = canAssign && scope !== 'archived'
+    const showQueue = canAssign && scope !== 'archived' && scope !== 'responder'
     const requests: Promise<Response>[] = [
       fetch(`/api/txt/conversations?scope=${scope}&limit=100`),
     ]
@@ -281,6 +282,7 @@ export default function TxtV2Sidebar({
     { id: 'mine', label: 'Mine', show: true },
     { id: 'all', label: 'All', show: canAssign },
     { id: 'archived', label: 'Archived', show: true },
+    { id: 'responder', label: 'Responder', show: canAssign },
   ]
 
   return (
@@ -369,7 +371,7 @@ export default function TxtV2Sidebar({
         {/* Pinned Queue section — unassigned threads, always at the top for
             managers (in Mine + All). Highlighted, with inline Claim / Assign /
             Archive so they can be triaged without leaving the list. */}
-        {canAssign && scope !== 'archived' && filteredQueue.length > 0 && (
+        {canAssign && scope !== 'archived' && scope !== 'responder' && filteredQueue.length > 0 && (
           <div className="bg-orange-500/[0.06] border-b border-orange-500/20">
             <div className="px-4 pt-2 pb-1 flex items-center gap-2">
               <span className="text-[10px] uppercase tracking-wide text-orange-300/80 font-semibold">
@@ -470,6 +472,8 @@ export default function TxtV2Sidebar({
               ? 'Nothing assigned to you yet.'
               : scope === 'archived'
               ? 'No archived conversations.'
+              : scope === 'responder'
+              ? 'No Guardian auto-texts yet.'
               : 'No conversations.'}
           </div>
         )}
@@ -510,6 +514,9 @@ export default function TxtV2Sidebar({
                       {previewFor(c)}
                     </span>
                     <span className="flex items-center gap-1 text-[10px] flex-none">
+                      {c.source === 'responder' && !c.assigned_to && (
+                        <span className="text-purple-300">Guardian</span>
+                      )}
                       {c.status === 'assigned' && c.assignee && (
                         <span className="text-emerald-300">
                           {c.assignee.id === currentUserId

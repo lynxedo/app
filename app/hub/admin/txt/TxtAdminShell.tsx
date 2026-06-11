@@ -4,6 +4,7 @@ import { useState } from 'react'
 import TxtAdminPanel from './TxtAdminPanel'
 import TxtNumbersPanel, { type TxtNumber } from './TxtNumbersPanel'
 import OnMyWayPanel from './OnMyWayPanel'
+import ResponderNotifyPanel from './ResponderNotifyPanel'
 
 type Template = {
   id: string
@@ -15,16 +16,22 @@ type Template = {
   updated_at: string
 }
 
-type SubTab = 'templates' | 'numbers' | 'onmyway'
+type HubUser = { id: string; display_name: string }
+
+type SubTab = 'templates' | 'numbers' | 'onmyway' | 'responder'
 
 export default function TxtAdminShell({
   initialTemplates,
   initialNumbers,
   initialOnMyWayTemplate,
+  initialResponderNotifyIds,
+  users,
 }: {
   initialTemplates: Template[]
   initialNumbers: TxtNumber[]
   initialOnMyWayTemplate: string | null
+  initialResponderNotifyIds: string[]
+  users: HubUser[]
 }) {
   const [tab, setTab] = useState<SubTab>('templates')
 
@@ -40,11 +47,17 @@ export default function TxtAdminShell({
         <SubTabButton active={tab === 'onmyway'} onClick={() => setTab('onmyway')}>
           On My Way
         </SubTabButton>
+        <SubTabButton active={tab === 'responder'} onClick={() => setTab('responder')}>
+          Responder
+        </SubTabButton>
       </div>
 
       {tab === 'templates' && <TxtAdminPanel initialTemplates={initialTemplates} />}
       {tab === 'numbers' && <TxtNumbersPanel initialNumbers={initialNumbers} />}
       {tab === 'onmyway' && <OnMyWayPanel initialTemplate={initialOnMyWayTemplate} />}
+      {tab === 'responder' && (
+        <ResponderNotifyPanel initialNotifyIds={initialResponderNotifyIds} users={users} />
+      )}
     </div>
   )
 }
