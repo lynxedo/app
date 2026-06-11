@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 
 const POLL_INTERVAL_MS = 5 * 60 * 1000  // check every 5 minutes
-const INITIAL_DELAY_MS  = 10 * 1000     // first check 10s after page load (test — revert to 60s)
+const INITIAL_DELAY_MS  = 60 * 1000     // first check 60s after page load
 
 export function UpdateNotifier({ loadedBuildId }: { loadedBuildId: string }) {
   const [updateAvailable, setUpdateAvailable] = useState(false)
