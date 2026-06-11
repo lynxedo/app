@@ -2,6 +2,8 @@ import { NextRequest, NextResponse } from 'next/server'
 import { EMPTY_VOICE_TWIML, validateTwilioVoiceSignature, voiceConfigured } from '@/lib/twilio-voice'
 import { redirectCall } from '@/lib/twilio-conference'
 import { advanceRingGroup } from '@/lib/dialer-conference-connect'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { sendHubPush } from '@/lib/hub-push'
 
 function xml(body: string, status = 200) {
   return new NextResponse(body, { status, headers: { 'Content-Type': 'text/xml' } })
@@ -69,6 +71,46 @@ export async function POST(request: NextRequest) {
       const voicemailUrl = `${baseUrl}/api/dialer/voice/twiml/voicemail${owner ? `?owner=${encodeURIComponent(owner)}` : ''}`
       // Best-effort — if the caller already hung up, the redirect just no-ops.
       await redirectCall({ callSid: callerSid, twimlUrl: voicemailUrl }).catch(() => {})
+
+      // Stamp the calls row as 'no-answer' so scope=missed picks it up and the
+      // orange dot appears on the Dialer rail icon. Also fire a push notification.
+      // This must happen here (not in the voice/status route) because the caller's
+      // leg ends as 'completed' when they hang up after the voicemail greeting —
+      // that would clear the missed-call signal if we waited. We guard the
+      // voice/status route from overwriting 'no-answer' with 'completed'.
+      try {
+        const admin = createAdminClient()
+        const { data: callRow } = await admin
+          .from('calls')
+          .select('id, handled_by, from_number')
+          .eq('twilio_call_sid', callerSid)
+          .maybeSingle()
+        if (callRow) {
+          await admin.from('calls').update({ status: 'no-answer' }).eq('id', callRow.id)
+          if (callRow.handled_by) {
+            const raw = callRow.from_number || ''
+            const digits = raw.replace(/\D/g, '')
+            let formatted = raw
+            if (digits.length === 11 && digits[0] === '1') {
+              formatted = `(${digits.slice(1,4)}) ${digits.slice(4,7)}-${digits.slice(7)}`
+            } else if (digits.length === 10) {
+              formatted = `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`
+            }
+            await sendHubPush(
+              [callRow.handled_by],
+              {
+                title: '📞 Missed call',
+                body: formatted || 'Unknown number',
+                url: '/hub/dialer',
+                type: 'missed_call',
+                groupKey: `missed_call_${callRow.id}`,
+              }
+            ).catch(() => {})
+          }
+        }
+      } catch (e) {
+        console.warn('[dialer.conference.agent-status] no-answer stamp/push failed', e)
+      }
     }
   }
 

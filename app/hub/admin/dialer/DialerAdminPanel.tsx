@@ -668,7 +668,7 @@ export default function DialerAdminPanel({
               Let the call ring first so a missed call appears in the Dialer and triggers a notification — even if the caller hangs up without leaving a voicemail. Set to Off to keep the current behavior (straight to voicemail, no ring).
             </p>
             <div className="flex gap-1.5 flex-wrap">
-              {[0, 5, 10, 15, 20, 30].map(sec => (
+              {[0, 1, 2, 3, 5, 10, 15, 20].map(sec => (
                 <button
                   key={sec}
                   type="button"

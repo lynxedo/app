@@ -60,7 +60,13 @@ export async function POST(request: NextRequest) {
 
   if (Object.keys(update).length > 0) {
     const admin = createAdminClient()
-    await admin.from('calls').update(update).eq('twilio_call_sid', callSid)
+    let q = admin.from('calls').update(update).eq('twilio_call_sid', callSid)
+    // Don't let 'completed' overwrite a 'no-answer' we already stamped in the
+    // agent-status callback (happens when the caller hangs up after voicemail).
+    if (effective === 'completed') {
+      q = (q as typeof q).not('status', 'in', '("no-answer","busy","failed","canceled")')
+    }
+    await q
   }
 
   return twimlResponse()
