@@ -14,10 +14,10 @@ export default async function AdminFileTagsPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_hub')
+    .select('role, can_admin_file_tags')
     .eq('id', user.id)
     .single()
-  if (profile?.role !== 'admin' && !profile?.can_admin_hub) redirect('/hub/home')
+  if (profile?.role !== 'admin' && !profile?.can_admin_file_tags) redirect('/hub/home')
 
   return (
     <HubAdminPanel

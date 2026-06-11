@@ -23,7 +23,7 @@ export async function getTxtConvPermissions(
   const [{ data: profile }, { data: membership }] = await Promise.all([
     supabase
       .from('user_profiles')
-      .select('role, can_admin_hub, can_assign_txt_threads')
+      .select('role, can_admin_txt, can_assign_txt_threads')
       .eq('id', userId)
       .maybeSingle(),
     supabase
@@ -36,7 +36,7 @@ export async function getTxtConvPermissions(
 
   const isManager =
     profile?.role === 'admin' ||
-    profile?.can_admin_hub === true ||
+    profile?.can_admin_txt === true ||
     profile?.can_assign_txt_threads === true
 
   const role = (membership?.role as TxtConvRole) || null

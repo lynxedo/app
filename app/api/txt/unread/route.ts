@@ -17,7 +17,7 @@ export async function GET() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_hub, can_assign_txt_threads, can_access_txt')
+    .select('role, can_admin_txt, can_assign_txt_threads, can_access_txt')
     .eq('id', user.id)
     .single()
 
@@ -29,7 +29,7 @@ export async function GET() {
 
   const isManager =
     profile?.role === 'admin' ||
-    profile?.can_admin_hub === true ||
+    profile?.can_admin_txt === true ||
     profile?.can_assign_txt_threads === true
 
   let query = supabase

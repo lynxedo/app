@@ -14,12 +14,12 @@ export default async function AdminGuardianPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, company_id, can_admin_hub')
+    .select('role, company_id, can_admin_guardian')
     .eq('id', user.id)
     .single()
 
   const isSuperAdmin = profile?.role === 'admin'
-  if ((!isSuperAdmin && !profile?.can_admin_hub) || !profile?.company_id) redirect('/hub/home')
+  if ((!isSuperAdmin && !profile?.can_admin_guardian) || !profile?.company_id) redirect('/hub/home')
 
   const admin = createAdminClient()
   const companyId = profile.company_id

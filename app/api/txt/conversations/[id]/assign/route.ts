@@ -29,7 +29,7 @@ export async function POST(
   const [{ data: profile }, { data: conv }] = await Promise.all([
     supabase
       .from('user_profiles')
-      .select('role, can_admin_hub, can_assign_txt_threads')
+      .select('role, can_admin_txt, can_assign_txt_threads')
       .eq('id', user.id)
       .single(),
     supabase
@@ -45,7 +45,7 @@ export async function POST(
 
   const isManager =
     profile?.role === 'admin' ||
-    profile?.can_admin_hub === true ||
+    profile?.can_admin_txt === true ||
     profile?.can_assign_txt_threads === true
   const isCurrentOwner = conv.assigned_to === user.id
   const isSelfClaim = assignTo === user.id && conv.status === 'unassigned'

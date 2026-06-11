@@ -22,12 +22,12 @@ export async function GET(request: Request) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_hub, can_assign_txt_threads')
+    .select('role, can_admin_txt, can_assign_txt_threads')
     .eq('id', user.id)
     .single()
   const isManager =
     profile?.role === 'admin' ||
-    profile?.can_admin_hub === true ||
+    profile?.can_admin_txt === true ||
     profile?.can_assign_txt_threads === true
 
   if (!isManager && (scope === 'unassigned' || scope === 'all' || scope === 'responder')) {
