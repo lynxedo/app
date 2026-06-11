@@ -33,12 +33,15 @@ type Settings = {
   ring_timeout_sec: number
   voicemail_recipient_user_ids: string[]
   fallback_voicemail_url: string | null
+  fallback_voicemail_tts: string
   ivr_enabled: boolean
   ivr_config: IvrConfig
   business_hours: BusinessHoursSchedule
   holidays: HolidayEntry[]
   recording_enabled: boolean
   recording_consent_notice: string
+  recording_consent_enabled: boolean
+  recording_consent_url: string | null
   recording_pause_auto_resume_sec: number
   // After-call disposition options. null = use the built-in default set.
   disposition_options: string[] | null
@@ -74,7 +77,9 @@ export default function DialerAdminPanel({
   const [savedAt, setSavedAt] = useState<number | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
+  const [uploadingConsent, setUploadingConsent] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
+  const consentFileInputRef = useRef<HTMLInputElement>(null)
 
   // Responder — separate state + save from main dialer settings
   const [resp, setResp] = useState<Omit<ResponderSettings, 'id' | 'company_id'>>(
@@ -120,12 +125,15 @@ export default function DialerAdminPanel({
           inbound_route_user_id: s.inbound_route_user_id,
           ring_timeout_sec: s.ring_timeout_sec,
           voicemail_recipient_user_ids: s.voicemail_recipient_user_ids,
+          fallback_voicemail_tts: s.fallback_voicemail_tts || null,
           ivr_enabled: s.ivr_enabled,
           ivr_config: s.ivr_config,
           business_hours: s.business_hours,
           holidays: s.holidays,
           recording_enabled: s.recording_enabled,
           recording_consent_notice: s.recording_consent_notice,
+          recording_consent_enabled: s.recording_consent_enabled,
+          recording_consent_url: s.recording_consent_url,
           recording_pause_auto_resume_sec: s.recording_pause_auto_resume_sec,
           disposition_options: s.disposition_options,
         }),
@@ -168,7 +176,7 @@ export default function DialerAdminPanel({
   }
 
   async function clearGreeting() {
-    if (!confirm('Remove the custom greeting? Callers will hear the spoken default.')) return
+    if (!confirm('Remove the custom greeting? Callers will hear the TTS text or spoken default.')) return
     setUploading(true)
     setError(null)
     try {
@@ -183,6 +191,50 @@ export default function DialerAdminPanel({
       setError(err instanceof Error ? err.message : String(err))
     } finally {
       setUploading(false)
+    }
+  }
+
+  async function uploadConsentAudio(file: File) {
+    setUploadingConsent(true)
+    setError(null)
+    try {
+      const formData = new FormData()
+      formData.append('file', file)
+      const res = await fetch('/api/admin/dialer/consent-notice', {
+        method: 'POST',
+        body: formData,
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error ?? `Upload failed (${res.status})`)
+      }
+      const data = await res.json()
+      setS((prev) => ({ ...prev, recording_consent_url: data.url }))
+      setSavedAt(Date.now())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUploadingConsent(false)
+      if (consentFileInputRef.current) consentFileInputRef.current.value = ''
+    }
+  }
+
+  async function clearConsentAudio() {
+    if (!confirm('Remove the custom consent audio? The TTS text will be used instead.')) return
+    setUploadingConsent(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/admin/dialer/consent-notice', { method: 'DELETE' })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error ?? `Clear failed (${res.status})`)
+      }
+      setS((prev) => ({ ...prev, recording_consent_url: null }))
+      setSavedAt(Date.now())
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUploadingConsent(false)
     }
   }
 
@@ -326,6 +378,7 @@ export default function DialerAdminPanel({
         )}
 
         <div>
+          <p className="text-xs text-white/50 mb-1.5">Upload audio (takes priority over text below):</p>
           <input
             ref={fileInputRef}
             type="file"
@@ -338,6 +391,21 @@ export default function DialerAdminPanel({
             className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-[#2E7EB8] file:text-white file:text-sm hover:file:bg-[#3a8dc9] file:cursor-pointer"
           />
           {uploading && <span className="ml-2 text-xs text-white/50">Uploading…</span>}
+        </div>
+
+        <div>
+          <label className="text-xs font-medium text-white/70 block mb-1">
+            Text-to-speech greeting
+            {s.fallback_voicemail_url && <span className="ml-2 text-white/40">(overridden by uploaded audio above)</span>}
+          </label>
+          <textarea
+            value={s.fallback_voicemail_tts}
+            onChange={e => setS(p => ({ ...p, fallback_voicemail_tts: e.target.value.slice(0, 1000) }))}
+            rows={3}
+            placeholder="Type the greeting to speak before the beep, e.g. "Hi, you've reached Heroes Lawn Care. Please leave a message and we'll get back to you shortly.""
+            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+          />
+          <p className="text-xs text-white/40 mt-1">Leave blank to use the spoken default.</p>
         </div>
       </section>
 
@@ -461,16 +529,70 @@ export default function DialerAdminPanel({
         </label>
 
         {/* Consent notice */}
-        <div>
-          <label className="text-xs font-medium text-white/70 block mb-1">Inbound consent notice</label>
-          <textarea
-            value={s.recording_consent_notice}
-            onChange={e => setS(p => ({ ...p, recording_consent_notice: e.target.value.slice(0, 500) }))}
-            rows={2}
-            placeholder="This call may be recorded for quality and training purposes."
-            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-          />
-          <p className="text-xs text-white/40 mt-1">Played to the caller before connecting. Leave blank to use the default.</p>
+        <div className="space-y-3">
+          <div className="flex items-center justify-between">
+            <label className="text-xs font-medium text-white/70">Inbound consent notice</label>
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <div
+                onClick={() => setS(p => ({ ...p, recording_consent_enabled: !p.recording_consent_enabled }))}
+                className={`relative w-8 h-5 rounded-full transition-colors ${s.recording_consent_enabled ? 'bg-[#2E7EB8]' : 'bg-white/20'}`}
+              >
+                <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${s.recording_consent_enabled ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
+              </div>
+              <span className="text-xs text-white/70">{s.recording_consent_enabled ? 'On' : 'Off'}</span>
+            </label>
+          </div>
+
+          {s.recording_consent_enabled && (
+            <div className="space-y-3 pl-0">
+              {s.recording_consent_url ? (
+                <div className="flex items-center gap-3 flex-wrap">
+                  <audio src={s.recording_consent_url} controls preload="metadata" className="h-8 max-w-xs" />
+                  <button
+                    type="button"
+                    onClick={clearConsentAudio}
+                    disabled={uploadingConsent}
+                    className="px-3 py-1.5 rounded text-xs border border-red-700/40 text-red-300 hover:bg-red-900/30 disabled:opacity-50"
+                  >
+                    Remove audio
+                  </button>
+                </div>
+              ) : (
+                <p className="text-xs text-white/40">No custom audio uploaded — TTS text below will be used.</p>
+              )}
+
+              <div>
+                <p className="text-xs text-white/50 mb-1.5">Upload audio (takes priority over text below):</p>
+                <input
+                  ref={consentFileInputRef}
+                  type="file"
+                  accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/wave"
+                  onChange={(e) => {
+                    const file = e.target.files?.[0]
+                    if (file) uploadConsentAudio(file)
+                  }}
+                  disabled={uploadingConsent}
+                  className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-[#2E7EB8] file:text-white file:text-sm hover:file:bg-[#3a8dc9] file:cursor-pointer"
+                />
+                {uploadingConsent && <span className="ml-2 text-xs text-white/50">Uploading…</span>}
+              </div>
+
+              <div>
+                <label className="text-xs font-medium text-white/70 block mb-1">
+                  Text-to-speech notice
+                  {s.recording_consent_url && <span className="ml-2 text-white/40">(overridden by uploaded audio above)</span>}
+                </label>
+                <textarea
+                  value={s.recording_consent_notice}
+                  onChange={e => setS(p => ({ ...p, recording_consent_notice: e.target.value.slice(0, 500) }))}
+                  rows={2}
+                  placeholder="This call may be recorded for quality and training purposes."
+                  className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+                />
+                <p className="text-xs text-white/40 mt-1">Played to the caller before connecting. Leave blank to use the default.</p>
+              </div>
+            </div>
+          )}
         </div>
 
         {/* Pause auto-resume */}

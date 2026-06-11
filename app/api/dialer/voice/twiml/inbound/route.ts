@@ -73,7 +73,7 @@ export async function POST(request: NextRequest) {
   const [{ data: settings }, { data: responder }] = await Promise.all([
     admin
       .from('dialer_settings')
-      .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays, recording_enabled, recording_consent_notice, fallback_voicemail_url')
+      .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays, recording_enabled, recording_consent_notice, recording_consent_enabled, recording_consent_url, fallback_voicemail_url, fallback_voicemail_tts')
       .eq('company_id', HEROES_COMPANY_ID)
       .single(),
     admin
@@ -86,7 +86,9 @@ export async function POST(request: NextRequest) {
   const routeToUserId = settings?.inbound_route_user_id
   const ringTimeout = settings?.ring_timeout_sec ?? 20
   const recordingEnabled = settings?.recording_enabled === true
+  const consentEnabled = settings?.recording_consent_enabled !== false
   const consentNotice = settings?.recording_consent_notice || DEFAULT_RECORDING_CONSENT_NOTICE
+  const consentUrl = settings?.recording_consent_url || null
   const responderMode = (responder?.mode as ResponderMode | undefined) ?? 'off'
 
   // Phase 3: each inbound call gets a conference room so it can be held /
@@ -160,7 +162,7 @@ export async function POST(request: NextRequest) {
   }
 
   const respond = (body: string) => {
-    let twiml = recordingEnabled ? injectConsentNotice(body, consentNotice) : body
+    let twiml = recordingEnabled ? injectConsentNotice(body, consentNotice, { url: consentUrl, enabled: consentEnabled }) : body
     twiml = injectRecordingIntoDials(twiml)
     return twimlResponse(twiml)
   }
@@ -182,6 +184,7 @@ export async function POST(request: NextRequest) {
       twimlRecordVoicemail({
         action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,
         greetingUrl: settings?.fallback_voicemail_url || null,
+        greetingTts: settings?.fallback_voicemail_tts || null,
         spokenFallback:
           "Thanks for calling. Please leave a message after the beep and we'll get back to you. Press pound when finished.",
       })
@@ -245,18 +248,13 @@ export async function POST(request: NextRequest) {
     return twimlResponse(callerTwiml)
   }
 
-  // No route configured — go straight to general voicemail. We need to fetch
-  // the greeting URL here since this branch skips the Dial-then-render path.
-  const { data: vmSettings } = await admin
-    .from('dialer_settings')
-    .select('fallback_voicemail_url')
-    .eq('company_id', HEROES_COMPANY_ID)
-    .single()
-
+  // No route configured — go straight to general voicemail. Settings already
+  // fetched above, so we can use `settings` directly.
   return respond(
     twimlRecordVoicemail({
       action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,
-      greetingUrl: vmSettings?.fallback_voicemail_url || null,
+      greetingUrl: settings?.fallback_voicemail_url || null,
+      greetingTts: settings?.fallback_voicemail_tts || null,
       spokenFallback:
         "Thanks for calling. Please leave a message after the beep and we'll get back to you. Press pound when finished.",
     })

@@ -129,6 +129,16 @@ export default function GuardianAdminPanel({
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditError, setAuditError] = useState<string | null>(null)
   const [auditIncludeTest, setAuditIncludeTest] = useState(false)
+  // Voicemail auto-reply instructions (Responder AI prompt — stored on
+  // responder_settings.ai_reply_prompt, loaded/saved via /api/admin/responder-settings).
+  const [aiPrompt, setAiPrompt] = useState('')
+  const [aiPromptDefault, setAiPromptDefault] = useState('')
+  const [aiPromptLoaded, setAiPromptLoaded] = useState(false)
+  const [aiPromptLoading, setAiPromptLoading] = useState(false)
+  const [aiPromptSaving, setAiPromptSaving] = useState(false)
+  const [aiPromptSavedAt, setAiPromptSavedAt] = useState<number | null>(null)
+  const [aiPromptError, setAiPromptError] = useState<string | null>(null)
+  const [aiPromptUsingDefault, setAiPromptUsingDefault] = useState(false)
 
   // Fetch models when Settings tab opens.
   useEffect(() => {
@@ -161,6 +171,49 @@ export default function GuardianAdminPanel({
       .catch(e => setAuditError(e instanceof Error ? e.message : String(e)))
       .finally(() => setAuditLoading(false))
   }, [tab, auditIncludeTest])
+
+  // Load the voicemail auto-reply prompt when the Knowledge tab opens.
+  useEffect(() => {
+    if (tab !== 'knowledge' || aiPromptLoaded || aiPromptLoading) return
+    setAiPromptLoading(true)
+    setAiPromptError(null)
+    fetch('/api/admin/responder-settings')
+      .then(r => r.json().then(b => ({ ok: r.ok, body: b })))
+      .then(({ ok, body }) => {
+        if (!ok) throw new Error(body?.error ?? 'Failed to load auto-reply instructions')
+        const def = (body?.ai_reply_prompt_default as string) ?? ''
+        const saved = (body?.ai_reply_prompt as string | null) ?? null
+        setAiPromptDefault(def)
+        setAiPromptUsingDefault(!saved || !saved.trim())
+        setAiPrompt(saved && saved.trim() ? saved : def)
+        setAiPromptLoaded(true)
+      })
+      .catch(e => setAiPromptError(e instanceof Error ? e.message : String(e)))
+      .finally(() => setAiPromptLoading(false))
+  }, [tab, aiPromptLoaded, aiPromptLoading])
+
+  async function saveAiPrompt() {
+    setAiPromptSaving(true)
+    setAiPromptError(null)
+    try {
+      const res = await fetch('/api/admin/responder-settings', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ ai_reply_prompt: aiPrompt }),
+      })
+      if (!res.ok) {
+        const b = await res.json().catch(() => null)
+        throw new Error(b?.error ?? `Save failed (${res.status})`)
+      }
+      setAiPromptUsingDefault(!aiPrompt.trim())
+      setAiPromptSavedAt(Date.now())
+      setTimeout(() => setAiPromptSavedAt(null), 4000)
+    } catch (e) {
+      setAiPromptError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setAiPromptSaving(false)
+    }
+  }
 
   const selectedDoc = useMemo(
     () => docs.find(d => d.id === selectedId) ?? null,
@@ -341,6 +394,59 @@ export default function GuardianAdminPanel({
             />
           )}
         </div>
+
+        <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-3">
+          <div>
+            <h2 className="font-semibold">Voicemail auto-reply instructions</h2>
+            <p className="text-xs text-white/50 mt-1">
+              The instructions that tell the AI how to write the personalized text it sends back
+              after a customer leaves a voicemail. Turn the feature on/off at{' '}
+              <span className="text-white/70">Admin → Dialer → Responder → "AI personalized reply."</span>{' '}
+              The AI also uses all the knowledge docs above — keep those up to date and this reply
+              will automatically reflect your services, pricing, and tone.
+              Leave it blank to use the built-in default.
+            </p>
+          </div>
+
+          {aiPromptLoading && <p className="text-sm text-white/50">Loading…</p>}
+          {aiPromptError && <p className="text-sm text-red-300">{aiPromptError}</p>}
+
+          {aiPromptLoaded && (
+            <>
+              {aiPromptUsingDefault && (
+                <p className="text-xs text-amber-300/90">
+                  Currently using the built-in default (shown below). Edit and save to customize it.
+                </p>
+              )}
+              <textarea
+                value={aiPrompt}
+                onChange={e => setAiPrompt(e.target.value)}
+                rows={18}
+                spellCheck={false}
+                className="w-full bg-gray-900 border border-white/15 rounded px-3 py-2 text-sm font-mono leading-relaxed"
+                placeholder="Instructions for the AI auto-reply…"
+              />
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  onClick={saveAiPrompt}
+                  disabled={aiPromptSaving}
+                  className="px-4 py-2 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50 text-sm font-medium"
+                >
+                  {aiPromptSaving ? 'Saving…' : 'Save instructions'}
+                </button>
+                <button
+                  onClick={() => setAiPrompt(aiPromptDefault)}
+                  disabled={aiPromptSaving || aiPrompt === aiPromptDefault}
+                  className="px-3 py-2 rounded bg-white/10 hover:bg-white/15 disabled:opacity-40 text-sm"
+                >
+                  Reset to default
+                </button>
+                <span className="text-xs text-white/40">{aiPrompt.length.toLocaleString()} characters</span>
+                {aiPromptSavedAt && <span className="text-xs text-emerald-300">Saved ✓</span>}
+              </div>
+            </>
+          )}
+        </section>
       )}
 
       {tab === 'settings' && (
@@ -446,6 +552,7 @@ export default function GuardianAdminPanel({
               <span className="text-xs text-emerald-300">Saved ✓</span>
             )}
           </div>
+
         </div>
       )}
 

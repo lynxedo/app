@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { RESPONDER_REPLY_SYSTEM_DEFAULT } from '@/lib/responder-ai-prompt'
 
 export async function GET() {
   const auth = await requireAdminArea('dialer')
@@ -13,7 +14,12 @@ export async function GET() {
     .eq('company_id', auth.company_id!)
     .maybeSingle()
 
-  return NextResponse.json(data ?? null)
+  // Include the built-in default AI prompt so the Guardian admin editor can
+  // pre-fill the textarea when no custom prompt has been saved yet.
+  return NextResponse.json({
+    ...(data ?? {}),
+    ai_reply_prompt_default: RESPONDER_REPLY_SYSTEM_DEFAULT,
+  })
 }
 
 export async function POST(req: NextRequest) {
@@ -25,7 +31,7 @@ export async function POST(req: NextRequest) {
     'mode', 'business_days', 'business_hours_start', 'business_hours_end',
     'business_hours_template', 'business_hours_no_message_template',
     'afterhours_template', 'afterhours_no_message_template',
-    'ai_reply_enabled',
+    'ai_reply_enabled', 'ai_reply_prompt',
   ]
 
   const update: Record<string, unknown> = {}

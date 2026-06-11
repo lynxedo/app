@@ -231,6 +231,7 @@ export function twimlSayAndHangup(message: string): string {
 export function twimlRecordVoicemail(opts: {
   action: string
   greetingUrl?: string | null
+  greetingTts?: string | null
   spokenFallback?: string
   maxLengthSec?: number
 }): string {
@@ -238,9 +239,12 @@ export function twimlRecordVoicemail(opts: {
   const fallback = opts.spokenFallback ||
     "Please leave a message after the beep. Press pound when finished."
 
+  // Priority: uploaded audio > typed TTS > spoken default
   const intro = opts.greetingUrl
     ? `<Play>${escapeXmlText(opts.greetingUrl)}</Play>`
-    : `<Say voice="alice">${escapeXmlText(fallback)}</Say>`
+    : opts.greetingTts?.trim()
+      ? `<Say voice="alice">${escapeXmlText(opts.greetingTts.trim())}</Say>`
+      : `<Say voice="alice">${escapeXmlText(fallback)}</Say>`
 
   const recordAttrs = [
     `action="${escapeXmlAttr(opts.action)}"`,
@@ -399,10 +403,19 @@ export async function startCallRecording(
 // TwiML <Response>. Works across every inbound path (IVR menu, dial, voicemail)
 // because every builder here emits `...<Response>...`. Only applied when
 // recording is enabled, so callers hear it exactly when recording happens.
-export function injectConsentNotice(twiml: string, notice: string): string {
-  if (!notice) return twiml
-  const say = `<Say voice="alice">${escapeXmlText(notice)}</Say>`
-  return twiml.replace('<Response>', `<Response>${say}`)
+export function injectConsentNotice(
+  twiml: string,
+  notice: string,
+  opts?: { url?: string | null; enabled?: boolean }
+): string {
+  // If consent notice is explicitly disabled, skip it entirely
+  if (opts?.enabled === false) return twiml
+  if (!notice && !opts?.url) return twiml
+  // Uploaded audio takes priority over TTS text
+  const announcement = opts?.url?.trim()
+    ? `<Play>${escapeXmlText(opts.url.trim())}</Play>`
+    : `<Say voice="alice">${escapeXmlText(notice)}</Say>`
+  return twiml.replace('<Response>', `<Response>${announcement}`)
 }
 
 export const DEFAULT_RECORDING_CONSENT_NOTICE =

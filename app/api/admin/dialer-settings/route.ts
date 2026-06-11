@@ -36,8 +36,11 @@ const ALLOWED_FIELDS = [
   'holidays',
   'recording_enabled',
   'recording_consent_notice',
+  'recording_consent_enabled',
+  'recording_consent_url',
   'recording_pause_auto_resume_sec',
   'disposition_options',
+  'fallback_voicemail_tts',
 ] as const
 
 function sanitizeUuidArray(raw: unknown): string[] | null {
@@ -98,6 +101,18 @@ export async function POST(request: Request) {
         patch[k] = null
       } else if (typeof v === 'string') {
         patch[k] = v.slice(0, 500)
+      }
+    } else if (k === 'recording_consent_enabled') {
+      patch[k] = Boolean(body[k])
+    } else if (k === 'recording_consent_url') {
+      const v = body[k]
+      patch[k] = v === null || v === '' ? null : typeof v === 'string' ? v : undefined
+    } else if (k === 'fallback_voicemail_tts') {
+      const v = body[k]
+      if (v === null || v === '') {
+        patch[k] = null
+      } else if (typeof v === 'string') {
+        patch[k] = v.slice(0, 1000)
       }
     } else if (k === 'recording_pause_auto_resume_sec') {
       const n = Number(body[k])

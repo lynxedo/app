@@ -32,12 +32,13 @@ export async function POST(request: Request) {
   const { data: settings } = await admin
     .from('responder_settings')
     .select(
-      'mode, business_days, business_hours_start, business_hours_end, business_hours_template, business_hours_no_message_template, afterhours_template, afterhours_no_message_template'
+      'mode, ai_reply_enabled, business_days, business_hours_start, business_hours_end, business_hours_template, business_hours_no_message_template, afterhours_template, afterhours_no_message_template'
     )
     .eq('company_id', HEROES_COMPANY_ID)
     .maybeSingle()
 
   const mode = (settings?.mode as ResponderMode | undefined) ?? 'off'
+  const aiReplyEnabled = !!settings?.ai_reply_enabled
   if (!settings || mode === 'off') {
     return NextResponse.json({ processed: 0, reason: 'responder_off' })
   }
@@ -92,6 +93,18 @@ export async function POST(request: Request) {
         .limit(1)
         .maybeSingle()
       const hadVoicemail = !!vmRow
+
+      // AI reply on + a voicemail was left → suppress the generic template here.
+      // The AI path (triggerAutoReply in voicemail-transcribe, after the
+      // transcript is ready) sends the only message — a personalized reply, or
+      // the standard template as a fallback if the voicemail had no transcript.
+      // (No-voicemail / hangup calls fall through to the normal template below.)
+      if (aiReplyEnabled && hadVoicemail) {
+        await admin.from('calls').update({ responder_text_status: 'skipped' }).eq('id', call.id)
+        await logResponderCall(admin, call, { hadVoicemail, textSent: false, templateUsed: 'ai_reply', error: null })
+        skipped++
+        continue
+      }
 
       // Main Line mode: the call rings the team and CAN be answered. If no
       // voicemail was left and the call wasn't a clear no-answer, assume a human
