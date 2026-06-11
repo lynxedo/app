@@ -479,7 +479,7 @@ export default function TxtConversationView({
       twilio_sid: null,
       created_at: new Date().toISOString(),
       sent_by: currentUserId,
-      sender: null,
+      sender: currentUserName ? { id: currentUserId, display_name: currentUserName } : null,
     }
     setMessages((prev) => [...prev, optimistic])
     const templateIdForSend = selectedTemplateId
@@ -1082,6 +1082,12 @@ export default function TxtConversationView({
             }
             const m = item.message
             const isOutbound = m.direction === 'outbound'
+            // Who sent this outbound message: the user's first name, or
+            // "Guardian" when sent_by is null (responder/AI auto-sends are the
+            // only outbound path without a user).
+            const senderLabel = isOutbound
+              ? m.sender?.display_name?.trim().split(/\s+/)[0] || (!m.sent_by ? 'Guardian' : null)
+              : null
             return (
               <div
                 key={item.id}
@@ -1150,6 +1156,12 @@ export default function TxtConversationView({
                     </div>
                   )}
                   <div className="flex items-center gap-1.5 mt-1 text-[10px] text-white/60">
+                    {senderLabel && (
+                      <>
+                        <span className="font-medium">{senderLabel}</span>
+                        <span>·</span>
+                      </>
+                    )}
                     <span>{formatTime(m.created_at)}</span>
                     {isOutbound && (
                       <>
