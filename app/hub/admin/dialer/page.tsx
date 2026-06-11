@@ -90,7 +90,10 @@ export default async function AdminDialerPage() {
     holidays: (Array.isArray(row?.holidays) ? row!.holidays : []) as unknown[],
     recording_enabled: row?.recording_enabled ?? false,
     recording_consent_notice: row?.recording_consent_notice ?? '',
+    recording_consent_enabled: row?.recording_consent_enabled !== false,
+    recording_consent_url: row?.recording_consent_url ?? null,
     recording_pause_auto_resume_sec: row?.recording_pause_auto_resume_sec ?? 60,
+    fallback_voicemail_tts: row?.fallback_voicemail_tts ?? '',
     disposition_options: Array.isArray(row?.disposition_options) ? (row!.disposition_options as string[]) : null,
   }
 

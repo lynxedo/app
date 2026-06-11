@@ -13,6 +13,8 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { sendSms } from '@/lib/twilio'
 import { RESPONDER_REPLY_SYSTEM_DEFAULT } from '@/lib/responder-ai-prompt'
+import { getAlwaysIncludedDocs } from '@/lib/guardian-knowledge'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
 
@@ -20,6 +22,10 @@ const CLAUDE_MODEL = 'claude-sonnet-4-6'
 // responder_settings.ai_reply_prompt and passed in via opts.systemPrompt.
 // RESPONDER_REPLY_SYSTEM_DEFAULT (lib/responder-ai-prompt.ts) is the fallback
 // when no custom prompt has been saved.
+//
+// Always-included Guardian knowledge-base docs (guardian_knowledge_docs rows
+// with always_include=true) are appended to the system prompt automatically,
+// exactly like Guardian's buildSystemPrompt() in lib/hub-claude.ts.
 
 // ---------------------------------------------------------------------------
 // Types
@@ -55,8 +61,8 @@ export async function generateAndSendResponderReply(opts: {
   companyId: string
   systemPrompt?: string | null
 }): Promise<ResponderReplyResult> {
-  const { transcript, summary, callerPhone, callerFirstName, fromNumber } = opts
-  const systemPrompt = opts.systemPrompt?.trim() || RESPONDER_REPLY_SYSTEM_DEFAULT
+  const { transcript, summary, callerPhone, callerFirstName, fromNumber, companyId } = opts
+  const basePrompt = opts.systemPrompt?.trim() || RESPONDER_REPLY_SYSTEM_DEFAULT
   const start = Date.now()
 
   const apiKey = process.env.ANTHROPIC_API_KEY
@@ -66,6 +72,22 @@ export async function generateAndSendResponderReply(opts: {
 
   if (!transcript.trim() && !summary) {
     return { smsSent: false, smsBody: null, error: 'no transcript or summary to work from', latency_ms: 0 }
+  }
+
+  // Append always-included Guardian knowledge-base docs (same protocol as
+  // buildSystemPrompt() in lib/hub-claude.ts).
+  let systemPrompt = basePrompt
+  try {
+    const admin = createAdminClient()
+    const kbDocs = await getAlwaysIncludedDocs(admin, companyId)
+    if (kbDocs.length > 0) {
+      const kbSection = kbDocs
+        .map(doc => `---\n\n## ${doc.title}\n\n${doc.body}`)
+        .join('\n\n')
+      systemPrompt = `${basePrompt}\n\n${kbSection}`
+    }
+  } catch {
+    // KB load failure is non-fatal — proceed with the base prompt
   }
 
   try {
