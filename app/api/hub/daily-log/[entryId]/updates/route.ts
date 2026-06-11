@@ -115,8 +115,8 @@ export async function POST(
     await sendHubPush(
       recipientIds,
       {
-        title: `${senderName} — Daily Log (${techName})`,
-        body: snippet,
+        title: `📋 Daily Log — ${techName}`,
+        body: `${senderName}: ${snippet}`,
         url: '/hub/daily-log',
       },
       { isDm: true }

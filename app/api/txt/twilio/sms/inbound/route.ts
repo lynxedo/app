@@ -381,7 +381,7 @@ export async function POST(req: NextRequest) {
       sendHubPush(
         recipients,
         {
-          title: displayName,
+          title: `📱 Txt — ${displayName}`,
           body: preview,
           url: `${baseUrl}/hub/txt/${conversationId}?source=push`,
         },

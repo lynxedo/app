@@ -230,7 +230,7 @@ export async function POST(request: Request) {
     if (mentionRecipientIds.length > 0) {
       const destination = room_id ? `/hub/${room_id}` : `/hub/pm/${conversation_id}`
       sendHubPush(mentionRecipientIds, {
-        title: `${senderName} mentioned you`,
+        title: `💬 ${senderName} mentioned you`,
         body: textToScan.trim().slice(0, 120),
         url: destination,
       }, { isMention: true, roomId: room_id ?? null }).catch((err: Error) =>
@@ -256,7 +256,7 @@ export async function POST(request: Request) {
   // Push for new DM messages (top-level only) — notify all other participants
   if (conversation_id && !parent_id && convMemberIds.length > 0) {
     sendHubPush(convMemberIds, {
-      title: senderName,
+      title: `💬 DM — ${senderName}`,
       body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
       url: `/hub/pm/${conversation_id}`,
     }, { isDm: true }).catch((err: Error) =>
@@ -274,7 +274,7 @@ export async function POST(request: Request) {
       .single()
 
     sendHubPush(roomMemberIds, {
-      title: `#${roomData?.name ?? 'room'} — ${senderName}`,
+      title: `🏠 #${roomData?.name ?? 'room'} — ${senderName}`,
       body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
       url: `/hub/${room_id}`,
     }, { roomId: room_id }).catch((err: Error) =>

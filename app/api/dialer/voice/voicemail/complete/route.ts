@@ -187,8 +187,8 @@ export async function POST(request: NextRequest) {
     const caller = contactName || formatPhone(fromNumber) || 'Unknown caller'
     const duration = durationSec ? `${durationSec}s` : ''
     sendHubPush(recipients, {
-      title: 'New voicemail',
-      body: `${caller}${duration ? ` · ${duration}` : ''}`,
+      title: `📞 Voicemail — ${caller}`,
+      body: duration || 'New voicemail',
       url: `/hub/dialer?vm=${voicemail.id}`,
     }, { isDm: true }).catch((err) => {
       console.warn('[voicemail.complete] push fan-out failed', err)
