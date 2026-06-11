@@ -10,6 +10,7 @@ import {
 import { sendHubPush } from '@/lib/hub-push'
 import { buildMessagePreview } from '@/lib/txt-preview'
 import { evaluateEventAutomations } from '@/lib/automations'
+import { enrichTxtContactName } from '@/lib/dialer-lookup'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -135,12 +136,15 @@ export async function POST(req: NextRequest) {
 
   let contactId = existingContact?.id
   if (!contactId) {
+    // Resolve a real name from the Jobber clients/contacts mirror; fall back
+    // to the phone-number placeholder only when nothing matches.
+    const jobberName = await enrichTxtContactName(HEROES_COMPANY_ID, from)
     const { data: created, error: createErr } = await supabase
       .from('txt_contacts')
       .insert({
         company_id: HEROES_COMPANY_ID,
         phone: from,
-        name: from, // placeholder until enriched from Jobber
+        name: jobberName || from,
       })
       .select('id')
       .single()
@@ -149,6 +153,11 @@ export async function POST(req: NextRequest) {
       return twimlResponse(EMPTY_TWIML, 500)
     }
     contactId = created.id
+  } else if (existingContact && existingContact.name === from) {
+    // Existing contact still has the phone-as-name placeholder — enrich it
+    // from the Jobber mirror (persists the name itself; a few indexed queries,
+    // never throws). Awaited so the push title below picks up the real name.
+    await enrichTxtContactName(HEROES_COMPANY_ID, from)
   }
 
   // Session 54: look up our local txt_phone_numbers row matching the inbound

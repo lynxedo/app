@@ -177,6 +177,41 @@ async function contactPersonByPhone(
   return { name, client_id: (data.client_id as string) || null }
 }
 
+// Resolve the best display name for a phone AND persist it onto the
+// txt_contacts row when that row's name is still the phone-number placeholder
+// the inbound-SMS webhook / responder auto-create. This is what keeps the Txt2
+// sidebar, the Contacts tab, and notification pushes showing "Ben Simpson"
+// instead of "+12812540991" for callers who exist in the Jobber mirror.
+// Returns the resolved name (or null when nothing matched). Never throws.
+export async function enrichTxtContactName(
+  companyId: string | null,
+  phoneRaw: string,
+): Promise<string | null> {
+  try {
+    const match = await lookupByPhone(phoneRaw, companyId)
+    if (!match?.name) return null
+    if (match.txtContactId) {
+      const admin = createAdminClient()
+      const { data: tc } = await admin
+        .from('txt_contacts')
+        .select('name')
+        .eq('id', match.txtContactId)
+        .maybeSingle()
+      // Only overwrite a placeholder (phone-as-name) — never a real saved name.
+      if (tc && !usableName(tc.name, match.phone)) {
+        await admin
+          .from('txt_contacts')
+          .update({ name: match.name, updated_at: new Date().toISOString() })
+          .eq('id', match.txtContactId)
+      }
+    }
+    return match.name
+  } catch (err) {
+    console.warn('[dialer-lookup] enrichTxtContactName failed', phoneRaw, err)
+    return null
+  }
+}
+
 export async function lookupByPhone(
   phoneRaw: string,
   companyId?: string | null,

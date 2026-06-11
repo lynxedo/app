@@ -16,6 +16,7 @@ import { RESPONDER_REPLY_SYSTEM_DEFAULT } from '@/lib/responder-ai-prompt'
 import { getAlwaysIncludedDocs } from '@/lib/guardian-knowledge'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildMessagePreview } from '@/lib/txt-preview'
+import { enrichTxtContactName } from '@/lib/dialer-lookup'
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
 
@@ -142,9 +143,16 @@ Write the personalized SMS reply.`
         .maybeSingle()
       contactId = existingContact?.id ?? null
       if (!contactId) {
+        // No txt_contact yet — resolve a real name from the Jobber mirror so
+        // the new contact isn't created with the phone-number placeholder.
+        const fullName = await enrichTxtContactName(companyId, callerPhone)
         const { data: created } = await admin2
           .from('txt_contacts')
-          .insert({ company_id: companyId, phone: callerPhone, name: callerFirstName || callerPhone })
+          .insert({
+            company_id: companyId,
+            phone: callerPhone,
+            name: fullName || callerFirstName || callerPhone,
+          })
           .select('id')
           .single()
         contactId = created?.id ?? null
