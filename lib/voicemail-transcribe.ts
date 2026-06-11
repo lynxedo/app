@@ -14,6 +14,7 @@ import Anthropic from '@anthropic-ai/sdk'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { generateAndSendResponderReply } from '@/lib/responder-ai'
 import { twilioFromNumber } from '@/lib/twilio'
+import { isInBusinessHours, sendResponderText } from '@/lib/responder'
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
 
@@ -169,7 +170,7 @@ export async function processVoicemail(
 
   const { data: vm } = await admin
     .from('voicemails')
-    .select('id, recording_storage_path, transcript, from_number, company_id')
+    .select('id, recording_storage_path, transcript, from_number, company_id, ai_reply_sent_at')
     .eq('id', voicemailId)
     .is('deleted_at', null)
     .maybeSingle()
@@ -214,11 +215,15 @@ export async function processVoicemail(
 
     // AI auto-reply: if responder_settings.ai_reply_enabled, send a personalized
     // SMS back to the caller based on what they actually said in the voicemail.
+    // When AI reply is on, the reconciler suppresses its generic template for
+    // voicemail calls, so this is the ONLY message the caller gets — which is
+    // why it runs even with an empty transcript (it falls back to the standard
+    // "left a message" template so a caller is never left in silence).
     // Fire-and-forget — never blocks the transcription result.
-    if (transcript && vm.from_number && vm.company_id) {
+    if (vm.from_number && vm.company_id && !vm.ai_reply_sent_at) {
       triggerAutoReply({
         voicemailId,
-        transcript,
+        transcript: transcript || '',
         summary: summary || null,
         callerPhone: vm.from_number as string,
         companyId: vm.company_id as string,
@@ -255,10 +260,15 @@ async function triggerAutoReply(opts: {
 }): Promise<void> {
   const admin = createAdminClient()
 
-  // Check if AI auto-reply is enabled for this company's responder.
+  // Load the responder config: the on/off flag, the admin-editable AI prompt,
+  // and the templates + business hours (needed for the empty-transcript
+  // fallback). When AI reply is on, the reconciler suppresses its generic
+  // template for voicemail calls, so this function owns the only message.
   const { data: responder } = await admin
     .from('responder_settings')
-    .select('ai_reply_enabled')
+    .select(
+      'ai_reply_enabled, ai_reply_prompt, business_days, business_hours_start, business_hours_end, business_hours_template, business_hours_no_message_template, afterhours_template, afterhours_no_message_template'
+    )
     .eq('company_id', opts.companyId)
     .maybeSingle()
 
@@ -288,6 +298,36 @@ async function triggerAutoReply(opts: {
   // per-conversation — for this auto-reply the env default is fine).
   const fromNumber = twilioFromNumber() || undefined
 
+  // No usable transcript (rare — a silent/garbled voicemail). Since the
+  // reconciler suppressed its template for this call, fall back to the standard
+  // "left a message" template so the caller still gets a reply. sendResponderText
+  // also logs it into the Txt thread.
+  if (!opts.transcript.trim()) {
+    const fallback = await sendResponderText(admin, {
+      companyId: opts.companyId,
+      fromNumber: opts.callerPhone,
+      ourNumber: fromNumber ?? null,
+      inBusinessHours: isInBusinessHours(responder),
+      hadVoicemail: true,
+      templates: {
+        business_hours_template: responder.business_hours_template,
+        business_hours_no_message_template: responder.business_hours_no_message_template,
+        afterhours_template: responder.afterhours_template,
+        afterhours_no_message_template: responder.afterhours_no_message_template,
+      },
+    })
+    if (fallback.textSent) {
+      await admin
+        .from('voicemails')
+        .update({ ai_reply_sent_at: new Date().toISOString() })
+        .eq('id', opts.voicemailId)
+    }
+    console.log(
+      `[responder-ai] ${opts.voicemailId} — no transcript, template fallback sent=${fallback.textSent} ${fallback.error ?? ''}`
+    )
+    return
+  }
+
   const result = await generateAndSendResponderReply({
     transcript: opts.transcript,
     summary: opts.summary,
@@ -295,6 +335,7 @@ async function triggerAutoReply(opts: {
     callerFirstName: firstName,
     fromNumber: fromNumber ?? '',
     companyId: opts.companyId,
+    systemPrompt: (responder.ai_reply_prompt as string | null) ?? null,
   })
 
   // Log the result back to the voicemails row so it's visible in call-log2.
