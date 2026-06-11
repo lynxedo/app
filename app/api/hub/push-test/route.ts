@@ -19,10 +19,11 @@ export async function POST() {
   const email = process.env.HUB_VAPID_EMAIL ?? 'ben@heroeslawntx.com'
 
   const admin = createAdminClient()
-  const [subsRes, apnsRes, fcmRes] = await Promise.all([
+  const [subsRes, apnsRes, fcmRes, prefsRes] = await Promise.all([
     admin.from('push_subscriptions').select('endpoint, p256dh, auth_key').eq('user_id', user.id),
     admin.from('apns_tokens').select('device_token').eq('user_id', user.id),
     admin.from('fcm_tokens').select('device_token').eq('user_id', user.id),
+    admin.from('notification_prefs').select('notification_sound').eq('user_id', user.id).is('room_id', null).maybeSingle(),
   ])
 
   const subs = (subsRes.data ?? []) as { endpoint: string; p256dh: string; auth_key: string }[]
@@ -30,6 +31,7 @@ export async function POST() {
   const fcmTokens = (fcmRes.data ?? []).map((r: { device_token: string }) => r.device_token)
 
   const stamp = new Date().toISOString()
+  const notificationSound = (prefsRes.data?.notification_sound as string | null) ?? 'default'
 
   const payload = {
     title: `Hub push test ${stamp.slice(11, 19)}`,
@@ -53,11 +55,12 @@ export async function POST() {
     webSent = results.filter(r => r.status === 'fulfilled').length
   }
 
-  // APNs (native iOS)
+  // APNs (native iOS) — include the user's preferred sound so the test button
+  // actually plays the sound they selected in Settings → Notifications.
   let apnsSent = 0
   if (apnsTokens.length > 0) {
     try {
-      await sendApnsPush(apnsTokens, payload)
+      await sendApnsPush(apnsTokens, { ...payload, sound: notificationSound })
       apnsSent = apnsTokens.length
     } catch { /* surface as 0 sent */ }
   }
