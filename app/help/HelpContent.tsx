@@ -954,6 +954,11 @@ function ContactsTab() {
         <p>Search by name or phone number from the top bar. Tap any contact to see their details, call them (Dialer), or edit their info.</p>
       </Section>
 
+      <Section title="Right inside the Dialer & Txt sidebars">
+        <p>You don&apos;t have to leave what you&apos;re doing to find someone. Both the <strong className="text-white">Dialer</strong> and <strong className="text-white">Txt</strong> sidebars now have a <strong className="text-white">Contacts</strong> tab right next to Recent / Missed / Voicemail (Dialer) and Mine / All / Archived (Txt). Tap it to search the same address book in place.</p>
+        <p>Each contact row gives you a <strong className="text-white">📞 Call</strong> and a <strong className="text-white">💬 Text</strong> button — you&apos;ll see whichever ones you have access to. <strong className="text-white">+ Add</strong> creates a new contact without leaving the sidebar, and <strong className="text-white">Full Contacts ›</strong> opens the complete Contacts page when you want the full view (tags, filters, editing).</p>
+      </Section>
+
       <Section title="Tags">
         <p>Tags are how you carve up the contact list so it&apos;s useful day-to-day. Customer, Vendor, Subcontractor, HOA, VIP — whatever categories matter for your business. Each contact can have any number of tags.</p>
         <Step n={1}>Tap any tag chip below the search bar to filter — pick multiple to narrow further (contact must have ALL selected tags).</Step>
