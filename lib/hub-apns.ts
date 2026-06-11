@@ -135,17 +135,26 @@ function loadCreds(): { jwt: string; bundleId: string } | null {
 
 export async function sendApnsPush(
   deviceTokens: string[],
-  payload: { title: string; body: string; url: string; badge?: number }
+  payload: { title: string; body: string; url: string; badge?: number; type?: string; groupKey?: string; sound?: string }
 ): Promise<{ staleTokens: string[] }> {
   if (deviceTokens.length === 0) return { staleTokens: [] }
   const creds = loadCreds()
   if (!creds) return { staleTokens: [] }
 
+  // Resolve sound: stored as 'default' or a bare name like 'Glass' → 'Glass.caf'
+  const soundValue = !payload.sound || payload.sound === 'default'
+    ? 'default'
+    : `${payload.sound}.caf`
+
   const aps: Record<string, unknown> = {
     alert: { title: payload.title, body: payload.body },
-    sound: 'default',
+    sound: soundValue,
   }
   if (typeof payload.badge === 'number') aps.badge = payload.badge
+  // thread-identifier groups notifications from the same conversation in the
+  // iOS notification center (Phase 3). Uses groupKey which encodes the
+  // conversation type + id (e.g. "dm:abc123", "room:xyz789").
+  if (payload.groupKey) aps['thread-identifier'] = payload.groupKey
 
   const apnsBody = JSON.stringify({ aps, url: payload.url })
 

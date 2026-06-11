@@ -46,7 +46,7 @@ export async function sendHubPush(
       .in('id', userIds),
     admin
       .from('notification_prefs')
-      .select('user_id, room_id, level, dnd_enabled, dnd_start, dnd_end')
+      .select('user_id, room_id, level, dnd_enabled, dnd_start, dnd_end, notification_sound')
       .in('user_id', userIds),
     admin
       .from('user_profiles')
@@ -83,7 +83,7 @@ export async function sendHubPush(
       : nowLocal >= start || nowLocal < end
   }
 
-  type PrefRow = { user_id: string; room_id: string | null; level: string; dnd_enabled: boolean; dnd_start: string | null; dnd_end: string | null }
+  type PrefRow = { user_id: string; room_id: string | null; level: string; dnd_enabled: boolean; dnd_start: string | null; dnd_end: string | null; notification_sound?: string | null }
   const globalPrefs: Record<string, PrefRow> = {}
   const roomPrefs: Record<string, Record<string, PrefRow>> = {}
   for (const p of (prefsResult.data ?? []) as PrefRow[]) {
@@ -185,7 +185,8 @@ export async function sendHubPush(
 
   for (const [uid, tokens] of Object.entries(apnsByUser)) {
     const badge = badgeMap[uid]
-    sendApnsPush(tokens, { ...payload, ...(typeof badge === 'number' ? { badge } : {}) })
+    const sound = globalPrefs[uid]?.notification_sound ?? 'default'
+    sendApnsPush(tokens, { ...payload, ...(typeof badge === 'number' ? { badge } : {}), sound })
       .then(({ staleTokens }) => {
         if (staleTokens.length > 0) {
           return admin.from('apns_tokens').delete().in('device_token', staleTokens)

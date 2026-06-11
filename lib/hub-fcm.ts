@@ -95,6 +95,9 @@ export async function sendFcmPush(
     // Pixel + most other launchers show a dot regardless (managed by the OS).
     androidNotification.notification_count = payload.badge
   }
+  // tag replaces any prior notification with the same key — prevents flooding
+  // when many messages arrive in quick succession in the same conversation.
+  if (payload.groupKey) androidNotification.tag = payload.groupKey
 
   const staleTokens: string[] = []
   await Promise.all(tokens.map(async (token) => {
