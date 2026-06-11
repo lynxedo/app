@@ -569,6 +569,7 @@ export default function HubShell({
           <DialerSidebar
             onClose={closeMobileDrawer}
             canSeeAll={!!isAdmin || !!adminGrants?.dialer}
+            canText={!!canAccessTxt}
             {...collapseProps}
           />
         )
@@ -582,6 +583,7 @@ export default function HubShell({
             onClose={closeMobileDrawer}
             {...collapseProps}
             canAssign={!!isAdmin || !!adminGrants?.hub}
+            canCall={!!canAccessDialer}
             currentUserId={currentUserId}
           />
         )

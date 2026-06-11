@@ -1,8 +1,8 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import Link from 'next/link'
 import { SidebarHeader } from './SidebarShell'
+import SidebarContactsList from './SidebarContactsList'
 
 type CallRow = {
   id: string
@@ -35,7 +35,7 @@ type VoicemailRow = {
   contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null
 }
 
-type Scope = 'mine' | 'missed' | 'all' | 'voicemail'
+type Scope = 'mine' | 'missed' | 'all' | 'voicemail' | 'contacts'
 
 function formatPhone(raw: string | null): string {
   if (!raw) return ''
@@ -71,11 +71,14 @@ export default function DialerSidebar({
   onClose,
   onDesktopCollapse,
   canSeeAll,
+  canText = false,
   onSelectNumber,
 }: {
   onClose?: () => void
   onDesktopCollapse?: () => void
   canSeeAll: boolean
+  /** Show the 💬 Text button on contact rows (user has txt access). */
+  canText?: boolean
   onSelectNumber?: (phone: string) => void
 }) {
   const [scope, setScope] = useState<Scope>('mine')
@@ -91,6 +94,12 @@ export default function DialerSidebar({
   const effectiveVmScope: 'mine' | 'all' = canSeeAll ? vmScope : 'mine'
 
   const load = useCallback(async () => {
+    // Contacts tab fetches its own data (SidebarContactsList); skip the
+    // calls/voicemail endpoints entirely so polling doesn't hammer them.
+    if (scope === 'contacts') {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     if (scope === 'voicemail') {
       const res = await fetch(
@@ -139,7 +148,8 @@ export default function DialerSidebar({
     { id: 'mine', label: 'Recent', show: true },
     { id: 'missed', label: 'Missed', show: true },
     { id: 'all', label: 'All', show: canSeeAll },
-    { id: 'voicemail', label: 'Voicemail', show: true, badge: unheardCount },
+    { id: 'voicemail', label: 'VM', show: true, badge: unheardCount },
+    { id: 'contacts', label: 'Contacts', show: true },
   ]
 
   async function markHeard(id: string, heard: boolean) {
@@ -179,25 +189,15 @@ export default function DialerSidebar({
     >
       <SidebarHeader title="Dialer" onClose={onClose} onDesktopCollapse={onDesktopCollapse} />
 
-      <div className="px-3 pt-3">
-        <Link
-          href="/hub/contacts"
-          onClick={onClose}
-          className="block w-full text-center px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-sm font-medium border border-white/10"
-        >
-          Contacts
-        </Link>
-      </div>
-
-      <div className="px-3 pt-2 pb-2">
-        <div className="flex gap-1 text-xs">
+      <div className="px-3 pt-3 pb-2">
+        <div className="flex flex-wrap gap-1 text-xs">
           {tabs
             .filter((t) => t.show)
             .map((t) => (
               <button
                 key={t.id}
                 onClick={() => setScope(t.id)}
-                className={`flex-1 px-2 py-1 rounded-md transition relative ${
+                className={`flex-1 basis-0 min-w-[52px] px-1.5 py-1 rounded-md transition relative ${
                   scope === t.id
                     ? 'bg-white/10 text-white'
                     : 'text-white/50 hover:text-white/80'
@@ -214,6 +214,9 @@ export default function DialerSidebar({
         </div>
       </div>
 
+      {scope === 'contacts' ? (
+        <SidebarContactsList canCall canText={canText} onClose={onClose} />
+      ) : (
       <div className="flex-1 overflow-y-auto min-h-0">
         {scope === 'voicemail' ? (
           <>
@@ -266,6 +269,7 @@ export default function DialerSidebar({
           />
         )}
       </div>
+      )}
 
       <div className="px-3 py-2 border-t border-white/5 flex items-center justify-end">
         <span className="text-[10px] text-white/30">Staging</span>

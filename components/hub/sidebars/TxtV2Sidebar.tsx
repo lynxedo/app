@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
+import SidebarContactsList from './SidebarContactsList'
 import ContactModal from '@/components/hub/txt/ContactModal'
 import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
 import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
@@ -24,7 +25,7 @@ type Conversation = {
   group_contacts?: Array<{ contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null }>
 }
 
-type Scope = 'mine' | 'all' | 'archived' | 'responder'
+type Scope = 'mine' | 'all' | 'archived' | 'responder' | 'contacts'
 
 type SimpleUser = { id: string; display_name: string }
 
@@ -74,11 +75,14 @@ export default function TxtV2Sidebar({
   onClose,
   onDesktopCollapse,
   canAssign,
+  canCall = false,
   currentUserId,
 }: {
   onClose?: () => void
   onDesktopCollapse?: () => void
   canAssign: boolean
+  /** Show the 📞 Call button on contact rows (user has dialer access). */
+  canCall?: boolean
   currentUserId: string
 }) {
   const pathname = usePathname() || ''
@@ -135,6 +139,12 @@ export default function TxtV2Sidebar({
   }, [canAssign])
 
   const load = useCallback(async () => {
+    // Contacts tab fetches its own data (SidebarContactsList); skip the
+    // conversations endpoint so the 15s poll doesn't churn on it.
+    if (scope === 'contacts') {
+      setLoading(false)
+      return
+    }
     setLoading(true)
     const showQueue = canAssign && scope !== 'archived' && scope !== 'responder'
     const requests: Promise<Response>[] = [
@@ -283,6 +293,7 @@ export default function TxtV2Sidebar({
     { id: 'all', label: 'All', show: canAssign },
     { id: 'archived', label: 'Archived', show: true },
     { id: 'responder', label: 'Responder', show: canAssign },
+    { id: 'contacts', label: 'Contacts', show: true },
   ]
 
   return (
@@ -301,22 +312,13 @@ export default function TxtV2Sidebar({
         >
           + New conversation
         </button>
-        <div className="grid grid-cols-2 gap-2">
-          <button
-            type="button"
-            onClick={() => setAddContactOpen(true)}
-            className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
-          >
-            + Add contact
-          </button>
-          <Link
-            href="/hub/contacts"
-            onClick={onClose}
-            className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10 text-center"
-          >
-            Contacts
-          </Link>
-        </div>
+        <button
+          type="button"
+          onClick={() => setAddContactOpen(true)}
+          className="w-full px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
+        >
+          + Add contact
+        </button>
         {canAssign && (
           <div className="grid grid-cols-2 gap-2">
             <button
@@ -344,14 +346,14 @@ export default function TxtV2Sidebar({
           placeholder="Search name or phone…"
           className="w-full px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm placeholder-white/30"
         />
-        <div className="flex gap-1 text-xs">
+        <div className="flex flex-wrap gap-1 text-xs">
           {tabs
             .filter((t) => t.show)
             .map((t) => (
               <button
                 key={t.id}
                 onClick={() => setScope(t.id)}
-                className={`flex-1 px-2 py-1 rounded-md transition ${
+                className={`flex-1 basis-0 min-w-[60px] px-2 py-1 rounded-md transition ${
                   scope === t.id
                     ? 'bg-white/10 text-white'
                     : 'text-white/50 hover:text-white/80'
@@ -363,6 +365,9 @@ export default function TxtV2Sidebar({
         </div>
       </div>
 
+      {scope === 'contacts' ? (
+        <SidebarContactsList canCall={canCall} canText onClose={onClose} />
+      ) : (
       <div className="flex-1 overflow-y-auto min-h-0">
         {loading && conversations.length === 0 && queue.length === 0 && (
           <div className="px-4 py-6 text-sm text-white/40">Loading…</div>
@@ -535,6 +540,7 @@ export default function TxtV2Sidebar({
           })}
         </ul>
       </div>
+      )}
 
       <div className="px-3 py-2 border-t border-white/5 flex items-center justify-between">
         {canAssign ? (
