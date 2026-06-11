@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
 import SidebarContactsList from './SidebarContactsList'
 
@@ -72,15 +73,14 @@ export default function DialerSidebar({
   onDesktopCollapse,
   canSeeAll,
   canText = false,
-  onSelectNumber,
 }: {
   onClose?: () => void
   onDesktopCollapse?: () => void
   canSeeAll: boolean
-  /** Show the 💬 Text button on contact rows (user has txt access). */
+  /** Show the 💬 Text button on call/voicemail/contact rows (user has txt access). */
   canText?: boolean
-  onSelectNumber?: (phone: string) => void
 }) {
+  const router = useRouter()
   const [scope, setScope] = useState<Scope>('mine')
   const [vmScope, setVmScope] = useState<'mine' | 'all'>('mine')
   const [calls, setCalls] = useState<CallRow[]>([])
@@ -88,6 +88,44 @@ export default function DialerSidebar({
   const [unheardCount, setUnheardCount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [playingId, setPlayingId] = useState<string | null>(null)
+  const [textingPhone, setTextingPhone] = useState<string | null>(null)
+
+  // 📞 Call — pre-fills the dialer keypad with the number (the established
+  // ContactsPanel.onCall pattern; does NOT auto-dial). Works whether or not
+  // the user is already on /hub/dialer — the page is keyed on ?number=.
+  const startCall = useCallback(
+    (phone: string) => {
+      if (!phone) return
+      router.push(`/hub/dialer?number=${encodeURIComponent(phone)}`)
+      onClose?.()
+    },
+    [router, onClose],
+  )
+
+  // 💬 Text — find-or-creates the Txt2 thread for this number and opens it
+  // (same /api/txt/conversations/start flow the Contacts tab uses).
+  const startText = useCallback(
+    async (phone: string, name?: string | null) => {
+      if (!phone || textingPhone) return
+      setTextingPhone(phone)
+      try {
+        const res = await fetch('/api/txt/conversations/start', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(name ? { phone, name } : { phone }),
+        })
+        const data = await res.json()
+        if (res.ok && data.conversation_id) {
+          router.push(`/hub/txt/${data.conversation_id}`)
+          onClose?.()
+        }
+      } catch {
+        // swallow — button just re-enables
+      }
+      setTextingPhone(null)
+    },
+    [router, onClose, textingPhone],
+  )
 
   // Effective voicemail scope: non-managers (no canSeeAll) are always on 'mine';
   // managers honor the Mine/All sub-toggle.
@@ -257,7 +295,10 @@ export default function DialerSidebar({
               onStop={() => setPlayingId(null)}
               onDelete={deleteVm}
               onMarkHeard={markHeard}
-              onSelectNumber={onSelectNumber}
+              canText={canText}
+              textingPhone={textingPhone}
+              onCall={startCall}
+              onText={startText}
             />
           </>
         ) : (
@@ -265,15 +306,14 @@ export default function DialerSidebar({
             calls={calls}
             loading={loading}
             scope={scope}
-            onSelectNumber={onSelectNumber}
+            canText={canText}
+            textingPhone={textingPhone}
+            onCall={startCall}
+            onText={startText}
           />
         )}
       </div>
       )}
-
-      <div className="px-3 py-2 border-t border-white/5 flex items-center justify-end">
-        <span className="text-[10px] text-white/30">Staging</span>
-      </div>
     </aside>
   )
 }
@@ -282,13 +322,22 @@ function CallList({
   calls,
   loading,
   scope,
-  onSelectNumber,
+  canText,
+  textingPhone,
+  onCall,
+  onText,
 }: {
   calls: CallRow[]
   loading: boolean
   scope: Scope
-  onSelectNumber?: (phone: string) => void
+  canText: boolean
+  textingPhone: string | null
+  onCall: (phone: string) => void
+  onText: (phone: string, name?: string | null) => void
 }) {
+  // Tapping a row expands inline 📞 Call / 💬 Text actions (Contacts-tab pattern).
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+
   if (loading && calls.length === 0) {
     return <div className="px-4 py-6 text-sm text-white/40">Loading…</div>
   }
@@ -306,12 +355,13 @@ function CallList({
         const inner = Array.isArray(c.contact) ? c.contact[0] : c.contact
         const displayName = inner?.name ?? null
         const isMissed = ['no-answer', 'busy', 'failed', 'canceled', 'voicemail'].includes(c.status) && c.direction === 'inbound'
+        const expanded = expandedId === c.id
         return (
           <li key={c.id}>
             <button
               type="button"
-              onClick={() => onSelectNumber?.(peerNumber)}
-              className="w-full text-left px-4 py-2 border-l-2 border-transparent hover:bg-white/5"
+              onClick={() => setExpandedId(expanded ? null : c.id)}
+              className={`w-full text-left px-4 py-2 border-l-2 border-transparent hover:bg-white/5 ${expanded ? 'bg-white/5' : ''}`}
               title={`${c.status} · ${c.direction}`}
             >
               <div className="flex items-center justify-between gap-2">
@@ -334,6 +384,29 @@ function CallList({
                 )}
               </div>
             </button>
+            {expanded && peerNumber && (
+              <div className="px-4 pb-2 pt-0.5 flex items-center gap-1.5 bg-white/5">
+                <button
+                  type="button"
+                  onClick={() => onCall(peerNumber)}
+                  className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-100"
+                  title="Call (pre-fills the keypad)"
+                >
+                  📞 Call
+                </button>
+                {canText && (
+                  <button
+                    type="button"
+                    onClick={() => onText(peerNumber, displayName)}
+                    disabled={textingPhone === peerNumber}
+                    className="flex items-center gap-1 px-2 py-1 rounded text-xs bg-sky-700/30 hover:bg-sky-700/50 text-sky-100 disabled:opacity-40"
+                    title="Open a text conversation"
+                  >
+                    {textingPhone === peerNumber ? '…' : '💬 Text'}
+                  </button>
+                )}
+              </div>
+            )}
           </li>
         )
       })}
@@ -349,7 +422,10 @@ function VoicemailList({
   onStop,
   onDelete,
   onMarkHeard,
-  onSelectNumber,
+  canText,
+  textingPhone,
+  onCall,
+  onText,
 }: {
   voicemails: VoicemailRow[]
   loading: boolean
@@ -358,7 +434,10 @@ function VoicemailList({
   onStop: () => void
   onDelete: (id: string) => void
   onMarkHeard: (id: string, heard: boolean) => void
-  onSelectNumber?: (phone: string) => void
+  canText: boolean
+  textingPhone: string | null
+  onCall: (phone: string) => void
+  onText: (phone: string, name?: string | null) => void
 }) {
   if (loading && voicemails.length === 0) {
     return <div className="px-4 py-6 text-sm text-white/40">Loading…</div>
@@ -382,13 +461,9 @@ function VoicemailList({
                   {unheard && (
                     <span className="w-1.5 h-1.5 rounded-full bg-sky-400 flex-none" aria-label="unheard" />
                   )}
-                  <button
-                    type="button"
-                    onClick={() => phone && onSelectNumber?.(phone)}
-                    className="text-sm font-medium truncate hover:underline text-left flex-1"
-                  >
+                  <span className="text-sm font-medium truncate text-left flex-1">
                     {displayName || formatPhone(phone) || 'Unknown'}
-                  </button>
+                  </span>
                   <span className="text-[10px] text-white/40 flex-none">
                     {formatRelative(v.created_at)}
                   </span>
@@ -418,7 +493,7 @@ function VoicemailList({
                 <VoicemailPlayer voicemailId={v.id} onEnded={onStop} />
               </div>
             ) : (
-              <div className="mt-2 flex items-center gap-1">
+              <div className="mt-2 flex flex-wrap items-center gap-1">
                 <button
                   type="button"
                   onClick={() => onPlay(v.id)}
@@ -430,6 +505,29 @@ function VoicemailList({
                   </svg>
                   Play
                 </button>
+                {phone && (
+                  <button
+                    type="button"
+                    onClick={() => onCall(phone)}
+                    className="px-2 py-1 rounded text-xs bg-emerald-700/30 hover:bg-emerald-700/50 text-emerald-100"
+                    title="Call back (pre-fills the keypad)"
+                    aria-label="Call back"
+                  >
+                    📞
+                  </button>
+                )}
+                {phone && canText && (
+                  <button
+                    type="button"
+                    onClick={() => onText(phone, displayName)}
+                    disabled={textingPhone === phone}
+                    className="px-2 py-1 rounded text-xs bg-sky-700/30 hover:bg-sky-700/50 text-sky-100 disabled:opacity-40"
+                    title="Open a text conversation"
+                    aria-label="Text"
+                  >
+                    {textingPhone === phone ? '…' : '💬'}
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => onMarkHeard(v.id, !v.heard_at)}
