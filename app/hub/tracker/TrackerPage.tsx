@@ -1582,7 +1582,7 @@ export default function TrackerPage({
         {/* Toolbar */}
         <div className="sticky top-0 z-10 bg-gray-950 border-b border-gray-800">
           {/* Board title */}
-          <div className="px-4 pt-2.5 pb-1.5 flex items-center gap-2">
+          <div className="px-4 pt-2.5 pb-1.5 flex items-center gap-2 max-md:pl-14">
             <Link
               href="/hub/tracker"
               className="text-gray-500 hover:text-white text-sm transition-colors whitespace-nowrap"

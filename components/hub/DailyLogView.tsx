@@ -1105,7 +1105,7 @@ export default function DailyLogView({
     <div className="flex flex-col h-full">
 
       {/* Header bar */}
-      <div className="flex-none px-4 md:px-6 py-4 border-b border-gray-800 bg-gray-950">
+      <div className="flex-none px-4 md:px-6 py-4 border-b border-gray-800 bg-gray-950 max-md:pl-14">
         <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
 
           {/* Date navigation */}

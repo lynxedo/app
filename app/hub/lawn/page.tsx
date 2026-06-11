@@ -297,7 +297,7 @@ export default function LawnPage() {
 
   return (
     <div className="min-h-screen bg-gray-950 text-white">
-      <header className="px-4 md:px-6 pt-4 pb-2">
+      <header className="px-4 md:px-6 pt-4 pb-2 max-md:pl-14">
         <h1 className="text-xl md:text-2xl font-bold tracking-tight">Lawn Sizer</h1>
       </header>
 

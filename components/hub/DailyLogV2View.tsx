@@ -434,7 +434,7 @@ export default function DailyLogV2View({
 
   return (
     <div className="flex flex-col h-full">
-      <header className="flex-none px-3 md:px-6 pt-4 pb-3 border-b border-gray-800">
+      <header className="flex-none px-3 md:px-6 pt-4 pb-3 border-b border-gray-800 max-md:pl-14">
         <div className="max-w-5xl mx-auto">
           <div className="flex items-center justify-between mb-1">
             <h1 className="text-xl md:text-2xl font-semibold text-white">Daily Log v2</h1>

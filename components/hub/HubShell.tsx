@@ -720,34 +720,30 @@ export default function HubShell({
         {renderSidebar()}
       </div>
 
-      {/* Mobile: floating < back chevron shown while the soft keyboard is up
-          on a chat path. Replaces the hidden room/DM/client header so the
-          user can still get back to the sidebar one-handed without dismissing
-          the keyboard. CSS in globals.css hides the headers via
-          data-hide-on-keyboard. */}
-      {keyboardOpen && (() => {
-        const r = railFromPath(pathname)
-        const isChat =
-          pathname.startsWith('/hub/pm/') ||
-          (pathname.startsWith('/hub/clients/') && pathname !== '/hub/clients/') ||
-          (pathname.startsWith('/hub/txt/') && pathname !== '/hub/txt/') ||
-          (r === 'hub' && pathname !== '/hub' && !pathname.startsWith('/hub/home'))
-        if (!isChat) return null
-        return (
-          <button
-            type="button"
-            onClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
-            className="md:hidden fixed left-2 z-40 w-9 h-9 rounded-full bg-gray-900/80 backdrop-blur border border-white/10 text-white/80 hover:text-white flex items-center justify-center shadow-lg"
-            style={{ top: 'calc(env(safe-area-inset-top, 0) + 6px)' }}
-            aria-label="Back to sidebar"
-            title="Back"
-          >
-            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
-              <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
-            </svg>
-          </button>
-        )
-      })()}
+      {/* Mobile: persistent "open sidebar" chevron, upper-left, on EVERY Hub
+          screen while the drawer is closed. Apps launched from the Apps drawer
+          (tracker, fleet, daily-log, files, …) have no bottom-bar button to
+          reveal their sidebar — this floating chevron is the universal way in,
+          and it also replaces the room/DM/client header (hidden via
+          data-hide-on-keyboard) while the soft keyboard is up. Page headers are
+          padded left on mobile so it never overlaps content — chat headers via
+          the global [data-hide-on-keyboard] rule in globals.css, tool headers
+          via per-page max-md:pl-14. setManualRail(null) makes the drawer render
+          the current page's own sidebar. */}
+      {!mobileDrawerOpen && (
+        <button
+          type="button"
+          onClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
+          className="md:hidden fixed left-2 z-40 w-9 h-9 rounded-full bg-gray-900/80 backdrop-blur border border-white/10 text-white/80 hover:text-white flex items-center justify-center shadow-lg"
+          style={{ top: 'calc(env(safe-area-inset-top, 0) + 6px)' }}
+          aria-label="Open sidebar"
+          title="Menu"
+        >
+          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M15 19l-7-7 7-7" />
+          </svg>
+        </button>
+      )}
 
       {/* Desktop-only reopen chevron — visible whenever the sidebar is
           collapsed (works in every section, not just chat/tools/links). */}

@@ -377,7 +377,7 @@ export default function AdminTimesheetPage() {
   return (
     <div className="min-h-screen bg-gray-950 text-white">
       {/* Header */}
-      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between">
+      <header className="border-b border-gray-800 px-6 py-4 flex items-center justify-between max-md:pl-14">
         <div className="flex items-center gap-3">
           <Link href="/admin" className="text-gray-500 hover:text-white transition-colors text-sm">← Admin</Link>
           <span className="text-gray-700">/</span>

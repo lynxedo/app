@@ -198,7 +198,7 @@ export default function VisitsReportView() {
   return (
     <div className="flex flex-col h-full bg-slate-950 text-white">
       {/* Header */}
-      <div className="flex-none border-b border-white/10 px-4 py-3">
+      <div className="flex-none border-b border-white/10 px-4 py-3 max-md:pl-14">
         <h1 className="text-lg font-semibold">Visit Report</h1>
         <p className="text-sm text-white/50">Completed visits by technician</p>
       </div>
