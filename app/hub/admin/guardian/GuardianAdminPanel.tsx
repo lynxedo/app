@@ -332,6 +332,7 @@ export default function GuardianAdminPanel({
       )}
 
       {tab === 'knowledge' && (
+        <>
         <div className="space-y-4">
           <div className="flex items-center justify-between">
             <h2 className="font-semibold">Knowledge docs</h2>
@@ -447,6 +448,7 @@ export default function GuardianAdminPanel({
             </>
           )}
         </section>
+        </>
       )}
 
       {tab === 'settings' && (

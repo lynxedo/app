@@ -402,7 +402,7 @@ export default function DialerAdminPanel({
             value={s.fallback_voicemail_tts}
             onChange={e => setS(p => ({ ...p, fallback_voicemail_tts: e.target.value.slice(0, 1000) }))}
             rows={3}
-            placeholder="Type the greeting to speak before the beep, e.g. "Hi, you've reached Heroes Lawn Care. Please leave a message and we'll get back to you shortly.""
+            placeholder="Type the greeting to speak before the beep, e.g. Hi, you've reached Heroes Lawn Care. Please leave a message and we'll get back to you shortly."
             className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
           />
           <p className="text-xs text-white/40 mt-1">Leave blank to use the spoken default.</p>
