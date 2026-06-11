@@ -34,10 +34,13 @@ export async function connectInboundToAgentViaConference(opts: {
   ringTimeoutSec: number
   recordingEnabled: boolean
   recordingConsentNotice?: string
+  recordingConsentEnabled?: boolean   // false = caller hears no consent notice
+  recordingConsentUrl?: string | null // uploaded audio takes priority over TTS
 }): Promise<string> {
   const {
     baseUrl, room, callerCallSid, callerNumber, agentIdentity,
     voicemailOwnerUserId, ringTimeoutSec, recordingEnabled, recordingConsentNotice,
+    recordingConsentEnabled, recordingConsentUrl,
   } = opts
 
   const holdMusic = `${baseUrl}/api/dialer/voice/twiml/hold-music`
@@ -92,7 +95,7 @@ export async function connectInboundToAgentViaConference(opts: {
       greetingUrl: null,
       spokenFallback: "Thanks for calling. Please leave a message after the beep. Press pound when finished.",
     })
-    if (recordingEnabled && recordingConsentNotice) vm = injectConsentNotice(vm, recordingConsentNotice)
+    if (recordingEnabled) vm = injectConsentNotice(vm, recordingConsentNotice ?? '', { url: recordingConsentUrl, enabled: recordingConsentEnabled })
     return vm
   }
 
@@ -107,7 +110,7 @@ export async function connectInboundToAgentViaConference(opts: {
     recordingStatusCallback: recordingCb,
     statusCallback: confStatusCb,
   })
-  if (recordingEnabled && recordingConsentNotice) twiml = injectConsentNotice(twiml, recordingConsentNotice)
+  if (recordingEnabled) twiml = injectConsentNotice(twiml, recordingConsentNotice ?? '', { url: recordingConsentUrl, enabled: recordingConsentEnabled })
   return twiml
 }
 

@@ -4,6 +4,7 @@ import { redirectCall } from '@/lib/twilio-conference'
 import { advanceRingGroup } from '@/lib/dialer-conference-connect'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
+import { lookupByPhone } from '@/lib/dialer-lookup'
 
 function xml(body: string, status = 200) {
   return new NextResponse(body, { status, headers: { 'Content-Type': 'text/xml' } })
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
         const admin = createAdminClient()
         const { data: callRow } = await admin
           .from('calls')
-          .select('id, handled_by, from_number')
+          .select('id, company_id, handled_by, from_number')
           .eq('twilio_call_sid', callerSid)
           .maybeSingle()
         if (callRow) {
@@ -96,11 +97,23 @@ export async function POST(request: NextRequest) {
             } else if (digits.length === 10) {
               formatted = `(${digits.slice(0,3)}) ${digits.slice(3,6)}-${digits.slice(6)}`
             }
+            // Resolve the caller's name (Jobber client / txt contact) so the push
+            // reads "Jane Doe" instead of a bare phone number. Best-effort.
+            let callerName: string | null = null
+            if (raw) {
+              try {
+                const match = await lookupByPhone(raw, callRow.company_id)
+                callerName = match?.name || null
+              } catch { /* fall back to the number */ }
+            }
+            const body = callerName
+              ? (formatted ? `${callerName} · ${formatted}` : callerName)
+              : (formatted || 'Unknown number')
             await sendHubPush(
               [callRow.handled_by],
               {
                 title: '📞 Missed call',
-                body: formatted || 'Unknown number',
+                body,
                 url: '/hub/dialer',
                 type: 'missed_call',
                 groupKey: `missed_call_${callRow.id}`,

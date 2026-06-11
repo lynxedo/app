@@ -199,6 +199,8 @@ export async function POST(request: NextRequest) {
         ringTimeoutSec: forwardedLineRingSec,
         recordingEnabled,
         recordingConsentNotice: consentNotice,
+        recordingConsentEnabled: consentEnabled,
+        recordingConsentUrl: consentUrl,
       })
       return twimlResponse(callerTwiml)
     }
@@ -267,6 +269,8 @@ export async function POST(request: NextRequest) {
       ringTimeoutSec: ringTimeout,
       recordingEnabled,
       recordingConsentNotice: consentNotice,
+      recordingConsentEnabled: consentEnabled,
+      recordingConsentUrl: consentUrl,
     })
     return twimlResponse(callerTwiml)
   }
