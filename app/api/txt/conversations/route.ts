@@ -59,7 +59,11 @@ export async function GET(request: Request) {
     }
     query = query.in('id', ids).neq('status', 'archived')
   } else if (scope === 'unassigned') {
-    query = query.eq('status', 'unassigned')
+    // The unassigned Queue is the HUMAN triage queue. Guardian/Responder
+    // conversations live in their own Responder tab (source='responder'), so
+    // keep unclaimed Guardian threads out of the human queue. (null-safe: keep
+    // rows with no source set.)
+    query = query.eq('status', 'unassigned').or('source.is.null,source.neq.responder')
   } else if (scope === 'archived') {
     query = query.eq('status', 'archived')
     if (!isManager) {

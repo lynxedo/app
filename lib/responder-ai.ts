@@ -123,29 +123,97 @@ Write the personalized SMS reply.`
 
     console.log(`[responder-ai] reply sent to ${callerPhone} (${Date.now() - start}ms): ${smsBody.slice(0, 80)}…`)
 
-    // Log the AI reply into the Txt2 conversation so it appears in the Responder tab.
+    // Log the AI reply into the Txt2 conversation so it appears in the Responder
+    // tab. When ai_reply_enabled is ON the generic first-SMS (sendResponderText)
+    // is SKIPPED by the reconciler — so this is the ONLY place the responder
+    // conversation gets created and stamped. It must find-or-create the contact
+    // and the direct conversation, mark it source='responder' (so it lands in
+    // the Responder tab as Guardian-owned), and unarchive it so it surfaces.
     try {
       const admin2 = createAdminClient()
-      const { data: contact } = await admin2
+
+      // find-or-create the contact for this caller
+      let contactId: string | null = null
+      const { data: existingContact } = await admin2
         .from('txt_contacts')
         .select('id')
         .eq('company_id', companyId)
         .eq('phone', callerPhone)
         .maybeSingle()
-      if (contact) {
-        const { data: conv } = await admin2
-          .from('txt_conversations')
+      contactId = existingContact?.id ?? null
+      if (!contactId) {
+        const { data: created } = await admin2
+          .from('txt_contacts')
+          .insert({ company_id: companyId, phone: callerPhone, name: callerFirstName || callerPhone })
           .select('id')
+          .single()
+        contactId = created?.id ?? null
+        if (!contactId) {
+          // race / unique conflict — re-read
+          const { data: again } = await admin2
+            .from('txt_contacts')
+            .select('id')
+            .eq('company_id', companyId)
+            .eq('phone', callerPhone)
+            .maybeSingle()
+          contactId = again?.id ?? null
+        }
+      }
+
+      if (contactId) {
+        // resolve our local phone-number row so replies route back correctly
+        let phoneNumberId: string | null = null
+        const { data: numberRow } = await admin2
+          .from('txt_phone_numbers')
+          .select('id')
+          .eq('twilio_number', fromNumber)
+          .maybeSingle()
+        phoneNumberId = numberRow?.id ?? null
+
+        // find-or-create the direct conversation; stamp Guardian ownership + unarchive
+        const { data: existingConv } = await admin2
+          .from('txt_conversations')
+          .select('id, status, phone_number_id')
           .eq('company_id', companyId)
-          .eq('contact_id', contact.id)
+          .eq('contact_id', contactId)
           .eq('kind', 'direct')
           .maybeSingle()
-        if (conv) {
+
+        let conversationId: string | null = null
+        if (existingConv) {
+          conversationId = existingConv.id
+          // Stamp source so it shows in the Responder tab. Unarchive if archived
+          // so the Guardian reply resurfaces it. Leave assigned_to untouched — if
+          // a human already claimed it, it stays theirs; otherwise it's Guardian-owned.
+          const patch: Record<string, unknown> = { source: 'responder' }
+          if (existingConv.status === 'archived') {
+            patch.status = 'unassigned'
+            patch.archived_by = null
+          }
+          if (phoneNumberId && !existingConv.phone_number_id) patch.phone_number_id = phoneNumberId
+          await admin2.from('txt_conversations').update(patch).eq('id', conversationId)
+        } else {
+          const { data: createdConv } = await admin2
+            .from('txt_conversations')
+            .insert({
+              company_id: companyId,
+              contact_id: contactId,
+              status: 'unassigned',
+              kind: 'direct',
+              phone_number_id: phoneNumberId,
+              source: 'responder',
+            })
+            .select('id')
+            .single()
+          conversationId = createdConv?.id ?? null
+        }
+
+        if (conversationId) {
           const now = new Date().toISOString()
           await admin2.from('txt_messages').insert({
             company_id: companyId,
-            conversation_id: conv.id,
-            contact_id: contact.id,
+            conversation_id: conversationId,
+            contact_id: contactId,
             direction: 'outbound',
             body: smsBody,
             media_urls: [],
@@ -160,7 +228,7 @@ Write the personalized SMS reply.`
               last_message_preview: buildMessagePreview(smsBody, 0),
               last_message_direction: 'outbound',
             })
-            .eq('id', conv.id)
+            .eq('id', conversationId)
         }
       }
     } catch (logErr) {
