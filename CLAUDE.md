@@ -114,7 +114,7 @@ Both `deploy-staging.yml` and `deploy.yml` have these properties — DO NOT remo
 
 1. **`set -euo pipefail`** at the top of every deploy script. Any non-zero exit aborts immediately, so a broken tsc never reaches the pm2 step. The old PM2 process keeps serving the prior good build.
 2. **`npx tsc --noEmit` BEFORE `npm run build`.** Catches type/JSX errors in ~15s with a clear file:line, instead of failing 60s into the build.
-3. **`pm2 restart` (not `reload`).** Reload is a graceful zero-downtime swap that becomes a no-op when PM2 is already in `errored` state. Restart forces a fresh process and resets the restart counter.
+3. **`pm2 reload` (cluster_mode) for zero-downtime deploys.** `ecosystem.config.js` declares both processes in `cluster` mode. `pm2 reload` starts the new worker, waits until it's serving, THEN sends SIGINT to the old worker — no gap in service. On the first deploy after this was added, the script auto-migrates from fork mode to cluster_mode (one brief restart); thereafter every deploy is zero-downtime. Falls back to `pm2 restart` if reload fails. For manual recovery of an errored process, `pm2 restart` is still the right command.
 4. **Health check via `curl` after restart.** Polls `http://localhost:3000/` (or `:3002` for staging) up to 30s. If no HTTP 200/307/308, dumps `pm2 logs --err --lines 30` to the Actions log and exits non-zero — the GitHub deploy step turns red.
 
 5. **`rm -rf .next` before `npm run build` — clean build every deploy (June 2 2026).** Both workflows previously wiped only `.next/types`; they now wipe ALL of `.next`. See the `/hub` 500 incident below for why. (Trade-off: slightly slower builds since the `.next/cache` is dropped each deploy — worth it for reliability.)
@@ -158,7 +158,7 @@ ls /opt/lynxedo-staging/app/.next/BUILD_ID  # if "No such file", build never fin
 cd /opt/lynxedo-staging/app
 npx tsc --noEmit                            # find any type errors first
 npm run build                               # rebuild fresh
-pm2 restart lynxedo-staging --update-env    # restart (NOT reload)
+pm2 restart lynxedo-staging --update-env    # restart resets errored process; reload is for healthy deploys
 curl -s -o /dev/null -w "HTTP %{http_code}\n" http://localhost:3002/   # verify
 
 # Same procedure for prod, swap paths/names/port:

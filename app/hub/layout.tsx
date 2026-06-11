@@ -1,5 +1,7 @@
 import type { Metadata, Viewport } from 'next'
 import { redirect } from 'next/navigation'
+import fs from 'fs'
+import path from 'path'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import HubShell from '@/components/hub/HubShell'
@@ -7,6 +9,7 @@ import PushInit from '@/components/hub/PushInit'
 import ElectronNotifier from '@/components/hub/ElectronNotifier'
 import WebChimeNotifier from '@/components/hub/WebChimeNotifier'
 import HubIdleTracker from '@/components/hub/HubIdleTracker'
+import { UpdateNotifier } from '@/components/hub/UpdateNotifier'
 import { markActive } from '@/lib/hub-activity'
 import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
 import { resolveLayout } from '@/lib/hub-layout'
@@ -224,6 +227,11 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     reactions: Array.isArray(a.reactions) ? a.reactions : [],
   }))
 
+  let buildId = 'unknown'
+  try {
+    buildId = fs.readFileSync(path.join(process.cwd(), '.next', 'BUILD_ID'), 'utf8').trim()
+  } catch { /* dev / edge cases — notifier is a no-op when unknown */ }
+
   return (
     <>
       <IosSplashScreens />
@@ -276,6 +284,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         rooms={rooms.map(r => ({ id: r.id, name: r.name }))}
       />
       <HubIdleTracker />
+      <UpdateNotifier loadedBuildId={buildId} />
     </>
   )
 }
