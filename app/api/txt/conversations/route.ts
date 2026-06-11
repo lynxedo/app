@@ -30,14 +30,14 @@ export async function GET(request: Request) {
     profile?.can_admin_hub === true ||
     profile?.can_assign_txt_threads === true
 
-  if (!isManager && (scope === 'unassigned' || scope === 'all')) {
+  if (!isManager && (scope === 'unassigned' || scope === 'all' || scope === 'responder')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
   let query = supabase
     .from('txt_conversations')
     .select(
-      `id, kind, status, assigned_to, archived_by, last_message_at, last_inbound_at, last_message_preview, last_message_direction, created_at,
+      `id, kind, status, source, assigned_to, archived_by, last_message_at, last_inbound_at, last_message_preview, last_message_direction, created_at,
        contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, do_not_text ),
        assignee:hub_users!assigned_to ( id, display_name ),
        members:txt_conversation_members ( user_id, role, member:hub_users!user_id ( id, display_name ) ),
@@ -67,6 +67,8 @@ export async function GET(request: Request) {
     }
   } else if (scope === 'all') {
     query = query.neq('status', 'archived')
+  } else if (scope === 'responder') {
+    query = query.eq('source', 'responder').neq('status', 'archived')
   } else {
     return NextResponse.json({ error: 'Invalid scope' }, { status: 400 })
   }

@@ -219,6 +219,7 @@ export async function sendResponderText(
       patch.archived_by = null
     }
     if (phoneNumberId && !existingConv.phone_number_id) patch.phone_number_id = phoneNumberId
+    patch.source = 'responder'
     if (Object.keys(patch).length > 0) {
       await admin.from('txt_conversations').update(patch).eq('id', conversationId)
     }
@@ -231,6 +232,7 @@ export async function sendResponderText(
         status: 'unassigned',
         kind: 'direct',
         phone_number_id: phoneNumberId,
+        source: 'responder',
       })
       .select('id')
       .single()

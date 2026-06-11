@@ -15,6 +15,7 @@ import { sendSms } from '@/lib/twilio'
 import { RESPONDER_REPLY_SYSTEM_DEFAULT } from '@/lib/responder-ai-prompt'
 import { getAlwaysIncludedDocs } from '@/lib/guardian-knowledge'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { buildMessagePreview } from '@/lib/txt-preview'
 
 const CLAUDE_MODEL = 'claude-sonnet-4-6'
 
@@ -118,9 +119,54 @@ Write the personalized SMS reply.`
     const smsBody = block.text.trim().slice(0, 320)
 
     // Send via Twilio (fromNumber = optional override; falls back to TWILIO_PHONE_NUMBER)
-    await sendSms({ to: callerPhone, fromNumber, body: smsBody })
+    const smsResult = await sendSms({ to: callerPhone, fromNumber, body: smsBody })
 
     console.log(`[responder-ai] reply sent to ${callerPhone} (${Date.now() - start}ms): ${smsBody.slice(0, 80)}…`)
+
+    // Log the AI reply into the Txt2 conversation so it appears in the Responder tab.
+    try {
+      const admin2 = createAdminClient()
+      const { data: contact } = await admin2
+        .from('txt_contacts')
+        .select('id')
+        .eq('company_id', companyId)
+        .eq('phone', callerPhone)
+        .maybeSingle()
+      if (contact) {
+        const { data: conv } = await admin2
+          .from('txt_conversations')
+          .select('id')
+          .eq('company_id', companyId)
+          .eq('contact_id', contact.id)
+          .eq('kind', 'direct')
+          .maybeSingle()
+        if (conv) {
+          const now = new Date().toISOString()
+          await admin2.from('txt_messages').insert({
+            company_id: companyId,
+            conversation_id: conv.id,
+            contact_id: contact.id,
+            direction: 'outbound',
+            body: smsBody,
+            media_urls: [],
+            sent_by: null,
+            status: smsResult.ok ? 'sent' : 'failed',
+            twilio_sid: smsResult.ok ? (smsResult as { ok: true; sid: string }).sid : null,
+          })
+          await admin2
+            .from('txt_conversations')
+            .update({
+              last_message_at: now,
+              last_message_preview: buildMessagePreview(smsBody, 0),
+              last_message_direction: 'outbound',
+            })
+            .eq('id', conv.id)
+        }
+      }
+    } catch (logErr) {
+      // Non-fatal — AI reply already sent; just log the failure
+      console.warn('[responder-ai] failed to log AI reply to txt_messages', logErr)
+    }
 
     return {
       smsSent: true,
