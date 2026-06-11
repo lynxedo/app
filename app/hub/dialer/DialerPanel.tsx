@@ -76,7 +76,7 @@ export default function DialerPanel({
 
   return (
     <div className="h-full flex flex-col">
-      <div className="flex-none px-4 py-2 md:py-3 border-b border-white/5">
+      <div className="flex-none px-4 py-2 md:py-3 border-b border-white/5 max-md:pl-14">
         <div className="flex items-center justify-between">
           <h1 className="text-lg font-semibold">Dialer</h1>
           <div className="flex items-center gap-2">

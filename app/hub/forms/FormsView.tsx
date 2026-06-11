@@ -12,7 +12,7 @@ export default function FormsView({
 }) {
   return (
     <div className="flex-1 min-h-0 overflow-y-auto bg-gray-950 text-white">
-      <header className="px-4 md:px-6 pt-4 pb-3 border-b border-white/10 flex items-center justify-between">
+      <header className="px-4 md:px-6 pt-4 pb-3 border-b border-white/10 flex items-center justify-between max-md:pl-14">
         <h1 className="text-xl font-bold">Forms</h1>
         {canAdmin && (
           <Link

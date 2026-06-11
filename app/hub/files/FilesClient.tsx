@@ -268,7 +268,7 @@ export default function FilesClient({
 
   return (
     <div className="flex-1 flex flex-col min-h-0 bg-gray-950">
-      <div className="flex-none px-6 py-4 border-b border-gray-800">
+      <div className="flex-none px-6 py-4 border-b border-gray-800 max-md:pl-14">
         <div className="flex items-center gap-2">
           <span className="text-lg">📁</span>
           <h1 className="text-lg font-semibold text-white">Files</h1>

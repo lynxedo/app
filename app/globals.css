@@ -78,3 +78,15 @@ html.text-size-large  { font-size: 19px; }
     display: none !important;
   }
 }
+
+/* Mobile: reserve the top-left corner for the persistent floating "open
+   sidebar" chevron (rendered in HubShell) so page chrome never sits beneath
+   it. All chat/conversation headers (room, DM, client, Txt) carry
+   data-hide-on-keyboard, so one rule pads them all. Tool/page headers that
+   start at the left edge add `max-md:pl-14` individually. Desktop is
+   unaffected — the chevron is md:hidden. */
+@media (max-width: 767px) {
+  [data-hide-on-keyboard] {
+    padding-left: 3.5rem !important;
+  }
+}

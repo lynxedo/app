@@ -94,7 +94,7 @@ export default function PesticideRecordsView() {
 
   return (
     <div className="flex flex-col h-full">
-      <header className="flex-none px-3 md:px-6 pt-4 pb-3 border-b border-gray-800">
+      <header className="flex-none px-3 md:px-6 pt-4 pb-3 border-b border-gray-800 max-md:pl-14">
         <div className="max-w-6xl mx-auto">
           <div className="flex items-center justify-between gap-3 mb-1">
             <h1 className="text-xl md:text-2xl font-semibold text-white">Pesticide Records</h1>

@@ -446,7 +446,7 @@ export default function CallLog2Page() {
       </header>
 
       {/* Filter bar */}
-      <div className="shrink-0 border-b border-gray-800 px-4 py-3 bg-gray-900/50">
+      <div className="shrink-0 border-b border-gray-800 px-4 py-3 bg-gray-900/50 max-md:pl-14">
         <div className="flex flex-wrap gap-2 items-end">
           <div className="flex flex-col gap-1">
             <label className="text-xs text-gray-500">From</label>

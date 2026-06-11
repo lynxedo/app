@@ -463,7 +463,7 @@ export default function BoardView({
       {/* Main column */}
       <div className="flex flex-col flex-1 min-w-0">
         {/* Header */}
-        <div className="flex-none px-6 py-4 border-b border-gray-800 flex items-center justify-between">
+        <div className="flex-none px-6 py-4 border-b border-gray-800 flex items-center justify-between max-md:pl-14">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
               <svg className="w-5 h-5 text-[#2E7EB8]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>

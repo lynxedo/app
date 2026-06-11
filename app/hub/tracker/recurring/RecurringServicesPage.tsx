@@ -282,7 +282,7 @@ export default function RecurringServicesPage() {
       <div className="flex-1 flex flex-col overflow-hidden min-w-0">
         {/* Header (fixed) */}
         <div className="bg-gray-950 border-b border-gray-800">
-          <div className="px-4 pt-2.5 pb-1.5 flex items-center gap-2">
+          <div className="px-4 pt-2.5 pb-1.5 flex items-center gap-2 max-md:pl-14">
             <Link href="/hub/tracker" className="text-gray-500 hover:text-white text-sm transition-colors whitespace-nowrap" title="Back to Trackers">← Trackers</Link>
             <span className="text-gray-700">/</span>
             <h1 className="text-base font-semibold text-white">Recurring Services</h1>

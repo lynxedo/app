@@ -380,7 +380,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
   return (
     <div>
       {/* Tab bar */}
-      <div className="flex gap-1 mb-8 bg-gray-900 border border-gray-800 rounded-xl p-1">
+      <div className="flex gap-1 mb-8 bg-gray-900 border border-gray-800 rounded-xl p-1 max-md:ml-12">
         {tabs.map(tab => (
           <button
             key={tab.id}
