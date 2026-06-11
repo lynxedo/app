@@ -233,6 +233,8 @@ export async function POST(request: Request) {
         title: `💬 ${senderName} mentioned you`,
         body: textToScan.trim().slice(0, 120),
         url: destination,
+        type: conversation_id ? 'dm' : 'room',
+        groupKey: conversation_id ?? room_id ?? undefined,
       }, { isMention: true, roomId: room_id ?? null }).catch((err: Error) =>
         console.error('[messages] mention push failed:', err.message)
       )
@@ -247,6 +249,8 @@ export async function POST(request: Request) {
         title: `📢 @room — #${roomMeta?.name ?? 'room'} — ${senderName}`,
         body: textToScan.trim().slice(0, 120),
         url: `/hub/${room_id}`,
+        type: 'room',
+        groupKey: room_id,
       }, { isMention: true, roomId: room_id }).catch((err: Error) =>
         console.error('[messages] @room push failed:', err.message)
       )
@@ -259,6 +263,8 @@ export async function POST(request: Request) {
       title: `💬 DM — ${senderName}`,
       body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
       url: `/hub/pm/${conversation_id}`,
+      type: 'dm',
+      groupKey: conversation_id,
     }, { isDm: true }).catch((err: Error) =>
       console.error('[messages] DM push failed:', err.message)
     )
@@ -277,6 +283,8 @@ export async function POST(request: Request) {
       title: `🏠 #${roomData?.name ?? 'room'} — ${senderName}`,
       body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
       url: `/hub/${room_id}`,
+      type: 'room',
+      groupKey: room_id,
     }, { roomId: room_id }).catch((err: Error) =>
       console.error('[messages] room push failed:', err.message)
     )

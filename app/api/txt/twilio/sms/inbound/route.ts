@@ -384,6 +384,8 @@ export async function POST(req: NextRequest) {
           title: `📱 Txt — ${displayName}`,
           body: preview,
           url: `${baseUrl}/hub/txt/${conversationId}?source=push`,
+          type: 'txt',
+          groupKey: conversationId,
         },
         { isDm: true }
       ).catch((err) => console.warn('[txt:inbound] push fan-out failed', err))

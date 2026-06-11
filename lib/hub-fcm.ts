@@ -66,9 +66,17 @@ async function postFcm(
   }
 }
 
+const FCM_TYPE_MAP: Record<string, { channel_id: string; color: string }> = {
+  dm:          { channel_id: 'dm',        color: '#0ea5e9' },
+  room:        { channel_id: 'room',      color: '#8b5cf6' },
+  txt:         { channel_id: 'txt',       color: '#f97316' },
+  voicemail:   { channel_id: 'voicemail', color: '#ef4444' },
+  'daily-log': { channel_id: 'daily_log', color: '#22c55e' },
+}
+
 export async function sendFcmPush(
   tokens: string[],
-  payload: { title: string; body: string; url: string; badge?: number }
+  payload: { title: string; body: string; url: string; badge?: number; type?: string; groupKey?: string }
 ): Promise<{ staleTokens: string[] }> {
   if (tokens.length === 0) return { staleTokens: [] }
   const projectId = process.env.FCM_PROJECT_ID
@@ -77,7 +85,11 @@ export async function sendFcmPush(
   const accessToken = await getFcmAccessToken()
   const endpoint = `https://fcm.googleapis.com/v1/projects/${projectId}/messages:send`
 
-  const androidNotification: Record<string, unknown> = {}
+  const typeConfig = FCM_TYPE_MAP[payload.type ?? ''] ?? { channel_id: 'hub', color: '#0ea5e9' }
+  const androidNotification: Record<string, unknown> = {
+    channel_id: typeConfig.channel_id,
+    color:      typeConfig.color,
+  }
   if (typeof payload.badge === 'number') {
     // Samsung One UI honors notification_count for numeric badge display.
     // Pixel + most other launchers show a dot regardless (managed by the OS).

@@ -190,6 +190,7 @@ export async function POST(request: NextRequest) {
       title: `📞 Voicemail — ${caller}`,
       body: duration || 'New voicemail',
       url: `/hub/dialer?vm=${voicemail.id}`,
+      type: 'voicemail',
     }, { isDm: true }).catch((err) => {
       console.warn('[voicemail.complete] push fan-out failed', err)
     })

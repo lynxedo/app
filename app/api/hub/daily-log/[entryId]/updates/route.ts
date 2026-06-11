@@ -118,6 +118,8 @@ export async function POST(
         title: `📋 Daily Log — ${techName}`,
         body: `${senderName}: ${snippet}`,
         url: '/hub/daily-log',
+        type: 'daily-log',
+        groupKey: entryId,
       },
       { isDm: true }
     )

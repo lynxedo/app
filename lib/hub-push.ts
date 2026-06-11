@@ -27,7 +27,7 @@ interface PushOptions {
 
 export async function sendHubPush(
   userIds: string[],
-  payload: { title: string; body: string; url: string },
+  payload: { title: string; body: string; url: string; type?: string; groupKey?: string },
   options: PushOptions = {}
 ) {
   const pubKey = process.env.HUB_VAPID_PUBLIC_KEY ?? process.env.NEXT_PUBLIC_HUB_VAPID_PUBLIC_KEY

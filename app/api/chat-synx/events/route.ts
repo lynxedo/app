@@ -375,7 +375,7 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
       if (matchedIds.length > 0) {
         sendHubPush(
           matchedIds,
-          { title: `💬 ${senderName} mentioned you`, body: pushBody, url: `/hub/${bridge.hub_room_id}` },
+          { title: `💬 ${senderName} mentioned you`, body: pushBody, url: `/hub/${bridge.hub_room_id}`, type: 'room', groupKey: bridge.hub_room_id },
           { isMention: true, roomId: bridge.hub_room_id },
         ).catch(err => console.error('[chat-synx:events] mention push failed:', err.message))
       }
@@ -387,7 +387,7 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
       if (ids.length > 0) {
         sendHubPush(
           ids,
-          { title: `📢 @room — #${roomName} — ${senderName}`, body: pushBody, url: `/hub/${bridge.hub_room_id}` },
+          { title: `📢 @room — #${roomName} — ${senderName}`, body: pushBody, url: `/hub/${bridge.hub_room_id}`, type: 'room', groupKey: bridge.hub_room_id },
           { isMention: true, roomId: bridge.hub_room_id },
         ).catch(err => console.error('[chat-synx:events] @room push failed:', err.message))
       }
@@ -398,7 +398,7 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
     if (ids.length > 0) {
       sendHubPush(
         ids,
-        { title: `🏠 #${roomName} — ${senderName}`, body: pushBody, url: `/hub/${bridge.hub_room_id}` },
+        { title: `🏠 #${roomName} — ${senderName}`, body: pushBody, url: `/hub/${bridge.hub_room_id}`, type: 'room', groupKey: bridge.hub_room_id },
         { roomId: bridge.hub_room_id },
       ).catch(err => console.error('[chat-synx:events] room push failed:', err.message))
     }
