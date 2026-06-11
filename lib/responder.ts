@@ -22,6 +22,7 @@ export type ResponderSettings = {
   afterhours_template: string
   afterhours_no_message_template: string
   ai_reply_enabled: boolean
+  forwarded_line_ring_sec: number
 }
 
 export type ResponderCall = {
@@ -50,6 +51,7 @@ export const RESPONDER_DEFAULTS: Omit<ResponderSettings, 'id' | 'company_id'> = 
   afterhours_no_message_template:
     "Hi {first_name}! We saw you called Heroes Lawn Care. We're closed right now but text us back here and we'll reach out first thing in the morning!",
   ai_reply_enabled: false,
+  forwarded_line_ring_sec: 0,
 }
 
 export function isInBusinessHours(settings: {

@@ -78,7 +78,7 @@ export async function POST(request: NextRequest) {
       .single(),
     admin
       .from('responder_settings')
-      .select('mode')
+      .select('mode, forwarded_line_ring_sec')
       .eq('company_id', HEROES_COMPANY_ID)
       .maybeSingle(),
   ])
@@ -90,6 +90,7 @@ export async function POST(request: NextRequest) {
   const consentNotice = settings?.recording_consent_notice || DEFAULT_RECORDING_CONSENT_NOTICE
   const consentUrl = settings?.recording_consent_url || null
   const responderMode = (responder?.mode as ResponderMode | undefined) ?? 'off'
+  const forwardedLineRingSec = (responder?.forwarded_line_ring_sec as number | undefined) ?? 0
 
   // Phase 3: each inbound call gets a conference room so it can be held /
   // transferred once an agent answers. We stamp it on the calls row up front for
@@ -180,6 +181,28 @@ export async function POST(request: NextRequest) {
   // answered. The reconciler still texts the caller, but only if the call lands
   // in voicemail (an answered call never reaches the voicemail flow → no text).
   if (responderMode === 'forwarded_line') {
+    // If "ring before voicemail" is configured AND a route user exists, let the
+    // call ring for the configured seconds first. This creates a missed-call
+    // entry in the Dialer (triggering the orange dot + notification) even when
+    // the caller hangs up without leaving a voicemail. The agent-status callback
+    // handles no-answer → voicemail automatically via the conference path.
+    // If the call IS answered, answered_at gets stamped and the reconciler skips
+    // the auto-text (a human picked up — no need to text back).
+    if (forwardedLineRingSec > 0 && routeToUserId) {
+      const callerTwiml = await connectInboundToAgentViaConference({
+        baseUrl,
+        room,
+        callerCallSid: callSid,
+        callerNumber: fromNumber || undefined,
+        agentIdentity: routeToUserId,
+        // No voicemailOwnerUserId — use the general company voicemail box
+        ringTimeoutSec: forwardedLineRingSec,
+        recordingEnabled,
+        recordingConsentNotice: consentNotice,
+      })
+      return twimlResponse(callerTwiml)
+    }
+    // ring=0 (or no route user) → original behavior: straight to voicemail.
     return respond(
       twimlRecordVoicemail({
         action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,

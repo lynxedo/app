@@ -49,7 +49,7 @@ export async function POST(request: Request) {
   // voicemail webhook to land, and haven't been texted yet.
   const { data: pending, error } = await admin
     .from('calls')
-    .select('id, twilio_call_sid, from_number, to_number, status, responder_mode, ended_at')
+    .select('id, twilio_call_sid, from_number, to_number, status, responder_mode, ended_at, answered_at')
     .eq('company_id', HEROES_COMPANY_ID)
     .eq('direction', 'inbound')
     .not('responder_mode', 'is', null)
@@ -85,6 +85,17 @@ export async function POST(request: Request) {
     if (!claimed) continue
 
     try {
+      // For forwarded_line with ringing enabled: if answered_at is set, a human
+      // actually picked up — skip the auto-text (no need to text back someone
+      // who was already helped). The normal straight-to-voicemail path never
+      // sets answered_at, so this guard is a no-op when ring=0.
+      if (call.responder_mode === 'forwarded_line' && call.answered_at != null) {
+        await admin.from('calls').update({ responder_text_status: 'skipped' }).eq('id', call.id)
+        await logResponderCall(admin, call, { hadVoicemail: false, textSent: false, templateUsed: null, error: 'answered' })
+        skipped++
+        continue
+      }
+
       // Did they leave a voicemail? Drives the template choice.
       const { data: vmRow } = await admin
         .from('voicemails')

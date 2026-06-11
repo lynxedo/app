@@ -661,6 +661,31 @@ export default function DialerAdminPanel({
           </div>
         </div>
 
+        {resp.mode === 'forwarded_line' && (
+          <div className="space-y-2">
+            <label className="text-xs font-medium text-white/70 block">Ring before voicemail</label>
+            <p className="text-xs text-white/50">
+              Let the call ring first so a missed call appears in the Dialer and triggers a notification — even if the caller hangs up without leaving a voicemail. Set to Off to keep the current behavior (straight to voicemail, no ring).
+            </p>
+            <div className="flex gap-1.5 flex-wrap">
+              {[0, 5, 10, 15, 20, 30].map(sec => (
+                <button
+                  key={sec}
+                  type="button"
+                  onClick={() => setResp(p => ({ ...p, forwarded_line_ring_sec: sec }))}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
+                    resp.forwarded_line_ring_sec === sec
+                      ? 'bg-[#2E7EB8] text-white'
+                      : 'bg-white/10 text-white/60 hover:bg-white/20'
+                  }`}
+                >
+                  {sec === 0 ? 'Off' : `${sec}s`}
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {resp.mode !== 'off' && (
           <div className="bg-sky-500/10 border border-sky-500/30 rounded-lg p-3 text-xs text-sky-200 leading-relaxed">
             Callers hear the <strong>voicemail greeting from your regular Dialer settings above</strong> — there's no separate greeting here. The auto-text is sent a moment after the call ends.
