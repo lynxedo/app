@@ -39,6 +39,12 @@ export const SCOREBOARDS: ScoreboardMeta[] = [
     subtitle: 'Gold book, repair tickets, revenue by tech & Rachio / Gold plans sold',
     badge: 'IR',
   },
+  {
+    slug: '4',
+    title: 'PW Pet Waste',
+    subtitle: 'Active customers, annual value, visit revenue & technician performance',
+    badge: 'PW',
+  },
 ]
 
 /** Whether a user can see the Scoreboards section at all. */
