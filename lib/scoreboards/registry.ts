@@ -27,6 +27,12 @@ export const SCOREBOARDS: ScoreboardMeta[] = [
     subtitle: 'Visit revenue, sales, lead sources, retention & close rate',
     badge: 'Main',
   },
+  {
+    slug: '2',
+    title: 'WF Weed & Fert',
+    subtitle: 'Lawn-care jobs, add-ons, program mix & technician performance',
+    badge: 'WF',
+  },
 ]
 
 /** Whether a user can see the Scoreboards section at all. */
