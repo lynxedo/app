@@ -59,11 +59,12 @@ export async function GET(request: Request) {
   const company = profile.company_id
 
   const board = new URL(request.url).searchParams.get('board') ?? '1'
-  if (board !== '1' && board !== '2' && board !== '3') return NextResponse.json({ error: 'Unknown scoreboard' }, { status: 404 })
+  if (board !== '1' && board !== '2' && board !== '3' && board !== '4') return NextResponse.json({ error: 'Unknown scoreboard' }, { status: 404 })
 
-  // Boards 2 (WF) and 3 (IR) have their own payloads; board 1 falls through below.
+  // Boards 2–4 have their own payloads; board 1 falls through below.
   if (board === '2') return buildWfBoard(supabase, company)
   if (board === '3') return buildIrBoard(supabase, company)
+  if (board === '4') return buildPwBoard(supabase, company)
 
   // ── Date windows ──
   const t = chicagoToday()
@@ -524,5 +525,147 @@ async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
     rachioSold: { labels: weekLabels, data: rachioSold },
     goldSold: { labels: weekLabels, data: goldSold },
     techs: techs.map(tk => ({ name: tk.name, perHour: tk.perHour })),
+  })
+}
+
+// ── Board 4: PW Pet Waste ────────────────────────────────────────────────────
+// All from Hub-synced tables: PW visit revenue (Jobber sync), recurring_services
+// (Monday mirror), time_entries (timesheet). Technicians assigned explicitly
+// via scoreboard_technicians (same mechanism as board 3).
+//   - Active PW customer count + total annual value       (recurring_services, PW% base, Active)
+//   - PW visit revenue weekly (6wk) + monthly (4mo), stacked by technician
+//   - Per PW technician: weekly + monthly revenue by dept (ALL depts), $/hr last week
+
+async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
+  const t = chicagoToday()
+  const todayStr = ymd(utcNoon(t.y, t.m, t.d))
+  const currentMonday = mondayOf(utcNoon(t.y, t.m, t.d))
+  const sixWeekStart = addDays(currentMonday, -35)
+  const sixWeekStartStr = ymd(sixWeekStart)
+  const weekStarts: Date[] = Array.from({ length: 6 }, (_, i) => addDays(sixWeekStart, i * 7))
+  const weekKeys = weekStarts.map(ymd)
+  const weekLabels = weekStarts.map(weekLabel)
+  const weekIndex = new Map(weekKeys.map((k, i) => [k, i]))
+  const LAST_WK = 4
+  const lastWeekStartStr = weekKeys[LAST_WK]
+  const lastWeekEndStr = ymd(addDays(weekStarts[LAST_WK], 6))
+
+  const monthBuckets: { key: string; label: string }[] = []
+  for (let i = 3; i >= 0; i--) {
+    let mm = t.m - i, yy = t.y
+    while (mm <= 0) { mm += 12; yy -= 1 }
+    monthBuckets.push({
+      key: `${yy}-${String(mm).padStart(2, '0')}`,
+      label: MONTH_ABBR[mm - 1] + (yy !== t.y ? ` '${String(yy).slice(2)}` : ''),
+    })
+  }
+  const fourMonthStart = `${monthBuckets[0].key}-01`
+  const monthIndex = new Map(monthBuckets.map((b, i) => [b.key, i]))
+
+  const [techRes, recRes, pwWeekRes, pwMonthRes] = await Promise.all([
+    supabase.rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '4' }),
+    supabase.from('recurring_services')
+      .select('annual_value')
+      .eq('company_id', company)
+      .like('base_program_sold', 'PW%')
+      .eq('cancelled_status', 'Active'),
+    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
+    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
+  ])
+  if (techRes.error) return NextResponse.json({ error: techRes.error.message }, { status: 500 })
+  if (recRes.error) return NextResponse.json({ error: recRes.error.message }, { status: 500 })
+  if (pwWeekRes.error) return NextResponse.json({ error: pwWeekRes.error.message }, { status: 500 })
+  if (pwMonthRes.error) return NextResponse.json({ error: pwMonthRes.error.message }, { status: 500 })
+
+  // ── KPIs: active PW book ──
+  const pwRecs = (recRes.data ?? []) as Array<{ annual_value: number | null }>
+  const activeCustomers = pwRecs.length
+  const annualValue = pwRecs.reduce((s, r) => s + (Number(r.annual_value) || 0), 0)
+
+  // ── Total PW visit revenue per bucket (for the "Other/Unassigned" stack) ──
+  const totalWeekPw = weekKeys.map(() => 0)
+  for (const r of (pwWeekRes.data ?? []) as RevRow[]) {
+    if (r.dept === 'PW') { const wi = weekIndex.get(r.bucket); if (wi !== undefined) totalWeekPw[wi] += Number(r.total) || 0 }
+  }
+  const totalMonthPw = monthBuckets.map(() => 0)
+  for (const r of (pwMonthRes.data ?? []) as RevRow[]) {
+    if (r.dept === 'PW') { const mi = monthIndex.get(r.bucket.slice(0, 7)); if (mi !== undefined) totalMonthPw[mi] += Number(r.total) || 0 }
+  }
+
+  // ── Per-technician: PW-slice (stacked chart) + all-dept (performance section) + $/hr ──
+  const techRows = (techRes.data ?? []) as TechRow[]
+  const techs = await Promise.all(techRows.map(async (tech) => {
+    const weeklyPw = weekKeys.map(() => 0)
+    const monthlyPw = monthBuckets.map(() => 0)
+    const deptWeekly: Record<string, number[]> = {}
+    const deptMonthly: Record<string, number[]> = {}
+    let lastWeekRevenue = 0
+
+    if (tech.jobber_external_id) {
+      const [wRes, mRes] = await Promise.all([
+        supabase.rpc('scoreboard_tech_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_id: tech.jobber_external_id }),
+        supabase.rpc('scoreboard_tech_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month', p_tech_external_id: tech.jobber_external_id }),
+      ])
+      for (const r of (wRes.data ?? []) as RevRow[]) {
+        const wi = weekIndex.get(r.bucket); if (wi === undefined) continue
+        const d = (DEPTS as readonly string[]).includes(r.dept ?? '') ? (r.dept as string) : 'Other'
+        ;(deptWeekly[d] ??= weekKeys.map(() => 0))[wi] += Number(r.total) || 0
+        if (r.dept === 'PW') weeklyPw[wi] += Number(r.total) || 0
+        if (wi === LAST_WK) lastWeekRevenue += Number(r.total) || 0
+      }
+      for (const r of (mRes.data ?? []) as RevRow[]) {
+        const mi = monthIndex.get(r.bucket.slice(0, 7)); if (mi === undefined) continue
+        const d = (DEPTS as readonly string[]).includes(r.dept ?? '') ? (r.dept as string) : 'Other'
+        ;(deptMonthly[d] ??= monthBuckets.map(() => 0))[mi] += Number(r.total) || 0
+        if (r.dept === 'PW') monthlyPw[mi] += Number(r.total) || 0
+      }
+    }
+
+    const { data: hrs } = await supabase.rpc('scoreboard_tech_hours', { p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_id: tech.employee_id })
+    const hours = Number(hrs) || 0
+    const depts = DEPTS.filter(d => deptWeekly[d]?.some(v => v > 0))
+    const monthDepts = DEPTS.filter(d => deptMonthly[d]?.some(v => v > 0))
+
+    return {
+      name: tech.display_name,
+      weeklyPw: weeklyPw.map(v => Math.round(v)),
+      monthlyPw: monthlyPw.map(v => Math.round(v)),
+      depts,
+      monthDepts,
+      weekly: { labels: weekLabels, data: Object.fromEntries(depts.map(d => [d, deptWeekly[d]])) },
+      monthly: { labels: monthBuckets.map(b => b.label), data: Object.fromEntries(monthDepts.map(d => [d, deptMonthly[d]])) },
+      perHour: {
+        revenue: Math.round(lastWeekRevenue),
+        hours: round1(hours),
+        rate: hours > 0 ? Math.round(lastWeekRevenue / hours) : 0,
+        weekLabel: `${weekStarts[LAST_WK].getUTCMonth() + 1}/${weekStarts[LAST_WK].getUTCDate()}`,
+      },
+    }
+  }))
+
+  const otherWeekly = totalWeekPw.map((tot, i) => Math.max(0, Math.round(tot - techs.reduce((s, tk) => s + tk.weeklyPw[i], 0))))
+  const otherMonthly = totalMonthPw.map((tot, i) => Math.max(0, Math.round(tot - techs.reduce((s, tk) => s + tk.monthlyPw[i], 0))))
+
+  return NextResponse.json({
+    asOf: new Date().toISOString(),
+    kpis: { activeCustomers, annualValue: Math.round(annualValue) },
+    weeklyByTech: {
+      labels: weekLabels,
+      techs: techs.map(tk => ({ name: tk.name, data: tk.weeklyPw })),
+      other: otherWeekly.some(v => v > 1) ? otherWeekly : null,
+    },
+    monthlyByTech: {
+      labels: monthBuckets.map(b => b.label),
+      techs: techs.map(tk => ({ name: tk.name, data: tk.monthlyPw })),
+      other: otherMonthly.some(v => v > 1) ? otherMonthly : null,
+    },
+    techs: techs.map(tk => ({
+      name: tk.name,
+      depts: tk.depts,
+      monthDepts: tk.monthDepts,
+      weekly: tk.weekly,
+      monthly: tk.monthly,
+      perHour: tk.perHour,
+    })),
   })
 }
