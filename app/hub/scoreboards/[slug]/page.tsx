@@ -2,6 +2,7 @@ import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getScoreboard, canSeeScoreboards } from '@/lib/scoreboards/registry'
 import Scoreboard1View from './Scoreboard1View'
+import Scoreboard2View from './Scoreboard2View'
 
 export const metadata = { title: 'Scoreboard' }
 export const dynamic = 'force-dynamic'
@@ -32,6 +33,8 @@ export default async function ScoreboardPage({ params }: { params: Promise<{ slu
   switch (board.slug) {
     case '1':
       return <Scoreboard1View meta={board} />
+    case '2':
+      return <Scoreboard2View meta={board} />
     default:
       notFound()
   }
