@@ -23,9 +23,9 @@ export type ScoreboardMeta = {
 export const SCOREBOARDS: ScoreboardMeta[] = [
   {
     slug: '1',
-    title: 'Scoreboard 1',
+    title: 'Main Scoreboard',
     subtitle: 'Visit revenue, sales, lead sources, retention & close rate',
-    badge: 'Scoreboard 1',
+    badge: 'Main',
   },
 ]
 
