@@ -65,7 +65,9 @@ function ChartCanvas({ make, height = 220 }: { make: (canvas: HTMLCanvasElement)
     return () => chart.destroy()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
-  return <canvas ref={ref} height={height} />
+  // maintainAspectRatio:false requires a fixed-height parent, else the canvas
+  // balloons. Bound the height here (same pattern as OverheadChart).
+  return <div className="relative w-full" style={{ height }}><canvas ref={ref} /></div>
 }
 
 // ── Layout primitives ──
