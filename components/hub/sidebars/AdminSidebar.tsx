@@ -119,6 +119,9 @@ export default function AdminSidebar({
       {show(grants.forms) && (
         <AdminRow href="/hub/admin/forms" iconId="forms" label="Form Builder" onClose={onClose} />
       )}
+      {isSuperAdmin && (
+        <AdminRow href="/hub/admin/scoreboards" iconId="scoreboards" label="Scoreboards" onClose={onClose} />
+      )}
     </SidebarShell>
   )
 }
