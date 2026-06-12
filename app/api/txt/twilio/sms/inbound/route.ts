@@ -301,6 +301,12 @@ export async function POST(req: NextRequest) {
   //   - assigned:   owner (assigned_to) + every member on txt_conversation_members
   // `isDm: true` keeps the push from being filtered by the global "mentions only"
   // pref level; respects DND, muted, and scheduled-DND windows.
+  // Recipients for this inbound: owner + members of an assigned ("active")
+  // thread, or the manager / responder Queue audience while it's unassigned.
+  // Computed once and reused for BOTH the push fan-out and the realtime
+  // broadcast payload, so the chime + rail dot light for exactly these users —
+  // never every Txt2 viewer when a thread is already claimed by someone else.
+  let recipients: string[] = []
   try {
     const { data: convForPush } = await supabase
       .from('txt_conversations')
@@ -308,7 +314,6 @@ export async function POST(req: NextRequest) {
       .eq('id', conversationId)
       .maybeSingle()
 
-    let recipients: string[] = []
     if (convForPush?.status === 'unassigned' && convForPush?.source === 'responder') {
       // Customer replied to a Guardian/Responder auto-text — notify the
       // configured responder notify list instead of all managers.
@@ -401,7 +406,7 @@ export async function POST(req: NextRequest) {
     await channel.send({
       type: 'broadcast',
       event: 'inbound',
-      payload: { conversation_id: conversationId, contact_id: contactId },
+      payload: { conversation_id: conversationId, contact_id: contactId, recipient_ids: recipients },
     })
     await supabase.removeChannel(channel)
   } catch (err) {

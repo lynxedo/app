@@ -419,14 +419,20 @@ export default function HubShell({
     const supabase = createClient()
     const channel = supabase
       .channel(`txt:${companyId}`)
-      .on('broadcast', { event: 'inbound' }, () => {
+      .on('broadcast', { event: 'inbound' }, ({ payload }) => {
+        const p = (payload ?? {}) as { recipient_ids?: string[] }
+        // Only light the rail dot for users this inbound is actually for —
+        // owner + members of an assigned thread, or the Queue audience while
+        // unassigned. Mirrors the Daily Log dot's recipient gating above so a
+        // claimed thread never dots anyone but its owner + members.
+        if (Array.isArray(p.recipient_ids) && !p.recipient_ids.includes(currentUserId)) return
         const path = pathnameRef.current
         if (path === '/hub/txt' || path.startsWith('/hub/txt/')) return
         setTxtUnread(true)
       })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
-  }, [canAccessTxt, companyId])
+  }, [canAccessTxt, companyId, currentUserId])
 
   // Refresh the Txt2 dot when the tab/app regains focus — the realtime inbound
   // broadcast covers the live case, but if the socket dropped while backgrounded

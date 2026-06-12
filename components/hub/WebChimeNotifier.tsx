@@ -260,8 +260,13 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
         txtChannel = supabase
           .channel(`txt:${companyId}`)
           .on('broadcast', { event: 'inbound' }, ({ payload }) => {
-            const p = (payload ?? {}) as { conversation_id?: string }
+            const p = (payload ?? {}) as { conversation_id?: string; recipient_ids?: string[] }
             if (!p.conversation_id) return
+            // Only chime for this thread's owner + members (assigned) or the
+            // Queue audience (unassigned) — the same list the inbound webhook
+            // pushes to. Never ding a manager about a thread someone else has
+            // already claimed. (Absent list = older payload → fall back to ring.)
+            if (Array.isArray(p.recipient_ids) && !p.recipient_ids.includes(currentUserId)) return
             if (isSuppressed(null, true)) return
             if (!isChimeEnabled()) return
             if (!claimChimeForMessage('txt-' + p.conversation_id)) return
