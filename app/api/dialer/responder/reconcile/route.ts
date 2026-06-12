@@ -10,6 +10,17 @@ const HEROES_COMPANY_ID =
 // what lets us pick the "left a message" vs "no message" template correctly.
 const SETTLE_SECONDS = 20
 
+// When AI reply is on, the generic template is ONLY sent for genuine hangups
+// (no voicemail) — voicemail callers get the single personalized reply from the
+// transcription pipeline instead. Deciding "no voicemail" too early double-texts
+// the caller: in forwarded-line mode a call can report an early ended_at while
+// the caller is still recording, so the 20s window fired the "no message" text
+// ~20s BEFORE Twilio saved the voicemail, then the AI reply went out too. Wait
+// much longer here so the voicemails row has definitely landed before we ever
+// conclude a call was a pure hangup. (Harmless for voicemail calls — the AI path
+// is independent and already replied; this only delays the rare hangup text.)
+const AI_SETTLE_SECONDS = 120
+
 // Cron-driven responder auto-text. Wire on the VPS:
 //   */1 * * * * curl -s -X POST https://staging.lynxedo.com/api/dialer/responder/reconcile \
 //     -H "x-cron-secret: $CRON_SECRET"
@@ -43,7 +54,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ processed: 0, reason: 'responder_off' })
   }
 
-  const cutoff = new Date(Date.now() - SETTLE_SECONDS * 1000).toISOString()
+  const settleSeconds = aiReplyEnabled ? AI_SETTLE_SECONDS : SETTLE_SECONDS
+  const cutoff = new Date(Date.now() - settleSeconds * 1000).toISOString()
 
   // Calls that ran under the responder, have ended, settled long enough for the
   // voicemail webhook to land, and haven't been texted yet.
