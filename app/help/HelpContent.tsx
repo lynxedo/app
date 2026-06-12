@@ -839,13 +839,14 @@ function TxtTab() {
       </Section>
 
       <Section title="The conversation list">
-        <p>The Txt2 sidebar lists your conversations under three tabs:</p>
+        <p>The Txt2 sidebar lists conversations under these tabs:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Mine</strong> — conversations assigned to you (or where you&apos;re a member).</li>
-          <li><strong className="text-white">All</strong> — every active conversation on Heroes&apos; line (managers).</li>
+          <li><strong className="text-white">All</strong> — every active conversation on Heroes&apos; line. The whole team shares one inbox.</li>
           <li><strong className="text-white">Archived</strong> — closed-out conversations. They pop back to the top automatically if the customer texts again.</li>
+          <li><strong className="text-white">Responder</strong> <span className="text-gray-500">(managers only)</span> — Guardian auto-text threads waiting for a human to take over.</li>
         </ul>
-        <p><strong className="text-white">Unassigned</strong> conversations (a customer texted in and no one&apos;s claimed them yet) pin to the top, highlighted orange, with inline <strong className="text-white">Claim · Assign · Archive</strong> buttons. Claim takes it for yourself; Assign hands it to a teammate.</p>
+        <p>For <strong className="text-white">managers</strong>, <strong className="text-white">unassigned</strong> conversations (a customer texted in and no one&apos;s claimed them yet) pin to the top as a highlighted orange <strong className="text-white">Queue</strong>, with inline <strong className="text-white">Claim · Assign · Archive</strong> buttons. Claim takes it for yourself; Assign hands it to a teammate.</p>
       </Section>
 
       <Section title="Sending a text">
@@ -878,7 +879,7 @@ function TxtTab() {
       </Section>
 
       <Section title="Groups &amp; broadcasts">
-        <p><strong className="text-white">Group</strong> texts (<strong className="text-white">+ Group</strong> in the composer) include several customers on one thread. <strong className="text-white">Broadcasts</strong> send one message to many customers as separate individual texts (not a group thread) — good for seasonal announcements. Broadcasts automatically skip anyone who&apos;s opted out, and go out throttled over time so the carrier doesn&apos;t flag them. Track them at <strong className="text-white">Txt2 → Broadcasts</strong>.</p>
+        <p><strong className="text-white">Group</strong> texts (<strong className="text-white">+ Group</strong> in the composer) include several customers on one thread — available to everyone with Txt2. <strong className="text-white">Broadcasts</strong> <span className="text-gray-500">(managers only)</span> send one message to many customers as separate individual texts (not a group thread) — good for seasonal announcements. Broadcasts automatically skip anyone who&apos;s opted out, and go out throttled over time so the carrier doesn&apos;t flag them. Track them at <strong className="text-white">Txt2 → Broadcasts</strong>.</p>
       </Section>
 
       <Section title="Opt-outs (STOP / HELP)">
@@ -896,7 +897,8 @@ function TxtTab() {
 
       <AdminOnly>
         <p>Txt2 is gated per person. Turn on <strong className="text-white">Txt2 (new texting)</strong> for a user in <strong className="text-white">Admin → People</strong> to give them the Txt2 icon and access to <code>/hub/txt</code>. It&apos;s off by default, so the team keeps using the old Txt (Captivated) until you roll each person onto Txt2.</p>
-        <p><strong className="text-white">Admin → Txt</strong> manages the phone number(s) (mark one as default), the On-My-Way wording, and the company templates. Each user can also be allowed to assign threads to others via the <em>Assign Txt threads</em> grant.</p>
+        <p><strong className="text-white">Two access levels.</strong> Everyone with Txt2 works the shared inbox: Mine / All / Archived, start conversations, reassign, notes, AI suggestions, archive, and group messages. <strong className="text-white">Texting Managers</strong> additionally see the unassigned <strong className="text-white">Queue</strong> and the <strong className="text-white">Responder</strong> tab, and can send <strong className="text-white">Broadcasts</strong>.</p>
+        <p><strong className="text-white">Admin → Txt</strong> has tabs for the phone number(s) (mark one as default), the On-My-Way wording, the company templates, Responder notifications, and the new <strong className="text-white">Managers</strong> tab — where you pick who&apos;s a Texting Manager. Admins and Txt-admins are always managers; checking anyone else there grants them the manager tier (it writes each person&apos;s <code>can_assign_txt_threads</code> flag).</p>
         <p>Customer-facing texting requires Heroes&apos; verified Twilio number to be live and configured (inbound + status webhooks, the broadcast and scheduled-send crons, and the number added in Admin → Txt). Voice (Dialer) and texting (Txt2) share the same Twilio number.</p>
       </AdminOnly>
     </>
