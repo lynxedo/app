@@ -12,7 +12,7 @@ import HubIdleTracker from '@/components/hub/HubIdleTracker'
 import { UpdateNotifier } from '@/components/hub/UpdateNotifier'
 import { markActive } from '@/lib/hub-activity'
 import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
-import { resolveLayout } from '@/lib/hub-layout'
+import { resolveLayout, reconcileSeededApps } from '@/lib/hub-layout'
 import type { RailPermissions } from '@/components/hub/railCatalog'
 
 export const metadata: Metadata = {
@@ -70,7 +70,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       .eq('user_id', user.id),
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
     supabase.from('hub_users').select('display_name, status, avatar_url, last_active_at').eq('id', user.id).single(),
-    supabase.from('user_profiles').select('role, company_id, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_call_log2, can_access_lawn, can_access_zone_sizer, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet, can_access_dialer, can_access_txt, can_access_marketing, can_admin_marketing, can_access_forms, can_admin_forms, can_access_daily_log_v2, dialer_global_ring, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_products, rail_config, hub_layout').eq('id', user.id).single(),
+    supabase.from('user_profiles').select('role, company_id, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_call_log2, can_access_lawn, can_access_zone_sizer, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet, can_access_dialer, can_access_txt, can_access_marketing, can_admin_marketing, can_access_forms, can_admin_forms, can_access_daily_log_v2, dialer_global_ring, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_products, rail_config, hub_layout, hub_seeded_apps').eq('id', user.id).single(),
     // Active rows for BOTH types — DB returns latest first; we keep newest per type below.
     supabase
       .from('hub_announcements')
@@ -187,12 +187,35 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
   }
-  const initialLayout = resolveLayout(
+  const resolvedLayout = resolveLayout(
     profileResult.data?.hub_layout ?? null,
     legacyRailConfig,
     initialPinnedIds,
     railPermsForLayout,
   )
+  // Auto-seed every PAGE this user can access that hasn't been offered yet
+  // (appended to the end of their drawer). Covers brand-new users, existing
+  // users on first load after this shipped, and admin-granted access — the icon
+  // appears on the user's next Hub load. Removal-safe: pages the user deleted
+  // stay in hub_seeded_apps and are never re-added. Only catalog pages are
+  // touched — links / DMs / rooms are left alone. Persisted fire-and-forget
+  // (same best-effort pattern as markActive); this render already shows the
+  // expanded list, and the write is idempotent so a failure just retries next load.
+  const seed = reconcileSeededApps(
+    resolvedLayout.items,
+    profileResult.data?.hub_seeded_apps ?? null,
+    railPermsForLayout,
+  )
+  const initialLayout = { version: 3 as const, items: seed.items }
+  if (seed.changed) {
+    const seedUpdate: Record<string, unknown> = { hub_seeded_apps: seed.seeded }
+    if (seed.itemsChanged) seedUpdate.hub_layout = initialLayout
+    admin
+      .from('user_profiles')
+      .update(seedUpdate)
+      .eq('id', user.id)
+      .then(() => undefined, () => undefined)
+  }
   // Hourly path = linked to an employees row with pay_type='hourly'.
   // Everyone else (salary, unlinked, bots) is on the activity path.
   const myPayType = (myPresenceResult.data?.pay_type as string | null) ?? null

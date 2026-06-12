@@ -21,7 +21,7 @@
  * client-side (the editor / sidebar).
  */
 
-import { catalogById, type CatalogId, type RailPermissions } from '@/components/hub/railCatalog'
+import { CATALOG, catalogById, type CatalogId, type RailPermissions } from '@/components/hub/railCatalog'
 
 export type HubLayout = {
   version: 3
@@ -34,6 +34,13 @@ export const MOBILE_VISIBLE = 5
 // Brand-new user default (no legacy config, no pins). Permission filtering drops
 // anything they can't access (e.g. dialer).
 export const DEFAULT_ITEMS: string[] = ['hub', 'txt', 'dialer', 'time-clock', 'daily-log', 'tools']
+
+// Catalog ids that are real navigable PAGES (have an href). These are the only
+// tokens auto-seeded into a user's drawer (see reconcileSeededApps). Container
+// items ('tools', 'links'), the floating bell ('activity'), and non-catalog
+// tokens (url:/room:/dm:) are intentionally excluded — links, DMs, and rooms are
+// never auto-added. Derived from CATALOG so new pages are covered automatically.
+export const PAGE_CATALOG_IDS: CatalogId[] = CATALOG.filter(e => !!e.href).map(e => e.id)
 
 // These items are LOCKED to the front of every user's menu (rail + mobile bar)
 // and can't be removed or reordered in the customizer. Permission-filtered: if a
@@ -124,6 +131,51 @@ export function normalizeLayout(raw: unknown, perms: RailPermissions): HubLayout
     items.push(v)
   }
   return { version: 3, items: applyLockedPrefix(items, perms) }
+}
+
+export type SeedReconcile = {
+  items: string[]          // the (possibly expanded) layout item list
+  seeded: CatalogId[]      // the seeded-set to persist (= currently-accessible pages)
+  itemsChanged: boolean    // whether `items` gained any auto-added pages
+  changed: boolean         // whether anything needs persisting (items and/or seeded)
+}
+
+// Auto-seed every PAGE the user can access that hasn't been offered to them yet,
+// appending it to the end of their drawer. Removal-safe: a page the user deleted
+// stays in `seeded` (so we never re-add it) while being absent from `items`.
+//
+// The seeded-set is kept equal to the user's currently-accessible pages, which
+// gives the right behavior on every transition with no extra bookkeeping:
+//   - new user / existing user first run → seeded empty → all accessible pages added
+//   - admin GRANTS a page later          → not yet in seeded → added on next load
+//   - admin REVOKES a page               → drops from accessible (and from seeded);
+//                                           normalizeLayout already strips it from items
+//   - admin RE-GRANTS                     → not in seeded again → re-added
+//   - user removes a page                 → still accessible AND seeded → never re-added
+//
+// Only catalog pages (PAGE_CATALOG_IDS) are ever touched — url:/room:/dm: tokens
+// and the tools/links containers pass through untouched.
+export function reconcileSeededApps(
+  currentItems: string[],
+  prevSeeded: string[] | null | undefined,
+  perms: RailPermissions,
+): SeedReconcile {
+  const accessible = PAGE_CATALOG_IDS.filter(id => tokenAllowed(id, perms))
+  const seededSet = new Set(prevSeeded ?? [])
+  const present = new Set(currentItems)
+  const toAdd = accessible.filter(id => !seededSet.has(id) && !present.has(id))
+
+  // seeded should end up exactly equal to `accessible`; detect if it isn't yet.
+  const seededChanged =
+    seededSet.size !== accessible.length || accessible.some(id => !seededSet.has(id))
+
+  if (toAdd.length === 0 && !seededChanged) {
+    return { items: currentItems, seeded: accessible, itemsChanged: false, changed: false }
+  }
+  const items = toAdd.length
+    ? normalizeLayout({ version: 3, items: [...currentItems, ...toAdd] }, perms).items
+    : currentItems
+  return { items, seeded: accessible, itemsChanged: toAdd.length > 0, changed: true }
 }
 
 type LegacyRailConfig = { desktop?: (string | null)[]; mobile?: (string | null)[] } | null | undefined
