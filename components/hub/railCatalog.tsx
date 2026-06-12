@@ -31,6 +31,7 @@ export type CatalogId =
   | 'pesticide-records'
   | 'forms'
   | 'reports'
+  | 'scoreboards'
   | 'people'        // admin-only (Admin → People)
   | 'guardian'      // admin-only (Admin → Guardian)
   | 'products'      // admin-only (Admin → Products)
@@ -65,6 +66,7 @@ export type RailPermissions = {
   canAccessMarketing: boolean
   canAccessForms: boolean
   canAccessDailyLogV2: boolean
+  canAccessScoreboards: boolean
 }
 
 function I({ d, fill = false }: { d: string; fill?: boolean }) {
@@ -115,6 +117,8 @@ const PATHS = {
   pesticideRecords: 'M9 3h6M10 3v5l-5 9a2 2 0 001.7 3h10.6a2 2 0 001.7-3l-5-9V3M8 14h8M13 11.5a.5.5 0 11-1 0 .5.5 0 011 0z',
   forms: 'M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2M9 12h6M9 16h3',
   reports: 'M3 18h4v-5H3v5zm6 0h4V6H9v12zm6 0h4V10h-4v8z',
+  // Scoreboards — a 4-panel dashboard layout (distinct from the reports bars).
+  scoreboards: 'M3 13h8V3H3v10zm0 8h8v-6H3v6zm10 0h8V11h-8v10zm0-18v6h8V3h-8z',
   more: 'M5 12h.01M12 12h.01M19 12h.01',
   // Do Not Disturb — classic minus-in-circle.
   dnd: 'M12 21a9 9 0 100-18 9 9 0 000 18zM8 12h8',
@@ -165,6 +169,7 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
     case 'pesticide-records': return <I d={PATHS.pesticideRecords} />
     case 'forms':         return <I d={PATHS.forms} />
     case 'reports':       return <I d={PATHS.reports} />
+    case 'scoreboards':   return <I d={PATHS.scoreboards} />
     case 'people':        return <I d={PATHS.people} />
     case 'guardian':      return <I d={PATHS.guardian} />
     case 'products':      return <I d={PATHS.products} />
@@ -236,6 +241,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'pesticide-records', label: 'Pesticide Records', href: '/hub/pesticide-records', prefixMatch: true, pickable: true },
   { id: 'forms',     label: 'Forms',     href: '/hub/forms', prefixMatch: true, pickable: true, requires: 'canAccessForms' },
   { id: 'reports',   label: 'Reports',   href: '/hub/reports', prefixMatch: true, pickable: true, requires: 'isAdmin' },
+  { id: 'scoreboards', label: 'Scoreboards', href: '/hub/scoreboards', prefixMatch: true, pickable: true, requires: 'canAccessScoreboards' },
 ]
 
 export function catalogEntriesFor(perms: RailPermissions): CatalogEntry[] {
