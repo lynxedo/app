@@ -175,9 +175,17 @@ export async function GET(request: Request) {
   const recTotal = active + upgraded + downgraded + cancelled
   const retentionRate = recTotal > 0 ? ((recTotal - cancelled) / recTotal) * 100 : 0
 
+  // Only surface departments that actually have revenue, so an empty "Other"
+  // (or any unused dept) never shows up in the legend/stack.
+  const activeDepts = DEPTS.filter(d =>
+    (ytdData[d]?.some(v => v > 0)) ||
+    (weeklyData[d]?.some(v => v > 0)) ||
+    lastMonth.some(x => x.dept === d)
+  )
+
   return NextResponse.json({
     asOf: new Date().toISOString(),
-    depts: DEPTS,
+    depts: activeDepts,
     kpis: {
       ytdRevenue: Math.round(ytdTotal),
       lastMonthRevenue: Math.round(lastMonthTotal),
