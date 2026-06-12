@@ -70,7 +70,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       .eq('user_id', user.id),
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
     supabase.from('hub_users').select('display_name, status, avatar_url, last_active_at').eq('id', user.id).single(),
-    supabase.from('user_profiles').select('role, company_id, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_call_log2, can_access_lawn, can_access_zone_sizer, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet, can_access_dialer, can_access_txt, can_access_marketing, can_admin_marketing, can_access_forms, can_admin_forms, can_access_daily_log_v2, dialer_global_ring, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_products, rail_config, hub_layout, hub_seeded_apps').eq('id', user.id).single(),
+    supabase.from('user_profiles').select('role, company_id, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_call_log2, can_access_lawn, can_access_zone_sizer, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet, can_access_dialer, can_access_txt, can_access_marketing, can_admin_marketing, can_access_forms, can_admin_forms, can_access_daily_log_v2, dialer_global_ring, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_assign_txt_threads, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_products, rail_config, hub_layout, hub_seeded_apps').eq('id', user.id).single(),
     // Active rows for BOTH types — DB returns latest first; we keep newest per type below.
     supabase
       .from('hub_announcements')
@@ -158,6 +158,13 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessZoneSizer = profileResult.data?.can_access_zone_sizer ?? false
   const canAccessDialer = profileResult.data?.can_access_dialer ?? false
   const canAccessTxt = profileResult.data?.can_access_txt ?? false
+  // Txt2 "manager" = admin OR Txt-admin OR the per-user queue/broadcast grant.
+  // Gates the unassigned Queue, the Responder tab, and Broadcasts in the
+  // Txt2 sidebar. Mirrors lib/txt-permissions.ts so the UI matches the API.
+  const canManageTxt =
+    isAdmin ||
+    profileResult.data?.can_admin_txt === true ||
+    profileResult.data?.can_assign_txt_threads === true
   const canAccessMarketing = profileResult.data?.can_access_marketing ?? false
   const canAdminMarketing = profileResult.data?.can_admin_marketing ?? false
   const canAccessForms = profileResult.data?.can_access_forms ?? true
@@ -284,6 +291,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessZoneSizer={canAccessZoneSizer}
         canAccessDialer={canAccessDialer}
         canAccessTxt={canAccessTxt}
+        canManageTxt={canManageTxt}
         canAccessMarketing={canAccessMarketing}
         canAdminMarketing={canAdminMarketing}
         canAccessForms={canAccessForms}

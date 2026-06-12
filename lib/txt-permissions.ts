@@ -7,9 +7,10 @@ export type TxtConvPermissions = {
   isOwner: boolean
   isMember: boolean // any participant: owner or member
   isManager: boolean
-  canArchive: boolean // owner OR manager
-  canManageMembers: boolean // owner OR manager
-  canReply: boolean // owner, member, or manager
+  isTxtUser: boolean // any teammate with Txt2 access
+  canArchive: boolean // owner OR any Txt2 user
+  canManageMembers: boolean // owner OR any Txt2 user
+  canReply: boolean // member OR any Txt2 user
 }
 
 // Loads the caller's role on a conversation + whether they're a Txt
@@ -23,7 +24,7 @@ export async function getTxtConvPermissions(
   const [{ data: profile }, { data: membership }] = await Promise.all([
     supabase
       .from('user_profiles')
-      .select('role, can_admin_txt, can_assign_txt_threads')
+      .select('role, can_admin_txt, can_assign_txt_threads, can_access_txt')
       .eq('id', userId)
       .maybeSingle(),
     supabase
@@ -39,6 +40,12 @@ export async function getTxtConvPermissions(
     profile?.can_admin_txt === true ||
     profile?.can_assign_txt_threads === true
 
+  // Any teammate with Txt2 access can work the shared inbox: reply to,
+  // reassign, note, AI-draft and archive ANY conversation — not just ones
+  // they own or are a member of. Manager-only powers (Queue, Responder,
+  // Broadcasts) stay gated by `isManager`.
+  const isTxtUser = isManager || profile?.can_access_txt === true
+
   const role = (membership?.role as TxtConvRole) || null
   const isOwner = role === 'owner'
   const isMember = role !== null
@@ -48,8 +55,9 @@ export async function getTxtConvPermissions(
     isOwner,
     isMember,
     isManager,
-    canArchive: isOwner || isManager,
-    canManageMembers: isOwner || isManager,
-    canReply: isMember || isManager,
+    isTxtUser,
+    canArchive: isOwner || isTxtUser,
+    canManageMembers: isOwner || isTxtUser,
+    canReply: isMember || isTxtUser,
   }
 }

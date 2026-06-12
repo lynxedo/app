@@ -22,15 +22,21 @@ export async function GET(request: Request) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_txt, can_assign_txt_threads')
+    .select('role, can_admin_txt, can_assign_txt_threads, can_access_txt')
     .eq('id', user.id)
     .single()
   const isManager =
     profile?.role === 'admin' ||
     profile?.can_admin_txt === true ||
     profile?.can_assign_txt_threads === true
+  const isTxtUser = isManager || profile?.can_access_txt === true
 
-  if (!isManager && (scope === 'unassigned' || scope === 'all' || scope === 'responder')) {
+  // The shared "All" inbox is visible to every Txt2 user. The unassigned
+  // Queue and the Responder tab stay manager-only.
+  if ((scope === 'unassigned' || scope === 'responder') && !isManager) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+  if (scope === 'all' && !isTxtUser) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -66,7 +72,7 @@ export async function GET(request: Request) {
     query = query.eq('status', 'unassigned').or('source.is.null,source.neq.responder')
   } else if (scope === 'archived') {
     query = query.eq('status', 'archived')
-    if (!isManager) {
+    if (!isTxtUser) {
       query = query.eq('archived_by', user.id)
     }
   } else if (scope === 'all') {

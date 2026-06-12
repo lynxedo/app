@@ -74,19 +74,20 @@ function sublineFor(c: Conversation) {
 export default function TxtV2Sidebar({
   onClose,
   onDesktopCollapse,
-  canAssign,
+  canManage,
   canCall = false,
   currentUserId,
 }: {
   onClose?: () => void
   onDesktopCollapse?: () => void
-  canAssign: boolean
+  /** Manager powers: see the unassigned Queue + Responder tab + send Broadcasts. */
+  canManage: boolean
   /** Show the 📞 Call button on contact rows (user has dialer access). */
   canCall?: boolean
   currentUserId: string
 }) {
   const pathname = usePathname() || ''
-  const [scope, setScope] = useState<Scope>(canAssign ? 'all' : 'mine')
+  const [scope, setScope] = useState<Scope>('all')
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [queue, setQueue] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(false)
@@ -124,9 +125,8 @@ export default function TxtV2Sidebar({
     })
   }, [])
 
-  // Assignable users for the inline Assign menu (managers only).
+  // Assignable users for the inline Assign menu. Any Txt2 user can reassign.
   useEffect(() => {
-    if (!canAssign) return
     fetch('/api/hub/users')
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((data) => {
@@ -136,7 +136,7 @@ export default function TxtV2Sidebar({
         setUsers(list.map((u: SimpleUser) => ({ id: u.id, display_name: u.display_name })))
       })
       .catch(() => setUsers([]))
-  }, [canAssign])
+  }, [])
 
   const load = useCallback(async () => {
     // Contacts tab fetches its own data (SidebarContactsList); skip the
@@ -146,7 +146,7 @@ export default function TxtV2Sidebar({
       return
     }
     setLoading(true)
-    const showQueue = canAssign && scope !== 'archived' && scope !== 'responder'
+    const showQueue = canManage && scope !== 'archived' && scope !== 'responder'
     const requests: Promise<Response>[] = [
       fetch(`/api/txt/conversations?scope=${scope}&limit=100`),
     ]
@@ -165,7 +165,7 @@ export default function TxtV2Sidebar({
       setQueue([])
     }
     setLoading(false)
-  }, [scope, canAssign])
+  }, [scope, canManage])
 
   useEffect(() => {
     load()
@@ -290,9 +290,9 @@ export default function TxtV2Sidebar({
 
   const tabs: { id: Scope; label: string; show: boolean }[] = [
     { id: 'mine', label: 'Mine', show: true },
-    { id: 'all', label: 'All', show: canAssign },
+    { id: 'all', label: 'All', show: true },
     { id: 'archived', label: 'Archived', show: true },
-    { id: 'responder', label: 'Responder', show: canAssign },
+    { id: 'responder', label: 'Responder', show: canManage },
     { id: 'contacts', label: 'Contacts', show: true },
   ]
 
@@ -319,16 +319,16 @@ export default function TxtV2Sidebar({
         >
           + Add contact
         </button>
-        {canAssign && (
-          <div className="grid grid-cols-2 gap-2">
-            <button
-              type="button"
-              onClick={() => setGroupOpen(true)}
-              className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
-              title="New group conversation"
-            >
-              + Group
-            </button>
+        <div className={`grid ${canManage ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+          <button
+            type="button"
+            onClick={() => setGroupOpen(true)}
+            className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
+            title="New group conversation"
+          >
+            + Group
+          </button>
+          {canManage && (
             <button
               type="button"
               onClick={() => setBroadcastOpen(true)}
@@ -337,8 +337,8 @@ export default function TxtV2Sidebar({
             >
               📣 Broadcast
             </button>
-          </div>
-        )}
+          )}
+        </div>
         <input
           type="text"
           value={search}
@@ -376,7 +376,7 @@ export default function TxtV2Sidebar({
         {/* Pinned Queue section — unassigned threads, always at the top for
             managers (in Mine + All). Highlighted, with inline Claim / Assign /
             Archive so they can be triaged without leaving the list. */}
-        {canAssign && scope !== 'archived' && scope !== 'responder' && filteredQueue.length > 0 && (
+        {canManage && scope !== 'archived' && scope !== 'responder' && filteredQueue.length > 0 && (
           <div className="bg-orange-500/[0.06] border-b border-orange-500/20">
             <div className="px-4 pt-2 pb-1 flex items-center gap-2">
               <span className="text-[10px] uppercase tracking-wide text-orange-300/80 font-semibold">
@@ -543,7 +543,7 @@ export default function TxtV2Sidebar({
       )}
 
       <div className="px-3 py-2 border-t border-white/5 flex items-center justify-between">
-        {canAssign ? (
+        {canManage ? (
           <Link
             href="/hub/txt/broadcasts"
             onClick={onClose}
@@ -554,7 +554,7 @@ export default function TxtV2Sidebar({
         ) : (
           <span />
         )}
-        <span className="text-[10px] text-white/30">Staging</span>
+        <span />
       </div>
 
       {newOpen && (

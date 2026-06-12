@@ -69,6 +69,7 @@ export default function HubShell({
   canAccessZoneSizer,
   canAccessDialer,
   canAccessTxt,
+  canManageTxt,
   canAccessMarketing,
   canAdminMarketing,
   canAccessForms,
@@ -119,6 +120,7 @@ export default function HubShell({
   canAccessZoneSizer?: boolean
   canAccessDialer?: boolean
   canAccessTxt?: boolean
+  canManageTxt?: boolean
   canAccessMarketing?: boolean
   canAdminMarketing?: boolean
   canAccessForms?: boolean
@@ -592,7 +594,7 @@ export default function HubShell({
           <TxtV2Sidebar
             onClose={closeMobileDrawer}
             {...collapseProps}
-            canAssign={!!isAdmin || !!adminGrants?.hub}
+            canManage={!!canManageTxt}
             canCall={!!canAccessDialer}
             currentUserId={currentUserId}
           />

@@ -29,7 +29,7 @@ export async function POST(
   const [{ data: profile }, { data: conv }] = await Promise.all([
     supabase
       .from('user_profiles')
-      .select('role, can_admin_txt, can_assign_txt_threads')
+      .select('role, can_admin_txt, can_assign_txt_threads, can_access_txt')
       .eq('id', user.id)
       .single(),
     supabase
@@ -47,10 +47,12 @@ export async function POST(
     profile?.role === 'admin' ||
     profile?.can_admin_txt === true ||
     profile?.can_assign_txt_threads === true
+  const isTxtUser = isManager || profile?.can_access_txt === true
   const isCurrentOwner = conv.assigned_to === user.id
   const isSelfClaim = assignTo === user.id && conv.status === 'unassigned'
 
-  if (!isManager && !isCurrentOwner && !isSelfClaim) {
+  // Any Txt2 user can (re)assign across the shared inbox.
+  if (!isTxtUser && !isCurrentOwner && !isSelfClaim) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
