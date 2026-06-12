@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { getScoreboard, canSeeScoreboards } from '@/lib/scoreboards/registry'
 import Scoreboard1View from './Scoreboard1View'
 import Scoreboard2View from './Scoreboard2View'
+import Scoreboard3View from './Scoreboard3View'
 
 export const metadata = { title: 'Scoreboard' }
 export const dynamic = 'force-dynamic'
@@ -35,6 +36,8 @@ export default async function ScoreboardPage({ params }: { params: Promise<{ slu
       return <Scoreboard1View meta={board} />
     case '2':
       return <Scoreboard2View meta={board} />
+    case '3':
+      return <Scoreboard3View meta={board} />
     default:
       notFound()
   }

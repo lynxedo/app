@@ -59,10 +59,11 @@ export async function GET(request: Request) {
   const company = profile.company_id
 
   const board = new URL(request.url).searchParams.get('board') ?? '1'
-  if (board !== '1' && board !== '2') return NextResponse.json({ error: 'Unknown scoreboard' }, { status: 404 })
+  if (board !== '1' && board !== '2' && board !== '3') return NextResponse.json({ error: 'Unknown scoreboard' }, { status: 404 })
 
-  // Board 2 (WF Weed & Fert) has its own payload; board 1 falls through below.
+  // Boards 2 (WF) and 3 (IR) have their own payloads; board 1 falls through below.
   if (board === '2') return buildWfBoard(supabase, company)
+  if (board === '3') return buildIrBoard(supabase, company)
 
   // ── Date windows ──
   const t = chicagoToday()
@@ -370,5 +371,158 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
     monthlyRevenue: { labels: monthBuckets.map(b => b.label), data: monthlyRevenue.map(v => Math.round(v)) },
     programMix,
     techs,
+  })
+}
+
+// ── Board 3: IR Irrigation ───────────────────────────────────────────────────
+// All from Hub-synced tables: IR visit revenue (Jobber sync), recurring_services
+// + leads (Monday mirror), time_entries (timesheet). Technicians are assigned
+// explicitly (scoreboard_technicians) — NOT inferred from job title/department,
+// which are unreliable for the IR crew.
+//   - Active IR Gold customers + their annual value   (recurring_services, Gold base, Active)
+//   - Average repair ticket value                      (scoreboard_ir_repair_ticket RPC, trailing 12mo)
+//   - IR visit revenue weekly (6wk) + monthly (4mo), stacked by technician
+//   - Rachio sold / week + Irrigation Gold plans sold / week  (leads, trailing 6wk)
+//   - Per IR technician: $/hour last complete week     (visit revenue ÷ timesheet hours)
+const IR_GOLD_PROGRAM = 'IR - Irrigation Service Plan Gold'
+type LeadIr = { service: string[] | null; base_program_sold: string | null; stage: string | null; sold_date: string | null }
+
+async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
+  const t = chicagoToday()
+  const todayStr = ymd(utcNoon(t.y, t.m, t.d))
+  const currentMonday = mondayOf(utcNoon(t.y, t.m, t.d))
+  const sixWeekStart = addDays(currentMonday, -35)
+  const sixWeekStartStr = ymd(sixWeekStart)
+  const weekStarts: Date[] = Array.from({ length: 6 }, (_, i) => addDays(sixWeekStart, i * 7))
+  const weekKeys = weekStarts.map(ymd)
+  const weekLabels = weekStarts.map(weekLabel)
+  const weekIndex = new Map(weekKeys.map((k, i) => [k, i]))
+  // Last complete week = the 5th of 6 buckets (index 4); index 5 is the current partial week.
+  const LAST_WK = 4
+  const lastWeekStartStr = weekKeys[LAST_WK]
+  const lastWeekEndStr = ymd(addDays(weekStarts[LAST_WK], 6))
+
+  // Trailing 4 calendar months incl. current.
+  const monthBuckets: { key: string; label: string }[] = []
+  for (let i = 3; i >= 0; i--) {
+    let mm = t.m - i, yy = t.y
+    while (mm <= 0) { mm += 12; yy -= 1 }
+    monthBuckets.push({
+      key: `${yy}-${String(mm).padStart(2, '0')}`,
+      label: MONTH_ABBR[mm - 1] + (yy !== t.y ? ` '${String(yy).slice(2)}` : ''),
+    })
+  }
+  const fourMonthStart = `${monthBuckets[0].key}-01`
+  const monthIndex = new Map(monthBuckets.map((b, i) => [b.key, i]))
+
+  // Repair-ticket window: trailing 12 months.
+  const yearAgoStr = ymd(addDays(utcNoon(t.y, t.m, t.d), -365))
+
+  const [techRes, recRes, leadsRes, repairRes, irWeekRes, irMonthRes] = await Promise.all([
+    supabase.rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '3' }),
+    supabase.from('recurring_services').select('annual_value').eq('company_id', company).eq('base_program_sold', IR_GOLD_PROGRAM).eq('cancelled_status', 'Active'),
+    supabase.from('leads').select('service, base_program_sold, stage, sold_date').eq('company_id', company),
+    supabase.rpc('scoreboard_ir_repair_ticket', { p_company_id: company, p_start: yearAgoStr, p_end: todayStr }),
+    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
+    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
+  ])
+  if (techRes.error) return NextResponse.json({ error: techRes.error.message }, { status: 500 })
+  if (recRes.error) return NextResponse.json({ error: recRes.error.message }, { status: 500 })
+  if (leadsRes.error) return NextResponse.json({ error: leadsRes.error.message }, { status: 500 })
+  if (repairRes.error) return NextResponse.json({ error: repairRes.error.message }, { status: 500 })
+  if (irWeekRes.error) return NextResponse.json({ error: irWeekRes.error.message }, { status: 500 })
+  if (irMonthRes.error) return NextResponse.json({ error: irMonthRes.error.message }, { status: 500 })
+
+  // ── KPI 1+2: active IR Gold book ──
+  const goldRows = (recRes.data ?? []) as Array<{ annual_value: number | null }>
+  const activeGold = goldRows.length
+  const goldAnnualValue = goldRows.reduce((s, r) => s + (Number(r.annual_value) || 0), 0)
+
+  // ── KPI 3: average repair ticket (trailing 12 months) ──
+  const rt = ((repairRes.data ?? []) as Array<{ ticket_count: number; avg_value: number | null; median_value: number | null }>)[0]
+  const repairAvg = Math.round(Number(rt?.avg_value) || 0)
+  const repairMedian = Math.round(Number(rt?.median_value) || 0)
+  const repairCount = Number(rt?.ticket_count) || 0
+
+  // ── Total IR visit revenue per bucket (for the "Other/Unassigned" stack) ──
+  const totalWeekIr = weekKeys.map(() => 0)
+  for (const r of (irWeekRes.data ?? []) as RevRow[]) {
+    if (r.dept === 'IR') { const wi = weekIndex.get(r.bucket); if (wi !== undefined) totalWeekIr[wi] += Number(r.total) || 0 }
+  }
+  const totalMonthIr = monthBuckets.map(() => 0)
+  for (const r of (irMonthRes.data ?? []) as RevRow[]) {
+    if (r.dept === 'IR') { const mi = monthIndex.get(r.bucket.slice(0, 7)); if (mi !== undefined) totalMonthIr[mi] += Number(r.total) || 0 }
+  }
+
+  // ── Per-technician IR revenue (weekly + monthly) + $/hour last complete week ──
+  const techRows = (techRes.data ?? []) as TechRow[]
+  const techs = await Promise.all(techRows.map(async (tech) => {
+    const weekly = weekKeys.map(() => 0)     // IR-only, for the stacked chart
+    const monthly = monthBuckets.map(() => 0)
+    let lastWeekRevenue = 0                   // ALL depts last week, for $/hr ("visit revenue they had")
+    if (tech.jobber_external_id) {
+      const [wRes, mRes] = await Promise.all([
+        supabase.rpc('scoreboard_tech_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_id: tech.jobber_external_id }),
+        supabase.rpc('scoreboard_tech_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month', p_tech_external_id: tech.jobber_external_id }),
+      ])
+      for (const r of (wRes.data ?? []) as RevRow[]) {
+        const wi = weekIndex.get(r.bucket); if (wi === undefined) continue
+        if (r.dept === 'IR') weekly[wi] += Number(r.total) || 0
+        if (wi === LAST_WK) lastWeekRevenue += Number(r.total) || 0
+      }
+      for (const r of (mRes.data ?? []) as RevRow[]) {
+        if (r.dept !== 'IR') continue
+        const mi = monthIndex.get(r.bucket.slice(0, 7)); if (mi !== undefined) monthly[mi] += Number(r.total) || 0
+      }
+    }
+    const { data: hrs } = await supabase.rpc('scoreboard_tech_hours', { p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_id: tech.employee_id })
+    const hours = Number(hrs) || 0
+    return {
+      name: tech.display_name,
+      weekly: weekly.map(v => Math.round(v)),
+      monthly: monthly.map(v => Math.round(v)),
+      perHour: {
+        revenue: Math.round(lastWeekRevenue),
+        hours: round1(hours),
+        rate: hours > 0 ? Math.round(lastWeekRevenue / hours) : 0,
+        weekLabel: `${weekStarts[LAST_WK].getUTCMonth() + 1}/${weekStarts[LAST_WK].getUTCDate()}`,
+      },
+    }
+  }))
+
+  // "Other / Unassigned IR" stack = total IR revenue minus the tracked techs (when material).
+  const otherWeekly = totalWeekIr.map((tot, i) => Math.max(0, Math.round(tot - techs.reduce((s, tk) => s + tk.weekly[i], 0))))
+  const otherMonthly = totalMonthIr.map((tot, i) => Math.max(0, Math.round(tot - techs.reduce((s, tk) => s + tk.monthly[i], 0))))
+
+  // ── Rachio sold + Irrigation Gold plans sold per week (trailing 6 weeks) ──
+  const rachioSold = weekKeys.map(() => 0)
+  const goldSold = weekKeys.map(() => 0)
+  for (const l of (leadsRes.data ?? []) as LeadIr[]) {
+    if (!l.sold_date || (l.stage !== 'closed_won' && l.stage !== 'upsells')) continue
+    const sd = l.sold_date
+    const mk = ymd(mondayOf(utcNoon(Number(sd.slice(0, 4)), Number(sd.slice(5, 7)), Number(sd.slice(8, 10)))))
+    const wi = weekIndex.get(mk); if (wi === undefined) continue
+    const svc = (l.service ?? []).map(s => (s || '').toLowerCase())
+    const base = (l.base_program_sold || '').toLowerCase()
+    if (svc.some(s => s.includes('rachio'))) rachioSold[wi]++
+    if (base.includes('gold') || svc.some(s => s.includes('gold'))) goldSold[wi]++
+  }
+
+  return NextResponse.json({
+    asOf: new Date().toISOString(),
+    kpis: { activeGold, goldAnnualValue: Math.round(goldAnnualValue), repairAvg, repairMedian, repairCount },
+    weeklyByTech: {
+      labels: weekLabels,
+      techs: techs.map(tk => ({ name: tk.name, data: tk.weekly })),
+      other: otherWeekly.some(v => v > 1) ? otherWeekly : null,
+    },
+    monthlyByTech: {
+      labels: monthBuckets.map(b => b.label),
+      techs: techs.map(tk => ({ name: tk.name, data: tk.monthly })),
+      other: otherMonthly.some(v => v > 1) ? otherMonthly : null,
+    },
+    rachioSold: { labels: weekLabels, data: rachioSold },
+    goldSold: { labels: weekLabels, data: goldSold },
+    techs: techs.map(tk => ({ name: tk.name, perHour: tk.perHour })),
   })
 }

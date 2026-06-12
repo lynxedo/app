@@ -33,6 +33,12 @@ export const SCOREBOARDS: ScoreboardMeta[] = [
     subtitle: 'Lawn-care jobs, add-ons, program mix & technician performance',
     badge: 'WF',
   },
+  {
+    slug: '3',
+    title: 'IR Irrigation',
+    subtitle: 'Gold book, repair tickets, revenue by tech & Rachio / Gold plans sold',
+    badge: 'IR',
+  },
 ]
 
 /** Whether a user can see the Scoreboards section at all. */
