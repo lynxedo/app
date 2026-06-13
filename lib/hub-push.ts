@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendApnsPush } from '@/lib/hub-apns'
 import { sendFcmPush } from '@/lib/hub-fcm'
 import { computeUnreadCount } from '@/lib/hub-badges'
+import { isInDndSchedule, type DndSchedule } from '@/lib/twilio-voice'
 
 let vapidConfigured = false
 
@@ -38,7 +39,7 @@ export async function sendHubPush(
   const admin = createAdminClient()
   const { isMention = false, isDm = false, roomId = null } = options
 
-  // Fetch DND status + notification prefs + company_id for all target users
+  // Fetch DND status + notification prefs + company_id + new unified DND columns for all target users
   const [statusResult, prefsResult, profilesResult] = await Promise.all([
     admin
       .from('hub_users')
@@ -46,11 +47,11 @@ export async function sendHubPush(
       .in('id', userIds),
     admin
       .from('notification_prefs')
-      .select('user_id, room_id, level, dnd_enabled, dnd_start, dnd_end, notification_sound')
+      .select('user_id, room_id, level, notification_sound')
       .in('user_id', userIds),
     admin
       .from('user_profiles')
-      .select('id, company_id')
+      .select('id, company_id, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule')
       .in('id', userIds),
   ])
 
@@ -60,30 +61,15 @@ export async function sendHubPush(
     statusMap[u.id] = { status: u.status, status_until: u.status_until }
     if (u.company_id) companyMap[u.id] = u.company_id
   }
-  for (const p of (profilesResult.data ?? []) as { id: string; company_id: string }[]) {
+  type ProfileRow = { id: string; company_id: string; master_dnd_enabled: boolean; master_dnd_schedule: unknown; hub_dnd_enabled: boolean; hub_dnd_schedule: unknown }
+  const profileMap: Record<string, ProfileRow> = {}
+  for (const p of (profilesResult.data ?? []) as ProfileRow[]) {
+    profileMap[p.id] = p
     if (p.company_id && !companyMap[p.id]) companyMap[p.id] = p.company_id
   }
 
-  // Compute current Texas-local time as HH:MM:SS once per send.
-  // Heroes is the only customer today; this can become per-user TZ later.
-  const nowLocal = new Date().toLocaleTimeString('en-US', {
-    timeZone: 'America/Chicago',
-    hour12: false,
-    hour: '2-digit',
-    minute: '2-digit',
-    second: '2-digit',
-  })
-  const inDndWindow = (start: string | null, end: string | null): boolean => {
-    if (!start || !end) return false
-    // start === end is "off" (a zero-length window)
-    if (start === end) return false
-    // Window wraps midnight when end < start (e.g. 22:00 → 07:00)
-    return start < end
-      ? nowLocal >= start && nowLocal < end
-      : nowLocal >= start || nowLocal < end
-  }
 
-  type PrefRow = { user_id: string; room_id: string | null; level: string; dnd_enabled: boolean; dnd_start: string | null; dnd_end: string | null; notification_sound?: string | null }
+  type PrefRow = { user_id: string; room_id: string | null; level: string; notification_sound?: string | null }
   const globalPrefs: Record<string, PrefRow> = {}
   const roomPrefs: Record<string, Record<string, PrefRow>> = {}
   for (const p of (prefsResult.data ?? []) as PrefRow[]) {
@@ -99,19 +85,22 @@ export async function sendHubPush(
     const s = statusMap[uid]
     const global = globalPrefs[uid]
     const roomPref = roomId ? roomPrefs[uid]?.[roomId] : undefined
+    const up = profileMap[uid]
 
-    // Status-based DND (hub_users.status field)
+    // Master DND — overrides everything, silences all notifications
+    if (up?.master_dnd_enabled) return false
+    if (isInDndSchedule((up?.master_dnd_schedule as DndSchedule | null) || null)) return false
+
+    // Hub presence status DND (set when master DND is toggled on, or via status picker)
     const isDndActive = s?.status === 'dnd' &&
       (!s.status_until || new Date(s.status_until) > new Date())
     if (isDndActive) return false
 
-    // Pref-based DND (notification_prefs.dnd_enabled on global row)
-    if (global?.dnd_enabled) return false
+    // Hub notifications DND — silences Hub message pushes only
+    if (up?.hub_dnd_enabled) return false
+    if (isInDndSchedule((up?.hub_dnd_schedule as DndSchedule | null) || null)) return false
 
-    // Scheduled DND — time-of-day window on global row
-    if (global && inDndWindow(global.dnd_start, global.dnd_end)) return false
-
-    // Global notification level
+    // Global notification level (all / mentions / muted)
     if (global?.level === 'muted') return false
     if (global?.level === 'mentions' && !isMention && !isDm) return false
 

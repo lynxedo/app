@@ -10,7 +10,7 @@ type Status = 'available' | 'busy' | 'dnd' | null
 const STATUS_OPTIONS: { value: Status; label: string; dot: string; description: string }[] = [
   { value: 'available', label: 'Available', dot: 'bg-green-400', description: 'Ready to chat' },
   { value: 'busy', label: 'Busy', dot: 'bg-yellow-400', description: 'Minimizing interruptions' },
-  { value: 'dnd', label: 'Do Not Disturb', dot: 'bg-red-500', description: 'Suppress non-mention notifications' },
+  { value: 'dnd', label: 'Do Not Disturb', dot: 'bg-red-500', description: 'Appears as unavailable to others' },
   { value: null, label: 'Clear status', dot: 'bg-gray-500', description: '' },
 ]
 

@@ -18,7 +18,7 @@ export default async function SettingsPage() {
       .maybeSingle(),
     supabase
       .from('user_profiles')
-      .select('role, phone, full_name, landing_page, rail_config, txt_signature, dialer_global_ring, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_call_log2, can_access_timesheet, can_access_dialer, can_access_txt, can_access_marketing, can_access_forms, can_access_daily_log_v2, can_access_scoreboards')
+      .select('role, phone, full_name, landing_page, rail_config, txt_signature, dialer_global_ring, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_call_log2, can_access_timesheet, can_access_dialer, can_access_txt, can_access_marketing, can_access_forms, can_access_daily_log_v2, can_access_scoreboards, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule')
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -73,6 +73,12 @@ export default async function SettingsPage() {
 
   const txtSignature = (profileResult.data?.txt_signature ?? '') as string
   const dialerGlobalRing = profileResult.data?.dialer_global_ring ?? true
+  const initialMasterDndEnabled = profileResult.data?.master_dnd_enabled ?? false
+  const initialMasterDndSchedule = (profileResult.data?.master_dnd_schedule ?? null) as Record<string, unknown> | null
+  const initialHubDndEnabled = profileResult.data?.hub_dnd_enabled ?? false
+  const initialHubDndSchedule = (profileResult.data?.hub_dnd_schedule ?? null) as Record<string, unknown> | null
+  const initialDialerDndEnabled = profileResult.data?.dialer_dnd_enabled ?? false
+  const initialDialerDndSchedule = (profileResult.data?.dialer_dnd_schedule ?? null) as Record<string, unknown> | null
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto bg-gray-950 text-white">
@@ -91,6 +97,12 @@ export default async function SettingsPage() {
           railPermissions={railPermissions}
           txtSignature={txtSignature}
           dialerGlobalRing={dialerGlobalRing}
+          initialMasterDndEnabled={initialMasterDndEnabled}
+          initialMasterDndSchedule={initialMasterDndSchedule}
+          initialHubDndEnabled={initialHubDndEnabled}
+          initialHubDndSchedule={initialHubDndSchedule}
+          initialDialerDndEnabled={initialDialerDndEnabled}
+          initialDialerDndSchedule={initialDialerDndSchedule}
         />
       </main>
     </div>

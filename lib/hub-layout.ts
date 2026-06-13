@@ -12,7 +12,9 @@
  * A token is one of:
  *   - a CatalogId  ('routing', 'fleet', 'daily-log', 'tools', 'links', and the
  *     system items 'hub' | 'txt' | 'time-clock' | 'txt2' | 'dialer')
- *   - 'sys:dnd'        — Do Not Disturb quick-toggle (flips your status)
+ *   - 'sys:dnd'        — Master DND quick-toggle (silences everything)
+ *   - 'sys:hub-dnd'    — Hub notifications DND quick-toggle
+ *   - 'sys:dialer-dnd' — Dialer calls DND quick-toggle
  *   - 'url:<href>'     — a custom external link
  *   - 'room:<uuid>'    — jump to a Hub room
  *   - 'dm:<uuid>'      — jump to a DM / group conversation
@@ -73,14 +75,18 @@ const SYSTEM_CATALOG_IDS = new Set<CatalogId>(['hub', 'txt', 'time-clock'])
 const ALWAYS_ALLOWED = new Set<CatalogId>(['hub', 'txt', 'time-clock', 'tools', 'links'])
 
 export type Classified =
-  | { kind: 'dnd' }
+  | { kind: 'master-dnd' }
+  | { kind: 'hub-dnd' }
+  | { kind: 'dialer-dnd' }
   | { kind: 'url'; href: string }
   | { kind: 'room'; id: string }
   | { kind: 'dm'; id: string }
   | { kind: 'catalog'; id: CatalogId }
 
 export function classifyToken(token: string): Classified {
-  if (token === 'sys:dnd') return { kind: 'dnd' }
+  if (token === 'sys:dnd') return { kind: 'master-dnd' }
+  if (token === 'sys:hub-dnd') return { kind: 'hub-dnd' }
+  if (token === 'sys:dialer-dnd') return { kind: 'dialer-dnd' }
   if (token.startsWith('url:')) return { kind: 'url', href: token.slice(4) }
   if (token.startsWith('room:')) return { kind: 'room', id: token.slice(5) }
   if (token.startsWith('dm:')) return { kind: 'dm', id: token.slice(3) }

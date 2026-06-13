@@ -17,7 +17,9 @@ const APP_ACCENT: Record<string, string> = {
 }
 function accentForToken(token: string): string {
   const c = classifyToken(token)
-  if (c.kind === 'dnd') return '#f87171'
+  if (c.kind === 'master-dnd') return '#f87171'
+  if (c.kind === 'hub-dnd') return '#fb923c'
+  if (c.kind === 'dialer-dnd') return '#fb923c'
   if (c.kind === 'url') return '#7dd3fc'
   if (c.kind === 'room') return '#818cf8'
   if (c.kind === 'dm') return '#34d399'
@@ -48,7 +50,12 @@ export default function AppLauncherPanel({
   onLinks,
   onTimeClock,
   onToggleDnd,
+  onToggleHubDnd,
+  onToggleDialerDnd,
   currentUserStatus,
+  masterDndOn = false,
+  hubDndOn = false,
+  dialerDndOn = false,
   showAdmin,
 }: {
   /** The one shared layout list (already permission-filtered). */
@@ -66,7 +73,12 @@ export default function AppLauncherPanel({
   onLinks: () => void
   onTimeClock: () => void
   onToggleDnd: () => void
+  onToggleHubDnd?: () => void
+  onToggleDialerDnd?: () => void
   currentUserStatus?: string | null
+  masterDndOn?: boolean
+  hubDndOn?: boolean
+  dialerDndOn?: boolean
   showAdmin: boolean
 }) {
   const router = useRouter()
@@ -83,7 +95,9 @@ export default function AppLauncherPanel({
   // Resolve the same label a Tile would render, so the search filter matches what the user sees.
   function labelForToken(token: string): string | null {
     const c = classifyToken(token)
-    if (c.kind === 'dnd') return currentUserStatus === 'dnd' ? 'DND on' : 'DND'
+    if (c.kind === 'master-dnd') return masterDndOn ? 'DND on' : 'DND'
+    if (c.kind === 'hub-dnd') return hubDndOn ? 'Msg DND on' : 'Msg DND'
+    if (c.kind === 'dialer-dnd') return dialerDndOn ? 'Call DND on' : 'Call DND'
     if (c.kind === 'url') { try { return new URL(c.href).hostname.replace(/^www\./, '') } catch { return c.href } }
     if (c.kind === 'room') return rooms.find(r => r.id === c.id)?.name ?? null
     if (c.kind === 'dm') {
@@ -111,11 +125,33 @@ export default function AppLauncherPanel({
     let label = ''
     let onClick: () => void = () => {}
 
-    if (c.kind === 'dnd') {
-      const on = currentUserStatus === 'dnd'
+    if (c.kind === 'master-dnd') {
+      const on = masterDndOn
       icon = <span className={on ? 'text-red-400' : 'text-white/80'}><DndIcon /></span>
       label = on ? 'DND on' : 'DND'
       onClick = () => onToggleDnd()
+    } else if (c.kind === 'hub-dnd') {
+      const on = hubDndOn
+      icon = <span className={on ? 'text-orange-400' : 'text-white/80'}>
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          {on
+            ? <><path strokeLinecap="round" strokeLinejoin="round" d="M9.172 9.172A4 4 0 0116 12v2.586l2 2V16a2 2 0 01-2 2H8a2 2 0 01-2-2v-1.414l2-2V12a4 4 0 01.343-1.657M12 6V4m0 18v-2M2 2l20 20" /></>
+            : <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />}
+        </svg>
+      </span>
+      label = on ? 'Msg DND' : 'Msgs'
+      onClick = () => onToggleHubDnd?.()
+    } else if (c.kind === 'dialer-dnd') {
+      const on = dialerDndOn
+      icon = <span className={on ? 'text-orange-400' : 'text-white/80'}>
+        <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          {on
+            ? <><path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /><line x1="3" y1="3" x2="21" y2="21" strokeLinecap="round" /></>
+            : <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />}
+        </svg>
+      </span>
+      label = on ? 'Call DND' : 'Calls'
+      onClick = () => onToggleDialerDnd?.()
     } else if (c.kind === 'url') {
       try { label = new URL(c.href).hostname.replace(/^www\./, '') } catch { label = c.href }
       icon = <span className="text-white/80"><CatalogIcon id="links" /></span>

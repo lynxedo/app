@@ -9,6 +9,8 @@ import NotificationDeviceControls from '@/components/hub/NotificationDeviceContr
 import { type RailPermissions } from '@/components/hub/railCatalog'
 import TxtPersonalTemplates from './TxtPersonalTemplates'
 import DialerPersonalSettings from './DialerPersonalSettings'
+import DndScheduleEditor from '@/components/hub/DndScheduleEditor'
+import type { DndSchedule } from '@/lib/twilio-voice'
 
 interface HubProfile {
   full_name: string | null
@@ -35,10 +37,16 @@ interface Props {
   railPermissions: RailPermissions
   txtSignature: string
   dialerGlobalRing: boolean
+  initialMasterDndEnabled?: boolean
+  initialMasterDndSchedule?: Record<string, unknown> | null
+  initialHubDndEnabled?: boolean
+  initialHubDndSchedule?: Record<string, unknown> | null
+  initialDialerDndEnabled?: boolean
+  initialDialerDndSchedule?: Record<string, unknown> | null
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
-type Tab = 'profile' | 'my-hub' | 'integrations' | 'account'
+type Tab = 'profile' | 'my-hub' | 'notifications' | 'integrations' | 'account'
 
 function getInitials(name: string | null, email: string): string {
   if (name) {
@@ -82,7 +90,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, jobberConnected, landingPage, notifPref, railPermissions, txtSignature, dialerGlobalRing }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, jobberConnected, landingPage, notifPref, railPermissions, txtSignature, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
   const router = useRouter()
   const [activeTab, setActiveTab] = useState<Tab>('profile')
 
@@ -178,6 +186,63 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
     } catch (e) {
       setNotifErr(e instanceof Error ? e.message : 'Network error')
       setNotifSave('error')
+    }
+  }
+
+  // ── Unified DND (Master / Hub / Dialer) ──────────────────────────────────
+  const EMPTY_SCHED: DndSchedule = { tz: 'America/Chicago', days: {} }
+  function toSchedule(raw: Record<string, unknown> | null | undefined): DndSchedule {
+    if (!raw) return EMPTY_SCHED
+    return raw as unknown as DndSchedule
+  }
+
+  const [masterDndOn, setMasterDndOn] = useState(initialMasterDndEnabled)
+  const [masterScheduleEnabled, setMasterScheduleEnabled] = useState(
+    Boolean((initialMasterDndSchedule as DndSchedule | null)?.enabled)
+  )
+  const [masterSchedule, setMasterSchedule] = useState<DndSchedule>(
+    toSchedule(initialMasterDndSchedule as Record<string, unknown> | null)
+  )
+
+  const [hubDndOn, setHubDndOn] = useState(initialHubDndEnabled)
+  const [hubScheduleEnabled, setHubScheduleEnabled] = useState(
+    Boolean((initialHubDndSchedule as DndSchedule | null)?.enabled)
+  )
+  const [hubSchedule, setHubSchedule] = useState<DndSchedule>(
+    toSchedule(initialHubDndSchedule as Record<string, unknown> | null)
+  )
+
+  const [dialerDndOn, setDialerDndOn] = useState(initialDialerDndEnabled)
+  const [dialerScheduleEnabled, setDialerScheduleEnabled] = useState(
+    Boolean((initialDialerDndSchedule as DndSchedule | null)?.enabled)
+  )
+  const [dialerSchedule, setDialerSchedule] = useState<DndSchedule>(
+    toSchedule(initialDialerDndSchedule as Record<string, unknown> | null)
+  )
+
+  const [dndSave, setDndSave] = useState<SaveState>('idle')
+  const [dndErr, setDndErr] = useState<string | null>(null)
+
+  async function saveDndField(body: Record<string, unknown>) {
+    setDndSave('saving')
+    setDndErr(null)
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setDndErr(d.error ?? 'Save failed')
+        setDndSave('error')
+        return
+      }
+      setDndSave('saved')
+      setTimeout(() => setDndSave('idle'), 1500)
+    } catch (e) {
+      setDndErr(e instanceof Error ? e.message : 'Network error')
+      setDndSave('error')
     }
   }
 
@@ -369,10 +434,11 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
   const numInputCls = 'bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 w-24 text-center'
 
   const tabs: { id: Tab; label: string }[] = [
-    { id: 'profile',      label: 'Profile' },
-    { id: 'my-hub',       label: 'My Hub' },
-    { id: 'integrations', label: 'Integrations' },
-    { id: 'account',      label: 'Account' },
+    { id: 'profile',       label: 'Profile' },
+    { id: 'my-hub',        label: 'My Hub' },
+    { id: 'notifications', label: 'Notifications' },
+    { id: 'integrations',  label: 'Integrations' },
+    { id: 'account',       label: 'Account' },
   ]
 
   const initials = getInitials(hubName || null, email)
@@ -564,6 +630,181 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
       </section>
       )}
 
+      {/* ── NOTIFICATIONS TAB ───────────────────────────────────────────── */}
+      {activeTab === 'notifications' && (
+      <div className="space-y-6">
+
+        {/* Notification level */}
+        <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          <h2 className="font-semibold text-lg mb-1">Default notification level</h2>
+          <p className="text-gray-400 text-sm mb-5">Controls which Hub messages trigger push and web notifications.</p>
+          <div className="space-y-2">
+            {([
+              { value: 'all',      title: 'Everything',          desc: 'Notify me for all messages in rooms I belong to.' },
+              { value: 'mentions', title: 'Mentions + DMs only', desc: "Only when I'm @mentioned or someone DMs me." },
+              { value: 'muted',    title: 'Nothing',             desc: 'Mute everything. Mentions and DMs are still suppressed.' },
+            ] as const).map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => { setNotifLevel(opt.value); saveNotifPrefs({ level: opt.value }) }}
+                disabled={notifSave === 'saving'}
+                className={`w-full text-left p-4 rounded-xl border transition-colors ${
+                  notifLevel === opt.value ? 'bg-blue-600/10 border-blue-500/50' : 'bg-gray-950 border-gray-800 hover:border-gray-700'
+                } disabled:opacity-60`}
+              >
+                <div className="flex items-center gap-3">
+                  <span className={`w-4 h-4 rounded-full border-2 flex-none ${notifLevel === opt.value ? 'border-blue-400 bg-blue-400' : 'border-gray-600'}`} />
+                  <div>
+                    <div className="font-medium text-white">{opt.title}</div>
+                    <div className="text-xs text-gray-400 mt-0.5">{opt.desc}</div>
+                  </div>
+                </div>
+              </button>
+            ))}
+          </div>
+        </section>
+
+        {/* Master DND */}
+        <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          <div className="flex items-start justify-between gap-4 mb-1">
+            <div>
+              <h2 className="font-semibold text-lg flex items-center gap-2">
+                <span className="text-red-400">
+                  <svg className="w-5 h-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M18.364 18.364A9 9 0 005.636 5.636m12.728 12.728A9 9 0 015.636 5.636m12.728 12.728L5.636 5.636" /></svg>
+                </span>
+                Master Do Not Disturb
+              </h2>
+              <p className="text-xs font-semibold text-red-400 mt-0.5 uppercase tracking-wide">Overrides all other DND settings</p>
+            </div>
+            <label className="inline-flex items-center cursor-pointer flex-none">
+              <input
+                type="checkbox"
+                checked={masterDndOn}
+                onChange={e => {
+                  setMasterDndOn(e.target.checked)
+                  saveDndField({ master_dnd_enabled: e.target.checked })
+                }}
+                className="sr-only peer"
+              />
+              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-red-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
+            </label>
+          </div>
+          <p className="text-gray-400 text-sm mb-5">
+            When on, <strong className="text-white">all notifications stop</strong> — no calls, no Hub messages, no push. Your unread counts still update. Use this for vacation, focus blocks, or off-hours silence.
+          </p>
+          <DndScheduleEditor
+            scheduleEnabled={masterScheduleEnabled}
+            schedule={masterSchedule}
+            onToggleSchedule={on => {
+              setMasterScheduleEnabled(on)
+              const next: DndSchedule = { ...masterSchedule, enabled: on }
+              setMasterSchedule(next)
+              saveDndField({ master_dnd_schedule: next })
+            }}
+            onScheduleChange={s => setMasterSchedule(s)}
+            onCommit={() => saveDndField({ master_dnd_schedule: { ...masterSchedule, enabled: masterScheduleEnabled } })}
+          />
+        </section>
+
+        {/* Hub notifications DND */}
+        <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          <div className="flex items-start justify-between gap-4 mb-1">
+            <div>
+              <h2 className="font-semibold text-lg flex items-center gap-2">
+                <span className="text-orange-400">
+                  <svg className="w-5 h-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                </span>
+                Hub Notifications DND
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">Messages and mentions only — does not affect calls</p>
+            </div>
+            <label className="inline-flex items-center cursor-pointer flex-none">
+              <input
+                type="checkbox"
+                checked={hubDndOn}
+                onChange={e => {
+                  setHubDndOn(e.target.checked)
+                  saveDndField({ hub_dnd_enabled: e.target.checked })
+                }}
+                className="sr-only peer"
+              />
+              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
+            </label>
+          </div>
+          <p className="text-gray-400 text-sm mb-5">
+            Pauses Hub message push notifications without affecting your phone system. Still receive @mention and DM notifications regardless of the level picker above when this is off.
+          </p>
+          <DndScheduleEditor
+            scheduleEnabled={hubScheduleEnabled}
+            schedule={hubSchedule}
+            onToggleSchedule={on => {
+              setHubScheduleEnabled(on)
+              const next: DndSchedule = { ...hubSchedule, enabled: on }
+              setHubSchedule(next)
+              saveDndField({ hub_dnd_schedule: next })
+            }}
+            onScheduleChange={s => setHubSchedule(s)}
+            onCommit={() => saveDndField({ hub_dnd_schedule: { ...hubSchedule, enabled: hubScheduleEnabled } })}
+          />
+        </section>
+
+        {/* Calls DND */}
+        {railPermissions.canAccessDialer && (
+        <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          <div className="flex items-start justify-between gap-4 mb-1">
+            <div>
+              <h2 className="font-semibold text-lg flex items-center gap-2">
+                <span className="text-orange-400">
+                  <svg className="w-5 h-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                </span>
+                Calls DND
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">Calls only — does not affect Hub messages</p>
+            </div>
+            <label className="inline-flex items-center cursor-pointer flex-none">
+              <input
+                type="checkbox"
+                checked={dialerDndOn}
+                onChange={e => {
+                  setDialerDndOn(e.target.checked)
+                  saveDndField({ dialer_dnd_enabled: e.target.checked })
+                }}
+                className="sr-only peer"
+              />
+              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
+            </label>
+          </div>
+          <p className="text-gray-400 text-sm mb-5">
+            When on, inbound IVR transfers and ring groups skip you. Calls go to other group members (or to voicemail if no one is available). Does not affect Hub messages or push notifications.
+          </p>
+          <DndScheduleEditor
+            scheduleEnabled={dialerScheduleEnabled}
+            schedule={dialerSchedule}
+            onToggleSchedule={on => {
+              setDialerScheduleEnabled(on)
+              const next: DndSchedule = { ...dialerSchedule, enabled: on }
+              setDialerSchedule(next)
+              saveDndField({ dialer_dnd_schedule: next })
+            }}
+            onScheduleChange={s => setDialerSchedule(s)}
+            onCommit={() => saveDndField({ dialer_dnd_schedule: { ...dialerSchedule, enabled: dialerScheduleEnabled } })}
+          />
+        </section>
+        )}
+
+        {/* Push device controls */}
+        <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          <h2 className="font-semibold text-lg mb-1">Push devices</h2>
+          <p className="text-gray-400 text-sm mb-4">Manage which browsers and devices receive push notifications.</p>
+          <NotificationDeviceControls />
+        </section>
+
+        {dndErr && <p className="text-red-400 text-sm">{dndErr}</p>}
+        {dndSave === 'saved' && <p className="text-green-400 text-sm">Saved.</p>}
+
+      </div>
+      )}
+
       {/* ── INTEGRATIONS TAB ────────────────────────────────────────────── */}
       {activeTab === 'integrations' && <>
 
@@ -628,93 +869,6 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
           {landingErr && <p className="text-red-400 text-sm mt-2">{landingErr}</p>}
           {landingSave === 'saved' && <p className="text-green-400 text-xs mt-2">Saved.</p>}
         </div>
-      </section>
-
-      {/* Notifications */}
-      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-        <h2 className="font-semibold text-lg mb-1">Notifications</h2>
-        <p className="text-gray-400 text-sm mb-5">Controls all Hub notifications — push, web, and native app.</p>
-
-        <div className="mb-6">
-          <label className="block text-xs text-gray-400 mb-2">When to notify me</label>
-          <div className="space-y-2">
-            {([
-              { value: 'all',      title: 'Everything',  desc: 'Notify me for all messages in rooms I belong to.' },
-              { value: 'mentions', title: 'Mentions + DMs only', desc: 'Only when I’m @mentioned or someone DMs me.' },
-              { value: 'muted',    title: 'Nothing',     desc: 'Mute everything. Mentions and DMs are still suppressed.' },
-            ] as const).map(opt => (
-              <button
-                key={opt.value}
-                onClick={() => { setNotifLevel(opt.value); saveNotifPrefs({ level: opt.value }) }}
-                disabled={notifSave === 'saving'}
-                className={`w-full text-left p-4 rounded-xl border transition-colors ${
-                  notifLevel === opt.value
-                    ? 'bg-blue-600/10 border-blue-500/50'
-                    : 'bg-gray-950 border-gray-800 hover:border-gray-700'
-                } disabled:opacity-60`}
-              >
-                <div className="flex items-center gap-3">
-                  <span className={`w-4 h-4 rounded-full border-2 flex-none ${notifLevel === opt.value ? 'border-blue-400 bg-blue-400' : 'border-gray-600'}`} />
-                  <div>
-                    <div className="font-medium text-white">{opt.title}</div>
-                    <div className="text-xs text-gray-400 mt-0.5">{opt.desc}</div>
-                  </div>
-                </div>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Scheduled DND */}
-        <div className="border-t border-gray-800 pt-5">
-          <div className="flex items-center justify-between mb-1">
-            <h3 className="font-medium text-white">Scheduled Do Not Disturb</h3>
-            <label className="inline-flex items-center cursor-pointer">
-              <input
-                type="checkbox"
-                checked={dndEnabled}
-                onChange={e => { setDndEnabled(e.target.checked); saveNotifPrefs({ dnd_enabled: e.target.checked }) }}
-                className="sr-only peer"
-              />
-              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
-            </label>
-          </div>
-          <p className="text-gray-400 text-sm mb-4">
-            Automatically silence non-mention notifications during a recurring window every day. Mentions still come through.
-          </p>
-          <div className={`grid grid-cols-2 gap-4 ${dndEnabled ? '' : 'opacity-50 pointer-events-none'}`}>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Quiet hours start</label>
-              <input
-                type="time"
-                value={dndStart}
-                onChange={e => setDndStart(e.target.value)}
-                onBlur={() => saveNotifPrefs()}
-                className={inputCls}
-              />
-            </div>
-            <div>
-              <label className="block text-xs text-gray-400 mb-1.5">Quiet hours end</label>
-              <input
-                type="time"
-                value={dndEnd}
-                onChange={e => setDndEnd(e.target.value)}
-                onBlur={() => saveNotifPrefs()}
-                className={inputCls}
-              />
-            </div>
-          </div>
-          {dndEnabled && dndStart && dndEnd && (
-            <p className="text-xs text-gray-500 mt-2">
-              {dndStart > dndEnd ? `Quiet from ${dndStart} until ${dndEnd} the next morning (wraps midnight).` : `Quiet from ${dndStart} to ${dndEnd} each day.`}
-            </p>
-          )}
-        </div>
-
-        {notifErr && <p className="text-red-400 text-sm mt-3">{notifErr}</p>}
-        {notifSave === 'saved' && <p className="text-green-400 text-xs mt-3">Saved.</p>}
-
-        <NotificationDeviceControls />
       </section>
 
       {/* Communications */}
