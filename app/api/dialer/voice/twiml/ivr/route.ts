@@ -14,7 +14,7 @@ import {
 } from '@/lib/twilio-voice'
 import { buildIvrContext } from '@/lib/dialer-ivr-context'
 import { conferenceRoomName } from '@/lib/twilio-conference'
-import { connectInboundToAgentViaConference } from '@/lib/dialer-conference-connect'
+import { connectInboundToAgentViaConference, isAgentDndNow } from '@/lib/dialer-conference-connect'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -161,7 +161,8 @@ export async function POST(request: NextRequest) {
         voicemailOwner = resolved.ownerUserId
       }
     }
-    if (agentIdentity && callSid) {
+    const agentDnd = voicemailOwner ? await isAgentDndNow(admin, voicemailOwner) : false
+    if (agentIdentity && callSid && !agentDnd) {
       const room = conferenceRoomName()
       // Stamp the room + the answering agent on the calls row so the web/native
       // dialer can discover its conference (enables in-call hold + transfer).

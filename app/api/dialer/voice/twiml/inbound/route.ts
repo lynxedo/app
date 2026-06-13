@@ -17,7 +17,7 @@ import {
 } from '@/lib/twilio-voice'
 import { buildIvrContext } from '@/lib/dialer-ivr-context'
 import { conferenceRoomName } from '@/lib/twilio-conference'
-import { connectInboundToAgentViaConference } from '@/lib/dialer-conference-connect'
+import { connectInboundToAgentViaConference, isAgentDndNow } from '@/lib/dialer-conference-connect'
 import type { ResponderMode } from '@/lib/responder'
 
 const HEROES_COMPANY_ID =
@@ -230,7 +230,7 @@ export async function POST(request: NextRequest) {
     // legacy ring-Ben-then-voicemail path so calls don't die in dead air.
   }
 
-  if (routeToUserId) {
+  if (routeToUserId && !(await isAgentDndNow(admin, routeToUserId))) {
     // Phase 3: bridge the caller through a conference and ring the configured
     // user as the 'agent' participant. No-answer falls to voicemail via the
     // agent participant's status callback. (Recording + consent handled inside.)
