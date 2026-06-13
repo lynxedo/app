@@ -20,7 +20,7 @@ function ensureVapid() {
 }
 
 interface PushOptions {
-  isMention?: boolean   // true when this push is an @mention (bypasses most DND)
+  isMention?: boolean   // true when this push is an @mention (bypasses mentions-level filter, not DND)
   isDm?: boolean        // true for DM messages — bypasses mentions-level filter but not muted/DND
   roomId?: string | null  // room context for per-room mute checks
 }
@@ -103,13 +103,13 @@ export async function sendHubPush(
     // Status-based DND (hub_users.status field)
     const isDndActive = s?.status === 'dnd' &&
       (!s.status_until || new Date(s.status_until) > new Date())
-    if (isDndActive && !isMention) return false
+    if (isDndActive) return false
 
     // Pref-based DND (notification_prefs.dnd_enabled on global row)
-    if (global?.dnd_enabled && !isMention) return false
+    if (global?.dnd_enabled) return false
 
     // Scheduled DND — time-of-day window on global row
-    if (global && inDndWindow(global.dnd_start, global.dnd_end) && !isMention) return false
+    if (global && inDndWindow(global.dnd_start, global.dnd_end)) return false
 
     // Global notification level
     if (global?.level === 'muted') return false

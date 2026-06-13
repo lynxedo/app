@@ -164,14 +164,26 @@ export async function resolveRingGroupAvailableMembers(
   const members = (memberRows ?? []) as (RingGroupMember & { position: number })[]
   if (members.length === 0) return { group, available: [] }
 
-  const { data: profileRows } = await admin
-    .from('user_profiles')
-    .select('id, dialer_dnd_enabled, dialer_dnd_schedule')
-    .in('id', members.map(m => m.user_id))
+  const memberIds = members.map(m => m.user_id)
+  const [{ data: profileRows }, { data: hubStatusRows }] = await Promise.all([
+    admin
+      .from('user_profiles')
+      .select('id, dialer_dnd_enabled, dialer_dnd_schedule')
+      .in('id', memberIds),
+    admin
+      .from('hub_users')
+      .select('id, status, status_until')
+      .in('id', memberIds),
+  ])
+  const hubDndById = new Map<string, boolean>()
+  for (const u of hubStatusRows ?? []) {
+    const active = u.status === 'dnd' && (!u.status_until || new Date(u.status_until) > new Date())
+    hubDndById.set(u.id, active)
+  }
   const dndById = new Map<string, boolean>()
   for (const p of profileRows ?? []) {
     const sched = (p.dialer_dnd_schedule || null) as DndSchedule | null
-    dndById.set(p.id, Boolean(p.dialer_dnd_enabled) || isInDndSchedule(sched))
+    dndById.set(p.id, Boolean(p.dialer_dnd_enabled) || isInDndSchedule(sched) || Boolean(hubDndById.get(p.id)))
   }
   return { group, available: members.filter(m => !dndById.get(m.user_id)) }
 }
