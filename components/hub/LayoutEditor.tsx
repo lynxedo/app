@@ -28,7 +28,9 @@ function convFirstNames(conv: Conversation, currentUserId?: string): string {
 
 function TokenIcon({ token, rooms, conversations, currentUserId }: { token: string; rooms: Room[]; conversations: Conversation[]; currentUserId?: string }) {
   const c = classifyToken(token)
-  if (c.kind === 'dnd') return <span className="text-white/80"><DndIcon /></span>
+  if (c.kind === 'master-dnd') return <span className="text-red-400"><DndIcon /></span>
+  if (c.kind === 'hub-dnd') return <span className="text-orange-400"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg></span>
+  if (c.kind === 'dialer-dnd') return <span className="text-orange-400"><svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg></span>
   if (c.kind === 'url') return <span className="text-white/80"><CatalogIcon id="links" /></span>
   if (c.kind === 'room') {
     const room = rooms.find(r => r.id === c.id)
@@ -45,7 +47,9 @@ function TokenIcon({ token, rooms, conversations, currentUserId }: { token: stri
 
 function tokenLabel(token: string, rooms: Room[], conversations: Conversation[], currentUserId?: string): string {
   const c = classifyToken(token)
-  if (c.kind === 'dnd') return 'Do Not Disturb'
+  if (c.kind === 'master-dnd') return 'Master DND'
+  if (c.kind === 'hub-dnd') return 'Hub Notifications DND'
+  if (c.kind === 'dialer-dnd') return 'Calls DND'
   if (c.kind === 'url') {
     try { return new URL(c.href).hostname.replace(/^www\./, '') } catch { return c.href }
   }
@@ -265,16 +269,51 @@ export default function LayoutEditor({
             )}
 
             {addTab === 'actions' && (
-              <button
-                type="button"
-                onClick={() => addToken('sys:dnd')}
-                disabled={inList.has('sys:dnd')}
-                className="w-full flex items-center gap-2 bg-gray-800/50 hover:bg-gray-800 disabled:opacity-40 border border-gray-700/60 rounded-lg px-2.5 py-2 text-left"
-              >
-                <span className="text-white/80"><DndIcon /></span>
-                <span className="text-sm text-white flex-1">Do Not Disturb toggle</span>
-                <span className="text-orange-400 text-lg leading-none">{inList.has('sys:dnd') ? '✓' : '+'}</span>
-              </button>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  onClick={() => addToken('sys:dnd')}
+                  disabled={inList.has('sys:dnd')}
+                  className="w-full flex items-center gap-2 bg-gray-800/50 hover:bg-gray-800 disabled:opacity-40 border border-gray-700/60 rounded-lg px-2.5 py-2 text-left"
+                >
+                  <span className="text-red-400"><DndIcon /></span>
+                  <div className="flex-1">
+                    <div className="text-sm text-white">Master DND toggle</div>
+                    <div className="text-[11px] text-gray-500">Silences all — calls, messages, push</div>
+                  </div>
+                  <span className="text-orange-400 text-lg leading-none">{inList.has('sys:dnd') ? '✓' : '+'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => addToken('sys:hub-dnd')}
+                  disabled={inList.has('sys:hub-dnd')}
+                  className="w-full flex items-center gap-2 bg-gray-800/50 hover:bg-gray-800 disabled:opacity-40 border border-gray-700/60 rounded-lg px-2.5 py-2 text-left"
+                >
+                  <span className="text-orange-400">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" /></svg>
+                  </span>
+                  <div className="flex-1">
+                    <div className="text-sm text-white">Hub notifications DND</div>
+                    <div className="text-[11px] text-gray-500">Pauses Hub message push notifications</div>
+                  </div>
+                  <span className="text-orange-400 text-lg leading-none">{inList.has('sys:hub-dnd') ? '✓' : '+'}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => addToken('sys:dialer-dnd')}
+                  disabled={inList.has('sys:dialer-dnd')}
+                  className="w-full flex items-center gap-2 bg-gray-800/50 hover:bg-gray-800 disabled:opacity-40 border border-gray-700/60 rounded-lg px-2.5 py-2 text-left"
+                >
+                  <span className="text-orange-400">
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /></svg>
+                  </span>
+                  <div className="flex-1">
+                    <div className="text-sm text-white">Calls DND toggle</div>
+                    <div className="text-[11px] text-gray-500">Silences inbound calls to your extension</div>
+                  </div>
+                  <span className="text-orange-400 text-lg leading-none">{inList.has('sys:dialer-dnd') ? '✓' : '+'}</span>
+                </button>
+              </div>
             )}
 
             {addTab === 'url' && (

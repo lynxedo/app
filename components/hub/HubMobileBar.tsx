@@ -36,6 +36,8 @@ export default function HubMobileBar({
   onToolsClick,
   onLinksClick,
   onToggleDnd,
+  onToggleHubDnd,
+  onToggleDialerDnd,
   isClockedIn,
   unreadHub,
   unheardVoicemails,
@@ -48,6 +50,9 @@ export default function HubMobileBar({
   conversations = [],
   currentUserId,
   currentUserStatus,
+  masterDndOn = false,
+  hubDndOn = false,
+  dialerDndOn = false,
   hidden,
   drawerOpen,
   activeManualRail,
@@ -63,6 +68,8 @@ export default function HubMobileBar({
   onToolsClick: () => void
   onLinksClick: () => void
   onToggleDnd: () => void
+  onToggleHubDnd?: () => void
+  onToggleDialerDnd?: () => void
   isClockedIn?: boolean
   unreadHub?: boolean
   unheardVoicemails?: number
@@ -76,6 +83,9 @@ export default function HubMobileBar({
   conversations?: RailConversation[]
   currentUserId?: string
   currentUserStatus?: string | null
+  masterDndOn?: boolean
+  hubDndOn?: boolean
+  dialerDndOn?: boolean
   hidden?: boolean
   drawerOpen?: boolean
   activeManualRail?: string | null
@@ -140,12 +150,38 @@ export default function HubMobileBar({
   function renderItem(token: string, idx: number) {
     const c = classifyToken(token)
 
-    if (c.kind === 'dnd') {
-      const on = currentUserStatus === 'dnd'
+    if (c.kind === 'master-dnd') {
+      const on = masterDndOn
       return (
-        <button key={`dnd-${idx}`} type="button" onClick={onToggleDnd} className={btn(false)} aria-pressed={on}>
+        <button key={`master-dnd-${idx}`} type="button" onClick={onToggleDnd} className={btn(false)} aria-pressed={on}>
           <span className={on ? 'text-red-400' : ''}><DndIcon /></span>
           <span>{on ? 'DND on' : 'DND'}</span>
+        </button>
+      )
+    }
+    if (c.kind === 'hub-dnd') {
+      const on = hubDndOn
+      return (
+        <button key={`hub-dnd-${idx}`} type="button" onClick={() => onToggleHubDnd?.()} className={btn(false)} aria-pressed={on}>
+          <span className={on ? 'text-orange-400' : ''}>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />
+            </svg>
+          </span>
+          <span>{on ? 'Msg DND' : 'Msgs'}</span>
+        </button>
+      )
+    }
+    if (c.kind === 'dialer-dnd') {
+      const on = dialerDndOn
+      return (
+        <button key={`dialer-dnd-${idx}`} type="button" onClick={() => onToggleDialerDnd?.()} className={btn(false)} aria-pressed={on}>
+          <span className={on ? 'text-orange-400' : ''}>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+            </svg>
+          </span>
+          <span>{on ? 'Call DND' : 'Calls'}</span>
         </button>
       )
     }

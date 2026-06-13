@@ -165,7 +165,7 @@ export async function resolveRingGroupAvailableMembers(
   const [{ data: profileRows }, { data: hubStatusRows }] = await Promise.all([
     admin
       .from('user_profiles')
-      .select('id, dialer_dnd_enabled, dialer_dnd_schedule')
+      .select('id, master_dnd_enabled, master_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule')
       .in('id', memberIds),
     admin
       .from('hub_users')
@@ -179,35 +179,57 @@ export async function resolveRingGroupAvailableMembers(
   }
   const dndById = new Map<string, boolean>()
   for (const p of profileRows ?? []) {
-    const sched = (p.dialer_dnd_schedule || null) as DndSchedule | null
-    dndById.set(p.id, Boolean(p.dialer_dnd_enabled) || isInDndSchedule(sched) || Boolean(hubDndById.get(p.id)))
+    const masterSched = (p.master_dnd_schedule || null) as DndSchedule | null
+    const dialerSched = (p.dialer_dnd_schedule || null) as DndSchedule | null
+    dndById.set(
+      p.id,
+      Boolean(p.master_dnd_enabled) || isInDndSchedule(masterSched) ||
+      Boolean(hubDndById.get(p.id)) ||
+      Boolean(p.dialer_dnd_enabled) || isInDndSchedule(dialerSched)
+    )
   }
   return { group, available: members.filter(m => !dndById.get(m.user_id)) }
 }
 
-// True if the given user is currently DND — checks both Hub presence status
-// and Dialer DND toggle/schedule so callers on the single-user or IVR paths
-// get the same treatment as ring group members.
+// True if the given user is currently DND for calls — checks:
+//   1. Master DND (user_profiles.master_dnd_enabled / master_dnd_schedule) — overrides all
+//   2. Hub presence status (hub_users.status = 'dnd') — set when master DND is toggled on
+//   3. Dialer DND (user_profiles.dialer_dnd_enabled / dialer_dnd_schedule) — calls only
+// Fails open (returns false) on any DB error so a query hiccup never drops a call.
 export async function isAgentDndNow(
   admin: ReturnType<typeof createAdminClient>,
   userId: string,
 ): Promise<boolean> {
-  const [{ data: profile }, { data: hubUser }] = await Promise.all([
-    admin
-      .from('user_profiles')
-      .select('dialer_dnd_enabled, dialer_dnd_schedule')
-      .eq('id', userId)
-      .maybeSingle(),
-    admin
-      .from('hub_users')
-      .select('status, status_until')
-      .eq('id', userId)
-      .maybeSingle(),
-  ])
-  const hubDnd = hubUser?.status === 'dnd' &&
-    (!hubUser.status_until || new Date(hubUser.status_until) > new Date())
-  const sched = (profile?.dialer_dnd_schedule || null) as DndSchedule | null
-  return hubDnd || Boolean(profile?.dialer_dnd_enabled) || isInDndSchedule(sched)
+  try {
+    const [{ data: profile }, { data: hubUser }] = await Promise.all([
+      admin
+        .from('user_profiles')
+        .select('master_dnd_enabled, master_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule')
+        .eq('id', userId)
+        .maybeSingle(),
+      admin
+        .from('hub_users')
+        .select('status, status_until')
+        .eq('id', userId)
+        .maybeSingle(),
+    ])
+
+    // Master DND — silences everything
+    const masterSched = (profile?.master_dnd_schedule || null) as DndSchedule | null
+    if (Boolean(profile?.master_dnd_enabled) || isInDndSchedule(masterSched)) return true
+
+    // Hub presence status DND (mirrors master DND being on, or set manually via status picker)
+    const hubDnd = hubUser?.status === 'dnd' &&
+      (!hubUser.status_until || new Date(hubUser.status_until) > new Date())
+    if (hubDnd) return true
+
+    // Dialer-specific DND
+    const dialerSched = (profile?.dialer_dnd_schedule || null) as DndSchedule | null
+    return Boolean(profile?.dialer_dnd_enabled) || isInDndSchedule(dialerSched)
+  } catch {
+    console.warn('[isAgentDndNow] DND check failed for', userId, '— allowing call through')
+    return false
+  }
 }
 
 function voicemailRedirectTwiml(baseUrl: string): string {

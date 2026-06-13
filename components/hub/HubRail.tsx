@@ -89,6 +89,11 @@ export default function HubRail({
   onActivityClick,
   onOpenLauncher,
   onToggleDnd,
+  onToggleHubDnd,
+  onToggleDialerDnd,
+  masterDndOn = false,
+  hubDndOn = false,
+  dialerDndOn = false,
   onOpenLayoutEditor,
   currentUserId,
   currentUserDisplayName,
@@ -125,8 +130,16 @@ export default function HubRail({
   onTimeClockClick: () => void
   onActivityClick: () => void
   onOpenLauncher: () => void
-  /** Flip DND status (sys:dnd rail item). */
+  /** Toggle master DND (sys:dnd — silences everything). */
   onToggleDnd: () => void
+  /** Toggle Hub notifications DND (sys:hub-dnd). */
+  onToggleHubDnd?: () => void
+  /** Toggle Dialer calls DND (sys:dialer-dnd). */
+  onToggleDialerDnd?: () => void
+  /** Current state of each DND type for rail item rendering. */
+  masterDndOn?: boolean
+  hubDndOn?: boolean
+  dialerDndOn?: boolean
   /** Open the layout customizer modal. */
   onOpenLayoutEditor: () => void
   currentUserId?: string
@@ -283,20 +296,66 @@ export default function HubRail({
   function renderItem(token: string, idx: number) {
     const c = classifyToken(token)
 
-    // ── DND quick-toggle ──
-    if (c.kind === 'dnd') {
-      const on = currentUserStatus === 'dnd'
+    // ── Master DND quick-toggle ──
+    if (c.kind === 'master-dnd') {
+      const on = masterDndOn
       return (
         <button
-          key={`dnd-${idx}`}
+          key={`master-dnd-${idx}`}
           type="button"
           onClick={onToggleDnd}
           className={railBtnClass(false)}
-          title={on ? 'Do Not Disturb — on (tap to turn off)' : 'Do Not Disturb — off (tap to turn on)'}
+          title={on ? 'Master DND on — tap to turn off' : 'Master DND off — tap to turn on (silences everything)'}
           aria-pressed={on}
         >
           <span className={on ? 'text-red-400' : ''}><DndIcon /></span>
           <span>{on ? 'DND on' : 'DND'}</span>
+        </button>
+      )
+    }
+
+    // ── Hub notifications DND quick-toggle ──
+    if (c.kind === 'hub-dnd') {
+      const on = hubDndOn
+      return (
+        <button
+          key={`hub-dnd-${idx}`}
+          type="button"
+          onClick={onToggleHubDnd}
+          className={railBtnClass(false)}
+          title={on ? 'Hub msgs DND on — tap to turn off' : 'Hub msgs DND off — tap to turn on'}
+          aria-pressed={on}
+        >
+          <span className={on ? 'text-orange-400' : ''}>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.4-1.4A2 2 0 0118 14.16V11a6 6 0 10-12 0v3.16a2 2 0 01-.6 1.44L4 17h5m6 0a3 3 0 11-6 0" />
+              {on && <line x1="3" y1="3" x2="21" y2="21" strokeWidth={2} />}
+            </svg>
+          </span>
+          <span>{on ? 'Msg DND' : 'Msg'}</span>
+        </button>
+      )
+    }
+
+    // ── Dialer DND quick-toggle ──
+    if (c.kind === 'dialer-dnd') {
+      const on = dialerDndOn
+      return (
+        <button
+          key={`dialer-dnd-${idx}`}
+          type="button"
+          onClick={onToggleDialerDnd}
+          className={railBtnClass(false)}
+          title={on ? 'Calls DND on — tap to turn off' : 'Calls DND off — tap to turn on'}
+          aria-pressed={on}
+        >
+          <span className={on ? 'text-orange-400' : ''}>
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />
+              {on && <line x1="3" y1="3" x2="21" y2="21" strokeWidth={2} />}
+            </svg>
+          </span>
+          <span>{on ? 'Call DND' : 'Calls'}</span>
         </button>
       )
     }
@@ -600,8 +659,30 @@ export default function HubRail({
         </button>
       </div>
 
+      {/* DND quick-toggle pills — always visible above the You button */}
+      <div className="flex-none flex gap-1 px-2 pt-2 pb-1 border-t border-white/5">
+        <button
+          type="button"
+          onClick={onToggleDnd}
+          title="Master DND — silences all"
+          className={`flex-1 text-[9px] font-semibold py-1 rounded-md transition-colors leading-none ${masterDndOn ? 'bg-red-500/25 text-red-400 ring-1 ring-red-500/40' : 'bg-white/5 text-white/35 hover:text-white/60'}`}
+        >ALL</button>
+        <button
+          type="button"
+          onClick={onToggleHubDnd}
+          title="Hub notifications DND"
+          className={`flex-1 text-[9px] font-semibold py-1 rounded-md transition-colors leading-none ${hubDndOn ? 'bg-orange-500/25 text-orange-400 ring-1 ring-orange-500/40' : 'bg-white/5 text-white/35 hover:text-white/60'}`}
+        >MSG</button>
+        <button
+          type="button"
+          onClick={onToggleDialerDnd}
+          title="Calls DND"
+          className={`flex-1 text-[9px] font-semibold py-1 rounded-md transition-colors leading-none ${dialerDndOn ? 'bg-orange-500/25 text-orange-400 ring-1 ring-orange-500/40' : 'bg-white/5 text-white/35 hover:text-white/60'}`}
+        >CALL</button>
+      </div>
+
       {/* Fixed footer: Settings, Admin (gated), You */}
-      <div className="flex-none flex flex-col border-t border-white/5">
+      <div className="flex-none flex flex-col">
         <Link
           href="/hub/settings"
           onClick={handleNavLinkClick('settings')}

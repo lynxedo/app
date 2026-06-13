@@ -77,6 +77,9 @@ export default function HubShell({
   companyId,
   dialerGlobalRing,
   myPresenceMode,
+  initialMasterDndEnabled = false,
+  initialHubDndEnabled = false,
+  initialDialerDndEnabled = false,
   children,
 }: {
   rooms: Room[]
@@ -130,6 +133,9 @@ export default function HubShell({
    *  Device registers on every Hub page so IncomingCall pops anywhere. */
   dialerGlobalRing?: boolean
   myPresenceMode?: 'clock' | 'activity'
+  initialMasterDndEnabled?: boolean
+  initialHubDndEnabled?: boolean
+  initialDialerDndEnabled?: boolean
   children: React.ReactNode
 }) {
   const pathname = usePathname() ?? ''
@@ -182,6 +188,9 @@ export default function HubShell({
   const [showNotifPrefs, setShowNotifPrefs] = useState(false)
   const [textSize, setTextSize] = useState(initialTextSize ?? 'default')
   const [liveStatus, setLiveStatus] = useState<string | null>(currentUserStatus ?? null)
+  const [masterDndEnabled, setMasterDndEnabled] = useState<boolean>(initialMasterDndEnabled)
+  const [hubDndEnabled, setHubDndEnabled] = useState<boolean>(initialHubDndEnabled)
+  const [dialerDndEnabled, setDialerDndEnabled] = useState<boolean>(initialDialerDndEnabled)
   const [unreadActivity, setUnreadActivity] = useState<number>(0)
   const [unreadHub, setUnreadHub] = useState<boolean>(false)
   const [dailyLogUnread, setDailyLogUnread] = useState<boolean>(false)
@@ -512,15 +521,47 @@ export default function HubShell({
     })
   }, [])
 
-  // DND quick-toggle (sys:dnd rail/bar item). Flips status dnd ⇄ available.
+  // Master DND quick-toggle (sys:dnd). Sets master_dnd_enabled + mirrors hub status dot.
   const toggleDnd = useCallback(() => {
-    setLiveStatus(prev => {
-      const next = prev === 'dnd' ? 'available' : 'dnd'
+    setMasterDndEnabled(prev => {
+      const next = !prev
+      const nextStatus = next ? 'dnd' : 'available'
+      fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ master_dnd_enabled: next }),
+      }).then(res => { if (!res.ok) setMasterDndEnabled(prev) }).catch(() => setMasterDndEnabled(prev))
       fetch('/api/hub/users/me', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ status: next }),
-      }).then(res => { if (!res.ok) setLiveStatus(prev) }).catch(() => setLiveStatus(prev))
+        body: JSON.stringify({ status: nextStatus }),
+      }).then(res => { if (res.ok) setLiveStatus(nextStatus) }).catch(() => {})
+      return next
+    })
+  }, [])
+
+  // Hub notifications DND quick-toggle (sys:hub-dnd). Silences Hub push only.
+  const toggleHubDnd = useCallback(() => {
+    setHubDndEnabled(prev => {
+      const next = !prev
+      fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ hub_dnd_enabled: next }),
+      }).then(res => { if (!res.ok) setHubDndEnabled(prev) }).catch(() => setHubDndEnabled(prev))
+      return next
+    })
+  }, [])
+
+  // Dialer DND quick-toggle (sys:dialer-dnd). Silences inbound calls only.
+  const toggleDialerDnd = useCallback(() => {
+    setDialerDndEnabled(prev => {
+      const next = !prev
+      fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dialer_dnd_enabled: next }),
+      }).then(res => { if (!res.ok) setDialerDndEnabled(prev) }).catch(() => setDialerDndEnabled(prev))
       return next
     })
   }, [])
@@ -719,6 +760,11 @@ export default function HubShell({
         onActivityClick={() => setShowActivity(true)}
         onOpenLauncher={() => setShowDesktopLauncher(v => !v)}
         onToggleDnd={toggleDnd}
+        onToggleHubDnd={toggleHubDnd}
+        onToggleDialerDnd={toggleDialerDnd}
+        masterDndOn={masterDndEnabled}
+        hubDndOn={hubDndEnabled}
+        dialerDndOn={dialerDndEnabled}
         onOpenLayoutEditor={() => setShowLayoutEditor(true)}
         currentUserId={currentUserId}
         currentUserDisplayName={currentUserDisplayName}
@@ -840,6 +886,11 @@ export default function HubShell({
         onToolsClick={() => { setManualRail('tools'); setMobileDrawerOpen(true) }}
         onLinksClick={() => { setManualRail('links'); setMobileDrawerOpen(true) }}
         onToggleDnd={toggleDnd}
+        onToggleHubDnd={toggleHubDnd}
+        onToggleDialerDnd={toggleDialerDnd}
+        masterDndOn={masterDndEnabled}
+        hubDndOn={hubDndEnabled}
+        dialerDndOn={dialerDndEnabled}
         isClockedIn={isClockedIn}
         unreadHub={unreadHub}
         unheardVoicemails={unheardVoicemails}
@@ -886,6 +937,11 @@ export default function HubShell({
         onActivityClick={() => { setShowMobileMore(false); setShowActivity(true) }}
         onTimeClockClick={() => { setShowMobileMore(false); setShowTimeClock(true) }}
         onToggleDnd={toggleDnd}
+        onToggleHubDnd={toggleHubDnd}
+        onToggleDialerDnd={toggleDialerDnd}
+        masterDndOn={masterDndEnabled}
+        hubDndOn={hubDndEnabled}
+        dialerDndOn={dialerDndEnabled}
         onOpenLayoutEditor={() => { setShowMobileMore(false); setShowLayoutEditor(true) }}
         permissions={permissions}
         items={liveLayout.items}
@@ -911,6 +967,11 @@ export default function HubShell({
         onLinks={() => { setShowDesktopLauncher(false); setManualRail('links'); openSidebar() }}
         onTimeClock={() => { setShowDesktopLauncher(false); setShowTimeClock(true) }}
         onToggleDnd={toggleDnd}
+        onToggleHubDnd={toggleHubDnd}
+        onToggleDialerDnd={toggleDialerDnd}
+        masterDndOn={masterDndEnabled}
+        hubDndOn={hubDndEnabled}
+        dialerDndOn={dialerDndEnabled}
         currentUserStatus={liveStatus}
         showAdmin={showAdminRail}
       />
