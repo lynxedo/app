@@ -17,7 +17,7 @@ import {
 } from '@/lib/twilio-voice'
 import { buildIvrContext } from '@/lib/dialer-ivr-context'
 import { conferenceRoomName } from '@/lib/twilio-conference'
-import { connectInboundToAgentViaConference } from '@/lib/dialer-conference-connect'
+import { connectInboundToAgentViaConference, isAgentDndNow } from '@/lib/dialer-conference-connect'
 import type { ResponderMode } from '@/lib/responder'
 
 const HEROES_COMPANY_ID =
@@ -188,7 +188,7 @@ export async function POST(request: NextRequest) {
     // handles no-answer → voicemail automatically via the conference path.
     // If the call IS answered, answered_at gets stamped and the reconciler skips
     // the auto-text (a human picked up — no need to text back).
-    if (forwardedLineRingSec > 0 && routeToUserId) {
+    if (forwardedLineRingSec > 0 && routeToUserId && !(await isAgentDndNow(admin, routeToUserId))) {
       const callerTwiml = await connectInboundToAgentViaConference({
         baseUrl,
         room,
@@ -255,7 +255,7 @@ export async function POST(request: NextRequest) {
     // legacy ring-Ben-then-voicemail path so calls don't die in dead air.
   }
 
-  if (routeToUserId) {
+  if (routeToUserId && !(await isAgentDndNow(admin, routeToUserId))) {
     // Phase 3: bridge the caller through a conference and ring the configured
     // user as the 'agent' participant. No-answer falls to voicemail via the
     // agent participant's status callback. (Recording + consent handled inside.)

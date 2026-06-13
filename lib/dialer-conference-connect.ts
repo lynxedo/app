@@ -188,6 +188,31 @@ export async function resolveRingGroupAvailableMembers(
   return { group, available: members.filter(m => !dndById.get(m.user_id)) }
 }
 
+// True if the given user is currently DND — checks both Hub presence status
+// and Dialer DND toggle/schedule so callers on the single-user or IVR paths
+// get the same treatment as ring group members.
+export async function isAgentDndNow(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+): Promise<boolean> {
+  const [{ data: profile }, { data: hubUser }] = await Promise.all([
+    admin
+      .from('user_profiles')
+      .select('dialer_dnd_enabled, dialer_dnd_schedule')
+      .eq('id', userId)
+      .maybeSingle(),
+    admin
+      .from('hub_users')
+      .select('status, status_until')
+      .eq('id', userId)
+      .maybeSingle(),
+  ])
+  const hubDnd = hubUser?.status === 'dnd' &&
+    (!hubUser.status_until || new Date(hubUser.status_until) > new Date())
+  const sched = (profile?.dialer_dnd_schedule || null) as DndSchedule | null
+  return hubDnd || Boolean(profile?.dialer_dnd_enabled) || isInDndSchedule(sched)
+}
+
 function voicemailRedirectTwiml(baseUrl: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${baseUrl}/api/dialer/voice/twiml/voicemail</Redirect></Response>`
 }
