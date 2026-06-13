@@ -8,13 +8,6 @@ import { markActive } from '@/lib/hub-activity'
 import { bridgeHubMessageToChatSynx } from '@/lib/chat-synx'
 import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
 
-const MESSAGE_SELECT = `
-  id, content, created_at, edited_at, parent_id, room_id, conversation_id, forwarded_from, source,
-  sender:hub_users!sender_id (id, display_name, avatar_url, is_bot),
-  reactions (message_id, user_id, emoji),
-  files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)
-`
-
 const CLAUDE_BOT_ID = '00000000-0000-0000-0001-000000000001'
 
 const CLAUDE_SYSTEM_PROMPT = `You are the Heroes Lawn Care team assistant, built into the company's internal messaging app (Hub).
@@ -22,50 +15,6 @@ Heroes Lawn Care is a lawn care and landscaping company in the Houston/Cypress, 
 You have access to Jobber (the company's scheduling and CRM system) and Captivated (their SMS messaging platform) via integrated tools.
 Help the team with scheduling questions, client lookups, job status, job notes, customer communications, and general team questions.
 Be concise and practical. Address the team member's question directly. Use plain text — no markdown headers.`
-
-export async function GET(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { searchParams } = new URL(request.url)
-  const roomId = searchParams.get('room_id')
-  if (!roomId) return NextResponse.json({ error: 'room_id required' }, { status: 400 })
-
-  const { data, error } = await supabase
-    .from('messages')
-    .select(MESSAGE_SELECT)
-    .eq('room_id', roomId)
-    .is('parent_id', null)
-    .is('deleted_at', null)
-    .order('created_at', { ascending: true })
-    .limit(100)
-
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  // Fetch original messages for any forwarded messages — use admin client to bypass
-  // RLS so originals from other rooms are always readable in the forwarded banner
-  const forwardedIds = (data ?? []).map((m: { forwarded_from: string | null }) => m.forwarded_from).filter(Boolean) as string[]
-  let forwardedMap: Record<string, { id: string; content: string; sender: { display_name: string } | null; room_id: string | null; conversation_id: string | null }> = {}
-  if (forwardedIds.length > 0) {
-    const { data: originals } = await createAdminClient()
-      .from('messages')
-      .select('id, content, room_id, conversation_id, sender:hub_users!sender_id (display_name)')
-      .in('id', forwardedIds)
-    for (const o of originals ?? []) {
-      const orig = o as { id: string; content: string; room_id: string | null; conversation_id: string | null; sender: { display_name: string } | { display_name: string }[] | null }
-      const sender = Array.isArray(orig.sender) ? orig.sender[0] : orig.sender
-      forwardedMap[orig.id] = { ...orig, sender }
-    }
-  }
-
-  const messages = (data ?? []).map((m: { forwarded_from: string | null; [key: string]: unknown }) => ({
-    ...m,
-    forwarded_original: m.forwarded_from ? forwardedMap[m.forwarded_from] ?? null : null,
-  }))
-
-  return NextResponse.json({ messages })
-}
 
 export async function POST(request: Request) {
   const supabase = await createClient()

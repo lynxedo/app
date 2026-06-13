@@ -47,11 +47,6 @@ export default async function SettingsPage() {
     dnd_end: notifPrefResult.data?.dnd_end ?? null,
   }
 
-  const railConfig = (profileResult.data?.rail_config ?? null) as null | {
-    desktop?: (string | null)[]
-    mobile?: (string | null)[]
-  }
-
   const railPermissions = {
     isAdmin: profileResult.data?.role === 'admin',
     canAccessTracker: !!profileResult.data?.can_access_tracker,
@@ -93,7 +88,6 @@ export default async function SettingsPage() {
           jobberConnected={jobberConnected}
           landingPage={landingPage}
           notifPref={notifPref}
-          railConfig={railConfig}
           railPermissions={railPermissions}
           txtSignature={txtSignature}
           dialerGlobalRing={dialerGlobalRing}

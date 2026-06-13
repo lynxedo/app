@@ -33,7 +33,6 @@ interface Props {
   jobberConnected: boolean
   landingPage: 'hub' | 'dashboard'
   notifPref: NotifPref
-  railConfig: null | { desktop?: (string | null)[]; mobile?: (string | null)[] }
   railPermissions: RailPermissions
   txtSignature: string
   dialerGlobalRing: boolean
