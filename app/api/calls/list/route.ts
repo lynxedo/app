@@ -6,6 +6,17 @@ export async function GET(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Permission gate: recordings + transcripts are customer-sensitive. Require
+  // the Call Log grant (or admin) — mirrors the call-log UI's own gating.
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('can_access_call_log, role, company_id')
+    .eq('id', user.id)
+    .single()
+  if (!profile?.can_access_call_log && profile?.role !== 'admin') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const { searchParams } = new URL(request.url)
   const dateFrom = searchParams.get('date_from')
   const dateTo = searchParams.get('date_to')
@@ -18,6 +29,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from('call_logs')
     .select('id,recording_id,filename,call_datetime,date,direction,phone,duration_seconds,rep_name,customer_name,call_type,call_subject,customer_summary,action_items,avg_confidence,transcript_text,sentiment,sentiment_json,transcript_speakers')
+    .eq('company_id', profile.company_id || '')
     .order('call_datetime', { ascending: false })
     .range(offset, offset + limit - 1)
 
