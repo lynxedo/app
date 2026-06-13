@@ -254,6 +254,37 @@ export default function HubMobileMore({
           </div>
 
           <div className="h-px bg-white/10 my-4" />
+
+          {/* DND quick-toggles */}
+          <div className="flex gap-2 mb-3">
+            <button type="button" onClick={onToggleDnd}
+              className={`flex-1 py-2.5 rounded-xl flex flex-col items-center gap-1.5 transition-colors ${masterDndOn ? 'bg-red-500/20 text-red-400 ring-1 ring-inset ring-red-500/40' : 'bg-white/[0.04] text-white/50 ring-1 ring-inset ring-white/[0.06] hover:text-white/70'}`}
+            >
+              <DndIcon />
+              <span className="text-[10px] font-semibold leading-none">{masterDndOn ? 'DND on' : 'DND'}</span>
+            </button>
+            <button type="button" onClick={() => onToggleHubDnd?.()}
+              className={`flex-1 py-2.5 rounded-xl flex flex-col items-center gap-1.5 transition-colors ${hubDndOn ? 'bg-orange-500/20 text-orange-400 ring-1 ring-inset ring-orange-500/40' : 'bg-white/[0.04] text-white/50 ring-1 ring-inset ring-white/[0.06] hover:text-white/70'}`}
+            >
+              <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                {hubDndOn
+                  ? <><path strokeLinecap="round" strokeLinejoin="round" d="M9.172 9.172A4 4 0 0116 12v2.586l2 2V16a2 2 0 01-2 2H8a2 2 0 01-2-2v-1.414l2-2V12a4 4 0 01.343-1.657M12 6V4m0 18v-2M2 2l20 20" /></>
+                  : <path strokeLinecap="round" strokeLinejoin="round" d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6 6 0 10-12 0v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9" />}
+              </svg>
+              <span className="text-[10px] font-semibold leading-none">{hubDndOn ? 'Msgs off' : 'Msgs'}</span>
+            </button>
+            <button type="button" onClick={() => onToggleDialerDnd?.()}
+              className={`flex-1 py-2.5 rounded-xl flex flex-col items-center gap-1.5 transition-colors ${dialerDndOn ? 'bg-orange-500/20 text-orange-400 ring-1 ring-inset ring-orange-500/40' : 'bg-white/[0.04] text-white/50 ring-1 ring-inset ring-white/[0.06] hover:text-white/70'}`}
+            >
+              <svg className="w-[22px] h-[22px]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                {dialerDndOn
+                  ? <><path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" /><line x1="3" y1="3" x2="21" y2="21" strokeLinecap="round" /></>
+                  : <path strokeLinecap="round" strokeLinejoin="round" d="M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z" />}
+              </svg>
+              <span className="text-[10px] font-semibold leading-none">{dialerDndOn ? 'Calls off' : 'Calls'}</span>
+            </button>
+          </div>
+
           <div className="grid grid-cols-3 gap-2">
             <SysTile onClick={onSearchClick} label="Search">
               <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-4.34-4.34M17 10a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
