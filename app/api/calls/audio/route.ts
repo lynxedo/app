@@ -11,6 +11,17 @@ export async function GET(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // Permission gate: recordings are customer-sensitive. Require the Call Log
+  // grant (or admin) — mirrors /api/calls/list and the call-log UI gating.
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('can_access_call_log, role, company_id')
+    .eq('id', user.id)
+    .single()
+  if (!profile?.can_access_call_log && profile?.role !== 'admin') {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const { searchParams } = new URL(request.url)
   const filename = searchParams.get('filename')
   if (!filename) return NextResponse.json({ error: 'filename required' }, { status: 400 })
@@ -19,6 +30,19 @@ export async function GET(request: Request) {
   const safe = path.basename(filename)
   if (safe !== filename || !safe.endsWith('.mp3')) {
     return NextResponse.json({ error: 'Invalid filename' }, { status: 400 })
+  }
+
+  // Company scoping: only stream a recording that belongs to a call_logs row in
+  // the requester's company (a tech can't pull another company's recording by
+  // guessing a filename).
+  const { data: callRow } = await supabase
+    .from('call_logs')
+    .select('id')
+    .eq('filename', safe)
+    .eq('company_id', profile.company_id || '')
+    .maybeSingle()
+  if (!callRow) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
   }
 
   const filePath = path.join(RECORDINGS_DIR, safe)

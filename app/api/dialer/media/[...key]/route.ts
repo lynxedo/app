@@ -4,12 +4,14 @@ import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 // GET /api/dialer/media/[...key]
 //
-// Public-read endpoint for Twilio to fetch voicemail greetings via <Play>.
-// Same shape as /api/txt/media/* but locked down to keys under `dialer/`
-// (not txt/) so this route can't accidentally serve other R2 content.
+// Public-read endpoint for Twilio to fetch non-sensitive <Play> assets:
+// voicemail greetings, the consent notice, and IVR prompts.
 //
-// Security model: deliberately public. Keys include a millisecond timestamp,
-// and greetings are short non-sensitive recordings.
+// Security model: deliberately public, but ALLOWLISTED to greeting/IVR folders.
+// Keys are shaped `dialer/{companyId}/{folder}/{file}`. Call recordings
+// (recordings/) and voicemails (voicemail/) are customer-sensitive and must
+// NEVER be served from this public route — those go through the auth-gated
+// /api/dialer/calls/[id]/recording route instead.
 
 export async function GET(
   _request: Request,
@@ -18,7 +20,12 @@ export async function GET(
   const { key: keyParts } = await params
   const key = keyParts.join('/')
 
-  if (!key.startsWith('dialer/')) {
+  // Allowlist (default-deny): only greeting + IVR prompt folders are public.
+  // Anything else — including recordings/ and voicemail/ — is refused.
+  const segments = key.split('/')
+  const folder = segments[2]
+  const PUBLIC_FOLDERS = ['greeting', 'ivr']
+  if (segments[0] !== 'dialer' || !PUBLIC_FOLDERS.includes(folder)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
