@@ -27,7 +27,6 @@ import GlobalCallBar from './dialer/GlobalCallBar'
 import OnCallPresenceProvider from './OnCallPresenceProvider'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
 import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
-import { HubTextSizeContext } from './HubTextSizeContext'
 import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
 import { catalogEntriesFor, type RailPermissions } from './railCatalog'
@@ -741,7 +740,7 @@ export default function HubShell({
 
 
   const shell = (
-    <HubTextSizeContext.Provider value={textSize}>
+    <>
     <div className="flex h-[100dvh] bg-gray-950 text-white overflow-hidden">
       {mobileDrawerOpen && (
         <div
@@ -996,7 +995,7 @@ export default function HubShell({
       />
     )}
     <HubActivityPanel open={showActivity} onClose={() => setShowActivity(false)} />
-    </HubTextSizeContext.Provider>
+    </>
   )
 
   // OnCallPresenceProvider wraps the shell so the purple "on a call" dot works
