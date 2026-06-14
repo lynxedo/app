@@ -1,7 +1,9 @@
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import { createClient } from '@/lib/supabase/server'
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
+import { GetObjectCommand } from '@aws-sdk/client-s3'
+import { getR2Client } from '@/lib/r2'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
 const SERVICE_TYPES = ['fertilization', 'irrigation', 'doody-duty', 'team', 'general', 'aeration', 'overseeding', 'pest-control'] as const
@@ -10,16 +12,6 @@ type ServiceType = typeof SERVICE_TYPES[number]
 const CONTENT_PILLARS = ['educate', 'show-work', 'engage', 'sell'] as const
 type ContentPillar = typeof CONTENT_PILLARS[number]
 
-function getR2Client() {
-  return new S3Client({
-    region: 'auto',
-    endpoint: `https://${process.env.CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId: process.env.CF_R2_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.CF_R2_SECRET_ACCESS_KEY!,
-    },
-  })
-}
 
 const PILLAR_INSTRUCTIONS: Record<ContentPillar, string> = {
   educate: 'Write an educational tip about lawn care, landscaping, or the featured service. Share a fact, seasonal advice, or a how-to insight. Make the audience smarter.',
@@ -122,11 +114,11 @@ Phone: (832) 220-8100
 Website: heroeslawntx.com
 Services: Fertilization Force, Irrigation Army, Doody Duty (pet waste), core aeration, overseeding, pest control.`
 
-  const anthropic = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
+  const anthropic = getAnthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
   let caption = ''
   try {
     const response = await anthropic.messages.create({
-      model: 'claude-sonnet-4-6',
+      model: CLAUDE_MODEL,
       max_tokens: 500,
       system: systemPrompt,
       messages: [{ role: 'user', content: contentBlocks }],

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
+import { useToast } from '@/components/ui'
 
 type HubUser = { id: string; display_name: string; avatar_url?: string | null }
 
@@ -99,6 +100,7 @@ function CommentsPanel({
   onCommentAdded: () => void
   onAttachmentAdded: () => void
 }) {
+  const toast = useToast()
   const [comments, setComments] = useState<Comment[]>([])
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [text, setText] = useState('')
@@ -148,7 +150,7 @@ function CommentsPanel({
     const uploadRes = await fetch('/api/hub/upload', { method: 'POST', body: form })
     if (!uploadRes.ok) {
       const err = await uploadRes.json().catch(() => ({ error: 'Upload failed' }))
-      alert(err.error ?? 'Upload failed')
+      toast.error(err.error ?? 'Upload failed')
       setUploading(false)
       return
     }

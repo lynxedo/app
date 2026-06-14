@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
+import { formatPhone } from '@/lib/format'
 import { useRouter } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
 import SidebarContactsList from './SidebarContactsList'
@@ -38,17 +39,6 @@ type VoicemailRow = {
 
 type Scope = 'mine' | 'missed' | 'all' | 'voicemail' | 'contacts'
 
-function formatPhone(raw: string | null): string {
-  if (!raw) return ''
-  const digits = raw.replace(/\D/g, '')
-  if (digits.length === 11 && digits[0] === '1') {
-    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-  }
-  if (digits.length === 10) {
-    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-  }
-  return raw
-}
 
 function formatRelative(iso: string): string {
   const d = new Date(iso)

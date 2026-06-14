@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
-import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { PutObjectCommand } from '@aws-sdk/client-s3'
+import { getR2Client } from '@/lib/r2'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 import { slackToNative } from '@/lib/chat-synx-emoji'
@@ -95,16 +96,6 @@ type SlackMessageEvent = {
   item_user?: string
 }
 
-function getR2Client() {
-  return new S3Client({
-    region: 'auto',
-    endpoint: `https://${process.env.CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId: process.env.CF_R2_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.CF_R2_SECRET_ACCESS_KEY!,
-    },
-  })
-}
 
 // Download a Slack-private file URL using the bot token, then upload the bytes
 // to R2 and return a row matching the shape of the `files` table.

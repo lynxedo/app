@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from 'react'
 import { LockIcon } from './railCatalog'
+import { Button } from '@/components/ui'
 
 type Room = { id: string; name: string; is_private: boolean }
 type Participant = { id: string; display_name: string }
@@ -164,19 +165,18 @@ export default function ForwardModal({ currentUserId, onClose, onForward, messag
 
         {/* Footer */}
         <div className="px-5 py-4 border-t border-gray-800 flex gap-3 flex-none">
-          <button
-            onClick={onClose}
-            className="flex-1 py-2 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white hover:border-gray-600 transition-colors"
-          >
+          <Button variant="secondary" fullWidth onClick={onClose}>
             Cancel
-          </button>
-          <button
+          </Button>
+          <Button
+            variant="primary"
+            fullWidth
+            loading={sending}
+            disabled={!selected}
             onClick={handleSend}
-            disabled={!selected || sending}
-            className="flex-1 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
           >
             {sending ? 'Forwarding…' : 'Forward'}
-          </button>
+          </Button>
         </div>
       </div>
     </div>

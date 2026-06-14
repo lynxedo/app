@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdminArea } from '@/lib/admin-auth'
+import { CLAUDE_MODEL } from '@/lib/anthropic'
 
 export const dynamic = 'force-dynamic'
 
@@ -23,7 +24,7 @@ export async function GET() {
     .maybeSingle()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({
-    settings: data ?? { company_id: ctx.companyId, model: 'claude-sonnet-4-6', web_search_daily_cap: 30 },
+    settings: data ?? { company_id: ctx.companyId, model: CLAUDE_MODEL, web_search_daily_cap: 30 },
   })
 }
 

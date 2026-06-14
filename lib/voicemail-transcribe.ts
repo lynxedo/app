@@ -10,14 +10,13 @@
 // and as a 1-min cron backstop for any rows still pending.
 
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
-import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { generateAndSendResponderReply } from '@/lib/responder-ai'
 import { twilioFromNumber } from '@/lib/twilio'
 import { isInBusinessHours, sendResponderText } from '@/lib/responder'
 import { enrichTxtContactName } from '@/lib/dialer-lookup'
 
-const CLAUDE_MODEL = 'claude-sonnet-4-6'
 
 export type VoicemailTranscribeResult = {
   voicemailId: string
@@ -140,7 +139,7 @@ async function claudeSummarize(transcript: string): Promise<string | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey || !transcript.trim()) return null
   try {
-    const anthropic = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
+    const anthropic = getAnthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
     const resp = await anthropic.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 128,

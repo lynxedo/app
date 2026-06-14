@@ -10,7 +10,7 @@
 // Called fire-and-forget from processVoicemail() when ai_reply_enabled is
 // true on the responder_settings row.
 
-import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import { sendSms } from '@/lib/twilio'
 import { RESPONDER_REPLY_SYSTEM_DEFAULT } from '@/lib/responder-ai-prompt'
 import { getAlwaysIncludedDocs } from '@/lib/guardian-knowledge'
@@ -18,7 +18,6 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { buildMessagePreview } from '@/lib/txt-preview'
 import { enrichTxtContactName } from '@/lib/dialer-lookup'
 
-const CLAUDE_MODEL = 'claude-sonnet-4-6'
 
 // The system prompt (training doc) is admin-editable — stored on
 // responder_settings.ai_reply_prompt and passed in via opts.systemPrompt.
@@ -104,7 +103,7 @@ ${transcript.slice(0, 1500)}
 
 Write the personalized SMS reply.`
 
-    const anthropic = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
+    const anthropic = getAnthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
     const resp = await anthropic.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 200,

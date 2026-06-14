@@ -25,12 +25,11 @@
 // throw out to the webhook or cron.
 
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
-import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { CALL_COACHING_RUBRIC } from '@/lib/call-rubric'
 
-const CLAUDE_MODEL = 'claude-sonnet-4-6'
 
 // The engine whose results are mirrored onto the calls row + used by the
 // existing dialer surfaces. Both engines still write call_ai_results for the
@@ -273,7 +272,7 @@ async function claudeAnalyze(
       : userMessage
 
   try {
-    const anthropic = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
+    const anthropic = getAnthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
     const resp = await anthropic.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 4096,

@@ -22,6 +22,7 @@
 // disposition prompt (S6). All are shell-level so they work on every Hub page.
 
 import { createContext, useContext, useEffect, useRef, useState, type ReactNode } from 'react'
+import { formatPhone } from '@/lib/format'
 import { useTwilioDevice, type UseTwilioDevice } from '@/hooks/use-twilio-device'
 import { useDocumentPip } from '@/hooks/use-document-pip'
 import {
@@ -52,14 +53,6 @@ const PipContext = createContext<PipControls | null>(null)
 
 export function usePipControls(): PipControls | null {
   return useContext(PipContext)
-}
-
-function formatPhone(raw: string | null): string {
-  if (!raw) return ''
-  const digits = raw.replace(/\D/g, '')
-  if (digits.length === 11 && digits[0] === '1') return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-  return raw
 }
 
 export default function DialerProvider({ children }: { children: ReactNode }) {
