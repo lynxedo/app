@@ -1055,17 +1055,6 @@ export function pickIvrTree(opts: {
   return 'default'
 }
 
-// E.164 normalizer — re-exported here so dialer code doesn't have to import
-// from lib/twilio.ts. Same implementation.
-export function toE164(raw: string): string | null {
-  if (!raw) return null
-  const trimmed = raw.trim()
-  if (trimmed.startsWith('+')) {
-    const digits = trimmed.slice(1).replace(/\D/g, '')
-    return digits.length >= 10 ? '+' + digits : null
-  }
-  const digits = trimmed.replace(/\D/g, '')
-  if (digits.length === 10) return '+1' + digits
-  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits
-  return null
-}
+// E.164 normalizer — single source of truth in lib/phone.ts, re-exported here
+// so dialer code can keep importing it from lib/twilio-voice.ts.
+export { toE164 } from './phone'

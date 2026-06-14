@@ -208,17 +208,7 @@ export async function twilioConvSendMessage(opts: {
   return { ok: true, sid: payload.sid, status: 'queued' }
 }
 
-// E.164 normalizer for US numbers — Twilio requires E.164 (+1...).
-// Accepts (281) 555-1234, 281-555-1234, 12815551234, +12815551234, etc.
-export function toE164(raw: string): string | null {
-  if (!raw) return null
-  const trimmed = raw.trim()
-  if (trimmed.startsWith('+')) {
-    const digits = trimmed.slice(1).replace(/\D/g, '')
-    return digits.length >= 10 ? '+' + digits : null
-  }
-  const digits = trimmed.replace(/\D/g, '')
-  if (digits.length === 10) return '+1' + digits
-  if (digits.length === 11 && digits.startsWith('1')) return '+' + digits
-  return null
-}
+// E.164 normalizer for US numbers — single source of truth in lib/phone.ts,
+// re-exported here so existing `import { toE164 } from '@/lib/twilio'` callers
+// keep working.
+export { toE164 } from './phone'
