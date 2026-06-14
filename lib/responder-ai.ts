@@ -104,7 +104,7 @@ ${transcript.slice(0, 1500)}
 
 Write the personalized SMS reply.`
 
-    const anthropic = new Anthropic({ apiKey })
+    const anthropic = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
     const resp = await anthropic.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 200,

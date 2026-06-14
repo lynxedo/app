@@ -122,7 +122,7 @@ Phone: (832) 220-8100
 Website: heroeslawntx.com
 Services: Fertilization Force, Irrigation Army, Doody Duty (pet waste), core aeration, overseeding, pest control.`
 
-  const anthropic = new Anthropic({ apiKey })
+  const anthropic = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
   let caption = ''
   try {
     const response = await anthropic.messages.create({
