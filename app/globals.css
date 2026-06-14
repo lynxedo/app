@@ -25,6 +25,17 @@ body {
   font-family: var(--font-geist-sans), Arial, Helvetica, sans-serif;
 }
 
+/* iOS Safari zooms the whole page when you focus an input whose font-size is
+   under 16px. Force every text-entry control to 16px on phones so tapping a
+   field never triggers that zoom. Desktop (≥768px) is unaffected. */
+@media (max-width: 767px) {
+  input:not([type='checkbox']):not([type='radio']):not([type='range']),
+  textarea,
+  select {
+    font-size: 16px !important;
+  }
+}
+
 @keyframes marquee {
   0% { transform: translateX(0); }
   100% { transform: translateX(-50%); }

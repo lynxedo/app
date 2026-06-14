@@ -46,7 +46,17 @@ function renderInline(text: string, hubUsers: HubUser[], keyPrefix: string): Rea
     const key = `${keyPrefix}-${i++}`
 
     if (url) {
-      out.push(url)
+      out.push(
+        <a
+          key={key}
+          href={url}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="text-[#6FB3E8] underline underline-offset-2 break-all hover:text-[#8FC5F0]"
+        >
+          {url}
+        </a>,
+      )
     } else if (code) {
       out.push(
         <code
