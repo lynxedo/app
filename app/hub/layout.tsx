@@ -4,6 +4,7 @@ import fs from 'fs'
 import path from 'path'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getCurrentUser, getCurrentProfile } from '@/lib/supabase/current-user'
 import HubShell from '@/components/hub/HubShell'
 import PushInit from '@/components/hub/PushInit'
 import ElectronNotifier from '@/components/hub/ElectronNotifier'
@@ -58,12 +59,12 @@ function IosSplashScreens() {
 
 export default async function HubLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
   if (!user) redirect('/login')
 
   const admin = createAdminClient()
   const now = new Date().toISOString()
-  const [memberRoomsResult, hubUsersResult, meResult, profileResult, announcementsResult, myPresenceResult] = await Promise.all([
+  const [memberRoomsResult, hubUsersResult, meResult, profileData, announcementsResult, myPresenceResult] = await Promise.all([
     // Only return rooms this user is a member of (Slack-style)
     admin
       .from('room_members')
@@ -71,7 +72,9 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       .eq('user_id', user.id),
     supabase.from('hub_users').select('id, display_name, avatar_url, is_bot, status').order('display_name'),
     supabase.from('hub_users').select('display_name, status, avatar_url, last_active_at').eq('id', user.id).single(),
-    supabase.from('user_profiles').select('role, company_id, hub_text_size, hub_pinned_ids, can_access_tracker, can_access_call_log, can_access_call_log2, can_access_lawn, can_access_zone_sizer, can_access_timesheet, can_access_routing, can_access_books, can_access_fleet, can_access_dialer, can_access_txt, can_access_marketing, can_admin_marketing, can_access_forms, can_admin_forms, can_access_daily_log_v2, can_access_scoreboards, dialer_global_ring, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_assign_txt_threads, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_products, rail_config, hub_layout, hub_seeded_apps, master_dnd_enabled, hub_dnd_enabled, dialer_dnd_enabled').eq('id', user.id).single(),
+    // Shared request-cached profile (also used by the root layout) — one query
+    // for both layouts instead of two. Selects * so it satisfies every consumer.
+    getCurrentProfile(),
     // Active rows for BOTH types — DB returns latest first; we keep newest per type below.
     supabase
       .from('hub_announcements')
@@ -83,6 +86,8 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     // client should run the 2h idle timer (only for activity-path users).
     admin.from('hub_users_with_presence').select('pay_type, employee_id').eq('id', user.id).single(),
   ])
+  // Thin wrapper so the existing profileResult.data?.X reads below stay unchanged.
+  const profileResult = { data: profileData }
 
   // Smart presence: bump last_active_at on every Hub route load (fire-and-forget).
   // Drives the salaried/unlinked path of hub_users_with_presence.effective_status.

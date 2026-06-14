@@ -1,7 +1,7 @@
 import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
-import { createClient } from "@/lib/supabase/server";
+import { getCurrentUser, getCurrentProfile } from "@/lib/supabase/current-user";
 import ConditionalGlobalNav from "@/components/ConditionalGlobalNav";
 
 const geistSans = Geist({
@@ -36,8 +36,7 @@ export default async function RootLayout({
 }: Readonly<{
   children: React.ReactNode;
 }>) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await getCurrentUser()
 
   let navProfile: {
     role: string
@@ -50,14 +49,18 @@ export default async function RootLayout({
   let textSize: 'small' | 'default' | 'large' = 'default'
 
   if (user) {
-    const { data } = await supabase
-      .from('user_profiles')
-      .select('role, can_access_hub, can_access_routing, can_access_timesheet, can_access_tracker, can_access_call_log, hub_text_size')
-      .eq('id', user.id)
-      .single()
+    // Shared, request-cached profile fetch — the Hub layout reuses the same row.
+    const data = await getCurrentProfile()
     if (data) {
-      const { hub_text_size, ...rest } = data
-      navProfile = rest
+      navProfile = {
+        role: data.role,
+        can_access_hub: data.can_access_hub,
+        can_access_routing: data.can_access_routing,
+        can_access_timesheet: data.can_access_timesheet,
+        can_access_tracker: data.can_access_tracker,
+        can_access_call_log: data.can_access_call_log,
+      }
+      const hub_text_size = data.hub_text_size
       if (hub_text_size === 'small' || hub_text_size === 'large' || hub_text_size === 'default') {
         textSize = hub_text_size
       }
