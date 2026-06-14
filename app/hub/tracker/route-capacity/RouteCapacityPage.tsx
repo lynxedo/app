@@ -9,6 +9,7 @@ import {
   type RouteCapacityFormulas,
 } from '@/lib/route-capacity-formulas'
 import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
+import { useToast } from '@/components/ui'
 
 type ColKind = 'data' | 'formula'
 type DataType = 'text' | 'date' | 'number'
@@ -94,6 +95,7 @@ function DataCell({ row, col, onUpdate }: { row: RouteCapacityRow; col: Col; onU
 }
 
 export default function RouteCapacityPage() {
+  const toast = useToast()
   const [rows, setRows] = useState<RouteCapacityRow[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -113,13 +115,24 @@ export default function RouteCapacityPage() {
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t) }, [load])
 
   const update = useCallback((id: string, field: string, value: unknown) => {
-    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } as RouteCapacityRow : r))
+    // Optimistic update with rollback on a failed save (TR6).
+    let prevValue: unknown
+    setRows(prev => prev.map(r => {
+      if (r.id !== id) return r
+      prevValue = (r as Record<string, unknown>)[field]
+      return { ...r, [field]: value } as RouteCapacityRow
+    }))
     fetch(`/api/tracker/route-capacity/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ [field]: value }),
-    }).catch(() => {})
-  }, [])
+    })
+      .then(res => { if (!res.ok) throw new Error(String(res.status)) })
+      .catch(() => {
+        setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: prevValue } as RouteCapacityRow : r))
+        toast.error('Couldn’t save that change — it was reverted. Please try again.')
+      })
+  }, [toast])
 
   async function addRow() {
     const res = await fetch('/api/tracker/route-capacity', {

@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react'
 import { computeFormulas, summarize, type RecurringRow, type RecurringFormulas } from '@/lib/recurring-formulas'
 import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
+import { useToast } from '@/components/ui'
 
 // ---- Option lists (mirrored exactly from Monday board 18188676554) ----
 const SERVICE_OPTIONS = ['IRR Install', 'WF - Lawn Health', 'Pet Waste', 'Other', 'Landscape', 'IRR', 'IRR SC', 'Winterize', 'Spam/Sales', 'Drain', 'Aeration', 'Mow', 'MOS', 'phc', 'Upgrade', 'IR- Gold']
@@ -211,6 +212,7 @@ function MultiCell({ value, options, onChange }: { value: string[]; options: str
 
 // ---------------- Page ----------------
 export default function RecurringServicesPage() {
+  const toast = useToast()
   const [rows, setRows] = useState<RecurringRow[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -236,13 +238,25 @@ export default function RecurringServicesPage() {
   useEffect(() => { const t = setTimeout(load, 250); return () => clearTimeout(t) }, [load])
 
   const update = useCallback((id: string, field: string, value: unknown) => {
-    setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: value } as RecurringRow : r))
+    // Optimistic update, but capture the prior value so a failed save can roll back
+    // instead of silently keeping an edit the server never accepted (TR6).
+    let prevValue: unknown
+    setRows(prev => prev.map(r => {
+      if (r.id !== id) return r
+      prevValue = (r as Record<string, unknown>)[field]
+      return { ...r, [field]: value } as RecurringRow
+    }))
     fetch(`/api/tracker/recurring/${id}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ [field]: value }),
-    }).catch(() => {})
-  }, [])
+    })
+      .then(res => { if (!res.ok) throw new Error(String(res.status)) })
+      .catch(() => {
+        setRows(prev => prev.map(r => r.id === id ? { ...r, [field]: prevValue } as RecurringRow : r))
+        toast.error('Couldn’t save that change — it was reverted. Please try again.')
+      })
+  }, [toast])
 
   async function addRow() {
     const res = await fetch('/api/tracker/recurring', {

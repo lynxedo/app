@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
 import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
+import { useToast } from '@/components/ui'
 
 type Lead = {
   id: string
@@ -1343,6 +1344,7 @@ export default function TrackerPage({
   currentUser: CurrentUser
   initialColumnLayout?: { id: string; width: number }[] | null
 }) {
+  const toast = useToast()
   const [leads, setLeads] = useState<Lead[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -1435,14 +1437,19 @@ export default function TrackerPage({
       const rule = (opts.status_stage_rules ?? []).find(r => r.status === value)
       if (rule) patchBody.stage = rule.stage
     }
-    const res = await fetch(`/api/tracker/leads/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patchBody),
-    })
-    if (res.ok) {
+    // A failed save used to do nothing — the cell silently reverted with no warning.
+    // Surface the error so the edit isn't quietly lost (TR6).
+    try {
+      const res = await fetch(`/api/tracker/leads/${id}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patchBody),
+      })
+      if (!res.ok) throw new Error(String(res.status))
       const updated = await res.json()
       setLeads(prev => prev.map(l => l.id === id ? { ...l, ...updated } : l))
+    } catch {
+      toast.error('Couldn’t save that change. Please try again.')
     }
   }
 
