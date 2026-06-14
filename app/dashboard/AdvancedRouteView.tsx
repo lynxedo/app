@@ -326,25 +326,23 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
   })()
 
   async function geocodeVisits(loaded: Visit[]) {
-    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
-    if (!token || loaded.length === 0) { setCoordsById(new Map()); return }
+    if (loaded.length === 0) { setCoordsById(new Map()); return }
     setCoordsLoading(true)
-    const entries = await Promise.all(loaded.map(async v => {
-      try {
-        const encoded = encodeURIComponent(v.addressString)
-        const res = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${token}&limit=1&country=US`,
-          { signal: AbortSignal.timeout(6000) },
-        )
-        const data = await res.json()
-        const center = data.features?.[0]?.center
-        return center ? [v.id, { lng: center[0] as number, lat: center[1] as number }] as const : null
-      } catch {
-        return null
-      }
-    }))
+    // #30 — geocode via the server (Census + cache), the SAME source the optimizer
+    // uses, so the map pins match the optimized route exactly.
     const map = new Map<string, { lat: number; lng: number }>()
-    for (const e of entries) if (e) map.set(e[0], e[1])
+    try {
+      const res = await fetch('/api/geocode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addresses: loaded.map(v => v.addressString) }),
+      })
+      const data = res.ok ? await res.json() : null
+      const coords: ({ lat: number; lng: number } | null)[] = Array.isArray(data?.coords) ? data.coords : []
+      loaded.forEach((v, i) => { const c = coords[i]; if (c) map.set(v.id, c) })
+    } catch {
+      /* leave map empty on failure */
+    }
     setCoordsById(map)
     setCoordsLoading(false)
   }
