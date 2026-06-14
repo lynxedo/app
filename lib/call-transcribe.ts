@@ -273,7 +273,7 @@ async function claudeAnalyze(
       : userMessage
 
   try {
-    const anthropic = new Anthropic({ apiKey })
+    const anthropic = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
     const resp = await anthropic.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 4096,

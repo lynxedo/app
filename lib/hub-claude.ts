@@ -190,7 +190,7 @@ export async function askClaude({
   conversationId?: string | null
   isTest?: boolean
 }): Promise<string> {
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
+  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 60_000, maxRetries: 2 })
   const adminClient = createAdminClient()
 
   const [mcpTools, system, settings, todayUsedCount] = await Promise.all([

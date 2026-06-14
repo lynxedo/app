@@ -28,6 +28,17 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Invalid level' }, { status: 400 })
   }
 
+  // Preserve the user's chosen notification sound across a level change — the
+  // delete-then-insert below would otherwise drop it back to the column default.
+  const soundQ = supabase
+    .from('notification_prefs')
+    .select('notification_sound')
+    .eq('user_id', user.id)
+  const { data: priorRow } = room_id
+    ? await soundQ.eq('room_id', room_id).maybeSingle()
+    : await soundQ.is('room_id', null).maybeSingle()
+  const priorSound = priorRow?.notification_sound ?? null
+
   // Delete-then-insert: cleanest pattern for partial unique indexes
   const deleteQ = supabase.from('notification_prefs').delete().eq('user_id', user.id)
   if (room_id) {
@@ -43,6 +54,7 @@ export async function POST(request: Request) {
     dnd_enabled: typeof dnd_enabled === 'boolean' ? dnd_enabled : false,
     dnd_start: dnd_start ?? null,
     dnd_end: dnd_end ?? null,
+    notification_sound: priorSound,
     updated_at: new Date().toISOString(),
   })
 

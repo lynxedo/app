@@ -62,9 +62,9 @@ export default function DailyLogAdminPanel({
   valuesRef.current = { selectedUsers, selectedRooms, updateNotifyUsers, onMyWayTemplate }
   const saveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
 
-  // The pickers auto-save on toggle, so checking a box IS saving it — no separate
-  // Save click needed. The Save button below still does an immediate save (and
-  // covers the SMS template).
+  // Everything auto-saves: the pickers call scheduleSave() on toggle and the SMS
+  // template textarea calls it on change, so there's no separate Save button.
+  // The header shows the live Saving… / ✓ Saved / error status.
   async function save() {
     if (saveTimer.current) { clearTimeout(saveTimer.current); saveTimer.current = null }
     setSaving(true)
@@ -214,19 +214,6 @@ export default function DailyLogAdminPanel({
           </div>
         </section>
 
-        <div className="flex items-center gap-3">
-          <button
-            onClick={save}
-            disabled={saving}
-            className="px-4 py-2 rounded-lg bg-[#2E7EB8] hover:bg-[#2470a8] text-white text-sm font-medium transition-colors disabled:opacity-40"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          {savedAt && !saving && (
-            <span className="text-xs text-emerald-400">Saved</span>
-          )}
-          {error && <span className="text-xs text-red-400">{error}</span>}
-        </div>
 
         <SkipReasonsSection initialReasons={initialSkipReasons} />
 

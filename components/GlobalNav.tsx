@@ -78,8 +78,8 @@ export default function GlobalNav({ profile }: { profile: NavProfile }) {
     profile.can_access_routing && { href: '/hub/routing', label: 'Routing', icon: <IconRouting /> },
     profile.can_access_timesheet && { href: '/timesheet', label: 'Timesheet', icon: <IconTimesheet /> },
     profile.can_access_tracker && { href: '/hub/tracker', label: 'Tracker', icon: <IconTracker /> },
-    profile.can_access_call_log && { href: '/call-log', label: 'Calls', icon: <IconCalls /> },
-    profile.role === 'admin' && { href: '/books', label: 'Books', icon: <IconBooks /> },
+    profile.can_access_call_log && { href: '/hub/call-log', label: 'Calls', icon: <IconCalls /> },
+    profile.role === 'admin' && { href: '/hub/books', label: 'Books', icon: <IconBooks /> },
     { href: '/dashboard', label: 'Dashboard', icon: <IconDashboard /> },
   ].filter(Boolean) as NavItem[]
 

@@ -140,7 +140,7 @@ async function claudeSummarize(transcript: string): Promise<string | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey || !transcript.trim()) return null
   try {
-    const anthropic = new Anthropic({ apiKey })
+    const anthropic = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
     const resp = await anthropic.messages.create({
       model: CLAUDE_MODEL,
       max_tokens: 128,

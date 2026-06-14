@@ -227,7 +227,7 @@ export async function POST(
   let outputTokens: number | null = null
   let lastError: string | null = null
   try {
-    const anthropic = new Anthropic({ apiKey })
+    const anthropic = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
     const response = await anthropic.messages.create({
       model,
       max_tokens: MAX_TOKENS,
