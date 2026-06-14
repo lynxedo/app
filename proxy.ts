@@ -1,6 +1,24 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
+// Fail-fast guard (Phase 5, after the 2026-06-14 Supabase Auth outage). Every request
+// hits getUser() + a profile fetch here; when auth degrades those hang on retries and
+// take the whole site down. Bound each to ~2s. getUser timeout → treat as logged-out
+// (protected routes redirect to /login below). A profile-fetch timeout is handled
+// specially: we must NOT sign the user out (that would destroy a valid session on a
+// transient blip) — instead bounce protected routes to the login form for this request.
+const AUTH_TIMEOUT_MS = 2000
+
+function withTimeout<T>(promise: PromiseLike<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms)
+    Promise.resolve(promise).then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      () => { clearTimeout(timer); resolve(fallback) },
+    )
+  })
+}
+
 export async function proxy(request: NextRequest) {
   let supabaseResponse = NextResponse.next({ request })
 
@@ -23,7 +41,11 @@ export async function proxy(request: NextRequest) {
     }
   )
 
-  const { data: { user } } = await supabase.auth.getUser()
+  const user = await withTimeout(
+    supabase.auth.getUser().then(({ data }) => data.user),
+    AUTH_TIMEOUT_MS,
+    null,
+  )
 
   const { pathname } = request.nextUrl
   const protectedPaths = ['/dashboard', '/routing', '/lawn', '/responder', '/call-log', '/timesheet', '/tracker', '/hub']
@@ -38,12 +60,30 @@ export async function proxy(request: NextRequest) {
 
   if (user) {
     // Single fetch: profile + company — used for domain check and permission enforcement
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('role, company_id, landing_page, can_access_routing, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, can_access_dialer, can_access_marketing, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing, companies(google_domain)')
-      .eq('id', user.id)
-      .single()
+    const profileResult = await withTimeout(
+      supabase
+        .from('user_profiles')
+        .select('role, company_id, landing_page, can_access_routing, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, can_access_dialer, can_access_marketing, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing, companies(google_domain)')
+        .eq('id', user.id)
+        .single()
+        .then(({ data }) => ({ data, degraded: false })),
+      AUTH_TIMEOUT_MS,
+      { data: null, degraded: true },
+    )
 
+    // Auth degraded (profile fetch timed out): do NOT sign out — that would destroy a
+    // valid session on a transient blip. Fail-fast instead: bounce protected routes to
+    // the login form, and let everything else through unguarded for this one request.
+    if (profileResult.degraded) {
+      if (isProtected && pathname !== '/login') {
+        const url = request.nextUrl.clone()
+        url.pathname = '/login'
+        return NextResponse.redirect(url)
+      }
+      return supabaseResponse
+    }
+
+    const profile = profileResult.data
     const landingPath = profile?.landing_page === 'dashboard' ? '/dashboard' : '/hub/home'
 
     // Membership check: access is granted to anyone provisioned into a company —

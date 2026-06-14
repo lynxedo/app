@@ -2,6 +2,24 @@ import { cache } from 'react'
 import type { User } from '@supabase/supabase-js'
 import { createClient } from './server'
 
+// Fail-fast guard (Phase 5, after the 2026-06-14 Supabase Auth outage). When auth
+// degrades, getUser() and the profile query can hang on internal retries — and the
+// root layout + Hub layout both await them on the critical render path, so the whole
+// site goes unusable. We bound each call to ~2s; on timeout (or error) we resolve to
+// null, which both layouts already treat as "logged out" (the body still renders, and
+// the middleware redirects protected routes to /login). Pages fail fast instead of hanging.
+const AUTH_TIMEOUT_MS = 2000
+
+function withTimeout<T>(promise: PromiseLike<T>, ms: number, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    const timer = setTimeout(() => resolve(fallback), ms)
+    Promise.resolve(promise).then(
+      (value) => { clearTimeout(timer); resolve(value) },
+      () => { clearTimeout(timer); resolve(fallback) },
+    )
+  })
+}
+
 // Request-scoped memoization (IN-perf). The root layout (app/layout.tsx) AND the
 // Hub layout (app/hub/layout.tsx) both render in the SAME RSC request pass, and
 // each used to independently call supabase.auth.getUser() (a network round-trip
@@ -14,8 +32,11 @@ import { createClient } from './server'
 
 export const getCurrentUser = cache(async (): Promise<User | null> => {
   const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  return user
+  return withTimeout(
+    supabase.auth.getUser().then(({ data }) => data.user),
+    AUTH_TIMEOUT_MS,
+    null,
+  )
 })
 
 // Full profile row for the signed-in user, memoized for the request. Selecting *
@@ -25,10 +46,14 @@ export const getCurrentProfile = cache(async () => {
   const user = await getCurrentUser()
   if (!user) return null
   const supabase = await createClient()
-  const { data } = await supabase
-    .from('user_profiles')
-    .select('*')
-    .eq('id', user.id)
-    .single()
-  return data
+  return withTimeout(
+    supabase
+      .from('user_profiles')
+      .select('*')
+      .eq('id', user.id)
+      .single()
+      .then(({ data }) => data),
+    AUTH_TIMEOUT_MS,
+    null,
+  )
 })
