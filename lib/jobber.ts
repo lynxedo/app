@@ -150,6 +150,32 @@ export async function jobberGraphQLAdmin<T = unknown>(
   return jobberGraphQLWith(getJobberTokenAdmin, userId, query, variables, true)
 }
 
+// Find a Jobber-connected user in the company so admin-token mutations work
+// regardless of which user is signed in (techs don't connect their own Jobber
+// account; the connection is usually one admin user). Returns `preferUserId`
+// if THAT user has a token, otherwise any company user that does, else null.
+// Use with jobberGraphQLAdmin from any path where the signed-in user may not be
+// the Jobber-connected account (Daily Log v2 complete, dialer notes, etc.).
+export async function companyJobberUserId(
+  companyId: string,
+  preferUserId: string,
+): Promise<string | null> {
+  const admin = createAdminClient()
+  const { data: profs } = await admin
+    .from('user_profiles')
+    .select('id')
+    .eq('company_id', companyId)
+  const ids = (profs ?? []).map((p) => p.id as string)
+  if (ids.length === 0) return null
+  const { data: toks } = await admin
+    .from('jobber_tokens')
+    .select('user_id')
+    .in('user_id', ids)
+  const tokenUsers = new Set((toks ?? []).map((t) => t.user_id as string))
+  if (tokenUsers.has(preferUserId)) return preferUserId
+  return tokenUsers.size ? [...tokenUsers][0] : null
+}
+
 async function jobberGraphQLWith<T = unknown>(
   getToken: (userId: string) => Promise<string | null>,
   userId: string,

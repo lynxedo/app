@@ -217,7 +217,9 @@ export default function DailyLogV2View({
   isAdmin: boolean
 }) {
   const [date, setDate] = useState<string>(todayStr())
-  const [filter, setFilter] = useState<'all' | 'mine'>('all')
+  // DL4 — techs land on their own day (matches Daily Log v1's "My Day" default);
+  // admins, who oversee everyone, default to the full "All Techs" view.
+  const [filter, setFilter] = useState<'all' | 'mine'>(isAdmin ? 'all' : 'mine')
   const [entries, setEntries] = useState<Entry[]>([])
   const [depot, setDepot] = useState<{ lat: number; lng: number } | null>(null)
   const [loading, setLoading] = useState(true)

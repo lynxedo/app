@@ -1,11 +1,13 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useRef, type ReactNode } from 'react'
 import {
   Chart, BarController, BarElement, LineController, LineElement, PointElement,
   DoughnutController, ArcElement, CategoryScale, LinearScale, Tooltip, Legend, Filler,
 } from 'chart.js'
 import type { ScoreboardMeta } from '@/lib/scoreboards/registry'
+import { useScoreboardData } from '@/hooks/use-scoreboard-data'
+import ScoreboardError from '@/components/hub/ScoreboardError'
 
 Chart.register(
   BarController, BarElement, LineController, LineElement, PointElement,
@@ -330,17 +332,7 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
 }
 
 export default function Scoreboard1View({ meta }: { meta: ScoreboardMeta }) {
-  const [data, setData] = useState<Payload | null>(null)
-  const [error, setError] = useState<string | null>(null)
-
-  useEffect(() => {
-    let alive = true
-    fetch(`/api/hub/scoreboards?board=${meta.slug}`)
-      .then(async r => { if (!r.ok) throw new Error((await r.json().catch(() => ({}))).error || `HTTP ${r.status}`); return r.json() })
-      .then(d => { if (alive) setData(d) })
-      .catch(e => { if (alive) setError(String(e.message || e)) })
-    return () => { alive = false }
-  }, [meta.slug])
+  const { data, error, reload } = useScoreboardData<Payload>(meta.slug)
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto bg-[#0b1929] text-slate-200">
@@ -356,7 +348,7 @@ export default function Scoreboard1View({ meta }: { meta: ScoreboardMeta }) {
       </header>
 
       {error
-        ? <div className="mx-auto max-w-md px-6 py-16 text-center text-sm text-red-400">Couldn’t load scoreboard: {error}</div>
+        ? <ScoreboardError error={error} onRetry={reload} />
         : !data
           ? <div className="px-6 py-16 text-center text-sm text-slate-500">Loading scoreboard…</div>
           : <Dashboard data={data} meta={meta} />}

@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { jobberGraphQL } from '@/lib/jobber'
+import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
 import { evaluateEventAutomations } from '@/lib/automations'
 import type { WeatherSnapshot } from '@/lib/nws-weather'
 import type { SupabaseClient } from '@supabase/supabase-js'
@@ -310,13 +310,17 @@ export async function POST(
     isLastStop = (count ?? 0) === 0
   }
 
-  // Best-effort Jobber push
+  // Best-effort Jobber push. DL5 — techs don't connect their own Jobber account,
+  // so the visit must be completed through the company's connected account
+  // (admin token), not the signed-in tech's (which is null → silent no-op).
   let jobberWarning: string | null = null
   let jobberSuccess = false
   if (stop.jobber_visit_id) {
     try {
-      const result = await jobberGraphQL<VisitMutationResponse>(
-        userId,
+      const jobberUserId = await companyJobberUserId(entry.company_id, userId)
+      if (!jobberUserId) throw new Error('No connected Jobber account for this company')
+      const result = await jobberGraphQLAdmin<VisitMutationResponse>(
+        jobberUserId,
         VISIT_COMPLETE_MUTATION,
         { visitId: stop.jobber_visit_id },
       )
@@ -379,7 +383,7 @@ export async function DELETE(
   if ('error' in resolved) {
     return NextResponse.json({ error: resolved.error }, { status: resolved.status })
   }
-  const { admin, stop, userId } = resolved
+  const { admin, stop, userId, companyId } = resolved
 
   // Reopen logic: if arrival was recorded, drop back to in_progress
   // (timer keeps running with the original arrived_at). Otherwise pending.
@@ -403,12 +407,16 @@ export async function DELETE(
     )
   }
 
+  // DL5 — same as complete: reopen through the company's connected Jobber
+  // account (admin token), not the tech's missing personal token.
   let jobberWarning: string | null = null
   let jobberSuccess = false
   if (stop.jobber_visit_id) {
     try {
-      const result = await jobberGraphQL<VisitMutationResponse>(
-        userId,
+      const jobberUserId = await companyJobberUserId(companyId, userId)
+      if (!jobberUserId) throw new Error('No connected Jobber account for this company')
+      const result = await jobberGraphQLAdmin<VisitMutationResponse>(
+        jobberUserId,
         VISIT_UNCOMPLETE_MUTATION,
         { visitId: stop.jobber_visit_id },
       )

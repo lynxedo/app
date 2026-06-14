@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resolveRecentCallId } from '@/lib/dialer-active-call'
-import { jobberGraphQLAdmin } from '@/lib/jobber'
+import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
 
 const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
@@ -15,27 +15,7 @@ const NOTE_CREATE = `
   }
 `
 
-// Find any Jobber-connected user in the company so notes post regardless of
-// which dialer user is signed in (the connected account is usually just one user).
-async function companyJobberUserId(
-  admin: ReturnType<typeof createAdminClient>,
-  companyId: string,
-  preferUserId: string,
-): Promise<string | null> {
-  const { data: profs } = await admin
-    .from('user_profiles')
-    .select('id')
-    .eq('company_id', companyId)
-  const ids = (profs ?? []).map((p) => p.id as string)
-  if (ids.length === 0) return null
-  const { data: toks } = await admin
-    .from('jobber_tokens')
-    .select('user_id')
-    .in('user_id', ids)
-  const tokenUsers = new Set((toks ?? []).map((t) => t.user_id as string))
-  if (tokenUsers.has(preferUserId)) return preferUserId
-  return tokenUsers.size ? [...tokenUsers][0] : null
-}
+// companyJobberUserId now lives in lib/jobber.ts (shared with Daily Log v2).
 
 // POST /api/dialer/calls/note
 // Body: { note: string, room?: string, toJobber?: boolean, jobberClientId?: string }
@@ -80,7 +60,7 @@ export async function POST(request: Request) {
   let jobberError: string | null = null
   if (toJobber && jobberClientId) {
     try {
-      const jobberUserId = await companyJobberUserId(admin, companyId, user.id)
+      const jobberUserId = await companyJobberUserId(companyId, user.id)
       if (!jobberUserId) {
         jobberError = 'No connected Jobber account'
       } else {
