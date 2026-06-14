@@ -282,7 +282,7 @@ export default function HubRail({
 
   function ActiveBar({ show }: { show: boolean }) {
     return show ? (
-      <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r" style={{ background: 'linear-gradient(180deg,#38bdf8,#2E7EB8)', boxShadow: '0 0 10px #2E7EB8' }} aria-hidden="true" />
+      <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r" style={{ background: 'linear-gradient(180deg,#38bdf8,var(--brand))', boxShadow: '0 0 10px var(--brand)' }} aria-hidden="true" />
     ) : null
   }
 
@@ -630,7 +630,7 @@ export default function HubRail({
           aria-pressed={launcherOpen}
         >
           {launcherOpen && (
-            <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r" style={{ background: 'linear-gradient(180deg,#38bdf8,#2E7EB8)', boxShadow: '0 0 10px #2E7EB8' }} aria-hidden="true" />
+            <span className="absolute left-0 top-1.5 bottom-1.5 w-[3px] rounded-r" style={{ background: 'linear-gradient(180deg,#38bdf8,var(--brand))', boxShadow: '0 0 10px var(--brand)' }} aria-hidden="true" />
           )}
           <span className="relative">
             <AppsIcon />

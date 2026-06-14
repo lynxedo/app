@@ -1307,18 +1307,18 @@ export default function HubSidebar({
                 onChange={e => setNewRoomName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && createRoom()}
                 placeholder="Room name"
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
               />
               <input
                 value={newRoomDesc}
                 onChange={e => setNewRoomDesc(e.target.value)}
                 placeholder="Description (optional)"
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
               />
               <label className="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer select-none">
                 <div
                   onClick={() => setNewRoomPrivate(v => !v)}
-                  className={`w-9 h-5 rounded-full transition-colors relative flex-none cursor-pointer ${newRoomPrivate ? 'bg-[#2E7EB8]' : 'bg-gray-700'}`}
+                  className={`w-9 h-5 rounded-full transition-colors relative flex-none cursor-pointer ${newRoomPrivate ? 'bg-brand' : 'bg-gray-700'}`}
                 >
                   <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${newRoomPrivate ? 'translate-x-4' : 'translate-x-0.5'}`} />
                 </div>
@@ -1336,7 +1336,7 @@ export default function HubSidebar({
               <button
                 onClick={createRoom}
                 disabled={!newRoomName.trim() || creatingRoom}
-                className="flex-1 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
               >
                 {creatingRoom ? 'Creating…' : 'Create'}
               </button>
@@ -1360,7 +1360,7 @@ export default function HubSidebar({
                 onChange={e => setNewBoardName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && createBoard()}
                 placeholder="Board name"
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
               />
               <div>
                 <div className="text-xs text-white/50 mb-1.5">Visibility</div>
@@ -1369,7 +1369,7 @@ export default function HubSidebar({
                     <button
                       key={type}
                       onClick={() => setNewBoardType(type)}
-                      className={`flex-1 py-2 text-xs font-medium transition-colors ${i > 0 ? 'border-l border-gray-700' : ''} ${newBoardType === type ? 'bg-[#2E7EB8] text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                      className={`flex-1 py-2 text-xs font-medium transition-colors ${i > 0 ? 'border-l border-gray-700' : ''} ${newBoardType === type ? 'bg-brand text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                     >
                       {type === 'public' ? '🌐 Public' : type === 'private' ? '🔒 Private' : '👤 Personal'}
                     </button>
@@ -1392,7 +1392,7 @@ export default function HubSidebar({
               <button
                 onClick={createBoard}
                 disabled={!newBoardName.trim() || creatingBoard}
-                className="flex-1 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
               >
                 {creatingBoard ? 'Creating…' : 'Create'}
               </button>
@@ -1419,7 +1419,7 @@ export default function HubSidebar({
                   <input
                     value={settingsName}
                     onChange={e => setSettingsName(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
                   />
                 </div>
                 {/* Type */}
@@ -1430,7 +1430,7 @@ export default function HubSidebar({
                       <button
                         key={type}
                         onClick={() => setSettingsType(type)}
-                        className={`flex-1 py-2 text-xs font-medium transition-colors ${i > 0 ? 'border-l border-gray-700' : ''} ${settingsType === type ? 'bg-[#2E7EB8] text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                        className={`flex-1 py-2 text-xs font-medium transition-colors ${i > 0 ? 'border-l border-gray-700' : ''} ${settingsType === type ? 'bg-brand text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                       >
                         {type === 'public' ? '🌐 Public' : type === 'private' ? '🔒 Private' : '👤 Personal'}
                       </button>
@@ -1444,7 +1444,7 @@ export default function HubSidebar({
                       <label className="text-xs text-white/50">Members</label>
                       <button
                         onClick={() => setAddMemberOpen(v => !v)}
-                        className="text-xs text-[#2E7EB8] hover:text-white transition-colors"
+                        className="text-xs text-brand hover:text-white transition-colors"
                       >
                         + Add
                       </button>
@@ -1512,7 +1512,7 @@ export default function HubSidebar({
                 <button
                   onClick={saveBoardSettings}
                   disabled={!settingsName.trim() || savingSettings}
-                  className="py-2 px-4 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                  className="py-2 px-4 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
                 >
                   {savingSettings ? 'Saving…' : 'Save'}
                 </button>
@@ -1555,7 +1555,7 @@ export default function HubSidebar({
                     <button
                       onClick={() => joinRoom(room.id)}
                       disabled={joiningRoomId === room.id}
-                      className="flex-none ml-3 text-xs text-white bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-50 px-3 py-1 rounded transition-colors"
+                      className="flex-none ml-3 text-xs text-white bg-brand hover:bg-brand-hover disabled:opacity-50 px-3 py-1 rounded transition-colors"
                     >
                       {joiningRoomId === room.id ? '…' : 'Join'}
                     </button>
@@ -1587,11 +1587,11 @@ export default function HubSidebar({
                     key={user.id}
                     onClick={() => toggleUser(user.id)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
-                      checked ? 'bg-[#2E7EB8]/20 text-white' : 'text-gray-300 hover:bg-gray-800'
+                      checked ? 'bg-brand/20 text-white' : 'text-gray-300 hover:bg-gray-800'
                     }`}
                   >
                     <div className={`w-5 h-5 rounded border flex items-center justify-center flex-none transition-colors ${
-                      checked ? 'bg-[#2E7EB8] border-[#2E7EB8]' : 'border-gray-600'
+                      checked ? 'bg-brand border-brand' : 'border-gray-600'
                     }`}>
                       {checked && <span className="text-white text-xs">✓</span>}
                     </div>
@@ -1613,7 +1613,7 @@ export default function HubSidebar({
               <button
                 onClick={createConversation}
                 disabled={selectedIds.length === 0 || creating}
-                className="flex-1 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
               >
                 {creating ? 'Opening…' : 'Open'}
               </button>

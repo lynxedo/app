@@ -200,7 +200,7 @@ function UserAvatar({ user, size = 8 }: { user: HubUser | null; size?: number })
   return (
     <div
       style={{ width: px, height: px }}
-      className="rounded-full bg-[#2E7EB8] flex items-center justify-center text-white font-semibold text-xs flex-none"
+      className="rounded-full bg-brand flex items-center justify-center text-white font-semibold text-xs flex-none"
     >
       {initials}
     </div>

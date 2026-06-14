@@ -184,7 +184,7 @@ export default function FleetAdminPanel({
           <button
             onClick={save}
             disabled={saving}
-            className="px-4 py-2 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50 text-sm font-medium"
+            className="px-4 py-2 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -211,7 +211,7 @@ function ToggleRow({
       <span className="text-sm">{label}</span>
       <button
         onClick={onToggle}
-        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${on ? 'bg-[#2E7EB8]' : 'bg-gray-700'}`}
+        className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${on ? 'bg-brand' : 'bg-gray-700'}`}
         aria-pressed={on}
       >
         <span
@@ -253,7 +253,7 @@ function RecipientGrid({
                 key={it.id}
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${
                   on
-                    ? 'bg-[#2E7EB8]/20 border-[#2E7EB8]/40'
+                    ? 'bg-brand/20 border-brand/40'
                     : 'bg-white/5 border-white/10 hover:bg-white/10'
                 }`}
               >
@@ -261,7 +261,7 @@ function RecipientGrid({
                   type="checkbox"
                   checked={on}
                   onChange={() => onToggle(it.id)}
-                  className="accent-[#2E7EB8]"
+                  className="accent-brand"
                 />
                 <span className="text-sm">{it.label}</span>
               </label>

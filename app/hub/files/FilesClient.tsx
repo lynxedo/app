@@ -122,7 +122,7 @@ function TagPicker({
           onFocus={() => setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
           placeholder={selectedTags.length === 0 ? 'Add tags…' : 'Add another tag…'}
-          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
         />
         {open && suggestions.length > 0 && (
           <div className="absolute z-10 mt-1 w-full bg-gray-800 border border-gray-700 rounded-lg shadow-xl max-h-56 overflow-y-auto">
@@ -287,8 +287,8 @@ export default function FilesClient({
                 type="file"
                 className="block w-full text-sm text-gray-400
                   file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0
-                  file:text-sm file:font-medium file:bg-[#2E7EB8] file:text-white
-                  hover:file:bg-[#2470a8] file:cursor-pointer cursor-pointer"
+                  file:text-sm file:font-medium file:bg-brand file:text-white
+                  hover:file:bg-brand-hover file:cursor-pointer cursor-pointer"
                 required
               />
               <input
@@ -296,7 +296,7 @@ export default function FilesClient({
                 value={description}
                 onChange={e => setDescription(e.target.value)}
                 placeholder="Description (optional)"
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
               />
               <div>
                 <label className="text-xs text-gray-400 block mb-1.5">Tags (optional)</label>
@@ -310,7 +310,7 @@ export default function FilesClient({
               <button
                 type="submit"
                 disabled={uploading}
-                className="px-4 py-2 rounded-lg bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                className="px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
               >
                 {uploading ? 'Uploading…' : 'Upload'}
               </button>
@@ -375,7 +375,7 @@ export default function FilesClient({
                       value={editDraft.description}
                       onChange={e => setEditDraft(d => ({ ...d, description: e.target.value }))}
                       placeholder="Description"
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
                     />
                     <TagPicker
                       selectedTags={editDraft.tags}
@@ -387,7 +387,7 @@ export default function FilesClient({
                         type="button"
                         onClick={() => saveEdit(f.id)}
                         disabled={savingEdit}
-                        className="px-4 py-1.5 rounded-lg bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white"
+                        className="px-4 py-1.5 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white"
                       >
                         {savingEdit ? 'Saving…' : 'Save'}
                       </button>

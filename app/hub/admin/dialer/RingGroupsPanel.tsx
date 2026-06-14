@@ -274,7 +274,7 @@ function GroupRow({
                 type="button"
                 onClick={() => setMode('simultaneous')}
                 className={`px-2 py-0.5 ${
-                  mode === 'simultaneous' ? 'bg-[#2E7EB8] text-white' : 'text-white/60 hover:bg-white/10'
+                  mode === 'simultaneous' ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10'
                 }`}
               >
                 Simultaneous
@@ -283,7 +283,7 @@ function GroupRow({
                 type="button"
                 onClick={() => setMode('sequential')}
                 className={`px-2 py-0.5 ${
-                  mode === 'sequential' ? 'bg-[#2E7EB8] text-white' : 'text-white/60 hover:bg-white/10'
+                  mode === 'sequential' ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10'
                 }`}
               >
                 Sequential
@@ -368,7 +368,7 @@ function GroupRow({
                 onSave({ name: name.trim(), ring_mode: mode, members })
               }}
               disabled={busy || !name.trim()}
-              className="text-xs px-3 py-1.5 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50"
+              className="text-xs px-3 py-1.5 rounded bg-brand hover:bg-brand-light disabled:opacity-50"
             >
               {busy ? 'Saving…' : 'Save changes'}
             </button>
@@ -428,7 +428,7 @@ function NewGroupForm({
             type="button"
             onClick={() => setMode('simultaneous')}
             className={`px-2 py-0.5 ${
-              mode === 'simultaneous' ? 'bg-[#2E7EB8] text-white' : 'text-white/60 hover:bg-white/10'
+              mode === 'simultaneous' ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10'
             }`}
           >
             Simultaneous
@@ -437,7 +437,7 @@ function NewGroupForm({
             type="button"
             onClick={() => setMode('sequential')}
             className={`px-2 py-0.5 ${
-              mode === 'sequential' ? 'bg-[#2E7EB8] text-white' : 'text-white/60 hover:bg-white/10'
+              mode === 'sequential' ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10'
             }`}
           >
             Sequential
@@ -456,7 +456,7 @@ function NewGroupForm({
                 onClick={() => toggle(u.id)}
                 className={`text-xs px-2 py-1 rounded border ${
                   on
-                    ? 'border-[#2E7EB8] bg-[#2E7EB8]/20 text-white'
+                    ? 'border-brand bg-brand/20 text-white'
                     : 'border-white/15 text-white/70 hover:bg-white/10'
                 }`}
               >
@@ -473,7 +473,7 @@ function NewGroupForm({
           onClick={() =>
             onCreate({ name: name.trim(), ring_mode: mode, member_user_ids: members })
           }
-          className="text-xs px-3 py-1.5 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50"
+          className="text-xs px-3 py-1.5 rounded bg-brand hover:bg-brand-light disabled:opacity-50"
         >
           {busy ? 'Creating…' : 'Create group'}
         </button>

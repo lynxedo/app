@@ -22,7 +22,7 @@ function renderMention(raw: string, hubUsers: HubUser[], key: string): ReactNode
   const isUser = hubUsers.some(u => u.display_name.split(' ')[0].toLowerCase() === name)
   if (isUser) {
     return (
-      <span key={key} className="bg-[#2E7EB8]/20 text-[#6FB3E8] rounded px-0.5">
+      <span key={key} className="bg-brand/20 text-[#6FB3E8] rounded px-0.5">
         {raw}
       </span>
     )

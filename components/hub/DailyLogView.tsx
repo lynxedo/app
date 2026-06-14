@@ -76,7 +76,7 @@ function UserAvatar({ user, size = 7 }: { user: HubUser | null; size?: number })
   if (!user) return null
   const initials = user.display_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
   return (
-    <div className={`w-${size} h-${size} rounded-full bg-[#2E7EB8] flex items-center justify-center text-white font-semibold text-xs flex-none`}>
+    <div className={`w-${size} h-${size} rounded-full bg-brand flex items-center justify-center text-white font-semibold text-xs flex-none`}>
       {initials}
     </div>
   )
@@ -444,7 +444,7 @@ function EntryCard({
                   onBlur={() => setAddingSecondary(false)}
                   onChange={e => addSecondaryTech(e.target.value)}
                   defaultValue=""
-                  className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-0.5 text-xs text-white outline-none focus:border-[#2E7EB8]"
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-2 py-0.5 text-xs text-white outline-none focus:border-brand"
                 >
                   <option value="" disabled>+ Add tech…</option>
                   {hubUsers
@@ -457,7 +457,7 @@ function EntryCard({
               ) : (
                 <button
                   onClick={() => setAddingSecondary(true)}
-                  className="text-xs text-gray-500 hover:text-[#2E7EB8] transition-colors"
+                  className="text-xs text-gray-500 hover:text-brand transition-colors"
                   title="Add a second tech who rode on this route"
                 >
                   + tech
@@ -473,7 +473,7 @@ function EntryCard({
             title={isSubscribed ? 'Unfollow — you will stop receiving notifications for this entry' : 'Follow — get notified when updates are posted'}
             className={`flex items-center gap-1 text-xs px-2.5 py-1 rounded-lg border transition-colors disabled:opacity-40 ${
               isSubscribed
-                ? 'border-[#2E7EB8] text-[#2E7EB8] hover:bg-[#2E7EB8]/10'
+                ? 'border-brand text-brand hover:bg-brand/10'
                 : 'border-gray-600 text-gray-400 hover:border-gray-400 hover:text-gray-200'
             }`}
           >
@@ -606,7 +606,7 @@ function EntryCard({
               <button
                 onClick={() => fileInputRef.current?.click()}
                 disabled={uploading}
-                className="text-xs text-[#2E7EB8] hover:text-blue-300 transition-colors disabled:opacity-40"
+                className="text-xs text-brand hover:text-blue-300 transition-colors disabled:opacity-40"
               >
                 {uploading ? 'Uploading…' : entry.route_sheet_url ? 'Replace' : '+ Upload PDF'}
               </button>
@@ -652,7 +652,7 @@ function EntryCard({
             {canEdit && !editingNotes && (
               <button
                 onClick={() => { setEditingNotes(true); setNotesText(entry.office_notes ?? '') }}
-                className="text-xs text-[#2E7EB8] hover:text-blue-300 transition-colors"
+                className="text-xs text-brand hover:text-blue-300 transition-colors"
               >
                 {entry.office_notes ? 'Edit' : '+ Add notes'}
               </button>
@@ -665,14 +665,14 @@ function EntryCard({
                 value={notesText}
                 onChange={e => setNotesText(e.target.value)}
                 rows={3}
-                className="w-full bg-gray-800 border border-gray-600 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8] resize-none"
+                className="w-full bg-gray-800 border border-gray-600 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-brand resize-none"
                 placeholder="Instructions, notes for the tech…"
               />
               <div className="flex gap-2">
                 <button
                   onClick={saveNotes}
                   disabled={savingNotes}
-                  className="px-3 py-1.5 rounded-lg bg-[#2E7EB8] hover:bg-[#2470a8] text-white text-xs font-medium transition-colors disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-lg bg-brand hover:bg-brand-hover text-white text-xs font-medium transition-colors disabled:opacity-40"
                 >
                   {savingNotes ? 'Saving…' : 'Save'}
                 </button>
@@ -813,7 +813,7 @@ function EntryCard({
                               onClick={() => toggleUpdateReaction(u.id, emoji)}
                               className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
                                 ids.includes(currentUserId)
-                                  ? 'bg-[#2E7EB8]/20 border-[#2E7EB8]/50 text-[#2E7EB8]'
+                                  ? 'bg-brand/20 border-brand/50 text-brand'
                                   : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
                               }`}
                             >
@@ -962,13 +962,13 @@ function EntryCard({
                 }}
                 rows={1}
                 placeholder="Post an update…"
-                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8] resize-none"
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-brand resize-none"
                 style={{ minHeight: '2.5rem' }}
               />
               <button
                 onClick={submitUpdate}
                 disabled={(!updateText.trim() && pendingAttachments.length === 0) || sendingUpdate || uploadingCount > 0}
-                className="px-3 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] text-white text-sm font-medium transition-colors disabled:opacity-40 flex-none"
+                className="px-3 py-2 rounded-xl bg-brand hover:bg-brand-hover text-white text-sm font-medium transition-colors disabled:opacity-40 flex-none"
               >
                 {sendingUpdate ? '…' : 'Send'}
               </button>
@@ -1173,7 +1173,7 @@ export default function DailyLogView({
               <button
                 onClick={() => setMyDayOnly(true)}
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                  myDayOnly ? 'bg-[#2E7EB8] text-white' : 'text-gray-400 hover:text-white'
+                  myDayOnly ? 'bg-brand text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
                 My Day
@@ -1181,7 +1181,7 @@ export default function DailyLogView({
               <button
                 onClick={() => setMyDayOnly(false)}
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                  !myDayOnly ? 'bg-[#2E7EB8] text-white' : 'text-gray-400 hover:text-white'
+                  !myDayOnly ? 'bg-brand text-white' : 'text-gray-400 hover:text-white'
                 }`}
               >
                 All Techs
@@ -1191,7 +1191,7 @@ export default function DailyLogView({
             {/* Add entry button (all users) */}
             <button
               onClick={() => setShowAddEntry(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2E7EB8] hover:bg-[#2470a8] text-white text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand hover:bg-brand-hover text-white text-xs font-medium transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -1215,7 +1215,7 @@ export default function DailyLogView({
             </p>
             <button
               onClick={() => setShowAddEntry(true)}
-              className="mt-3 text-sm text-[#2E7EB8] hover:text-blue-300 transition-colors"
+              className="mt-3 text-sm text-brand hover:text-blue-300 transition-colors"
             >
               + Add a technician entry
             </button>
@@ -1254,7 +1254,7 @@ export default function DailyLogView({
                     setNewTechId(e.target.value)
                     setNewSecondaryIds(prev => prev.filter(id => id !== e.target.value))
                   }}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8] appearance-none"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-brand appearance-none"
                 >
                   <option value="">Select a tech…</option>
                   {hubUsers
@@ -1295,7 +1295,7 @@ export default function DailyLogView({
                   onChange={e => {
                     if (e.target.value) setNewSecondaryIds(prev => [...prev, e.target.value])
                   }}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8] appearance-none"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-brand appearance-none"
                 >
                   <option value="">+ Add another tech…</option>
                   {hubUsers
@@ -1314,7 +1314,7 @@ export default function DailyLogView({
                   onChange={e => setNewNotes(e.target.value)}
                   rows={3}
                   placeholder="Instructions, route notes…"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8] resize-none"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand resize-none"
                 />
               </div>
               {createError && <p className="text-xs text-red-400">{createError}</p>}
@@ -1329,7 +1329,7 @@ export default function DailyLogView({
               <button
                 onClick={createEntry}
                 disabled={!newTechId || creating}
-                className="flex-1 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
               >
                 {creating ? 'Creating…' : 'Create Entry'}
               </button>

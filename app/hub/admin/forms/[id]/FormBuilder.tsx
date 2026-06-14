@@ -87,7 +87,7 @@ function FieldCard({
           value={field.label}
           onChange={e => onUpdate(field.id, { label: e.target.value })}
           placeholder="Field label…"
-          className="flex-1 bg-gray-800 border border-white/10 rounded px-2 py-1 text-sm text-white placeholder-gray-500 focus:border-[#2E7EB8] focus:outline-none"
+          className="flex-1 bg-gray-800 border border-white/10 rounded px-2 py-1 text-sm text-white placeholder-gray-500 focus:border-brand focus:outline-none"
         />
 
         {/* Required toggle (not for section_title) */}
@@ -97,7 +97,7 @@ function FieldCard({
               type="checkbox"
               checked={!!field.required}
               onChange={e => onUpdate(field.id, { required: e.target.checked })}
-              className="accent-[#2E7EB8]"
+              className="accent-brand"
             />
             Req
           </label>
@@ -118,7 +118,7 @@ function FieldCard({
           value={field.placeholder ?? ''}
           onChange={e => onUpdate(field.id, { placeholder: e.target.value })}
           placeholder="Placeholder text (optional)…"
-          className="w-full bg-gray-800/50 border border-white/10 rounded px-2 py-1 text-xs text-gray-300 placeholder-gray-600 focus:border-[#2E7EB8] focus:outline-none"
+          className="w-full bg-gray-800/50 border border-white/10 rounded px-2 py-1 text-xs text-gray-300 placeholder-gray-600 focus:border-brand focus:outline-none"
         />
       )}
 
@@ -137,7 +137,7 @@ function FieldCard({
               onChange={e => setOptionInput(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), addOption())}
               placeholder="Add option…"
-              className="flex-1 bg-gray-800 border border-white/10 rounded px-2 py-1 text-xs text-white placeholder-gray-600 focus:border-[#2E7EB8] focus:outline-none"
+              className="flex-1 bg-gray-800 border border-white/10 rounded px-2 py-1 text-xs text-white placeholder-gray-600 focus:border-brand focus:outline-none"
             />
             <button type="button" onClick={addOption} className="text-xs px-2 py-1 bg-gray-700 hover:bg-gray-600 rounded text-white">
               + Add
@@ -237,7 +237,7 @@ export default function FormBuilder({ initialForm }: { initialForm: Form }) {
         <button
           onClick={save}
           disabled={saving}
-          className="px-4 py-1.5 bg-[#2E7EB8] hover:bg-[#2570a6] disabled:opacity-50 text-white text-sm font-medium rounded"
+          className="px-4 py-1.5 bg-brand hover:bg-[#2570a6] disabled:opacity-50 text-white text-sm font-medium rounded"
         >
           {saving ? 'Saving…' : 'Save'}
         </button>
@@ -260,7 +260,7 @@ export default function FormBuilder({ initialForm }: { initialForm: Form }) {
             <input
               value={name}
               onChange={e => setName(e.target.value)}
-              className="w-full bg-gray-900 border border-white/15 rounded px-3 py-2 text-white focus:border-[#2E7EB8] focus:outline-none"
+              className="w-full bg-gray-900 border border-white/15 rounded px-3 py-2 text-white focus:border-brand focus:outline-none"
               placeholder="e.g. Irrigation Inspection Report"
             />
           </div>
@@ -269,7 +269,7 @@ export default function FormBuilder({ initialForm }: { initialForm: Form }) {
             <input
               value={description}
               onChange={e => setDescription(e.target.value)}
-              className="w-full bg-gray-900 border border-white/15 rounded px-3 py-2 text-sm text-white focus:border-[#2E7EB8] focus:outline-none"
+              className="w-full bg-gray-900 border border-white/15 rounded px-3 py-2 text-sm text-white focus:border-brand focus:outline-none"
               placeholder="Brief description of when this form is used…"
             />
           </div>
@@ -330,7 +330,7 @@ export default function FormBuilder({ initialForm }: { initialForm: Form }) {
             onChange={e => setSmsTemplate(e.target.value)}
             rows={3}
             maxLength={2000}
-            className="w-full bg-gray-900 border border-white/15 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-[#2E7EB8] focus:outline-none resize-none"
+            className="w-full bg-gray-900 border border-white/15 rounded px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-brand focus:outline-none resize-none"
             placeholder="Hi {customer_name}, your service by {tech_name} on {date} is complete…"
           />
           <p className="text-xs text-gray-600 mt-1 text-right">{smsTemplate.length}/2000</p>
@@ -340,7 +340,7 @@ export default function FormBuilder({ initialForm }: { initialForm: Form }) {
           <button
             onClick={save}
             disabled={saving}
-            className="w-full py-2.5 bg-[#2E7EB8] hover:bg-[#2570a6] disabled:opacity-50 text-white font-medium rounded"
+            className="w-full py-2.5 bg-brand hover:bg-[#2570a6] disabled:opacity-50 text-white font-medium rounded"
           >
             {saving ? 'Saving…' : 'Save Form'}
           </button>

@@ -83,7 +83,7 @@ export default function ZoneSizerAdminPanel({ initial }: { initial: Settings }) 
           <button
             onClick={save}
             disabled={saving}
-            className="px-4 py-2 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50 text-sm font-medium"
+            className="px-4 py-2 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>

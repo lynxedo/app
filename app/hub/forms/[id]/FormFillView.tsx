@@ -119,7 +119,7 @@ function FieldRenderer({
   )
 
   const inputClass =
-    'w-full bg-gray-800 border rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-[#2E7EB8] text-base md:text-sm ' +
+    'w-full bg-gray-800 border rounded px-3 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-brand text-base md:text-sm ' +
     (error ? 'border-red-500' : 'border-white/20')
 
   if (field.type === 'checkbox') {
@@ -130,7 +130,7 @@ function FieldRenderer({
             type="checkbox"
             checked={!!value}
             onChange={e => onChange(e.target.checked)}
-            className="w-5 h-5 rounded accent-[#2E7EB8] flex-shrink-0"
+            className="w-5 h-5 rounded accent-brand flex-shrink-0"
           />
           <span className="text-sm text-gray-200 group-hover:text-white">{field.label}</span>
         </label>
@@ -269,7 +269,7 @@ function SuccessScreen({
             <p className="text-sm text-gray-200 whitespace-pre-wrap">{smsPreview}</p>
             <button
               onClick={copySms}
-              className="text-xs px-3 py-1.5 bg-[#2E7EB8] hover:bg-[#2570a6] text-white rounded"
+              className="text-xs px-3 py-1.5 bg-brand hover:bg-[#2570a6] text-white rounded"
             >
               {copied ? '✓ Copied' : 'Copy message'}
             </button>
@@ -285,7 +285,7 @@ function SuccessScreen({
           </Link>
           <Link
             href="/hub/forms"
-            className="px-4 py-2 bg-[#2E7EB8] hover:bg-[#2570a6] text-white rounded text-sm"
+            className="px-4 py-2 bg-brand hover:bg-[#2570a6] text-white rounded text-sm"
           >
             Back to Forms
           </Link>
@@ -472,7 +472,7 @@ export default function FormFillView({
                 value={customerName}
                 onChange={e => setCustomerName(e.target.value)}
                 placeholder="e.g. John Smith"
-                className="w-full bg-gray-800 border border-white/20 rounded px-3 py-2 text-white placeholder-gray-500 focus:border-[#2E7EB8] focus:outline-none"
+                className="w-full bg-gray-800 border border-white/20 rounded px-3 py-2 text-white placeholder-gray-500 focus:border-brand focus:outline-none"
                 style={{ fontSize: '16px' }}
               />
             </div>
@@ -483,7 +483,7 @@ export default function FormFillView({
                 value={customerPhone}
                 onChange={e => setCustomerPhone(e.target.value)}
                 placeholder="e.g. (555) 123-4567"
-                className="w-full bg-gray-800 border border-white/20 rounded px-3 py-2 text-white placeholder-gray-500 focus:border-[#2E7EB8] focus:outline-none"
+                className="w-full bg-gray-800 border border-white/20 rounded px-3 py-2 text-white placeholder-gray-500 focus:border-brand focus:outline-none"
                 style={{ fontSize: '16px' }}
               />
             </div>
@@ -520,7 +520,7 @@ export default function FormFillView({
                       onChange={e => setJobberSearch(e.target.value)}
                       onKeyDown={e => e.key === 'Enter' && (e.preventDefault(), searchJobber())}
                       placeholder="Search client name…"
-                      className="flex-1 bg-gray-800 border border-white/20 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-[#2E7EB8] focus:outline-none"
+                      className="flex-1 bg-gray-800 border border-white/20 rounded px-3 py-2 text-sm text-white placeholder-gray-500 focus:border-brand focus:outline-none"
                     />
                     <button
                       type="button"
@@ -562,7 +562,7 @@ export default function FormFillView({
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-3 bg-[#2E7EB8] hover:bg-[#2570a6] disabled:opacity-50 text-white font-semibold rounded-lg text-base"
+              className="w-full py-3 bg-brand hover:bg-[#2570a6] disabled:opacity-50 text-white font-semibold rounded-lg text-base"
             >
               {submitting ? 'Submitting…' : 'Submit Form'}
             </button>

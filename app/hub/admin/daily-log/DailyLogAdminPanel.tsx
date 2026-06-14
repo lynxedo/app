@@ -196,7 +196,7 @@ export default function DailyLogAdminPanel({
             placeholder={DEFAULT_ON_MY_WAY_TEMPLATE}
             rows={3}
             maxLength={500}
-            className="w-full bg-gray-900 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-[#2E7EB8] resize-y"
+            className="w-full bg-gray-900 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 outline-none focus:border-brand resize-y"
           />
           <div className="flex justify-between text-xs text-white/40">
             <span>{onMyWayTemplate.length}/500 chars</span>
@@ -442,7 +442,7 @@ function MappingForm({
   }
 
   return (
-    <div className="rounded-lg border border-[#2E7EB8]/40 bg-[#2E7EB8]/5 px-3 py-3 space-y-2">
+    <div className="rounded-lg border border-brand/40 bg-brand/5 px-3 py-3 space-y-2">
       <div className="grid grid-cols-1 md:grid-cols-2 gap-2">
         <div>
           <label className="block text-[10px] uppercase tracking-wide text-white/50 mb-1">Match text *</label>
@@ -531,7 +531,7 @@ function MappingForm({
           type="checkbox"
           checked={active}
           onChange={e => setActive(e.target.checked)}
-          className="accent-[#2E7EB8]"
+          className="accent-brand"
         />
         Active — apply this mapping when stops are completed
       </label>
@@ -540,7 +540,7 @@ function MappingForm({
         <button
           onClick={submit}
           disabled={matchText.trim().length < 2 || chemicalName.trim().length < 1}
-          className="px-3 py-1.5 rounded bg-[#2E7EB8] hover:bg-[#2470a8] text-white text-sm font-medium transition-colors disabled:opacity-40"
+          className="px-3 py-1.5 rounded bg-brand hover:bg-brand-hover text-white text-sm font-medium transition-colors disabled:opacity-40"
         >
           {initial ? 'Save changes' : 'Add mapping'}
         </button>
@@ -745,7 +745,7 @@ function SkipReasonForm({
   }
 
   return (
-    <div className="rounded-lg border border-[#2E7EB8]/40 bg-[#2E7EB8]/5 px-3 py-3 space-y-2">
+    <div className="rounded-lg border border-brand/40 bg-brand/5 px-3 py-3 space-y-2">
       <div className="flex gap-2">
         <div className="flex-1">
           <label className="block text-[10px] uppercase tracking-wide text-white/50 mb-1">Label *</label>
@@ -776,7 +776,7 @@ function SkipReasonForm({
         <button
           onClick={submit}
           disabled={label.trim().length === 0 || label.trim().length > 100}
-          className="px-3 py-1.5 rounded bg-[#2E7EB8] hover:bg-[#2470a8] text-white text-sm font-medium transition-colors disabled:opacity-40"
+          className="px-3 py-1.5 rounded bg-brand hover:bg-brand-hover text-white text-sm font-medium transition-colors disabled:opacity-40"
         >
           {initial ? 'Save changes' : 'Add reason'}
         </button>
@@ -827,7 +827,7 @@ function PickerSection({
                 key={it.id}
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${
                   on
-                    ? 'bg-[#2E7EB8]/20 border-[#2E7EB8]/40'
+                    ? 'bg-brand/20 border-brand/40'
                     : 'bg-white/5 border-white/10 hover:bg-white/10'
                 }`}
               >
@@ -835,7 +835,7 @@ function PickerSection({
                   type="checkbox"
                   checked={on}
                   onChange={() => onToggle(it.id)}
-                  className="accent-[#2E7EB8]"
+                  className="accent-brand"
                 />
                 <span className="text-sm">{it.label}</span>
               </label>

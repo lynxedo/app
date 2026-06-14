@@ -344,7 +344,7 @@ export default function GuardianAdminPanel({
             <h2 className="font-semibold">Knowledge docs</h2>
             <button
               onClick={openCreate}
-              className="px-3 py-1.5 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] text-sm font-medium"
+              className="px-3 py-1.5 rounded bg-brand hover:bg-brand-light text-sm font-medium"
             >
               + New Doc
             </button>
@@ -437,7 +437,7 @@ export default function GuardianAdminPanel({
                 <button
                   onClick={saveAiPrompt}
                   disabled={aiPromptSaving}
-                  className="px-4 py-2 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50 text-sm font-medium"
+                  className="px-4 py-2 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
                 >
                   {aiPromptSaving ? 'Saving…' : 'Save instructions'}
                 </button>
@@ -552,7 +552,7 @@ export default function GuardianAdminPanel({
             <button
               onClick={saveSettings}
               disabled={savingSettings}
-              className="px-4 py-2 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50 text-sm font-medium"
+              className="px-4 py-2 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
             >
               {savingSettings ? 'Saving…' : 'Save Settings'}
             </button>
@@ -606,7 +606,7 @@ function TabButton({
       onClick={onClick}
       className={`px-4 py-2 text-sm font-medium border-b-2 transition-colors whitespace-nowrap ${
         active
-          ? 'border-[#2E7EB8] text-white'
+          ? 'border-brand text-white'
           : 'border-transparent text-gray-400 hover:text-white hover:border-gray-600'
       }`}
     >
@@ -1133,7 +1133,7 @@ function DocEditor({
         <button
           onClick={save}
           disabled={saving || !slug.trim() || !title.trim()}
-          className="px-3 py-1.5 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50 text-sm font-medium"
+          className="px-3 py-1.5 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
         >
           {saving ? 'Saving…' : isExisting ? 'Save' : 'Create'}
         </button>

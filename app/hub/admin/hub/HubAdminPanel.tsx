@@ -762,7 +762,7 @@ export default function HubAdminPanel({
             key={key}
             onClick={() => { setTab(key); if (key === 'api-keys') loadApiKeys(); if (key === 'automation') loadAutomationRules(); if (key === 'chat-synx') { if (!chatSynxLinksLoaded) loadChatSynxLinks(); if (!chatSynxBridgesLoaded) loadChatSynxBridges(); } if (key === 'external-links' && !externalLinksLoaded) loadExternalLinks() }}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              tab === key ? 'border-[#2E7EB8] text-white' : 'border-transparent text-gray-500 hover:text-gray-300'
+              tab === key ? 'border-brand text-white' : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}
           >
             {label}
@@ -783,19 +783,19 @@ export default function HubAdminPanel({
                 onChange={e => setNewName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && createRoom()}
                 placeholder="Room name"
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
               />
               <input
                 value={newDesc}
                 onChange={e => setNewDesc(e.target.value)}
                 placeholder="Description (optional)"
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
               />
               <div className="flex items-center justify-between">
                 <label className="flex items-center gap-2.5 text-sm text-gray-300 cursor-pointer select-none">
                   <div
                     onClick={() => setNewPrivate(v => !v)}
-                    className={`w-9 h-5 rounded-full transition-colors relative flex-none cursor-pointer ${newPrivate ? 'bg-[#2E7EB8]' : 'bg-gray-700'}`}
+                    className={`w-9 h-5 rounded-full transition-colors relative flex-none cursor-pointer ${newPrivate ? 'bg-brand' : 'bg-gray-700'}`}
                   >
                     <div className={`absolute top-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform ${newPrivate ? 'translate-x-4' : 'translate-x-0.5'}`} />
                   </div>
@@ -804,7 +804,7 @@ export default function HubAdminPanel({
                 <button
                   onClick={createRoom}
                   disabled={!newName.trim() || creating}
-                  className="px-5 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                  className="px-5 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
                 >
                   {creating ? 'Creating…' : 'Create Room'}
                 </button>
@@ -826,7 +826,7 @@ export default function HubAdminPanel({
                       value={renameVal}
                       onChange={e => setRenameVal(e.target.value)}
                       onKeyDown={e => { if (e.key === 'Enter') renameRoom(room.id); if (e.key === 'Escape') setRenamingId(null) }}
-                      className="flex-1 bg-gray-800 border border-[#2E7EB8] rounded-lg px-3 py-1.5 text-sm text-white outline-none"
+                      className="flex-1 bg-gray-800 border border-brand rounded-lg px-3 py-1.5 text-sm text-white outline-none"
                     />
                   ) : (
                     <div className="flex-1 min-w-0">
@@ -848,7 +848,7 @@ export default function HubAdminPanel({
                           title={room.claude_enabled ? 'Guardian ON — click to disable' : 'Guardian OFF — click to enable'}
                           className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
                             room.claude_enabled
-                              ? 'bg-[#2E7EB8]/20 text-[#6FB3E8] hover:bg-[#2E7EB8]/30'
+                              ? 'bg-brand/20 text-[#6FB3E8] hover:bg-brand/30'
                               : 'text-gray-600 hover:text-gray-400 hover:bg-gray-800'
                           }`}
                         >
@@ -925,7 +925,7 @@ export default function HubAdminPanel({
                     key={room.id}
                     onClick={() => loadMembers(room.id)}
                     className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors flex items-center gap-2 ${
-                      membersRoomId === room.id ? 'bg-[#2E7EB8]/20 border border-[#2E7EB8]/40 text-white' : 'bg-gray-800 border border-gray-700 text-gray-300 hover:bg-gray-750 hover:text-white'
+                      membersRoomId === room.id ? 'bg-brand/20 border border-brand/40 text-white' : 'bg-gray-800 border border-gray-700 text-gray-300 hover:bg-gray-750 hover:text-white'
                     }`}
                   >
                     <span className="text-gray-500 text-xs">{room.is_private ? '🔒' : '#'}</span>
@@ -967,7 +967,7 @@ export default function HubAdminPanel({
                   <select
                     value={addUserId}
                     onChange={e => setAddUserId(e.target.value)}
-                    className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                    className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-brand"
                   >
                     <option value="">Add a member…</option>
                     {hubUsers
@@ -980,7 +980,7 @@ export default function HubAdminPanel({
                   <button
                     onClick={addMember}
                     disabled={!addUserId}
-                    className="px-4 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                    className="px-4 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
                   >
                     Add
                   </button>
@@ -1006,7 +1006,7 @@ export default function HubAdminPanel({
                     onClick={() => toggleClaudeAllowed(u.id, !u.claude_allowed)}
                     className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ${
                       u.claude_allowed
-                        ? 'bg-[#2E7EB8]/20 text-[#6FB3E8] hover:bg-[#2E7EB8]/30'
+                        ? 'bg-brand/20 text-[#6FB3E8] hover:bg-brand/30'
                         : 'bg-gray-700 text-gray-500 hover:bg-gray-600 hover:text-gray-300'
                     }`}
                   >
@@ -1035,10 +1035,10 @@ export default function HubAdminPanel({
                   key={String(opt.val)}
                   onClick={() => saveAllowCreate(opt.val)}
                   className={`flex items-start gap-3 p-4 rounded-xl border cursor-pointer transition-colors ${
-                    allowCreate === opt.val ? 'border-[#2E7EB8]/60 bg-[#2E7EB8]/10' : 'border-gray-700 hover:border-gray-600'
+                    allowCreate === opt.val ? 'border-brand/60 bg-brand/10' : 'border-gray-700 hover:border-gray-600'
                   }`}
                 >
-                  <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex-none transition-colors ${allowCreate === opt.val ? 'border-[#2E7EB8] bg-[#2E7EB8]' : 'border-gray-600'}`}>
+                  <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex-none transition-colors ${allowCreate === opt.val ? 'border-brand bg-brand' : 'border-gray-600'}`}>
                     {allowCreate === opt.val && <div className="w-full h-full rounded-full bg-white scale-50 block" />}
                   </div>
                   <div>
@@ -1069,7 +1069,7 @@ export default function HubAdminPanel({
                 </div>
                 <button
                   onClick={() => setRevealedKey(null)}
-                  className="w-full py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] text-sm text-white font-medium transition-colors"
+                  className="w-full py-2.5 rounded-xl bg-brand hover:bg-brand-hover text-sm text-white font-medium transition-colors"
                 >
                   I&apos;ve saved it — close
                 </button>
@@ -1089,12 +1089,12 @@ export default function HubAdminPanel({
                 onChange={e => setNewKeyName(e.target.value)}
                 onKeyDown={e => e.key === 'Enter' && createApiKey()}
                 placeholder="Key name (e.g. Zapier, Unitel Script)"
-                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
               />
               <button
                 onClick={createApiKey}
                 disabled={!newKeyName.trim() || creatingKey}
-                className="px-5 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors flex-none"
+                className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors flex-none"
               >
                 {creatingKey ? 'Creating…' : 'Create'}
               </button>
@@ -1186,7 +1186,7 @@ Content-Type: application/json
                   <select
                     value={newRuleTriggerRoom}
                     onChange={e => setNewRuleTriggerRoom(e.target.value)}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-brand"
                   >
                     <option value="">Any room</option>
                     {activeRooms.map(r => <option key={r.id} value={r.id}>#{r.name}</option>)}
@@ -1198,7 +1198,7 @@ Content-Type: application/json
                     value={newRuleKeyword}
                     onChange={e => setNewRuleKeyword(e.target.value)}
                     placeholder="e.g. rain, urgent, reschedule"
-                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
                   />
                 </div>
               </div>
@@ -1209,7 +1209,7 @@ Content-Type: application/json
                   <select
                     value={newRuleActionType}
                     onChange={e => setNewRuleActionType(e.target.value as 'post_room' | 'dm_user')}
-                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                    className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-brand"
                   >
                     <option value="post_room">Post to a room</option>
                     <option value="dm_user">DM a user</option>
@@ -1224,7 +1224,7 @@ Content-Type: application/json
                     <select
                       value={newRuleTargetRoom}
                       onChange={e => setNewRuleTargetRoom(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-brand"
                     >
                       <option value="">Select room…</option>
                       {activeRooms.map(r => <option key={r.id} value={r.id}>#{r.name}</option>)}
@@ -1234,7 +1234,7 @@ Content-Type: application/json
                     <select
                       value={newRuleTargetUser}
                       onChange={e => setNewRuleTargetUser(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-brand"
                     >
                       <option value="">Select user…</option>
                       {hubUsers.filter(u => !u.display_name.startsWith('Claude')).map(u => (
@@ -1246,7 +1246,7 @@ Content-Type: application/json
                     <select
                       value={newRuleTargetBoard}
                       onChange={e => setNewRuleTargetBoard(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-brand"
                     >
                       <option value="">Select board…</option>
                       {boards.map(b => <option key={b.id} value={b.id}>{b.name}{b.is_private ? ' 🔒' : ''}</option>)}
@@ -1262,7 +1262,7 @@ Content-Type: application/json
                   onChange={e => setNewRuleTemplate(e.target.value)}
                   placeholder={`e.g. {user} mentioned rain in #{room}: "{trigger_message}"`}
                   rows={2}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8] resize-none"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand resize-none"
                 />
               </div>
 
@@ -1272,7 +1272,7 @@ Content-Type: application/json
                 <button
                   onClick={createAutomationRule}
                   disabled={!newRuleKeyword.trim() || !newRuleTemplate.trim() || savingRule}
-                  className="px-5 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                  className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
                 >
                   {savingRule ? 'Saving…' : 'Create Rule'}
                 </button>
@@ -1352,7 +1352,7 @@ Content-Type: application/json
         <div className="space-y-6">
           {/* Active announcement */}
           {activeAnnouncement && (
-            <div className="bg-[#0F2D45] border border-[#2E7EB8]/40 rounded-2xl p-5">
+            <div className="bg-[#0F2D45] border border-brand/40 rounded-2xl p-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="text-xs text-[#6FB3E8] font-semibold uppercase tracking-wider mb-1">📢 Active Announcement</div>
@@ -1422,7 +1422,7 @@ Content-Type: application/json
                 onClick={() => { setAnnType('announcement'); if (annDuration === 72) setAnnDuration(24) }}
                 className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
                   annType === 'announcement'
-                    ? 'bg-[#2E7EB8] text-white'
+                    ? 'bg-brand text-white'
                     : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
                 }`}
               >
@@ -1451,7 +1451,7 @@ Content-Type: application/json
                   onChange={e => setAnnContent(e.target.value)}
                   placeholder={annType === 'shout_out' ? 'Shout out text…' : 'Announcement text…'}
                   rows={3}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 pr-10 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8] resize-none"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 pr-10 text-sm text-white placeholder-gray-500 outline-none focus:border-brand resize-none"
                 />
                 <button
                   type="button"
@@ -1492,7 +1492,7 @@ Content-Type: application/json
                       key={opt.hours}
                       onClick={() => setAnnDuration(opt.hours)}
                       className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                        annDuration === opt.hours ? 'bg-[#2E7EB8] text-white' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+                        annDuration === opt.hours ? 'bg-brand text-white' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
                       }`}
                     >
                       {opt.label}
@@ -1501,7 +1501,7 @@ Content-Type: application/json
                   <button
                     onClick={() => setAnnDuration('custom')}
                     className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                      annDuration === 'custom' ? 'bg-[#2E7EB8] text-white' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+                      annDuration === 'custom' ? 'bg-brand text-white' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
                     }`}
                   >
                     Custom date
@@ -1512,7 +1512,7 @@ Content-Type: application/json
                     type="datetime-local"
                     value={annCustomDate}
                     onChange={e => setAnnCustomDate(e.target.value)}
-                    className="mt-2 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                    className="mt-2 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2 text-sm text-white outline-none focus:border-brand"
                   />
                 )}
               </div>
@@ -1525,7 +1525,7 @@ Content-Type: application/json
                 className={`px-6 py-2.5 rounded-xl disabled:opacity-40 text-sm font-medium transition-colors ${
                   annType === 'shout_out'
                     ? 'bg-amber-500 hover:bg-amber-400 text-gray-900'
-                    : 'bg-[#2E7EB8] hover:bg-[#2470a8] text-white'
+                    : 'bg-brand hover:bg-brand-hover text-white'
                 }`}
               >
                 {postingAnn ? 'Posting…' : `Post ${annType === 'shout_out' ? 'Shout Out' : 'Announcement'}`}
@@ -1545,7 +1545,7 @@ Content-Type: application/json
                   value={editContent}
                   onChange={e => setEditContent(e.target.value)}
                   rows={4}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-[#2E7EB8] resize-none mb-4"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-brand resize-none mb-4"
                 />
                 {editError && <p className="text-sm text-red-400 mb-3">{editError}</p>}
                 <div className="flex justify-end gap-2">
@@ -1558,7 +1558,7 @@ Content-Type: application/json
                   <button
                     onClick={saveEdit}
                     disabled={!editContent.trim() || savingEdit}
-                    className="px-5 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                    className="px-5 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
                   >
                     {savingEdit ? 'Saving…' : 'Save'}
                   </button>
@@ -1628,7 +1628,7 @@ Content-Type: application/json
                 key={key}
                 onClick={() => setChatSynxSubTab(key)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  chatSynxSubTab === key ? 'bg-[#2E7EB8] text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
+                  chatSynxSubTab === key ? 'bg-brand text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
                 }`}
               >
                 {label}
@@ -1651,7 +1651,7 @@ Content-Type: application/json
                       value={newLinkSlackUserId}
                       onChange={e => setNewLinkSlackUserId(e.target.value)}
                       placeholder="U01ABC234DEF (Slack profile → More → Copy member ID)"
-                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
                     />
                   </div>
                   <div>
@@ -1659,7 +1659,7 @@ Content-Type: application/json
                     <select
                       value={newLinkHubUserId}
                       onChange={e => setNewLinkHubUserId(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-brand"
                     >
                       <option value="">— pick a Hub user —</option>
                       {hubUsers.map(u => (<option key={u.id} value={u.id}>{u.display_name}</option>))}
@@ -1670,7 +1670,7 @@ Content-Type: application/json
                 <button
                   onClick={createChatSynxLink}
                   disabled={savingPersonLink}
-                  className="mt-4 px-5 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                  className="mt-4 px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
                 >
                   {savingPersonLink ? 'Linking…' : 'Link person'}
                 </button>
@@ -1736,7 +1736,7 @@ Content-Type: application/json
                       value={newBridgeSlackChannelId}
                       onChange={e => setNewBridgeSlackChannelId(e.target.value)}
                       placeholder="C01ABC234DEF (open channel in Slack web → ID is in URL)"
-                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
                     />
                   </div>
                   <div>
@@ -1744,7 +1744,7 @@ Content-Type: application/json
                     <select
                       value={newBridgeHubRoomId}
                       onChange={e => setNewBridgeHubRoomId(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-brand"
                     >
                       <option value="">— pick a Hub room —</option>
                       {rooms.filter(r => !r.archived_at).map(r => (<option key={r.id} value={r.id}>#{r.name}</option>))}
@@ -1755,7 +1755,7 @@ Content-Type: application/json
                 <button
                   onClick={createChatSynxBridge}
                   disabled={savingBridge}
-                  className="mt-4 px-5 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                  className="mt-4 px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
                 >
                   {savingBridge ? 'Bridging…' : 'Bridge channel'}
                 </button>
@@ -1837,7 +1837,7 @@ Content-Type: application/json
                   onChange={e => setNewTagName(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && createFileTag()}
                   placeholder="e.g. Irrigation, Spring Promo"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
                 />
               </div>
               <div>
@@ -1845,7 +1845,7 @@ Content-Type: application/json
                 <select
                   value={newTagType}
                   onChange={e => setNewTagType(e.target.value as FileTagType)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-brand"
                 >
                   <option value="general">General</option>
                   <option value="social-queue">Social Queue (eligible for social posts)</option>
@@ -1880,7 +1880,7 @@ Content-Type: application/json
                   value={newTagDescription}
                   onChange={e => setNewTagDescription(e.target.value)}
                   placeholder="What this tag is for"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
                 />
               </div>
             </div>
@@ -1888,7 +1888,7 @@ Content-Type: application/json
             <button
               onClick={createFileTag}
               disabled={savingTag || !newTagName.trim()}
-              className="mt-4 px-5 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+              className="mt-4 px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
             >
               {savingTag ? 'Creating…' : 'Add Tag'}
             </button>
@@ -1914,13 +1914,13 @@ Content-Type: application/json
                           <input
                             value={editTagDraft.name}
                             onChange={e => setEditTagDraft(d => ({ ...d, name: e.target.value }))}
-                            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand"
                             placeholder="Name"
                           />
                           <select
                             value={editTagDraft.tag_type}
                             onChange={e => setEditTagDraft(d => ({ ...d, tag_type: e.target.value as FileTagType }))}
-                            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                            className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand"
                           >
                             <option value="general">General</option>
                             <option value="social-queue">Social Queue</option>
@@ -1931,7 +1931,7 @@ Content-Type: application/json
                           value={editTagDraft.description}
                           onChange={e => setEditTagDraft(d => ({ ...d, description: e.target.value }))}
                           placeholder="Description"
-                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand"
                         />
                         <div className="flex items-center gap-2 flex-wrap">
                           {FILE_TAG_DEFAULT_COLORS.map(c => (
@@ -1955,7 +1955,7 @@ Content-Type: application/json
                         <div className="flex gap-2">
                           <button
                             onClick={() => saveEditTag(tag.id)}
-                            className="px-4 py-1.5 rounded-lg bg-[#2E7EB8] hover:bg-[#2470a8] text-sm text-white"
+                            className="px-4 py-1.5 rounded-lg bg-brand hover:bg-brand-hover text-sm text-white"
                           >
                             Save
                           </button>
@@ -2031,7 +2031,7 @@ Content-Type: application/json
                 <button
                   type="button"
                   onClick={() => setShowNewLinkEmojiPicker(v => !v)}
-                  className="w-12 h-[42px] bg-gray-800 border border-gray-700 rounded-xl text-xl hover:border-[#2E7EB8] transition-colors flex items-center justify-center"
+                  className="w-12 h-[42px] bg-gray-800 border border-gray-700 rounded-xl text-xl hover:border-brand transition-colors flex items-center justify-center"
                   title="Pick emoji"
                 >
                   {newLinkIcon}
@@ -2049,7 +2049,7 @@ Content-Type: application/json
                   value={newLinkName}
                   onChange={e => setNewLinkName(e.target.value)}
                   placeholder="e.g. Jobber"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
                 />
               </div>
               <div>
@@ -2058,7 +2058,7 @@ Content-Type: application/json
                   type="number"
                   value={newLinkSortOrder}
                   onChange={e => setNewLinkSortOrder(parseInt(e.target.value) || 0)}
-                  className="w-24 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                  className="w-24 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-brand"
                 />
               </div>
               <div className="md:col-span-3">
@@ -2068,7 +2068,7 @@ Content-Type: application/json
                   onChange={e => setNewLinkUrl(e.target.value)}
                   onKeyDown={e => e.key === 'Enter' && createExternalLink()}
                   placeholder="https://..."
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
                 />
               </div>
             </div>
@@ -2076,7 +2076,7 @@ Content-Type: application/json
             <button
               onClick={createExternalLink}
               disabled={savingLink || !newLinkName.trim() || !newLinkUrl.trim()}
-              className="mt-4 px-5 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+              className="mt-4 px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
             >
               {savingLink ? 'Adding…' : 'Add Link'}
             </button>
@@ -2100,7 +2100,7 @@ Content-Type: application/json
                             <button
                               type="button"
                               onClick={() => setShowEditLinkEmojiPicker(v => !v)}
-                              className="w-12 h-10 bg-gray-800 border border-gray-700 rounded-lg text-lg hover:border-[#2E7EB8] transition-colors flex items-center justify-center"
+                              className="w-12 h-10 bg-gray-800 border border-gray-700 rounded-lg text-lg hover:border-brand transition-colors flex items-center justify-center"
                               title="Pick emoji"
                             >
                               {editLinkDraft.icon}
@@ -2119,13 +2119,13 @@ Content-Type: application/json
                             value={editLinkDraft.name}
                             onChange={e => setEditLinkDraft(d => ({ ...d, name: e.target.value }))}
                             placeholder="Name"
-                            className="flex-1 min-w-[180px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                            className="flex-1 min-w-[180px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand"
                           />
                           <input
                             type="number"
                             value={editLinkDraft.sort_order}
                             onChange={e => setEditLinkDraft(d => ({ ...d, sort_order: parseInt(e.target.value) || 0 }))}
-                            className="w-20 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                            className="w-20 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand"
                             title="Sort order"
                           />
                         </div>
@@ -2133,7 +2133,7 @@ Content-Type: application/json
                           value={editLinkDraft.url}
                           onChange={e => setEditLinkDraft(d => ({ ...d, url: e.target.value }))}
                           placeholder="https://..."
-                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand"
                         />
                         <div className="flex gap-2 justify-end">
                           <button
@@ -2145,7 +2145,7 @@ Content-Type: application/json
                           <button
                             onClick={() => saveEditLink(link.id)}
                             disabled={!editLinkDraft.name.trim() || !editLinkDraft.url.trim()}
-                            className="px-4 py-1.5 rounded-lg bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-xs text-white font-medium transition-colors"
+                            className="px-4 py-1.5 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-40 text-xs text-white font-medium transition-colors"
                           >
                             Save
                           </button>

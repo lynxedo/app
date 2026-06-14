@@ -105,7 +105,7 @@ export default function GlobalNav({ profile }: { profile: NavProfile }) {
 
       {/* Desktop top bar */}
       <nav className="hidden md:flex flex-none h-12 bg-gray-900 border-b border-gray-800 items-center px-4 gap-1 z-30">
-        <span className="text-xs font-bold text-[#2E7EB8] tracking-widest uppercase mr-3 select-none">Lynxedo</span>
+        <span className="text-xs font-bold text-brand tracking-widest uppercase mr-3 select-none">Lynxedo</span>
         {items.map(item => {
           const active = isActive(item.href)
           return (
@@ -118,7 +118,7 @@ export default function GlobalNav({ profile }: { profile: NavProfile }) {
                   : 'text-gray-400 hover:text-white hover:bg-gray-800'
               }`}
             >
-              <span className={active ? 'text-[#2E7EB8]' : ''}>{item.icon}</span>
+              <span className={active ? 'text-brand' : ''}>{item.icon}</span>
               {item.label}
             </Link>
           )
@@ -137,7 +137,7 @@ export default function GlobalNav({ profile }: { profile: NavProfile }) {
               key={item.href}
               href={item.href}
               className={`flex-1 flex flex-col items-center justify-center gap-0.5 py-2 text-[10px] font-medium transition-colors ${
-                active ? 'text-[#2E7EB8]' : 'text-gray-500 hover:text-gray-300'
+                active ? 'text-brand' : 'text-gray-500 hover:text-gray-300'
               }`}
             >
               {item.icon}

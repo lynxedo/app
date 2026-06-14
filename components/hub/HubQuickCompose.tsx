@@ -176,7 +176,7 @@ export default function HubQuickCompose({
           className="flex-1 bg-transparent text-white text-base outline-none placeholder-gray-500"
         />
         {searchingMessages && (
-          <div className="w-4 h-4 border-2 border-[#2E7EB8] border-t-transparent rounded-full animate-spin flex-none" />
+          <div className="w-4 h-4 border-2 border-brand border-t-transparent rounded-full animate-spin flex-none" />
         )}
         <button
           onClick={onClose}
@@ -195,7 +195,7 @@ export default function HubQuickCompose({
           <button
             onClick={() => openDM()}
             disabled={creating}
-            className="flex-none px-4 py-1.5 bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 rounded-lg text-sm text-white font-medium transition-colors"
+            className="flex-none px-4 py-1.5 bg-brand hover:bg-brand-hover disabled:opacity-40 rounded-lg text-sm text-white font-medium transition-colors"
           >
             {creating ? 'Opening…' : 'Start Group DM'}
           </button>
@@ -242,7 +242,7 @@ export default function HubQuickCompose({
               return (
                 <div
                   key={user.id}
-                  className={`flex items-center gap-3 px-4 py-2.5 transition-colors group ${isSelected ? 'bg-[#2E7EB8]/10' : 'hover:bg-gray-800/60'}`}
+                  className={`flex items-center gap-3 px-4 py-2.5 transition-colors group ${isSelected ? 'bg-brand/10' : 'hover:bg-gray-800/60'}`}
                 >
                   {/* Avatar */}
                   <div className="flex-none w-8 h-8 rounded-full bg-[#1A3D5C] flex items-center justify-center text-sm font-bold text-white">
@@ -264,7 +264,7 @@ export default function HubQuickCompose({
                     title={isSelected ? 'Remove from group' : 'Add to group DM'}
                     className={`flex-none w-6 h-6 rounded border-2 flex items-center justify-center transition-colors ${
                       isSelected
-                        ? 'bg-[#2E7EB8] border-[#2E7EB8]'
+                        ? 'bg-brand border-brand'
                         : 'border-gray-600 opacity-0 group-hover:opacity-100 focus:opacity-100'
                     }`}
                   >

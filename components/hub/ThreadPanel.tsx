@@ -68,7 +68,7 @@ function Avatar({ sender }: { sender: Sender | null }) {
   if (!sender) return <div className="w-7 h-7 rounded-full bg-gray-700 flex-none" />
   if (sender.avatar_url) return <img src={`/api/profile/avatar/${sender.id}`} alt="" className="w-7 h-7 rounded-full flex-none object-cover" />
   return (
-    <div className={`w-7 h-7 rounded-full flex-none flex items-center justify-center text-xs font-bold text-white ${sender.is_bot ? 'bg-[#2E7EB8]' : 'bg-gray-600'}`}>
+    <div className={`w-7 h-7 rounded-full flex-none flex items-center justify-center text-xs font-bold text-white ${sender.is_bot ? 'bg-brand' : 'bg-gray-600'}`}>
       {sender.display_name.slice(0, 2).toUpperCase()}
     </div>
   )
@@ -620,7 +620,7 @@ export default function ThreadPanel({
             ))}
             {uploading && (
               <div className="w-16 h-16 bg-gray-800 border border-gray-700 rounded-lg flex items-center justify-center">
-                <div className="w-5 h-5 border-2 border-[#2E7EB8] border-t-transparent rounded-full animate-spin" />
+                <div className="w-5 h-5 border-2 border-brand border-t-transparent rounded-full animate-spin" />
               </div>
             )}
           </div>
@@ -628,8 +628,8 @@ export default function ThreadPanel({
 
         {/* Uploading banner — prominent while an attachment is still uploading. */}
         {uploading && (
-          <div className="mb-2 px-3 py-2 bg-[#2E7EB8]/10 border border-[#2E7EB8]/30 rounded-lg flex items-center gap-2.5 text-xs text-[#9cc7e6]">
-            <div className="w-4 h-4 border-2 border-[#2E7EB8] border-t-transparent rounded-full animate-spin flex-none" />
+          <div className="mb-2 px-3 py-2 bg-brand/10 border border-brand/30 rounded-lg flex items-center gap-2.5 text-xs text-[#9cc7e6]">
+            <div className="w-4 h-4 border-2 border-brand border-t-transparent rounded-full animate-spin flex-none" />
             <span>Uploading attachment… please wait before sending.</span>
           </div>
         )}
@@ -643,11 +643,11 @@ export default function ThreadPanel({
 
         {/* Scheduled send indicator */}
         {scheduledAt && (
-          <div className="mb-2 px-3 py-2 bg-[#2E7EB8]/10 border border-[#2E7EB8]/30 rounded-lg flex items-center justify-between text-xs text-[#2E7EB8]">
+          <div className="mb-2 px-3 py-2 bg-brand/10 border border-brand/30 rounded-lg flex items-center justify-between text-xs text-brand">
             <span>
               🕐 Scheduled for {new Date(scheduledAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}
             </span>
-            <button onClick={() => { setScheduledAt(''); setShowScheduler(false) }} className="text-[#2E7EB8]/60 hover:text-[#2E7EB8] ml-2">✕</button>
+            <button onClick={() => { setScheduledAt(''); setShowScheduler(false) }} className="text-brand/60 hover:text-brand ml-2">✕</button>
           </div>
         )}
 
@@ -659,7 +659,7 @@ export default function ThreadPanel({
                 key={emoji.id}
                 onMouseDown={e => { e.preventDefault(); insertEmojiFromSuggestion(emoji) }}
                 className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
-                  i === emojiIndex ? 'bg-[#2E7EB8]/20 text-white' : 'text-gray-300 hover:bg-gray-700'
+                  i === emojiIndex ? 'bg-brand/20 text-white' : 'text-gray-300 hover:bg-gray-700'
                 }`}
               >
                 <span className="text-xl flex-none w-6 text-center">{emoji.native}</span>
@@ -670,7 +670,7 @@ export default function ThreadPanel({
           </div>
         )}
 
-        <div className="bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 focus-within:border-[#2E7EB8] transition-colors flex items-start gap-2">
+        <div className="bg-gray-900 border border-gray-700 rounded-xl px-3 py-2 focus-within:border-brand transition-colors flex items-start gap-2">
           <textarea
             ref={textareaRef}
             value={replyContent}
@@ -794,7 +794,7 @@ export default function ThreadPanel({
               type="button"
               onClick={() => setShowScheduler(v => !v)}
               className={`transition-colors p-1.5 rounded-md hover:bg-gray-800 ${
-                scheduledAt ? 'text-[#2E7EB8]' : 'text-gray-500 hover:text-gray-300'
+                scheduledAt ? 'text-brand' : 'text-gray-500 hover:text-gray-300'
               }`}
               title="Schedule send"
               aria-label="Schedule send"
@@ -811,7 +811,7 @@ export default function ThreadPanel({
                   min={minDateTime}
                   value={scheduledAt}
                   onChange={e => setScheduledAt(e.target.value)}
-                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-base md:text-sm text-white outline-none focus:border-[#2E7EB8]"
+                  className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-base md:text-sm text-white outline-none focus:border-brand"
                 />
                 {scheduledAt && (
                   <button
@@ -831,7 +831,7 @@ export default function ThreadPanel({
             onClick={sendReply}
             disabled={!hasContent || sending || uploading}
             className={`text-xs disabled:opacity-30 text-white px-3 py-1.5 rounded-lg transition-colors ${
-              scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-[#2E7EB8] hover:bg-[#2470a8]'
+              scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-brand hover:bg-brand-hover'
             }`}
           >
             {scheduledAt ? 'Schedule' : 'Reply'}

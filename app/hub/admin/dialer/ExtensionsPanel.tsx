@@ -118,7 +118,7 @@ export default function ExtensionsPanel({
                 type="button"
                 onClick={() => save(r.user_id, value)}
                 disabled={!dirty || savingUserId === r.user_id}
-                className="text-xs px-3 py-1 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-30 disabled:bg-white/5"
+                className="text-xs px-3 py-1 rounded bg-brand hover:bg-brand-light disabled:opacity-30 disabled:bg-white/5"
               >
                 {savingUserId === r.user_id ? 'Saving…' : dirty ? 'Save' : 'Saved'}
               </button>

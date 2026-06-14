@@ -237,7 +237,7 @@ export default function IvrEditor({
                 onChange({ enabled: nowEnabled, config })
               }
             }}
-            className="accent-[#2E7EB8] w-4 h-4"
+            className="accent-brand w-4 h-4"
           />
           <span className="text-sm font-medium">Auto-attendant enabled</span>
         </label>
@@ -260,7 +260,7 @@ export default function IvrEditor({
               onClick={() => switchTree(t.name)}
               className={`px-3 py-2 text-sm border-b-2 -mb-px flex items-center gap-2 ${
                 active
-                  ? 'border-[#2E7EB8] text-white'
+                  ? 'border-brand text-white'
                   : 'border-transparent text-white/60 hover:text-white'
               }`}
             >
@@ -326,7 +326,7 @@ export default function IvrEditor({
                       onClick={() => setSelectedId(n.id)}
                       className={`w-full text-left px-2 py-1.5 rounded text-sm flex items-center gap-2 ${
                         isSel
-                          ? 'bg-[#2E7EB8]/30 border border-[#2E7EB8]/50'
+                          ? 'bg-brand/30 border border-brand/50'
                           : 'hover:bg-white/10 border border-transparent'
                       }`}
                     >
@@ -564,7 +564,7 @@ function PromptEditor({
               )
             }
             className={`px-2 py-0.5 ${
-              prompt.kind === 'tts' ? 'bg-[#2E7EB8] text-white' : 'text-white/60 hover:bg-white/10'
+              prompt.kind === 'tts' ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10'
             }`}
           >
             Type text
@@ -579,7 +579,7 @@ function PromptEditor({
               )
             }
             className={`px-2 py-0.5 ${
-              prompt.kind === 'audio' ? 'bg-[#2E7EB8] text-white' : 'text-white/60 hover:bg-white/10'
+              prompt.kind === 'audio' ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10'
             }`}
           >
             Upload audio
@@ -620,7 +620,7 @@ function PromptEditor({
               if (f) uploadAudio(f)
             }}
             disabled={uploading}
-            className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-[#2E7EB8] file:text-white file:text-sm hover:file:bg-[#3a8dc9] file:cursor-pointer"
+            className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-brand file:text-white file:text-sm hover:file:bg-brand-light file:cursor-pointer"
           />
           {uploading && <span className="ml-2 text-xs text-white/50">Uploading…</span>}
           {error && <p className="text-xs text-red-300">{error}</p>}
@@ -668,7 +668,7 @@ function KeypressRow({
 }) {
   return (
     <div className="flex items-start gap-2 p-2 rounded border border-white/10 bg-white/5">
-      <div className="w-8 h-8 rounded bg-[#2E7EB8]/30 text-white text-base font-semibold flex items-center justify-center shrink-0">
+      <div className="w-8 h-8 rounded bg-brand/30 text-white text-base font-semibold flex items-center justify-center shrink-0">
         {digit}
       </div>
       <div className="flex-1 min-w-0">
@@ -724,7 +724,7 @@ function AddKeypressButton({
                 onAdd(d)
                 setOpen(false)
               }}
-              className="w-8 h-8 rounded bg-white/5 hover:bg-[#2E7EB8] text-sm font-semibold"
+              className="w-8 h-8 rounded bg-white/5 hover:bg-brand text-sm font-semibold"
             >
               {d}
             </button>
