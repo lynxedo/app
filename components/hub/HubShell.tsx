@@ -295,19 +295,20 @@ export default function HubShell({
     return () => document.removeEventListener('keydown', onKey)
   }, [])
 
-  // Activity unread count poll.
+  // Activity unread count. NAV-HubShellEffects: the 90s interval is created ONCE
+  // (stable deps) instead of being torn down + recreated on every navigation; a
+  // separate cheap effect still refreshes immediately when the route changes.
+  const refreshActivity = useCallback(() => {
+    fetch('/api/hub/activity?count_only=1', { cache: 'no-store' })
+      .then(r => r.ok ? r.json() : { unreadCount: 0 })
+      .then(d => setUnreadActivity(d.unreadCount ?? 0))
+      .catch(() => {})
+  }, [])
+  useEffect(() => { refreshActivity() }, [pathname, refreshActivity])
   useEffect(() => {
-    let cancelled = false
-    function tick() {
-      fetch('/api/hub/activity?count_only=1', { cache: 'no-store' })
-        .then(r => r.ok ? r.json() : { unreadCount: 0 })
-        .then(d => { if (!cancelled) setUnreadActivity(d.unreadCount ?? 0) })
-        .catch(() => {})
-    }
-    tick()
-    const id = setInterval(tick, 90_000)
-    return () => { cancelled = true; clearInterval(id) }
-  }, [pathname])
+    const id = setInterval(refreshActivity, 90_000)
+    return () => clearInterval(id)
+  }, [refreshActivity])
 
   // Authoritative unread refresh for the Hub rail icon dot (any unread room/DM)
   // + the Daily Log dot. Reads the same read-receipts endpoint the sidebar uses.
@@ -328,12 +329,13 @@ export default function HubShell({
       .catch(() => {})
   }, [])
 
-  // Refresh on every navigation + a 60s safety poll.
+  // Refresh on every navigation; the 60s safety poll is a stable interval that
+  // isn't recreated on each route change (NAV-HubShellEffects).
+  useEffect(() => { refreshHubUnread() }, [pathname, refreshHubUnread])
   useEffect(() => {
-    refreshHubUnread()
     const id = setInterval(refreshHubUnread, 60_000)
     return () => clearInterval(id)
-  }, [pathname, refreshHubUnread])
+  }, [refreshHubUnread])
 
   // Realtime: light the Hub rail icon dot the instant a new message arrives
   // (instead of waiting up to 60s for the poll). On a qualifying insert we pull
@@ -415,12 +417,12 @@ export default function HubShell({
       .catch(() => {})
   }, [canAccessTxt])
 
+  useEffect(() => { if (canAccessTxt) refreshTxtUnread() }, [pathname, canAccessTxt, refreshTxtUnread])
   useEffect(() => {
     if (!canAccessTxt) return
-    refreshTxtUnread()
     const id = setInterval(refreshTxtUnread, 60_000)
     return () => clearInterval(id)
-  }, [pathname, canAccessTxt, refreshTxtUnread])
+  }, [canAccessTxt, refreshTxtUnread])
 
   // Instant: light the dot on the inbound broadcast (same topic the inbound
   // webhook fires; the daily-log dot uses this exact two-subscriber pattern).
