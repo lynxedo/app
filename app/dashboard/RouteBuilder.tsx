@@ -289,28 +289,27 @@ export default function RouteBuilder() {
   })()
 
   async function geocodeVisits(loadedVisits: Visit[]) {
-    const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
-    if (!token || loadedVisits.length === 0) {
-      setVisitCoords(loadedVisits.map(() => null))
+    if (loadedVisits.length === 0) {
+      setVisitCoords([])
       return
     }
     setCoordsLoading(true)
-    const coords = await Promise.all(loadedVisits.map(async v => {
-      try {
-        const encoded = encodeURIComponent(v.addressString)
-        const res = await fetch(
-          `https://api.mapbox.com/geocoding/v5/mapbox.places/${encoded}.json?access_token=${token}&limit=1&country=US`,
-          { signal: AbortSignal.timeout(6000) }
-        )
-        const data = await res.json()
-        const center = data.features?.[0]?.center
-        return center ? { lng: center[0] as number, lat: center[1] as number } : null
-      } catch {
-        return null
-      }
-    }))
-    setVisitCoords(coords)
-    setCoordsLoading(false)
+    // #30 — geocode via the server (Census + cache), the SAME source the optimizer
+    // uses, so the pre-optimize pins match the optimized route (no more pin jump).
+    try {
+      const res = await fetch('/api/geocode', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ addresses: loadedVisits.map(v => v.addressString) }),
+      })
+      const data = res.ok ? await res.json() : null
+      const coords = Array.isArray(data?.coords) ? data.coords : loadedVisits.map(() => null)
+      setVisitCoords(coords)
+    } catch {
+      setVisitCoords(loadedVisits.map(() => null))
+    } finally {
+      setCoordsLoading(false)
+    }
   }
 
   async function loadVisits() {
