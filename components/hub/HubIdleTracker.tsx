@@ -2,7 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-import { HUB_HUB_IDLE_THRESHOLD_MS, HUB_LAST_ACTIVE_KEY, HUB_LAST_HUB_LAST_ROUTE_KEY } from '@/lib/hub-idle'
+import { HUB_IDLE_THRESHOLD_MS, HUB_LAST_ACTIVE_KEY, HUB_LAST_ROUTE_KEY } from '@/lib/hub-idle'
 
 // Routes we never save as "last route" because they are themselves landing /
 // redirect pages — saving them would defeat the restore on the next cold load.
