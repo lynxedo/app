@@ -137,6 +137,71 @@ export async function notifyDailyLogComplete(entryId: string): Promise<void> {
   })
 }
 
+// DL1 — Daily Log v2 stop notes & photos previously notified nobody. Fire this
+// after a stop note/photo is posted: it reuses the SAME recipients as the
+// "Route Complete" button (daily_log_settings.completion_notify_*) and the same
+// Guardian fan-out. Fire-and-forget; best-effort.
+export async function notifyDailyLogStopActivity(opts: {
+  stopId: string
+  companyId: string
+  actorUserId: string
+  kind: 'note' | 'photo'
+  preview: string
+}): Promise<void> {
+  const { stopId, companyId, actorUserId, kind, preview } = opts
+  const admin = createAdminClient()
+
+  const { data: settings } = await admin
+    .from('daily_log_settings')
+    .select('completion_notify_user_ids, completion_notify_room_ids')
+    .eq('company_id', companyId)
+    .single<{ completion_notify_user_ids: string[]; completion_notify_room_ids: string[] }>()
+
+  const userIds = (settings?.completion_notify_user_ids ?? []).filter(
+    (id) => id !== GUARDIAN_HUB_USER_ID && id !== actorUserId,
+  )
+  const roomIds = settings?.completion_notify_room_ids ?? []
+  if (userIds.length === 0 && roomIds.length === 0) return
+
+  const { data: stop } = await admin
+    .from('daily_log_stops')
+    .select('client_name, address, entry_id')
+    .eq('id', stopId)
+    .single<{ client_name: string | null; address: string | null; entry_id: string }>()
+  const where = stop?.client_name || stop?.address || 'a stop'
+
+  let techName = 'a tech'
+  if (stop?.entry_id) {
+    const { data: entry } = await admin
+      .from('daily_log_entries')
+      .select('tech_user_id')
+      .eq('id', stop.entry_id)
+      .single<{ tech_user_id: string }>()
+    if (entry?.tech_user_id) {
+      const { data: tech } = await admin
+        .from('hub_users')
+        .select('display_name')
+        .eq('id', entry.tech_user_id)
+        .maybeSingle<{ display_name: string }>()
+      techName = tech?.display_name ?? 'a tech'
+    }
+  }
+
+  const { data: actor } = await admin
+    .from('hub_users')
+    .select('display_name')
+    .eq('id', actorUserId)
+    .maybeSingle<{ display_name: string }>()
+  const actorName = actor?.display_name ?? 'Someone'
+
+  const icon = kind === 'photo' ? '📷' : '📝'
+  const verb = kind === 'photo' ? 'added a photo to' : 'left a note on'
+  const tail = preview ? `: ${preview.replace(/\n+/g, ' ').trim().slice(0, 200)}` : ''
+  const body = `${icon} *${actorName}* ${verb} *${techName}*'s stop — ${where}${tail}`
+
+  await fanoutGuardianNotification({ admin, companyId, userIds, roomIds, body })
+}
+
 function formatDate(dateStr: string): string {
   const [y, m, d] = dateStr.split('-').map(Number)
   const dt = new Date(y, m - 1, d)

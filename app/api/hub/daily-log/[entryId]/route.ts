@@ -1,6 +1,48 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { notifyDailyLogComplete } from '@/lib/daily-log-notify'
+
+type EntryAuth = {
+  id: string
+  company_id: string
+  tech_user_id: string
+  created_by: string | null
+  secondary_tech_user_ids: string[] | null
+}
+
+// DL3 — verify the caller may edit/delete this entry: same company AND
+// (admin / daily-log admin / the primary tech / a secondary tech / the creator).
+async function authorizeEntry(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  userId: string,
+  entryId: string,
+): Promise<{ ok: true; entry: EntryAuth } | { ok: false; status: number; error: string }> {
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('company_id, role, can_admin_daily_log')
+    .eq('id', userId)
+    .single()
+  if (!profile?.company_id) return { ok: false, status: 403, error: 'No company' }
+
+  const { data: entry } = await supabase
+    .from('daily_log_entries')
+    .select('id, company_id, tech_user_id, created_by, secondary_tech_user_ids')
+    .eq('id', entryId)
+    .is('deleted_at', null)
+    .single()
+  if (!entry) return { ok: false, status: 404, error: 'Entry not found' }
+  if (entry.company_id !== profile.company_id) return { ok: false, status: 403, error: 'Forbidden' }
+
+  const isManager = profile.role === 'admin' || profile.can_admin_daily_log === true
+  const isOwner =
+    entry.tech_user_id === userId ||
+    entry.created_by === userId ||
+    (entry.secondary_tech_user_ids ?? []).includes(userId)
+  if (!isManager && !isOwner) return { ok: false, status: 403, error: 'Forbidden' }
+
+  return { ok: true, entry: entry as EntryAuth }
+}
 
 export async function PATCH(
   request: Request,
@@ -11,6 +53,10 @@ export async function PATCH(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { entryId } = await params
+
+  const auth = await authorizeEntry(supabase, user.id, entryId)
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
   const body = await request.json()
 
   const updates: Record<string, unknown> = {}
@@ -19,14 +65,7 @@ export async function PATCH(
   if ('route_sheet_name' in body) updates.route_sheet_name = body.route_sheet_name
 
   if ('secondary_tech_user_ids' in body) {
-    // Need the primary to validate
-    const { data: existing } = await supabase
-      .from('daily_log_entries')
-      .select('tech_user_id')
-      .eq('id', entryId)
-      .single()
-    if (!existing) return NextResponse.json({ error: 'Entry not found' }, { status: 404 })
-    const result = normalizeSecondaries(body.secondary_tech_user_ids, existing.tech_user_id)
+    const result = normalizeSecondaries(body.secondary_tech_user_ids, auth.entry.tech_user_id)
     if (result instanceof Error) {
       return NextResponse.json({ error: result.message }, { status: 400 })
     }
@@ -67,10 +106,18 @@ export async function DELETE(
 
   const { entryId } = await params
 
-  const { error } = await supabase
+  const auth = await authorizeEntry(supabase, user.id, entryId)
+  if (!auth.ok) return NextResponse.json({ error: auth.error }, { status: auth.status })
+
+  // DL3 — soft delete (was a hard cascade delete). Authorized above; use the
+  // admin client for the write so the new deleted_at column isn't gated by an
+  // UPDATE RLS policy. Soft-deleted entries are filtered out of the list view.
+  const admin = createAdminClient()
+  const { error } = await admin
     .from('daily_log_entries')
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq('id', entryId)
+    .is('deleted_at', null)
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })
