@@ -24,6 +24,7 @@ export default function HubMobileMore({
   onToggleHubDnd,
   onToggleDialerDnd,
   onOpenLayoutEditor,
+  onOpenSidebarApp,
   permissions,
   items,
   rooms,
@@ -49,6 +50,9 @@ export default function HubMobileMore({
   onToggleHubDnd?: () => void
   onToggleDialerDnd?: () => void
   onOpenLayoutEditor: () => void
+  /** NAV-MobileInconsistent: open the mobile sidebar drawer for a sidebar-backed app
+   *  (txt2/dialer) so the drawer matches the bottom bar instead of plain-navigating. */
+  onOpenSidebarApp?: () => void
   permissions: RailPermissions
   /** The one shared layout list (already permission-filtered). */
   items: string[]
@@ -146,7 +150,13 @@ export default function HubMobileMore({
         if (!entry) return null
         label = entry.label
         icon = <CatalogIcon id={id} />
-        onClick = entry.href ? () => navigate(entry.href!) : () => {}
+        // NAV-MobileInconsistent: sidebar-backed apps (txt2/dialer) open the mobile
+        // sidebar drawer like the bottom bar does, instead of plain-navigating.
+        if ((id === 'txt2' || id === 'dialer') && entry.href) {
+          onClick = () => { onClose(); onOpenSidebarApp?.(); router.push(entry.href!) }
+        } else {
+          onClick = entry.href ? () => navigate(entry.href!) : () => {}
+        }
       }
     }
 

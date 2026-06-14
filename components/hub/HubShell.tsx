@@ -965,6 +965,7 @@ export default function HubShell({
         hubDndOn={hubDndEnabled}
         dialerDndOn={dialerDndEnabled}
         onOpenLayoutEditor={() => { setShowMobileMore(false); setShowLayoutEditor(true) }}
+        onOpenSidebarApp={() => { setManualRail(null); setMobileDrawerOpen(true) }}
         permissions={permissions}
         items={liveLayout.items}
         rooms={rooms}
