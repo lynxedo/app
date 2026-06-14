@@ -311,6 +311,10 @@ export default function RecurringServicesPage() {
             <div className="flex-1" />
             <button onClick={addRow} className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap">+ New</button>
           </div>
+          {/* TR1 — this board is overwritten nightly by the Monday→Lynxedo mirror. */}
+          <div className="px-4 py-1.5 text-xs text-amber-300/90 bg-amber-500/10 border-t border-amber-500/20 max-md:pl-14">
+            🔄 Synced nightly from Monday — edit in Monday. Changes made here are overwritten on the next sync.
+          </div>
         </div>
 
         <div className="flex-1 min-h-0 overflow-auto">
