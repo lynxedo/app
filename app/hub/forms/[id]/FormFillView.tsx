@@ -3,7 +3,6 @@
 import { useState, useRef, useCallback } from 'react'
 import Link from 'next/link'
 import type { Form, FormField } from '@/lib/forms'
-import { renderSmsTemplate } from '@/lib/forms'
 
 type JClient = { id: string; name: string; phone: string | null; address: string | null }
 
@@ -225,11 +224,15 @@ function FieldRenderer({
 function SuccessScreen({
   form,
   smsPreview,
+  smsSent,
+  smsError,
   jobberNoteId,
   jobberError,
 }: {
   form: Form
   smsPreview: string | null
+  smsSent: boolean
+  smsError: string | null
   jobberNoteId: string | null
   jobberError: string | null
 }) {
@@ -242,6 +245,14 @@ function SuccessScreen({
       setTimeout(() => setCopied(false), 2000)
     })
   }
+
+  // MSC-FormsSend: friendly label for why an auto-send didn't happen.
+  const smsErrorLabel =
+    smsError === 'do_not_text' ? 'Customer has opted out of texts (STOP).'
+    : smsError === 'invalid_phone' ? "Couldn't read the customer's phone number."
+    : smsError === 'twilio_not_configured' ? 'Texting isn’t set up yet.'
+    : smsError ? 'Couldn’t send the text automatically.'
+    : null
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto bg-gray-950 text-white">
@@ -263,9 +274,22 @@ function SuccessScreen({
           </div>
         )}
 
-        {smsPreview && (
+        {smsSent && (
+          <div className="px-4 py-3 bg-emerald-900/30 border border-emerald-700 rounded text-emerald-300 text-sm">
+            ✓ Text sent to customer
+          </div>
+        )}
+        {!smsSent && smsError === 'do_not_text' && (
+          <div className="px-4 py-3 bg-amber-900/30 border border-amber-700 rounded text-amber-300 text-sm">
+            ⚠ {smsErrorLabel} No text was sent.
+          </div>
+        )}
+        {smsPreview && !smsSent && smsError !== 'do_not_text' && (
           <div className="text-left bg-gray-900 border border-white/10 rounded-lg p-4 space-y-2">
             <p className="text-xs text-gray-400 font-medium uppercase tracking-wide">SMS to customer</p>
+            {smsErrorLabel && (
+              <p className="text-xs text-amber-300">⚠ {smsErrorLabel} You can copy it and send manually.</p>
+            )}
             <p className="text-sm text-gray-200 whitespace-pre-wrap">{smsPreview}</p>
             <button
               onClick={copySms}
@@ -318,6 +342,8 @@ export default function FormFillView({
   const [submitError, setSubmitError] = useState<string | null>(null)
   const [result, setResult] = useState<{
     smsPreview: string | null
+    smsSent: boolean
+    smsError: string | null
     jobberNoteId: string | null
     jobberError: string | null
   } | null>(null)
@@ -398,22 +424,11 @@ export default function FormFillView({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
 
-      // Build SMS preview from template
-      let smsPreview: string | null = null
-      if (form.notification_sms_template && customerName) {
-        const dateField = form.fields.find(f => f.type === 'date')
-        const dateVal = dateField ? (answers[dateField.id] as string | undefined) : undefined
-        smsPreview = renderSmsTemplate(form.notification_sms_template, {
-          customer_name: customerName,
-          tech_name: techName,
-          date: dateVal
-            ? new Date(dateVal + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
-            : new Date().toLocaleDateString(),
-        })
-      }
-
+      // MSC-FormsSend: the server now renders + sends the customer SMS via Twilio.
       setResult({
-        smsPreview,
+        smsPreview: data.sms_body ?? null,
+        smsSent: !!data.sms_sent,
+        smsError: data.sms_error ?? null,
         jobberNoteId: data.jobber_note_id ?? null,
         jobberError: data.jobber_error ?? null,
       })
@@ -429,6 +444,8 @@ export default function FormFillView({
       <SuccessScreen
         form={form}
         smsPreview={result.smsPreview}
+        smsSent={result.smsSent}
+        smsError={result.smsError}
         jobberNoteId={result.jobberNoteId}
         jobberError={result.jobberError}
       />

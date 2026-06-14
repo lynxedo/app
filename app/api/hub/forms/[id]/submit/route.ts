@@ -2,8 +2,10 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { jobberGraphQL, isJobberConnected } from '@/lib/jobber'
-import { formatSubmissionAsText } from '@/lib/forms'
+import { formatSubmissionAsText, renderSmsTemplate } from '@/lib/forms'
 import type { Form } from '@/lib/forms'
+import { sendSms, toE164 } from '@/lib/twilio'
+import { resolveFromNumber } from '@/lib/txt-numbers'
 
 export const dynamic = 'force-dynamic'
 
@@ -77,19 +79,20 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   if (subErr) return NextResponse.json({ error: subErr.message }, { status: 500 })
 
+  // Tech display name — used for both the Jobber note and the customer SMS.
+  const { data: hubUserRow } = await admin
+    .from('hub_users')
+    .select('display_name')
+    .eq('id', user.id)
+    .maybeSingle()
+  const techName = hubUserRow?.display_name ?? 'Technician'
+
   // Best-effort Jobber note creation
   let jobberNoteId: string | null = null
   let jobberError: string | null = null
 
   if (body.jobber_client_id && await isJobberConnected(user.id)) {
     try {
-      const hubUser = await supabase
-        .from('hub_users')
-        .select('display_name')
-        .eq('id', user.id)
-        .single()
-      const techName = hubUser.data?.display_name ?? 'Technician'
-
       const noteContent = formatSubmissionAsText(form as Form, body.answers ?? {}, {
         techName,
         customerName: body.customer_name,
@@ -122,9 +125,51 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
     }
   }
 
+  // MSC-FormsSend: auto-send the customer SMS the form built, server-side via the same
+  // Twilio path everything else uses — techs used to copy-paste it by hand. Respects
+  // do_not_text and resolves the right "from" number; on any failure we still return the
+  // body so the success screen can offer manual copy as a fallback.
+  let smsSent = false
+  let smsError: string | null = null
+  let smsBody: string | null = null
+  if (form.notification_sms_template && body.customer_name && body.customer_phone) {
+    const fields = (form.fields ?? []) as { id: string; type: string }[]
+    const dateField = fields.find(f => f.type === 'date')
+    const dateVal = dateField ? (body.answers?.[dateField.id] as string | undefined) : undefined
+    smsBody = renderSmsTemplate(form.notification_sms_template, {
+      customer_name: body.customer_name,
+      tech_name: techName,
+      date: dateVal
+        ? new Date(dateVal + 'T00:00:00').toLocaleDateString('en-US', { month: 'long', day: 'numeric', year: 'numeric' })
+        : new Date().toLocaleDateString(),
+    })
+    const toPhone = toE164(body.customer_phone)
+    if (!toPhone) {
+      smsError = 'invalid_phone'
+    } else {
+      const { data: contact } = await admin
+        .from('txt_contacts')
+        .select('do_not_text')
+        .eq('company_id', profile.company_id)
+        .eq('phone', toPhone)
+        .maybeSingle()
+      if (contact?.do_not_text) {
+        smsError = 'do_not_text'
+      } else {
+        const fromNumber = (await resolveFromNumber(admin, { userId: user.id, companyId: profile.company_id })) ?? undefined
+        const result = await sendSms({ to: toPhone, body: smsBody, fromNumber })
+        if (result.ok) smsSent = true
+        else smsError = result.error ?? 'send_failed'
+      }
+    }
+  }
+
   return NextResponse.json({
     submission,
     jobber_note_id: jobberNoteId,
     jobber_error: jobberError,
+    sms_sent: smsSent,
+    sms_error: smsError,
+    sms_body: smsBody,
   }, { status: 201 })
 }
