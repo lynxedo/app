@@ -41,6 +41,19 @@ function mondayOf(dt: Date): Date {
 function weekLabel(dt: Date) { return `${dt.getUTCMonth() + 1}/${dt.getUTCDate()}` }
 
 type RevRow = { bucket: string; dept: string | null; total: number | string | null }
+type TechRevRow = RevRow & { tech_external_id: string }
+
+// SB3 — group a single batched scoreboard_techs_revenue result by tech, so the
+// per-tech loops read from a map instead of each issuing its own RPC (N+1 → 1).
+function groupRevByTech(rows: TechRevRow[]): Map<string, RevRow[]> {
+  const m = new Map<string, RevRow[]>()
+  for (const r of rows) {
+    let arr = m.get(r.tech_external_id)
+    if (!arr) { arr = []; m.set(r.tech_external_id, arr) }
+    arr.push(r)
+  }
+  return m
+}
 
 export async function GET(request: Request) {
   const res = await handleScoreboards(request)
@@ -320,15 +333,24 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const techRows = (techRes.data ?? []) as TechRow[]
   const leads = (leadsRes.data ?? []) as LeadLite[]
 
-  const techs = await Promise.all(techRows.map(async (tech) => {
+  // SB3 — fetch ALL techs' revenue + hours in 2 RPCs instead of 2 per tech.
+  const wfTechExtIds = techRows.map(t => t.jobber_external_id).filter((x): x is string => !!x)
+  const [wfRevRes, wfHoursRes] = await Promise.all([
+    wfTechExtIds.length
+      ? supabase.rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_ids: wfTechExtIds })
+      : Promise.resolve({ data: [], error: null }),
+    supabase.rpc('scoreboard_techs_hours', { p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_ids: techRows.map(t => t.employee_id) }),
+  ])
+  const wfRevByTech = groupRevByTech((wfRevRes.data ?? []) as TechRevRow[])
+  const wfHoursByEmp = new Map<string, number>()
+  for (const h of (wfHoursRes.data ?? []) as Array<{ employee_id: string; hours: number }>) wfHoursByEmp.set(h.employee_id, Number(h.hours) || 0)
+
+  const techs = techRows.map((tech) => {
     // Weekly revenue by dept — full visit revenue attributed when this tech is assigned.
     const deptWeekly: Record<string, number[]> = {}
     let lastWeekRevenue = 0
     if (tech.jobber_external_id) {
-      const { data: rev } = await supabase.rpc('scoreboard_tech_revenue', {
-        p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_id: tech.jobber_external_id,
-      })
-      for (const r of (rev ?? []) as RevRow[]) {
+      for (const r of wfRevByTech.get(tech.jobber_external_id) ?? []) {
         const wi = weekIndex.get(r.bucket); if (wi === undefined) continue
         const d = (DEPTS as readonly string[]).includes(r.dept ?? '') ? (r.dept as string) : 'Other'
         ;(deptWeekly[d] ??= weekKeys.map(() => 0))[wi] += Number(r.total) || 0
@@ -338,10 +360,7 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
     const techDepts = DEPTS.filter(d => deptWeekly[d]?.some(v => v > 0))
 
     // $/hour for the last complete week (revenue ÷ timesheet hours).
-    const { data: hrs } = await supabase.rpc('scoreboard_tech_hours', {
-      p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_id: tech.employee_id,
-    })
-    const hours = Number(hrs) || 0
+    const hours = wfHoursByEmp.get(tech.employee_id) ?? 0
 
     // Sales $ by week — closed-won annual value where this person is the lead-tracker salesperson.
     const salesValue = weekKeys.map(() => 0)
@@ -364,7 +383,7 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
       },
       sales: { labels: weekLabels, value: salesValue.map(v => Math.round(v)) },
     }
-  }))
+  })
 
   return NextResponse.json({
     asOf: new Date().toISOString(),
@@ -465,27 +484,39 @@ async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
 
   // ── Per-technician IR revenue (weekly + monthly) + $/hour last complete week ──
   const techRows = (techRes.data ?? []) as TechRow[]
-  const techs = await Promise.all(techRows.map(async (tech) => {
+  // SB3 — 3 batched RPCs (week revenue, month revenue, hours) for ALL techs
+  // instead of 3 per tech.
+  const irTechExtIds = techRows.map(t => t.jobber_external_id).filter((x): x is string => !!x)
+  const [irWeekByTechRes, irMonthByTechRes, irHoursRes] = await Promise.all([
+    irTechExtIds.length
+      ? supabase.rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_ids: irTechExtIds })
+      : Promise.resolve({ data: [], error: null }),
+    irTechExtIds.length
+      ? supabase.rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month', p_tech_external_ids: irTechExtIds })
+      : Promise.resolve({ data: [], error: null }),
+    supabase.rpc('scoreboard_techs_hours', { p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_ids: techRows.map(t => t.employee_id) }),
+  ])
+  const irWeekByTech = groupRevByTech((irWeekByTechRes.data ?? []) as TechRevRow[])
+  const irMonthByTech = groupRevByTech((irMonthByTechRes.data ?? []) as TechRevRow[])
+  const irHoursByEmp = new Map<string, number>()
+  for (const h of (irHoursRes.data ?? []) as Array<{ employee_id: string; hours: number }>) irHoursByEmp.set(h.employee_id, Number(h.hours) || 0)
+
+  const techs = techRows.map((tech) => {
     const weekly = weekKeys.map(() => 0)     // IR-only, for the stacked chart
     const monthly = monthBuckets.map(() => 0)
     let lastWeekRevenue = 0                   // ALL depts last week, for $/hr ("visit revenue they had")
     if (tech.jobber_external_id) {
-      const [wRes, mRes] = await Promise.all([
-        supabase.rpc('scoreboard_tech_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_id: tech.jobber_external_id }),
-        supabase.rpc('scoreboard_tech_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month', p_tech_external_id: tech.jobber_external_id }),
-      ])
-      for (const r of (wRes.data ?? []) as RevRow[]) {
+      for (const r of irWeekByTech.get(tech.jobber_external_id) ?? []) {
         const wi = weekIndex.get(r.bucket); if (wi === undefined) continue
         if (r.dept === 'IR') weekly[wi] += Number(r.total) || 0
         if (wi === LAST_WK) lastWeekRevenue += Number(r.total) || 0
       }
-      for (const r of (mRes.data ?? []) as RevRow[]) {
+      for (const r of irMonthByTech.get(tech.jobber_external_id) ?? []) {
         if (r.dept !== 'IR') continue
         const mi = monthIndex.get(r.bucket.slice(0, 7)); if (mi !== undefined) monthly[mi] += Number(r.total) || 0
       }
     }
-    const { data: hrs } = await supabase.rpc('scoreboard_tech_hours', { p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_id: tech.employee_id })
-    const hours = Number(hrs) || 0
+    const hours = irHoursByEmp.get(tech.employee_id) ?? 0
     return {
       name: tech.display_name,
       weekly: weekly.map(v => Math.round(v)),
@@ -497,7 +528,7 @@ async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
         weekLabel: `${weekStarts[LAST_WK].getUTCMonth() + 1}/${weekStarts[LAST_WK].getUTCDate()}`,
       },
     }
-  }))
+  })
 
   // "Other / Unassigned IR" stack = total IR revenue minus the tracked techs (when material).
   const otherWeekly = totalWeekIr.map((tot, i) => Math.max(0, Math.round(tot - techs.reduce((s, tk) => s + tk.weekly[i], 0))))
@@ -602,7 +633,23 @@ async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
 
   // ── Per-technician: PW-slice (stacked chart) + all-dept (performance section) + $/hr ──
   const techRows = (techRes.data ?? []) as TechRow[]
-  const techs = await Promise.all(techRows.map(async (tech) => {
+  // SB3 — 3 batched RPCs for ALL techs instead of 3 per tech.
+  const pwTechExtIds = techRows.map(t => t.jobber_external_id).filter((x): x is string => !!x)
+  const [pwWeekByTechRes, pwMonthByTechRes, pwHoursRes] = await Promise.all([
+    pwTechExtIds.length
+      ? supabase.rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_ids: pwTechExtIds })
+      : Promise.resolve({ data: [], error: null }),
+    pwTechExtIds.length
+      ? supabase.rpc('scoreboard_techs_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month', p_tech_external_ids: pwTechExtIds })
+      : Promise.resolve({ data: [], error: null }),
+    supabase.rpc('scoreboard_techs_hours', { p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_ids: techRows.map(t => t.employee_id) }),
+  ])
+  const pwWeekByTech = groupRevByTech((pwWeekByTechRes.data ?? []) as TechRevRow[])
+  const pwMonthByTech = groupRevByTech((pwMonthByTechRes.data ?? []) as TechRevRow[])
+  const pwHoursByEmp = new Map<string, number>()
+  for (const h of (pwHoursRes.data ?? []) as Array<{ employee_id: string; hours: number }>) pwHoursByEmp.set(h.employee_id, Number(h.hours) || 0)
+
+  const techs = techRows.map((tech) => {
     const weeklyPw = weekKeys.map(() => 0)
     const monthlyPw = monthBuckets.map(() => 0)
     const deptWeekly: Record<string, number[]> = {}
@@ -610,18 +657,14 @@ async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
     let lastWeekRevenue = 0
 
     if (tech.jobber_external_id) {
-      const [wRes, mRes] = await Promise.all([
-        supabase.rpc('scoreboard_tech_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week', p_tech_external_id: tech.jobber_external_id }),
-        supabase.rpc('scoreboard_tech_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month', p_tech_external_id: tech.jobber_external_id }),
-      ])
-      for (const r of (wRes.data ?? []) as RevRow[]) {
+      for (const r of pwWeekByTech.get(tech.jobber_external_id) ?? []) {
         const wi = weekIndex.get(r.bucket); if (wi === undefined) continue
         const d = (DEPTS as readonly string[]).includes(r.dept ?? '') ? (r.dept as string) : 'Other'
         ;(deptWeekly[d] ??= weekKeys.map(() => 0))[wi] += Number(r.total) || 0
         if (r.dept === 'PW') weeklyPw[wi] += Number(r.total) || 0
         if (wi === LAST_WK) lastWeekRevenue += Number(r.total) || 0
       }
-      for (const r of (mRes.data ?? []) as RevRow[]) {
+      for (const r of pwMonthByTech.get(tech.jobber_external_id) ?? []) {
         const mi = monthIndex.get(r.bucket.slice(0, 7)); if (mi === undefined) continue
         const d = (DEPTS as readonly string[]).includes(r.dept ?? '') ? (r.dept as string) : 'Other'
         ;(deptMonthly[d] ??= monthBuckets.map(() => 0))[mi] += Number(r.total) || 0
@@ -629,8 +672,7 @@ async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
       }
     }
 
-    const { data: hrs } = await supabase.rpc('scoreboard_tech_hours', { p_company_id: company, p_start: lastWeekStartStr, p_end: lastWeekEndStr, p_employee_id: tech.employee_id })
-    const hours = Number(hrs) || 0
+    const hours = pwHoursByEmp.get(tech.employee_id) ?? 0
     const depts = DEPTS.filter(d => deptWeekly[d]?.some(v => v > 0))
     const monthDepts = DEPTS.filter(d => deptMonthly[d]?.some(v => v > 0))
 
@@ -649,7 +691,7 @@ async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
         weekLabel: `${weekStarts[LAST_WK].getUTCMonth() + 1}/${weekStarts[LAST_WK].getUTCDate()}`,
       },
     }
-  }))
+  })
 
   const otherWeekly = totalWeekPw.map((tot, i) => Math.max(0, Math.round(tot - techs.reduce((s, tk) => s + tk.weeklyPw[i], 0))))
   const otherMonthly = totalMonthPw.map((tot, i) => Math.max(0, Math.round(tot - techs.reduce((s, tk) => s + tk.monthlyPw[i], 0))))

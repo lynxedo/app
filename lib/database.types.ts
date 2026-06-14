@@ -2720,6 +2720,27 @@ export type Database = {
         }
         Relationships: []
       }
+      geocode_cache: {
+        Row: {
+          address_key: string
+          created_at: string
+          lat: number
+          lng: number
+        }
+        Insert: {
+          address_key: string
+          created_at?: string
+          lat: number
+          lng: number
+        }
+        Update: {
+          address_key?: string
+          created_at?: string
+          lat?: number
+          lng?: number
+        }
+        Relationships: []
+      }
       guardian_audit: {
         Row: {
           answer: string | null
@@ -8027,6 +8048,33 @@ export type Database = {
         Returns: {
           bucket: string
           dept: string
+          total: number
+        }[]
+      }
+      scoreboard_techs_hours: {
+        Args: {
+          p_company_id: string
+          p_employee_ids: string[]
+          p_end: string
+          p_start: string
+        }
+        Returns: {
+          employee_id: string
+          hours: number
+        }[]
+      }
+      scoreboard_techs_revenue: {
+        Args: {
+          p_bucket: string
+          p_company_id: string
+          p_end: string
+          p_start: string
+          p_tech_external_ids: string[]
+        }
+        Returns: {
+          bucket: string
+          dept: string
+          tech_external_id: string
           total: number
         }[]
       }

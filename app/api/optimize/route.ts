@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { geocodeAddress } from '@/lib/geocode'
+import { geocodeAddresses } from '@/lib/geocode'
 import { haversineKm, twoOptTSP } from '@/lib/tsp'
 import type { DurationRulesConfig } from '@/app/api/settings/types'
 import { DEFAULT_DURATION_RULES } from '@/app/api/settings/types'
@@ -155,8 +155,9 @@ export async function POST(req: NextRequest) {
     ...((settings?.duration_rules as Partial<DurationRulesConfig>) ?? {}),
   }
 
-  // Geocode all addresses in parallel
-  const coords = await Promise.all(addresses.map(a => geocodeAddress(a)))
+  // Geocode all addresses — cached batch (#29): known recurring-customer
+  // addresses are served from geocode_cache instead of re-hitting the geocoder.
+  const coords = await geocodeAddresses(addresses)
   const geocodeFailed = coords.map((c, i) => c === null ? i : -1).filter(i => i !== -1)
   const validStops: { originalIndex: number; coord: { lat: number; lng: number } }[] = []
   coords.forEach((c, i) => { if (c !== null) validStops.push({ originalIndex: i, coord: c }) })
