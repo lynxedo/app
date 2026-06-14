@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import PostComposer from './PostComposer'
-import { useConfirm } from '@/components/ui'
+import { useConfirm, useToast, Spinner, EmptyState } from '@/components/ui'
 
 type SocialAccount = {
   id: string
@@ -67,6 +67,7 @@ export default function SocialView({
   canAdmin: boolean
 }) {
   const confirmDialog = useConfirm()
+  const toast = useToast()
   const [accounts] = useState<SocialAccount[]>(initialAccounts)
   const [posts, setPosts] = useState<SocialPost[]>([])
   const [loading, setLoading] = useState(true)
@@ -90,8 +91,10 @@ export default function SocialView({
 
   async function deletePost(id: string) {
     if (!(await confirmDialog({ message: 'Delete this post?', danger: true }))) return
-    await fetch(`/api/hub/social/posts/${id}`, { method: 'DELETE' })
+    const res = await fetch(`/api/hub/social/posts/${id}`, { method: 'DELETE' })
+    if (!res.ok) { toast.error("Couldn't delete the post"); return }
     setPosts(prev => prev.filter(p => p.id !== id))
+    toast.success('Post deleted')
   }
 
   function handleSaved() {
@@ -167,18 +170,17 @@ export default function SocialView({
       {/* Posts list */}
       <div className="flex-1 overflow-y-auto px-5 py-4">
         {loading ? (
-          <div className="text-center text-white/30 text-sm py-12">Loading…</div>
+          <div className="py-12 text-center"><Spinner size={6} /></div>
         ) : posts.length === 0 ? (
-          <div className="text-center py-16">
-            <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center mx-auto mb-3">
-              <svg className="w-6 h-6 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <EmptyState
+            size="lg"
+            icon={
+              <svg className="w-6 h-6" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.952 9.168-5v10c-1.543-3.048-5.068-5-9.168-5H7a3.988 3.988 0 00-1.564.317z" />
               </svg>
-            </div>
-            <p className="text-white/40 text-sm">
-              {statusFilter === 'all' ? 'No posts yet. Create your first post.' : `No ${statusFilter} posts.`}
-            </p>
-          </div>
+            }
+            title={statusFilter === 'all' ? 'No posts yet. Create your first post.' : `No ${statusFilter} posts.`}
+          />
         ) : (
           <div className="space-y-2">
             {posts.map(post => {

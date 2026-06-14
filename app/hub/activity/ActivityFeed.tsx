@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import Link from 'next/link'
+import { Spinner, EmptyState } from '@/components/ui'
 
 type Sender = { id: string; display_name: string; avatar_url: string | null; is_bot: boolean }
 
@@ -67,15 +68,10 @@ export default function ActivityFeed() {
     return () => { cancelled = true }
   }, [])
 
-  if (loading) return <p className="text-sm text-gray-400">Loading…</p>
+  if (loading) return <div className="py-12 text-center"><Spinner size={6} /></div>
   if (error) return <p className="text-sm text-rose-400">Error: {error}</p>
   if (activity.length === 0) {
-    return (
-      <div className="text-center py-12 text-gray-400">
-        <div className="text-4xl mb-3">🎉</div>
-        <p>Nothing new — you&apos;re all caught up.</p>
-      </div>
-    )
+    return <EmptyState icon={<span className="text-4xl">🎉</span>} title="Nothing new — you're all caught up." size="lg" />
   }
 
   return (
