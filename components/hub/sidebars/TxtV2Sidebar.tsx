@@ -4,6 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
+import { createClient } from '@/lib/supabase/client'
 import SidebarContactsList from './SidebarContactsList'
 import ContactModal from '@/components/hub/txt/ContactModal'
 import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
@@ -77,6 +78,7 @@ export default function TxtV2Sidebar({
   canManage,
   canCall = false,
   currentUserId,
+  companyId,
 }: {
   onClose?: () => void
   onDesktopCollapse?: () => void
@@ -85,6 +87,7 @@ export default function TxtV2Sidebar({
   /** Show the 📞 Call button on contact rows (user has dialer access). */
   canCall?: boolean
   currentUserId: string
+  companyId: string
 }) {
   const pathname = usePathname() || ''
   const [scope, setScope] = useState<Scope>('all')
@@ -171,17 +174,27 @@ export default function TxtV2Sidebar({
     load()
   }, [load])
 
-  // Fallback poll every 15s — realtime channel added later.
+  // #27 — realtime list updates. The inbound webhook + delivery-status route
+  // broadcast on the company-wide `txt:{companyId}` channel, so we refresh the
+  // list the moment a text lands instead of waiting up to 15s. A slow 30s
+  // fallback poll reconciles if a broadcast is ever dropped (broadcasts aren't
+  // persisted). load() only shows its spinner when the list is empty, so these
+  // background refreshes don't flash.
   useEffect(() => {
     let cancelled = false
-    const t = setInterval(() => {
-      if (!cancelled) load()
-    }, 15000)
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`txt:${companyId}`)
+      .on('broadcast', { event: 'inbound' }, () => { if (!cancelled) load() })
+      .on('broadcast', { event: 'status' }, () => { if (!cancelled) load() })
+      .subscribe()
+    const t = setInterval(() => { if (!cancelled) load() }, 30000)
     return () => {
       cancelled = true
       clearInterval(t)
+      supabase.removeChannel(channel)
     }
-  }, [load])
+  }, [load, companyId])
 
   // Mark the currently-open conversation read — on navigation AND on every
   // list refresh, so a thread you're actively viewing stays read as new
