@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import AdvancedRouteMap, { type AdvPin } from '@/components/AdvancedRouteMap'
+import { openUrlWithFallback } from '@/lib/open-url'
 import { buildAdvancedRouteSheetHtml, type RouteSheetStop } from '@/lib/advanced-route-sheet'
 import { resolvePinColors, DEFAULT_PIN_COLOR, MAX_HALO_ARCS, EMPTY_PIN_SETTINGS, type PinSettings } from '@/lib/pin-colors'
 
@@ -764,14 +765,16 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       try {
         const key = `hub_print_sheet_${Date.now()}_${b.id}`
         localStorage.setItem(key, JSON.stringify({ html, t: Date.now() }))
-        window.open(`/hub/routing/print?k=${encodeURIComponent(key)}`, '_blank')
+        // #39 — fall back to in-webview navigation when window.open is blocked
+        // (iOS Capacitor app), so the button isn't a no-op on iPhone.
+        openUrlWithFallback(`/hub/routing/print?k=${encodeURIComponent(key)}`)
       } catch {
         const blob = new Blob([html], { type: 'text/html' })
         const url = URL.createObjectURL(blob)
-        window.open(url, '_blank')
+        openUrlWithFallback(url)
         setTimeout(() => URL.revokeObjectURL(url), 30000)
       }
-      return { ok: true, text: 'Route sheet opened in a new tab' }
+      return { ok: true, text: 'Route sheet opened' }
     })
   }
 
