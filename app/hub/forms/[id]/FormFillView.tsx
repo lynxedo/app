@@ -347,7 +347,7 @@ export default function FormFillView({
     setJobberSearch('')
   }
 
-  function validate(): boolean {
+  function validate(): Record<string, string> {
     const errs: Record<string, string> = {}
     for (const field of form.fields) {
       if (!field.required || field.type === 'section_title') continue
@@ -366,13 +366,17 @@ export default function FormFillView({
       }
     }
     setErrors(errs)
-    return Object.keys(errs).length === 0
+    return errs
   }
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault()
-    if (!validate()) {
-      const firstErrorId = Object.keys(errors)[0]
+    // Use validate()'s return value, not the `errors` state — setErrors() hasn't
+    // applied yet in this tick, so reading `errors` here is stale and the very first
+    // failed submit would scroll to nothing (MSC-FormScroll).
+    const errs = validate()
+    const firstErrorId = Object.keys(errs)[0]
+    if (firstErrorId) {
       document.getElementById(`field-${firstErrorId}`)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
       return
     }
