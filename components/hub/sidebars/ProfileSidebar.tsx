@@ -120,7 +120,7 @@ export default function ProfileSidebar({
                   type="button"
                   onClick={() => onTextSizeChange(size)}
                   className={`px-3 py-1.5 text-xs font-medium rounded-md transition-colors ${
-                    textSize === size ? 'bg-gradient-to-br from-[#38bdf8] to-[#2E7EB8] text-white shadow-sm' : 'text-white/60 hover:text-white'
+                    textSize === size ? 'bg-gradient-to-br from-[#38bdf8] to-brand text-white shadow-sm' : 'text-white/60 hover:text-white'
                   }`}
                 >
                   {size === 'small' ? 'S' : size === 'default' ? 'M' : 'L'}

@@ -184,7 +184,7 @@ export default function ScheduledMessagesModal({ onClose }: { onClose: () => voi
                           value={editContent}
                           onChange={e => setEditContent(e.target.value)}
                           rows={3}
-                          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8] resize-none"
+                          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand resize-none"
                           placeholder="Message"
                         />
                         <input
@@ -192,14 +192,14 @@ export default function ScheduledMessagesModal({ onClose }: { onClose: () => voi
                           min={minDateTime}
                           value={editSendAt}
                           onChange={e => setEditSendAt(e.target.value)}
-                          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                          className="w-full bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand"
                         />
                         <div className="flex items-center gap-2">
                           <button
                             type="button"
                             onClick={() => saveEdit(row.id)}
                             disabled={isBusy || (!editContent.trim() && !(row.files && row.files.length > 0)) || !editSendAt}
-                            className="px-3 py-1.5 text-xs font-medium rounded-md bg-[#2E7EB8] hover:bg-[#2470a8] text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-3 py-1.5 text-xs font-medium rounded-md bg-brand hover:bg-brand-hover text-white disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             Save
                           </button>

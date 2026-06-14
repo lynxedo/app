@@ -629,7 +629,7 @@ export default function MessageComposer({
           ))}
           {uploading && (
             <div className="w-16 h-16 bg-gray-800 border border-gray-700 rounded-lg flex items-center justify-center">
-              <div className="w-5 h-5 border-2 border-[#2E7EB8] border-t-transparent rounded-full animate-spin" />
+              <div className="w-5 h-5 border-2 border-brand border-t-transparent rounded-full animate-spin" />
             </div>
           )}
         </div>
@@ -637,11 +637,11 @@ export default function MessageComposer({
 
       {/* Scheduled send indicator */}
       {scheduledAt && (
-        <div className="mb-2 px-3 py-2 bg-[#2E7EB8]/10 border border-[#2E7EB8]/30 rounded-lg flex items-center justify-between text-xs text-[#2E7EB8]">
+        <div className="mb-2 px-3 py-2 bg-brand/10 border border-brand/30 rounded-lg flex items-center justify-between text-xs text-brand">
           <span>
             🕐 Scheduled for {new Date(scheduledAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}
           </span>
-          <button onClick={() => { setScheduledAt(''); setShowScheduler(false) }} className="text-[#2E7EB8]/60 hover:text-[#2E7EB8] ml-2">✕</button>
+          <button onClick={() => { setScheduledAt(''); setShowScheduler(false) }} className="text-brand/60 hover:text-brand ml-2">✕</button>
         </div>
       )}
 
@@ -664,7 +664,7 @@ export default function MessageComposer({
               key={user.id}
               onMouseDown={e => { e.preventDefault(); insertMention(user) }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
-                i === mentionIndex ? 'bg-[#2E7EB8]/20 text-white' : 'text-gray-300 hover:bg-gray-700'
+                i === mentionIndex ? 'bg-brand/20 text-white' : 'text-gray-300 hover:bg-gray-700'
               }`}
             >
               <div className="relative flex-none">
@@ -695,7 +695,7 @@ export default function MessageComposer({
               key={emoji.id}
               onMouseDown={e => { e.preventDefault(); insertEmojiFromSuggestion(emoji) }}
               className={`w-full flex items-center gap-2.5 px-3 py-2 text-sm text-left transition-colors ${
-                i === emojiIndex ? 'bg-[#2E7EB8]/20 text-white' : 'text-gray-300 hover:bg-gray-700'
+                i === emojiIndex ? 'bg-brand/20 text-white' : 'text-gray-300 hover:bg-gray-700'
               }`}
             >
               <span className="text-xl flex-none w-6 text-center">{emoji.native}</span>
@@ -710,8 +710,8 @@ export default function MessageComposer({
           can take several seconds) is still uploading, so it's clear the
           message isn't ready to send yet. */}
       {uploading && (
-        <div className="mb-2 px-3 py-2 bg-[#2E7EB8]/10 border border-[#2E7EB8]/30 rounded-lg flex items-center gap-2.5 text-xs text-[#9cc7e6]">
-          <div className="w-4 h-4 border-2 border-[#2E7EB8] border-t-transparent rounded-full animate-spin flex-none" />
+        <div className="mb-2 px-3 py-2 bg-brand/10 border border-brand/30 rounded-lg flex items-center gap-2.5 text-xs text-[#9cc7e6]">
+          <div className="w-4 h-4 border-2 border-brand border-t-transparent rounded-full animate-spin flex-none" />
           <span>Uploading attachment… please wait before sending.</span>
         </div>
       )}
@@ -886,7 +886,7 @@ export default function MessageComposer({
             type="button"
             onClick={() => setShowScheduler(v => !v)}
             className={`transition-colors p-1.5 rounded-md hover:bg-gray-800 ${
-              scheduledAt ? 'text-[#2E7EB8]' : 'text-gray-500 hover:text-gray-300'
+              scheduledAt ? 'text-brand' : 'text-gray-500 hover:text-gray-300'
             }`}
             title="Schedule send"
             aria-label="Schedule send"
@@ -904,7 +904,7 @@ export default function MessageComposer({
                 min={minDateTime}
                 value={scheduledAt}
                 onChange={e => setScheduledAt(e.target.value)}
-                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-base md:text-sm text-white outline-none focus:border-[#2E7EB8]"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-base md:text-sm text-white outline-none focus:border-brand"
               />
               {scheduledAt && (
                 <button
@@ -917,7 +917,7 @@ export default function MessageComposer({
               <button
                 type="button"
                 onClick={() => { setShowScheduler(false); setShowScheduledModal(true) }}
-                className="mt-2 w-full text-xs text-[#2E7EB8] hover:text-[#5aa3d4] transition-colors border-t border-gray-700 pt-2"
+                className="mt-2 w-full text-xs text-brand hover:text-[#5aa3d4] transition-colors border-t border-gray-700 pt-2"
               >
                 View scheduled messages
               </button>
@@ -956,7 +956,7 @@ export default function MessageComposer({
             disabled={sending || uploading}
             style={{ width: '32px', height: '32px' }}
             className={`flex-none rounded-xl disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-all hover:scale-105 ${
-              scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-gradient-to-br from-[#38bdf8] to-[#2E7EB8] shadow-lg shadow-sky-900/40'
+              scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-gradient-to-br from-[#38bdf8] to-brand shadow-lg shadow-sky-900/40'
             }`}
             title={uploading ? 'Waiting for upload…' : scheduledAt ? 'Schedule message' : 'Send'}
             aria-label={scheduledAt ? 'Schedule message' : 'Send'}

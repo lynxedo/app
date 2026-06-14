@@ -178,7 +178,7 @@ function TickerBar({
                 <button
                   key={emoji}
                   onClick={() => toggleReaction(emoji)}
-                  className={`w-8 h-8 rounded-lg text-lg flex items-center justify-center transition-colors ${mine ? 'bg-[#2E7EB8]/30' : 'hover:bg-gray-700'}`}
+                  className={`w-8 h-8 rounded-lg text-lg flex items-center justify-center transition-colors ${mine ? 'bg-brand/30' : 'hover:bg-gray-700'}`}
                 >
                   {emoji}
                 </button>
@@ -239,7 +239,7 @@ function EditModal({
           value={content}
           onChange={e => setContent(e.target.value)}
           rows={4}
-          className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-[#2E7EB8] resize-none mb-4"
+          className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-3 text-sm text-white outline-none focus:border-brand resize-none mb-4"
         />
         {error && <p className="text-sm text-red-400 mb-3">{error}</p>}
         <div className="flex justify-end gap-2">
@@ -252,7 +252,7 @@ function EditModal({
           <button
             onClick={save}
             disabled={!content.trim() || saving}
-            className="px-5 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+            className="px-5 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>

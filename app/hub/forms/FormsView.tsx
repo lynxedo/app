@@ -17,7 +17,7 @@ export default function FormsView({
         {canAdmin && (
           <Link
             href="/hub/admin/forms"
-            className="text-sm text-[#2E7EB8] hover:text-[#5ba3d0]"
+            className="text-sm text-brand hover:text-[#5ba3d0]"
           >
             Form Builder →
           </Link>
@@ -30,7 +30,7 @@ export default function FormsView({
             <p className="text-gray-400">No forms available yet.</p>
             {canAdmin && (
               <p className="text-gray-500 text-sm">
-                Go to <Link href="/hub/admin/forms" className="text-[#2E7EB8] hover:underline">Form Builder</Link> to create your first form.
+                Go to <Link href="/hub/admin/forms" className="text-brand hover:underline">Form Builder</Link> to create your first form.
               </p>
             )}
           </div>
@@ -42,7 +42,7 @@ export default function FormsView({
                 <Link
                   key={form.id}
                   href={`/hub/forms/${form.id}`}
-                  className="block bg-gray-900 border border-white/10 rounded-lg p-4 hover:border-[#2E7EB8]/50 hover:bg-gray-900/80 transition-colors"
+                  className="block bg-gray-900 border border-white/10 rounded-lg p-4 hover:border-brand/50 hover:bg-gray-900/80 transition-colors"
                 >
                   <div className="flex items-start justify-between gap-4">
                     <div>
@@ -54,7 +54,7 @@ export default function FormsView({
                         {fieldCount} field{fieldCount !== 1 ? 's' : ''}
                       </p>
                     </div>
-                    <span className="text-sm text-[#2E7EB8] flex-shrink-0 mt-0.5">Fill out →</span>
+                    <span className="text-sm text-brand flex-shrink-0 mt-0.5">Fill out →</span>
                   </div>
                 </Link>
               )

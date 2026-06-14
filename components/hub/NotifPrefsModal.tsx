@@ -61,7 +61,7 @@ export default function NotifPrefsModal({ onClose }: { onClose: () => void }) {
 
         {!loaded ? (
           <div className="px-5 py-10 flex justify-center">
-            <div className="w-5 h-5 border-2 border-[#2E7EB8] border-t-transparent rounded-full animate-spin" />
+            <div className="w-5 h-5 border-2 border-brand border-t-transparent rounded-full animate-spin" />
           </div>
         ) : (
           <div className="px-5 py-4 space-y-5">
@@ -74,13 +74,13 @@ export default function NotifPrefsModal({ onClose }: { onClose: () => void }) {
                     key={opt.value}
                     onClick={() => setLevel(opt.value)}
                     className={`w-full flex items-start gap-3 px-3 py-2.5 rounded-lg text-sm text-left transition-colors ${
-                      level === opt.value ? 'bg-[#2E7EB8]/20 text-white' : 'text-gray-300 hover:bg-gray-800'
+                      level === opt.value ? 'bg-brand/20 text-white' : 'text-gray-300 hover:bg-gray-800'
                     }`}
                   >
                     <div className={`mt-0.5 w-4 h-4 rounded-full border-2 flex items-center justify-center flex-none transition-colors ${
-                      level === opt.value ? 'border-[#2E7EB8]' : 'border-gray-600'
+                      level === opt.value ? 'border-brand' : 'border-gray-600'
                     }`}>
-                      {level === opt.value && <div className="w-2 h-2 rounded-full bg-[#2E7EB8]" />}
+                      {level === opt.value && <div className="w-2 h-2 rounded-full bg-brand" />}
                     </div>
                     <div>
                       <div className="font-medium">{opt.label}</div>
@@ -100,7 +100,7 @@ export default function NotifPrefsModal({ onClose }: { onClose: () => void }) {
                 </div>
                 <button
                   onClick={() => setDndEnabled(d => !d)}
-                  className={`relative flex-none w-10 h-6 rounded-full transition-colors ${dndEnabled ? 'bg-[#2E7EB8]' : 'bg-gray-700'}`}
+                  className={`relative flex-none w-10 h-6 rounded-full transition-colors ${dndEnabled ? 'bg-brand' : 'bg-gray-700'}`}
                 >
                   <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${dndEnabled ? 'translate-x-5' : 'translate-x-1'}`} />
                 </button>
@@ -113,7 +113,7 @@ export default function NotifPrefsModal({ onClose }: { onClose: () => void }) {
                       type="time"
                       value={dndStart}
                       onChange={e => setDndStart(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white outline-none focus:border-[#2E7EB8] transition-colors"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white outline-none focus:border-brand transition-colors"
                     />
                   </div>
                   <div className="flex-1">
@@ -122,7 +122,7 @@ export default function NotifPrefsModal({ onClose }: { onClose: () => void }) {
                       type="time"
                       value={dndEnd}
                       onChange={e => setDndEnd(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white outline-none focus:border-[#2E7EB8] transition-colors"
+                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white outline-none focus:border-brand transition-colors"
                     />
                   </div>
                 </div>
@@ -141,7 +141,7 @@ export default function NotifPrefsModal({ onClose }: { onClose: () => void }) {
           <button
             onClick={save}
             disabled={!loaded || saving}
-            className="flex-1 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+            className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>

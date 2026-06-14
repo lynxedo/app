@@ -81,7 +81,7 @@ function Avatar({ sender }: { sender: Sender | null }) {
   if (sender.avatar_url) return <img src={`/api/profile/avatar/${sender.id}`} alt="" className="w-8 h-8 rounded-full flex-none object-cover ring-1 ring-inset ring-white/10" />
   const initials = sender.display_name.slice(0, 2).toUpperCase()
   return (
-    <div className={`w-8 h-8 rounded-full flex-none flex items-center justify-center text-xs font-bold text-white ring-1 ring-inset ring-white/15 ${sender.is_bot ? 'bg-gradient-to-br from-[#38bdf8] to-[#2E7EB8]' : 'bg-gradient-to-br from-slate-500 to-slate-700'}`}>
+    <div className={`w-8 h-8 rounded-full flex-none flex items-center justify-center text-xs font-bold text-white ring-1 ring-inset ring-white/15 ${sender.is_bot ? 'bg-gradient-to-br from-[#38bdf8] to-brand' : 'bg-gradient-to-br from-slate-500 to-slate-700'}`}>
       {initials}
     </div>
   )
@@ -984,7 +984,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
               return (
                 <div
                   key={msg.id}
-                  className={`group relative flex items-start gap-2 py-0.5 rounded hover:bg-gray-900/50 transition-colors select-none md:select-text ${isThreadOpen ? 'bg-[#2E7EB8]/5 border-l-2 border-[#2E7EB8]' : ''}`}
+                  className={`group relative flex items-start gap-2 py-0.5 rounded hover:bg-gray-900/50 transition-colors select-none md:select-text ${isThreadOpen ? 'bg-brand/5 border-l-2 border-brand' : ''}`}
                   onClick={() => {
                     if (longPressFired.current) { longPressFired.current = false; return }
                     if (!isEditing) setTappedMsgId(prev => prev === msg.id ? null : msg.id)
@@ -1006,7 +1006,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                         <span className="font-semibold text-sm text-white">
                           {sender?.display_name ?? 'Unknown'}
                           {sender?.is_bot && (
-                            <span className="ml-1.5 text-xs bg-[#2E7EB8]/30 text-[#2E7EB8] px-1.5 py-0.5 rounded font-normal">Bot</span>
+                            <span className="ml-1.5 text-xs bg-brand/30 text-brand px-1.5 py-0.5 rounded font-normal">Bot</span>
                           )}
                           {msg.source === 'slack' && (
                             <span title="Sent from Slack" className="ml-1.5 text-xs bg-[#4A154B]/40 text-[#ECB22E] px-1.5 py-0.5 rounded font-normal">S</span>
@@ -1031,9 +1031,9 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                             if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(msg.id) }
                             if (e.key === 'Escape') setEditingId(null)
                           }}
-                          className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                          className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-brand"
                         />
-                        <button onClick={() => saveEdit(msg.id)} className="text-xs text-[#2E7EB8] hover:text-blue-300 px-2">Save</button>
+                        <button onClick={() => saveEdit(msg.id)} className="text-xs text-brand hover:text-blue-300 px-2">Save</button>
                         <button onClick={() => setEditingId(null)} className="text-xs text-gray-500 hover:text-gray-300 px-2">Cancel</button>
                       </div>
                     ) : (
@@ -1096,7 +1096,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                             onClick={() => toggleReaction(msg.id, emoji)}
                             className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
                               userIds.includes(currentUserId)
-                                ? 'bg-[#2E7EB8]/20 border-[#2E7EB8]/50 text-[#2E7EB8]'
+                                ? 'bg-brand/20 border-brand/50 text-brand'
                                 : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
                             }`}
                           >

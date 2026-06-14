@@ -195,15 +195,15 @@ function CommentsPanel({
       <div className="flex-none flex border-b border-gray-800">
         <button
           onClick={() => setTab('notes')}
-          className={`flex-1 py-2 text-xs font-medium transition-colors ${tab === 'notes' ? 'text-white border-b-2 border-[#2E7EB8]' : 'text-white/40 hover:text-white/70'}`}
+          className={`flex-1 py-2 text-xs font-medium transition-colors ${tab === 'notes' ? 'text-white border-b-2 border-brand' : 'text-white/40 hover:text-white/70'}`}
         >
-          Notes {comments.length > 0 && <span className="ml-1 text-[#2E7EB8]">({comments.length})</span>}
+          Notes {comments.length > 0 && <span className="ml-1 text-brand">({comments.length})</span>}
         </button>
         <button
           onClick={() => setTab('files')}
-          className={`flex-1 py-2 text-xs font-medium transition-colors ${tab === 'files' ? 'text-white border-b-2 border-[#2E7EB8]' : 'text-white/40 hover:text-white/70'}`}
+          className={`flex-1 py-2 text-xs font-medium transition-colors ${tab === 'files' ? 'text-white border-b-2 border-brand' : 'text-white/40 hover:text-white/70'}`}
         >
-          Files {attachments.length > 0 && <span className="ml-1 text-[#2E7EB8]">({attachments.length})</span>}
+          Files {attachments.length > 0 && <span className="ml-1 text-brand">({attachments.length})</span>}
         </button>
       </div>
 
@@ -235,7 +235,7 @@ function CommentsPanel({
             <div ref={bottomRef} />
           </div>
           <div className="flex-none border-t border-gray-800 px-4 py-3">
-            <div className="flex items-start gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2 focus-within:border-[#2E7EB8] transition-colors">
+            <div className="flex items-start gap-2 bg-white/5 border border-white/10 rounded-xl px-3 py-2 focus-within:border-brand transition-colors">
               <textarea
                 ref={inputRef}
                 value={text}
@@ -251,7 +251,7 @@ function CommentsPanel({
                 <button
                   onClick={send}
                   disabled={sending}
-                  className="flex-none bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-white text-xs font-medium px-2.5 py-1 rounded-lg transition-colors"
+                  className="flex-none bg-brand hover:bg-brand-hover disabled:opacity-40 text-white text-xs font-medium px-2.5 py-1 rounded-lg transition-colors"
                 >
                   Send
                 </button>
@@ -290,7 +290,7 @@ function CommentsPanel({
                       href={`/api/hub/files/board/${att.id}`}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-xs text-white hover:text-[#2E7EB8] truncate block transition-colors"
+                      className="text-xs text-white hover:text-brand truncate block transition-colors"
                     >
                       {att.filename}
                     </a>
@@ -323,7 +323,7 @@ function CommentsPanel({
             <button
               onClick={() => fileInputRef.current?.click()}
               disabled={uploading}
-              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-white/20 hover:border-[#2E7EB8] text-xs text-white/40 hover:text-white/70 transition-colors disabled:opacity-40"
+              className="w-full flex items-center justify-center gap-2 py-2 rounded-xl border border-dashed border-white/20 hover:border-brand text-xs text-white/40 hover:text-white/70 transition-colors disabled:opacity-40"
             >
               <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
@@ -468,7 +468,7 @@ export default function BoardView({
         <div className="flex-none px-6 py-4 border-b border-gray-800 flex items-center justify-between max-md:pl-14">
           <div className="flex items-center gap-3">
             <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-[#2E7EB8]" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <svg className="w-5 h-5 text-brand" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
               </svg>
               <h1 className="text-lg font-semibold text-white">{board.name}</h1>
@@ -481,7 +481,7 @@ export default function BoardView({
               <button
                 key={f}
                 onClick={e => { e.stopPropagation(); setFilter(f) }}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${filter === f ? 'bg-[#2E7EB8] text-white' : 'text-white/50 hover:text-white'}`}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${filter === f ? 'bg-brand text-white' : 'text-white/50 hover:text-white'}`}
               >
                 {f === 'open' ? 'Open' : 'All'}
               </button>
@@ -508,7 +508,7 @@ export default function BoardView({
               <div
                 key={item.id}
                 className={`group flex items-start gap-3 p-3 rounded-xl border transition-colors ${
-                  isThreadOpen ? 'bg-[#2E7EB8]/5 border-[#2E7EB8]/30' :
+                  isThreadOpen ? 'bg-brand/5 border-brand/30' :
                   item.done ? 'bg-white/[0.02] border-white/5' : 'bg-white/5 border-white/10 hover:border-white/20'
                 }`}
                 onClick={e => e.stopPropagation()}
@@ -517,7 +517,7 @@ export default function BoardView({
                 <button
                   onClick={() => toggleDone(item)}
                   className={`mt-0.5 w-5 h-5 rounded border-2 flex-none flex items-center justify-center transition-colors ${
-                    item.done ? 'bg-[#2E7EB8] border-[#2E7EB8]' : 'border-white/30 hover:border-[#2E7EB8]'
+                    item.done ? 'bg-brand border-brand' : 'border-white/30 hover:border-brand'
                   }`}
                 >
                   {item.done && (
@@ -540,10 +540,10 @@ export default function BoardView({
                           if (e.key === 'Escape') setEditingId(null)
                         }}
                         rows={2}
-                        className="flex-1 bg-gray-800 border border-[#2E7EB8] rounded-lg px-3 py-1.5 text-sm text-white outline-none resize-none"
+                        className="flex-1 bg-gray-800 border border-brand rounded-lg px-3 py-1.5 text-sm text-white outline-none resize-none"
                       />
                       <div className="flex flex-col gap-1">
-                        <button onClick={() => saveEdit(item)} className="text-xs bg-[#2E7EB8] hover:bg-[#2470a8] text-white px-2.5 py-1 rounded-lg transition-colors">Save</button>
+                        <button onClick={() => saveEdit(item)} className="text-xs bg-brand hover:bg-brand-hover text-white px-2.5 py-1 rounded-lg transition-colors">Save</button>
                         <button onClick={() => setEditingId(null)} className="text-xs text-white/40 hover:text-white/70 px-2.5 py-1 rounded-lg transition-colors">Cancel</button>
                       </div>
                     </div>
@@ -599,7 +599,7 @@ export default function BoardView({
                             <input
                               type="date"
                               defaultValue={item.due_date ?? ''}
-                              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:border-[#2E7EB8]"
+                              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:border-brand"
                               onChange={e => setDueDate(item, e.target.value || null)}
                             />
                             {item.due_date && (
@@ -617,7 +617,7 @@ export default function BoardView({
                         >
                           {item.assignee ? (
                             <>
-                              <div className="w-4 h-4 rounded-full bg-[#2E7EB8] flex items-center justify-center text-[9px] font-bold text-white flex-none">
+                              <div className="w-4 h-4 rounded-full bg-brand flex items-center justify-center text-[9px] font-bold text-white flex-none">
                                 {item.assignee.display_name.slice(0, 1).toUpperCase()}
                               </div>
                               <span className="text-white/60">{item.assignee.display_name.split(' ')[0]}</span>
@@ -646,7 +646,7 @@ export default function BoardView({
                                   {u.display_name.slice(0, 1).toUpperCase()}
                                 </div>
                                 {u.display_name.split(' ')[0]}
-                                {item.assignee_id === u.id && <span className="ml-auto text-[#2E7EB8]">✓</span>}
+                                {item.assignee_id === u.id && <span className="ml-auto text-brand">✓</span>}
                               </button>
                             ))}
                           </div>
@@ -657,7 +657,7 @@ export default function BoardView({
                       {commentCount > 0 && (
                         <button
                           onClick={e => { e.stopPropagation(); setThreadItem(threadItem?.id === item.id ? null : item) }}
-                          className="flex items-center gap-1 text-xs text-[#2E7EB8] hover:text-white transition-colors"
+                          className="flex items-center gap-1 text-xs text-brand hover:text-white transition-colors"
                           title="View notes"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -701,7 +701,7 @@ export default function BoardView({
                     {/* Notes / Discussion */}
                     <button
                       onClick={e => { e.stopPropagation(); setThreadItem(threadItem?.id === item.id ? null : item) }}
-                      className={`p-1.5 rounded transition-colors ${isThreadOpen ? 'text-[#2E7EB8] bg-[#2E7EB8]/10' : 'text-white/25 hover:text-white/70 hover:bg-white/10'}`}
+                      className={`p-1.5 rounded transition-colors ${isThreadOpen ? 'text-brand bg-brand/10' : 'text-white/25 hover:text-white/70 hover:bg-white/10'}`}
                       title="Notes & Files"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -728,7 +728,7 @@ export default function BoardView({
 
         {/* Composer */}
         <div className="flex-none border-t border-gray-800 px-6 py-4">
-          <div className="flex items-start gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus-within:border-[#2E7EB8] transition-colors">
+          <div className="flex items-start gap-3 bg-white/5 border border-white/10 rounded-xl px-4 py-3 focus-within:border-brand transition-colors">
             <svg className="w-4 h-4 text-white/30 mt-0.5 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
             </svg>
@@ -747,7 +747,7 @@ export default function BoardView({
               <button
                 onClick={addItem}
                 disabled={submitting}
-                className="flex-none bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-white text-xs font-medium px-3 py-1 rounded-lg transition-colors"
+                className="flex-none bg-brand hover:bg-brand-hover disabled:opacity-40 text-white text-xs font-medium px-3 py-1 rounded-lg transition-colors"
               >
                 Add
               </button>

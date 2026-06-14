@@ -161,7 +161,7 @@ export default function ClientConversation({
               <div
                 className={`px-3.5 py-2.5 rounded-2xl text-sm leading-relaxed ${
                   msg.direction === 'outbound'
-                    ? 'bg-[#2E7EB8] text-white rounded-br-sm'
+                    ? 'bg-brand text-white rounded-br-sm'
                     : 'bg-gray-800 text-gray-100 rounded-bl-sm'
                 } ${msg.status === 'sending' ? 'opacity-60' : ''}`}
               >
@@ -198,7 +198,7 @@ export default function ClientConversation({
       {/* Composer */}
       <div className="flex-none border-t border-gray-800 px-3 py-3">
         <div className="flex items-end gap-2">
-          <div className="flex-1 bg-gray-800 border border-gray-700 rounded-2xl px-4 py-2.5 focus-within:border-[#2E7EB8] transition-colors">
+          <div className="flex-1 bg-gray-800 border border-gray-700 rounded-2xl px-4 py-2.5 focus-within:border-brand transition-colors">
             <textarea
               ref={textareaRef}
               value={text}
@@ -214,7 +214,7 @@ export default function ClientConversation({
           <button
             onClick={sendMessage}
             disabled={!text.trim() || sending || initialContact.do_not_text}
-            className="flex-none w-9 h-9 rounded-full bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
+            className="flex-none w-9 h-9 rounded-full bg-brand hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed transition-colors flex items-center justify-center"
             title="Send (Enter)"
           >
             <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>

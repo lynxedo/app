@@ -287,7 +287,7 @@ export default function DialerAdminPanel({
             type="button"
             onClick={() => setDtab(key)}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
-              dtab === key ? 'border-[#2E7EB8] text-white' : 'border-transparent text-gray-500 hover:text-gray-300'
+              dtab === key ? 'border-brand text-white' : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}
           >
             {label}
@@ -388,7 +388,7 @@ export default function DialerAdminPanel({
               if (file) uploadGreeting(file)
             }}
             disabled={uploading}
-            className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-[#2E7EB8] file:text-white file:text-sm hover:file:bg-[#3a8dc9] file:cursor-pointer"
+            className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-brand file:text-white file:text-sm hover:file:bg-brand-light file:cursor-pointer"
           />
           {uploading && <span className="ml-2 text-xs text-white/50">Uploading…</span>}
         </div>
@@ -521,7 +521,7 @@ export default function DialerAdminPanel({
         <label className="flex items-center gap-3 cursor-pointer select-none">
           <div
             onClick={() => setS(p => ({ ...p, recording_enabled: !p.recording_enabled }))}
-            className={`relative w-10 h-6 rounded-full transition-colors ${s.recording_enabled ? 'bg-[#2E7EB8]' : 'bg-white/20'}`}
+            className={`relative w-10 h-6 rounded-full transition-colors ${s.recording_enabled ? 'bg-brand' : 'bg-white/20'}`}
           >
             <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${s.recording_enabled ? 'translate-x-5' : 'translate-x-1'}`} />
           </div>
@@ -535,7 +535,7 @@ export default function DialerAdminPanel({
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <div
                 onClick={() => setS(p => ({ ...p, recording_consent_enabled: !p.recording_consent_enabled }))}
-                className={`relative w-8 h-5 rounded-full transition-colors ${s.recording_consent_enabled ? 'bg-[#2E7EB8]' : 'bg-white/20'}`}
+                className={`relative w-8 h-5 rounded-full transition-colors ${s.recording_consent_enabled ? 'bg-brand' : 'bg-white/20'}`}
               >
                 <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-transform ${s.recording_consent_enabled ? 'translate-x-3.5' : 'translate-x-0.5'}`} />
               </div>
@@ -572,7 +572,7 @@ export default function DialerAdminPanel({
                     if (file) uploadConsentAudio(file)
                   }}
                   disabled={uploadingConsent}
-                  className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-[#2E7EB8] file:text-white file:text-sm hover:file:bg-[#3a8dc9] file:cursor-pointer"
+                  className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-brand file:text-white file:text-sm hover:file:bg-brand-light file:cursor-pointer"
                 />
                 {uploadingConsent && <span className="ml-2 text-xs text-white/50">Uploading…</span>}
               </div>
@@ -645,13 +645,13 @@ export default function DialerAdminPanel({
                 onClick={() => setResp(p => ({ ...p, mode: opt.val as typeof p.mode }))}
                 className={`text-left rounded-lg border px-3 py-2 transition-colors ${
                   resp.mode === opt.val
-                    ? 'border-[#2E7EB8] bg-[#2E7EB8]/15'
+                    ? 'border-brand bg-brand/15'
                     : 'border-white/10 bg-white/5 hover:bg-white/10'
                 }`}
               >
                 <div className="flex items-center gap-2">
-                  <span className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${resp.mode === opt.val ? 'border-[#2E7EB8]' : 'border-white/30'}`}>
-                    {resp.mode === opt.val && <span className="w-1.5 h-1.5 rounded-full bg-[#2E7EB8]" />}
+                  <span className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${resp.mode === opt.val ? 'border-brand' : 'border-white/30'}`}>
+                    {resp.mode === opt.val && <span className="w-1.5 h-1.5 rounded-full bg-brand" />}
                   </span>
                   <span className="text-sm font-medium text-white">{opt.title}</span>
                 </div>
@@ -675,7 +675,7 @@ export default function DialerAdminPanel({
                   onClick={() => setResp(p => ({ ...p, forwarded_line_ring_sec: sec }))}
                   className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                     resp.forwarded_line_ring_sec === sec
-                      ? 'bg-[#2E7EB8] text-white'
+                      ? 'bg-brand text-white'
                       : 'bg-white/10 text-white/60 hover:bg-white/20'
                   }`}
                 >
@@ -707,7 +707,7 @@ export default function DialerAdminPanel({
               aria-checked={resp.ai_reply_enabled}
               onClick={() => setResp(p => ({ ...p, ai_reply_enabled: !p.ai_reply_enabled }))}
               className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors ${
-                resp.ai_reply_enabled ? 'bg-[#2E7EB8]' : 'bg-white/20'
+                resp.ai_reply_enabled ? 'bg-brand' : 'bg-white/20'
               }`}
             >
               <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
@@ -738,7 +738,7 @@ export default function DialerAdminPanel({
                 }))}
                 className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                   resp.business_days.includes(d.num)
-                    ? 'bg-[#2E7EB8] text-white'
+                    ? 'bg-brand text-white'
                     : 'bg-white/10 text-white/60 hover:bg-white/20'
                 }`}
               >
@@ -830,7 +830,7 @@ export default function DialerAdminPanel({
           <button
             onClick={saveResp}
             disabled={respSaving}
-            className="px-4 py-2 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50 text-sm font-medium"
+            className="px-4 py-2 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
           >
             {respSaving ? 'Saving…' : 'Save Responder'}
           </button>
@@ -889,7 +889,7 @@ export default function DialerAdminPanel({
           <button
             onClick={save}
             disabled={saving}
-            className="px-4 py-2 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50 text-sm font-medium"
+            className="px-4 py-2 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>
@@ -952,7 +952,7 @@ function BusinessHoursSection({
           type="checkbox"
           checked={enabled}
           onChange={(e) => toggleEnabled(e.target.checked)}
-          className="mt-0.5 w-4 h-4 rounded border-white/20 bg-gray-950 text-[#2E7EB8] focus:ring-[#2E7EB8] focus:ring-offset-0"
+          className="mt-0.5 w-4 h-4 rounded border-white/20 bg-gray-950 text-brand focus:ring-brand focus:ring-offset-0"
         />
         <div className="text-sm">Use business-hours routing</div>
       </label>
@@ -1369,7 +1369,7 @@ function RecipientGrid({
                 key={it.id}
                 className={`flex items-center gap-3 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${
                   on
-                    ? 'bg-[#2E7EB8]/20 border-[#2E7EB8]/40'
+                    ? 'bg-brand/20 border-brand/40'
                     : 'bg-white/5 border-white/10 hover:bg-white/10'
                 }`}
               >
@@ -1377,7 +1377,7 @@ function RecipientGrid({
                   type="checkbox"
                   checked={on}
                   onChange={() => onToggle(it.id)}
-                  className="accent-[#2E7EB8]"
+                  className="accent-brand"
                 />
                 <span className="text-sm">{it.label}</span>
               </label>

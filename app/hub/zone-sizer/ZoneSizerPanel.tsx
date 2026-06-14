@@ -82,13 +82,13 @@ export default function ZoneSizerPanel({
                 if (e.key === 'Enter' && !loading) runEstimate()
               }}
               placeholder="123 Main St, The Woodlands, TX"
-              className="flex-1 bg-gray-900 border border-white/15 rounded px-3 py-2 text-base md:text-sm outline-none focus:border-[#2E7EB8]"
+              className="flex-1 bg-gray-900 border border-white/15 rounded px-3 py-2 text-base md:text-sm outline-none focus:border-brand"
               autoFocus
             />
             <button
               onClick={runEstimate}
               disabled={loading || !address.trim()}
-              className="px-4 py-2 rounded bg-[#2E7EB8] hover:bg-[#3a8dc9] disabled:opacity-50 text-sm font-medium"
+              className="px-4 py-2 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
             >
               {loading ? 'Sizing…' : 'Estimate zones'}
             </button>
@@ -150,7 +150,7 @@ export default function ZoneSizerPanel({
               />
             </div>
 
-            <div className="rounded-lg bg-[#2E7EB8]/15 border border-[#2E7EB8]/40 px-4 py-3 flex items-center justify-between">
+            <div className="rounded-lg bg-brand/15 border border-brand/40 px-4 py-3 flex items-center justify-between">
               <span className="text-sm text-white/80">Total zones</span>
               <span className="text-2xl font-semibold">{totalZones}</span>
             </div>
@@ -224,13 +224,13 @@ function BedInput({
           const n = parseInt(e.target.value, 10)
           onChange(Number.isFinite(n) && n >= 0 ? n : 0)
         }}
-        className="w-28 bg-gray-900 border border-white/15 rounded px-2 py-1 text-base font-medium outline-none focus:border-[#2E7EB8]"
+        className="w-28 bg-gray-900 border border-white/15 rounded px-2 py-1 text-base font-medium outline-none focus:border-brand"
       />
       <span className="text-sm text-white/60">sq ft</span>
       {value !== autoValue && (
         <button
           onClick={() => onChange(autoValue)}
-          className="text-[11px] text-[#2E7EB8] hover:text-white"
+          className="text-[11px] text-brand hover:text-white"
           title="Reset to auto-detected value"
         >
           reset

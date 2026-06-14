@@ -91,7 +91,7 @@ export default function ClientsSidebar({ onClose }: { onClose?: () => void }) {
               value={search}
               onChange={e => handleSearch(e.target.value)}
               placeholder="Search clients…"
-              className="w-full bg-white/10 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-sm text-white placeholder-white/30 outline-none focus:border-[#2E7EB8] focus:bg-white/15 transition-colors"
+              className="w-full bg-white/10 border border-white/10 rounded-lg pl-8 pr-3 py-1.5 text-sm text-white placeholder-white/30 outline-none focus:border-brand focus:bg-white/15 transition-colors"
             />
           </div>
         </div>
@@ -125,7 +125,7 @@ export default function ClientsSidebar({ onClose }: { onClose?: () => void }) {
                 href={`/hub/clients/${contact.id}`}
                 onClick={() => onClose?.()}
                 className={`flex flex-col px-2 py-2 rounded-lg transition-colors ${
-                  isActive ? 'bg-[#2E7EB8] text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'
+                  isActive ? 'bg-brand text-white' : 'text-white/70 hover:bg-white/10 hover:text-white'
                 }`}
               >
                 <span className="text-sm font-medium truncate">{contact.name}</span>
@@ -158,7 +158,7 @@ export default function ClientsSidebar({ onClose }: { onClose?: () => void }) {
                 value={newName}
                 onChange={e => setNewName(e.target.value)}
                 placeholder="Full name"
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
               />
               <input
                 value={newPhone}
@@ -166,14 +166,14 @@ export default function ClientsSidebar({ onClose }: { onClose?: () => void }) {
                 onKeyDown={e => e.key === 'Enter' && saveNewContact()}
                 placeholder="Phone number"
                 type="tel"
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
               />
               <input
                 value={newEmail}
                 onChange={e => setNewEmail(e.target.value)}
                 placeholder="Email (optional)"
                 type="email"
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
               />
               {saveError && <p className="text-xs text-red-400">{saveError}</p>}
             </div>
@@ -187,7 +187,7 @@ export default function ClientsSidebar({ onClose }: { onClose?: () => void }) {
               <button
                 onClick={saveNewContact}
                 disabled={!newName.trim() || !newPhone.trim() || saving}
-                className="flex-1 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
               >
                 {saving ? 'Saving…' : 'Save'}
               </button>

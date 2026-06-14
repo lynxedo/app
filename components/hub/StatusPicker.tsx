@@ -121,7 +121,7 @@ export default function StatusPicker({
                   <div className="font-medium">{opt.label}</div>
                   {opt.description && <div className="text-xs text-gray-500">{opt.description}</div>}
                 </div>
-                {isCurrent && <span className="ml-auto text-[#2E7EB8] text-xs">✓</span>}
+                {isCurrent && <span className="ml-auto text-brand text-xs">✓</span>}
               </button>
             )
           })}

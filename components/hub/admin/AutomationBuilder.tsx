@@ -47,7 +47,7 @@ const ydToM = (yd: number) => Math.max(1, Math.round(yd * M_PER_YD))
 const mToYd = (m: number) => Math.round(m / M_PER_YD)
 
 const inputCls =
-  'w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]'
+  'w-full bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand'
 
 // Per-kind: recipient choices, and message-template placeholder hints.
 function recipientOptionsFor(kind: Kind): { v: string; label: string }[] {
@@ -247,12 +247,12 @@ export default function AutomationBuilder({
               <label className="text-xs text-gray-500 mb-1 block">Days (none = every day)</label>
               <div className="flex gap-1">
                 {DAYS.map((d, i) => (
-                  <button key={d} onClick={() => toggleDay(i)} className={`flex-1 text-xs py-2 rounded-lg transition-colors ${days.includes(i) ? 'bg-[#2E7EB8] text-white' : 'bg-gray-800 text-gray-500 hover:text-gray-300'}`}>{d[0]}</button>
+                  <button key={d} onClick={() => toggleDay(i)} className={`flex-1 text-xs py-2 rounded-lg transition-colors ${days.includes(i) ? 'bg-brand text-white' : 'bg-gray-800 text-gray-500 hover:text-gray-300'}`}>{d[0]}</button>
                 ))}
               </div>
             </div>
             <label className="col-span-2 flex items-center gap-2 text-sm text-gray-300">
-              <input type="checkbox" checked={stillClockedIn} onChange={(e) => setStillClockedIn(e.target.checked)} className="accent-[#2E7EB8]" />
+              <input type="checkbox" checked={stillClockedIn} onChange={(e) => setStillClockedIn(e.target.checked)} className="accent-brand" />
               Only for people still clocked in at that time
             </label>
           </div>
@@ -381,7 +381,7 @@ export default function AutomationBuilder({
 
         {err && <p className="text-sm text-red-400">{err}</p>}
         <div className="flex justify-end">
-          <button onClick={createRule} disabled={saving || !template.trim()} className="px-5 py-2.5 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors">
+          <button onClick={createRule} disabled={saving || !template.trim()} className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors">
             {saving ? 'Saving…' : 'Create Automation'}
           </button>
         </div>
@@ -499,7 +499,7 @@ function GeofencesCard({
         <div className="flex items-center gap-2">
           <input type="number" value={radiusYd} min={25} onChange={(e) => setRadiusYd(Number(e.target.value))} className={`${inputCls} w-28`} />
           <span className="text-xs text-gray-500">yards radius</span>
-          <button onClick={add} disabled={busy} className="ml-auto px-4 py-2 rounded-xl bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium">
+          <button onClick={add} disabled={busy} className="ml-auto px-4 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium">
             {busy ? 'Adding…' : 'Add place'}
           </button>
         </div>

@@ -123,7 +123,7 @@ export default function SaveToFilesModal({
                     type="button"
                     onClick={() => setSelectedAttachmentId(img.id)}
                     className={`relative aspect-square rounded-lg overflow-hidden border-2 transition-colors ${
-                      selectedAttachmentId === img.id ? 'border-[#2E7EB8]' : 'border-gray-700 hover:border-gray-500'
+                      selectedAttachmentId === img.id ? 'border-brand' : 'border-gray-700 hover:border-gray-500'
                     }`}
                   >
                     <img src={`/api/hub/files/${img.id}`} alt={img.filename} className="w-full h-full object-cover" />
@@ -147,7 +147,7 @@ export default function SaveToFilesModal({
               value={description}
               onChange={e => setDescription(e.target.value)}
               placeholder="Note about this photo"
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
             />
           </div>
 
@@ -248,7 +248,7 @@ export default function SaveToFilesModal({
               type="button"
               onClick={handleSave}
               disabled={saving || saved || !selectedAttachmentId}
-              className="flex-1 px-4 py-2 rounded-lg bg-[#2E7EB8] hover:bg-[#2470a8] disabled:opacity-40 text-sm text-white font-medium transition-colors"
+              className="flex-1 px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
             >
               {saved ? '✓ Saved' : saving ? 'Saving…' : 'Save to Files'}
             </button>
