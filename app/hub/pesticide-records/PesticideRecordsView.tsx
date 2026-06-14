@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useState } from 'react'
+import { Spinner } from '@/components/ui'
 import Link from 'next/link'
 
 type ChemicalApplied = {
@@ -152,7 +153,7 @@ export default function PesticideRecordsView() {
 
       <div className="flex-1 overflow-y-auto overscroll-contain">
         <div className="max-w-6xl mx-auto px-3 md:px-6 py-4 pb-24">
-          {loading && <div className="text-gray-500 text-sm">Loading…</div>}
+          {loading && <div className="py-12 text-center"><Spinner size={6} /></div>}
           {error && (
             <div className="bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm mb-4">
               {error}
