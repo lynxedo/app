@@ -251,12 +251,12 @@ export default function HubMobileBar({
               <span className="absolute -top-0.5 -left-1 w-2 h-2 rounded-full bg-orange-400 border border-gray-950" aria-label="Missed call" />
             )}
             {unheardVoicemails != null && unheardVoicemails > 0 && (
-              <span className="absolute -top-0.5 -right-1.5 min-w-[16px] h-[16px] px-0.5 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center border border-gray-950" aria-label={`${unheardVoicemails} unheard voicemails`}>
+              <span className="absolute -top-0.5 -right-1.5 min-w-[16px] h-[16px] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center border border-gray-950" aria-label={`${unheardVoicemails} unheard voicemails`}>
                 {unheardVoicemails > 9 ? '9+' : unheardVoicemails}
               </span>
             )}
           </span>
-          <span>Phone</span>
+          <span>Dialer</span>
         </button>
       )
     }

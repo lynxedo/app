@@ -5,35 +5,10 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CatalogIcon, DndIcon, catalogById, type CatalogId, type RailPermissions } from './railCatalog'
 import { classifyToken } from '@/lib/hub-layout'
-
-// Per-app accent colors for the launcher tiles (presentational only).
-const APP_ACCENT: Record<string, string> = {
-  hub: '#38bdf8', txt: '#2dd4bf', txt2: '#60a5fa', dialer: '#34d399', 'time-clock': '#fbbf24',
-  'daily-log': '#fb923c', 'daily-log-v2': '#fb923c', routing: '#818cf8', reports: '#a78bfa',
-  fleet: '#22d3ee', tracker: '#f472b6', books: '#10b981', marketing: '#fb7185', files: '#38bdf8',
-  contacts: '#7dd3fc', forms: '#a3e635', 'pesticide-records': '#34d399', 'call-log': '#c084fc',
-  'call-log2': '#c084fc', tools: '#94a3b8', 'company-news': '#f59e0b', 'zone-sizer': '#2dd4bf',
-  lawn: '#a3e635', 'time-records': '#fbbf24', links: '#7dd3fc',
-}
-function accentForToken(token: string): string {
-  const c = classifyToken(token)
-  if (c.kind === 'master-dnd') return '#f87171'
-  if (c.kind === 'hub-dnd') return '#fb923c'
-  if (c.kind === 'dialer-dnd') return '#fb923c'
-  if (c.kind === 'url') return '#7dd3fc'
-  if (c.kind === 'room') return '#818cf8'
-  if (c.kind === 'dm') return '#34d399'
-  return APP_ACCENT[c.id] ?? '#38bdf8'
-}
+import { resolveMenuAccent, resolveMenuLabel, convFirstNames, type MenuContext } from './menuItem'
 
 type Room = { id: string; name: string; is_private: boolean }
 type Conversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
-
-function convFirstNames(conv: Conversation, currentUserId?: string): string {
-  const others = conv.participants.filter(p => p.id !== currentUserId)
-  if (others.length === 0) return conv.participants[0]?.display_name ?? 'You'
-  return others.map(p => (p.display_name || '?').split(' ')[0]).join(', ')
-}
 
 export default function AppLauncherPanel({
   items,
@@ -92,30 +67,16 @@ export default function AppLauncherPanel({
     router.push(last && last.startsWith('/hub/') && last !== '/hub/home' ? last : '/hub?source=push')
   }
 
-  // Resolve the same label a Tile would render, so the search filter matches what the user sees.
-  function labelForToken(token: string): string | null {
-    const c = classifyToken(token)
-    if (c.kind === 'master-dnd') return masterDndOn ? 'DND on' : 'DND'
-    if (c.kind === 'hub-dnd') return hubDndOn ? 'Msg DND on' : 'Msg DND'
-    if (c.kind === 'dialer-dnd') return dialerDndOn ? 'Call DND on' : 'Call DND'
-    if (c.kind === 'url') { try { return new URL(c.href).hostname.replace(/^www\./, '') } catch { return c.href } }
-    if (c.kind === 'room') return rooms.find(r => r.id === c.id)?.name ?? null
-    if (c.kind === 'dm') {
-      const conv = conversations.find(cv => cv.id === c.id)
-      return conv ? convFirstNames(conv, currentUserId) : null
-    }
-    const id = c.id
-    if (id === 'hub') return 'Hub'
-    if (id === 'txt') return 'Txt'
-    if (id === 'time-clock') return 'Clock'
-    if (id === 'tools') return 'Tools'
-    if (id === 'links') return 'Links'
-    return catalogById(id, permissions)?.label ?? null
+  // NAV-menuItem: shared label/accent resolver context (one source of truth so
+  // the search filter, the tile, and the rail/mobile-bar all agree).
+  const menuCtx: MenuContext = {
+    rooms, conversations, currentUserId, permissions,
+    masterDndOn, hubDndOn, dialerDndOn,
   }
 
   const searchQ = appSearch.trim().toLowerCase()
   const visibleItems = searchQ
-    ? items.filter(t => (labelForToken(t) ?? '').toLowerCase().includes(searchQ))
+    ? items.filter(t => (resolveMenuLabel(t, menuCtx) ?? '').toLowerCase().includes(searchQ))
     : items
 
   // Render one list token as a launch tile.
@@ -184,13 +145,15 @@ export default function AppLauncherPanel({
       }
     }
 
-    const accent = accentForToken(token)
+    const accent = resolveMenuAccent(token)
+    // Canonical visible label (keeps icon/onClick from the branches above).
+    const displayLabel = resolveMenuLabel(token, menuCtx) ?? label
     return (
       <button
         type="button"
         onClick={onClick}
         className="group w-full flex flex-col items-center justify-center gap-2 p-2.5 rounded-2xl hover:bg-white/[0.05] hover:-translate-y-0.5 transition-all"
-        title={label}
+        title={displayLabel}
       >
         <span
           className="flex items-center justify-center w-11 h-11 rounded-2xl transition-transform group-hover:scale-105 [&_svg]:w-5 [&_svg]:h-5"
@@ -198,7 +161,7 @@ export default function AppLauncherPanel({
         >
           {icon}
         </span>
-        <span className="text-[10px] font-medium text-center leading-tight text-white/65 group-hover:text-white truncate max-w-full">{label}</span>
+        <span className="text-[10px] font-medium text-center leading-tight text-white/65 group-hover:text-white truncate max-w-full">{displayLabel}</span>
       </button>
     )
   }

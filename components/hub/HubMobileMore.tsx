@@ -5,35 +5,10 @@ import { useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { CatalogIcon, DndIcon, catalogById, type RailPermissions } from './railCatalog'
 import { classifyToken, MOBILE_VISIBLE } from '@/lib/hub-layout'
-
-// Per-app accent colors for the launcher tiles (presentational only).
-const APP_ACCENT: Record<string, string> = {
-  hub: '#38bdf8', txt: '#2dd4bf', txt2: '#60a5fa', dialer: '#34d399', 'time-clock': '#fbbf24',
-  'daily-log': '#fb923c', 'daily-log-v2': '#fb923c', routing: '#818cf8', reports: '#a78bfa',
-  fleet: '#22d3ee', tracker: '#f472b6', books: '#10b981', marketing: '#fb7185', files: '#38bdf8',
-  contacts: '#7dd3fc', forms: '#a3e635', 'pesticide-records': '#34d399', 'call-log': '#c084fc',
-  'call-log2': '#c084fc', tools: '#94a3b8', 'company-news': '#f59e0b', 'zone-sizer': '#2dd4bf',
-  lawn: '#a3e635', 'time-records': '#fbbf24', links: '#7dd3fc',
-}
-function accentForToken(token: string): string {
-  const c = classifyToken(token)
-  if (c.kind === 'master-dnd') return '#f87171'
-  if (c.kind === 'hub-dnd') return '#fb923c'
-  if (c.kind === 'dialer-dnd') return '#fb923c'
-  if (c.kind === 'url') return '#7dd3fc'
-  if (c.kind === 'room') return '#818cf8'
-  if (c.kind === 'dm') return '#34d399'
-  return APP_ACCENT[c.id] ?? '#38bdf8'
-}
+import { resolveMenuAccent, resolveMenuLabel, convFirstNames, type MenuContext } from './menuItem'
 
 type Room = { id: string; name: string; is_private: boolean }
 type Conversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
-
-function convFirstNames(conv: Conversation, currentUserId?: string): string {
-  const others = conv.participants.filter(p => p.id !== currentUserId)
-  if (others.length === 0) return conv.participants[0]?.display_name ?? 'You'
-  return others.map(p => (p.display_name || '?').split(' ')[0]).join(', ')
-}
 
 export default function HubMobileMore({
   onClose,
@@ -94,30 +69,15 @@ export default function HubMobileMore({
     router.push(last && last.startsWith('/hub/') && last !== '/hub/home' ? last : '/hub?source=push')
   }
 
-  // Resolve the same label a Tile would render, so the search filter matches what the user sees.
-  function labelForToken(token: string): string | null {
-    const c = classifyToken(token)
-    if (c.kind === 'master-dnd') return masterDndOn ? 'DND on' : 'DND'
-    if (c.kind === 'hub-dnd') return hubDndOn ? 'Msg DND on' : 'Msg DND'
-    if (c.kind === 'dialer-dnd') return dialerDndOn ? 'Call DND on' : 'Call DND'
-    if (c.kind === 'url') { try { return new URL(c.href).hostname.replace(/^www\./, '') } catch { return c.href } }
-    if (c.kind === 'room') return rooms.find(r => r.id === c.id)?.name ?? null
-    if (c.kind === 'dm') {
-      const conv = conversations.find(cv => cv.id === c.id)
-      return conv ? convFirstNames(conv, currentUserId) : null
-    }
-    const id = c.id
-    if (id === 'hub') return 'Hub'
-    if (id === 'txt') return 'Txt'
-    if (id === 'time-clock') return 'Clock'
-    if (id === 'tools') return 'Tools'
-    if (id === 'links') return 'Links'
-    return catalogById(id, permissions)?.label ?? null
+  // NAV-menuItem: shared label/accent resolver context (single source of truth).
+  const menuCtx: MenuContext = {
+    rooms, conversations, currentUserId, permissions,
+    masterDndOn, hubDndOn, dialerDndOn,
   }
 
   const searchQ = appSearch.trim().toLowerCase()
   const visibleItems = searchQ
-    ? items.filter(t => (labelForToken(t) ?? '').toLowerCase().includes(searchQ))
+    ? items.filter(t => (resolveMenuLabel(t, menuCtx) ?? '').toLowerCase().includes(searchQ))
     : items
 
   function Tile({ token }: { token: string }) {
@@ -185,11 +145,12 @@ export default function HubMobileMore({
       }
     }
 
-    const accent = accentForToken(token)
+    const accent = resolveMenuAccent(token)
+    const displayLabel = resolveMenuLabel(token, menuCtx) ?? label
     return (
       <button type="button" onClick={onClick} className="group w-full flex flex-col items-center justify-center gap-2 py-3 rounded-2xl hover:bg-white/[0.05] active:scale-95 transition-all">
         <span className="flex items-center justify-center w-12 h-12 rounded-2xl [&_svg]:w-5 [&_svg]:h-5" style={{ color: accent, background: accent + '1f', boxShadow: `inset 0 0 0 1px ${accent}44` }}>{icon}</span>
-        <span className="text-[10px] font-medium text-center leading-tight px-1 text-white/70 truncate max-w-full">{label}</span>
+        <span className="text-[10px] font-medium text-center leading-tight px-1 text-white/70 truncate max-w-full">{displayLabel}</span>
       </button>
     )
   }
