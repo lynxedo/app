@@ -57,7 +57,7 @@ Greater Woodlands / Spring / Conroe / Magnolia / Montgomery / Tomball / Cypress,
 **Voicemail too short or no useful info:**
 → "Hi! Missed your call — happy to help with any lawn care or irrigation needs. Give us a call or text back at this number and we'll get you taken care of!"
 
-## Greating and conclusion
+## Greeting and conclusion
 - Callers may not recognize our number so start every text with "Hi, this is Heroes Lawn Care...."
 - Never ask for their number
 - We let them know we will be calling them. However we can also say "Feel free to respond to this message"

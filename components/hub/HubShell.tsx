@@ -29,7 +29,7 @@ import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
 import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
 import { createClient } from '@/lib/supabase/client'
 import type { HubUser } from './MessageFeed'
-import { catalogEntriesFor, type RailPermissions } from './railCatalog'
+import { type RailPermissions } from './railCatalog'
 import { type HubLayout } from '@/lib/hub-layout'
 import { persistStorage } from '@/lib/hub-cache'
 

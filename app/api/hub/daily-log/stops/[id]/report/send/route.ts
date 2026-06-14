@@ -121,7 +121,7 @@ export async function POST(
   let sent = false
   let sendError: string | null = null
   try {
-    const phoneForSend = rawDigits.length === 10 ? rawDigits : rawDigits
+    const phoneForSend = rawDigits
     const nameParts = stop.client_name.trim().split(/\s+/)
     const lastName = nameParts.slice(1).join(' ') || undefined
     const result = await callHeroesTool('send_text', {
