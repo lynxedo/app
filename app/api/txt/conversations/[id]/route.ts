@@ -41,7 +41,10 @@ export async function GET(
           'id, direction, body, media_urls, status, error_message, twilio_sid, created_at, sent_by, sender:hub_users!sent_by ( id, display_name )'
         )
         .eq('conversation_id', id)
-        .order('created_at', { ascending: true })
+        // #33 — load the NEWEST 500, not the oldest 500. The old ascending+limit hid
+        // the most recent messages in any thread over 500 long (you'd never see new
+        // texts). Reversed below so the client still renders oldest→newest.
+        .order('created_at', { ascending: false })
         .limit(500),
       supabase
         .from('txt_notes')
@@ -65,7 +68,8 @@ export async function GET(
 
   return NextResponse.json({
     conversation: convResult.data,
-    messages: messagesResult.data ?? [],
+    // Reverse the newest-500 back to chronological order for the chat view (#33).
+    messages: (messagesResult.data ?? []).slice().reverse(),
     notes: notesResult.data ?? [],
     members: membersResult.data ?? [],
     group_contacts: groupContactsResult.data ?? [],
