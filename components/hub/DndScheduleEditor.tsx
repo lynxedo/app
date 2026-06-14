@@ -1,6 +1,6 @@
 'use client'
 
-import type { DndSchedule, DndWindow } from '@/lib/twilio-voice'
+import type { DndSchedule, DndWindow } from '@/lib/dnd-schedule'
 
 type DayKey = 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat' | 'sun'
 

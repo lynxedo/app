@@ -1,9 +1,10 @@
 // Client-safe DND schedule evaluation. Pure (Intl only) so it can be imported
 // from client components (the chime / Electron notifiers) as well as the server.
 //
-// NOTE (NT7): lib/twilio-voice.ts has its own copy of isInDndSchedule because
-// that module pulls in node:crypto + Twilio env and can't be imported client-
-// side. Consolidating the two into this module is the NT7 (Phase 3) cleanup.
+// NT7 (Phase 3): this module is now the single source of truth for DND schedule
+// evaluation. lib/twilio-voice.ts (which pulls in node:crypto + Twilio env and
+// can't be imported client-side) re-exports isInDndSchedule / userIsDndNow /
+// DndSchedule / DndWindow from here, so its callers keep working unchanged.
 
 export type DndWindow = { from: string; to: string }
 export type DndSchedule = {
@@ -70,6 +71,17 @@ export function isInDndSchedule(schedule: DndSchedule | null | undefined, now: D
     if (from > to && nowMin < to) return true
   }
   return false
+}
+
+// Combined helper: a user is DND-now if their manual toggle is on OR they're
+// inside their scheduled DND window. Used by the dialer call-routing paths.
+export function userIsDndNow(opts: {
+  manualEnabled: boolean
+  schedule: DndSchedule | null | undefined
+  now?: Date
+}): boolean {
+  if (opts.manualEnabled) return true
+  return isInDndSchedule(opts.schedule, opts.now)
 }
 
 // A message chime/banner should be silenced if Master DND (kills everything) OR

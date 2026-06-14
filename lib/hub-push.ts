@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendApnsPush } from '@/lib/hub-apns'
 import { sendFcmPush } from '@/lib/hub-fcm'
 import { computeUnreadCount } from '@/lib/hub-badges'
-import { isInDndSchedule, type DndSchedule } from '@/lib/twilio-voice'
+import { isInDndSchedule, type DndSchedule } from '@/lib/dnd-schedule'
 
 let vapidConfigured = false
 
