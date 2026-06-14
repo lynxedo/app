@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { isHubMessagingDndNow, type DndSchedule } from '@/lib/dnd-schedule'
 
 type HubUserLite = { id: string; display_name: string; is_bot?: boolean }
 type RoomLite = { id: string; name: string }
@@ -65,6 +66,13 @@ export default function ElectronNotifier({ currentUserId, companyId, hubUsers, r
     status: null,
     status_until: null,
   })
+  // NT1 — the new three-tier DND (Master / Hub) lives on user_profiles.
+  const newDndRef = useRef<{
+    master_dnd_enabled: boolean | null
+    master_dnd_schedule: DndSchedule | null
+    hub_dnd_enabled: boolean | null
+    hub_dnd_schedule: DndSchedule | null
+  }>({ master_dnd_enabled: null, master_dnd_schedule: null, hub_dnd_enabled: null, hub_dnd_schedule: null })
 
   useEffect(() => {
     // Detect Electron
@@ -102,6 +110,8 @@ export default function ElectronNotifier({ currentUserId, companyId, hubUsers, r
       const global = globalPrefRef.current
       const roomPref = roomId ? roomPrefsRef.current[roomId] : undefined
 
+      // NT1 — new three-tier DND: Master (kills all) or Hub (messages) suppresses.
+      if (isHubMessagingDndNow(newDndRef.current)) return true
       // Status-based DND (hub_users.status)
       if (s.status === 'dnd' && (!s.status_until || new Date(s.status_until) > new Date())) return true
       // Pref-based DND (global row)
@@ -119,7 +129,7 @@ export default function ElectronNotifier({ currentUserId, companyId, hubUsers, r
 
     void (async () => {
       // Load mute/DND prefs + DND status before wiring up notifications.
-      const [{ data: prefs }, { data: me }] = await Promise.all([
+      const [{ data: prefs }, { data: me }, { data: prof }] = await Promise.all([
         supabase
           .from('notification_prefs')
           .select('room_id, level, dnd_enabled, dnd_start, dnd_end')
@@ -129,8 +139,26 @@ export default function ElectronNotifier({ currentUserId, companyId, hubUsers, r
           .select('status, status_until')
           .eq('id', currentUserId)
           .maybeSingle(),
+        supabase
+          .from('user_profiles')
+          .select('master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule')
+          .eq('id', currentUserId)
+          .maybeSingle(),
       ])
       if (cancelled) return
+
+      if (prof) {
+        const pr = prof as {
+          master_dnd_enabled: boolean | null; master_dnd_schedule: DndSchedule | null
+          hub_dnd_enabled: boolean | null; hub_dnd_schedule: DndSchedule | null
+        }
+        newDndRef.current = {
+          master_dnd_enabled: pr.master_dnd_enabled ?? null,
+          master_dnd_schedule: pr.master_dnd_schedule ?? null,
+          hub_dnd_enabled: pr.hub_dnd_enabled ?? null,
+          hub_dnd_schedule: pr.hub_dnd_schedule ?? null,
+        }
+      }
 
       const roomMap: Record<string, PrefRow> = {}
       for (const p of (prefs ?? []) as PrefRow[]) {
