@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
 import AdvancedRouteView from './AdvancedRouteView'
+import { openUrlWithFallback } from '@/lib/open-url'
 
 interface JobberUser {
   id: string
@@ -965,13 +966,15 @@ export default function RouteBuilder() {
     try {
       const key = `hub_print_sheet_${Math.random().toString(36).slice(2)}_${Date.now()}`
       localStorage.setItem(key, JSON.stringify({ html, t: Date.now() }))
-      window.open(`/hub/routing/print?k=${encodeURIComponent(key)}`, '_blank')
+      // #39 — openUrlWithFallback navigates in-webview when window.open is
+      // blocked (iOS Capacitor app), so the button works on iPhone too.
+      openUrlWithFallback(`/hub/routing/print?k=${encodeURIComponent(key)}`)
     } catch {
       // localStorage full or disabled — fall back to the legacy blob path so
       // the user at least gets a sheet (just without the basemap).
       const blob = new Blob([html], { type: 'text/html' })
       const blobUrl = URL.createObjectURL(blob)
-      window.open(blobUrl, '_blank')
+      openUrlWithFallback(blobUrl)
       setTimeout(() => URL.revokeObjectURL(blobUrl), 30000)
     }
   }
