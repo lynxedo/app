@@ -646,6 +646,7 @@ export default function HubShell({
             canManage={!!canManageTxt}
             canCall={!!canAccessDialer}
             currentUserId={currentUserId}
+            companyId={companyId || ''}
           />
         )
       case 'tools':

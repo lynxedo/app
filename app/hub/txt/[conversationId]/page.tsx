@@ -98,6 +98,7 @@ export default async function TxtConversationPage({
       currentUserId={user.id}
       currentUserName={meResult.data?.display_name || null}
       companyName={companyResult.data?.name || null}
+      companyId={profile?.company_id || ''}
       canAssign={!!canAssign}
       canAccessDialer={canAccessDialer}
       hasGuardian={hasGuardian}

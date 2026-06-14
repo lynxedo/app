@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import ContactModal, { type ContactForModal } from './ContactModal'
 import TemplatePicker, { filterTemplates, type PickerTemplate } from './TemplatePicker'
 import EmojiPicker from '@/components/hub/EmojiPicker'
+import { createClient } from '@/lib/supabase/client'
 import { renderTemplate, DEFAULT_ON_MY_WAY_TEMPLATE } from '@/lib/txt-templates'
 
 type Message = {
@@ -120,6 +121,7 @@ export default function TxtConversationView({
   currentUserId,
   currentUserName,
   companyName,
+  companyId,
   canAssign,
   canAccessDialer,
   hasGuardian = false,
@@ -133,6 +135,7 @@ export default function TxtConversationView({
   currentUserId: string
   currentUserName: string | null
   companyName: string | null
+  companyId: string
   canAssign: boolean
   canAccessDialer: boolean
   hasGuardian?: boolean
@@ -414,19 +417,47 @@ export default function TxtConversationView({
     if (el) el.scrollTop = el.scrollHeight
   }, [messages.length, conversation.id])
 
-  // Poll for new messages every 8s (realtime channel can be added later)
+  // #27 — realtime. Instead of re-fetching the whole thread every 8s (which
+  // churned the message list and felt laggy), we refetch only when something
+  // actually changes. The inbound webhook + delivery-status route already
+  // broadcast on the company-wide `txt:{companyId}` channel with the affected
+  // conversation_id, so we subscribe to that and refresh on a matching event.
+  // A slow 30s fallback poll reconciles if a broadcast is ever dropped (Supabase
+  // broadcasts aren't persisted), so the thread can never silently go stale.
   useEffect(() => {
-    const t = setInterval(async () => {
-      const res = await fetch(`/api/txt/conversations/${conversation.id}`)
-      if (!res.ok) return
+    let cancelled = false
+    const convId = conversation.id
+
+    async function refresh() {
+      const res = await fetch(`/api/txt/conversations/${convId}`)
+      if (!res.ok || cancelled) return
       const data = await res.json()
       setConversation(data.conversation)
       setMessages(data.messages || [])
       setNotes(data.notes || [])
       setMembers(data.members || [])
-    }, 8000)
-    return () => clearInterval(t)
-  }, [conversation.id])
+    }
+
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`txt:${companyId}`)
+      .on('broadcast', { event: 'inbound' }, ({ payload }) => {
+        if ((payload as { conversation_id?: string })?.conversation_id === convId) refresh()
+      })
+      .on('broadcast', { event: 'status' }, ({ payload }) => {
+        if ((payload as { conversation_id?: string })?.conversation_id === convId) refresh()
+      })
+      .subscribe()
+
+    // Safety-net reconcile (much slower than the old 8s churn).
+    const t = setInterval(refresh, 30000)
+
+    return () => {
+      cancelled = true
+      clearInterval(t)
+      supabase.removeChannel(channel)
+    }
+  }, [conversation.id, companyId])
 
   async function addMember(userId: string) {
     setAddMemberOpen(false)
