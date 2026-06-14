@@ -72,6 +72,7 @@ export default function MessageComposer({
   const [sending, setSending] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [uploading, setUploading] = useState(false)
+  const [sendError, setSendError] = useState<string | null>(null) // #5 — surfaced on send failure
   // Mention autocomplete
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionStart, setMentionStart] = useState(-1)
@@ -199,6 +200,7 @@ export default function MessageComposer({
     const val = e.target.value
     const cursor = e.target.selectionStart ?? val.length
     setContent(val)
+    if (sendError) setSendError(null)
 
     const beforeCursor = val.slice(0, cursor)
 
@@ -493,6 +495,8 @@ export default function MessageComposer({
     const trimmed = content.trim()
     if ((!trimmed && pendingFiles.length === 0) || sending) return
     setSending(true)
+    setSendError(null)
+    const filesSnapshot = pendingFiles // #5 — keep for restore-on-failure
     setContent('')
     if (draftKey) localStorage.removeItem(draftKey)
     const files = pendingFiles.map(({ localUrl: _, ...f }) => f)
@@ -513,50 +517,69 @@ export default function MessageComposer({
     // Auto-collapse the expanded composer on send (PRD).
     setExpanded(false)
 
-    if (scheduledAt) {
-      // Scheduled send
-      await fetch('/api/hub/scheduled-messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          room_id: roomId ?? null,
-          conversation_id: conversationId ?? null,
-          content: trimmed || ' ',
-          files: files.length > 0 ? files : undefined,
-          send_at: new Date(scheduledAt).toISOString(),
-        }),
-      })
-      setScheduledAt('')
-      setShowScheduler(false)
-    } else {
-      // Immediate send
-      const res = await fetch('/api/hub/messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          room_id: roomId ?? null,
-          conversation_id: conversationId ?? null,
-          content: trimmed || ' ',
-          files: files.length > 0 ? files : undefined,
-        }),
-      })
-      // Optimistic UI: show message immediately before realtime fires
-      if (res.ok && onSent && currentUserId) {
-        const data = await res.json()
-        const sender = hubUsers.find(u => u.id === currentUserId) ?? { id: currentUserId, display_name: 'You', avatar_url: null }
-        onSent({
-          id: data.id,
-          content: data.content ?? trimmed,
-          created_at: data.created_at ?? new Date().toISOString(),
-          edited_at: null,
-          parent_id: null,
-          room_id: roomId ?? null,
-          conversation_id: conversationId ?? null,
-          sender,
-          reactions: [],
-          files: optimisticFiles,
+    // #5 — on failure, restore the unsent text + files (+ draft) so the message
+    // is never silently lost; surface a retry hint.
+    const restoreOnFailure = () => {
+      setContent((prev) => (prev ? prev : trimmed))
+      setPendingFiles((prev) => (prev.length ? prev : filesSnapshot))
+      if (draftKey && trimmed) localStorage.setItem(draftKey, trimmed)
+      setSendError('Message not sent — check your connection and tap Send to retry.')
+      textareaRef.current?.focus()
+    }
+
+    try {
+      if (scheduledAt) {
+        // Scheduled send
+        const res = await fetch('/api/hub/scheduled-messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            room_id: roomId ?? null,
+            conversation_id: conversationId ?? null,
+            content: trimmed || ' ',
+            files: files.length > 0 ? files : undefined,
+            send_at: new Date(scheduledAt).toISOString(),
+          }),
         })
+        if (!res.ok) throw new Error(`scheduled send failed: ${res.status}`)
+        setScheduledAt('')
+        setShowScheduler(false)
+      } else {
+        // Immediate send
+        const res = await fetch('/api/hub/messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            room_id: roomId ?? null,
+            conversation_id: conversationId ?? null,
+            content: trimmed || ' ',
+            files: files.length > 0 ? files : undefined,
+          }),
+        })
+        if (!res.ok) throw new Error(`send failed: ${res.status}`)
+        // Optimistic UI: show message immediately before realtime fires
+        if (onSent && currentUserId) {
+          const data = await res.json()
+          const sender = hubUsers.find(u => u.id === currentUserId) ?? { id: currentUserId, display_name: 'You', avatar_url: null }
+          onSent({
+            id: data.id,
+            content: data.content ?? trimmed,
+            created_at: data.created_at ?? new Date().toISOString(),
+            edited_at: null,
+            parent_id: null,
+            room_id: roomId ?? null,
+            conversation_id: conversationId ?? null,
+            sender,
+            reactions: [],
+            files: optimisticFiles,
+          })
+        }
       }
+    } catch (err) {
+      console.error('[composer] send failed:', err)
+      restoreOnFailure()
+      setSending(false)
+      return
     }
 
     setSending(false)
@@ -574,6 +597,13 @@ export default function MessageComposer({
       onDrop={handleDrop}
       onDragOver={e => e.preventDefault()}
     >
+      {/* #5 — send failed: text + files were restored above; offer a retry. */}
+      {sendError && (
+        <div className="mb-2 text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-1.5">
+          {sendError}
+        </div>
+      )}
+
       {/* Pending file previews */}
       {pendingFiles.length > 0 && (
         <div className="flex flex-wrap gap-2 mb-2">
