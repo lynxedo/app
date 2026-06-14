@@ -5,6 +5,14 @@ import { fanoutGuardianNotification } from '@/lib/guardian-post'
 
 export const dynamic = 'force-dynamic'
 
+// MSC-FleetMT: OneStepGPS is a single global account (one API key), so its devices
+// belong to exactly one company. The cron loops every company's fleet_settings, so
+// without this boundary a 2nd tenant would be evaluated against — and alerted about —
+// Heroes' trucks. Gate evaluation to the company that owns the GPS account
+// (env-overridable; #37 will generalize per-tenant GPS credentials).
+const FLEET_GPS_COMPANY_ID =
+  process.env.FLEET_GPS_COMPANY_ID ?? '00000000-0000-0000-0000-000000000002'
+
 type AlertType = 'speeding' | 'after_hours' | 'low_fuel' | 'offline'
 
 type FleetSettingsRow = {
@@ -45,6 +53,9 @@ export async function POST(request: Request) {
   let ticked = 0
 
   for (const settings of (settingsRows ?? []) as FleetSettingsRow[]) {
+    // Only the GPS-owning company is evaluated against the (global) OneStepGPS devices.
+    if (settings.company_id !== FLEET_GPS_COMPANY_ID) continue
+
     let devices: FleetDevice[]
     try {
       devices = await getFleetDevices()
