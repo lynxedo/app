@@ -12,7 +12,9 @@ import { useEffect, useRef } from 'react'
 
 export function useAutoSave<T>(
   value: T,
-  save: () => void | Promise<void>,
+  // Return value is ignored (some save fns resolve to the saved row) — the hook
+  // fires it and discards the result.
+  save: () => unknown,
   opts: { delay?: number; enabled?: boolean } = {},
 ): void {
   const delay = opts.delay ?? 800
