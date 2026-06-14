@@ -1,7 +1,7 @@
 'use client'
 
-import { useState, useRef, useCallback } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useRef, useCallback, useEffect } from 'react'
+import { useRouter, useSearchParams } from 'next/navigation'
 import ReactCrop, { type Crop, centerCrop, makeAspectCrop } from 'react-image-crop'
 import 'react-image-crop/dist/ReactCrop.css'
 import { createClient } from '@/lib/supabase/client'
@@ -11,6 +11,7 @@ import TxtPersonalTemplates from './TxtPersonalTemplates'
 import DialerPersonalSettings from './DialerPersonalSettings'
 import DndScheduleEditor from '@/components/hub/DndScheduleEditor'
 import type { DndSchedule } from '@/lib/dnd-schedule'
+import { useToast } from '@/components/ui'
 
 interface HubProfile {
   full_name: string | null
@@ -91,7 +92,23 @@ async function getCroppedBlob(
 
 export default function SettingsForm({ email, userId, hubProfile, jobberConnected, landingPage, notifPref, railPermissions, txtSignature, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
   const router = useRouter()
-  const [activeTab, setActiveTab] = useState<Tab>('profile')
+  const toast = useToast()
+  // SET-deeplink — tabs are deep-linkable via ?tab= (so a link to a specific
+  // settings tab lands there, and the browser back button moves between tabs),
+  // mirroring the Help page.
+  const searchParams = useSearchParams()
+  const ALL_TABS: Tab[] = ['profile', 'my-hub', 'notifications', 'integrations', 'account']
+  const initialTab = searchParams.get('tab') as Tab | null
+  const [activeTab, setActiveTab] = useState<Tab>(
+    initialTab && ALL_TABS.includes(initialTab) ? initialTab : 'profile'
+  )
+
+  useEffect(() => {
+    const url = new URL(window.location.href)
+    if (activeTab === 'profile') url.searchParams.delete('tab')
+    else url.searchParams.set('tab', activeTab)
+    router.replace(url.pathname + url.search, { scroll: false })
+  }, [activeTab, router])
 
   // ── Hub profile state ─────────────────────────────────────────────────────
   const [fullName, setFullName] = useState(hubProfile.full_name ?? '')
@@ -414,7 +431,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
     try {
       const res = await fetch('/api/auth/jobber/disconnect', { method: 'POST' })
       if (res.ok) setConnected(false)
-      else alert('Disconnect failed — try again.')
+      else toast.error('Disconnect failed — try again.')
     } finally { setDisconnecting(false) }
   }
 

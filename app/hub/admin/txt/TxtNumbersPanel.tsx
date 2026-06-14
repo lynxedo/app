@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useToast } from '@/components/ui'
 
 export type TxtNumber = {
   id: string
@@ -42,6 +43,7 @@ export default function TxtNumbersPanel({
   const [isDefault, setIsDefault] = useState(false)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+  const toast = useToast()
 
   useEffect(() => {
     fetch('/api/admin/txt/user-numbers')
@@ -120,7 +122,7 @@ export default function TxtNumbersPanel({
     const res = await fetch(`/api/admin/txt/numbers/${n.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      alert(data.error || 'Delete failed')
+      toast.error(data.error || 'Delete failed')
       return
     }
     setNumbers((prev) => prev.filter((x) => x.id !== n.id))
@@ -142,7 +144,7 @@ export default function TxtNumbersPanel({
     })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      alert(data.error || 'Assignment failed')
+      toast.error(data.error || 'Assignment failed')
       // Reload to undo the optimistic change
       fetch('/api/admin/txt/user-numbers')
         .then((r) => (r.ok ? r.json() : Promise.reject()))

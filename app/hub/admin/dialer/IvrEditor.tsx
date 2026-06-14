@@ -1,6 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
+import { useToast } from '@/components/ui'
 
 // ---------------------------------------------------------------------------
 // Local mirror of the lib/twilio-voice.ts IVR types — kept here so this is a
@@ -111,6 +112,7 @@ export default function IvrEditor({
   extensions?: ExtensionAssignment[]
   ringGroups?: RingGroupSummary[]
 }) {
+  const toast = useToast()
   const [activeTree, setActiveTree] = useState<IvrTreeName>('default')
   const tree: IvrTree = config.trees?.[activeTree] ?? { root_node_id: '', nodes: {} }
   const nodes = tree.nodes ?? {}
@@ -150,7 +152,7 @@ export default function IvrEditor({
 
   function deleteActiveTree() {
     if (activeTree === 'default') {
-      alert("Can't delete the Default tree. Edit it instead.")
+      toast.error("Can't delete the Default tree. Edit it instead.")
       return
     }
     if (!confirm(`Remove the entire ${activeTree.replace('_', '-')} tree? You can rebuild it later.`)) return
@@ -190,7 +192,7 @@ export default function IvrEditor({
 
   function deleteNode(id: string) {
     if (id === tree.root_node_id) {
-      alert('Cannot delete the root node. Promote a different node to root first.')
+      toast.error('Cannot delete the root node. Promote a different node to root first.')
       return
     }
     if (!confirm(`Delete menu "${nodes[id]?.label || id}"? Any keypresses pointing here will break.`)) return

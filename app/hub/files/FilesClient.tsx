@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef, useMemo } from 'react'
+import { useToast } from '@/components/ui'
 
 type FileTag = {
   id: string
@@ -172,6 +173,7 @@ export default function FilesClient({
   const [editDraft, setEditDraft] = useState<{ description: string; tags: string[] }>({ description: '', tags: [] })
   const [savingEdit, setSavingEdit] = useState(false)
   const [filterTags, setFilterTags] = useState<string[]>([])
+  const toast = useToast()
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   const tagByName = useMemo(() => {
@@ -254,7 +256,7 @@ export default function FilesClient({
     setSavingEdit(false)
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      alert(data.error ?? 'Failed to save')
+      toast.error(data.error ?? 'Failed to save')
       return
     }
     const data = await res.json()

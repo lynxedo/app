@@ -126,3 +126,27 @@ html.text-size-large  { font-size: 19px; }
     padding-left: 3.5rem !important;
   }
 }
+
+/* #44 accessibility — consistent keyboard focus ring. Only shows for keyboard
+   users (:focus-visible), so mouse clicks don't get an outline. Uses the brand
+   color so it reads on the dark theme. Interactive elements that set their own
+   focus styles still win via specificity. */
+:focus-visible {
+  outline: 2px solid var(--brand, #38bdf8);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+/* #44 accessibility — honor the OS "reduce motion" setting. Animations and
+   transitions are collapsed to near-instant for users who get motion sickness
+   or simply prefer less movement (also a Marketplace review checkpoint). */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

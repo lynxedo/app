@@ -4,6 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import EmojiPicker from '@/components/hub/EmojiPicker'
 import AutomationBuilder from '@/components/hub/admin/AutomationBuilder'
+import { useToast } from '@/components/ui'
 
 type Room = { id: string; name: string; description: string | null; is_private: boolean; archived_at: string | null; claude_enabled: boolean }
 type HubUser = { id: string; display_name: string; claude_allowed?: boolean }
@@ -111,6 +112,7 @@ export default function HubAdminPanel({
   only?: 'announcements' | 'file-tags'
 }) {
   const router = useRouter()
+  const toast = useToast()
   const [rooms, setRooms] = useState<Room[]>(initialRooms)
   const [allowCreate, setAllowCreate] = useState(allowMemberRoomCreation)
   const [activeAnns, setActiveAnns] = useState<Announcement[]>(activeAnnouncements)
@@ -600,7 +602,7 @@ export default function HubAdminPanel({
     setFileTags(prev => prev.map(t => t.id === id ? data.tag : t)
       .sort((a, b) => a.tag_type.localeCompare(b.tag_type) || a.name.localeCompare(b.name)))
     setEditingTagId(null)
-    if (data.warning) alert(data.warning)
+    if (data.warning) toast.info(data.warning)
   }
 
   async function deleteFileTag(tag: FileTag) {
@@ -608,7 +610,7 @@ export default function HubAdminPanel({
     const res = await fetch(`/api/admin/file-tags/${tag.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      alert(data.error ?? 'Failed to delete tag')
+      toast.error(data.error ?? 'Failed to delete tag')
       return
     }
     setFileTags(prev => prev.filter(t => t.id !== tag.id))
@@ -676,7 +678,7 @@ export default function HubAdminPanel({
     const res = await fetch(`/api/admin/external-links/${link.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      alert(data.error ?? 'Failed to delete link')
+      toast.error(data.error ?? 'Failed to delete link')
       return
     }
     setExternalLinks(prev => prev.filter(l => l.id !== link.id))
