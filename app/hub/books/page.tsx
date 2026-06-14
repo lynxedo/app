@@ -1,5 +1,12 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { loadPLData } from '@/lib/qbo-pl'
+
+// This is a live QBO-backed financial dashboard — it must render per-request, not
+// be statically prerendered at build. Without this, `next build` tried to
+// pre-generate the page, ran loadPLData()'s live QuickBooks call at build time,
+// and intermittently failed the whole deploy when QBO took >60s (3 retries then
+// abort). force-dynamic skips build-time prerender entirely.
+export const dynamic = 'force-dynamic'
 import type { PLData } from '@/lib/qbo-pl'
 import YTDStrip from '@/components/books/YTDStrip'
 import MonthlyPLChart from '@/components/books/MonthlyPLChart'
