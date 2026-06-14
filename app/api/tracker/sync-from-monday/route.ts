@@ -58,6 +58,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
+  // TR10 — when TRACKER_SYNC_MODE=native the Monday mirror is disabled (post-cutover).
+  // Flip this env var on the VPS to switch the Tracker to native mode without
+  // needing a code deploy.  Default (absent) = 'mirror' (current behaviour).
+  if (process.env.TRACKER_SYNC_MODE === 'native') {
+    return NextResponse.json({ skipped: true, reason: 'TRACKER_SYNC_MODE=native — Monday mirror disabled' })
+  }
+
   const url = new URL(req.url)
   const dryRun = url.searchParams.get('dryRun') === '1'
   const boardsParam = url.searchParams.get('boards')

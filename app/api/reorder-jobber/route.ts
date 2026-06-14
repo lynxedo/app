@@ -1,7 +1,36 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { jobberGraphQL } from '@/lib/jobber'
 import { setRouteOrder, type ReorderResult } from '@/lib/jobber-playwright'
+import { fanoutGuardianNotification } from '@/lib/guardian-post'
+
+// #48 — DM all company admins when the Playwright reorder fails for every stop.
+// Fire-and-forget (void). Bot constraints documented in lib/jobber-playwright.ts:
+//   - JOBBER_BOT_EMAIL / JOBBER_BOT_PASSWORD must be set on the VPS
+//   - 2FA must be disabled on the bot account
+//   - Bot account needs access to the visits being reordered
+async function alertReorderFailure(companyId: string, firstError: string) {
+  try {
+    const admin = createAdminClient()
+    const { data: admins } = await admin
+      .from('user_profiles')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('role', 'admin')
+    const ids = (admins ?? []).map((a: { id: string }) => a.id)
+    if (!ids.length) return
+    await fanoutGuardianNotification({
+      companyId,
+      userIds: ids,
+      roomIds: [],
+      body: `⚠️ Jobber route reorder failed for all stops.\nError: ${firstError}\n\nCheck the Jobber bot credentials (JOBBER_BOT_EMAIL/PASSWORD) and ensure 2FA is disabled on the bot account.`,
+      admin,
+    })
+  } catch (e) {
+    console.error('[reorder-jobber] failure alert failed', e)
+  }
+}
 
 // Playwright launches Chromium — must run in the Node.js runtime.
 export const runtime = 'nodejs'
@@ -66,6 +95,13 @@ export async function POST(req: NextRequest) {
   if (!user) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
+
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single<{ company_id: string }>()
+  const companyId = profile?.company_id ?? ''
 
   let body: ReorderRequest
   try {
@@ -163,6 +199,12 @@ export async function POST(req: NextRequest) {
     })
 
     const allOk = results.every(r => r.success)
+
+    // #48 — alert admins if every stop failed (bot creds broken, Jobber DOM change, etc.)
+    if (!allOk && results.every(r => !r.success) && companyId) {
+      void alertReorderFailure(companyId, results[0]?.error ?? 'unknown')
+    }
+
     return NextResponse.json({ results, allOk })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
