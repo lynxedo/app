@@ -216,6 +216,9 @@ export default function FleetPage() {
   useEffect(() => {
     let cancelled = false
     async function tick() {
+      // Don't poll the (paid) GPS API while the tab/app is hidden — it resumes
+      // immediately via the visibilitychange listener below.
+      if (typeof document !== 'undefined' && document.hidden) return
       try {
         const [devRes, evRes] = await Promise.all([
           fetch('/api/fleet/devices', { cache: 'no-store' }),
@@ -244,9 +247,12 @@ export default function FleetPage() {
     }
     tick()
     const id = setInterval(tick, POLL_INTERVAL_MS)
+    const onVisible = () => { if (!document.hidden) tick() }
+    document.addEventListener('visibilitychange', onVisible)
     return () => {
       cancelled = true
       clearInterval(id)
+      document.removeEventListener('visibilitychange', onVisible)
     }
   }, [])
 

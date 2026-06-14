@@ -200,7 +200,13 @@ export async function GET(request: Request) {
     // Re-number after sort
     stops.forEach((s, i) => { s.stopNumber = i + 1 })
 
-    return NextResponse.json({ visits: stops })
+    // The visits/assessments queries cap at 50 each. Surface a flag so the UI can
+    // warn that a (very busy) tech-day might have more stops than were returned.
+    const truncated =
+      visitResult.data.visits.nodes.length >= 50 || assessNodes.length >= 50
+    if (truncated) console.warn(`[visits] 50-cap reached for user ${assignedTo} on ${date}`)
+
+    return NextResponse.json({ visits: stops, truncated })
   } catch (err) {
     const message = err instanceof Error ? err.message : 'Unknown error'
     return NextResponse.json({ error: message }, { status: 500 })
