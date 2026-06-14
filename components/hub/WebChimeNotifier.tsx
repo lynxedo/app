@@ -2,6 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useHubMessageInsert, type HubMessageEvent } from './HubMessagesProvider'
 import { isChimeEnabled, playChime, primeChimeAudio, claimChimeForMessage } from '@/lib/hub-chime'
 import { isHubMessagingDndNow, type DndSchedule } from '@/lib/dnd-schedule'
 
@@ -56,6 +57,13 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
     hub_dnd_schedule: DndSchedule | null
   }>({ master_dnd_enabled: null, master_dnd_schedule: null, hub_dnd_enabled: null, hub_dnd_schedule: null })
   const lastPlayedRef = useRef(0)
+  // #26 — message events arrive via the shared HubMessagesProvider subscription.
+  // The effect below assigns the real handler (which closes over the DND/pref
+  // refs); this hook just forwards each event to it. Treated as broadcast-source
+  // (stricter DM membership gate) since the shared stream doesn't tag the origin
+  // — `claimChimeForMessage` de-dupes the realtime + broadcast double-delivery.
+  const messageHandlerRef = useRef<((m: HubMessageEvent) => void) | null>(null)
+  useHubMessageInsert((msg) => messageHandlerRef.current?.(msg))
   // The user's DM conversation ids — used to gate broadcast-sourced DM chimes
   // (the hub-sidebar-messages broadcast isn't RLS-scoped, unlike postgres_changes).
   const myConvIdsRef = useRef<Set<string>>(new Set())
@@ -88,8 +96,6 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
     window.addEventListener('focus', keepWarm)
 
     const supabase = createClient()
-    let channel: ReturnType<typeof supabase.channel> | null = null
-    let sidebarChannel: ReturnType<typeof supabase.channel> | null = null
     let dlChannel: ReturnType<typeof supabase.channel> | null = null
     let txtChannel: ReturnType<typeof supabase.channel> | null = null
     let convTimer: ReturnType<typeof setInterval> | null = null
@@ -228,35 +234,22 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
         playChime()
       }
 
-      channel = supabase
-        .channel('web-chime-messages')
-        .on(
-          'postgres_changes',
-          { event: 'INSERT', schema: 'public', table: 'messages' },
-          (payload) => handleMessage(payload.new as MsgLite, false)
-        )
-        .subscribe()
-
-      // Reliable fallback: the messages API fires `message-inserted` on
-      // `hub-sidebar-messages` for EVERY insert (room or DM), so the chime works
-      // even when postgres_changes silently drops the event — which is why Hub
-      // messages weren't dinging while Txt (a broadcast) was.
-      sidebarChannel = supabase
-        .channel('hub-sidebar-messages')
-        .on('broadcast', { event: 'message-inserted' }, ({ payload }) => {
-          const p = (payload ?? {}) as Partial<MsgLite>
-          handleMessage(
-            {
-              id: p.id ?? '',
-              room_id: p.room_id ?? null,
-              conversation_id: p.conversation_id ?? null,
-              sender_id: p.sender_id ?? '',
-              parent_id: p.parent_id ?? null,
-            },
-            true,
-          )
-        })
-        .subscribe()
+      // Hub message chimes now ride the single shared HubMessagesProvider
+      // subscription (one whole-table `messages` channel + the `message-inserted`
+      // broadcast backstop for the entire Hub) instead of this component opening
+      // its own postgres_changes + broadcast pair. We expose handleMessage via a
+      // ref the top-level hook forwards to; all shared-stream events use the
+      // stricter broadcast-source DM gate.
+      messageHandlerRef.current = (m: HubMessageEvent) => handleMessage(
+        {
+          id: m.id ?? '',
+          room_id: m.room_id,
+          conversation_id: m.conversation_id,
+          sender_id: m.sender_id ?? '',
+          parent_id: m.parent_id,
+        },
+        true,
+      )
 
       // Daily Log v1 updates aren't in the Realtime publication, so the
       // update-posted route fires a company broadcast carrying the recipient
@@ -308,8 +301,7 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
 
       if (cancelled) {
         if (convTimer) clearInterval(convTimer)
-        if (channel) supabase.removeChannel(channel)
-        if (sidebarChannel) supabase.removeChannel(sidebarChannel)
+        messageHandlerRef.current = null
         if (dlChannel) supabase.removeChannel(dlChannel)
         if (txtChannel) supabase.removeChannel(txtChannel)
       }
@@ -318,12 +310,11 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
     return () => {
       cancelled = true
       if (convTimer) clearInterval(convTimer)
+      messageHandlerRef.current = null
       window.removeEventListener('pointerdown', prime)
       window.removeEventListener('keydown', prime)
       document.removeEventListener('visibilitychange', keepWarm)
       window.removeEventListener('focus', keepWarm)
-      if (channel) supabase.removeChannel(channel)
-      if (sidebarChannel) supabase.removeChannel(sidebarChannel)
       if (dlChannel) supabase.removeChannel(dlChannel)
       if (txtChannel) supabase.removeChannel(txtChannel)
     }

@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import HubSidebar from './HubSidebar'
+import { useHubMessageInsert } from './HubMessagesProvider'
 import HubRail, { railFromPath } from './HubRail'
 import HubMobileBar from './HubMobileBar'
 import HubMobileMore from './HubMobileMore'
@@ -340,21 +341,13 @@ export default function HubShell({
   // Realtime: light the Hub rail icon dot the instant a new message arrives
   // (instead of waiting up to 60s for the poll). On a qualifying insert we pull
   // the authoritative read-receipts state so the dot also clears on read.
-  // postgres_changes covers normal message inserts; the 60s poll backstops the
-  // rare admin-client insert (Slack bridge) that postgres_changes can drop.
-  useEffect(() => {
-    const supabase = createClient()
-    const channel = supabase
-      .channel('shell-hub-unread')
-      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload) => {
-          const msg = payload.new as { sender_id?: string; parent_id?: string | null }
-          if (!msg?.sender_id || msg.sender_id === currentUserId || msg.parent_id) return
-          refreshHubUnread()
-        })
-      .subscribe()
-    return () => { supabase.removeChannel(channel) }
-  }, [currentUserId, refreshHubUnread])
+  // #26 — rides the shared HubMessagesProvider subscription (covers both the
+  // postgres_changes insert and the admin-insert broadcast backstop) instead of
+  // opening a 2nd whole-table `messages` channel on every device.
+  useHubMessageInsert((msg) => {
+    if (!msg.sender_id || msg.sender_id === currentUserId || msg.parent_id) return
+    refreshHubUnread()
+  })
 
   // Mark Daily Log read + clear the dot when the user opens it. (/hub/daily-log
   // only — Daily Log v2 lives at /hub/daily-log-v2 and is intentionally untouched.)
