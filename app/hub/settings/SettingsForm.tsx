@@ -121,6 +121,16 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
   const [avatarBust, setAvatarBust] = useState(Date.now())
   const [hubSave, setHubSave] = useState<SaveState>('idle')
   const [hubErr, setHubErr] = useState<string | null>(null)
+  // Saved baseline for the "Unsaved changes" cue (updated on a successful save).
+  const [profileBaseline, setProfileBaseline] = useState({
+    fullName: hubProfile.full_name ?? '',
+    hubName: hubProfile.display_name ?? '',
+    phone: hubProfile.phone ?? '',
+  })
+  const profileDirty =
+    fullName !== profileBaseline.fullName ||
+    hubName !== profileBaseline.hubName ||
+    phone !== profileBaseline.phone
 
   // Avatar crop state
   const [cropSrc, setCropSrc] = useState<string | null>(null)
@@ -267,6 +277,8 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
   const [signature, setSignature] = useState(txtSignature)
   const [sigSave, setSigSave] = useState<SaveState>('idle')
   const [sigErr, setSigErr] = useState<string | null>(null)
+  const [sigBaseline, setSigBaseline] = useState(txtSignature)
+  const sigDirty = signature !== sigBaseline
   const saveSignature = async () => {
     setSigSave('saving')
     setSigErr(null)
@@ -282,6 +294,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
         setSigSave('error')
         return
       }
+      setSigBaseline(signature)
       setSigSave('saved')
       setTimeout(() => setSigSave('idle'), 2000)
     } catch (e) {
@@ -370,6 +383,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
         setHubSave('error')
         return
       }
+      setProfileBaseline({ fullName, hubName, phone })
       setHubSave('saved')
       setTimeout(() => setHubSave('idle'), 2000)
     } catch (e) {
@@ -437,14 +451,23 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
   }
 
   // ── UI helpers ────────────────────────────────────────────────────────────
-  const saveBtn = (label: string, state: SaveState, onClick: () => void, disabled = false) => (
-    <button
-      onClick={onClick}
-      disabled={disabled || state === 'saving'}
-      className="px-4 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
-    >
-      {state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved ✓' : label}
-    </button>
+  // SET-deeplink (save-model legibility) — text-field sections don't auto-save,
+  // so an "● Unsaved changes" cue appears beside the button when the field
+  // differs from what's saved, making it obvious a click is required (toggles
+  // elsewhere auto-save and have their own Saved✓ state).
+  const saveBtn = (label: string, state: SaveState, onClick: () => void, disabled = false, dirty = false) => (
+    <div className="flex items-center gap-3">
+      <button
+        onClick={onClick}
+        disabled={disabled || state === 'saving'}
+        className="px-4 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+      >
+        {state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved ✓' : label}
+      </button>
+      {dirty && state === 'idle' && (
+        <span className="text-xs text-amber-400">● Unsaved changes</span>
+      )}
+    </div>
   )
 
   const inputCls = 'w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500'
@@ -605,7 +628,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
           </div>
           {hubErr && <p className="text-red-400 text-sm">{hubErr}</p>}
           <div className="flex items-center gap-3">
-            {saveBtn('Save', hubSave, saveHubProfile)}
+            {saveBtn('Save', hubSave, saveHubProfile, false, profileDirty)}
             <button onClick={handleSignOut} className="ml-auto text-sm text-gray-400 hover:text-white transition-colors">
               Sign out
             </button>
@@ -908,7 +931,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
           </p>
           {sigErr && <p className="text-red-400 text-sm mt-2">{sigErr}</p>}
           <div className="mt-3">
-            {saveBtn('Save signature', sigSave, saveSignature)}
+            {saveBtn('Save signature', sigSave, saveSignature, false, sigDirty)}
           </div>
         </div>
 

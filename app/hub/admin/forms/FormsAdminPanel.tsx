@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Form, FormField } from '@/lib/forms'
-import { useConfirm } from '@/components/ui'
+import { useConfirm, Spinner, EmptyState } from '@/components/ui'
 
 export default function FormsAdminPanel() {
   const router = useRouter()
@@ -95,14 +95,13 @@ export default function FormsAdminPanel() {
         )}
 
         {loading ? (
-          <div className="text-gray-400 text-sm">Loading…</div>
+          <div className="py-12 text-center"><Spinner size={6} /></div>
         ) : forms.length === 0 ? (
-          <div className="text-center py-16 space-y-3">
-            <p className="text-gray-400 text-lg">No forms yet.</p>
-            <p className="text-gray-500 text-sm">
-              Create an Irrigation Inspection form to get started, or build a blank one from scratch.
-            </p>
-          </div>
+          <EmptyState
+            size="lg"
+            title="No forms yet."
+            hint="Create an Irrigation Inspection form to get started, or build a blank one from scratch."
+          />
         ) : (
           <div className="space-y-3">
             {forms.map(form => {

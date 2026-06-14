@@ -108,6 +108,7 @@ export default function DndScheduleEditor({
                           type="button"
                           onClick={() => removeWindow(key, idx)}
                           className="text-xs text-gray-500 hover:text-red-400 ml-1"
+                          aria-label="Remove"
                         >
                           ✕
                         </button>

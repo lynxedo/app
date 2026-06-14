@@ -109,6 +109,7 @@ function FieldCard({
           onClick={() => onRemove(field.id)}
           className="text-red-500 hover:text-red-400 text-sm flex-shrink-0 px-1"
           title="Remove field"
+          aria-label="Remove"
         >✕</button>
       </div>
 
@@ -128,7 +129,7 @@ function FieldCard({
           {(field.options ?? []).map((opt, i) => (
             <div key={i} className="flex items-center gap-2">
               <span className="text-xs text-gray-300 flex-1">{opt}</span>
-              <button type="button" onClick={() => removeOption(i)} className="text-red-500 hover:text-red-400 text-xs">✕</button>
+              <button type="button" onClick={() => removeOption(i)} className="text-red-500 hover:text-red-400 text-xs" aria-label="Remove">✕</button>
             </div>
           ))}
           <div className="flex gap-2">

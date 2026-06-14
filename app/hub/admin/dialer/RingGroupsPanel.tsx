@@ -331,6 +331,7 @@ function GroupRow({
                     type="button"
                     onClick={() => toggleMember(m.user_id)}
                     className="text-xs text-white/40 hover:text-red-300"
+                    aria-label="Remove"
                   >
                     ✕
                   </button>

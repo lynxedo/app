@@ -4,6 +4,7 @@ import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import ContactModal from '@/components/hub/txt/ContactModal'
+import { Spinner, EmptyState, useToast } from '@/components/ui'
 
 type Tag = { id: string; label: string; color: string }
 
@@ -49,6 +50,7 @@ export default function SidebarContactsList({
   onClose?: () => void
 }) {
   const router = useRouter()
+  const toast = useToast()
   const [search, setSearch] = useState('')
   const [contacts, setContacts] = useState<Contact[]>([])
   const [loading, setLoading] = useState(true)
@@ -96,9 +98,11 @@ export default function SidebarContactsList({
         onClose?.()
       } else {
         setTextingId(null)
+        toast.error(data.error ?? "Couldn't start conversation")
       }
     } catch {
       setTextingId(null)
+      toast.error("Couldn't start conversation")
     }
   }
 
@@ -133,12 +137,10 @@ export default function SidebarContactsList({
 
       <div className="flex-1 overflow-y-auto min-h-0">
         {loading && contacts.length === 0 && (
-          <div className="px-4 py-6 text-sm text-white/40">Loading…</div>
+          <div className="py-12 text-center"><Spinner size={6} /></div>
         )}
         {!loading && contacts.length === 0 && (
-          <div className="px-4 py-6 text-sm text-white/40">
-            {search.trim() ? 'No matching contacts.' : 'No contacts yet. Tap + Add.'}
-          </div>
+          <EmptyState title={search.trim() ? 'No matching contacts.' : 'No contacts yet. Tap + Add.'} />
         )}
         <ul className="divide-y divide-white/5">
           {contacts.map((c) => (

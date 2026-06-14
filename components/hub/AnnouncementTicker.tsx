@@ -192,6 +192,7 @@ function TickerBar({
         onClick={onDismiss}
         className="flex-none text-white/30 hover:text-white/70 transition-colors text-xs leading-none"
         title="Dismiss"
+        aria-label="Dismiss"
       >
         ✕
       </button>

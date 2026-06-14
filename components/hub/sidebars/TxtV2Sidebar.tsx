@@ -6,6 +6,7 @@ import { usePathname } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
 import { createClient } from '@/lib/supabase/client'
 import SidebarContactsList from './SidebarContactsList'
+import { Spinner, EmptyState, useToast } from '@/components/ui'
 import ContactModal from '@/components/hub/txt/ContactModal'
 import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
 import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
@@ -90,6 +91,7 @@ export default function TxtV2Sidebar({
   companyId: string
 }) {
   const pathname = usePathname() || ''
+  const toast = useToast()
   const [scope, setScope] = useState<Scope>('all')
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [queue, setQueue] = useState<Conversation[]>([])
@@ -261,6 +263,7 @@ export default function TxtV2Sidebar({
         body: JSON.stringify({ assigned_to: currentUserId }),
       })
       if (res.ok) await load()
+      else toast.error("Couldn't claim conversation")
     } finally {
       setActioningId(null)
     }
@@ -279,6 +282,7 @@ export default function TxtV2Sidebar({
         body: JSON.stringify({ assigned_to: userId }),
       })
       if (res.ok) await load()
+      else toast.error("Couldn't assign conversation")
     } finally {
       setActioningId(null)
     }
@@ -296,6 +300,7 @@ export default function TxtV2Sidebar({
         body: JSON.stringify({ archived: true }),
       })
       if (res.ok) await load()
+      else toast.error("Couldn't archive conversation")
     } finally {
       setActioningId(null)
     }
@@ -383,7 +388,7 @@ export default function TxtV2Sidebar({
       ) : (
       <div className="flex-1 overflow-y-auto min-h-0">
         {loading && conversations.length === 0 && queue.length === 0 && (
-          <div className="px-4 py-6 text-sm text-white/40">Loading…</div>
+          <div className="py-12 text-center"><Spinner size={6} /></div>
         )}
 
         {/* Pinned Queue section — unassigned threads, always at the top for
@@ -485,15 +490,17 @@ export default function TxtV2Sidebar({
         )}
 
         {!loading && filteredMain.length === 0 && filteredQueue.length === 0 && (
-          <div className="px-4 py-6 text-sm text-white/40">
-            {scope === 'mine'
-              ? 'Nothing assigned to you yet.'
-              : scope === 'archived'
-              ? 'No archived conversations.'
-              : scope === 'responder'
-              ? 'No Guardian auto-texts yet.'
-              : 'No conversations.'}
-          </div>
+          <EmptyState
+            title={
+              scope === 'mine'
+                ? 'Nothing assigned to you yet.'
+                : scope === 'archived'
+                ? 'No archived conversations.'
+                : scope === 'responder'
+                ? 'No Guardian auto-texts yet.'
+                : 'No conversations.'
+            }
+          />
         )}
 
         <ul>
@@ -661,7 +668,7 @@ function NewConversationModal({
       <div className="bg-[#0F2E47] border border-white/10 rounded-lg w-full max-w-md max-h-[80vh] flex flex-col">
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
           <h2 className="font-medium">New conversation</h2>
-          <button onClick={onClose} className="text-white/50 hover:text-white">×</button>
+          <button onClick={onClose} className="text-white/50 hover:text-white" aria-label="Close">×</button>
         </div>
         <div className="p-4 space-y-3 overflow-y-auto">
           <div>

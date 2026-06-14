@@ -56,7 +56,7 @@ export default function NotifPrefsModal({ onClose }: { onClose: () => void }) {
       <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4">
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
           <h2 className="font-semibold text-white">Notification Preferences</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors" aria-label="Close">✕</button>
         </div>
 
         {!loaded ? (

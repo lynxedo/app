@@ -820,7 +820,7 @@ function NotesPanel({
             {groupLabel}
           </span>
         </div>
-        <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors text-lg leading-none mt-0.5">✕</button>
+        <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors text-lg leading-none mt-0.5" aria-label="Close">✕</button>
       </div>
 
       <div className="flex-1 overflow-y-auto px-5 py-4 space-y-4">
@@ -950,7 +950,7 @@ function EditLeadDrawer({
     <div className="w-96 border-l border-gray-800 flex flex-col bg-gray-950 shrink-0 overflow-y-auto">
       <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
         <h3 className="font-semibold text-white truncate pr-2">{leadName}</h3>
-        <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors text-lg leading-none shrink-0">✕</button>
+        <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors text-lg leading-none shrink-0" aria-label="Close">✕</button>
       </div>
 
       <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4 flex-1">
@@ -1189,7 +1189,7 @@ function NewLeadForm({
     <div className="w-96 border-l border-gray-800 flex flex-col bg-gray-950 shrink-0 overflow-y-auto">
       <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
         <h3 className="font-semibold text-white">New Lead</h3>
-        <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors text-lg leading-none">✕</button>
+        <button onClick={onClose} className="text-gray-500 hover:text-white transition-colors text-lg leading-none" aria-label="Close">✕</button>
       </div>
 
       <form onSubmit={handleSubmit} className="px-5 py-4 space-y-4 flex-1">
@@ -1768,6 +1768,7 @@ export default function TrackerPage({
           <button
             onClick={() => setSelectedIds(new Set())}
             className="text-gray-500 hover:text-white transition-colors text-lg leading-none ml-1"
+            aria-label="Remove"
           >
             ✕
           </button>

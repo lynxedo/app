@@ -101,7 +101,7 @@ function TagPicker({
             return (
               <span key={name} className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-medium bg-gray-700 text-gray-300">
                 {name}
-                <button type="button" onClick={() => onChange(selectedTags.filter(s => s !== name))} className="text-gray-400 hover:text-white">×</button>
+                <button type="button" onClick={() => onChange(selectedTags.filter(s => s !== name))} className="text-gray-400 hover:text-white" aria-label="Remove">×</button>
               </span>
             )
           }

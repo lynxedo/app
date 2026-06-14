@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { TEMPLATE_FIELDS } from '@/lib/txt-templates'
-import { useToast, useConfirm } from '@/components/ui'
+import { useToast, useConfirm, Spinner, EmptyState } from '@/components/ui'
 
 type Template = {
   id: string
@@ -182,9 +182,9 @@ export default function TxtPersonalTemplates() {
 
       <div className="mt-3 space-y-2">
         {loading ? (
-          <div className="text-xs text-gray-500">Loading…</div>
+          <div className="py-6 text-center"><Spinner size={5} /></div>
         ) : templates.length === 0 ? (
-          <div className="text-xs text-gray-500">No personal templates yet.</div>
+          <EmptyState size="sm" title="No personal templates yet." />
         ) : (
           templates.map((t) => (
             <div

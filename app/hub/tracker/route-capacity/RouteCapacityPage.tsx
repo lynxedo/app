@@ -117,7 +117,7 @@ const RouteCapacityRowTr = memo(function RouteCapacityRowTr({
         </td>
       ))}
       <td className="px-1 text-center">
-        <button onClick={() => onDelete(row.id)} className="text-gray-600 hover:text-red-400 text-xs" title="Delete">✕</button>
+        <button onClick={() => onDelete(row.id)} className="text-gray-600 hover:text-red-400 text-xs" title="Delete" aria-label="Remove">✕</button>
       </td>
     </tr>
   )

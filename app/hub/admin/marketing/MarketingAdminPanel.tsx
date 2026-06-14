@@ -148,7 +148,7 @@ export default function MarketingAdminPanel({
           banner.kind === 'error' ? 'bg-red-500/10 text-red-300 border border-red-500/20' : 'bg-green-500/10 text-green-300 border border-green-500/20'
         }`}>
           {banner.text}
-          <button onClick={() => setBanner(null)} className="ml-3 text-xs opacity-60 hover:opacity-100">✕</button>
+          <button onClick={() => setBanner(null)} className="ml-3 text-xs opacity-60 hover:opacity-100" aria-label="Dismiss">✕</button>
         </div>
       )}
 
