@@ -15,6 +15,15 @@ export async function GET(
 
   const { id } = await params
 
+  // Permission gate: customer text threads are not viewable by every employee.
+  // Allow Txt2 users (shared inbox) + the thread's own members/owner — the same
+  // `canReply` gate the send/schedule/PATCH handlers use. Checked BEFORE any
+  // data is fetched so a forbidden caller gets nothing.
+  const perms = await getTxtConvPermissions(supabase, id, user.id)
+  if (!perms.canReply) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const [convResult, messagesResult, notesResult, membersResult, groupContactsResult] =
     await Promise.all([
       supabase
