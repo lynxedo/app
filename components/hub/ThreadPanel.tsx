@@ -103,6 +103,7 @@ export default function ThreadPanel({
   const [replies, setReplies] = useState<Reply[]>([])
   const [replyContent, setReplyContent] = useState('')
   const [sending, setSending] = useState(false)
+  const [replyError, setReplyError] = useState<string | null>(null) // #5
   const [isFocused, setIsFocused] = useState(false)
   // Pending attachments
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
@@ -210,6 +211,7 @@ export default function ThreadPanel({
     const val = e.target.value
     const cursor = e.target.selectionStart ?? val.length
     setReplyContent(val)
+    if (replyError) setReplyError(null)
     const beforeCursor = val.slice(0, cursor)
     const emojiMatch = beforeCursor.match(/(?:^|\s):(\w{1,})$/)
     if (emojiMatch) {
@@ -375,6 +377,16 @@ export default function ThreadPanel({
     const trimmed = replyContent.trim()
     if ((!trimmed && pendingFiles.length === 0) || sending) return
     setSending(true)
+    setReplyError(null)
+    const filesSnapshot = pendingFiles // #5 — keep for restore-on-failure
+    // #5 — on failure, restore the unsent reply text + files (and drop the
+    // optimistic bubble) so a thread reply is never silently lost.
+    const restoreOnFailure = (tempId?: string) => {
+      if (tempId) setReplies(prev => prev.filter(r => r.id !== tempId))
+      setReplyContent(prev => (prev ? prev : trimmed))
+      setPendingFiles(prev => (prev.length ? prev : filesSnapshot))
+      setReplyError('Reply not sent — tap Send to retry.')
+    }
     setReplyContent('')
     const filesPayload = pendingFiles.map(({ localUrl: _, ...f }) => f)
     const optimisticFiles: FileItem[] = pendingFiles.map((f, i) => ({
@@ -391,18 +403,26 @@ export default function ThreadPanel({
 
     const wasScheduled = !!scheduledAt
     if (wasScheduled) {
-      await fetch('/api/hub/scheduled-messages', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          room_id: parentMessage.room_id ?? null,
-          conversation_id: parentMessage.conversation_id ?? null,
-          parent_id: parentMessage.id,
-          content: trimmed || ' ',
-          files: filesPayload.length > 0 ? filesPayload : undefined,
-          send_at: new Date(scheduledAt).toISOString(),
-        }),
-      })
+      try {
+        const res = await fetch('/api/hub/scheduled-messages', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            room_id: parentMessage.room_id ?? null,
+            conversation_id: parentMessage.conversation_id ?? null,
+            parent_id: parentMessage.id,
+            content: trimmed || ' ',
+            files: filesPayload.length > 0 ? filesPayload : undefined,
+            send_at: new Date(scheduledAt).toISOString(),
+          }),
+        })
+        if (!res.ok) throw new Error(`scheduled reply failed: ${res.status}`)
+      } catch (err) {
+        console.error('[thread] scheduled reply failed:', err)
+        restoreOnFailure()
+        setSending(false)
+        return
+      }
       setScheduledAt('')
       setShowScheduler(false)
       setSending(false)
@@ -420,25 +440,33 @@ export default function ThreadPanel({
       files: optimisticFiles,
     }])
 
-    const res = await fetch('/api/hub/messages', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        room_id: parentMessage.room_id ?? null,
-        conversation_id: parentMessage.conversation_id ?? null,
-        parent_id: parentMessage.id,
-        content: trimmed || ' ',
-        files: filesPayload.length > 0 ? filesPayload : undefined,
-      }),
-    })
+    try {
+      const res = await fetch('/api/hub/messages', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: parentMessage.room_id ?? null,
+          conversation_id: parentMessage.conversation_id ?? null,
+          parent_id: parentMessage.id,
+          content: trimmed || ' ',
+          files: filesPayload.length > 0 ? filesPayload : undefined,
+        }),
+      })
+      if (!res.ok) throw new Error(`reply failed: ${res.status}`)
 
-    // Notify the main feed so the parent's "N replies" indicator updates
-    // immediately for this sender — the realtime path that should do this
-    // can drop events under iOS webview suspension and the broadcast
-    // subscribe-vs-send race.
-    if (res.ok && onReplyPosted) {
-      const data = await res.clone().json().catch(() => null) as { id?: string } | null
-      if (data?.id) onReplyPosted(parentMessage.id, data.id)
+      // Notify the main feed so the parent's "N replies" indicator updates
+      // immediately for this sender — the realtime path that should do this
+      // can drop events under iOS webview suspension and the broadcast
+      // subscribe-vs-send race.
+      if (onReplyPosted) {
+        const data = await res.clone().json().catch(() => null) as { id?: string } | null
+        if (data?.id) onReplyPosted(parentMessage.id, data.id)
+      }
+    } catch (err) {
+      console.error('[thread] reply failed:', err)
+      restoreOnFailure(tempId)
+      setSending(false)
+      return
     }
 
     // Refetch all replies to replace the optimistic entry with the real one
@@ -601,6 +629,13 @@ export default function ThreadPanel({
           <div className="mb-2 px-3 py-2 bg-[#2E7EB8]/10 border border-[#2E7EB8]/30 rounded-lg flex items-center gap-2.5 text-xs text-[#9cc7e6]">
             <div className="w-4 h-4 border-2 border-[#2E7EB8] border-t-transparent rounded-full animate-spin flex-none" />
             <span>Uploading attachment… please wait before sending.</span>
+          </div>
+        )}
+
+        {/* #5 — reply send failed: text + files restored above, offer retry. */}
+        {replyError && (
+          <div className="mb-2 text-xs text-red-300 bg-red-500/10 border border-red-500/20 rounded-md px-3 py-1.5">
+            {replyError}
           </div>
         )}
 
