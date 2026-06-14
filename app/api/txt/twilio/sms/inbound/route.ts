@@ -223,32 +223,32 @@ export async function POST(req: NextRequest) {
     conversationId = createdConv.id
   }
 
-  // Pull MMS media if present
-  const mediaUrls: string[] = []
-  for (let i = 0; i < numMedia; i++) {
-    const url = params[`MediaUrl${i}`]
-    const type = params[`MediaContentType${i}`] || 'application/octet-stream'
-    if (!url) continue
-    const r2Key = await ingestMediaToR2(url, type, HEROES_COMPANY_ID)
-    if (r2Key) mediaUrls.push(r2Key)
-  }
-
-  // Insert the inbound message
+  // Insert the inbound message FIRST (#32). Media ingest (download from Twilio + upload
+  // to R2) is the slow part and used to run before this insert — so a Twilio retry that
+  // fired during ingest wouldn't find the sid yet and would re-process the whole message
+  // (duplicate work / texts). Inserting now (media_urls filled in by the background task
+  // below) makes the sid-dedupe above catch retries immediately. Preview uses numMedia
+  // (known up front) so it's accurate even before the files finish ingesting.
   const now = new Date().toISOString()
-  const { error: insertErr } = await supabase.from('txt_messages').insert({
-    company_id: HEROES_COMPANY_ID,
-    conversation_id: conversationId,
-    contact_id: contactId,
-    direction: 'inbound',
-    body: body || null,
-    media_urls: mediaUrls,
-    twilio_sid: sid,
-    status: 'received',
-  })
-  if (insertErr) {
+  const { data: insertedMsg, error: insertErr } = await supabase
+    .from('txt_messages')
+    .insert({
+      company_id: HEROES_COMPANY_ID,
+      conversation_id: conversationId,
+      contact_id: contactId,
+      direction: 'inbound',
+      body: body || null,
+      media_urls: [],
+      twilio_sid: sid,
+      status: 'received',
+    })
+    .select('id')
+    .single()
+  if (insertErr || !insertedMsg) {
     console.error('[txt:inbound] message insert failed', insertErr)
     return twimlResponse(EMPTY_TWIML, 500)
   }
+  const messageId = insertedMsg.id
 
   // Bump conversation timestamps + sidebar preview
   await supabase
@@ -256,7 +256,7 @@ export async function POST(req: NextRequest) {
     .update({
       last_message_at: now,
       last_inbound_at: now,
-      last_message_preview: buildMessagePreview(body, mediaUrls.length),
+      last_message_preview: buildMessagePreview(body, numMedia),
       last_message_direction: 'inbound',
     })
     .eq('id', conversationId)
@@ -279,6 +279,62 @@ export async function POST(req: NextRequest) {
       .update({ do_not_text: false, updated_at: now })
       .eq('id', contactId)
   }
+
+  // #32 — acknowledge Twilio fast, then do the slow work (media ingest, automations,
+  // push, realtime broadcast) in the background. This runs on a persistent PM2 Node
+  // process, so post-response async work completes normally — and we no longer risk
+  // the ~15s Twilio timeout (→ retries → duplicate texts) on a large MMS.
+  void (async () => {
+    try {
+      // Pull MMS media (slow) and attach it to the already-inserted message.
+      if (numMedia > 0) {
+        const mediaUrls: string[] = []
+        for (let i = 0; i < numMedia; i++) {
+          const url = params[`MediaUrl${i}`]
+          const type = params[`MediaContentType${i}`] || 'application/octet-stream'
+          if (!url) continue
+          const r2Key = await ingestMediaToR2(url, type, HEROES_COMPANY_ID)
+          if (r2Key) mediaUrls.push(r2Key)
+        }
+        if (mediaUrls.length > 0) {
+          await supabase.from('txt_messages').update({ media_urls: mediaUrls }).eq('id', messageId)
+        }
+      }
+      await processInboundSideEffects({
+        supabase, conversationId, contactId, from, body, compliance, now, sid,
+      })
+    } catch (err) {
+      console.warn('[txt:inbound] background processing failed', err)
+    }
+  })()
+
+  console.log('[txt:inbound] received', { sid, conversationId, media: numMedia, compliance })
+  return twimlResponse()
+}
+
+// #32 — the post-acknowledgement side effects (automations + push fan-out + realtime
+// broadcast) extracted so the webhook can return to Twilio immediately and run these after.
+async function processInboundSideEffects(args: {
+  supabase: ReturnType<typeof createAdminClient>
+  conversationId: string
+  contactId: string
+  from: string
+  body: string
+  compliance: ComplianceKind
+  now: string
+  sid: string
+}) {
+  const { supabase, conversationId, contactId, from, body, compliance, now } = args
+
+  // Re-read whether the (possibly just-ingested) message has attachments for the push preview.
+  const { data: msgRow } = await supabase
+    .from('txt_messages')
+    .select('media_urls')
+    .eq('conversation_id', conversationId)
+    .order('created_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  const mediaCount = Array.isArray(msgRow?.media_urls) ? msgRow!.media_urls.length : 0
 
   // Fire any "inbound text" automations — real messages only, not STOP/START/HELP.
   if (!compliance) {
@@ -378,8 +434,8 @@ export async function POST(req: NextRequest) {
         ? body.length > 100
           ? body.slice(0, 97) + '…'
           : body
-        : mediaUrls.length > 0
-        ? `📎 ${mediaUrls.length} attachment${mediaUrls.length === 1 ? '' : 's'}`
+        : mediaCount > 0
+        ? `📎 ${mediaCount} attachment${mediaCount === 1 ? '' : 's'}`
         : '(empty message)'
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
       // Fire-and-forget; don't block the Twilio response on push delivery.
@@ -413,21 +469,6 @@ export async function POST(req: NextRequest) {
     console.warn('[txt:inbound] broadcast failed', err)
   }
 
-  console.log('[txt:inbound] received', {
-    sid,
-    conversationId,
-    media: mediaUrls.length,
-    compliance,
-  })
-
-  // Compliance auto-replies (STOP/START/HELP) are intentionally NOT sent from the
-  // app. The 888 is a standalone toll-free number, so Twilio's built-in carrier
-  // keyword handling already opts the sender out/in AND sends the carrier-required
-  // confirmation. A second reply from us is redundant: it fails with error 21610 on
-  // STOP (Twilio has already blocked the number) and double-texts the customer on
-  // HELP/START. We still record the inbound + toggle do_not_text above; Twilio owns
-  // the customer-facing reply. (Confirmed in Stage 1 live test, 2026-06-02.)
-  return twimlResponse()
 }
 
 export async function GET() {
