@@ -311,6 +311,12 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     return map
   })
 
+  // #43 — typing indicator. MessageComposer broadcasts `typing` on the same
+  // feed channel; we show "X is typing…" and auto-clear each user 4s after their
+  // last keystroke (the composer re-broadcasts every ~2.5s while typing).
+  const [typingUsers, setTypingUsers] = useState<{ id: string; name: string }[]>([])
+  const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+
   // Latest top-level message authored by the current user in this feed —
   // the indicator anchors here. Falls back to null when there are no
   // self-sent messages yet.
@@ -743,6 +749,37 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       .subscribe()
 
     return () => { supabase.removeChannel(channel) }
+  }, [roomId, conversationId])
+
+  // #43 — typing indicator on its own `typing:` topic (kept off the messages
+  // `feed:` channel so it can't disturb the message stream). The composer
+  // re-broadcasts every ~2.5s while typing; each user auto-clears 4s after
+  // their last keystroke.
+  useEffect(() => {
+    const id = roomId ?? conversationId
+    if (!id) return
+    const timers = typingTimers.current
+    const channel = supabase
+      .channel(`typing:${id}`)
+      .on('broadcast', { event: 'typing' }, (payload) => {
+        const p = (payload.payload ?? {}) as { user_id?: string; name?: string }
+        if (!p.user_id || p.user_id === currentUserId) return
+        const uid = p.user_id
+        const name = p.name || 'Someone'
+        setTypingUsers(prev => prev.some(u => u.id === uid) ? prev : [...prev, { id: uid, name }])
+        clearTimeout(timers[uid])
+        timers[uid] = setTimeout(() => {
+          setTypingUsers(prev => prev.filter(u => u.id !== uid))
+          delete timers[uid]
+        }, 4000)
+      })
+      .subscribe()
+    return () => {
+      supabase.removeChannel(channel)
+      Object.values(timers).forEach(clearTimeout)
+      setTypingUsers([])
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, conversationId])
 
   // Realtime: reactions
@@ -1264,6 +1301,23 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
             })}
           </div>
         ))}
+
+        {typingUsers.length > 0 && (
+          <div className="px-1 pt-1 text-xs text-gray-400 flex items-center gap-1.5" aria-live="polite">
+            <span className="flex gap-0.5">
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-500 [animation-delay:-0.3s]" />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-500 [animation-delay:-0.15s]" />
+              <span className="h-1.5 w-1.5 animate-bounce rounded-full bg-gray-500" />
+            </span>
+            <span>
+              {typingUsers.length === 1
+                ? `${typingUsers[0].name.split(' ')[0]} is typing…`
+                : typingUsers.length === 2
+                  ? `${typingUsers[0].name.split(' ')[0]} & ${typingUsers[1].name.split(' ')[0]} are typing…`
+                  : 'Several people are typing…'}
+            </span>
+          </div>
+        )}
 
         <div ref={bottomRef} />
       </div>
