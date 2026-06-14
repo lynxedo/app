@@ -73,8 +73,6 @@ export function railFromPath(pathname: string | null | undefined): RailId {
 export default function HubRail({
   showAdmin,
   unreadActivity: _unreadActivity, // unused — Activity is now a floating bell
-  unreadChat: _unreadChat,
-  unreadTxt: _unreadTxt,
   unreadHub,
   dailyLogUnread = false,
   txtUnread = false,
@@ -111,8 +109,6 @@ export default function HubRail({
 }: {
   showAdmin: boolean
   unreadActivity?: number
-  unreadChat?: number
-  unreadTxt?: number
   unreadHub?: boolean
   /** Orange dot on the Daily Log rail slot when there are unseen v1 updates. */
   dailyLogUnread?: boolean

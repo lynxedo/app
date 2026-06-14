@@ -8,7 +8,10 @@ export const metadata = { title: 'Scoreboards Admin' }
 // Boards that have a per-technician panel driven by explicit assignment.
 // (WF board 2 still auto-discovers by job title today; it can be migrated to
 // this same table later by adding it here + switching buildWfBoard.)
-const BOARDS = [{ slug: '3', title: 'IR Irrigation' }]
+const BOARDS = [
+  { slug: '3', title: 'IR Irrigation' },
+  { slug: '4', title: 'PW Pet Waste' },
+]
 
 export default async function ScoreboardsAdminPage() {
   const supabase = await createClient()
