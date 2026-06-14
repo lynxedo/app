@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getCurrentUser, getCurrentProfile } from '@/lib/supabase/current-user'
 import HubShell from '@/components/hub/HubShell'
+import { HubMessagesProvider } from '@/components/hub/HubMessagesProvider'
 import PushInit from '@/components/hub/PushInit'
 import ElectronNotifier from '@/components/hub/ElectronNotifier'
 import WebChimeNotifier from '@/components/hub/WebChimeNotifier'
@@ -275,6 +276,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
 
   return (
     <ToastProvider>
+      <HubMessagesProvider>
       <IosSplashScreens />
       <HubShell
         rooms={rooms}
@@ -331,6 +333,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       />
       <HubIdleTracker />
       <UpdateNotifier loadedBuildId={buildId} />
+      </HubMessagesProvider>
     </ToastProvider>
   )
 }

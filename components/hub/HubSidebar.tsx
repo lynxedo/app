@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useEffect, useMemo, useState, useCallback, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { useHubMessageInsert } from './HubMessagesProvider'
 import type { HubUser } from './MessageFeed'
 import StatusPicker, { StatusDot } from './StatusPicker'
 import { useOnCallUsers } from './OnCallPresenceProvider'
@@ -329,89 +330,53 @@ export default function HubSidebar({
     return () => { cancelled = true; clearInterval(id) }
   }, [currentUserId])
 
-  // Realtime: mark rooms/convs unread when new messages arrive
-  useEffect(() => {
-    const supabase = createClient()
-    const refreshUnreadFromServer = () => {
-      fetch('/api/hub/read-receipts', { cache: 'no-store' })
-        .then(r => r.json())
-        .then(d => {
-          const roomIds = (d.unread_room_ids ?? []) as string[]
-          const convIds = (d.unread_conv_ids ?? []) as string[]
-          setUnreadRoomIds(new Set(roomIds))
-          setUnreadConvIds(new Set(convIds))
-          saveUnreadState(currentUserId, roomIds, convIds)
-        })
-        .catch(() => {})
-    }
-    const handleInsert = (msg: { room_id: string | null; conversation_id: string | null; sender_id: string; parent_id: string | null }) => {
-      // Ignore thread replies and messages sent by this user
-      if (msg.parent_id || msg.sender_id === currentUserId) return
-      const currentPath = pathnameRef.current
-      const activeRoomMatch = currentPath.match(/^\/hub\/([^/]+)$/)
-      const activePmMatch = currentPath.match(/^\/hub\/pm\/([^/]+)$/)
-      if (msg.room_id) {
-        // Don't mark unread if user is currently viewing this room
-        if (activeRoomMatch?.[1] === msg.room_id) return
-        // Only optimistically mark unread for rooms the user is a member of. The
-        // broadcast fallback channel isn't RLS-scoped, so this gate stops a
-        // private-room broadcast from slipping a non-member room id into the set.
-        // (A brand-new membership is reconciled by refreshUnreadFromServer below.)
-        if (sidebarRoomsRef.current.some(r => r.id === msg.room_id)) {
-          setUnreadRoomIds(prev => new Set([...prev, msg.room_id!]))
-        }
-      } else if (msg.conversation_id) {
-        if (activePmMatch?.[1] === msg.conversation_id) return
-        // Same membership gate for DMs — only a conversation the user is in.
-        if (conversationsRef.current.some(c => c.id === msg.conversation_id)) {
-          setUnreadConvIds(prev => new Set([...prev, msg.conversation_id!]))
-        }
-        // Refetch so the conversation's archived flag updates from the
-        // server-side auto-unarchive hook (also surfaces a brand-new DM).
-        loadConversations()
+  // Realtime: mark rooms/convs unread when new messages arrive.
+  // #26 — rides the shared HubMessagesProvider subscription (one whole-table
+  // `messages` channel + the admin-insert broadcast backstop for the whole Hub)
+  // instead of opening this component's own postgres_changes + broadcast pair.
+  // pathname is read via pathnameRef so nothing tears down on navigation.
+  useHubMessageInsert((msg) => {
+    if (!msg.sender_id) return
+    // Ignore thread replies and messages sent by this user
+    if (msg.parent_id || msg.sender_id === currentUserId) return
+    const currentPath = pathnameRef.current
+    const activeRoomMatch = currentPath.match(/^\/hub\/([^/]+)$/)
+    const activePmMatch = currentPath.match(/^\/hub\/pm\/([^/]+)$/)
+    if (msg.room_id) {
+      // Don't mark unread if user is currently viewing this room
+      if (activeRoomMatch?.[1] === msg.room_id) return
+      // Only optimistically mark unread for rooms the user is a member of. The
+      // broadcast fallback isn't RLS-scoped, so this gate stops a private-room
+      // broadcast from slipping a non-member room id into the set. (A brand-new
+      // membership is reconciled by the server refetch below.)
+      if (sidebarRoomsRef.current.some(r => r.id === msg.room_id)) {
+        setUnreadRoomIds(prev => new Set([...prev, msg.room_id!]))
       }
-      // Also pull authoritative unread state from the server so the sidebar
-      // reconciles within a beat instead of waiting up to 60s for the next
-      // poll tick. Cheap (single fetch); cures the "I scrolled and there's
-      // no orange dot" delay on iOS where the realtime websocket suspended.
-      refreshUnreadFromServer()
+    } else if (msg.conversation_id) {
+      if (activePmMatch?.[1] === msg.conversation_id) return
+      // Same membership gate for DMs — only a conversation the user is in.
+      if (conversationsRef.current.some(c => c.id === msg.conversation_id)) {
+        setUnreadConvIds(prev => new Set([...prev, msg.conversation_id!]))
+      }
+      // Refetch so the conversation's archived flag updates from the
+      // server-side auto-unarchive hook (also surfaces a brand-new DM).
+      loadConversations()
     }
-
-    const channel = supabase
-      .channel('sidebar-messages')
-      .on(
-        'postgres_changes',
-        { event: 'INSERT', schema: 'public', table: 'messages' },
-        (payload) => {
-          handleInsert(payload.new as Parameters<typeof handleInsert>[0])
-        }
-      )
-      .subscribe()
-
-    // Broadcast fallback for admin-client inserts (e.g. Chat Synx inbound from
-    // Slack) where postgres_changes silently drops events for unknown reasons
-    // — same pattern as Session 43.5 hub_users. The events route fires this.
-    const broadcastChannel = supabase
-      .channel('hub-sidebar-messages')
-      .on('broadcast', { event: 'message-inserted' }, (payload) => {
-        const p = (payload.payload ?? {}) as { room_id?: string | null; conversation_id?: string | null; sender_id?: string; parent_id?: string | null }
-        if (!p.sender_id) return
-        handleInsert({
-          room_id: p.room_id ?? null,
-          conversation_id: p.conversation_id ?? null,
-          sender_id: p.sender_id,
-          parent_id: p.parent_id ?? null,
-        })
+    // Also pull authoritative unread state from the server so the sidebar
+    // reconciles within a beat instead of waiting up to 60s for the next poll
+    // tick. Cheap (single fetch); cures the "I scrolled and there's no orange
+    // dot" delay on iOS where the realtime websocket suspended.
+    fetch('/api/hub/read-receipts', { cache: 'no-store' })
+      .then(r => r.json())
+      .then(d => {
+        const roomIds = (d.unread_room_ids ?? []) as string[]
+        const convIds = (d.unread_conv_ids ?? []) as string[]
+        setUnreadRoomIds(new Set(roomIds))
+        setUnreadConvIds(new Set(convIds))
+        saveUnreadState(currentUserId, roomIds, convIds)
       })
-      .subscribe()
-
-    return () => {
-      supabase.removeChannel(channel)
-      supabase.removeChannel(broadcastChannel)
-    }
-    // Intentionally exclude pathname — we read it via pathnameRef so the
-    // channel doesn't tear down and re-subscribe on every navigation.
-  }, [currentUserId, loadConversations])
+      .catch(() => {})
+  })
 
   // Realtime: keep sidebar status dots in sync when teammates change status.
   // Uses a Supabase broadcast channel rather than postgres_changes on hub_users.
