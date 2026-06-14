@@ -13,6 +13,7 @@
  *   Enrichment — properties/clients/invoices pull richer fields
  */
 
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { jobberGraphQLAdmin } from '@/lib/jobber'
 import { postGuardianToUserDm } from '@/lib/guardian-post'
@@ -212,6 +213,32 @@ function parseCustomFields(
  * Recurring-job visits share the same JobLineItem IDs — the composite key
  * (external_id + parent_type + parent_external_id) makes them distinct.
  */
+// Resolve a batch of Jobber external_ids to their internal row ids in ONE query
+// (replacing a per-row .select()). Returns a Map keyed by external_id. Chunks the
+// IN list defensively so a very large page can't blow the URL length limit.
+async function fetchIdMap(
+  admin: SupabaseClient,
+  table: 'clients' | 'jobs' | 'properties' | 'visits' | 'invoices',
+  externalIds: (string | null | undefined)[]
+): Promise<Map<string, string>> {
+  const ids = [...new Set(externalIds.filter((x): x is string => !!x))]
+  const map = new Map<string, string>()
+  if (!ids.length) return map
+  for (let i = 0; i < ids.length; i += 200) {
+    const slice = ids.slice(i, i + 200)
+    const { data, error } = await admin
+      .from(table)
+      .select('id, external_id')
+      .eq('source', 'jobber')
+      .in('external_id', slice)
+    if (error) throw new Error(`${table} id-map: ${error.message}`)
+    for (const r of (data ?? []) as Array<{ id: string; external_id: string }>) {
+      map.set(r.external_id, r.id)
+    }
+  }
+  return map
+}
+
 function dedupLineItems(rows: Record<string, unknown>[]): Record<string, unknown>[] {
   const seen = new Map<string, Record<string, unknown>>()
   for (const r of rows) {
@@ -338,128 +365,166 @@ async function syncClients(
     )
 
     const { nodes, pageInfo } = resp.data.clients
+    const clientNodes = nodes as ClientNode[]
+    const nowIso = new Date().toISOString()
 
-    for (const raw of nodes as ClientNode[]) {
+    // 1) Build every client row for the page, then upsert them in ONE call and
+    //    read the resulting ids back in the same round-trip (no per-row reselect).
+    const prepared = clientNodes.map(raw => {
       const primaryEmail = raw.emails?.find(e => e.primary)?.address ?? raw.emails?.[0]?.address ?? null
       const primaryPhone = raw.phones?.find(p => p.primary)?.number ?? raw.phones?.[0]?.number ?? null
-
       // Parse custom fields — all 6 types now captured
-      const { raw: cfRaw, cf } = parseCustomFields(
-        (raw.customFields ?? []) as RawCustomField[],
-        null
-      )
-
-      // Client-level denormalized fields
+      const { raw: cfRaw, cf } = parseCustomFields((raw.customFields ?? []) as RawCustomField[], null)
       const customer_since = cf['customer since date'] || cf['customer since'] || null
       const sales_person   = cf['sales person'] || cf['salesperson'] || null
       const cancellation_reason = cf['cancellation reason'] || null
-
-      await admin.from('clients').upsert({
-        company_id: companyId,
-        source: 'jobber',
-        external_id: raw.id,
-        name: raw.name ?? null,
-        first_name: raw.firstName ?? null,
-        last_name: raw.lastName ?? null,
-        company_name: raw.companyName ?? null,
-        is_company: raw.isCompany ?? false,
-        is_lead: raw.isLead ?? false,
-        email: primaryEmail,
-        phone: primaryPhone,
-        balance: raw.balance ?? null,
-        is_archived: raw.isArchived ?? false,
-        lead_source: raw.leadSource ?? null,
-        jobber_web_uri: raw.jobberWebUri ?? null,
-        custom_fields: Object.keys(cfRaw).length > 0 ? cfRaw : null,
-        customer_since: customer_since ?? null,
-        sales_person: sales_person ?? null,
-        cancellation_reason: cancellation_reason ?? null,
-        last_synced_at: new Date().toISOString(),
-        external_created_at: raw.createdAt ?? null,
-        updated_at: new Date().toISOString(),
-        deleted_at: null,
-      }, { onConflict: 'external_id,source' })
-
-      const { data: clientRow } = await admin
-        .from('clients')
-        .select('id')
-        .eq('external_id', raw.id)
-        .eq('source', 'jobber')
-        .single()
-
-      if (clientRow) {
-        const contacts: ContactUpsert[] = [{
+      return {
+        raw, primaryEmail, primaryPhone,
+        row: {
           company_id: companyId,
           source: 'jobber',
-          external_id: `${raw.id}_primary`,
-          client_id: clientRow.id,
-          is_primary: true,
+          external_id: raw.id,
+          name: raw.name ?? null,
           first_name: raw.firstName ?? null,
           last_name: raw.lastName ?? null,
-          name: raw.name ?? null,
+          company_name: raw.companyName ?? null,
+          is_company: raw.isCompany ?? false,
+          is_lead: raw.isLead ?? false,
           email: primaryEmail,
           phone: primaryPhone,
-          last_synced_at: new Date().toISOString(),
+          balance: raw.balance ?? null,
+          is_archived: raw.isArchived ?? false,
+          lead_source: raw.leadSource ?? null,
+          jobber_web_uri: raw.jobberWebUri ?? null,
+          custom_fields: Object.keys(cfRaw).length > 0 ? cfRaw : null,
+          customer_since: customer_since ?? null,
+          sales_person: sales_person ?? null,
+          cancellation_reason: cancellation_reason ?? null,
+          last_synced_at: nowIso,
           external_created_at: raw.createdAt ?? null,
-          updated_at: new Date().toISOString(),
-        }]
+          updated_at: nowIso,
+          deleted_at: null,
+        },
+      }
+    })
 
-        for (const c of raw.contacts?.nodes ?? []) {
-          contacts.push({
-            company_id: companyId,
-            source: 'jobber',
-            external_id: c.id,
-            client_id: clientRow.id,
-            is_primary: false,
-            first_name: c.firstName ?? null,
-            last_name: c.lastName ?? null,
-            name: c.name ?? null,
-            title: c.title ?? null,
-            role: c.role ?? null,
-            email: c.emails?.nodes?.[0]?.address ?? null,
-            phone: c.phones?.nodes?.[0]?.number ?? null,
-            is_billing_contact: c.isBillingContact ?? false,
-            receives_followups: c.receivesFollowUps ?? null,
-            receives_reminders: c.receivesReminders ?? null,
-            last_synced_at: new Date().toISOString(),
-            external_created_at: c.createdAt ?? null,
-            updated_at: new Date().toISOString(),
-          })
-        }
+    const clientIdByExternal = new Map<string, string>()
+    if (prepared.length) {
+      const { data: upserted, error } = await admin
+        .from('clients')
+        .upsert(prepared.map(p => p.row), { onConflict: 'external_id,source' })
+        .select('id, external_id')
+      if (error) throw new Error(`clients upsert: ${error.message}`)
+      for (const r of upserted ?? []) clientIdByExternal.set(r.external_id, r.id)
+    }
 
-        if (contacts.length) {
-          await admin.from('contacts').upsert(contacts, { onConflict: 'external_id,source' })
-        }
+    // 2) Collect contacts, notes, and tag links across the whole page, then write
+    //    each table in a single batched upsert instead of one row at a time.
+    const allContacts: ContactUpsert[] = []
+    const allNotes: Record<string, unknown>[] = []
+    const tagLabels = new Set<string>()
+    const tagPairs: Array<{ clientExternalId: string; label: string }> = []
 
-        for (const note of raw.notes?.nodes ?? []) {
-          await admin.from('client_notes').upsert({
-            company_id: companyId,
-            source: 'jobber',
-            external_id: note.id,
-            client_id: clientRow.id,
-            body: note.message ?? null,
-            author_external_id: null,
-            pinned: note.pinned ?? false,
-            last_synced_at: new Date().toISOString(),
-            external_created_at: note.createdAt ?? null,
-          }, { onConflict: 'external_id,source' })
-        }
+    for (const { raw, primaryEmail, primaryPhone } of prepared) {
+      const clientId = clientIdByExternal.get(raw.id)
+      if (!clientId) continue
 
-        for (const tag of raw.tags?.nodes ?? []) {
-          const { data: tagRow } = await admin
-            .from('tags')
-            .upsert({ company_id: companyId, source: 'jobber', name: tag.label }, {
-              onConflict: 'company_id,name' as string,
-              ignoreDuplicates: false,
-            })
-            .select('id')
-            .single()
+      allContacts.push({
+        company_id: companyId,
+        source: 'jobber',
+        external_id: `${raw.id}_primary`,
+        client_id: clientId,
+        is_primary: true,
+        first_name: raw.firstName ?? null,
+        last_name: raw.lastName ?? null,
+        name: raw.name ?? null,
+        email: primaryEmail,
+        phone: primaryPhone,
+        last_synced_at: nowIso,
+        external_created_at: raw.createdAt ?? null,
+        updated_at: nowIso,
+      })
 
-          if (tagRow) {
-            await admin.from('client_tags')
-              .upsert({ client_id: clientRow.id, tag_id: tagRow.id }, { ignoreDuplicates: true })
-          }
-        }
+      for (const c of raw.contacts?.nodes ?? []) {
+        allContacts.push({
+          company_id: companyId,
+          source: 'jobber',
+          external_id: c.id,
+          client_id: clientId,
+          is_primary: false,
+          first_name: c.firstName ?? null,
+          last_name: c.lastName ?? null,
+          name: c.name ?? null,
+          title: c.title ?? null,
+          role: c.role ?? null,
+          email: c.emails?.nodes?.[0]?.address ?? null,
+          phone: c.phones?.nodes?.[0]?.number ?? null,
+          is_billing_contact: c.isBillingContact ?? false,
+          receives_followups: c.receivesFollowUps ?? null,
+          receives_reminders: c.receivesReminders ?? null,
+          last_synced_at: nowIso,
+          external_created_at: c.createdAt ?? null,
+          updated_at: nowIso,
+        })
+      }
+
+      for (const note of raw.notes?.nodes ?? []) {
+        allNotes.push({
+          company_id: companyId,
+          source: 'jobber',
+          external_id: note.id,
+          client_id: clientId,
+          body: note.message ?? null,
+          author_external_id: null,
+          pinned: note.pinned ?? false,
+          last_synced_at: nowIso,
+          external_created_at: note.createdAt ?? null,
+        })
+      }
+
+      for (const tag of raw.tags?.nodes ?? []) {
+        tagLabels.add(tag.label)
+        tagPairs.push({ clientExternalId: raw.id, label: tag.label })
+      }
+    }
+
+    if (allContacts.length) {
+      const { error } = await admin.from('contacts').upsert(allContacts, { onConflict: 'external_id,source' })
+      if (error) throw new Error(`contacts upsert: ${error.message}`)
+    }
+    if (allNotes.length) {
+      const { error } = await admin.from('client_notes').upsert(allNotes, { onConflict: 'external_id,source' })
+      if (error) throw new Error(`client_notes upsert: ${error.message}`)
+    }
+
+    // 3) Tags: upsert the unique labels for the page once, map name->id, then
+    //    upsert all client<->tag links in one call (deduped to avoid same-batch
+    //    conflicts on the (client_id, tag_id) unique index).
+    if (tagLabels.size) {
+      const { data: tagRows, error: tagErr } = await admin
+        .from('tags')
+        .upsert(
+          [...tagLabels].map(name => ({ company_id: companyId, source: 'jobber', name })),
+          { onConflict: 'company_id,name' as string, ignoreDuplicates: false }
+        )
+        .select('id, name')
+      if (tagErr) throw new Error(`tags upsert: ${tagErr.message}`)
+      const tagIdByName = new Map((tagRows ?? []).map(t => [t.name, t.id]))
+
+      const seenPair = new Set<string>()
+      const clientTagRows: Array<{ client_id: string; tag_id: string }> = []
+      for (const p of tagPairs) {
+        const cid = clientIdByExternal.get(p.clientExternalId)
+        const tid = tagIdByName.get(p.label)
+        if (!cid || !tid) continue
+        const key = `${cid}|${tid}`
+        if (seenPair.has(key)) continue
+        seenPair.add(key)
+        clientTagRows.push({ client_id: cid, tag_id: tid })
+      }
+      if (clientTagRows.length) {
+        const { error } = await admin.from('client_tags').upsert(clientTagRows, { ignoreDuplicates: true })
+        if (error) throw new Error(`client_tags upsert: ${error.message}`)
       }
     }
 
@@ -514,13 +579,12 @@ async function syncProperties(
 
     const { nodes, pageInfo } = resp.data.properties
 
-    const rows = await Promise.all(nodes.map(async (p) => {
-      const { data: clientRow } = await admin
-        .from('clients')
-        .select('id')
-        .eq('external_id', p.client?.id ?? '')
-        .eq('source', 'jobber')
-        .maybeSingle()
+    // Resolve every referenced client_id in ONE query instead of one per property.
+    const clientIdByExternal = await fetchIdMap(admin, 'clients',
+      nodes.map(p => p.client?.id).filter((x): x is string => !!x))
+
+    const rows = nodes.map((p) => {
+      const clientRow = clientIdByExternal.get(p.client?.id ?? '')
 
       // Parse property-level custom fields
       const { raw: cfRaw, cf } = parseCustomFields(p.customFields ?? [], null)
@@ -540,7 +604,7 @@ async function syncProperties(
         company_id: companyId,
         source: 'jobber',
         external_id: p.id,
-        client_id: clientRow?.id ?? null,
+        client_id: clientRow ?? null,
         client_external_id: p.client?.id ?? null,
         name: p.name ?? null,
         is_billing_address: p.isBillingAddress ?? null,
@@ -564,10 +628,11 @@ async function syncProperties(
         updated_at: new Date().toISOString(),
         deleted_at: null,
       }
-    }))
+    })
 
     if (rows.length) {
-      await admin.from('properties').upsert(rows, { onConflict: 'external_id,source' })
+      const { error } = await admin.from('properties').upsert(rows, { onConflict: 'external_id,source' })
+      if (error) throw new Error(`properties upsert: ${error.message}`)
     }
 
     total += nodes.length
@@ -656,13 +721,19 @@ async function syncJobs(
     )
 
     const { nodes, pageInfo } = resp.data.jobs
+    const nowIso = new Date().toISOString()
 
-    for (const job of nodes) {
+    // Resolve all referenced client + property ids for the page in 2 queries.
+    const [jobClientIds, jobPropIds] = await Promise.all([
+      fetchIdMap(admin, 'clients', nodes.map(j => j.client?.id)),
+      fetchIdMap(admin, 'properties', nodes.map(j => j.property?.id)),
+    ])
+
+    const jobRows = nodes.map(job => {
       const { raw, denormalized } = parseCustomFields(
         (job.customFields ?? []) as RawCustomField[],
         job.title ?? null
       )
-
       const deptPrefix = (() => {
         for (const li of job.lineItems?.nodes ?? []) {
           const p = parseDeptPrefix(li.name)
@@ -670,28 +741,13 @@ async function syncJobs(
         }
         return null
       })()
-
-      const { data: clientRow } = await admin
-        .from('clients')
-        .select('id')
-        .eq('external_id', job.client?.id ?? '')
-        .eq('source', 'jobber')
-        .maybeSingle()
-
-      const { data: propRow } = await admin
-        .from('properties')
-        .select('id')
-        .eq('external_id', job.property?.id ?? '')
-        .eq('source', 'jobber')
-        .maybeSingle()
-
-      await admin.from('jobs').upsert({
+      return {
         company_id: companyId,
         source: 'jobber',
         external_id: job.id,
-        client_id: clientRow?.id ?? null,
+        client_id: jobClientIds.get(job.client?.id ?? '') ?? null,
         client_external_id: job.client?.id ?? null,
-        property_id: propRow?.id ?? null,
+        property_id: jobPropIds.get(job.property?.id ?? '') ?? null,
         property_external_id: job.property?.id ?? null,
         title: job.title ?? null,
         job_number: job.jobNumber ?? null,
@@ -710,46 +766,52 @@ async function syncJobs(
         ...denormalized,
         custom_fields: Object.keys(raw).length > 0 ? raw : null,
         jobber_web_uri: job.jobberWebUri ?? null,
-        last_synced_at: new Date().toISOString(),
+        last_synced_at: nowIso,
         external_created_at: job.createdAt ?? null,
-        updated_at: new Date().toISOString(),
+        updated_at: nowIso,
         deleted_at: null,
-      }, { onConflict: 'external_id,source' })
-
-      const { data: jobRow } = await admin
-        .from('jobs')
-        .select('id')
-        .eq('external_id', job.id)
-        .eq('source', 'jobber')
-        .single()
-
-      if (jobRow) {
-        const lineItemRows = (job.lineItems?.nodes ?? []).map(li => ({
-          company_id: companyId,
-          source: 'jobber',
-          external_id: li.id,
-          parent_type: 'job',
-          parent_id: jobRow.id,
-          parent_external_id: job.id,
-          name: li.name,
-          description: li.description ?? null,
-          dept_prefix: parseDeptPrefix(li.name),
-          is_recurring_program: false,
-          is_auxiliary: false,
-          quantity: li.quantity ?? null,
-          unit_price: li.unitPrice ?? null,
-          total: li.totalPrice ?? null,
-          last_synced_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }))
-
-        if (lineItemRows.length) {
-          await admin.from('line_items').upsert(
-            dedupLineItems(lineItemRows),
-            { onConflict: 'external_id,parent_type,parent_external_id,source' }
-          )
-        }
       }
+    })
+
+    // Upsert all jobs and read their ids back in the same round-trip.
+    const jobIdByExternal = new Map<string, string>()
+    if (jobRows.length) {
+      const { data, error } = await admin.from('jobs')
+        .upsert(jobRows, { onConflict: 'external_id,source' })
+        .select('id, external_id')
+      if (error) throw new Error(`jobs upsert: ${error.message}`)
+      for (const r of data ?? []) jobIdByExternal.set(r.external_id, r.id)
+    }
+
+    // Upsert every line item for the page in one call.
+    const lineItemRows = nodes.flatMap(job => {
+      const jobId = jobIdByExternal.get(job.id)
+      if (!jobId) return []
+      return (job.lineItems?.nodes ?? []).map(li => ({
+        company_id: companyId,
+        source: 'jobber',
+        external_id: li.id,
+        parent_type: 'job',
+        parent_id: jobId,
+        parent_external_id: job.id,
+        name: li.name,
+        description: li.description ?? null,
+        dept_prefix: parseDeptPrefix(li.name),
+        is_recurring_program: false,
+        is_auxiliary: false,
+        quantity: li.quantity ?? null,
+        unit_price: li.unitPrice ?? null,
+        total: li.totalPrice ?? null,
+        last_synced_at: nowIso,
+        updated_at: nowIso,
+      }))
+    })
+    if (lineItemRows.length) {
+      const { error } = await admin.from('line_items').upsert(
+        dedupLineItems(lineItemRows),
+        { onConflict: 'external_id,parent_type,parent_external_id,source' }
+      )
+      if (error) throw new Error(`job line_items upsert: ${error.message}`)
     }
 
     total += nodes.length
@@ -828,67 +890,76 @@ async function syncVisits(
     )
 
     const { nodes, pageInfo } = resp.data.visits
+    const nowIso = new Date().toISOString()
 
-    for (const v of nodes) {
-      const { data: jobRow } = await admin
-        .from('jobs').select('id').eq('external_id', v.job?.id ?? '').eq('source', 'jobber').maybeSingle()
-      const { data: clientRow } = await admin
-        .from('clients').select('id').eq('external_id', v.client?.id ?? '').eq('source', 'jobber').maybeSingle()
+    // Resolve referenced job + client ids for the page in 2 queries.
+    const [visitJobIds, visitClientIds] = await Promise.all([
+      fetchIdMap(admin, 'jobs', nodes.map(v => v.job?.id)),
+      fetchIdMap(admin, 'clients', nodes.map(v => v.client?.id)),
+    ])
 
-      await admin.from('visits').upsert({
+    const visitRows = nodes.map(v => ({
+      company_id: companyId,
+      source: 'jobber',
+      external_id: v.id,
+      job_id: visitJobIds.get(v.job?.id ?? '') ?? null,
+      job_external_id: v.job?.id ?? null,
+      client_id: visitClientIds.get(v.client?.id ?? '') ?? null,
+      client_external_id: v.client?.id ?? null,
+      title: v.title ?? null,
+      scheduled_date: v.startAt ? v.startAt.split('T')[0] : null,
+      start_at: v.startAt ?? null,
+      end_at: v.endAt ?? null,
+      completed_at: v.completedAt ?? null,
+      visit_status: v.visitStatus ?? null,
+      tech_external_user_ids: v.assignedUsers?.nodes?.map((u: { id: string }) => u.id) ?? [],
+      subtotal: null,
+      total: null,
+      override_reason: null,
+      last_synced_at: nowIso,
+      external_created_at: v.createdAt ?? null,
+      updated_at: nowIso,
+      deleted_at: null,
+    }))
+
+    // Upsert all visits and read their ids back in the same round-trip.
+    const visitIdByExternal = new Map<string, string>()
+    if (visitRows.length) {
+      const { data, error } = await admin.from('visits')
+        .upsert(visitRows, { onConflict: 'external_id,source' })
+        .select('id, external_id')
+      if (error) throw new Error(`visits upsert: ${error.message}`)
+      for (const r of data ?? []) visitIdByExternal.set(r.external_id, r.id)
+    }
+
+    const lineItemRows = nodes.flatMap(v => {
+      const visitId = visitIdByExternal.get(v.id)
+      if (!visitId) return []
+      return (v.lineItems?.nodes ?? []).map(li => ({
         company_id: companyId,
         source: 'jobber',
-        external_id: v.id,
-        job_id: jobRow?.id ?? null,
-        job_external_id: v.job?.id ?? null,
-        client_id: clientRow?.id ?? null,
-        client_external_id: v.client?.id ?? null,
-        title: v.title ?? null,
-        scheduled_date: v.startAt ? v.startAt.split('T')[0] : null,
-        start_at: v.startAt ?? null,
-        end_at: v.endAt ?? null,
-        completed_at: v.completedAt ?? null,
-        visit_status: v.visitStatus ?? null,
-        tech_external_user_ids: v.assignedUsers?.nodes?.map((u: { id: string }) => u.id) ?? [],
-        subtotal: null,
-        total: null,
-        override_reason: null,
-        last_synced_at: new Date().toISOString(),
-        external_created_at: v.createdAt ?? null,
-        updated_at: new Date().toISOString(),
-        deleted_at: null,
-      }, { onConflict: 'external_id,source' })
-
-      const { data: visitRow } = await admin
-        .from('visits').select('id').eq('external_id', v.id).eq('source', 'jobber').single()
-
-      if (visitRow) {
-        const lineItemRows = (v.lineItems?.nodes ?? []).map(li => ({
-          company_id: companyId,
-          source: 'jobber',
-          external_id: li.id,
-          parent_type: 'visit',
-          parent_id: visitRow.id,
-          parent_external_id: v.id,
-          name: li.name,
-          description: li.description ?? null,
-          dept_prefix: parseDeptPrefix(li.name),
-          is_recurring_program: false,
-          is_auxiliary: false,
-          quantity: li.quantity ?? null,
-          unit_price: li.unitPrice ?? null,
-          total: li.totalPrice ?? null,
-          last_synced_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }))
-
-        if (lineItemRows.length) {
-          await admin.from('line_items').upsert(
-            dedupLineItems(lineItemRows),
-            { onConflict: 'external_id,parent_type,parent_external_id,source' }
-          )
-        }
-      }
+        external_id: li.id,
+        parent_type: 'visit',
+        parent_id: visitId,
+        parent_external_id: v.id,
+        name: li.name,
+        description: li.description ?? null,
+        dept_prefix: parseDeptPrefix(li.name),
+        is_recurring_program: false,
+        is_auxiliary: false,
+        quantity: li.quantity ?? null,
+        unit_price: li.unitPrice ?? null,
+        total: li.totalPrice ?? null,
+        last_synced_at: nowIso,
+        updated_at: nowIso,
+      }))
+    })
+    if (lineItemRows.length) {
+      const { error } = await admin.from('line_items').upsert(
+        dedupLineItems(lineItemRows),
+        { onConflict: 'external_id,parent_type,parent_external_id,source' }
+      )
+      if (error) throw new Error(`visit line_items upsert: ${error.message}`)
     }
 
     total += nodes.length
@@ -975,26 +1046,24 @@ async function syncInvoices(
     )
 
     const { nodes, pageInfo } = resp.data.invoices
+    const nowIso = new Date().toISOString()
 
-    for (const inv of nodes) {
+    // Resolve referenced client + job ids for the page in 2 queries.
+    const [invClientIds, invJobIds] = await Promise.all([
+      fetchIdMap(admin, 'clients', nodes.map(inv => inv.client?.id)),
+      fetchIdMap(admin, 'jobs', nodes.map(inv => inv.jobs?.nodes?.[0]?.id)),
+    ])
+
+    const invoiceRows = nodes.map(inv => {
       const jobExternalId = inv.jobs?.nodes?.[0]?.id ?? null
-      const { data: clientRow } = await admin
-        .from('clients').select('id').eq('external_id', inv.client?.id ?? '').eq('source', 'jobber').maybeSingle()
-      const { data: jobRow } = await admin
-        .from('jobs').select('id').eq('external_id', jobExternalId ?? '').eq('source', 'jobber').maybeSingle()
-
-      const { raw: cfRaw } = parseCustomFields(
-        (inv.customFields ?? []) as RawCustomField[],
-        null
-      )
-
-      await admin.from('invoices').upsert({
+      const { raw: cfRaw } = parseCustomFields((inv.customFields ?? []) as RawCustomField[], null)
+      return {
         company_id: companyId,
         source: 'jobber',
         external_id: inv.id,
-        client_id: clientRow?.id ?? null,
+        client_id: invClientIds.get(inv.client?.id ?? '') ?? null,
         client_external_id: inv.client?.id ?? null,
-        job_id: jobRow?.id ?? null,
+        job_id: invJobIds.get(jobExternalId ?? '') ?? null,
         job_external_id: jobExternalId,
         invoice_number: inv.invoiceNumber ?? null,
         subject: inv.subject ?? null,
@@ -1014,42 +1083,51 @@ async function syncInvoices(
         due_date: inv.dueDate ?? null,
         paid_at: inv.receivedDate ?? null,
         custom_fields: Object.keys(cfRaw).length > 0 ? cfRaw : null,
-        last_synced_at: new Date().toISOString(),
+        last_synced_at: nowIso,
         external_created_at: inv.createdAt ?? null,
-        updated_at: new Date().toISOString(),
+        updated_at: nowIso,
         deleted_at: null,
-      }, { onConflict: 'external_id,source' })
-
-      const { data: invRow } = await admin
-        .from('invoices').select('id').eq('external_id', inv.id).eq('source', 'jobber').single()
-
-      if (invRow) {
-        const lineItemRows = (inv.lineItems?.nodes ?? []).map(li => ({
-          company_id: companyId,
-          source: 'jobber',
-          external_id: li.id,
-          parent_type: 'invoice',
-          parent_id: invRow.id,
-          parent_external_id: inv.id,
-          name: li.name,
-          description: li.description ?? null,
-          dept_prefix: parseDeptPrefix(li.name),
-          is_recurring_program: false,
-          is_auxiliary: false,
-          quantity: li.quantity ?? null,
-          unit_price: li.unitPrice ?? null,
-          total: li.totalPrice ?? null,
-          last_synced_at: new Date().toISOString(),
-          updated_at: new Date().toISOString(),
-        }))
-
-        if (lineItemRows.length) {
-          await admin.from('line_items').upsert(
-            dedupLineItems(lineItemRows),
-            { onConflict: 'external_id,parent_type,parent_external_id,source' }
-          )
-        }
       }
+    })
+
+    // Upsert all invoices and read their ids back in the same round-trip.
+    const invoiceIdByExternal = new Map<string, string>()
+    if (invoiceRows.length) {
+      const { data, error } = await admin.from('invoices')
+        .upsert(invoiceRows, { onConflict: 'external_id,source' })
+        .select('id, external_id')
+      if (error) throw new Error(`invoices upsert: ${error.message}`)
+      for (const r of data ?? []) invoiceIdByExternal.set(r.external_id, r.id)
+    }
+
+    const lineItemRows = nodes.flatMap(inv => {
+      const invId = invoiceIdByExternal.get(inv.id)
+      if (!invId) return []
+      return (inv.lineItems?.nodes ?? []).map(li => ({
+        company_id: companyId,
+        source: 'jobber',
+        external_id: li.id,
+        parent_type: 'invoice',
+        parent_id: invId,
+        parent_external_id: inv.id,
+        name: li.name,
+        description: li.description ?? null,
+        dept_prefix: parseDeptPrefix(li.name),
+        is_recurring_program: false,
+        is_auxiliary: false,
+        quantity: li.quantity ?? null,
+        unit_price: li.unitPrice ?? null,
+        total: li.totalPrice ?? null,
+        last_synced_at: nowIso,
+        updated_at: nowIso,
+      }))
+    })
+    if (lineItemRows.length) {
+      const { error } = await admin.from('line_items').upsert(
+        dedupLineItems(lineItemRows),
+        { onConflict: 'external_id,parent_type,parent_external_id,source' }
+      )
+      if (error) throw new Error(`invoice line_items upsert: ${error.message}`)
     }
 
     total += nodes.length
