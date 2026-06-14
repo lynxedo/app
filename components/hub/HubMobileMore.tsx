@@ -33,6 +33,8 @@ export default function HubMobileMore({
   masterDndOn = false,
   hubDndOn = false,
   dialerDndOn = false,
+  unreadHub = false,
+  txtUnread = false,
 }: {
   onClose: () => void
   showAdmin: boolean
@@ -57,6 +59,9 @@ export default function HubMobileMore({
   masterDndOn?: boolean
   hubDndOn?: boolean
   dialerDndOn?: boolean
+  /** NAV-MobileInconsistent: show the same unread dots the bottom bar shows. */
+  unreadHub?: boolean
+  txtUnread?: boolean
 }) {
   const router = useRouter()
   const [appSearch, setAppSearch] = useState('')
@@ -147,9 +152,15 @@ export default function HubMobileMore({
 
     const accent = resolveMenuAccent(token)
     const displayLabel = resolveMenuLabel(token, menuCtx) ?? label
+    // NAV-MobileInconsistent: mirror the bottom bar's unread dots on hub / txt tiles.
+    const showDot =
+      'id' in c && ((c.id === 'hub' && unreadHub) || (c.id === 'txt' && txtUnread))
     return (
       <button type="button" onClick={onClick} className="group w-full flex flex-col items-center justify-center gap-2 py-3 rounded-2xl hover:bg-white/[0.05] active:scale-95 transition-all">
-        <span className="flex items-center justify-center w-12 h-12 rounded-2xl [&_svg]:w-5 [&_svg]:h-5" style={{ color: accent, background: accent + '1f', boxShadow: `inset 0 0 0 1px ${accent}44` }}>{icon}</span>
+        <span className="relative flex items-center justify-center w-12 h-12 rounded-2xl [&_svg]:w-5 [&_svg]:h-5" style={{ color: accent, background: accent + '1f', boxShadow: `inset 0 0 0 1px ${accent}44` }}>
+          {icon}
+          {showDot && <span className="absolute top-0 right-0 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-[#0c1626]" />}
+        </span>
         <span className="text-[10px] font-medium text-center leading-tight px-1 text-white/70 truncate max-w-full">{displayLabel}</span>
       </button>
     )

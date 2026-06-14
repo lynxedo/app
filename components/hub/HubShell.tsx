@@ -173,6 +173,12 @@ export default function HubShell({
   const [showLayoutEditor, setShowLayoutEditor] = useState(false)
   const EMPTY_LAYOUT: HubLayout = { version: 3, items: [] }
   const [liveLayout, setLiveLayout] = useState<HubLayout>(initialLayout ?? EMPTY_LAYOUT)
+  // NAV-PermGrant: keep the launcher in sync when the SERVER layout changes (e.g. a new
+  // app auto-seeded after a mid-session permission grant), without clobbering an in-flight
+  // optimistic edit. layoutSavingRef is true while a save is in flight; lastSyncedLayoutRef
+  // remembers the last server value so we only re-sync on a real change.
+  const layoutSavingRef = useRef(false)
+  const lastSyncedLayoutRef = useRef(initialLayout ? JSON.stringify(initialLayout) : '')
   // Lightweight conversation list so DM tokens on the rail/dock/drawer can show
   // a label + avatar. (The sidebar fetches its own richer copy.)
   const [railConversations, setRailConversations] = useState<RailConversation[]>([])
@@ -512,6 +518,7 @@ export default function HubShell({
   const saveLayout = useCallback(async (next: HubLayout) => {
     setLiveLayout(prev => {
       const rollback = prev
+      layoutSavingRef.current = true
       fetch('/api/profile', {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
@@ -519,9 +526,21 @@ export default function HubShell({
       })
         .then(res => { if (!res.ok) setLiveLayout(rollback) })
         .catch(() => setLiveLayout(rollback))
+        .finally(() => { layoutSavingRef.current = false })
       return next
     })
   }, [])
+
+  // NAV-PermGrant: when the server sends a changed layout (new auto-seeded app after a
+  // permission grant), adopt it — but never while the user has an edit in flight.
+  useEffect(() => {
+    if (!initialLayout) return
+    const serialized = JSON.stringify(initialLayout)
+    if (serialized === lastSyncedLayoutRef.current) return
+    lastSyncedLayoutRef.current = serialized
+    if (layoutSavingRef.current) return
+    setLiveLayout(initialLayout)
+  }, [initialLayout])
 
   // Master DND quick-toggle (sys:dnd). Sets master_dnd_enabled + mirrors hub status dot.
   const toggleDnd = useCallback(() => {
@@ -952,6 +971,8 @@ export default function HubShell({
         conversations={railConversations}
         currentUserId={currentUserId}
         currentUserStatus={liveStatus}
+        unreadHub={unreadHub}
+        txtUnread={txtUnread}
       />
     )}
     {showDesktopLauncher && (
