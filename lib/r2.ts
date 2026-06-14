@@ -10,6 +10,7 @@ import {
   PutObjectCommand,
   GetObjectCommand,
   DeleteObjectCommand,
+  type PutObjectCommandInput,
 } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
@@ -38,7 +39,7 @@ export function getR2Client(): S3Client {
 /** Upload an object. Body can be a Buffer/Uint8Array/string/stream. */
 export async function r2Put(
   key: string,
-  body: Parameters<typeof PutObjectCommand>[0]['Body'],
+  body: PutObjectCommandInput['Body'],
   contentType?: string,
   bucket: string | undefined = R2_BUCKET,
 ): Promise<void> {
