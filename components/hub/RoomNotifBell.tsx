@@ -85,7 +85,7 @@ export default function RoomNotifBell({ roomId }: { roomId: string }) {
               }`}
             >
               <span>{opt.label}</span>
-              {level === opt.value && <span className="ml-auto text-[#2E7EB8] text-xs">✓</span>}
+              {level === opt.value && <span className="ml-auto text-brand text-xs">✓</span>}
             </button>
           ))}
         </div>

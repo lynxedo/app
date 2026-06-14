@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { useEffect, useMemo, useState } from 'react'
+import { useAutoSave } from '@/components/admin'
 
 type Doc = {
   id: string
@@ -298,21 +299,9 @@ export default function GuardianAdminPanel({
   }
 
   // AD1 — debounced auto-save of Guardian settings so changes persist without a
-  // manual Save (they were lost on navigation). The last-saved snapshot guards
-  // against the post-save setSettings() re-triggering an endless save loop.
-  const lastSavedSettings = useRef(JSON.stringify(initialSettings))
-  const settingsMounted = useRef(false)
-  useEffect(() => {
-    if (!settingsMounted.current) { settingsMounted.current = true; return }
-    const serialized = JSON.stringify(settings)
-    if (serialized === lastSavedSettings.current) return
-    const t = setTimeout(() => {
-      lastSavedSettings.current = serialized
-      void saveSettings()
-    }, 800)
-    return () => clearTimeout(t)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [settings])
+  // manual Save. Now uses the shared AD-toolkit hook (same snapshot-guard +
+  // skip-first-render behavior the inline version had).
+  useAutoSave(settings, saveSettings)
 
   return (
     <div className="space-y-6">

@@ -84,7 +84,7 @@ export default function ForwardModal({ currentUserId, onClose, onForward, messag
             value={search}
             onChange={e => setSearch(e.target.value)}
             placeholder="Search rooms and conversations…"
-            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+            className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
           />
         </div>
 
@@ -101,11 +101,11 @@ export default function ForwardModal({ currentUserId, onClose, onForward, messag
                     key={room.id}
                     onClick={() => setSelected(isSelected ? null : target)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
-                      isSelected ? 'bg-[#2E7EB8]/20 text-white' : 'text-gray-300 hover:bg-gray-800'
+                      isSelected ? 'bg-brand/20 text-white' : 'text-gray-300 hover:bg-gray-800'
                     }`}
                   >
                     <div className={`w-5 h-5 rounded border flex items-center justify-center flex-none transition-colors ${
-                      isSelected ? 'bg-[#2E7EB8] border-[#2E7EB8]' : 'border-gray-600'
+                      isSelected ? 'bg-brand border-brand' : 'border-gray-600'
                     }`}>
                       {isSelected && <span className="text-white text-xs">✓</span>}
                     </div>
@@ -128,11 +128,11 @@ export default function ForwardModal({ currentUserId, onClose, onForward, messag
                     key={conv.id}
                     onClick={() => setSelected(isSelected ? null : target)}
                     className={`w-full flex items-center gap-3 px-3 py-2 rounded-lg text-sm text-left transition-colors ${
-                      isSelected ? 'bg-[#2E7EB8]/20 text-white' : 'text-gray-300 hover:bg-gray-800'
+                      isSelected ? 'bg-brand/20 text-white' : 'text-gray-300 hover:bg-gray-800'
                     }`}
                   >
                     <div className={`w-5 h-5 rounded border flex items-center justify-center flex-none transition-colors ${
-                      isSelected ? 'bg-[#2E7EB8] border-[#2E7EB8]' : 'border-gray-600'
+                      isSelected ? 'bg-brand border-brand' : 'border-gray-600'
                     }`}>
                       {isSelected && <span className="text-white text-xs">✓</span>}
                     </div>
@@ -158,7 +158,7 @@ export default function ForwardModal({ currentUserId, onClose, onForward, messag
               onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
               placeholder="Add a comment (optional)"
               autoFocus
-              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-[#2E7EB8]"
+              className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
             />
           </div>
         )}
