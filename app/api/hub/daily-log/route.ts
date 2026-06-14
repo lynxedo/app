@@ -33,6 +33,7 @@ export async function GET(request: Request) {
     `)
     .eq('company_id', profile.company_id)
     .eq('log_date', date)
+    .is('deleted_at', null) // DL3 — hide soft-deleted entries
     .order('created_at', { ascending: true })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

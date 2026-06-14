@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { notifyDailyLogStopActivity } from '@/lib/daily-log-notify'
 
 async function authResolve(stopId: string) {
   const supabase = await createClient()
@@ -78,5 +79,10 @@ export async function POST(
   if (error || !inserted) {
     return NextResponse.json({ error: error?.message ?? 'Insert failed' }, { status: 500 })
   }
+
+  // DL1 — notify the Route-Complete recipients of the new stop note.
+  notifyDailyLogStopActivity({ stopId: id, companyId, actorUserId: userId, kind: 'note', preview: content })
+    .catch((err) => console.error('[daily-log] stop note notify failed:', err))
+
   return NextResponse.json({ message: inserted })
 }

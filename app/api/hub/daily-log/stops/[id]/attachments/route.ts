@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
+import { notifyDailyLogStopActivity } from '@/lib/daily-log-notify'
 
 const ALLOWED_TYPES = new Set([
   'image/jpeg', 'image/png', 'image/gif', 'image/webp', 'image/heic', 'image/heif',
@@ -132,6 +133,10 @@ export async function POST(
   if (error || !inserted) {
     return NextResponse.json({ error: error?.message ?? 'Insert failed' }, { status: 500 })
   }
+
+  // DL1 — notify the Route-Complete recipients of the new stop photo/attachment.
+  notifyDailyLogStopActivity({ stopId: id, companyId, actorUserId: userId, kind: 'photo', preview: file.name })
+    .catch((err) => console.error('[daily-log] stop attachment notify failed:', err))
 
   void ext // used implicitly in key
   return NextResponse.json({ attachment: inserted })
