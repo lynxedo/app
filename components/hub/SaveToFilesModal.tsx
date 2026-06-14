@@ -108,7 +108,7 @@ export default function SaveToFilesModal({
           <h2 className="text-base font-semibold text-white flex items-center gap-2">
             <span>📁</span> Save to Files
           </h2>
-          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none">×</button>
+          <button onClick={onClose} className="text-gray-400 hover:text-white text-xl leading-none" aria-label="Close">×</button>
         </div>
 
         <div className="p-5 space-y-4">

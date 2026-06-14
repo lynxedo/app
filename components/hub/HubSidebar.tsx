@@ -10,7 +10,7 @@ import StatusPicker, { StatusDot } from './StatusPicker'
 import { useOnCallUsers } from './OnCallPresenceProvider'
 import ClientsSidebar from './ClientsSidebar'
 import { CatalogIcon, LockIcon } from './railCatalog'
-import { useConfirm } from '@/components/ui'
+import { useConfirm, Spinner, EmptyState } from '@/components/ui'
 import {
   getConversationsList,
   saveConversationsList,
@@ -1118,7 +1118,7 @@ export default function HubSidebar({
               </button>
             </div>
             {!collapsed.dms && conversations.length === 0 && (
-              <p className="text-xs text-white/30 px-2 py-1">No messages yet</p>
+              <EmptyState size="sm" title="No messages yet" />
             )}
             {!collapsed.dms && activeConvs.map(conv => renderConv(conv))}
             {!collapsed.dms && archivedConvs.length > 0 && (
@@ -1151,7 +1151,7 @@ export default function HubSidebar({
               </button>
             </div>
             {!collapsed.boards && boards.length === 0 && (
-              <p className="text-xs text-white/30 px-2 py-1">No boards yet</p>
+              <EmptyState size="sm" title="No boards yet" />
             )}
             {!collapsed.boards && boards.map(board => {
               const isActive = pathname === `/hub/board/${board.id}`
@@ -1265,7 +1265,7 @@ export default function HubSidebar({
           <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
               <h2 className="font-semibold text-white">New Room</h2>
-              <button onClick={() => setShowNewRoom(false)} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
+              <button onClick={() => setShowNewRoom(false)} className="text-gray-500 hover:text-gray-300 transition-colors" aria-label="Close">✕</button>
             </div>
             <div className="px-5 py-4 space-y-3">
               <input
@@ -1318,7 +1318,7 @@ export default function HubSidebar({
           <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
               <h2 className="font-semibold text-white">New Board</h2>
-              <button onClick={() => setShowNewBoard(false)} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
+              <button onClick={() => setShowNewBoard(false)} className="text-gray-500 hover:text-gray-300 transition-colors" aria-label="Close">✕</button>
             </div>
             <div className="px-5 py-4 space-y-4">
               <input
@@ -1377,7 +1377,7 @@ export default function HubSidebar({
             <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4 flex flex-col max-h-[85vh]">
               <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 flex-none">
                 <h2 className="font-semibold text-white">Board Settings</h2>
-                <button onClick={() => setBoardSettings(null)} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
+                <button onClick={() => setBoardSettings(null)} className="text-gray-500 hover:text-gray-300 transition-colors" aria-label="Close">✕</button>
               </div>
               <div className="flex-1 overflow-y-auto px-5 py-4 space-y-5">
                 {/* Name */}
@@ -1434,9 +1434,9 @@ export default function HubSidebar({
                       </div>
                     )}
                     {settingsMembersLoading ? (
-                      <p className="text-xs text-white/30 py-1">Loading…</p>
+                      <div className="py-6 text-center"><Spinner size={5} /></div>
                     ) : settingsMembers.length === 0 ? (
-                      <p className="text-xs text-white/30 py-1">No members yet.</p>
+                      <EmptyState size="sm" title="No members yet." />
                     ) : (
                       <div className="space-y-1">
                         {settingsMembers.map(m => (
@@ -1495,13 +1495,13 @@ export default function HubSidebar({
           <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4 flex flex-col max-h-[80vh]">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 flex-none">
               <h2 className="font-semibold text-white">Browse Rooms</h2>
-              <button onClick={() => setShowBrowseRooms(false)} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
+              <button onClick={() => setShowBrowseRooms(false)} className="text-gray-500 hover:text-gray-300 transition-colors" aria-label="Close">✕</button>
             </div>
             <div className="flex-1 overflow-y-auto px-5 py-3 space-y-2">
               {browseLoading ? (
-                <p className="text-sm text-gray-500 py-4 text-center">Loading…</p>
+                <div className="py-12 text-center"><Spinner size={6} /></div>
               ) : browseRooms.length === 0 ? (
-                <p className="text-sm text-gray-500 py-4 text-center">No public rooms found.</p>
+                <EmptyState title="No public rooms found." />
               ) : browseRooms.map(room => (
                 <div key={room.id} className="flex items-center justify-between bg-gray-800 rounded-xl px-3 py-2.5">
                   <div className="flex-1 min-w-0">
@@ -1543,10 +1543,10 @@ export default function HubSidebar({
           <div className="bg-gray-900 border border-gray-700 rounded-2xl shadow-2xl w-full max-w-sm mx-4">
             <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800">
               <h2 className="font-semibold text-white">New Direct Message</h2>
-              <button onClick={() => setShowNewPM(false)} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
+              <button onClick={() => setShowNewPM(false)} className="text-gray-500 hover:text-gray-300 transition-colors" aria-label="Close">✕</button>
             </div>
             <div className="px-5 py-4 max-h-72 overflow-y-auto space-y-1">
-              {otherUsers.length === 0 && <p className="text-sm text-gray-500">No other team members found.</p>}
+              {otherUsers.length === 0 && <EmptyState size="sm" title="No other team members found." />}
               {otherUsers.map(user => {
                 const checked = selectedIds.includes(user.id)
                 return (

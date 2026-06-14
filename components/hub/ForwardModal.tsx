@@ -67,7 +67,7 @@ export default function ForwardModal({ currentUserId, onClose, onForward, messag
         {/* Header */}
         <div className="flex items-center justify-between px-5 py-4 border-b border-gray-800 flex-none">
           <h2 className="font-semibold text-white">Forward Message</h2>
-          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors">✕</button>
+          <button onClick={onClose} className="text-gray-500 hover:text-gray-300 transition-colors" aria-label="Close">✕</button>
         </div>
 
         {/* Preview of message being forwarded */}

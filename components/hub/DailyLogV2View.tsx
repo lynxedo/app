@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
+import { Spinner, EmptyState } from '@/components/ui'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -485,7 +486,7 @@ export default function DailyLogV2View({
 
       <div className="flex-1 overflow-y-auto overscroll-contain">
         <div className="max-w-5xl mx-auto px-3 md:px-6 py-4 pb-24">
-          {loading && <div className="text-gray-500 text-sm">Loading…</div>}
+          {loading && <div className="py-12 text-center"><Spinner size={6} /></div>}
           {error && (
             <div className="bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm mb-4">
               {error}
@@ -1317,7 +1318,7 @@ function StopRow({
               <div className="bg-gray-900/70 border border-gray-700 rounded p-3 space-y-2">
                 <div className="text-xs text-gray-400 mb-1.5">Why is this stop being skipped?</div>
                 {skipReasons.length === 0 ? (
-                  <div className="text-xs text-gray-500">No reason codes configured. Contact your admin.</div>
+                  <EmptyState size="sm" title="No reason codes configured. Contact your admin." />
                 ) : (
                   skipReasons.map(r => (
                     <button
@@ -1510,11 +1511,11 @@ function StopNotesAndAttachments({
       <div className="text-[10px] uppercase tracking-wide text-gray-500 mb-2">Notes &amp; attachments</div>
 
       {loading ? (
-        <div className="text-xs text-gray-500 mb-2">Loading…</div>
+        <div className="py-6 text-center"><Spinner size={5} /></div>
       ) : (
         <div className="space-y-2 mb-2 max-h-64 overflow-y-auto">
           {threadItems.length === 0 && (
-            <div className="text-xs text-gray-500">No notes or attachments yet.</div>
+            <EmptyState size="sm" title="No notes or attachments yet." />
           )}
           {threadItems.map(item => {
             if (item.kind === 'message') {
@@ -1587,6 +1588,7 @@ function StopNotesAndAttachments({
               <button
                 onClick={() => removePending(idx)}
                 className="absolute top-0.5 right-0.5 w-4 h-4 bg-gray-900/80 rounded-full text-gray-300 hover:text-white flex items-center justify-center text-[10px] leading-none"
+                aria-label="Remove"
               >
                 ×
               </button>

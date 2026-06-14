@@ -202,7 +202,7 @@ function VariantManager({
                   {cost == null ? '—' : fmtMoney(cost) + costSuffix(v.rate_basis)}
                   {ksf != null && <span className="text-gray-600"> · {fmtNum(ksf, 1)} Ksf/pkg</span>}
                 </span>
-                <button onClick={() => deleteVariant(v.id)} className="text-gray-600 hover:text-red-400 text-sm" title="Delete sub-item">✕</button>
+                <button onClick={() => deleteVariant(v.id)} className="text-gray-600 hover:text-red-400 text-sm" title="Delete sub-item" aria-label="Remove">✕</button>
               </div>
             )
           })}
@@ -396,7 +396,7 @@ function EntityList({
               onBlur={e => { const v = e.target.value.trim(); if (v && v !== item.name) rename(item.id, v) }}
               className="flex-1 text-sm text-gray-200 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 focus:outline-none focus:border-indigo-500"
             />
-            <button onClick={() => remove(item.id)} className="text-gray-700 hover:text-red-400 transition-colors text-sm px-1" title={`Delete ${noun}`}>✕</button>
+            <button onClick={() => remove(item.id)} className="text-gray-700 hover:text-red-400 transition-colors text-sm px-1" title={`Delete ${noun}`} aria-label="Remove">✕</button>
           </div>
         ))}
         {items.length === 0 && <p className="text-gray-600 text-sm italic">No {noun}s yet.</p>}
@@ -696,7 +696,7 @@ export default function ProductsAdminPanel({
                                   <td className="px-3 py-2 text-right text-gray-200 font-medium">{fmtNum(total)}</td>
                                   <td className="px-3 py-2 text-right text-emerald-400 whitespace-nowrap">{fmtMoney(value)}</td>
                                   <td className="px-2 py-2 text-right">
-                                    <button onClick={() => deleteProduct(item.id, item.name)} className="text-gray-700 hover:text-red-400 text-sm" title="Delete product">✕</button>
+                                    <button onClick={() => deleteProduct(item.id, item.name)} className="text-gray-700 hover:text-red-400 text-sm" title="Delete product" aria-label="Remove">✕</button>
                                   </td>
                                 </tr>
                                 {expanded && (

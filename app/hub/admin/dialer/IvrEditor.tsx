@@ -690,6 +690,7 @@ function KeypressRow({
         onClick={onRemove}
         className="text-xs text-white/40 hover:text-red-300"
         title="Remove this keypress"
+        aria-label="Remove"
       >
         ✕
       </button>

@@ -613,6 +613,7 @@ export default function ThreadPanel({
                 <button
                   onClick={() => removeFile(i)}
                   className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 hover:bg-red-400 rounded-full text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                  aria-label="Remove"
                 >
                   ✕
                 </button>
@@ -647,7 +648,7 @@ export default function ThreadPanel({
             <span>
               🕐 Scheduled for {new Date(scheduledAt).toLocaleString('en-US', { dateStyle: 'short', timeStyle: 'short' })}
             </span>
-            <button onClick={() => { setScheduledAt(''); setShowScheduler(false) }} className="text-brand/60 hover:text-brand ml-2">✕</button>
+            <button onClick={() => { setScheduledAt(''); setShowScheduler(false) }} className="text-brand/60 hover:text-brand ml-2" aria-label="Remove">✕</button>
           </div>
         )}
 

@@ -989,6 +989,7 @@ function BusinessHoursSection({
                           type="button"
                           onClick={() => removeWindow(key, idx)}
                           className="text-xs text-white/40 hover:text-red-400 ml-1"
+                          aria-label="Remove"
                         >
                           ✕
                         </button>
@@ -1102,6 +1103,7 @@ function HolidaysSection({
                 type="button"
                 onClick={() => removeAt(idx)}
                 className="text-xs text-white/40 hover:text-red-400 px-1"
+                aria-label="Remove"
               >
                 ✕
               </button>

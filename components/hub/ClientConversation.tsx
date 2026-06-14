@@ -142,6 +142,7 @@ export default function ClientConversation({
           <button
             onClick={() => setNoticeDismissed(true)}
             className="text-amber-400/50 hover:text-amber-400 transition-colors flex-none text-xs leading-none mt-0.5"
+            aria-label="Dismiss"
           >
             ✕
           </button>

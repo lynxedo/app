@@ -510,7 +510,7 @@ function AddContactSheet({
       <div className="bg-[#0F2E47] border border-white/10 rounded-lg w-full max-w-md max-h-[90vh] flex flex-col">
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
           <h2 className="font-medium">Add contact</h2>
-          <button onClick={onClose} className="text-white/50 hover:text-white">×</button>
+          <button onClick={onClose} className="text-white/50 hover:text-white" aria-label="Close">×</button>
         </div>
         <div className="p-4 space-y-3 overflow-y-auto">
           <Field label="Name *">

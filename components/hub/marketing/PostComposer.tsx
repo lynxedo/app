@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { Spinner, EmptyState } from '@/components/ui'
 
 type SocialAccount = {
   id: string
@@ -217,7 +218,7 @@ export default function PostComposer({
           <h2 className="text-base font-semibold text-white">
             {editPost ? 'Edit Post' : 'New Post'}
           </h2>
-          <button onClick={onClose} className="text-white/40 hover:text-white transition-colors">
+          <button onClick={onClose} className="text-white/40 hover:text-white transition-colors" aria-label="Close">
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
               <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
             </svg>
@@ -313,9 +314,9 @@ export default function PostComposer({
                   <button onClick={loadPhotos} className="text-xs text-blue-400 hover:text-blue-300">Refresh</button>
                 </div>
                 {photosLoading ? (
-                  <p className="text-xs text-white/40 py-4 text-center">Loading…</p>
+                  <div className="py-8 text-center"><Spinner size={5} /></div>
                 ) : photos.length === 0 ? (
-                  <p className="text-xs text-white/40 py-4 text-center">No photos found. Upload to Hub Files and tag with &ldquo;Social Media&rdquo;.</p>
+                  <EmptyState size="sm" title="No photos found." hint={'Upload to Hub Files and tag with “Social Media”.'} />
                 ) : (
                   <div className="grid grid-cols-4 sm:grid-cols-6 gap-2 max-h-48 overflow-y-auto">
                     {photos.map(photo => (

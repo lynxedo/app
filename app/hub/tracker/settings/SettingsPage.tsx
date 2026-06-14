@@ -106,6 +106,7 @@ function ListEditor({
               onClick={() => remove(i)}
               className="text-gray-700 hover:text-red-400 transition-colors text-sm px-1"
               title="Remove"
+              aria-label="Remove"
             >✕</button>
           </div>
         ))}
@@ -319,6 +320,7 @@ function RulesEditor({
               onClick={() => remove(i)}
               className="text-gray-700 hover:text-red-400 transition-colors text-sm px-1"
               title="Remove rule"
+              aria-label="Remove"
             >✕</button>
           </div>
         ))}

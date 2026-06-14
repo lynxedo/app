@@ -1336,7 +1336,7 @@ export default function AdminTimesheetPage() {
             {applyResult && (
               <div className="bg-green-500/10 border border-green-500/25 rounded-xl px-5 py-3 flex items-center justify-between">
                 <span className="text-green-400 text-sm">Import complete — {applyResult.added} added, {applyResult.updated} updated, {applyResult.deactivated} deactivated</span>
-                <button onClick={() => setApplyResult(null)} className="text-green-600 hover:text-green-400 text-lg leading-none">×</button>
+                <button onClick={() => setApplyResult(null)} className="text-green-600 hover:text-green-400 text-lg leading-none" aria-label="Dismiss">×</button>
               </div>
             )}
           </div>
@@ -1567,7 +1567,7 @@ export default function AdminTimesheetPage() {
                 <h3 className="font-semibold">Gusto Import Preview</h3>
                 <p className="text-xs text-gray-500 mt-0.5">Select what to import, then click Apply</p>
               </div>
-              <button onClick={() => setImportPreview(null)} className="text-gray-500 hover:text-white transition-colors text-xl leading-none">×</button>
+              <button onClick={() => setImportPreview(null)} className="text-gray-500 hover:text-white transition-colors text-xl leading-none" aria-label="Close">×</button>
             </div>
             <div className="overflow-y-auto flex-1 px-5 py-4">
               {!importPreview.configured ? (
@@ -1631,7 +1631,7 @@ export default function AdminTimesheetPage() {
           <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
             <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between shrink-0">
               <h3 className="font-semibold">Add Employee</h3>
-              <button onClick={() => setShowAddEmployee(false)} className="text-gray-500 hover:text-white text-xl leading-none">×</button>
+              <button onClick={() => setShowAddEmployee(false)} className="text-gray-500 hover:text-white text-xl leading-none" aria-label="Close">×</button>
             </div>
             <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
               <div className="grid grid-cols-2 gap-3">
@@ -1704,7 +1704,7 @@ export default function AdminTimesheetPage() {
                 <h3 className="font-semibold">Link Lynxedo Account</h3>
                 <p className="text-xs text-gray-500 mt-0.5">{linkingEmployee.first_name} {linkingEmployee.last_name}</p>
               </div>
-              <button onClick={() => setLinkingEmployee(null)} className="text-gray-500 hover:text-white text-xl leading-none">×</button>
+              <button onClick={() => setLinkingEmployee(null)} className="text-gray-500 hover:text-white text-xl leading-none" aria-label="Close">×</button>
             </div>
             <div className="px-5 py-5 space-y-4">
               <p className="text-xs text-gray-500 leading-relaxed">Select the Lynxedo login that belongs to this employee. They&apos;ll get timesheet access automatically.</p>
@@ -1735,7 +1735,7 @@ export default function AdminTimesheetPage() {
             <div className="px-5 py-4 border-b border-gray-800 shrink-0">
               <div className="flex items-center justify-between mb-3">
                 <h3 className="font-semibold">Punches — {editEmployee.first_name} {editEmployee.last_name}</h3>
-                <button onClick={() => setEditEmployee(null)} className="text-gray-500 hover:text-white transition-colors text-xl leading-none">×</button>
+                <button onClick={() => setEditEmployee(null)} className="text-gray-500 hover:text-white transition-colors text-xl leading-none" aria-label="Close">×</button>
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={() => navigateEditWeek(-1)} className="w-7 h-7 flex items-center justify-center rounded bg-gray-800 hover:bg-gray-700 transition-colors text-sm">‹</button>
@@ -1756,7 +1756,7 @@ export default function AdminTimesheetPage() {
                       <input type="datetime-local" value={toLocalInputValue(editingPunch.time)} onChange={e => { const iso = fromLocalInputValue(e.target.value); if (iso) setEditingPunch(p => p ? { ...p, time: iso } : p) }} className="flex-1 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500" />
                       <input type="text" placeholder="Reason *" value={editingPunch.reason} onChange={e => setEditingPunch(p => p ? { ...p, reason: e.target.value } : p)} className="w-28 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white focus:outline-none focus:border-blue-500" />
                       <button onClick={savePunchEdit} className="text-green-400 hover:text-green-300 text-sm px-2">✓</button>
-                      <button onClick={() => setEditingPunch(null)} className="text-gray-500 hover:text-white text-sm px-1">✕</button>
+                      <button onClick={() => setEditingPunch(null)} className="text-gray-500 hover:text-white text-sm px-1" aria-label="Close">✕</button>
                     </div>
                   ) : (
                     <>
@@ -1767,7 +1767,7 @@ export default function AdminTimesheetPage() {
                         {punch.lat && punch.lng && <a href={`https://maps.google.com/?q=${punch.lat},${punch.lng}`} target="_blank" rel="noopener noreferrer" className="text-xs ml-2" title={`${punch.lat.toFixed(5)}, ${punch.lng.toFixed(5)}`}>📍</a>}
                       </span>
                       <button onClick={() => setEditingPunch({ id: punch.id, time: punch.punched_at, reason: '' })} className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-white transition-all text-sm px-1" title="Edit time">✎</button>
-                      <button onClick={() => deletePunch(punch.id)} className="opacity-0 group-hover:opacity-100 text-gray-700 hover:text-red-400 transition-all text-sm px-1" title="Delete punch">✕</button>
+                      <button onClick={() => deletePunch(punch.id)} className="opacity-0 group-hover:opacity-100 text-gray-700 hover:text-red-400 transition-all text-sm px-1" title="Delete punch" aria-label="Remove">✕</button>
                     </>
                   )}
                 </div>

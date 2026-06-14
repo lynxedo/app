@@ -589,6 +589,7 @@ function UserRow({
               onClick={() => onDelete(user.id, user.email)}
               title="Remove user"
               className="text-gray-600 hover:text-red-400 transition-colors text-base leading-none px-1"
+              aria-label="Remove"
             >
               ✕
             </button>
@@ -790,6 +791,7 @@ function EmployeeRow({
             onClick={() => onDelete(employee)}
             title="Remove from roster"
             className="text-gray-600 hover:text-red-400 transition-colors text-base leading-none px-1"
+            aria-label="Remove"
           >
             ✕
           </button>

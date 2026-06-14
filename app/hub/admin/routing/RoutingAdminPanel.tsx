@@ -186,7 +186,7 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
           title="Pin color"
         />
         {overHalo && <span className="text-[10px] text-gray-500 whitespace-nowrap">not on halo</span>}
-        <button onClick={() => removePinProgram(kind, idx)} className="text-gray-600 hover:text-red-400 transition-colors text-lg leading-none px-1">
+        <button onClick={() => removePinProgram(kind, idx)} className="text-gray-600 hover:text-red-400 transition-colors text-lg leading-none px-1" aria-label="Remove">
           ×
         </button>
       </div>
@@ -466,7 +466,7 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
                       className={numInputCls} />
                     <span className="text-xs text-gray-500 whitespace-nowrap">min</span>
                     <button onClick={() => removeCode(idx)}
-                      className="text-gray-600 hover:text-red-400 transition-colors text-lg leading-none px-1">
+                      className="text-gray-600 hover:text-red-400 transition-colors text-lg leading-none px-1" aria-label="Remove">
                       ×
                     </button>
                   </div>

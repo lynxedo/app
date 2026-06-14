@@ -3,6 +3,7 @@
 import { useState } from 'react'
 import Link from 'next/link'
 import { useClockPunch } from '@/hooks/use-clock-punch'
+import { Spinner } from '@/components/ui'
 
 function formatTime(ts: string): string {
   return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
@@ -53,6 +54,7 @@ export default function TimesheetClockModal({ onClose }: { onClose: () => void }
           <button
             onClick={onClose}
             className="text-gray-500 hover:text-white transition-colors text-lg leading-none p-1"
+            aria-label="Close"
           >
             ✕
           </button>
@@ -61,7 +63,7 @@ export default function TimesheetClockModal({ onClose }: { onClose: () => void }
         {/* Body */}
         <div className="px-5 py-6 flex flex-col items-center gap-5">
           {loading ? (
-            <p className="text-gray-500 text-sm py-4">Loading…</p>
+            <div className="py-12 text-center"><Spinner size={6} /></div>
           ) : notLinked ? (
             <div className="text-center space-y-3 py-4">
               <div className="text-4xl">🕐</div>

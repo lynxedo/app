@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useToast, useConfirm } from '@/components/ui'
+import { useToast, useConfirm, Spinner, EmptyState } from '@/components/ui'
 
 type ScheduledRow = {
   id: string
@@ -157,10 +157,10 @@ export default function ScheduledMessagesModal({ onClose }: { onClose: () => voi
         </div>
 
         <div className="flex-1 overflow-y-auto px-5 py-4">
-          {loading && <p className="text-sm text-gray-400">Loading…</p>}
+          {loading && <div className="py-12 text-center"><Spinner size={6} /></div>}
           {error && <p className="text-sm text-red-400">{error}</p>}
           {!loading && !error && rows.length === 0 && (
-            <p className="text-sm text-gray-400">No scheduled messages.</p>
+            <EmptyState title="No scheduled messages." />
           )}
           {!loading && rows.length > 0 && (
             <ul className="space-y-3">

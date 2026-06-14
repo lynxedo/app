@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useConfirm } from '@/components/ui'
+import { useConfirm, Spinner, EmptyState } from '@/components/ui'
 
 type RoomLite = { id: string; name: string }
 type UserLite = { id: string; display_name: string }
@@ -393,9 +393,9 @@ export default function AutomationBuilder({
       <div>
         <h3 className="font-semibold text-white mb-3">Automations ({rules.length})</h3>
         {!loaded ? (
-          <p className="text-sm text-gray-500 px-1">Loading…</p>
+          <div className="py-12 text-center"><Spinner size={6} /></div>
         ) : rules.length === 0 ? (
-          <p className="text-sm text-gray-500 px-1">None yet.</p>
+          <EmptyState size="sm" title="None yet." />
         ) : (
           <div className="space-y-2">
             {rules.map((r) => (
@@ -509,7 +509,7 @@ function GeofencesCard({
         {err && <p className="text-xs text-red-400">{err}</p>}
       </div>
       <div className="space-y-1.5">
-        {geofences.length === 0 && <p className="text-sm text-gray-500">No places yet.</p>}
+        {geofences.length === 0 && <EmptyState size="sm" title="No places yet." />}
         {geofences.map((g) => (
           <div key={g.id} className="flex items-center gap-2 text-sm">
             <span className="text-white">{g.name}</span>
@@ -545,7 +545,7 @@ function DriversCard({
       <h3 className="font-semibold text-white mb-1">Vehicle drivers</h3>
       <p className="text-xs text-gray-500 mb-3">Who drives each truck. Used for &quot;notify the assigned driver&quot;.</p>
       <div className="space-y-2">
-        {devices.length === 0 && <p className="text-sm text-gray-500">No vehicles found.</p>}
+        {devices.length === 0 && <EmptyState size="sm" title="No vehicles found." />}
         {devices.map((d) => (
           <div key={d.id} className="flex items-center gap-3">
             <span className="text-sm text-white w-28 truncate">{d.name}</span>

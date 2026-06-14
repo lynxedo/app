@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef } from 'react'
+import { Spinner, EmptyState } from '@/components/ui'
 
 type Member = {
   user_id: string
@@ -82,13 +83,13 @@ export default function RoomMembersButton({ roomId }: { roomId: string }) {
           </div>
           <div className="max-h-80 overflow-y-auto">
             {loading && (
-              <div className="px-3 py-3 text-sm text-gray-500">Loading…</div>
+              <div className="py-3 text-center"><Spinner size={5} /></div>
             )}
             {!loading && error && (
               <div className="px-3 py-3 text-sm text-red-400">{error}</div>
             )}
             {!loading && !error && members?.length === 0 && (
-              <div className="px-3 py-3 text-sm text-gray-500">No members</div>
+              <EmptyState title="No members" size="sm" />
             )}
             {!loading && !error && members?.map(m => (
               <div

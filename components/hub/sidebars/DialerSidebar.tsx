@@ -5,7 +5,7 @@ import { formatPhone } from '@/lib/format'
 import { useRouter } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
 import SidebarContactsList from './SidebarContactsList'
-import { useConfirm } from '@/components/ui'
+import { useConfirm, Spinner, EmptyState } from '@/components/ui'
 
 type CallRow = {
   id: string
@@ -331,14 +331,10 @@ function CallList({
   const [expandedId, setExpandedId] = useState<string | null>(null)
 
   if (loading && calls.length === 0) {
-    return <div className="px-4 py-6 text-sm text-white/40">Loading…</div>
+    return <div className="py-12 text-center"><Spinner size={6} /></div>
   }
   if (!loading && calls.length === 0) {
-    return (
-      <div className="px-4 py-6 text-sm text-white/40">
-        {scope === 'missed' ? 'No missed calls.' : 'No calls yet.'}
-      </div>
-    )
+    return <EmptyState title={scope === 'missed' ? 'No missed calls.' : 'No calls yet.'} />
   }
   return (
     <ul>
@@ -432,10 +428,10 @@ function VoicemailList({
   onText: (phone: string, name?: string | null) => void
 }) {
   if (loading && voicemails.length === 0) {
-    return <div className="px-4 py-6 text-sm text-white/40">Loading…</div>
+    return <div className="py-12 text-center"><Spinner size={6} /></div>
   }
   if (!loading && voicemails.length === 0) {
-    return <div className="px-4 py-6 text-sm text-white/40">No voicemails yet.</div>
+    return <EmptyState title="No voicemails yet." />
   }
   return (
     <ul className="divide-y divide-white/5">
