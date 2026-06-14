@@ -639,9 +639,12 @@ async function syncJobs(
     if (ids?.length) {
       filter.ids = ids
     } else if (updatedSince) {
-      // #6 — filter on updatedAt (not createdAt) so the nightly delta catches
-      // EDITS to existing jobs, not just newly-created ones. Matches clients/invoices.
-      filter.updatedAt = { after: updatedSince.toISOString() }
+      // Jobber's JobFilterAttributes has NO `updatedAt` field (confirmed via
+      // introspection), so #6's switch to updatedAt broke the nightly delta with
+      // a GraphQL error. Reverted to createdAt (the pre-#6, valid filter) — the
+      // delta catches newly-created jobs; EDITS to existing jobs are caught in
+      // real time by the Jobber webhook (`/api/jobber/webhooks`), so nothing is missed.
+      filter.createdAt = { after: updatedSince.toISOString() }
     } else {
       filter.visitsScheduledBetween = {
         after: '2026-01-01T00:00:00Z',
@@ -810,10 +813,13 @@ async function syncVisits(
     if (ids?.length) {
       filter.ids = ids
     } else if (updatedSince) {
-      // #6 — filter on updatedAt (not startAt) so the nightly delta catches
-      // EDITS to existing visits (reschedules, line-item changes), not just
-      // visits whose start time happens to fall after the cutoff.
-      filter.updatedAt = { after: updatedSince.toISOString() }
+      // Jobber's VisitFilterAttributes has NO `updatedAt` field (confirmed via
+      // introspection), so #6's switch to updatedAt broke the nightly delta with
+      // a GraphQL error. Reverted to startAt (the pre-#6, valid filter) — the
+      // delta catches visits scheduled since the cutoff (incl. today's, which is
+      // where completions happen); EDITS/reschedules of existing visits are caught
+      // in real time by the Jobber webhook (`/api/jobber/webhooks`).
+      filter.startAt = { after: updatedSince.toISOString() }
     } else {
       filter.startAt = {
         after: '2026-01-01T00:00:00Z',
