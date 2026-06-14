@@ -176,6 +176,11 @@ export default function RouteCapacityPage() {
           </div>
         </div>
 
+        {/* TR1 — this board is overwritten nightly by the Monday→Lynxedo mirror. */}
+        <div className="px-4 py-1.5 text-xs text-amber-300/90 bg-amber-500/10 border-b border-amber-500/20 max-md:pl-14">
+          🔄 Synced nightly from Monday — edit in Monday. Changes made here are overwritten on the next sync.
+        </div>
+
         <div className="flex-1 min-h-0 overflow-auto">
         {loading ? (
           <div className="flex items-center justify-center py-20 text-gray-600 text-sm">Loading…</div>

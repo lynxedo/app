@@ -639,7 +639,9 @@ async function syncJobs(
     if (ids?.length) {
       filter.ids = ids
     } else if (updatedSince) {
-      filter.createdAt = { after: updatedSince.toISOString() }
+      // #6 — filter on updatedAt (not createdAt) so the nightly delta catches
+      // EDITS to existing jobs, not just newly-created ones. Matches clients/invoices.
+      filter.updatedAt = { after: updatedSince.toISOString() }
     } else {
       filter.visitsScheduledBetween = {
         after: '2026-01-01T00:00:00Z',
@@ -808,7 +810,10 @@ async function syncVisits(
     if (ids?.length) {
       filter.ids = ids
     } else if (updatedSince) {
-      filter.startAt = { after: updatedSince.toISOString() }
+      // #6 — filter on updatedAt (not startAt) so the nightly delta catches
+      // EDITS to existing visits (reschedules, line-item changes), not just
+      // visits whose start time happens to fall after the cutoff.
+      filter.updatedAt = { after: updatedSince.toISOString() }
     } else {
       filter.startAt = {
         after: '2026-01-01T00:00:00Z',
