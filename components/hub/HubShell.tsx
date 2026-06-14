@@ -405,12 +405,17 @@ export default function HubShell({
     const path = pathnameRef.current
     if (path === '/hub/txt' || path.startsWith('/hub/txt/')) { setTxtUnread(false); return }
     fetch('/api/txt/unread', { cache: 'no-store' })
-      .then(r => (r.ok ? r.json() : { latest_inbound_at: null }))
+      .then(r => (r.ok ? r.json() : { latest_inbound_at: null, last_seen_at: null }))
       .then(d => {
         const latest: string | null = d.latest_inbound_at ?? null
         if (!latest) { setTxtUnread(false); return }
+        // #45 — compare against the LATER of this device's local timestamp and
+        // the server-side per-user "last opened" (set when ANY device opened
+        // Txt2), so reading on one device clears the dot on the others.
         let seen = ''
         try { seen = localStorage.getItem(TXT_SEEN_KEY) || '' } catch { /* ignore */ }
+        const serverSeen: string | null = d.last_seen_at ?? null
+        if (serverSeen && serverSeen > seen) seen = serverSeen
         setTxtUnread(!seen || latest > seen)
       })
       .catch(() => {})
@@ -441,6 +446,13 @@ export default function HubShell({
         if (path === '/hub/txt' || path.startsWith('/hub/txt/')) return
         setTxtUnread(true)
       })
+      // #45 — when this user opens Txt2 on another device, clear the dot here too.
+      .on('broadcast', { event: 'seen' }, ({ payload }) => {
+        const p = (payload ?? {}) as { user_id?: string; seen_at?: string }
+        if (p.user_id !== currentUserId) return
+        if (p.seen_at) { try { localStorage.setItem(TXT_SEEN_KEY, p.seen_at) } catch { /* ignore */ } }
+        setTxtUnread(false)
+      })
       .subscribe()
     return () => { supabase.removeChannel(channel) }
   }, [canAccessTxt, companyId, currentUserId])
@@ -461,12 +473,14 @@ export default function HubShell({
     }
   }, [canAccessTxt, refreshTxtUnread])
 
-  // Clear + stamp last-seen when the user opens Txt2.
+  // Clear + stamp last-seen when the user opens Txt2. #45 — also stamp the
+  // server-side timestamp + broadcast so this user's OTHER devices clear too.
   useEffect(() => {
     const onTxt = pathname === '/hub/txt' || pathname.startsWith('/hub/txt/')
     if (!onTxt) return
     setTxtUnread(false)
     try { localStorage.setItem(TXT_SEEN_KEY, new Date().toISOString()) } catch { /* ignore */ }
+    fetch('/api/txt/seen', { method: 'POST' }).catch(() => {})
   }, [pathname])
 
   // ── Dialer missed-call dot ────────────────────────────────────────────────

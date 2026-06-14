@@ -7,6 +7,7 @@ import data from '@emoji-mart/data'
 import { init, SearchIndex } from 'emoji-mart'
 import type { HubMessage, HubUser } from './MessageFeed'
 import ScheduledMessagesModal from './ScheduledMessagesModal'
+import { matchMentionedUsers, isAmbiguousFirstName } from '@/lib/hub-mentions'
 
 // emoji-mart needs its data registered once before SearchIndex.search() works.
 // Calling init() multiple times is a no-op, so module-load is fine.
@@ -132,11 +133,10 @@ export default function MessageComposer({
       ).slice(0, 6)
     : []
 
-  const mentionedDndUsers = hubUsers.filter(u => {
-    if (u.status !== 'dnd') return false
-    const firstName = u.display_name.split(' ')[0].toLowerCase()
-    return content.includes(`@${firstName}`) || content.includes(`@${u.display_name.split(' ')[0]}`)
-  })
+  // NT4 — resolve mentioned users with the same matcher the server uses, then
+  // surface any who are in DND so the sender knows the ping may be silenced.
+  const mentionedUserIds = new Set(matchMentionedUsers(content, hubUsers))
+  const mentionedDndUsers = hubUsers.filter(u => u.status === 'dnd' && mentionedUserIds.has(u.id))
 
   // Run emoji search whenever the :name: query changes.
   useEffect(() => {
@@ -232,10 +232,14 @@ export default function MessageComposer({
   }
 
   function insertMention(user: HubUser) {
+    // NT4 — insert the FULL name when the first name is shared by 2+ teammates,
+    // so the @mention resolves to exactly this person (matchMentionedUsers on the
+    // server prefers a full-name match). Unique first names stay short.
     const firstName = user.display_name.split(' ')[0]
+    const mentionText = isAmbiguousFirstName(firstName, hubUsers) ? user.display_name : firstName
     const before = content.slice(0, mentionStart)
     const after = content.slice(mentionStart + 1 + (mentionQuery?.length ?? 0))
-    const newVal = before + '@' + firstName + ' ' + after
+    const newVal = before + '@' + mentionText + ' ' + after
     setContent(newVal)
     setMentionQuery(null)
     setMentionStart(-1)

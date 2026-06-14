@@ -7,6 +7,7 @@ import { resolveGuardianTier } from '@/lib/guardian-permissions'
 import { markActive } from '@/lib/hub-activity'
 import { bridgeHubMessageToChatSynx } from '@/lib/chat-synx'
 import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
+import { matchMentionedUsers } from '@/lib/hub-mentions'
 
 const CLAUDE_BOT_ID = '00000000-0000-0000-0001-000000000001'
 
@@ -155,26 +156,24 @@ export async function POST(request: Request) {
     convMemberIds = (cm ?? []).map((m: { user_id: string }) => m.user_id)
   }
 
-  // Push for @mentions — pass room_id so push logic can check mute prefs
+  // Push for @mentions — pass room_id so push logic can check mute prefs.
+  // NT4 — matchMentionedUsers prefers full-name matches (disambiguates two
+  // people who share a first name) and handles accented/punctuated names.
   const textToScan = content ?? ''
-  const mentionedFirstNames = [...textToScan.matchAll(/@(\w+)/g)].map((m: RegExpMatchArray) => m[1].toLowerCase())
-  if (mentionedFirstNames.length > 0) {
+  let mentionRecipientIds: string[] = []
+  if (textToScan.includes('@')) {
     const { data: allUsers } = await pushAdmin
       .from('hub_users')
       .select('id, display_name')
       .eq('company_id', profile.company_id)
       .not('id', 'eq', user.id)
 
-    const matchedIds = (allUsers ?? [])
-      .filter((u: { id: string; display_name: string }) =>
-        mentionedFirstNames.some(n => u.display_name.split(' ')[0].toLowerCase() === n)
-      )
-      .map((u: { id: string }) => u.id)
+    const matchedIds = matchMentionedUsers(textToScan, (allUsers ?? []) as { id: string; display_name: string }[])
 
     // Only notify mentioned users who can actually see this room/DM — an @mention
     // must never pull in someone who isn't a member of the room or conversation.
     const mentionMemberSet = new Set(room_id ? roomMemberIds : convMemberIds)
-    const mentionRecipientIds = matchedIds.filter((id: string) => mentionMemberSet.has(id))
+    mentionRecipientIds = matchedIds.filter((id: string) => mentionMemberSet.has(id))
 
     if (mentionRecipientIds.length > 0) {
       const destination = room_id ? `/hub/${room_id}` : `/hub/pm/${conversation_id}`
@@ -186,6 +185,38 @@ export async function POST(request: Request) {
         groupKey: conversation_id ?? room_id ?? undefined,
       }, { isMention: true, roomId: room_id ?? null }).catch((err: Error) =>
         console.error('[messages] mention push failed:', err.message)
+      )
+    }
+  }
+
+  // NT3 — thread replies notify the people IN the thread. Every other push path
+  // below skips parent_id (so a plain reply pinged nobody). Notify the root
+  // author + everyone who already replied in this thread, scoped to room/DM
+  // membership, minus the sender and anyone already pinged by an @mention above.
+  if (parent_id) {
+    const participantIds = new Set<string>()
+    const { data: rootMsg } = await pushAdmin
+      .from('messages').select('sender_id').eq('id', parent_id).maybeSingle()
+    if (rootMsg?.sender_id) participantIds.add(rootMsg.sender_id as string)
+    const { data: replyRows } = await pushAdmin
+      .from('messages').select('sender_id').eq('parent_id', parent_id)
+    for (const r of (replyRows ?? []) as { sender_id: string }[]) participantIds.add(r.sender_id)
+    participantIds.delete(user.id)
+
+    const memberSet = new Set(room_id ? roomMemberIds : convMemberIds)
+    const mentionedSet = new Set(mentionRecipientIds)
+    const threadRecipients = [...participantIds].filter(id => memberSet.has(id) && !mentionedSet.has(id))
+
+    if (threadRecipients.length > 0) {
+      const destination = room_id ? `/hub/${room_id}` : `/hub/pm/${conversation_id}`
+      sendHubPush(threadRecipients, {
+        title: `💬 ${senderName} replied in a thread`,
+        body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
+        url: destination,
+        type: conversation_id ? 'dm' : 'room',
+        groupKey: conversation_id ?? room_id ?? undefined,
+      }, { isDm: !!conversation_id, roomId: room_id ?? null }).catch((err: Error) =>
+        console.error('[messages] thread reply push failed:', err.message)
       )
     }
   }

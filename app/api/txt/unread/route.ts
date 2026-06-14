@@ -18,14 +18,19 @@ export async function GET() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_txt, can_assign_txt_threads, can_access_txt')
+    .select('role, can_admin_txt, can_assign_txt_threads, can_access_txt, txt_last_seen_at')
     .eq('id', user.id)
     .single()
+
+  // #45 — server-side "last opened Txt2" so the dot syncs across this user's
+  // devices (was per-device localStorage only). The rail compares the newest
+  // inbound against the LATER of this and any local timestamp.
+  const lastSeenAt = profile?.txt_last_seen_at ?? null
 
   // Not a Txt2 user → nothing to report (the rail won't even call this, but
   // guard anyway so the dot can never light for someone without access).
   if (profile?.role !== 'admin' && !profile?.can_access_txt) {
-    return NextResponse.json({ latest_inbound_at: null })
+    return NextResponse.json({ latest_inbound_at: null, last_seen_at: lastSeenAt })
   }
 
   const isManager =
@@ -61,11 +66,11 @@ export async function GET() {
   } else {
     // Non-managers only see threads they're a member of (mirrors the
     // conversations list route's `mine` scope).
-    if (myIds.length === 0) return NextResponse.json({ latest_inbound_at: null })
+    if (myIds.length === 0) return NextResponse.json({ latest_inbound_at: null, last_seen_at: lastSeenAt })
     query = query.in('id', myIds)
   }
 
   const { data, error } = await query
-  if (error) return NextResponse.json({ latest_inbound_at: null })
-  return NextResponse.json({ latest_inbound_at: data?.[0]?.last_inbound_at ?? null })
+  if (error) return NextResponse.json({ latest_inbound_at: null, last_seen_at: lastSeenAt })
+  return NextResponse.json({ latest_inbound_at: data?.[0]?.last_inbound_at ?? null, last_seen_at: lastSeenAt })
 }
