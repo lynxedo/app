@@ -57,18 +57,29 @@ export async function GET(req: NextRequest) {
 
     // Only return 'in' punches that don't have a matching 'out'
     const { data: inPunches } = await punchQuery
-    if (inPunches) {
-      // Check which are still open (no out punch after them)
+    if (inPunches && inPunches.length > 0) {
+      // Set-based: pull every 'out' punch for the same employees in ONE query,
+      // then keep the latest 'out' time per employee. An 'in' punch is still
+      // open iff there is no 'out' punch after it (i.e. latest out <= its time).
+      const empIds = [...new Set(inPunches.map(p => p.employee_id))]
+      const minInAt = inPunches.reduce(
+        (min, p) => (p.punched_at < min ? p.punched_at : min),
+        inPunches[0].punched_at as string
+      )
+      const { data: outPunches } = await supabase
+        .from('time_punches')
+        .select('employee_id, punched_at')
+        .eq('punch_type', 'out')
+        .in('employee_id', empIds)
+        .gte('punched_at', minInAt)
+      const latestOutByEmp = new Map<string, string>()
+      for (const o of outPunches ?? []) {
+        const prev = latestOutByEmp.get(o.employee_id)
+        if (!prev || o.punched_at > prev) latestOutByEmp.set(o.employee_id, o.punched_at)
+      }
       for (const p of inPunches) {
-        const { data: outPunch } = await supabase
-          .from('time_punches')
-          .select('id')
-          .eq('employee_id', p.employee_id)
-          .eq('punch_type', 'out')
-          .gt('punched_at', p.punched_at)
-          .limit(1)
-          .single()
-        if (!outPunch) openPunches.push(p)
+        const latestOut = latestOutByEmp.get(p.employee_id)
+        if (!latestOut || latestOut <= p.punched_at) openPunches.push(p)
       }
     }
   }
