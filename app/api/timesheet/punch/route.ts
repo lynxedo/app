@@ -3,31 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
 import { evaluateEventAutomations } from '@/lib/automations'
-
-function getPayPeriod(date: Date): { start: string; end: string } {
-  const d = new Date(date)
-  const day = d.getDay()
-  const daysFromMonday = day === 0 ? 6 : day - 1
-  const monday = new Date(d)
-  monday.setDate(d.getDate() - daysFromMonday)
-  const sunday = new Date(monday)
-  sunday.setDate(monday.getDate() + 6)
-  return {
-    start: monday.toISOString().split('T')[0],
-    end: sunday.toISOString().split('T')[0],
-  }
-}
-
-function computeHours(clockIn: Date, clockOut: Date, breakMinutes = 0) {
-  const totalHours = Math.max(0, (clockOut.getTime() - clockIn.getTime()) / 3600000 - breakMinutes / 60)
-  // OT is weekly (>40h), not daily — store all shift hours as regular at entry level.
-  // weekSummary() in the admin UI computes weekly OT across all entries.
-  return {
-    total_hours: Math.round(totalHours * 100) / 100,
-    regular_hours: Math.round(totalHours * 100) / 100,
-    overtime_hours: 0,
-  }
-}
+import { recomputeDayEntry } from '@/lib/timesheet-recompute'
+import { fanoutGuardianNotification } from '@/lib/guardian-post'
 
 // GET /api/timesheet/punch?employee_id=xxx — returns current clock-in status
 export async function GET(req: NextRequest) {
@@ -124,25 +101,59 @@ export async function POST(req: NextRequest) {
 
   if (punchError) return NextResponse.json({ error: punchError.message }, { status: 500 })
 
-  // On clock-out: compute and store the time entry.
-  // Must use the admin client — time_entries has an admin-only write RLS policy,
-  // so a non-admin employee's session would silently drop the insert.
+  // On clock-out: (re)compute the day's payroll entry from the punches. Routing
+  // through recomputeDayEntry (instead of a raw insert) fixes two bugs:
+  //   • TS3 — it UPSERTS on (employee_id,date), so a 2nd shift the same day no
+  //     longer creates a duplicate, double-counted row.
+  //   • #4 — it returns its DB error, so a failed write no longer vanishes
+  //     silently (leaving the employee unpaid). On failure we alert the
+  //     timesheet admins and warn the employee instead of returning a clean 200.
+  // Uses the admin client — time_entries has an admin-only write RLS policy.
+  let warning: string | null = null
   if (action === 'out' && lastPunch) {
     const clockIn = new Date(lastPunch.punched_at)
-    const hours = computeHours(clockIn, now)
-    const period = getPayPeriod(clockIn)
-
+    const dayDate = clockIn.toISOString().split('T')[0]
     const admin = createAdminClient()
-    await admin.from('time_entries').insert({
-      employee_id,
-      date: clockIn.toISOString().split('T')[0],
-      clock_in: clockIn.toISOString(),
-      clock_out: now.toISOString(),
-      ...hours,
-      pay_period_start: period.start,
-      pay_period_end: period.end,
-      notes: note || null,
-    })
+    const result = await recomputeDayEntry(admin, employee_id, dayDate)
+
+    if (result.error || result.action !== 'upserted') {
+      console.error('[timesheet:punch] clock-out did not save a payroll entry', {
+        employee_id, dayDate, result,
+      })
+      warning =
+        'Heads up: your hours may not have saved. A manager has been notified — please double-check your timesheet.'
+
+      // Best-effort: DM the company's timesheet admins so payroll gets fixed.
+      try {
+        const { data: emp } = await admin
+          .from('employees').select('user_id').eq('id', employee_id).single()
+        const { data: prof } = emp?.user_id
+          ? await admin.from('user_profiles').select('company_id').eq('id', emp.user_id).single()
+          : { data: null }
+        const empName = emp?.user_id
+          ? (await admin.from('hub_users').select('display_name').eq('id', emp.user_id).maybeSingle()).data?.display_name
+          : null
+        if (prof?.company_id) {
+          const { data: admins } = await admin
+            .from('user_profiles')
+            .select('id')
+            .eq('company_id', prof.company_id)
+            .or('role.eq.admin,can_admin_timesheet.eq.true')
+          const adminIds = (admins ?? []).map((a: { id: string }) => a.id)
+          if (adminIds.length) {
+            await fanoutGuardianNotification({
+              companyId: prof.company_id,
+              userIds: adminIds,
+              roomIds: [],
+              body: `⚠️ Timesheet: ${empName || 'an employee'}'s clock-out on ${dayDate} did NOT save a payroll entry${result.error ? ` (${result.error})` : ''}. Their punch is recorded but hours may be missing — please check the timesheet.`,
+              admin,
+            })
+          }
+        }
+      } catch (e) {
+        console.error('[timesheet:punch] failed to alert admins of lost time entry', e)
+      }
+    }
   }
 
   // Smart presence: broadcast the new effective_status so Hub sidebars
@@ -192,5 +203,5 @@ export async function POST(req: NextRequest) {
     // Non-fatal — automations are best-effort.
   }
 
-  return NextResponse.json({ punch: newPunch, action })
+  return NextResponse.json({ punch: newPunch, action, warning })
 }

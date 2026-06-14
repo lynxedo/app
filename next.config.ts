@@ -25,7 +25,11 @@ const nextConfig: NextConfig = {
     {
       source: '/(.*)',
       headers: [
-        { key: 'X-Frame-Options', value: 'DENY' },
+        // IN1 — `frame-ancestors 'self'` replaces `X-Frame-Options: DENY`. DENY
+        // blocked the app's own in-app route-sheet viewer (a same-origin frame)
+        // in desktop browsers. This still blocks external sites from framing us
+        // (clickjacking) but permits same-origin framing.
+        { key: 'Content-Security-Policy', value: "frame-ancestors 'self'" },
         { key: 'X-Content-Type-Options', value: 'nosniff' },
         { key: 'Referrer-Policy', value: 'strict-origin-when-cross-origin' },
       ],

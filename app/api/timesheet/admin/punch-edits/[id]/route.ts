@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { recomputeDayEntry } from '@/lib/timesheet-recompute'
 
 // PATCH /api/timesheet/admin/punch-edits/[id]
 // Admin approves or rejects an employee edit request.
@@ -46,13 +48,6 @@ export async function PATCH(
       id: string; employee_id: string; date: string; clock_in: string; clock_out: string | null
     }
 
-    const newClockIn = editReq.new_clock_in
-      ? new Date(editReq.new_clock_in)
-      : new Date(entry.clock_in)
-    const newClockOut = editReq.new_clock_out
-      ? new Date(editReq.new_clock_out)
-      : (entry.clock_out ? new Date(entry.clock_out) : null)
-
     // Find punches for this employee on this date and apply the new times
     const { data: dayPunches } = await supabase
       .from('time_punches')
@@ -85,24 +80,11 @@ export async function PATCH(
       }
     }
 
-    // Recalculate hours and update the time_entry
-    if (newClockOut) {
-      const totalHours = Math.max(0, (newClockOut.getTime() - newClockIn.getTime()) / 3600000)
-      const regularHours = Math.min(totalHours, 8)
-      const overtimeHours = Math.max(0, totalHours - 8)
-
-      await supabase.from('time_entries').update({
-        clock_in: newClockIn.toISOString(),
-        clock_out: newClockOut.toISOString(),
-        total_hours: Math.round(totalHours * 100) / 100,
-        regular_hours: Math.round(regularHours * 100) / 100,
-        overtime_hours: Math.round(overtimeHours * 100) / 100,
-      }).eq('id', entry.id)
-    } else {
-      await supabase.from('time_entries').update({
-        clock_in: newClockIn.toISOString(),
-      }).eq('id', entry.id)
-    }
+    // Recompute the day's entry from the (now-updated) punches via the shared
+    // helper — single source of truth, WEEKLY overtime policy. Replaces the old
+    // hand-rolled DAILY overtime math (regular = min(total,8), OT = total-8),
+    // which double-counted overtime and inflated the Gusto payroll export.
+    await recomputeDayEntry(createAdminClient(), entry.employee_id, entry.date)
   }
 
   // Mark the request resolved
