@@ -1,7 +1,7 @@
 'use client'
 
 import { useMemo, useRef, useState } from 'react'
-import { useToast } from '@/components/ui'
+import { useToast, useConfirm } from '@/components/ui'
 
 // ---------------------------------------------------------------------------
 // Local mirror of the lib/twilio-voice.ts IVR types — kept here so this is a
@@ -113,6 +113,7 @@ export default function IvrEditor({
   ringGroups?: RingGroupSummary[]
 }) {
   const toast = useToast()
+  const confirmDialog = useConfirm()
   const [activeTree, setActiveTree] = useState<IvrTreeName>('default')
   const tree: IvrTree = config.trees?.[activeTree] ?? { root_node_id: '', nodes: {} }
   const nodes = tree.nodes ?? {}
@@ -150,12 +151,12 @@ export default function IvrEditor({
     setSelectedId(rootId)
   }
 
-  function deleteActiveTree() {
+  async function deleteActiveTree() {
     if (activeTree === 'default') {
       toast.error("Can't delete the Default tree. Edit it instead.")
       return
     }
-    if (!confirm(`Remove the entire ${activeTree.replace('_', '-')} tree? You can rebuild it later.`)) return
+    if (!(await confirmDialog({ message: `Remove the entire ${activeTree.replace('_', '-')} tree? You can rebuild it later.`, danger: true }))) return
     const nextTrees = { ...config.trees }
     delete nextTrees[activeTree]
     onChange({ enabled, config: { ...config, trees: nextTrees } })
@@ -190,12 +191,12 @@ export default function IvrEditor({
     setSelectedId(id)
   }
 
-  function deleteNode(id: string) {
+  async function deleteNode(id: string) {
     if (id === tree.root_node_id) {
       toast.error('Cannot delete the root node. Promote a different node to root first.')
       return
     }
-    if (!confirm(`Delete menu "${nodes[id]?.label || id}"? Any keypresses pointing here will break.`)) return
+    if (!(await confirmDialog({ message: `Delete menu "${nodes[id]?.label || id}"? Any keypresses pointing here will break.`, danger: true }))) return
     const newNodes = { ...nodes }
     delete newNodes[id]
     // Also scrub any keypresses across other nodes that referenced this id.

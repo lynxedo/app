@@ -6,6 +6,7 @@ import ExtensionsPanel, { type ExtensionRow } from './ExtensionsPanel'
 import RingGroupsPanel, { type RingGroup } from './RingGroupsPanel'
 import { DEFAULT_DISPOSITIONS } from '@/lib/dialer-dispositions'
 import { type ResponderSettings, type ResponderCall, RESPONDER_DEFAULTS } from '@/lib/responder'
+import { useConfirm } from '@/components/ui'
 
 type DayKey = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat'
 type BusinessHoursWindow = { from: string; to: string }
@@ -70,6 +71,7 @@ export default function DialerAdminPanel({
   initialResponder: Omit<ResponderSettings, 'id' | 'company_id'> | null
   initialResponderCalls: ResponderCall[]
 }) {
+  const confirmDialog = useConfirm()
   const [s, setS] = useState<Settings>(initial)
   const [extensions, setExtensions] = useState<ExtensionRow[]>(initialExtensions)
   const [ringGroups, setRingGroups] = useState<RingGroup[]>(initialRingGroups)
@@ -176,7 +178,7 @@ export default function DialerAdminPanel({
   }
 
   async function clearGreeting() {
-    if (!confirm('Remove the custom greeting? Callers will hear the TTS text or spoken default.')) return
+    if (!(await confirmDialog({ message: 'Remove the custom greeting? Callers will hear the TTS text or spoken default.', danger: true }))) return
     setUploading(true)
     setError(null)
     try {
@@ -220,7 +222,7 @@ export default function DialerAdminPanel({
   }
 
   async function clearConsentAudio() {
-    if (!confirm('Remove the custom consent audio? The TTS text will be used instead.')) return
+    if (!(await confirmDialog({ message: 'Remove the custom consent audio? The TTS text will be used instead.', danger: true }))) return
     setUploadingConsent(true)
     setError(null)
     try {

@@ -8,6 +8,7 @@ import SaveToFilesModal from './SaveToFilesModal'
 import MessageActionsSheet from './MessageActionsSheet'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { renderContent } from './renderContent'
+import { useConfirm } from '@/components/ui'
 import {
   saveMessages,
   getMessages,
@@ -245,6 +246,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   // the same `text-lg md:text-sm` class the sidebar uses — no per-size
   // override here, so sidebar and messages stay visually in sync.
 
+  const confirmDialog = useConfirm()
   const [messages, setMessages] = useState<HubMessage[]>(initialMessages)
   // Older-message pagination (scroll-up auto-load). The server renders the
   // newest PAGE_SIZE; older history is fetched on demand from the server (NOT
@@ -863,7 +865,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   }, [editContent])
 
   const deleteMessage = useCallback(async (msgId: string) => {
-    if (!confirm('Delete this message?')) return
+    if (!(await confirmDialog({ message: 'Delete this message?', danger: true }))) return
     const res = await fetch(`/api/hub/messages/${msgId}`, { method: 'DELETE' })
     if (res.ok) {
       setMessages(prev => prev.filter(m => m.id !== msgId))

@@ -3,9 +3,11 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import type { Form, FormField } from '@/lib/forms'
+import { useConfirm } from '@/components/ui'
 
 export default function FormsAdminPanel() {
   const router = useRouter()
+  const confirmDialog = useConfirm()
   const [forms, setForms] = useState<Form[]>([])
   const [loading, setLoading] = useState(true)
   const [creating, setCreating] = useState(false)
@@ -54,7 +56,7 @@ export default function FormsAdminPanel() {
   }
 
   async function deleteForm(id: string, name: string) {
-    if (!confirm(`Delete "${name}"? All submissions for this form will also be deleted. This cannot be undone.`)) return
+    if (!(await confirmDialog({ message: `Delete "${name}"? All submissions for this form will also be deleted. This cannot be undone.`, danger: true }))) return
     setForms(prev => prev.filter(f => f.id !== id))
     try {
       await fetch(`/api/admin/forms/${id}`, { method: 'DELETE' })

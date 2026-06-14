@@ -4,7 +4,7 @@ import Link from 'next/link'
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react'
 import { computeFormulas, summarize, type RecurringRow, type RecurringFormulas } from '@/lib/recurring-formulas'
 import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
-import { useToast } from '@/components/ui'
+import { useToast, useConfirm } from '@/components/ui'
 
 // ---- Option lists (mirrored exactly from Monday board 18188676554) ----
 const SERVICE_OPTIONS = ['IRR Install', 'WF - Lawn Health', 'Pet Waste', 'Other', 'Landscape', 'IRR', 'IRR SC', 'Winterize', 'Spam/Sales', 'Drain', 'Aeration', 'Mow', 'MOS', 'phc', 'Upgrade', 'IR- Gold']
@@ -243,6 +243,7 @@ const RecurringRowTr = memo(function RecurringRowTr({
 // ---------------- Page ----------------
 export default function RecurringServicesPage() {
   const toast = useToast()
+  const confirmDialog = useConfirm()
   const [rows, setRows] = useState<RecurringRow[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -298,7 +299,7 @@ export default function RecurringServicesPage() {
   }
 
   const deleteRow = useCallback(async (id: string) => {
-    if (!confirm('Delete this row?')) return
+    if (!(await confirmDialog({ message: 'Delete this row?', danger: true }))) return
     setRows(prev => prev.filter(r => r.id !== id))
     await fetch(`/api/tracker/recurring/${id}`, { method: 'DELETE' })
   }, [])

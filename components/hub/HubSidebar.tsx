@@ -10,6 +10,7 @@ import StatusPicker, { StatusDot } from './StatusPicker'
 import { useOnCallUsers } from './OnCallPresenceProvider'
 import ClientsSidebar from './ClientsSidebar'
 import { CatalogIcon, LockIcon } from './railCatalog'
+import { useConfirm } from '@/components/ui'
 import {
   getConversationsList,
   saveConversationsList,
@@ -138,6 +139,7 @@ export default function HubSidebar({
 }) {
   const pathname = usePathname()
   const router = useRouter()
+  const confirmDialog = useConfirm()
   // Teammates currently on a phone call → purple dot on their DM rows (S2).
   const onCallUsers = useOnCallUsers()
   const [sidebarRooms, setSidebarRooms] = useState<Room[]>(rooms)
@@ -583,7 +585,7 @@ export default function HubSidebar({
   }
 
   async function leaveRoom(roomId: string, roomName: string) {
-    if (!confirm(`Leave #${roomName}? You can rejoin public rooms from Browse Rooms.`)) return
+    if (!(await confirmDialog(`Leave #${roomName}? You can rejoin public rooms from Browse Rooms.`))) return
     const res = await fetch(`/api/hub/rooms/${roomId}/leave`, { method: 'DELETE' })
     if (res.ok) {
       setSidebarRooms(prev => prev.filter(r => r.id !== roomId))
@@ -681,7 +683,7 @@ export default function HubSidebar({
 
   async function deleteBoardConfirm() {
     if (!boardSettings) return
-    if (!confirm(`Delete "${boardSettings.name}"? This will permanently delete all tasks.`)) return
+    if (!(await confirmDialog({ message: `Delete "${boardSettings.name}"? This will permanently delete all tasks.`, danger: true }))) return
     const res = await fetch(`/api/hub/boards/${boardSettings.id}`, { method: 'DELETE' })
     if (res.ok) {
       setBoards(prev => prev.filter(b => b.id !== boardSettings.id))

@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useAutoSave } from '@/components/admin'
+import { useConfirm } from '@/components/ui'
 
 type Doc = {
   id: string
@@ -946,6 +947,7 @@ function DocEditor({
   onDeleted: (id: string) => void
   onClose: () => void
 }) {
+  const confirmDialog = useConfirm()
   const isExisting = doc != null
   const isProtected = doc != null && isRouter(doc.slug)
 
@@ -1019,7 +1021,7 @@ function DocEditor({
 
   async function del() {
     if (!doc) return
-    if (!confirm(`Delete "${doc.title}"? This cannot be undone.`)) return
+    if (!(await confirmDialog({ message: `Delete "${doc.title}"? This cannot be undone.`, danger: true }))) return
     setError(null)
     setDeleting(true)
     try {
@@ -1036,8 +1038,8 @@ function DocEditor({
     }
   }
 
-  function restoreVersion(v: Version) {
-    if (!confirm('Replace the current body with this version? You can still re-save to go back.')) return
+  async function restoreVersion(v: Version) {
+    if (!(await confirmDialog('Replace the current body with this version? You can still re-save to go back.'))) return
     setBody(v.body)
     setTitle(v.title)
   }

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { TEMPLATE_FIELDS } from '@/lib/txt-templates'
-import { useToast } from '@/components/ui'
+import { useToast, useConfirm } from '@/components/ui'
 
 type Template = {
   id: string
@@ -25,6 +25,7 @@ export default function TxtPersonalTemplates() {
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const toast = useToast()
+  const confirmDialog = useConfirm()
 
   useEffect(() => {
     fetch('/api/txt/templates')
@@ -92,7 +93,7 @@ export default function TxtPersonalTemplates() {
   }
 
   async function remove(t: Template) {
-    if (!confirm(`Delete template "${t.title}"?`)) return
+    if (!(await confirmDialog({ message: `Delete template "${t.title}"?`, danger: true }))) return
     const res = await fetch(`/api/txt/templates/${t.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))

@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useConfirm } from '@/components/ui'
 
 type RoomLite = { id: string; name: string }
 type UserLite = { id: string; display_name: string }
@@ -87,6 +88,7 @@ export default function AutomationBuilder({
   hubUsers: UserLite[]
 }) {
   const users = hubUsers.filter((u) => !u.display_name.startsWith('Claude'))
+  const confirmDialog = useConfirm()
 
   const [rules, setRules] = useState<RuleRow[]>([])
   const [geofences, setGeofences] = useState<Geofence[]>([])
@@ -202,7 +204,7 @@ export default function AutomationBuilder({
     })
   }
   async function deleteRule(id: string) {
-    if (!confirm('Delete this automation?')) return
+    if (!(await confirmDialog({ message: 'Delete this automation?', danger: true }))) return
     setRules((prev) => prev.filter((r) => r.id !== id))
     await fetch(`/api/hub/automation-rules/${id}`, { method: 'DELETE' })
   }
@@ -464,6 +466,7 @@ function GeofencesCard({
   geofences: Geofence[]
   setGeofences: React.Dispatch<React.SetStateAction<Geofence[]>>
 }) {
+  const confirmDialog = useConfirm()
   const [name, setName] = useState('')
   const [address, setAddress] = useState('')
   const [radiusYd, setRadiusYd] = useState(150)
@@ -484,7 +487,7 @@ function GeofencesCard({
     setName(''); setAddress('')
   }
   async function del(id: string) {
-    if (!confirm('Delete this place?')) return
+    if (!(await confirmDialog({ message: 'Delete this place?', danger: true }))) return
     setGeofences((p) => p.filter((g) => g.id !== id))
     await fetch(`/api/hub/geofences/${id}`, { method: 'DELETE' })
   }

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useConfirm } from '@/components/ui'
 
 type Tag = {
   id: string
@@ -23,6 +24,7 @@ const SUGGESTED_COLORS = [
 ]
 
 export default function ContactsAdminPanel({ initialTags }: { initialTags: Tag[] }) {
+  const confirmDialog = useConfirm()
   const [tags, setTags] = useState<Tag[]>(initialTags)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [adding, setAdding] = useState(false)
@@ -58,7 +60,7 @@ export default function ContactsAdminPanel({ initialTags }: { initialTags: Tag[]
     const msg = count > 0
       ? `Delete "${label}"? It's currently on ${count} contact${count === 1 ? '' : 's'} — they'll lose this tag.`
       : `Delete "${label}"?`
-    if (!confirm(msg)) return
+    if (!(await confirmDialog({ message: msg, danger: true }))) return
     const res = await fetch(`/api/admin/contact-tags/${id}`, { method: 'DELETE' })
     if (res.ok) setTags(prev => prev.filter(t => t.id !== id))
   }

@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import TxtContactMultiPicker from './TxtContactMultiPicker'
+import { useConfirm } from '@/components/ui'
 
 // Broadcast composer modal. POSTs to /api/txt/broadcasts which inserts the
 // broadcast + queued recipient rows; the actual sending is drained by the
@@ -9,6 +10,7 @@ import TxtContactMultiPicker from './TxtContactMultiPicker'
 // (default 8/sec, under the 10DLC vetted cap). do-not-text contacts are
 // pre-marked 'skipped' server-side and counted in skipped_count.
 export default function TxtBroadcastComposer({ onClose }: { onClose: () => void }) {
+  const confirmDialog = useConfirm()
   const [selected, setSelected] = useState<string[]>([])
   const [body, setBody] = useState('')
   const [applySignature, setApplySignature] = useState(false)
@@ -17,7 +19,7 @@ export default function TxtBroadcastComposer({ onClose }: { onClose: () => void 
 
   async function submit() {
     if (selected.length === 0 || !body.trim() || submitting) return
-    if (!confirm(`Send this broadcast to ${selected.length} contact${selected.length === 1 ? '' : 's'}?`)) {
+    if (!(await confirmDialog(`Send this broadcast to ${selected.length} contact${selected.length === 1 ? '' : 's'}?`))) {
       return
     }
     setSubmitting(true)

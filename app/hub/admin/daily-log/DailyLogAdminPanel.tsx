@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useRef } from 'react'
+import { useConfirm } from '@/components/ui'
 
 type HubUser = { id: string; display_name: string }
 type Room = { id: string; name: string }
@@ -224,6 +225,7 @@ export default function DailyLogAdminPanel({
 }
 
 function PesticideMappingsSection({ initialMappings }: { initialMappings: PesticideMapping[] }) {
+  const confirmDialog = useConfirm()
   const [mappings, setMappings] = useState<PesticideMapping[]>(initialMappings)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -265,7 +267,7 @@ function PesticideMappingsSection({ initialMappings }: { initialMappings: Pestic
   }
 
   async function deleteMapping(id: string) {
-    if (!confirm('Delete this mapping? Existing pesticide records will be preserved.')) return
+    if (!(await confirmDialog({ message: 'Delete this mapping? Existing pesticide records will be preserved.', danger: true }))) return
     setSectionError(null)
     try {
       const res = await fetch(`/api/admin/pesticide-mappings/${id}`, { method: 'DELETE' })
@@ -556,6 +558,7 @@ function MappingForm({
 }
 
 function SkipReasonsSection({ initialReasons }: { initialReasons: SkipReason[] }) {
+  const confirmDialog = useConfirm()
   const [reasons, setReasons] = useState<SkipReason[]>(initialReasons)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [showAddForm, setShowAddForm] = useState(false)
@@ -599,7 +602,7 @@ function SkipReasonsSection({ initialReasons }: { initialReasons: SkipReason[] }
   }
 
   async function deleteReason(id: string) {
-    if (!confirm('Delete this skip reason? Stops already marked as skipped with this reason will retain the label text.')) return
+    if (!(await confirmDialog({ message: 'Delete this skip reason? Stops already marked as skipped with this reason will retain the label text.', danger: true }))) return
     setSectionError(null)
     try {
       const res = await fetch(`/api/admin/daily-log/skip-reasons/${id}`, { method: 'DELETE' })

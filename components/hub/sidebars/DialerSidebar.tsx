@@ -5,6 +5,7 @@ import { formatPhone } from '@/lib/format'
 import { useRouter } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
 import SidebarContactsList from './SidebarContactsList'
+import { useConfirm } from '@/components/ui'
 
 type CallRow = {
   id: string
@@ -71,6 +72,7 @@ export default function DialerSidebar({
   canText?: boolean
 }) {
   const router = useRouter()
+  const confirmDialog = useConfirm()
   const [scope, setScope] = useState<Scope>('mine')
   const [vmScope, setVmScope] = useState<'mine' | 'all'>('mine')
   const [calls, setCalls] = useState<CallRow[]>([])
@@ -195,7 +197,7 @@ export default function DialerSidebar({
   }
 
   async function deleteVm(id: string) {
-    if (!confirm('Delete this voicemail?')) return
+    if (!(await confirmDialog({ message: 'Delete this voicemail?', danger: true }))) return
     await fetch(`/api/dialer/voicemails/${id}`, { method: 'DELETE' })
     setVoicemails((prev) => prev.filter((v) => v.id !== id))
     if (playingId === id) setPlayingId(null)

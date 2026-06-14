@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useConfirm } from '@/components/ui'
 
 export type RingGroupMember = {
   user_id: string
@@ -27,6 +28,7 @@ export default function RingGroupsPanel({
   hubUsers: HubUser[]
   onChange?: (rows: RingGroup[]) => void
 }) {
+  const confirmDialog = useConfirm()
   const [groups, setGroups] = useState<RingGroup[]>(initial)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [creating, setCreating] = useState(false)
@@ -112,7 +114,7 @@ export default function RingGroupsPanel({
   async function deleteGroup(id: string) {
     const g = groups.find((x) => x.id === id)
     if (!g) return
-    if (!confirm(`Delete ring group "${g.name}"? Any IVR menu pointing here will fall through to general voicemail.`)) return
+    if (!(await confirmDialog({ message: `Delete ring group "${g.name}"? Any IVR menu pointing here will fall through to general voicemail.`, danger: true }))) return
     setBusy(true)
     setError(null)
     try {

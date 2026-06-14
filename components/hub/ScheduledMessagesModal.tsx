@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useToast } from '@/components/ui'
+import { useToast, useConfirm } from '@/components/ui'
 
 type ScheduledRow = {
   id: string
@@ -26,6 +26,7 @@ function formatWhen(iso: string): string {
 
 export default function ScheduledMessagesModal({ onClose }: { onClose: () => void }) {
   const toast = useToast()
+  const confirmDialog = useConfirm()
   const [rows, setRows] = useState<ScheduledRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -102,7 +103,7 @@ export default function ScheduledMessagesModal({ onClose }: { onClose: () => voi
   }
 
   const sendNow = async (id: string) => {
-    if (!confirm('Send this message now?')) return
+    if (!(await confirmDialog('Send this message now?'))) return
     setBusyId(id)
     try {
       const res = await fetch(`/api/hub/scheduled-messages/${id}/send-now`, { method: 'POST' })
@@ -119,7 +120,7 @@ export default function ScheduledMessagesModal({ onClose }: { onClose: () => voi
   }
 
   const remove = async (id: string) => {
-    if (!confirm('Delete this scheduled message? This cannot be undone.')) return
+    if (!(await confirmDialog({ message: 'Delete this scheduled message? This cannot be undone.', danger: true }))) return
     setBusyId(id)
     try {
       const res = await fetch(`/api/hub/scheduled-messages/${id}`, { method: 'DELETE' })
