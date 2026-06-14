@@ -43,6 +43,14 @@ function weekLabel(dt: Date) { return `${dt.getUTCMonth() + 1}/${dt.getUTCDate()
 type RevRow = { bucket: string; dept: string | null; total: number | string | null }
 
 export async function GET(request: Request) {
+  const res = await handleScoreboards(request)
+  // Scoreboard data only changes on the nightly Jobber/Monday sync — let the
+  // browser reuse a recent response for 5 min instead of recomputing each open.
+  if (res.ok) res.headers.set('Cache-Control', 'private, max-age=300')
+  return res
+}
+
+async function handleScoreboards(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
