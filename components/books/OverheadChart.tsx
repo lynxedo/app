@@ -5,6 +5,11 @@ import { Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip }
 
 Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip)
 
+// MSC-Overhead — these figures are HAND-MAINTAINED, not pulled live from
+// QuickBooks. Update OVERHEAD_ITEMS below and bump this date when you revise
+// them, so the dashboard caption stays honest about how current the numbers are.
+const ESTIMATED_AS_OF = 'June 2026'
+
 const OVERHEAD_ITEMS = [
   { label: 'SBA loan interest',      category: 'Debt service',    monthly: 2900 },
   { label: 'Other interest',         category: 'Debt service',    monthly: 1067 },
@@ -91,6 +96,9 @@ export default function OverheadChart() {
       <div className="h-80">
         <canvas ref={canvasRef} />
       </div>
+      <p className="mt-3 text-xs text-gray-500">
+        Manually estimated — not pulled live from QuickBooks · as of {ESTIMATED_AS_OF}
+      </p>
     </div>
   )
 }

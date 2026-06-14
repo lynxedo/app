@@ -324,7 +324,7 @@ export default function AdminTimesheetPage() {
   const loadData = useCallback(async () => {
     setLoading(true)
     const [empRes, entRes, editRes, holRes, overRes, ptoRes] = await Promise.all([
-      fetch('/api/timesheet/employees'),
+      fetch(`/api/timesheet/employees?period_start=${toDateStr(weekStart)}&period_end=${toDateStr(weekEnd)}`),
       fetch(`/api/timesheet/entries?start=${toDateStr(weekStart)}&end=${toDateStr(weekEnd)}`),
       fetch('/api/timesheet/punch-edits'),
       fetch(`/api/timesheet/holidays?start=${toDateStr(weekStart)}&end=${toDateStr(weekEnd)}`),
