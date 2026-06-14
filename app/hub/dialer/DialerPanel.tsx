@@ -2,6 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react'
 import { useTwilioDevice } from '@/hooks/use-twilio-device'
+import { friendlyCallError } from '@/lib/dialer-errors'
 import Dialpad from '@/components/hub/dialer/Dialpad'
 import ActiveCall from '@/components/hub/dialer/ActiveCall'
 import IncomingCall from '@/components/hub/dialer/IncomingCall'
@@ -98,7 +99,7 @@ export default function DialerPanel({
         </div>
         {device.errorMessage && device.state === 'error' && (
           <div className="mt-2 text-xs text-red-300 bg-red-900/30 border border-red-800 rounded px-2 py-1">
-            {device.errorMessage}
+            {friendlyCallError(device.errorMessage)}
           </div>
         )}
       </div>

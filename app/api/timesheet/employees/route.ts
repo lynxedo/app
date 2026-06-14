@@ -1,19 +1,46 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-export async function GET() {
+export async function GET(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data, error } = await supabase
+  const { data: activeEmps, error } = await supabase
     .from('employees')
     .select('*')
     .eq('is_active', true)
     .order('first_name')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json({ employees: data })
+
+  const employees = [...(activeEmps ?? [])]
+
+  // TS11 — when a pay period is supplied, also include INACTIVE employees who
+  // have time entries in that window. A deactivated employee's final week would
+  // otherwise drop out of the pay-period table + Gusto CSV entirely.
+  const periodStart = req.nextUrl.searchParams.get('period_start')
+  const periodEnd = req.nextUrl.searchParams.get('period_end')
+  if (periodStart && periodEnd) {
+    const { data: entryRows } = await supabase
+      .from('time_entries')
+      .select('employee_id')
+      .gte('date', periodStart)
+      .lte('date', periodEnd)
+    const activeIds = new Set(employees.map(e => e.id))
+    const missingIds = [...new Set((entryRows ?? []).map(r => r.employee_id))]
+      .filter(id => id && !activeIds.has(id))
+    if (missingIds.length > 0) {
+      const { data: inactiveEmps } = await supabase
+        .from('employees')
+        .select('*')
+        .in('id', missingIds)
+        .order('first_name')
+      for (const e of inactiveEmps ?? []) employees.push(e)
+    }
+  }
+
+  return NextResponse.json({ employees })
 }
 
 export async function POST(req: NextRequest) {

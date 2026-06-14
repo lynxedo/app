@@ -18,6 +18,7 @@
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
 import { formatPhone } from '@/lib/format'
+import { friendlyCallError } from '@/lib/dialer-errors'
 import { usePathname, useRouter } from 'next/navigation'
 import { useDialerContext, usePipControls } from './DialerProvider'
 import ActiveCall from './ActiveCall'
@@ -97,10 +98,30 @@ export default function GlobalCallBar() {
   }, [recordingPaused])
 
   if (!device) return null
-  if (!inActiveCall) return null
 
   // On the dialer page the full DialerPanel is already on screen — no bar.
   const onDialerPage = pathname === '/hub/dialer' || pathname.startsWith('/hub/dialer/')
+
+  // #40 — keep a visible bar on phone failure instead of vanishing. Show a
+  // friendly, translated message + a Retry that re-registers the device. (On the
+  // dialer page DialerPanel already shows this, so skip the bar there.)
+  if (device.state === 'error' && device.errorMessage && !onDialerPage) {
+    return (
+      <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 flex items-center gap-3 rounded-full border border-red-700 bg-red-950/95 px-4 py-2 text-sm text-red-100 shadow-lg backdrop-blur">
+        <span aria-hidden>⚠️</span>
+        <span>{friendlyCallError(device.errorMessage)}</span>
+        <button
+          type="button"
+          onClick={() => { void device.ensureRegistered() }}
+          className="rounded-full bg-red-100/15 px-3 py-1 text-xs font-semibold text-white transition-colors hover:bg-red-100/25"
+        >
+          Retry
+        </button>
+      </div>
+    )
+  }
+
+  if (!inActiveCall) return null
   if (onDialerPage) return null
 
   const elapsed = device.callStartedAt ? now - device.callStartedAt : 0
