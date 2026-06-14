@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { recomputeDayEntry } from '@/lib/timesheet-recompute'
+import { centralDate, centralDayRangeUtc } from '@/lib/timezone'
 
 // GET /api/timesheet/admin/punches?employee_id=xxx&start=YYYY-MM-DD&end=YYYY-MM-DD
 export async function GET(req: NextRequest) {
@@ -27,8 +28,10 @@ export async function GET(req: NextRequest) {
     .order('punched_at', { ascending: true })
 
   if (employee_id) query = query.eq('employee_id', employee_id)
-  if (start) query = query.gte('punched_at', start + 'T00:00:00.000Z')
-  if (end) query = query.lte('punched_at', end + 'T23:59:59.999Z')
+  // Filter by Central calendar days, not UTC, so the range matches what the admin
+  // picked (a late-evening punch on `end` is included) (TS4).
+  if (start) query = query.gte('punched_at', centralDayRangeUtc(start).startIso)
+  if (end) query = query.lt('punched_at', centralDayRangeUtc(end).endIso)
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -67,7 +70,7 @@ export async function POST(req: NextRequest) {
   // Recompute the derived entry for this punch's day (punches are the source of
   // truth; the entry is a rollup). Covers both completing a pair and adding a
   // stray punch. Weekly-OT policy lives in the shared helper.
-  const date = new Date(punched_at).toISOString().split('T')[0]
+  const date = centralDate(punched_at)
   await recomputeDayEntry(admin, employee_id, date)
 
   return NextResponse.json({ punch: data })
@@ -114,7 +117,7 @@ export async function DELETE(req: NextRequest) {
   }
 
   if (target) {
-    const date = new Date(target.punched_at).toISOString().split('T')[0]
+    const date = centralDate(target.punched_at)
     await recomputeDayEntry(admin, target.employee_id, date)
   }
 

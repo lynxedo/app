@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
 import { evaluateEventAutomations } from '@/lib/automations'
 import { recomputeDayEntry } from '@/lib/timesheet-recompute'
+import { centralDate } from '@/lib/timezone'
 import { fanoutGuardianNotification } from '@/lib/guardian-post'
 
 // GET /api/timesheet/punch?employee_id=xxx — returns current clock-in status
@@ -112,7 +113,9 @@ export async function POST(req: NextRequest) {
   let warning: string | null = null
   if (action === 'out' && lastPunch) {
     const clockIn = new Date(lastPunch.punched_at)
-    const dayDate = clockIn.toISOString().split('T')[0]
+    // Bucket to the Central calendar day the clock-in happened on (TS4) — using the
+    // UTC date would file an evening shift under the wrong day.
+    const dayDate = centralDate(clockIn)
     const admin = createAdminClient()
     const result = await recomputeDayEntry(admin, employee_id, dayDate)
 

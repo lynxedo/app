@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { recomputeDayEntry } from '@/lib/timesheet-recompute'
+import { centralDate } from '@/lib/timezone'
 
 // PATCH /api/timesheet/admin/punch/[id] — admin edits a punch time
 export async function PATCH(
@@ -58,7 +59,8 @@ export async function PATCH(
 
   if (punch) {
     // Recompute the derived entry from the day's punches (source of truth).
-    const date = new Date(punch.punched_at).toISOString().split('T')[0]
+    // Central calendar day, not UTC (TS4).
+    const date = centralDate(punch.punched_at)
     await recomputeDayEntry(createAdminClient(), punch.employee_id, date)
   }
 

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { recomputeDayEntry, validatePunchPair } from '@/lib/timesheet-recompute'
+import { centralDayRangeUtc } from '@/lib/timezone'
 
 // PATCH /api/timesheet/admin/day
 // Body: { employee_id, date (YYYY-MM-DD), clock_in (ISO), clock_out (ISO), edit_reason }
@@ -39,12 +40,14 @@ export async function PATCH(req: NextRequest) {
   const admin = createAdminClient()
 
   // Load the day's existing punches to update in place (preserves ids + audit).
+  // Central calendar day, not UTC (TS4).
+  const { startIso, endIso } = centralDayRangeUtc(date)
   const { data: dayPunches } = await admin
     .from('time_punches')
     .select('id, punch_type, punched_at, original_punched_at')
     .eq('employee_id', employee_id)
-    .gte('punched_at', date + 'T00:00:00Z')
-    .lte('punched_at', date + 'T23:59:59.999Z')
+    .gte('punched_at', startIso)
+    .lt('punched_at', endIso)
     .order('punched_at', { ascending: true })
 
   const ins = (dayPunches ?? []).filter((p: { punch_type: string }) => p.punch_type === 'in')

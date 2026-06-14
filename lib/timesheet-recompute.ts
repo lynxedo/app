@@ -9,16 +9,20 @@
 // admin UI computes weekly OT across the week's entries. (Heroes' pay policy.)
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { centralDayRangeUtc } from '@/lib/timezone'
 
-// Texas pay week runs Monday–Sunday.
-export function payPeriodFor(date: Date): { start: string; end: string } {
-  const d = new Date(date)
-  const day = d.getDay()
+// Texas pay week runs Monday–Sunday. Takes a Central calendar date (YYYY-MM-DD) and
+// returns that week's Monday/Sunday. Pure calendar math on the date string (UTC base)
+// so the server's own timezone never shifts the week boundary (TS4).
+export function payPeriodFor(centralDate: string): { start: string; end: string } {
+  const [y, m, d] = centralDate.split('-').map(Number)
+  const dt = new Date(Date.UTC(y, m - 1, d))
+  const day = dt.getUTCDay()
   const daysFromMonday = day === 0 ? 6 : day - 1
-  const monday = new Date(d)
-  monday.setDate(d.getDate() - daysFromMonday)
+  const monday = new Date(dt)
+  monday.setUTCDate(dt.getUTCDate() - daysFromMonday)
   const sunday = new Date(monday)
-  sunday.setDate(monday.getDate() + 6)
+  sunday.setUTCDate(monday.getUTCDate() + 6)
   return {
     start: monday.toISOString().split('T')[0],
     end: sunday.toISOString().split('T')[0],
@@ -38,12 +42,15 @@ export async function recomputeDayEntry(
   employeeId: string,
   date: string, // YYYY-MM-DD
 ): Promise<{ action: 'upserted' | 'deleted' | 'skipped'; totalHours: number; error?: string }> {
+  // Bucket by the Central calendar day, not UTC — otherwise evening punches that
+  // cross UTC midnight land in the wrong day's window (TS4).
+  const { startIso, endIso } = centralDayRangeUtc(date)
   const { data: dayPunches } = await admin
     .from('time_punches')
     .select('punch_type, punched_at')
     .eq('employee_id', employeeId)
-    .gte('punched_at', date + 'T00:00:00Z')
-    .lte('punched_at', date + 'T23:59:59.999Z')
+    .gte('punched_at', startIso)
+    .lt('punched_at', endIso)
     .order('punched_at', { ascending: true })
 
   const ins = (dayPunches ?? []).filter((p: { punch_type: string }) => p.punch_type === 'in')
@@ -71,7 +78,7 @@ export async function recomputeDayEntry(
 
   const totalHours = (clockOut.getTime() - clockIn.getTime()) / 3600000
   const rounded = Math.round(totalHours * 100) / 100
-  const period = payPeriodFor(clockIn)
+  const period = payPeriodFor(date)
 
   const { error } = await admin.from('time_entries').upsert({
     employee_id: employeeId,

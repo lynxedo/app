@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { recomputeDayEntry } from '@/lib/timesheet-recompute'
+import { centralDayRangeUtc } from '@/lib/timezone'
 
 // PATCH /api/timesheet/admin/punch-edits/[id]
 // Admin approves or rejects an employee edit request.
@@ -48,13 +49,15 @@ export async function PATCH(
       id: string; employee_id: string; date: string; clock_in: string; clock_out: string | null
     }
 
-    // Find punches for this employee on this date and apply the new times
+    // Find punches for this employee on this date and apply the new times.
+    // Central calendar day, not UTC (TS4).
+    const { startIso, endIso } = centralDayRangeUtc(entry.date)
     const { data: dayPunches } = await supabase
       .from('time_punches')
       .select('*')
       .eq('employee_id', entry.employee_id)
-      .gte('punched_at', entry.date + 'T00:00:00.000Z')
-      .lte('punched_at', entry.date + 'T23:59:59.999Z')
+      .gte('punched_at', startIso)
+      .lt('punched_at', endIso)
       .order('punched_at', { ascending: true })
 
     if (dayPunches) {
