@@ -14,6 +14,10 @@
 
 import crypto from 'node:crypto'
 import { SignJWT } from 'jose'
+// NT7: DND schedule evaluation lives in the client-safe lib/dnd-schedule.ts.
+// Import the types for this module's business-hours helpers; re-export the
+// functions + types below so existing `@/lib/twilio-voice` importers are unaffected.
+import type { DndSchedule } from '@/lib/dnd-schedule'
 
 const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || ''
 const AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || ''
@@ -820,12 +824,9 @@ export function twimlRingGroupSequentialStep(opts: {
 // means 6pm to 8am the next day). Multiple windows per day are OR'd.
 // ---------------------------------------------------------------------------
 
-export type DndWindow = { from: string; to: string }
-export type DndSchedule = {
-  enabled?: boolean
-  tz?: string
-  days?: Partial<Record<'mon'|'tue'|'wed'|'thu'|'fri'|'sat'|'sun', DndWindow[]>>
-}
+// NT7: re-export the canonical DND types so existing importers of these from
+// '@/lib/twilio-voice' keep working. The definitions live in lib/dnd-schedule.ts.
+export type { DndWindow, DndSchedule } from '@/lib/dnd-schedule'
 
 const DAY_KEYS: Array<DndSchedule['days'] extends infer X ? keyof NonNullable<X> : never> =
   ['sun', 'mon', 'tue', 'wed', 'thu', 'fri', 'sat'] as const
@@ -839,85 +840,10 @@ function parseHm(s: string): number | null {
   return h * 60 + min
 }
 
-// Returns true if `now` falls inside any window for the local day in `schedule.tz`.
-// Tolerant of malformed entries (silently skips). v1 keeps the math simple by
-// formatting `now` to the schedule's timezone via Intl.DateTimeFormat — Node 20+
-// has full ICU bundled, so America/Chicago etc. work out of the box on the VPS.
-export function isInDndSchedule(schedule: DndSchedule | null | undefined, now: Date = new Date()): boolean {
-  if (!schedule || !schedule.enabled || !schedule.days) return false
-  const tz = schedule.tz || 'America/Chicago'
-
-  let dayKey: typeof DAY_KEYS[number]
-  let nowMin: number
-  try {
-    const fmt = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz,
-      weekday: 'short',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    })
-    const parts = fmt.formatToParts(now)
-    const wd = parts.find((p) => p.type === 'weekday')?.value || ''
-    const hourStr = parts.find((p) => p.type === 'hour')?.value || '0'
-    const minStr = parts.find((p) => p.type === 'minute')?.value || '0'
-    const map: Record<string, typeof DAY_KEYS[number]> = {
-      Sun: 'sun', Mon: 'mon', Tue: 'tue', Wed: 'wed', Thu: 'thu', Fri: 'fri', Sat: 'sat',
-    }
-    dayKey = map[wd] || 'mon'
-    // Intl can render hour as "24" for midnight; normalize to 0.
-    const h = parseInt(hourStr, 10) % 24
-    const m = parseInt(minStr, 10)
-    nowMin = h * 60 + m
-  } catch {
-    return false
-  }
-
-  function dayInWindow(windows: DndWindow[] | undefined, atMin: number): boolean {
-    if (!windows) return false
-    for (const w of windows) {
-      const from = parseHm(w.from)
-      const to = parseHm(w.to)
-      if (from === null || to === null) continue
-      if (from === to) continue
-      if (from < to) {
-        if (atMin >= from && atMin < to) return true
-      } else {
-        // Wraps midnight — match if at >= from OR at < to.
-        if (atMin >= from || atMin < to) return true
-      }
-    }
-    return false
-  }
-
-  if (dayInWindow(schedule.days[dayKey], nowMin)) return true
-
-  // Wrap-overnight windows on the PREVIOUS day also keep us in DND in the early
-  // morning hours of `today`. Check yesterday's wrapping windows specifically.
-  const yesterdayIdx = (DAY_KEYS.indexOf(dayKey) + 6) % 7
-  const yesterdayKey = DAY_KEYS[yesterdayIdx]
-  const yWindows = schedule.days[yesterdayKey]
-  if (yWindows) {
-    for (const w of yWindows) {
-      const from = parseHm(w.from)
-      const to = parseHm(w.to)
-      if (from === null || to === null) continue
-      if (from > to && nowMin < to) return true
-    }
-  }
-  return false
-}
-
-// Combined helper: a user is DND-now if their manual dnd toggle is on OR
-// they're inside their scheduled DND window.
-export function userIsDndNow(opts: {
-  manualEnabled: boolean
-  schedule: DndSchedule | null | undefined
-  now?: Date
-}): boolean {
-  if (opts.manualEnabled) return true
-  return isInDndSchedule(opts.schedule, opts.now)
-}
+// NT7: isInDndSchedule + userIsDndNow now live in the client-safe
+// lib/dnd-schedule.ts (single source of truth). Re-exported here so existing
+// '@/lib/twilio-voice' callers (hub-push, dialer routing) keep working.
+export { isInDndSchedule, userIsDndNow } from '@/lib/dnd-schedule'
 
 // ---------------------------------------------------------------------------
 // Session 61 — After-hours / holiday IVR tree picker

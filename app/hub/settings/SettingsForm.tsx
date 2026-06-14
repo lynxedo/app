@@ -10,7 +10,7 @@ import { type RailPermissions } from '@/components/hub/railCatalog'
 import TxtPersonalTemplates from './TxtPersonalTemplates'
 import DialerPersonalSettings from './DialerPersonalSettings'
 import DndScheduleEditor from '@/components/hub/DndScheduleEditor'
-import type { DndSchedule } from '@/lib/twilio-voice'
+import type { DndSchedule } from '@/lib/dnd-schedule'
 
 interface HubProfile {
   full_name: string | null
