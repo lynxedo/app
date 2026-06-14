@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import PostComposer from './PostComposer'
+import { useConfirm } from '@/components/ui'
 
 type SocialAccount = {
   id: string
@@ -65,6 +66,7 @@ export default function SocialView({
   initialAccounts: SocialAccount[]
   canAdmin: boolean
 }) {
+  const confirmDialog = useConfirm()
   const [accounts] = useState<SocialAccount[]>(initialAccounts)
   const [posts, setPosts] = useState<SocialPost[]>([])
   const [loading, setLoading] = useState(true)
@@ -87,7 +89,7 @@ export default function SocialView({
   useEffect(() => { fetchPosts(statusFilter) }, [statusFilter, fetchPosts])
 
   async function deletePost(id: string) {
-    if (!confirm('Delete this post?')) return
+    if (!(await confirmDialog({ message: 'Delete this post?', danger: true }))) return
     await fetch(`/api/hub/social/posts/${id}`, { method: 'DELETE' })
     setPosts(prev => prev.filter(p => p.id !== id))
   }

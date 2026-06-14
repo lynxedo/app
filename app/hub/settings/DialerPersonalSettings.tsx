@@ -2,9 +2,11 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useConfirm } from '@/components/ui'
 
 export default function DialerPersonalSettings() {
   const supabase = createClient()
+  const confirmDialog = useConfirm()
   const [loaded, setLoaded] = useState(false)
   const [greetingUrl, setGreetingUrl] = useState<string | null>(null)
   const [uploading, setUploading] = useState(false)
@@ -50,7 +52,7 @@ export default function DialerPersonalSettings() {
   }
 
   async function clearGreeting() {
-    if (!confirm('Remove your custom voicemail greeting?')) return
+    if (!(await confirmDialog({ message: 'Remove your custom voicemail greeting?', danger: true }))) return
     setUploading(true)
     setErr(null)
     try {

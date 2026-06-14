@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { useConfirm } from '@/components/ui'
 
 type Tag = { id: string; label: string; color: string }
 
@@ -283,6 +284,7 @@ function ContactDetailSheet({
   onText: () => void
   texting: boolean
 }) {
+  const confirmDialog = useConfirm()
   const [editing, setEditing] = useState(false)
   const [name, setName] = useState(contact.name)
   const [phone, setPhone] = useState(contact.phone)
@@ -326,7 +328,7 @@ function ContactDetailSheet({
   }
 
   async function remove() {
-    if (!confirm('Delete this contact? Message and call history with them stays but loses the name.')) return
+    if (!(await confirmDialog({ message: 'Delete this contact? Message and call history with them stays but loses the name.', danger: true }))) return
     const res = await fetch(`/api/contacts/${contact.id}`, { method: 'DELETE' })
     if (res.ok) onDeleted(contact.id)
   }

@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useRef, useCallback } from 'react'
-import { useToast } from '@/components/ui'
+import { useToast, useConfirm } from '@/components/ui'
 
 type HubUser = { id: string; display_name: string; avatar_url?: string | null }
 
@@ -101,6 +101,7 @@ function CommentsPanel({
   onAttachmentAdded: () => void
 }) {
   const toast = useToast()
+  const confirmDialog = useConfirm()
   const [comments, setComments] = useState<Comment[]>([])
   const [attachments, setAttachments] = useState<Attachment[]>([])
   const [text, setText] = useState('')
@@ -170,7 +171,7 @@ function CommentsPanel({
   }
 
   async function deleteAttachment(id: string) {
-    if (!confirm('Remove this attachment?')) return
+    if (!(await confirmDialog({ message: 'Remove this attachment?', danger: true }))) return
     await fetch(`/api/hub/boards/${boardId}/items/${item.id}/attachments?attachmentId=${id}`, { method: 'DELETE' })
     setAttachments(prev => prev.filter(a => a.id !== id))
     onAttachmentAdded()

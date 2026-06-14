@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useConfirm } from '@/components/ui'
 
 type SocialAccount = {
   id: string
@@ -48,6 +49,7 @@ export default function MarketingAdminPanel({
   metaConnectedCount: number | null
   metaError: string | null
 }) {
+  const confirmDialog = useConfirm()
   const [accounts, setAccounts] = useState<SocialAccount[]>(initialAccounts)
   const [connecting, setConnecting] = useState(false)
   const [connectErr, setConnectErr] = useState('')
@@ -98,7 +100,7 @@ export default function MarketingAdminPanel({
   }
 
   async function deleteAccount(accountId: string) {
-    if (!confirm('Remove this social account? Scheduled posts using it will fail.')) return
+    if (!(await confirmDialog({ message: 'Remove this social account? Scheduled posts using it will fail.', danger: true }))) return
     const res = await fetch(`/api/admin/social-accounts/${accountId}`, { method: 'DELETE' })
     if (res.ok) {
       setAccounts(prev => prev.filter(a => a.id !== accountId))

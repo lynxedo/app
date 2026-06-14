@@ -7,6 +7,7 @@ import {
   RATE_BASIS_LABELS, costPer1000, ksfPerPackage, inventoryTotal, inventoryValue,
   fmtMoney, fmtNum,
 } from '@/lib/products'
+import { useConfirm } from '@/components/ui'
 
 // The loaded item carries its sub-items + per-location inventory inline (Supabase nested select).
 type Item = Product & {
@@ -99,6 +100,7 @@ function VariantManager({
   onChange: (variants: ProductVariant[]) => void
   onError: (msg: string) => void
 }) {
+  const confirmDialog = useConfirm()
   const [adding, setAdding] = useState(false)
   const [label, setLabel] = useState('')
   const [rate, setRate] = useState('')
@@ -144,7 +146,7 @@ function VariantManager({
   }
 
   async function deleteVariant(id: string) {
-    if (!confirm('Delete this sub-item (rate)?')) return
+    if (!(await confirmDialog({ message: 'Delete this sub-item (rate)?', danger: true }))) return
     const res = await fetch(`/api/admin/product-variants/${id}`, { method: 'DELETE' })
     if (res.ok) onChange(item.product_variants.filter(v => v.id !== id))
     else onError('Failed to delete sub-item')
@@ -336,6 +338,7 @@ function EntityList({
   onChange: (items: { id: string; name: string; sort_order: number }[]) => void
   onError: (msg: string) => void
 }) {
+  const confirmDialog = useConfirm()
   const [newName, setNewName] = useState('')
   const [busy, setBusy] = useState(false)
 
@@ -375,7 +378,7 @@ function EntityList({
   }
 
   async function remove(id: string) {
-    if (!confirm(deleteWarning)) return
+    if (!(await confirmDialog({ message: deleteWarning, danger: true }))) return
     const res = await fetch(`${endpoint}/${id}`, { method: 'DELETE' })
     if (res.ok) onChange(items.filter(i => i.id !== id))
     else onError(`Failed to delete ${noun}`)
@@ -422,6 +425,7 @@ export default function ProductsAdminPanel({
   initialCategories: ProductCategory[]
   initialLocations: InventoryLocation[]
 }) {
+  const confirmDialog = useConfirm()
   const [products, setProducts] = useState<Item[]>(initialProducts)
   const [categories, setCategories] = useState<ProductCategory[]>(initialCategories)
   const [locations, setLocations] = useState<InventoryLocation[]>(initialLocations)
@@ -500,7 +504,7 @@ export default function ProductsAdminPanel({
   }
 
   async function deleteProduct(id: string, name: string) {
-    if (!confirm(`Delete "${name}" and all its sub-items + inventory?\n\nThis cannot be undone.`)) return
+    if (!(await confirmDialog({ message: `Delete "${name}" and all its sub-items + inventory?\n\nThis cannot be undone.`, danger: true }))) return
     const res = await fetch(`/api/admin/products/${id}`, { method: 'DELETE' })
     if (res.ok) setProducts(prev => prev.filter(p => p.id !== id))
     else flash('Failed to delete product')

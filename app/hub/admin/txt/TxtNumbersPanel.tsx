@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
-import { useToast } from '@/components/ui'
+import { useToast, useConfirm } from '@/components/ui'
 
 export type TxtNumber = {
   id: string
@@ -44,6 +44,7 @@ export default function TxtNumbersPanel({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
   const toast = useToast()
+  const confirmDialog = useConfirm()
 
   useEffect(() => {
     fetch('/api/admin/txt/user-numbers')
@@ -118,7 +119,7 @@ export default function TxtNumbersPanel({
   }
 
   async function remove(n: TxtNumber) {
-    if (!confirm(`Delete ${n.label || formatPhone(n.twilio_number)}? Conversations using it will keep their history but lose the from-number stamp.`)) return
+    if (!(await confirmDialog({ message: `Delete ${n.label || formatPhone(n.twilio_number)}? Conversations using it will keep their history but lose the from-number stamp.`, danger: true }))) return
     const res = await fetch(`/api/admin/txt/numbers/${n.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))

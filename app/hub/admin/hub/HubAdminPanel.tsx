@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import EmojiPicker from '@/components/hub/EmojiPicker'
 import AutomationBuilder from '@/components/hub/admin/AutomationBuilder'
-import { useToast } from '@/components/ui'
+import { useToast, useConfirm } from '@/components/ui'
 
 type Room = { id: string; name: string; description: string | null; is_private: boolean; archived_at: string | null; claude_enabled: boolean }
 type HubUser = { id: string; display_name: string; claude_allowed?: boolean }
@@ -113,6 +113,7 @@ export default function HubAdminPanel({
 }) {
   const router = useRouter()
   const toast = useToast()
+  const confirmDialog = useConfirm()
   const [rooms, setRooms] = useState<Room[]>(initialRooms)
   const [allowCreate, setAllowCreate] = useState(allowMemberRoomCreation)
   const [activeAnns, setActiveAnns] = useState<Announcement[]>(activeAnnouncements)
@@ -279,9 +280,9 @@ export default function HubAdminPanel({
     const room = rooms.find(r => r.id === id)
     if (!room) return
     if (makePrivate) {
-      if (!confirm(`Make "${room.name}" private? Only members you add will have access — everyone else will lose access immediately.`)) return
+      if (!(await confirmDialog(`Make "${room.name}" private? Only members you add will have access — everyone else will lose access immediately.`))) return
     } else {
-      if (!confirm(`Make "${room.name}" public? All Hub members will be able to join this room.`)) return
+      if (!(await confirmDialog(`Make "${room.name}" public? All Hub members will be able to join this room.`))) return
     }
     const res = await fetch(`/api/hub/rooms/${id}`, {
       method: 'PATCH',
@@ -407,7 +408,7 @@ export default function HubAdminPanel({
   }
 
   async function hardDeleteAnn(id: string) {
-    if (!confirm('Permanently delete this announcement? This cannot be undone.')) return
+    if (!(await confirmDialog({ message: 'Permanently delete this announcement? This cannot be undone.', danger: true }))) return
     setDeletingAnnId(id)
     const res = await fetch(`/api/hub/announcements/${id}?hard=1`, { method: 'DELETE' })
     setDeletingAnnId(null)
@@ -500,7 +501,7 @@ export default function HubAdminPanel({
   }
 
   async function deleteChatSynxLink(slackUserId: string) {
-    if (!confirm('Delete this person mapping? Their Slack messages will stop reaching Hub until you re-link them.')) return
+    if (!(await confirmDialog({ message: 'Delete this person mapping? Their Slack messages will stop reaching Hub until you re-link them.', danger: true }))) return
     await fetch(`/api/admin/chat-synx/links/${encodeURIComponent(slackUserId)}`, { method: 'DELETE' })
     setChatSynxLinks(prev => prev.filter(l => l.slack_user_id !== slackUserId))
   }
@@ -539,7 +540,7 @@ export default function HubAdminPanel({
   }
 
   async function deleteChatSynxBridge(id: string) {
-    if (!confirm('Delete this channel bridge? Messages will stop flowing between this Hub room and Slack channel.')) return
+    if (!(await confirmDialog({ message: 'Delete this channel bridge? Messages will stop flowing between this Hub room and Slack channel.', danger: true }))) return
     await fetch(`/api/admin/chat-synx/bridges/${id}`, { method: 'DELETE' })
     setChatSynxBridges(prev => prev.filter(b => b.id !== id))
   }
@@ -606,7 +607,7 @@ export default function HubAdminPanel({
   }
 
   async function deleteFileTag(tag: FileTag) {
-    if (!confirm(`Delete tag "${tag.name}"?\n\nThis will also remove it from any files currently tagged with it.`)) return
+    if (!(await confirmDialog({ message: `Delete tag "${tag.name}"?\n\nThis will also remove it from any files currently tagged with it.`, danger: true }))) return
     const res = await fetch(`/api/admin/file-tags/${tag.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
@@ -674,7 +675,7 @@ export default function HubAdminPanel({
   }
 
   async function deleteExternalLink(link: ExternalLink) {
-    if (!confirm(`Delete link "${link.name}"?`)) return
+    if (!(await confirmDialog({ message: `Delete link "${link.name}"?`, danger: true }))) return
     const res = await fetch(`/api/admin/external-links/${link.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
@@ -736,7 +737,7 @@ export default function HubAdminPanel({
   }
 
   async function deleteAutomationRule(id: string) {
-    if (!confirm('Delete this automation rule?')) return
+    if (!(await confirmDialog({ message: 'Delete this automation rule?', danger: true }))) return
     const res = await fetch(`/api/hub/automation-rules/${id}`, { method: 'DELETE' })
     if (res.ok) setAutomationRules(prev => prev.filter(r => r.id !== id))
   }
@@ -1139,8 +1140,8 @@ export default function HubAdminPanel({
                     </div>
                     {!k.revoked_at && (
                       <button
-                        onClick={() => {
-                          if (confirm(`Revoke the "${k.name}" API key? This cannot be undone.`)) revokeApiKey(k.id)
+                        onClick={async () => {
+                          if (await confirmDialog({ message: `Revoke the "${k.name}" API key? This cannot be undone.`, danger: true })) revokeApiKey(k.id)
                         }}
                         className="text-xs text-red-400 hover:text-red-300 px-3 py-1.5 border border-red-500/30 rounded-lg hover:bg-red-500/10 transition-colors flex-none"
                       >

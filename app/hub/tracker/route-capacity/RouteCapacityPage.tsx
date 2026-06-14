@@ -9,7 +9,7 @@ import {
   type RouteCapacityFormulas,
 } from '@/lib/route-capacity-formulas'
 import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
-import { useToast } from '@/components/ui'
+import { useToast, useConfirm } from '@/components/ui'
 
 type ColKind = 'data' | 'formula'
 type DataType = 'text' | 'date' | 'number'
@@ -125,6 +125,7 @@ const RouteCapacityRowTr = memo(function RouteCapacityRowTr({
 
 export default function RouteCapacityPage() {
   const toast = useToast()
+  const confirmDialog = useConfirm()
   const [rows, setRows] = useState<RouteCapacityRow[]>([])
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
@@ -173,7 +174,7 @@ export default function RouteCapacityPage() {
   }
 
   const deleteRow = useCallback(async (id: string) => {
-    if (!confirm('Delete this row?')) return
+    if (!(await confirmDialog({ message: 'Delete this row?', danger: true }))) return
     setRows(prev => prev.filter(r => r.id !== id))
     await fetch(`/api/tracker/route-capacity/${id}`, { method: 'DELETE' })
   }, [])

@@ -11,7 +11,7 @@ import TxtPersonalTemplates from './TxtPersonalTemplates'
 import DialerPersonalSettings from './DialerPersonalSettings'
 import DndScheduleEditor from '@/components/hub/DndScheduleEditor'
 import type { DndSchedule } from '@/lib/dnd-schedule'
-import { useToast } from '@/components/ui'
+import { useToast, useConfirm } from '@/components/ui'
 
 interface HubProfile {
   full_name: string | null
@@ -93,6 +93,7 @@ async function getCroppedBlob(
 export default function SettingsForm({ email, userId, hubProfile, jobberConnected, landingPage, notifPref, railPermissions, txtSignature, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
   const router = useRouter()
   const toast = useToast()
+  const confirmDialog = useConfirm()
   // SET-deeplink — tabs are deep-linkable via ?tab= (so a link to a specific
   // settings tab lands there, and the browser back button moves between tabs),
   // mirroring the Help page.
@@ -426,7 +427,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
   }
 
   const handleDisconnect = async () => {
-    if (!confirm('Disconnect Jobber? You will need to reconnect to load visits.')) return
+    if (!(await confirmDialog({ message: 'Disconnect Jobber? You will need to reconnect to load visits.', danger: true }))) return
     setDisconnecting(true)
     try {
       const res = await fetch('/api/auth/jobber/disconnect', { method: 'POST' })

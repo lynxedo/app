@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useToast } from '@/components/ui'
+import { useToast, useConfirm } from '@/components/ui'
 
 type UserProfile = {
   id: string
@@ -160,6 +160,7 @@ export default function AdminPanel({
   const [inviteStatus, setInviteStatus] = useState<'idle' | 'loading' | 'success' | 'deferred' | 'error'>('idle')
   const [inviteError, setInviteError] = useState('')
   const toast = useToast()
+  const confirmDialog = useConfirm()
 
   async function handleAddUser(deferred: boolean) {
     setInviteStatus('loading')
@@ -282,7 +283,7 @@ export default function AdminPanel({
   }
 
   async function handleDelete(userId: string, email: string) {
-    if (!confirm(`Remove ${email} from Lynxedo?\n\nThey will lose access immediately.`)) return
+    if (!(await confirmDialog({ message: `Remove ${email} from Lynxedo?\n\nThey will lose access immediately.`, danger: true }))) return
     const res = await fetch(`/api/admin/users/${userId}`, { method: 'DELETE' })
     if (res.ok) setUsers(prev => prev.filter(u => u.id !== userId))
   }
@@ -368,7 +369,7 @@ export default function AdminPanel({
   }
 
   async function handleDeleteEmployee(emp: RosterEmployee) {
-    if (!confirm(`Remove ${emp.first_name} ${emp.last_name} from the employee roster?\n\nThis does not affect Gusto. You can re-sync from Gusto to restore them.`)) return
+    if (!(await confirmDialog({ message: `Remove ${emp.first_name} ${emp.last_name} from the employee roster?\n\nThis does not affect Gusto. You can re-sync from Gusto to restore them.`, danger: true }))) return
     const res = await fetch(`/api/admin/employees/${emp.id}`, { method: 'DELETE' })
     if (res.ok) {
       setEmployees(prev => prev.filter(e => e.id !== emp.id))

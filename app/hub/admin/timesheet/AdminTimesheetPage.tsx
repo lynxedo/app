@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { useConfirm } from '@/components/ui'
 
 type Employee = {
   id: string
@@ -249,6 +250,7 @@ function exportPayPeriodCSV(employees: Employee[], entries: TimeEntry[], weekSta
 // ── main component ────────────────────────────────────────────────────────────
 
 export default function AdminTimesheetPage() {
+  const confirmDialog = useConfirm()
   const [weekStart, setWeekStart] = useState(() => getWeekStart())
   const [employees, setEmployees] = useState<Employee[]>([])
   const [entries, setEntries] = useState<TimeEntry[]>([])
@@ -458,7 +460,7 @@ export default function AdminTimesheetPage() {
   }
 
   async function deletePunch(id: string) {
-    if (!confirm('Delete this punch? This cannot be undone.')) return
+    if (!(await confirmDialog({ message: 'Delete this punch? This cannot be undone.', danger: true }))) return
     await fetch(`/api/timesheet/admin/punches?id=${id}`, { method: 'DELETE' })
     if (editEmployee) loadEditPunches(editEmployee, editWeekStart)
     loadData()
@@ -586,7 +588,7 @@ export default function AdminTimesheetPage() {
   }
 
   async function deleteHoliday(id: string) {
-    if (!confirm('Delete this holiday? This cannot be undone.')) return
+    if (!(await confirmDialog({ message: 'Delete this holiday? This cannot be undone.', danger: true }))) return
     await fetch(`/api/timesheet/holidays/${id}`, { method: 'DELETE' })
     loadAllHolidays()
     loadData()
