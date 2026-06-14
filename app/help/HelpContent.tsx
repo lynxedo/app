@@ -284,7 +284,7 @@ function HubTab() {
           <li><strong className="text-white">📎 Attach</strong> — pick a file, photo, or video. You can also paste images from your clipboard or drag-and-drop a file straight onto the composer. While a file is uploading (videos can take a few seconds) an <strong className="text-white">Uploading attachment…</strong> banner shows above the box and Send stays disabled until it finishes, so a large video can&apos;t be half-sent.</li>
           <li><strong className="text-white">Aa Format</strong> — wraps your selected text (or inserts markers for you to type between) in bold, italic, strike, code, or quote. See the Formatting section below for the full list of markers and keyboard shortcuts.</li>
           <li><strong className="text-white">😀 Emoji</strong> — opens a full emoji picker with search, categories, recents, and skin tones.</li>
-          <li><strong className="text-white">@ Mention</strong> — inserts <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> and opens the name picker. Mentioned people get a push notification even if their notifications are set to Mentions only. You can also just type <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> directly.</li>
+          <li><strong className="text-white">@ Mention</strong> — inserts <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> and opens the name picker. Mentioned people get a push notification even if their notifications are set to Mentions only. You can also just type <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> directly. When two teammates share a first name, picking one inserts their <em>full</em> name so only that person is pinged — and names with accents or apostrophes (José, O&apos;Brien) match correctly.</li>
           <li><strong className="text-white">⏰ Schedule</strong> — pick a future date/time. The button turns blue, the Send button turns yellow, and a banner shows when it&apos;ll go out. Click the ✕ on the banner to switch back to send-now. The popover also has a <strong className="text-white">View scheduled messages</strong> link that opens a list of everything you have queued across all rooms and DMs — edit the body, reschedule the time, send right now, or delete.</li>
           <li><strong className="text-white">▶ Send</strong> — sends the message. Hidden until you&apos;ve started typing or attached something.</li>
         </ul>
@@ -336,6 +336,11 @@ function HubTab() {
           <li>Rooms (channels) intentionally <strong>do not</strong> show read receipts. Slack-style — channels would be overwhelming and weird to track per-person.</li>
           <li>Bots (like @Guardian) are never counted as readers.</li>
         </ul>
+      </Section>
+
+      <Section title="Typing Indicator">
+        <p>When someone in a room or DM is typing, you&apos;ll see a small <em>&ldquo;Name is typing…&rdquo;</em> line with animated dots at the bottom of the conversation, just above the box where you type. If two people are typing it shows both names; more than that shows <em>&ldquo;Several people are typing…&rdquo;</em></p>
+        <p className="text-gray-400 text-xs">It appears within a second of them typing and clears a few seconds after they stop. You never see your own typing.</p>
       </Section>
 
       <Section title="Message Actions (long-press / right-click)">
@@ -668,7 +673,7 @@ function RoutingTab() {
       </Section>
 
       <Section title="Printing the Route Sheet">
-        <p>Click <strong className="text-white">Print Route Sheet</strong> to open a printable version in a new tab:</p>
+        <p>Click <strong className="text-white">Print Route Sheet</strong> to open a printable version (a new tab in a browser; opens in place inside the iPhone/Android app):</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Page 1 (landscape)</strong> — a map with numbered stops and road geometry</li>
           <li><strong className="text-white">Following pages (portrait)</strong> — one card per stop with client name, address, phone, job details, and special instructions</li>
@@ -1226,6 +1231,7 @@ function TimesheetTab() {
             <li>Add manual shifts for missed days</li>
             <li>Link Lynxedo users to their Gusto employee record</li>
             <li>Import the period into Gusto when payroll runs (via the Gusto MCP integration)</li>
+            <li><strong className="text-white">Departed employees still appear</strong> — if you deactivate someone, they still show up in (and export to the Gusto CSV for) any pay period where they had clocked hours, so a final week is never dropped from payroll.</li>
           </ul>
           <p className="mt-3"><strong className="text-white">Built-in guards against bad times:</strong> a day won&apos;t save if the clock-out isn&apos;t after the clock-in (catches an AM/PM mix-up, like 3:40 <em>am</em> instead of 3:40 <em>pm</em>), or if a single shift would run over 24 hours. A yellow heads-up also appears for any time before 5 AM or a shift longer than 16 hours so you can double-check before saving.</p>
           <Note>Overtime is calculated <strong className="text-white">weekly</strong> — anything over 40 hours in the Mon–Sun week — not per day. A 10-hour day on its own is all regular time; OT only kicks in once the week passes 40.</Note>
