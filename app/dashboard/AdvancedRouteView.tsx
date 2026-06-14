@@ -212,6 +212,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
   const [visits, setVisits] = useState<Visit[] | null>(null)
   const [visitsLoading, setVisitsLoading] = useState(false)
   const [visitsError, setVisitsError] = useState<string | null>(null)
+  const [visitsTruncated, setVisitsTruncated] = useState(false)
 
   const [coordsById, setCoordsById] = useState<Map<string, { lat: number; lng: number }>>(new Map())
   const [coordsLoading, setCoordsLoading] = useState(false)
@@ -378,9 +379,10 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
         const res = await fetch(`/api/visits?date=${d}&userId=${encodeURIComponent(uid)}`)
         const data = await res.json()
         if (data.error) throw new Error(data.error)
-        return (data.visits as Visit[]).map(v => ({ ...v, techId: uid, dayDate: d }))
+        return { visits: (data.visits as Visit[]).map(v => ({ ...v, techId: uid, dayDate: d })), truncated: !!data.truncated }
       }))
-      const merged = settled.flat()
+      setVisitsTruncated(settled.some(s => s.truncated))
+      const merged = settled.flatMap(s => s.visits)
       setVisits(merged)
       geocodeVisits(merged)
     } catch (e) {
@@ -1003,6 +1005,11 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       {/* Errors / warnings */}
       {visitsError && (
         <div className="bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm">{visitsError}</div>
+      )}
+      {visitsTruncated && (
+        <div className="bg-amber-900/30 border border-amber-700/60 text-amber-300 rounded-lg px-4 py-2 text-xs">
+          Showing the first 50 stops per tech-day — a few may be missing if someone has an unusually full day.
+        </div>
       )}
       {optimizeError && (
         <div className="bg-red-900/40 border border-red-700 text-red-300 rounded-lg px-4 py-3 text-sm">Optimization failed: {optimizeError}</div>
