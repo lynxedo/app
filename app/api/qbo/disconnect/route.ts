@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { decrypt } from '@/lib/qbo'
+import { decrypt, revokeToken } from '@/lib/qbo'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { checkPinCookie } from '@/lib/check-pin-cookie'
 
@@ -24,26 +24,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Not connected' }, { status: 404 })
   }
 
-  const refreshToken = decrypt(data.refresh_token)
-  const credentials = Buffer.from(
-    `${process.env.QBO_CLIENT_ID}:${process.env.QBO_CLIENT_SECRET}`
-  ).toString('base64')
-
-  const revokeRes = await fetch('https://developer.api.intuit.com/v2/oauth2/tokens/revoke', {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/x-www-form-urlencoded',
-      Authorization: `Basic ${credentials}`,
-    },
-    body: new URLSearchParams({ token: refreshToken }),
-    cache: 'no-store',
-  })
-
-  const intuitTid = revokeRes.headers.get('intuit_tid')
-  if (!revokeRes.ok) {
-    console.error('QBO revoke failed', { status: revokeRes.status, intuit_tid: intuitTid })
-  }
-
+  await revokeToken(decrypt(data.refresh_token))
   await supabase.from('qbo_tokens').delete().eq('id', data.id)
 
   return NextResponse.json({ ok: true })

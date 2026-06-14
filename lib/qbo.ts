@@ -22,6 +22,58 @@ export function decrypt(data: string): string {
   return Buffer.concat([decipher.update(encrypted), decipher.final()]).toString('utf8')
 }
 
+function qboCredentials() {
+  return Buffer.from(
+    `${process.env.QBO_CLIENT_ID}:${process.env.QBO_CLIENT_SECRET}`
+  ).toString('base64')
+}
+
+export async function exchangeAuthCode(code: string): Promise<{
+  access_token: string
+  refresh_token: string
+  expires_in: number
+}> {
+  const res = await fetch('https://oauth.platform.intuit.com/oauth2/v1/tokens/bearer', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: `Basic ${qboCredentials()}`,
+      Accept: 'application/json',
+    },
+    body: new URLSearchParams({
+      grant_type: 'authorization_code',
+      code,
+      redirect_uri: process.env.QBO_REDIRECT_URI!,
+    }),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
+  })
+  const intuitTid = res.headers.get('intuit_tid')
+  if (!res.ok) {
+    const text = await res.text()
+    console.error('QBO token exchange failed', { status: res.status, intuit_tid: intuitTid, error: text })
+    throw new Error(`QBO token exchange failed: ${res.status}`)
+  }
+  return res.json()
+}
+
+export async function revokeToken(refreshToken: string): Promise<void> {
+  const res = await fetch('https://developer.api.intuit.com/v2/oauth2/tokens/revoke', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded',
+      Authorization: `Basic ${qboCredentials()}`,
+    },
+    body: new URLSearchParams({ token: refreshToken }),
+    cache: 'no-store',
+    signal: AbortSignal.timeout(10000),
+  })
+  const intuitTid = res.headers.get('intuit_tid')
+  if (!res.ok) {
+    console.error('QBO revoke failed', { status: res.status, intuit_tid: intuitTid })
+  }
+}
+
 export async function refreshAccessToken(refreshToken: string): Promise<{
   access_token: string
   refresh_token: string

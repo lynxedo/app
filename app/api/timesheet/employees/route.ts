@@ -6,6 +6,17 @@ export async function GET(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
+  // TS10 — employee records include wage data (hourly_rate, pay_type, etc.); restrict
+  // to timesheet admins only so non-admin staff can't read colleagues' pay rates.
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role, can_admin_timesheet')
+    .eq('id', user.id)
+    .single()
+  if (profile?.role !== 'admin' && !profile?.can_admin_timesheet) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
   const { data: activeEmps, error } = await supabase
     .from('employees')
     .select('*')

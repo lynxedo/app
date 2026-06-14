@@ -2,13 +2,7 @@
 
 import { useEffect, useRef } from 'react'
 import { usePathname, useRouter } from 'next/navigation'
-
-// If the user hasn't touched Hub in this long, the next open drops them on /hub/home
-// instead of resuming where they were. Tuned to fire on the overnight gap but not on
-// a long lunch or meeting. Pure navigation reset — Supabase session is untouched.
-const IDLE_THRESHOLD_MS = 14 * 60 * 60 * 1000 // 14 hours
-const STORAGE_KEY = 'hub_last_active_at'
-const ROUTE_KEY = 'hub_last_route'
+import { HUB_HUB_IDLE_THRESHOLD_MS, HUB_LAST_ACTIVE_KEY, HUB_LAST_HUB_LAST_ROUTE_KEY } from '@/lib/hub-idle'
 
 // Routes we never save as "last route" because they are themselves landing /
 // redirect pages — saving them would defeat the restore on the next cold load.
@@ -30,13 +24,13 @@ export default function HubIdleTracker() {
     didInitialCheck.current = true
 
     try {
-      const raw = window.localStorage.getItem(STORAGE_KEY)
+      const raw = window.localStorage.getItem(HUB_LAST_ACTIVE_KEY)
       const prev = raw ? Number(raw) : 0
       const elapsed = Date.now() - prev
       const fromPush = new URLSearchParams(window.location.search).get('source') === 'push'
       const alreadyOnHome = pathname === '/hub/home'
 
-      if (prev > 0 && elapsed > IDLE_THRESHOLD_MS && !fromPush && !alreadyOnHome) {
+      if (prev > 0 && elapsed > HUB_IDLE_THRESHOLD_MS && !fromPush && !alreadyOnHome) {
         router.replace('/hub/home')
       }
     } catch {
@@ -49,9 +43,9 @@ export default function HubIdleTracker() {
   // load can restore to the user's actual previous destination.
   useEffect(() => {
     try {
-      window.localStorage.setItem(STORAGE_KEY, String(Date.now()))
+      window.localStorage.setItem(HUB_LAST_ACTIVE_KEY, String(Date.now()))
       if (!isLandingRoute(pathname)) {
-        window.localStorage.setItem(ROUTE_KEY, pathname)
+        window.localStorage.setItem(HUB_LAST_ROUTE_KEY, pathname)
       }
     } catch {
       // localStorage unavailable — ignore

@@ -2,8 +2,7 @@
 
 import { useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-
-const IDLE_THRESHOLD_MS = 14 * 60 * 60 * 1000 // 14 hours — matches HubIdleTracker
+import { HUB_IDLE_THRESHOLD_MS, HUB_LAST_ACTIVE_KEY, HUB_LAST_ROUTE_KEY } from '@/lib/hub-idle'
 
 // Renders nothing — its only job is to pick where to send the user when they
 // land on the bare /hub URL (cold app open, manifest start_url, etc).
@@ -25,12 +24,12 @@ export default function HubRootRedirect({ fallback }: { fallback: string }) {
         return
       }
 
-      const lastActiveRaw = window.localStorage.getItem('hub_last_active_at')
+      const lastActiveRaw = window.localStorage.getItem(HUB_LAST_ACTIVE_KEY)
       const lastActive = lastActiveRaw ? Number(lastActiveRaw) : 0
       const elapsed = Date.now() - lastActive
-      const lastRoute = window.localStorage.getItem('hub_last_route')
+      const lastRoute = window.localStorage.getItem(HUB_LAST_ROUTE_KEY)
 
-      if (lastActive > 0 && elapsed > IDLE_THRESHOLD_MS) {
+      if (lastActive > 0 && elapsed > HUB_IDLE_THRESHOLD_MS) {
         router.replace('/hub/home')
         return
       }
