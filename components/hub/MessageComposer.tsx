@@ -8,6 +8,7 @@ import { init, SearchIndex } from 'emoji-mart'
 import type { HubMessage, HubUser } from './MessageFeed'
 import ScheduledMessagesModal from './ScheduledMessagesModal'
 import { matchMentionedUsers, isAmbiguousFirstName } from '@/lib/hub-mentions'
+import { createClient } from '@/lib/supabase/client'
 
 // emoji-mart needs its data registered once before SearchIndex.search() works.
 // Calling init() multiple times is a no-op, so module-load is fine.
@@ -103,6 +104,37 @@ export default function MessageComposer({
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // #43 — typing broadcast. Keep a subscribed channel on this feed so we can
+  // send `typing` events that MessageFeed renders as "X is typing…". Throttled
+  // to once per 2.5s so a fast typist doesn't flood the channel.
+  const supabase = createClient()
+  const typingChannelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
+  const lastTypingSentRef = useRef(0)
+
+  useEffect(() => {
+    const id = roomId ?? conversationId
+    if (!id) return
+    // Dedicated topic (NOT the messages `feed:` channel) so the typing traffic
+    // can't interfere with the critical message stream.
+    const ch = supabase.channel(`typing:${id}`)
+    ch.subscribe()
+    typingChannelRef.current = ch
+    return () => { supabase.removeChannel(ch); typingChannelRef.current = null }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, conversationId])
+
+  const broadcastTyping = useCallback(() => {
+    const now = Date.now()
+    if (now - lastTypingSentRef.current < 2500) return
+    lastTypingSentRef.current = now
+    const name = hubUsers.find(u => u.id === currentUserId)?.display_name
+    typingChannelRef.current?.send({
+      type: 'broadcast',
+      event: 'typing',
+      payload: { user_id: currentUserId, name },
+    })
+  }, [hubUsers, currentUserId])
 
   const draftKey = roomId ? `hub-draft-room-${roomId}` : conversationId ? `hub-draft-conv-${conversationId}` : null
 
@@ -203,6 +235,7 @@ export default function MessageComposer({
     const cursor = e.target.selectionStart ?? val.length
     setContent(val)
     if (sendError) setSendError(null)
+    if (val.trim()) broadcastTyping()
 
     const beforeCursor = val.slice(0, cursor)
 
