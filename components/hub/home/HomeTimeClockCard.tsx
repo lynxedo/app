@@ -51,16 +51,19 @@ export default function HomeTimeClockCard({ initial }: { initial: HomeTimeClockI
     const outHours = action === 'out' ? elapsed / 3600000 : 0
     setClocking(true)
     setGpsStatus('idle')
-    await fetch('/api/timesheet/punch', {
+    const res = await fetch('/api/timesheet/punch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ employee_id: employee.id, action, lat, lng }),
     })
+    const data = await res.json().catch(() => null)
     setClocking(false)
     if (action === 'out') {
       setClockedIn(false)
       setSince(null)
       setLastOut({ time: outTime!, hours: outHours })
+      // #4 — server warns if the payroll entry failed to save.
+      if (data?.warning) alert(data.warning)
     } else {
       setClockedIn(true)
       setSince(new Date().toISOString())

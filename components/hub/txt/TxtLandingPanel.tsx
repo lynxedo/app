@@ -35,11 +35,7 @@ export default function TxtLandingPanel({ isAdmin }: { isAdmin: boolean }) {
         Pick a conversation from the sidebar, or start a new one with{' '}
         <span className="text-white/80">+ New conversation</span>.
       </p>
-      <div className="text-xs text-white/40 max-w-md mb-8 px-4 py-3 rounded-md bg-amber-500/10 border border-amber-500/20">
-        Staging only · Twilio not yet wired · Outbound sends will show as failed until A2P registration completes
-      </div>
-
-      {isAdmin && (
+      {isAdmin && process.env.NODE_ENV !== 'production' && (
         <div className="w-full max-w-md">
           {!showInject ? (
             <button

@@ -68,11 +68,12 @@ export default function TimesheetClockModal({ onClose }: { onClose: () => void }
     const outHours = action === 'out' ? elapsed / 3600000 : 0
     setClocking(true)
     setGpsStatus('idle')
-    await fetch('/api/timesheet/punch', {
+    const res = await fetch('/api/timesheet/punch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ employee_id: employee.id, action, note: note || null, lat, lng }),
     })
+    const data = await res.json().catch(() => null)
     setNote('')
     setShowNote(false)
     setClocking(false)
@@ -80,6 +81,8 @@ export default function TimesheetClockModal({ onClose }: { onClose: () => void }
       setClockedIn(false)
       setSince(null)
       setLastOut({ time: outTime!, hours: outHours })
+      // #4 — server warns if the payroll entry failed to save; don't let it pass silently.
+      if (data?.warning) alert(data.warning)
     } else {
       setClockedIn(true)
       setSince(new Date().toISOString())

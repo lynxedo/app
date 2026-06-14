@@ -119,6 +119,25 @@ Write the personalized SMS reply.`
 
     const smsBody = block.text.trim().slice(0, 320)
 
+    // AI1 — re-check do_not_text immediately before sending. The customer may
+    // have texted STOP during the ~30–90s of transcription + AI generation, so
+    // any upstream check is stale. Carrier compliance: never text an opt-out.
+    try {
+      const dntAdmin = createAdminClient()
+      const { data: dntContact } = await dntAdmin
+        .from('txt_contacts')
+        .select('do_not_text')
+        .eq('company_id', companyId)
+        .eq('phone', callerPhone)
+        .maybeSingle()
+      if (dntContact?.do_not_text) {
+        return { smsSent: false, smsBody, error: 'recipient opted out (do_not_text)', latency_ms: Date.now() - start }
+      }
+    } catch {
+      // Fail safe: if we can't confirm opt-out status, do NOT send (compliance > delivery).
+      return { smsSent: false, smsBody, error: 'do_not_text precheck failed', latency_ms: Date.now() - start }
+    }
+
     // Send via Twilio (fromNumber = optional override; falls back to TWILIO_PHONE_NUMBER)
     const smsResult = await sendSms({ to: callerPhone, fromNumber, body: smsBody })
 

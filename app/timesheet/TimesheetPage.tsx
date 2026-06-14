@@ -190,16 +190,19 @@ export default function TimesheetPage({
     const clockOutHours = action === 'out' ? elapsed / 3600000 : 0
     setClocking(true)
     setGpsStatus('idle')
-    await fetch('/api/timesheet/punch', {
+    const res = await fetch('/api/timesheet/punch', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ employee_id: employee.id, action, note: note || null, lat, lng }),
     })
+    const data = await res.json().catch(() => null)
     setNote('')
     setShowNote(false)
     setClocking(false)
     if (clockOutTime) setLastOut({ time: clockOutTime, hours: clockOutHours })
     else setLastOut(null)
+    // #4 — server warns if the payroll entry failed to save.
+    if (data?.warning) alert(data.warning)
     loadData()
   }
 

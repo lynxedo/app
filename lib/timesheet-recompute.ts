@@ -37,7 +37,7 @@ export async function recomputeDayEntry(
   admin: SupabaseClient,
   employeeId: string,
   date: string, // YYYY-MM-DD
-): Promise<{ action: 'upserted' | 'deleted' | 'skipped'; totalHours: number }> {
+): Promise<{ action: 'upserted' | 'deleted' | 'skipped'; totalHours: number; error?: string }> {
   const { data: dayPunches } = await admin
     .from('time_punches')
     .select('punch_type, punched_at')
@@ -54,8 +54,8 @@ export async function recomputeDayEntry(
 
   // No complete pair → there should be no entry for this day. Remove a stale one.
   if (!inPunch || !outPunch) {
-    await admin.from('time_entries').delete().eq('employee_id', employeeId).eq('date', date)
-    return { action: 'deleted', totalHours: 0 }
+    const { error } = await admin.from('time_entries').delete().eq('employee_id', employeeId).eq('date', date)
+    return { action: 'deleted', totalHours: 0, error: error?.message }
   }
 
   const clockIn = new Date(inPunch.punched_at)
@@ -65,15 +65,15 @@ export async function recomputeDayEntry(
   // persist a misleading 0-hour entry. Drop any stale row; the day shows blank
   // until the times are corrected. Source-level guard for every write path.
   if (clockOut.getTime() <= clockIn.getTime()) {
-    await admin.from('time_entries').delete().eq('employee_id', employeeId).eq('date', date)
-    return { action: 'deleted', totalHours: 0 }
+    const { error } = await admin.from('time_entries').delete().eq('employee_id', employeeId).eq('date', date)
+    return { action: 'deleted', totalHours: 0, error: error?.message }
   }
 
   const totalHours = (clockOut.getTime() - clockIn.getTime()) / 3600000
   const rounded = Math.round(totalHours * 100) / 100
   const period = payPeriodFor(clockIn)
 
-  await admin.from('time_entries').upsert({
+  const { error } = await admin.from('time_entries').upsert({
     employee_id: employeeId,
     date,
     clock_in: clockIn.toISOString(),
@@ -86,7 +86,7 @@ export async function recomputeDayEntry(
     updated_at: new Date().toISOString(),
   }, { onConflict: 'employee_id,date' })
 
-  return { action: 'upserted', totalHours: rounded }
+  return { action: 'upserted', totalHours: rounded, error: error?.message }
 }
 
 // Shared punch-time validation. Returns a blocking error string (save must be
