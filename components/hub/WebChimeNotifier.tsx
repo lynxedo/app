@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { isChimeEnabled, playChime, primeChimeAudio, claimChimeForMessage } from '@/lib/hub-chime'
+import { isHubMessagingDndNow, type DndSchedule } from '@/lib/dnd-schedule'
 
 type RoomLite = { id: string; name: string }
 type PrefRow = {
@@ -47,6 +48,13 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
     status: null,
     status_until: null,
   })
+  // NT1 — the new three-tier DND (Master / Hub) lives on user_profiles.
+  const newDndRef = useRef<{
+    master_dnd_enabled: boolean | null
+    master_dnd_schedule: DndSchedule | null
+    hub_dnd_enabled: boolean | null
+    hub_dnd_schedule: DndSchedule | null
+  }>({ master_dnd_enabled: null, master_dnd_schedule: null, hub_dnd_enabled: null, hub_dnd_schedule: null })
   const lastPlayedRef = useRef(0)
   // The user's DM conversation ids — used to gate broadcast-sourced DM chimes
   // (the hub-sidebar-messages broadcast isn't RLS-scoped, unlike postgres_changes).
@@ -108,6 +116,8 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
       const s = dndStatusRef.current
       const global = globalPrefRef.current
       const roomPref = roomId ? roomPrefsRef.current[roomId] : undefined
+      // NT1 — new three-tier DND: Master (kills all) or Hub (messages) silences the chime.
+      if (isHubMessagingDndNow(newDndRef.current)) return true
       if (s.status === 'dnd' && (!s.status_until || new Date(s.status_until) > new Date())) return true
       if (global?.dnd_enabled) return true
       if (global && inDndWindow(global.dnd_start, global.dnd_end)) return true
@@ -119,7 +129,7 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
     }
 
     void (async () => {
-      const [{ data: prefs }, { data: me }] = await Promise.all([
+      const [{ data: prefs }, { data: me }, { data: prof }] = await Promise.all([
         supabase
           .from('notification_prefs')
           .select('room_id, level, dnd_enabled, dnd_start, dnd_end')
@@ -129,8 +139,26 @@ export default function WebChimeNotifier({ currentUserId, companyId, rooms }: Pr
           .select('status, status_until')
           .eq('id', currentUserId)
           .maybeSingle(),
+        supabase
+          .from('user_profiles')
+          .select('master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule')
+          .eq('id', currentUserId)
+          .maybeSingle(),
       ])
       if (cancelled) return
+
+      if (prof) {
+        const pr = prof as {
+          master_dnd_enabled: boolean | null; master_dnd_schedule: DndSchedule | null
+          hub_dnd_enabled: boolean | null; hub_dnd_schedule: DndSchedule | null
+        }
+        newDndRef.current = {
+          master_dnd_enabled: pr.master_dnd_enabled ?? null,
+          master_dnd_schedule: pr.master_dnd_schedule ?? null,
+          hub_dnd_enabled: pr.hub_dnd_enabled ?? null,
+          hub_dnd_schedule: pr.hub_dnd_schedule ?? null,
+        }
+      }
 
       const roomMap: Record<string, PrefRow> = {}
       for (const p of (prefs ?? []) as PrefRow[]) {
