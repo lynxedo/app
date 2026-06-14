@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 
 type Doc = {
   id: string
@@ -296,6 +296,23 @@ export default function GuardianAdminPanel({
       setSavingSettings(false)
     }
   }
+
+  // AD1 — debounced auto-save of Guardian settings so changes persist without a
+  // manual Save (they were lost on navigation). The last-saved snapshot guards
+  // against the post-save setSettings() re-triggering an endless save loop.
+  const lastSavedSettings = useRef(JSON.stringify(initialSettings))
+  const settingsMounted = useRef(false)
+  useEffect(() => {
+    if (!settingsMounted.current) { settingsMounted.current = true; return }
+    const serialized = JSON.stringify(settings)
+    if (serialized === lastSavedSettings.current) return
+    const t = setTimeout(() => {
+      lastSavedSettings.current = serialized
+      void saveSettings()
+    }, 800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [settings])
 
   return (
     <div className="space-y-6">

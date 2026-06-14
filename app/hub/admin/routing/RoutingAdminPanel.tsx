@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import type { DurationRulesConfig, DurationRule } from '@/app/api/settings/types'
 import { DEFAULT_DURATION_RULES } from '@/app/api/settings/types'
 import {
@@ -270,6 +270,41 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
       setTechsSave,
       setTechsErr,
     )
+
+  // AD1 — debounced auto-save so edits persist without a manual Save (changes
+  // were lost on navigation). The Save buttons remain as explicit/status
+  // affordances. Depot is excluded (its save geocodes server-side → stays manual).
+  const acRouting = useRef(false)
+  useEffect(() => {
+    if (!acRouting.current) { acRouting.current = true; return }
+    const t = setTimeout(() => { saveRouting() }, 800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceMin, driveMph])
+
+  const acProfile = useRef(false)
+  useEffect(() => {
+    if (!acProfile.current) { acProfile.current = true; return }
+    const t = setTimeout(() => { saveProfile() }, 800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [profileName])
+
+  const acDuration = useRef(false)
+  useEffect(() => {
+    if (!acDuration.current) { acDuration.current = true; return }
+    const t = setTimeout(() => { saveDuration() }, 800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [durationMethod, rules])
+
+  const acTeam = useRef(false)
+  useEffect(() => {
+    if (!acTeam.current) { acTeam.current = true; return }
+    const t = setTimeout(() => { saveTeamMembers() }, 800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [allowlist])
 
   const updateCode = (idx: number, field: keyof DurationRule, value: string | number) => {
     setRules(r => {
