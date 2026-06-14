@@ -66,22 +66,38 @@ export type SyncReport = {
 
 // ---- Monday GraphQL ---------------------------------------------------------
 
-async function mondayGraphQL(query: string): Promise<any> {
+// TR5: Monday rate-limits (429) and occasionally returns 5xx / complexity-budget
+// errors. A single transient failure used to abort a whole board. Retry with
+// exponential backoff so a hiccup self-heals instead of failing the nightly sync.
+const MONDAY_MAX_RETRIES = 3
+const MONDAY_BACKOFF_BASE_MS = 1000
+
+const sleep = (ms: number) => new Promise(r => setTimeout(r, ms))
+
+async function mondayGraphQL(query: string, attempt = 0): Promise<any> {
   const token = process.env.MONDAY_API_TOKEN
   if (!token) throw new Error('MONDAY_API_TOKEN is not configured')
-  const res = await fetch(MONDAY_API, {
-    method: 'POST',
-    headers: {
-      'Content-Type': 'application/json',
-      Authorization: token,
-      'API-Version': '2024-10',
-    },
-    body: JSON.stringify({ query }),
-  })
-  const json = await res.json().catch(() => null)
-  if (!res.ok || !json) throw new Error(`Monday API HTTP ${res.status}`)
-  if (json.errors) throw new Error('Monday API error: ' + JSON.stringify(json.errors).slice(0, 400))
-  return json.data
+  try {
+    const res = await fetch(MONDAY_API, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        Authorization: token,
+        'API-Version': '2024-10',
+      },
+      body: JSON.stringify({ query }),
+    })
+    const json = await res.json().catch(() => null)
+    if (!res.ok || !json) throw new Error(`Monday API HTTP ${res.status}`)
+    if (json.errors) throw new Error('Monday API error: ' + JSON.stringify(json.errors).slice(0, 400))
+    return json.data
+  } catch (e) {
+    if (attempt < MONDAY_MAX_RETRIES) {
+      await sleep(MONDAY_BACKOFF_BASE_MS * 2 ** attempt) // 1s, 2s, 4s
+      return mondayGraphQL(query, attempt + 1)
+    }
+    throw e
+  }
 }
 
 const ITEM_FIELDS = 'id name group { title } column_values { id text }'
@@ -404,20 +420,25 @@ export async function runMondaySync(
   const boards = opts.boards ?? (['recurring', 'route', 'leads'] as BoardKey[])
   const report: SyncReport = { dryRun, boards: [], errors: [] }
 
-  for (const board of boards) {
-    const br: BoardReport = { board, pulled: 0, upserted: 0, deleted: 0 }
-    try {
-      if (board === 'recurring') {
-        await syncSimpleBoard(admin, 'recurring', 'recurring_services', transformRecurring, dryRun, br)
-      } else if (board === 'route') {
-        await syncSimpleBoard(admin, 'route', 'route_capacity', transformRoute, dryRun, br)
-      } else {
-        await syncLeads(admin, dryRun, br)
+  // TR5: run the boards concurrently — they hit different Monday boards + different
+  // tables, so there's no ordering dependency. Each board is isolated so one board's
+  // failure never aborts the others (and is recorded in report.errors for alerting).
+  report.boards = await Promise.all(
+    boards.map(async (board): Promise<BoardReport> => {
+      const br: BoardReport = { board, pulled: 0, upserted: 0, deleted: 0 }
+      try {
+        if (board === 'recurring') {
+          await syncSimpleBoard(admin, 'recurring', 'recurring_services', transformRecurring, dryRun, br)
+        } else if (board === 'route') {
+          await syncSimpleBoard(admin, 'route', 'route_capacity', transformRoute, dryRun, br)
+        } else {
+          await syncLeads(admin, dryRun, br)
+        }
+      } catch (e: any) {
+        report.errors.push(`${board}: ${e?.message ?? String(e)}`)
       }
-    } catch (e: any) {
-      report.errors.push(`${board}: ${e?.message ?? String(e)}`)
-    }
-    report.boards.push(br)
-  }
+      return br
+    }),
+  )
   return report
 }
