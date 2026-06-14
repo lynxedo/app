@@ -914,7 +914,7 @@ function DialerTab() {
     <>
       <Section title="What It Does">
         <p>Dialer is the in-browser softphone — place and receive phone calls from any Hub device without a separate calling app. Calls go through Heroes&apos; Twilio number, so anyone you reach sees a single consistent business number.</p>
-        <Note>Dialer is currently <strong className="text-white">on staging only</strong>. It&apos;s wired and ready for real Twilio voice setup. Once Heroes&apos; Twilio number is live, the dialpad starts placing real calls. Until then it shows a &quot;Not configured&quot; pill and call attempts fail cleanly.</Note>
+        <Note>Dialer is <strong className="text-white">live</strong> — it places and receives real calls through Heroes&apos; Twilio business number on every Hub device.</Note>
       </Section>
 
       <Section title="Placing a Call">
@@ -926,7 +926,7 @@ function DialerTab() {
 
       <Section title="Receiving a Call">
         <p>When an inbound call comes in, a full-screen ringing overlay shows the caller&apos;s number (and contact name if you&apos;ve texted them before from Txt). Tap green to accept, red to reject.</p>
-        <Note>In v1 inbound calls only ring on Ben&apos;s account. IVR (auto-attendant) and ring groups land in a follow-up session. Until those ship, all incoming calls route to Ben — anyone else with Dialer access can still place outbound calls.</Note>
+        <Note>Where an inbound call rings is set by your phone routing — the auto-attendant (IVR) menu, ring groups, 3-digit extensions, and after-hours rules are all live and configured in <strong className="text-white">Admin → Dialer</strong> (see the sections below).</Note>
       </Section>
 
       <Section title="Recent Calls">
@@ -989,7 +989,7 @@ function DialerTab() {
       </Section>
 
       <Section title="Do Not Disturb (DND)">
-        <p>Each user can turn DND on in <strong className="text-white">Settings → Account → Communications</strong>. With DND on, IVR transfers and ring groups skip you — calls go to other group members or to voicemail.</p>
+        <p>Each user can turn <strong className="text-white">Calls DND</strong> on in <strong className="text-white">Settings → Notifications</strong>. With it on, IVR transfers and ring groups skip you — calls go to other group members or to voicemail.</p>
         <p>You can also schedule auto-DND windows per day of week — e.g. 6 PM to 8 AM every weekday. Wrap-overnight ranges work (set &quot;from&quot; later than &quot;to&quot;). Times are interpreted in your local time zone.</p>
         <p>Dialer DND is separate from your Hub status dot — flipping your status to &quot;DND&quot; doesn&apos;t auto-mute the phone, and vice versa. Toggle each on its own.</p>
       </Section>
@@ -1243,11 +1243,13 @@ function SettingsTab() {
   return (
     <>
       <Section title="Settings Overview">
-        <p>The <Link href="/settings" className="text-orange-400 hover:text-orange-300">Settings</Link> page has three tabs:</p>
+        <p>The <Link href="/settings" className="text-orange-400 hover:text-orange-300">Settings</Link> page has five tabs:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Profile</strong> — your name, photo, phone number, sign out</li>
+          <li><strong className="text-white">My Hub</strong> — customize your icon rail and mobile bottom bar (show only what you use, in your order)</li>
+          <li><strong className="text-white">Notifications</strong> — your notification level, the three Do&nbsp;Not&nbsp;Disturb tiers (Master / Hub / Calls), and your push devices</li>
           <li><strong className="text-white">Integrations</strong> — your Jobber Connection</li>
-          <li><strong className="text-white">Account</strong> — default landing page, notifications, scheduled Do Not Disturb, change password</li>
+          <li><strong className="text-white">Account</strong> — default landing page, communications (signature, ring &amp; voicemail settings), change password</li>
         </ul>
       </Section>
 
@@ -1270,6 +1272,11 @@ function SettingsTab() {
         <p>Use the <strong className="text-white">Sign out</strong> link here when you&apos;re done on a shared device.</p>
       </Section>
 
+      <Section title="My Hub — your rail &amp; bottom bar">
+        <p>Make the icon rail (and the phone bottom bar) your own — show only the tools you use, in the order you want. Tap <strong className="text-white">Customize my Hub</strong> to add or remove apps and reorder them. The fourth slot on the phone bottom bar is whichever app you pick here.</p>
+        <Note>You can open the same editor any time from the <strong className="text-white">Apps&nbsp;▦</strong> button on the rail → <strong className="text-white">Customize</strong>.</Note>
+      </Section>
+
       <Section title="Integrations — Jobber Connection">
         <p>Click <strong className="text-white">Connect Jobber →</strong> to authorize Lynxedo to read your visits and write appointment times. Once connected, status shows <span className="text-green-400 font-medium">● Connected</span>.</p>
         <p>You can disconnect at any time — this revokes Lynxedo&apos;s access to your Jobber account until you reconnect.</p>
@@ -1284,7 +1291,7 @@ function SettingsTab() {
         </ul>
       </Section>
 
-      <Section title="Account — Notifications">
+      <Section title="Notifications — Default notification level">
         <p>Controls all Hub notifications (web push and native app).</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Everything</strong> — notify me for all messages in rooms I belong to</li>
@@ -1293,7 +1300,7 @@ function SettingsTab() {
         </ul>
       </Section>
 
-      <Section title="Account — Notifications: This device">
+      <Section title="Notifications — This device (push)">
         <p>At the bottom of the Notifications section there&apos;s a <strong className="text-white">&ldquo;This device&rdquo;</strong> block showing whether the current device is registered to receive push notifications, with two buttons:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
           <li><strong className="text-white">Send test notification</strong> — fires a real push to every device you&apos;re subscribed on, and (in a browser, if the sound toggle below is on) immediately plays the new-message chime so you can check the sound too. Use this to verify a device actually surfaces notifications. Make sure Hub isn&apos;t the focused window, otherwise the OS may suppress the banner (Slack works the same way). Note: the push banner and the in-app chime are separate — the chime also plays on its own whenever a real message arrives while a Hub tab is open.</li>
@@ -1303,12 +1310,15 @@ function SettingsTab() {
         <Note>If the status badge says &ldquo;Blocked in browser settings,&rdquo; the browser itself has blocked notifications for lynxedo.com. Open the browser&apos;s site settings for lynxedo.com and re-enable notifications, then come back here and tap Reset.</Note>
       </Section>
 
-      <Section title="Account — Scheduled Do Not Disturb">
-        <p>Automatically silence non-mention notifications during a recurring window every day (e.g. 9 PM to 6 AM). Mentions still come through.</p>
-        <Step n={1}>Toggle <strong className="text-white">Scheduled Do Not Disturb</strong> on.</Step>
-        <Step n={2}>Set <strong className="text-white">Quiet hours start</strong> and <strong className="text-white">Quiet hours end</strong>.</Step>
-        <Step n={3}>If end is earlier than start (e.g. 10 PM → 6 AM), it wraps midnight automatically.</Step>
-        <Note>DND is per-user — every teammate sets their own.</Note>
+      <Section title="Notifications — Do Not Disturb (three tiers)">
+        <p>The <strong className="text-white">Notifications</strong> tab has three independent Do&nbsp;Not&nbsp;Disturb switches, so you can silence exactly as much as you want:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-red-400">Master DND</strong> — silences <em>everything</em>: calls, messages, and every push (including @-mentions). Overrides the other two.</li>
+          <li><strong className="text-amber-300">Hub Notifications DND</strong> — silences chat/message pushes only. Calls still ring.</li>
+          <li><strong className="text-amber-300">Calls DND</strong> — silences the dialer only (incoming calls, IVR transfers, ring groups). Messages still notify. <em>(Shown only if you have Dialer access.)</em></li>
+        </ul>
+        <p className="mt-3">Each tier can be flipped on right now, or put on a <strong className="text-white">per-day schedule</strong> — set a start and end time for each day of the week (e.g. 6 PM–8 AM, Mon–Fri). Overnight ranges that cross midnight work (set the start later than the end). Times use your device&apos;s local time zone.</p>
+        <Note>DND is per-user — every teammate sets their own. Quick toggles for all three also live on the rail, the mobile bar, and the app launcher, so you don&apos;t have to open Settings each time.</Note>
       </Section>
 
       <Section title="Account — Change Password">
