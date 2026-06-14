@@ -1,15 +1,8 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import Link from 'next/link'
-
-type Employee = {
-  id: string
-  first_name: string
-  last_name: string
-  preferred_name: string | null
-  job_title: string
-}
+import { useClockPunch } from '@/hooks/use-clock-punch'
 
 function formatTime(ts: string): string {
   return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
@@ -24,96 +17,25 @@ function formatDuration(ms: number): string {
 }
 
 export default function TimesheetClockModal({ onClose }: { onClose: () => void }) {
-  const [employee, setEmployee] = useState<Employee | null>(null)
-  const [loading, setLoading] = useState(true)
-  const [notLinked, setNotLinked] = useState(false)
-  const [clockedIn, setClockedIn] = useState(false)
-  const [since, setSince] = useState<string | null>(null)
-  const [now, setNow] = useState(Date.now())
-  const [clocking, setClocking] = useState(false)
-  const [gpsStatus, setGpsStatus] = useState<'idle' | 'requesting' | 'warning'>('idle')
-  const [note, setNote] = useState('')
+  // Shared clock logic (TS6). Modal ticks per-second and supports a shift note.
+  const {
+    employee,
+    loading,
+    notLinked,
+    clockedIn,
+    since,
+    elapsed,
+    clocking,
+    gpsStatus,
+    note,
+    setNote,
+    lastOut,
+    handleClock,
+    clockWithoutLocation,
+    retry,
+    dismissWarning,
+  } = useClockPunch({ tickMs: 1000 })
   const [showNote, setShowNote] = useState(false)
-  const [lastOut, setLastOut] = useState<{ time: string; hours: number } | null>(null)
-
-  // Tick every second while clocked in
-  useEffect(() => {
-    const t = setInterval(() => setNow(Date.now()), 1000)
-    return () => clearInterval(t)
-  }, [])
-
-  // Load employee + current status
-  useEffect(() => {
-    fetch('/api/timesheet/me')
-      .then(r => r.json())
-      .then(data => {
-        if (data.employee) {
-          setEmployee(data.employee)
-          setClockedIn(data.clocked_in)
-          setSince(data.since)
-        } else {
-          setNotLinked(true)
-        }
-        setLoading(false)
-      })
-      .catch(() => setLoading(false))
-  }, [])
-
-  const elapsed = since ? now - new Date(since).getTime() : 0
-
-  async function submitPunch(lat: number | null, lng: number | null) {
-    if (!employee) return
-    const action = clockedIn ? 'out' : 'in'
-    const outTime = action === 'out' ? new Date().toISOString() : null
-    const outHours = action === 'out' ? elapsed / 3600000 : 0
-    setClocking(true)
-    setGpsStatus('idle')
-    const res = await fetch('/api/timesheet/punch', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ employee_id: employee.id, action, note: note || null, lat, lng }),
-    })
-    const data = await res.json().catch(() => null)
-    setNote('')
-    setShowNote(false)
-    setClocking(false)
-    if (action === 'out') {
-      setClockedIn(false)
-      setSince(null)
-      setLastOut({ time: outTime!, hours: outHours })
-      // #4 — server warns if the payroll entry failed to save; don't let it pass silently.
-      if (data?.warning) alert(data.warning)
-    } else {
-      setClockedIn(true)
-      setSince(new Date().toISOString())
-      setLastOut(null)
-    }
-  }
-
-  async function handleClock() {
-    if (!employee) return
-    if (clockedIn) { await submitPunch(null, null); return }
-    setGpsStatus('requesting')
-    try {
-      // The browser's `timeout` option only starts measuring *after* the OS
-      // permission prompt resolves — if the prompt hangs (iOS PWA / Capacitor
-      // quirks) the promise sits forever and the user is stuck on "Getting
-      // location…" with no way to clock in. Race against a hard 12s deadline so
-      // the UI always recovers into the warning panel (which offers
-      // "Clock In Without Location").
-      const pos = await Promise.race<GeolocationPosition>([
-        new Promise<GeolocationPosition>((res, rej) =>
-          navigator.geolocation.getCurrentPosition(res, rej, { timeout: 8000, maximumAge: 60000 })
-        ),
-        new Promise<GeolocationPosition>((_, rej) =>
-          setTimeout(() => rej(new Error('hard-timeout')), 12000)
-        ),
-      ])
-      await submitPunch(pos.coords.latitude, pos.coords.longitude)
-    } catch {
-      setGpsStatus('warning')
-    }
-  }
 
   const displayName = employee
     ? (employee.preferred_name || employee.first_name)
@@ -193,13 +115,13 @@ export default function TimesheetClockModal({ onClose }: { onClose: () => void }
                   <div className="text-2xl">📵</div>
                   <div className="font-bold text-red-400">Location Access Denied</div>
                   <p className="text-sm text-red-300/80">Your clock-in will have no GPS record. Your manager will see this.</p>
-                  <button onClick={handleClock} className="w-full py-2.5 rounded-xl bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium transition-colors">
+                  <button onClick={retry} className="w-full py-2.5 rounded-xl bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium transition-colors">
                     🔄 Try Again
                   </button>
-                  <button onClick={() => submitPunch(null, null)} disabled={clocking} className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors">
+                  <button onClick={clockWithoutLocation} disabled={clocking} className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors">
                     {clocking ? '…' : 'Clock In Without Location'}
                   </button>
-                  <button onClick={() => setGpsStatus('idle')} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
+                  <button onClick={dismissWarning} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
                     Cancel
                   </button>
                 </div>
