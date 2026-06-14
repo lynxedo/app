@@ -130,6 +130,35 @@ export async function publishFacebookPost(opts: {
   return { postId: ((data.id ?? data.post_id) as string) ?? '' }
 }
 
+/**
+ * Poll an Instagram media container until it finishes processing (MSC-IGstatus).
+ * Meta uploads the image asynchronously; calling media_publish before the container
+ * reports status_code=FINISHED intermittently fails on larger photos. We wait up to
+ * ~20s (10 × 2s) and surface ERROR/EXPIRED/timeout as a clean error.
+ */
+async function waitForIgContainerReady(
+  creationId: string,
+  accessToken: string,
+  attempts = 10,
+  delayMs = 2000,
+): Promise<{ ok: true } | { error: string }> {
+  for (let i = 0; i < attempts; i++) {
+    const res = await fetch(`${BASE}/${creationId}?fields=status_code&access_token=${accessToken}`)
+    const data = await res.json() as { status_code?: string; error?: { message?: string } }
+    if (!res.ok || data.error) {
+      const msg = data.error?.message ?? `HTTP ${res.status}`
+      return { error: `IG container status check failed: ${msg}` }
+    }
+    if (data.status_code === 'FINISHED') return { ok: true }
+    if (data.status_code === 'ERROR' || data.status_code === 'EXPIRED') {
+      return { error: `IG image processing ${data.status_code.toLowerCase()}. Please try again.` }
+    }
+    // IN_PROGRESS — wait and re-check.
+    await new Promise(r => setTimeout(r, delayMs))
+  }
+  return { error: 'IG image processing timed out. Please try again.' }
+}
+
 export async function publishInstagramPost(opts: {
   igUserId: string
   accessToken: string
@@ -150,6 +179,10 @@ export async function publishInstagramPost(opts: {
   }
   const creationId = containerData.id as string | undefined
   if (!creationId) return { error: 'IG container create returned no id' }
+
+  // Wait for Meta to finish processing the image before publishing (MSC-IGstatus).
+  const ready = await waitForIgContainerReady(creationId, accessToken)
+  if ('error' in ready) return ready
 
   const publishRes = await fetch(`${BASE}/${igUserId}/media_publish`, {
     method: 'POST',
