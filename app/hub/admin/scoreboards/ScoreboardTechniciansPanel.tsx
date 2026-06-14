@@ -1,8 +1,9 @@
 'use client'
 
 import { useState } from 'react'
+import { useToast } from '@/components/ui'
 
-type Emp = { id: string; name: string; job_title: string | null; department: string | null }
+type Emp ={ id: string; name: string; job_title: string | null; department: string | null }
 type Board = { slug: string; title: string }
 
 export default function ScoreboardTechniciansPanel({
@@ -20,6 +21,7 @@ export default function ScoreboardTechniciansPanel({
     return m
   })
   const [savingKey, setSavingKey] = useState<string | null>(null)
+  const toast = useToast()
 
   // Auto-save on toggle (no separate Save button).
   async function toggle(slug: string, empId: string) {
@@ -41,7 +43,7 @@ export default function ScoreboardTechniciansPanel({
     if (!res.ok) {
       apply(!willAssign) // revert
       const data = await res.json().catch(() => ({}))
-      alert(data.error || 'Failed to save — try again')
+      toast.error(data.error || 'Failed to save — try again')
     }
     setSavingKey(null)
   }

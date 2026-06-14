@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { TEMPLATE_FIELDS } from '@/lib/txt-templates'
+import { useToast } from '@/components/ui'
 
 type Template = {
   id: string
@@ -23,6 +24,7 @@ export default function TxtPersonalTemplates() {
   const [sortOrder, setSortOrder] = useState(0)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
+  const toast = useToast()
 
   useEffect(() => {
     fetch('/api/txt/templates')
@@ -94,7 +96,7 @@ export default function TxtPersonalTemplates() {
     const res = await fetch(`/api/txt/templates/${t.id}`, { method: 'DELETE' })
     if (!res.ok) {
       const data = await res.json().catch(() => ({}))
-      alert(data.error || 'Delete failed')
+      toast.error(data.error || 'Delete failed')
       return
     }
     setTemplates((prev) => prev.filter((x) => x.id !== t.id))

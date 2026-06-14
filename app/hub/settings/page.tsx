@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { isJobberConnected } from '@/lib/jobber'
@@ -81,6 +82,7 @@ export default async function SettingsPage() {
         <h1 className="text-xl md:text-2xl font-bold tracking-tight">Settings</h1>
       </header>
       <main className="max-w-2xl mx-auto px-4 md:px-6 py-6 md:py-10">
+        <Suspense fallback={<div className="h-64" />}>
         <SettingsForm
           email={user.email ?? ''}
           userId={user.id}
@@ -98,6 +100,7 @@ export default async function SettingsPage() {
           initialDialerDndEnabled={initialDialerDndEnabled}
           initialDialerDndSchedule={initialDialerDndSchedule}
         />
+        </Suspense>
       </main>
     </div>
   )

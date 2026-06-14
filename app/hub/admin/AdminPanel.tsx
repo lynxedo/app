@@ -1,6 +1,7 @@
 'use client'
 
 import { useState } from 'react'
+import { useToast } from '@/components/ui'
 
 type UserProfile = {
   id: string
@@ -158,6 +159,7 @@ export default function AdminPanel({
   const [inviteDisplayName, setInviteDisplayName] = useState('')
   const [inviteStatus, setInviteStatus] = useState<'idle' | 'loading' | 'success' | 'deferred' | 'error'>('idle')
   const [inviteError, setInviteError] = useState('')
+  const toast = useToast()
 
   async function handleAddUser(deferred: boolean) {
     setInviteStatus('loading')
@@ -245,7 +247,7 @@ export default function AdminPanel({
       ))
     } else {
       const data = await res.json()
-      alert(data.error || 'Failed to send invite')
+      toast.error(data.error || 'Failed to send invite')
     }
   }
 
@@ -275,7 +277,7 @@ export default function AdminPanel({
       ))
     } else {
       const data = await res.json()
-      alert(data.error || 'Failed to save names')
+      toast.error(data.error || 'Failed to save names')
     }
   }
 
@@ -295,7 +297,7 @@ export default function AdminPanel({
       setEmployees(prev => prev.filter(e => e.id !== empId))
     } else {
       const data = await res.json()
-      alert(data.error || 'Failed to link employee')
+      toast.error(data.error || 'Failed to link employee')
     }
   }
 
@@ -361,7 +363,7 @@ export default function AdminPanel({
       }
     } else {
       const data = await res.json()
-      alert(data.error || 'Failed to create account')
+      toast.error(data.error || 'Failed to create account')
     }
   }
 
@@ -372,7 +374,7 @@ export default function AdminPanel({
       setEmployees(prev => prev.filter(e => e.id !== emp.id))
     } else {
       const data = await res.json()
-      alert(data.error || 'Failed to remove employee')
+      toast.error(data.error || 'Failed to remove employee')
     }
   }
 
