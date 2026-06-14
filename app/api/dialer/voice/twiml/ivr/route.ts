@@ -49,7 +49,7 @@ export async function POST(request: NextRequest) {
 
   const signature = request.headers.get('x-twilio-signature')
   const validateUrl = `${process.env.NEXT_PUBLIC_APP_URL}${url.pathname}${url.search}`
-  if (voiceConfigured() && signature) {
+  if (voiceConfigured()) {
     if (!validateTwilioVoiceSignature(validateUrl, paramObj, signature)) {
       return twimlResponse(EMPTY_VOICE_TWIML, 403)
     }

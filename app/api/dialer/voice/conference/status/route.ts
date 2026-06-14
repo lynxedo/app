@@ -23,7 +23,7 @@ export async function POST(request: NextRequest) {
 
   const signature = request.headers.get('x-twilio-signature')
   const url = `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/conference/status`
-  if (voiceConfigured() && signature) {
+  if (voiceConfigured()) {
     if (!validateTwilioVoiceSignature(url, paramObj, signature)) {
       return xml(EMPTY_VOICE_TWIML, 403)
     }
