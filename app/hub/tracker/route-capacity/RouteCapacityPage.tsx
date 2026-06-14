@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useEffect, useCallback, useMemo } from 'react'
+import { useState, useEffect, useCallback, useMemo, memo } from 'react'
 import {
   computeRouteCapacity,
   summarizeRouteCapacity,
@@ -94,6 +94,35 @@ function DataCell({ row, col, onUpdate }: { row: RouteCapacityRow; col: Col; onU
   )
 }
 
+// One table row, memoized (TR4). `update` preserves unedited rows' identity, so only
+// the edited row re-renders and computeRouteCapacity() runs once for it instead of for
+// the whole grid on every keystroke. onUpdate/onDelete must be stable (useCallback).
+const RouteCapacityRowTr = memo(function RouteCapacityRowTr({
+  row,
+  onUpdate,
+  onDelete,
+}: {
+  row: RouteCapacityRow
+  onUpdate: (id: string, field: string, value: unknown) => void
+  onDelete: (id: string) => void
+}) {
+  const f: RouteCapacityFormulas = computeRouteCapacity(row)
+  return (
+    <tr className="border-b border-gray-800/70 hover:bg-gray-900/40">
+      {COLS.map(c => (
+        <td key={c.key} className={`px-2 py-1 align-middle ${c.kind === 'formula' ? 'text-right text-xs text-gray-300 tabular-nums' : ''}`}>
+          {c.kind === 'data'
+            ? <DataCell row={row} col={c} onUpdate={(field, value) => onUpdate(row.id, field, value)} />
+            : (c.fmt ? fmtBy((f as unknown as Record<string, number | null>)[c.key], c.fmt) : <span className="text-xs">{(f as unknown as Record<string, string>)[c.key]}</span>)}
+        </td>
+      ))}
+      <td className="px-1 text-center">
+        <button onClick={() => onDelete(row.id)} className="text-gray-600 hover:text-red-400 text-xs" title="Delete">✕</button>
+      </td>
+    </tr>
+  )
+})
+
 export default function RouteCapacityPage() {
   const toast = useToast()
   const [rows, setRows] = useState<RouteCapacityRow[]>([])
@@ -143,11 +172,11 @@ export default function RouteCapacityPage() {
     if (res.ok) { const row = await res.json(); setRows(prev => [row, ...prev]) }
   }
 
-  async function deleteRow(id: string) {
+  const deleteRow = useCallback(async (id: string) => {
     if (!confirm('Delete this row?')) return
     setRows(prev => prev.filter(r => r.id !== id))
     await fetch(`/api/tracker/route-capacity/${id}`, { method: 'DELETE' })
-  }
+  }, [])
 
   const sortedRows = useMemo(() => {
     if (!sort) return rows
@@ -240,23 +269,9 @@ export default function RouteCapacityPage() {
                           </tr>
                         </thead>
                         <tbody>
-                          {group.rows.map(row => {
-                            const f: RouteCapacityFormulas = computeRouteCapacity(row)
-                            return (
-                              <tr key={row.id} className="border-b border-gray-800/70 hover:bg-gray-900/40">
-                                {COLS.map(c => (
-                                  <td key={c.key} className={`px-2 py-1 align-middle ${c.kind === 'formula' ? 'text-right text-xs text-gray-300 tabular-nums' : ''}`}>
-                                    {c.kind === 'data'
-                                      ? <DataCell row={row} col={c} onUpdate={(field, value) => update(row.id, field, value)} />
-                                      : (c.fmt ? fmtBy((f as unknown as Record<string, number | null>)[c.key], c.fmt) : <span className="text-xs">{(f as unknown as Record<string, string>)[c.key]}</span>)}
-                                  </td>
-                                ))}
-                                <td className="px-1 text-center">
-                                  <button onClick={() => deleteRow(row.id)} className="text-gray-600 hover:text-red-400 text-xs" title="Delete">✕</button>
-                                </td>
-                              </tr>
-                            )
-                          })}
+                          {group.rows.map(row => (
+                            <RouteCapacityRowTr key={row.id} row={row} onUpdate={update} onDelete={deleteRow} />
+                          ))}
                         </tbody>
                         <tfoot>
                           <tr className="bg-gray-900 border-t border-gray-700 font-medium">
