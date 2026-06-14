@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
+import { useToast } from '@/components/ui'
 import dynamic from 'next/dynamic'
 import data from '@emoji-mart/data'
 import { init, SearchIndex } from 'emoji-mart'
@@ -100,6 +101,7 @@ export default function ThreadPanel({
   // receiving side prevents double-counting when realtime ALSO delivers.
   onReplyPosted?: (parentId: string, replyId: string) => void
 }) {
+  const toast = useToast()
   const [replies, setReplies] = useState<Reply[]>([])
   const [replyContent, setReplyContent] = useState('')
   const [sending, setSending] = useState(false)
@@ -266,7 +268,7 @@ export default function ThreadPanel({
     setUploading(false)
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Upload failed' }))
-      alert(err.error ?? 'Upload failed')
+      toast.error(err.error ?? 'Upload failed')
       return
     }
     const data = await res.json()

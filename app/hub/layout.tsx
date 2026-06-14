@@ -10,6 +10,7 @@ import ElectronNotifier from '@/components/hub/ElectronNotifier'
 import WebChimeNotifier from '@/components/hub/WebChimeNotifier'
 import HubIdleTracker from '@/components/hub/HubIdleTracker'
 import { UpdateNotifier } from '@/components/hub/UpdateNotifier'
+import { ToastProvider } from '@/components/ui'
 import { markActive } from '@/lib/hub-activity'
 import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
 import { resolveLayout, reconcileSeededApps } from '@/lib/hub-layout'
@@ -268,7 +269,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   } catch { /* dev / edge cases — notifier is a no-op when unknown */ }
 
   return (
-    <>
+    <ToastProvider>
       <IosSplashScreens />
       <HubShell
         rooms={rooms}
@@ -325,6 +326,6 @@ export default async function HubLayout({ children }: { children: React.ReactNod
       />
       <HubIdleTracker />
       <UpdateNotifier loadedBuildId={buildId} />
-    </>
+    </ToastProvider>
   )
 }

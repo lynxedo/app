@@ -1,19 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { verifyHubApiKey } from '@/lib/hub-api-key'
-import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
+import { GetObjectCommand } from '@aws-sdk/client-s3'
+import { getR2Client } from '@/lib/r2'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
 
-function getR2Client() {
-  return new S3Client({
-    region: 'auto',
-    endpoint: `https://${process.env.CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
-    credentials: {
-      accessKeyId: process.env.CF_R2_ACCESS_KEY_ID!,
-      secretAccessKey: process.env.CF_R2_SECRET_ACCESS_KEY!,
-    },
-  })
-}
 
 // GET /api/hub/social-queue?page=<page-tag-name>
 // Hub API key authenticated. Returns unused photos tagged with any social-queue tag.

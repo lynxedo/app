@@ -1,4 +1,5 @@
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   estimateTokens,
@@ -17,7 +18,6 @@ const MCP_URL = 'https://mcp.lynxedo.com/mcp'
 const MAX_TOOL_ITERATIONS = 6
 const TOOLS_CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
 const PROMPT_CACHE_MIN_TOKENS = 1024 // Anthropic's activation floor
-const DEFAULT_MODEL = 'claude-sonnet-4-6'
 const WEB_SEARCH_TOOL_TYPE = 'web_search_20250305'
 const PER_QUESTION_SEARCH_BUDGET = 3
 
@@ -190,14 +190,14 @@ export async function askClaude({
   conversationId?: string | null
   isTest?: boolean
 }): Promise<string> {
-  const anthropic = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY, timeout: 60_000, maxRetries: 2 })
+  const anthropic = getAnthropic({ timeout: 60_000, maxRetries: 2 })
   const adminClient = createAdminClient()
 
   const [mcpTools, system, settings, todayUsedCount] = await Promise.all([
     getHeroesTools(),
     buildSystemPrompt(systemPrompt, companyId),
     getGuardianSettings(adminClient, companyId).catch(() => ({
-      model: DEFAULT_MODEL,
+      model: CLAUDE_MODEL,
       web_search_daily_cap: 30,
     })),
     getTodayWebSearchCount(adminClient, companyId).catch(() => 0),

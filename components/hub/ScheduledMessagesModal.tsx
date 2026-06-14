@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useState } from 'react'
+import { useToast } from '@/components/ui'
 
 type ScheduledRow = {
   id: string
@@ -24,6 +25,7 @@ function formatWhen(iso: string): string {
 }
 
 export default function ScheduledMessagesModal({ onClose }: { onClose: () => void }) {
+  const toast = useToast()
   const [rows, setRows] = useState<ScheduledRow[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -93,7 +95,7 @@ export default function ScheduledMessagesModal({ onClose }: { onClose: () => voi
       cancelEdit()
       await load()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to save')
+      toast.error(e instanceof Error ? e.message : 'Failed to save')
     } finally {
       setBusyId(null)
     }
@@ -110,7 +112,7 @@ export default function ScheduledMessagesModal({ onClose }: { onClose: () => voi
       }
       await load()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to send')
+      toast.error(e instanceof Error ? e.message : 'Failed to send')
     } finally {
       setBusyId(null)
     }
@@ -127,7 +129,7 @@ export default function ScheduledMessagesModal({ onClose }: { onClose: () => voi
       }
       await load()
     } catch (e) {
-      alert(e instanceof Error ? e.message : 'Failed to delete')
+      toast.error(e instanceof Error ? e.message : 'Failed to delete')
     } finally {
       setBusyId(null)
     }

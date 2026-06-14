@@ -1,6 +1,7 @@
 'use client'
 
 import { useCallback, useEffect, useRef, useState } from 'react'
+import { useToast } from '@/components/ui'
 import dynamic from 'next/dynamic'
 import data from '@emoji-mart/data'
 import { init, SearchIndex } from 'emoji-mart'
@@ -68,6 +69,7 @@ export default function MessageComposer({
   placeholder?: string
   onSent?: (msg: HubMessage) => void
 }) {
+  const toast = useToast()
   const [content, setContent] = useState('')
   const [sending, setSending] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
@@ -452,7 +454,7 @@ export default function MessageComposer({
     setUploading(false)
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: 'Upload failed' }))
-      alert(err.error ?? 'Upload failed')
+      toast.error(err.error ?? 'Upload failed')
       return
     }
     const data = await res.json()

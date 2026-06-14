@@ -1,4 +1,5 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { CLAUDE_MODEL } from '@/lib/anthropic'
 
 export type KnowledgeDoc = {
   id: string
@@ -26,7 +27,7 @@ export type ReadKnowledgeResult =
   | { found: true; slug: string; title: string; body: string }
   | { found: false; available_slugs: string[]; requested_slug: string }
 
-const DEFAULT_MODEL = 'claude-sonnet-4-6'
+const DEFAULT_MODEL = CLAUDE_MODEL
 const VERSION_KEEP = 10
 
 export function isRouterSlug(slug: string): boolean {

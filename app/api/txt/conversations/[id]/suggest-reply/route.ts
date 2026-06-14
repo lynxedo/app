@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import Anthropic from '@anthropic-ai/sdk'
+import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
@@ -185,7 +186,7 @@ export async function POST(
       .eq('id', conversationId)
       .maybeSingle(),
     getKnowledgeDoc(adminClient, companyId, 'customer_service').catch(() => null),
-    getGuardianModel(adminClient, companyId).catch(() => 'claude-sonnet-4-6'),
+    getGuardianModel(adminClient, companyId).catch(() => CLAUDE_MODEL),
     resolveGuardianTier(supabase, user.id, { conversationId }).catch<GuardianTier>(
       () => 'basic'
     ),
@@ -227,7 +228,7 @@ export async function POST(
   let outputTokens: number | null = null
   let lastError: string | null = null
   try {
-    const anthropic = new Anthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
+    const anthropic = getAnthropic({ apiKey, timeout: 60_000, maxRetries: 2 })
     const response = await anthropic.messages.create({
       model,
       max_tokens: MAX_TOKENS,

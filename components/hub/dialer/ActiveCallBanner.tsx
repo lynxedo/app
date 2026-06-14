@@ -5,20 +5,10 @@
 // × dismisses for the lifetime of this call (resets on the next call).
 
 import { useEffect, useState } from 'react'
+import { formatPhone } from '@/lib/format'
 import { usePathname, useRouter } from 'next/navigation'
 import { useDialerContext } from './DialerProvider'
 
-function formatPhone(raw: string | null): string {
-  if (!raw) return ''
-  const digits = raw.replace(/\D/g, '')
-  if (digits.length === 11 && digits[0] === '1') {
-    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-  }
-  if (digits.length === 10) {
-    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-  }
-  return raw
-}
 
 function formatDuration(ms: number): string {
   const total = Math.max(0, Math.floor(ms / 1000))

@@ -3,6 +3,20 @@
 :root {
   --background: #ffffff;
   --foreground: #171717;
+
+  /* Brand & semantic color roles (audit #22). Defining these changes NOTHING
+     on screen — existing hard-typed values like bg-[#2E7EB8] keep working.
+     Screens migrate one role at a time to the Tailwind utilities below
+     (bg-brand, text-brand, bg-danger, …) so the brand is editable in one place.
+     Values captured from the audit: brand blue #2E7EB8 was hand-typed ~277×. */
+  --brand: #2E7EB8;          /* primary accent — buttons, active states, links */
+  --brand-hover: #2470a8;    /* primary hover */
+  --brand-light: #3a8dc9;    /* lighter accent / highlights */
+  --success: #10b981;        /* emerald — "live"/positive */
+  --success-strong: #16a34a; /* green — confirm checks */
+  --danger: #dc2626;         /* red — errors, destructive, Master DND */
+  --warning: #f97316;        /* orange — caution, Hub/Calls DND */
+  --warning-strong: #ea580c; /* darker orange */
 }
 
 @theme inline {
@@ -10,6 +24,17 @@
   --color-foreground: var(--foreground);
   --font-sans: var(--font-geist-sans);
   --font-mono: var(--font-geist-mono);
+
+  /* Map the roles above into Tailwind v4 utilities: bg-brand, text-brand,
+     border-brand, hover:bg-brand-hover, bg-danger, text-success, etc. */
+  --color-brand: var(--brand);
+  --color-brand-hover: var(--brand-hover);
+  --color-brand-light: var(--brand-light);
+  --color-success: var(--success);
+  --color-success-strong: var(--success-strong);
+  --color-danger: var(--danger);
+  --color-warning: var(--warning);
+  --color-warning-strong: var(--warning-strong);
 }
 
 @media (prefers-color-scheme: dark) {
