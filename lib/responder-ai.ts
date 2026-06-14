@@ -19,6 +19,20 @@ import { buildMessagePreview } from '@/lib/txt-preview'
 import { enrichTxtContactName } from '@/lib/dialer-lookup'
 
 
+// AI9 — clamp a string to `max` chars without splitting a word. If the text is
+// already short enough it's returned untouched. Otherwise we trim to `max`,
+// then back up to the last whitespace (so we don't end mid-word) and drop any
+// trailing punctuation/space. Falls back to a hard slice if there's no
+// whitespace in range (e.g. one very long token).
+function trimToWordBoundary(text: string, max: number): string {
+  if (text.length <= max) return text
+  const hard = text.slice(0, max)
+  const lastSpace = hard.lastIndexOf(' ')
+  const trimmed = lastSpace > max * 0.5 ? hard.slice(0, lastSpace) : hard
+  return trimmed.replace(/[\s.,;:!?-]+$/, '').trim()
+}
+
+
 // The system prompt (training doc) is admin-editable — stored on
 // responder_settings.ai_reply_prompt and passed in via opts.systemPrompt.
 // RESPONDER_REPLY_SYSTEM_DEFAULT (lib/responder-ai-prompt.ts) is the fallback
@@ -116,7 +130,9 @@ Write the personalized SMS reply.`
       return { smsSent: false, smsBody: null, error: 'Claude returned no text', latency_ms: Date.now() - start }
     }
 
-    const smsBody = block.text.trim().slice(0, 320)
+    // AI9 — cap at 320 chars but never cut mid-word. If we have to trim, back up
+    // to the last whitespace so the text ends on a whole word.
+    const smsBody = trimToWordBoundary(block.text.trim(), 320)
 
     // AI1 — re-check do_not_text immediately before sending. The customer may
     // have texted STOP during the ~30–90s of transcription + AI generation, so

@@ -17,15 +17,12 @@ import {
 } from './railCatalog'
 import { classifyToken } from '@/lib/hub-layout'
 import { useOnCallUsers } from './OnCallPresenceProvider'
+// NAV-tokenConsistency — DM label resolution shared with the launcher, mobile
+// bar, and mobile drawer (was a per-file copy that could drift).
+import { convFirstNames } from './menuItem'
 
 type Room = { id: string; name: string; is_private: boolean }
 type RailConversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
-
-function convFirstNames(conv: RailConversation, currentUserId?: string): string {
-  const others = conv.participants.filter(p => p.id !== currentUserId)
-  if (others.length === 0) return conv.participants[0]?.display_name ?? 'You'
-  return others.map(p => (p.display_name || '?').split(' ')[0]).join(', ')
-}
 
 export type RailId =
   | 'time-clock'

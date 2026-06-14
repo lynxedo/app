@@ -250,7 +250,7 @@ export async function askClaude({
 
       const response = await anthropic.messages.create({
         model,
-        max_tokens: 1024,
+        max_tokens: 4096,
         system,
         messages,
         ...(iterationTools.length > 0 ? { tools: iterationTools as Anthropic.Tool[] } : {}),
@@ -274,12 +274,17 @@ export async function askClaude({
 
       const hasToolUse = response.content.some(b => b.type === 'tool_use')
 
-      if (!hasToolUse || response.stop_reason === 'end_turn') {
+      if (!hasToolUse || response.stop_reason === 'end_turn' || response.stop_reason === 'max_tokens') {
         finalAnswer = response.content
           .filter((b): b is Anthropic.TextBlock => b.type === 'text')
           .map(b => b.text)
           .join('')
           .trim()
+        // AI5 — if the model hit the token ceiling the answer is cut off
+        // mid-thought; tell the reader rather than leaving a dangling sentence.
+        if (response.stop_reason === 'max_tokens') {
+          finalAnswer += '\n\n_(Answer was cut off — ask me to continue for the rest.)_'
+        }
         return finalAnswer
       }
 

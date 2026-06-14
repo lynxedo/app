@@ -12,15 +12,11 @@ import {
   type CatalogId,
 } from './railCatalog'
 import { classifyToken } from '@/lib/hub-layout'
+// NAV-tokenConsistency — shared DM label resolver (was duplicated per surface).
+import { convFirstNames } from './menuItem'
 
 type Room = { id: string; name: string; is_private: boolean }
 type RailConversation = { id: string; participants: { id: string; display_name: string; avatar_url?: string | null }[] }
-
-function convFirstNames(conv: RailConversation, currentUserId?: string): string {
-  const others = conv.participants.filter(p => p.id !== currentUserId)
-  if (others.length === 0) return conv.participants[0]?.display_name ?? 'You'
-  return others.map(p => (p.display_name || '?').split(' ')[0]).join(', ')
-}
 
 // The bottom bar shows the first few list items before the Apps button. Extra
 // items overflow into the Apps drawer.
