@@ -997,7 +997,7 @@ function DialerTab() {
       <Section title="Do Not Disturb (DND)">
         <p>Each user can turn <strong className="text-white">Calls DND</strong> on in <strong className="text-white">Settings → Notifications</strong>. With it on, IVR transfers and ring groups skip you — calls go to other group members or to voicemail.</p>
         <p>You can also schedule auto-DND windows per day of week — e.g. 6 PM to 8 AM every weekday. Wrap-overnight ranges work (set &quot;from&quot; later than &quot;to&quot;). Times are interpreted in your local time zone.</p>
-        <p>Dialer DND is separate from your Hub status dot — flipping your status to &quot;DND&quot; doesn&apos;t auto-mute the phone, and vice versa. Toggle each on its own.</p>
+        <p>Setting your Hub status to &quot;DND&quot; (in the <strong className="text-white">You menu</strong>) turns on <strong className="text-red-400">Master DND</strong>, which silences <em>everything</em> — including calls. The separate <strong className="text-white">Calls DND</strong> toggle is narrower: it quiets only the phone while your messages still notify. Use Calls DND when you want the phone silent but Hub messages coming through.</p>
       </Section>
 
       <Section title="Voicemail (per-user boxes + greetings)">
@@ -1325,7 +1325,7 @@ function SettingsTab() {
           <li><strong className="text-amber-300">Calls DND</strong> — silences the dialer only (incoming calls, IVR transfers, ring groups). Messages still notify. <em>(Shown only if you have Dialer access.)</em></li>
         </ul>
         <p className="mt-3">Each tier can be flipped on right now, or put on a <strong className="text-white">per-day schedule</strong> — set a start and end time for each day of the week (e.g. 6 PM–8 AM, Mon–Fri). Overnight ranges that cross midnight work (set the start later than the end). Times use your device&apos;s local time zone.</p>
-        <Note>DND is per-user — every teammate sets their own. Quick toggles for all three also live on the rail, the mobile bar, and the app launcher, so you don&apos;t have to open Settings each time.</Note>
+        <Note>DND is per-user — every teammate sets their own. Quick toggles for all three also live in your <strong className="text-white">You menu</strong> (tap your avatar at the bottom of the rail → <strong className="text-white">Do Not Disturb</strong>), so you don&apos;t have to open Settings each time. Setting your status to <strong className="text-white">Do Not Disturb</strong> there automatically turns on <strong className="text-red-400">Master DND</strong> (and clearing it turns Master DND back off).</Note>
       </Section>
 
       <Section title="Account — Change Password">
