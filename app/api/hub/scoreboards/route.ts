@@ -257,8 +257,8 @@ function wfTier(program: string): string {
 
 type TechRow = { employee_id: string; jobber_external_id: string | null; display_name: string; salesperson_name: string }
 type LeadLite = { salesperson: string | null; stage: string | null; annual_value: number | null; sold_date: string | null }
-type RecurringJobBook = { dept: string; displayName: string; hasPHC: boolean; hasBWP: boolean; annualValue: number }
-type RecurringBookRow = { dept_prefix: string; display_name: string; has_phc: boolean; has_bwp: boolean; annual_value: number | string | null }
+type RecurringJobBook = { clientId: string; dept: string; displayName: string; hasPHC: boolean; hasBWP: boolean; annualValue: number }
+type RecurringBookRow = { client_id: string; dept_prefix: string; display_name: string; has_phc: boolean; has_bwp: boolean; annual_value: number | string | null }
 
 // Fetches the active Jobber recurring book (jobs + line_items + recurring_program_definitions),
 // one row per (active recurring job, base-program dept), with test accounts excluded.
@@ -273,6 +273,7 @@ async function fetchJobberRecurringBook(
   const { data, error } = await supabase.rpc('scoreboard_recurring_book', { p_company_id: company })
   if (error) return { error: error.message }
   return ((data ?? []) as RecurringBookRow[]).map(r => ({
+    clientId: r.client_id,
     dept: r.dept_prefix,
     displayName: r.display_name,
     hasPHC: r.has_phc,
@@ -481,8 +482,9 @@ async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const book = bookOrErr
 
   // ── KPI 1+2: active IR Gold book (Jobber source — includes all Gold tiers) ──
+  // Count DISTINCT customers (a customer with multiple Gold jobs is one member).
   const goldJobs = book.filter(r => r.dept === 'IR' && r.displayName.toLowerCase().includes('gold'))
-  const activeGold = goldJobs.length
+  const activeGold = new Set(goldJobs.map(r => r.clientId)).size
   const goldAnnualValue = goldJobs.reduce((s, r) => s + r.annualValue, 0)
 
   // ── KPI 3: average repair ticket (trailing 12 months) ──
@@ -634,8 +636,11 @@ async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const book = bookOrErr
 
   // ── KPIs: active PW book (Jobber source) ──
+  // Count DISTINCT customers, not jobs: a 2x/week customer is entered as two
+  // jobs (one per service day) but is one membership. Annual value still sums
+  // all jobs (each day's recurring revenue is real).
   const pwJobs = book.filter(r => r.dept === 'PW')
-  const activeCustomers = pwJobs.length
+  const activeCustomers = new Set(pwJobs.map(r => r.clientId)).size
   const annualValue = pwJobs.reduce((s, r) => s + r.annualValue, 0)
 
   // ── Total PW visit revenue per bucket (for the "Other/Unassigned" stack) ──
