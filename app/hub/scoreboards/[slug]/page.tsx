@@ -5,6 +5,7 @@ import Scoreboard1View from './Scoreboard1View'
 import Scoreboard2View from './Scoreboard2View'
 import Scoreboard3View from './Scoreboard3View'
 import Scoreboard4View from './Scoreboard4View'
+import Scoreboard5View from './Scoreboard5View'
 
 export const metadata = { title: 'Scoreboard' }
 export const dynamic = 'force-dynamic'
@@ -41,6 +42,8 @@ export default async function ScoreboardPage({ params }: { params: Promise<{ slu
       return <Scoreboard3View meta={board} />
     case '4':
       return <Scoreboard4View meta={board} />
+    case '5':
+      return <Scoreboard5View meta={board} />
     default:
       notFound()
   }
