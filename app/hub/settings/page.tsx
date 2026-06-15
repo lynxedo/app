@@ -24,7 +24,7 @@ export default async function SettingsPage() {
       .maybeSingle(),
     supabase
       .from('notification_prefs')
-      .select('level, dnd_enabled, dnd_start, dnd_end')
+      .select('level')
       .eq('user_id', user.id)
       .is('room_id', null)
       .maybeSingle(),
@@ -43,9 +43,6 @@ export default async function SettingsPage() {
 
   const notifPref = {
     level: (notifPrefResult.data?.level ?? 'all') as 'all' | 'mentions' | 'muted',
-    dnd_enabled: notifPrefResult.data?.dnd_enabled ?? false,
-    dnd_start: notifPrefResult.data?.dnd_start ?? null,
-    dnd_end: notifPrefResult.data?.dnd_end ?? null,
   }
 
   const railPermissions = {

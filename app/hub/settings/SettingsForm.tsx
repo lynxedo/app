@@ -22,9 +22,6 @@ interface HubProfile {
 
 interface NotifPref {
   level: 'all' | 'mentions' | 'muted'
-  dnd_enabled: boolean
-  dnd_start: string | null
-  dnd_end: string | null
 }
 
 interface Props {
@@ -178,23 +175,15 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
 
   // ── Notification prefs (global) ────────────────────────────────────────────
   const [notifLevel, setNotifLevel] = useState<'all' | 'mentions' | 'muted'>(notifPref.level)
-  const [dndEnabled, setDndEnabled] = useState(notifPref.dnd_enabled)
-  // time inputs use HH:MM (no seconds); DB column is `time` so HH:MM:SS or HH:MM both store fine
-  const trimSec = (t: string | null) => (t ? t.slice(0, 5) : '')
-  const [dndStart, setDndStart] = useState(trimSec(notifPref.dnd_start))
-  const [dndEnd, setDndEnd] = useState(trimSec(notifPref.dnd_end))
   const [notifSave, setNotifSave] = useState<SaveState>('idle')
   const [notifErr, setNotifErr] = useState<string | null>(null)
 
-  const saveNotifPrefs = async (overrides?: Partial<{ level: 'all' | 'mentions' | 'muted'; dnd_enabled: boolean; dnd_start: string; dnd_end: string }>) => {
+  const saveNotifPrefs = async (overrides?: Partial<{ level: 'all' | 'mentions' | 'muted' }>) => {
     setNotifSave('saving')
     setNotifErr(null)
     const body = {
       room_id: null,
       level: overrides?.level ?? notifLevel,
-      dnd_enabled: overrides?.dnd_enabled ?? dndEnabled,
-      dnd_start: (overrides?.dnd_start ?? dndStart) || null,
-      dnd_end: (overrides?.dnd_end ?? dndEnd) || null,
     }
     try {
       const res = await fetch('/api/hub/notification-prefs', {

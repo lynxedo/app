@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { useConfirm } from '@/components/ui'
 
 type Employee = {
@@ -123,10 +123,13 @@ type PtoPolicy = {
 
 // ── helpers ──────────────────────────────────────────────────────────────────
 
-function getWeekStart(date: Date = new Date()): Date {
+// TS7 — pay week start is configurable per company (timesheet_settings.
+// pay_period_start_day, JS getDay() convention: 0=Sun…6=Sat). Defaults to 1
+// (Monday) so every call is unchanged until a company sets otherwise.
+function getWeekStart(date: Date = new Date(), startDay = 1): Date {
   const d = new Date(date)
   const day = d.getDay()
-  d.setDate(d.getDate() - (day === 0 ? 6 : day - 1))
+  d.setDate(d.getDate() - ((day - startDay + 7) % 7))
   d.setHours(0, 0, 0, 0)
   return d
 }
@@ -203,16 +206,16 @@ function displayName(e: Employee): string {
   return e.preferred_name || e.first_name
 }
 
-function weekSummary(entries: TimeEntry[]) {
+function weekSummary(entries: TimeEntry[], weeklyOtThreshold = 40) {
   const total = entries.reduce((s, e) => s + (e.total_hours ?? 0), 0)
   const dailyOT = entries.reduce((s, e) => s + (e.overtime_hours ?? 0), 0)
-  const weeklyOT = Math.max(0, total - 40)
+  const weeklyOT = Math.max(0, total - weeklyOtThreshold)
   const ot = Math.max(dailyOT, weeklyOT)
   const regular = Math.max(0, total - ot)
   return { total: Math.round(total * 100) / 100, regular: Math.round(regular * 100) / 100, ot: Math.round(ot * 100) / 100 }
 }
 
-function exportPayPeriodCSV(employees: Employee[], entries: TimeEntry[], weekStart: Date) {
+function exportPayPeriodCSV(employees: Employee[], entries: TimeEntry[], weekStart: Date, weeklyOtThreshold = 40) {
   const end = new Date(weekStart)
   end.setDate(weekStart.getDate() + 6)
   const fmt = (d: Date) => d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
@@ -226,7 +229,7 @@ function exportPayPeriodCSV(employees: Employee[], entries: TimeEntry[], weekSta
   ]]
 
   for (const emp of employees.filter(e => e.pay_type === 'hourly')) {
-    const s = weekSummary(entries.filter(e => e.employee_id === emp.id))
+    const s = weekSummary(entries.filter(e => e.employee_id === emp.id), weeklyOtThreshold)
     const estPay = emp.hourly_rate
       ? (s.regular * emp.hourly_rate + s.ot * emp.hourly_rate * 1.5).toFixed(2)
       : ''
@@ -272,7 +275,17 @@ export default function AdminTimesheetPage() {
   const [dayEditSaving, setDayEditSaving] = useState(false)
   const [dayEditError, setDayEditError] = useState<string | null>(null)
   const [now, setNow] = useState(Date.now())
-  const [tab, setTab] = useState<'week' | 'summary' | 'employees' | 'holidays' | 'pto'>('week')
+  const [tab, setTab] = useState<'week' | 'summary' | 'employees' | 'holidays' | 'pto' | 'settings'>('week')
+
+  // TS7 — company timesheet policy (pay period, weekly OT, GPS). Defaults match
+  // Heroes' hardcoded policy so behavior is unchanged until a company edits them.
+  const [tsSettings, setTsSettings] = useState<{
+    pay_period_start_day: number
+    overtime_threshold_weekly: number
+    gps_enabled: boolean
+  }>({ pay_period_start_day: 1, overtime_threshold_weekly: 40, gps_enabled: true })
+  const [tsSettingsSave, setTsSettingsSave] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
+  const tsSettingsAppliedRef = useRef(false)
   const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
   const [importLoading, setImportLoading] = useState(false)
   const [importSelections, setImportSelections] = useState<Set<string>>(new Set())
@@ -321,6 +334,35 @@ export default function AdminTimesheetPage() {
   useEffect(() => {
     const t = setInterval(() => setNow(Date.now()), 60000)
     return () => clearInterval(t)
+  }, [])
+
+  // TS7 — load the company timesheet policy once, then re-align the visible week
+  // to the company's pay-period start day. Heroes is Monday (start_day=1), so the
+  // re-align is a no-op there; a company with a different start day lands on the
+  // right week instead of the default Monday.
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/timesheet/settings')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => {
+        if (cancelled || !d?.settings) return
+        const s = d.settings
+        const next = {
+          pay_period_start_day: typeof s.pay_period_start_day === 'number' ? s.pay_period_start_day : 1,
+          overtime_threshold_weekly: s.overtime_threshold_weekly != null ? Number(s.overtime_threshold_weekly) : 40,
+          gps_enabled: s.gps_enabled ?? true,
+        }
+        setTsSettings(next)
+        if (!tsSettingsAppliedRef.current) {
+          tsSettingsAppliedRef.current = true
+          if (next.pay_period_start_day !== 1) {
+            const aligned = getWeekStart(new Date(), next.pay_period_start_day)
+            setWeekStart(prev => (toDateStr(prev) === toDateStr(aligned) ? prev : aligned))
+          }
+        }
+      })
+      .catch(() => {})
+    return () => { cancelled = true }
   }, [])
 
   const loadData = useCallback(async () => {
@@ -746,6 +788,25 @@ export default function AdminTimesheetPage() {
   const isClockedIn = (emp: Employee) => openPunches.some(p => p.employee_id === emp.id)
   const openPunch = (emp: Employee) => openPunches.find(p => p.employee_id === emp.id)
   const empEntries = (emp: Employee) => entries.filter(e => e.employee_id === emp.id)
+  // TS7 — apply the company weekly-OT threshold to every summary in this view.
+  const summarize = (es: TimeEntry[]) => weekSummary(es, tsSettings.overtime_threshold_weekly)
+
+  // TS7 — auto-save a timesheet-settings field on change (admin-gated PATCH).
+  const saveTsSettings = async (patch: Partial<typeof tsSettings>) => {
+    setTsSettings(prev => ({ ...prev, ...patch }))
+    setTsSettingsSave('saving')
+    try {
+      const res = await fetch('/api/timesheet/settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch),
+      })
+      setTsSettingsSave(res.ok ? 'saved' : 'error')
+      if (res.ok) setTimeout(() => setTsSettingsSave('idle'), 1500)
+    } catch {
+      setTsSettingsSave('error')
+    }
+  }
   const empPendingRequests = (emp: Employee) => pendingRequests.filter(r => r.employee_id === emp.id)
   const hasPending = (emp: Employee) => empPendingRequests(emp).length > 0
   const empPendingPto = (empId: string) => weekPtoRequests.filter(r => r.employee_id === empId && r.status === 'pending')
@@ -822,7 +883,7 @@ export default function AdminTimesheetPage() {
             </div>
           ) : (
             <div className="text-lg font-semibold">
-              {tab === 'holidays' ? 'Paid Holidays' : 'PTO Policies'}
+              {tab === 'holidays' ? 'Paid Holidays' : tab === 'settings' ? 'Settings' : 'PTO Policies'}
             </div>
           )}
           <div className="flex gap-1 bg-gray-900 rounded-lg p-1 border border-gray-800 self-start sm:self-auto flex-wrap">
@@ -832,6 +893,7 @@ export default function AdminTimesheetPage() {
               ['employees', 'Roster'],
               ['holidays', 'Holidays'],
               ['pto', 'PTO Policy'],
+              ['settings', 'Settings'],
             ] as const).map(([key, label]) => (
               <button
                 key={key}
@@ -871,7 +933,7 @@ export default function AdminTimesheetPage() {
               {employees.map(emp => {
                 const clockedIn = isClockedIn(emp)
                 const punch = openPunch(emp)
-                const summary = weekSummary(empEntries(emp))
+                const summary = summarize(empEntries(emp))
                 const isClocking = clockingId === emp.id
                 const pendingCount = empPendingRequests(emp).length
 
@@ -952,7 +1014,7 @@ export default function AdminTimesheetPage() {
               </div>
               <div className="flex gap-2">
                 <button
-                  onClick={() => exportPayPeriodCSV(employees, entries, weekStart)}
+                  onClick={() => exportPayPeriodCSV(employees, entries, weekStart, tsSettings.overtime_threshold_weekly)}
                   className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                 >↓ Export CSV</button>
                 <button
@@ -980,7 +1042,7 @@ export default function AdminTimesheetPage() {
                 </thead>
                 <tbody className="divide-y divide-gray-800">
                   {employees.map(emp => {
-                    const summary = weekSummary(empEntries(emp))
+                    const summary = summarize(empEntries(emp))
                     const holidayHrs = empHolidayHours(emp.id)
                     const ptoHrs = empApprovedPtoHours(emp.id)
                     const estPay = emp.hourly_rate
@@ -1239,13 +1301,13 @@ export default function AdminTimesheetPage() {
                     <td /><td className="px-2 py-3 text-gray-400 text-xs uppercase">Totals</td><td />
                     {(() => {
                       const hourlyEmps = employees.filter(e => e.pay_type === 'hourly')
-                      const totReg = hourlyEmps.reduce((s, e) => s + weekSummary(empEntries(e)).regular, 0)
-                      const totOT = hourlyEmps.reduce((s, e) => s + weekSummary(empEntries(e)).ot, 0)
+                      const totReg = hourlyEmps.reduce((s, e) => s + summarize(empEntries(e)).regular, 0)
+                      const totOT = hourlyEmps.reduce((s, e) => s + summarize(empEntries(e)).ot, 0)
                       const totHoliday = employees.reduce((s, e) => s + empHolidayHours(e.id), 0)
                       const totPto = employees.reduce((s, e) => s + empApprovedPtoHours(e.id), 0)
-                      const totHrs = hourlyEmps.reduce((s, e) => s + weekSummary(empEntries(e)).total, 0)
+                      const totHrs = hourlyEmps.reduce((s, e) => s + summarize(empEntries(e)).total, 0)
                       const totPay = hourlyEmps.reduce((s, e) => {
-                        const sum = weekSummary(empEntries(e))
+                        const sum = summarize(empEntries(e))
                         return s + (e.hourly_rate ? sum.regular * e.hourly_rate + sum.ot * e.hourly_rate * 1.5 : 0)
                       }, 0)
                       return (
@@ -1457,6 +1519,77 @@ export default function AdminTimesheetPage() {
                 </table>
               </div>
             )}
+          </div>
+        ) : tab === 'settings' ? (
+          // ── Settings (TS7) ────────────────────────────────────────────────────
+          <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden max-w-2xl">
+            <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
+              <div>
+                <h2 className="font-semibold">Timesheet Settings</h2>
+                <p className="text-xs text-gray-500 mt-0.5">Pay-period, overtime, and GPS rules for this company.</p>
+              </div>
+              <span className="text-xs text-gray-500 min-w-[60px] text-right">
+                {tsSettingsSave === 'saving' ? 'Saving…' : tsSettingsSave === 'saved' ? 'Saved ✓' : tsSettingsSave === 'error' ? 'Save failed' : ''}
+              </span>
+            </div>
+            <div className="px-5 py-5 space-y-6">
+              {/* Pay period */}
+              <div>
+                <label className="block text-sm font-medium text-white mb-1">Week starts on</label>
+                <p className="text-xs text-gray-500 mb-2">The pay week used across the timesheet and the Gusto CSV export.</p>
+                <select
+                  value={tsSettings.pay_period_start_day}
+                  onChange={e => {
+                    const v = Number(e.target.value)
+                    void saveTsSettings({ pay_period_start_day: v })
+                    setWeekStart(getWeekStart(new Date(), v))
+                  }}
+                  className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand transition-colors"
+                >
+                  {[['1', 'Monday'], ['0', 'Sunday'], ['2', 'Tuesday'], ['3', 'Wednesday'], ['4', 'Thursday'], ['5', 'Friday'], ['6', 'Saturday']].map(([val, label]) => (
+                    <option key={val} value={val}>{label}</option>
+                  ))}
+                </select>
+              </div>
+
+              {/* Weekly overtime */}
+              <div className="border-t border-gray-800 pt-5">
+                <label className="block text-sm font-medium text-white mb-1">Weekly overtime after</label>
+                <p className="text-xs text-gray-500 mb-2">Hours over this in a pay week count as overtime (1.5×) in summaries and the export.</p>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="number"
+                    min={0}
+                    step={1}
+                    value={tsSettings.overtime_threshold_weekly}
+                    onChange={e => setTsSettings(p => ({ ...p, overtime_threshold_weekly: Number(e.target.value) }))}
+                    onBlur={() => void saveTsSettings({ overtime_threshold_weekly: tsSettings.overtime_threshold_weekly })}
+                    className="w-24 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand transition-colors"
+                  />
+                  <span className="text-sm text-gray-400">hours / week</span>
+                </div>
+              </div>
+
+              {/* GPS */}
+              <div className="border-t border-gray-800 pt-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-sm font-medium text-white">Capture GPS on mobile clock-in</p>
+                    <p className="text-xs text-gray-500 mt-0.5">Records where an employee was when they clock in on a phone. Desktop is never tracked.</p>
+                  </div>
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={tsSettings.gps_enabled}
+                    aria-label="Capture GPS on mobile clock-in"
+                    onClick={() => void saveTsSettings({ gps_enabled: !tsSettings.gps_enabled })}
+                    className={`relative flex-none w-10 h-6 rounded-full transition-colors ${tsSettings.gps_enabled ? 'bg-brand' : 'bg-gray-700'}`}
+                  >
+                    <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${tsSettings.gps_enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+                  </button>
+                </div>
+              </div>
+            </div>
           </div>
         ) : (
           // ── PTO Policy ────────────────────────────────────────────────────────

@@ -10,9 +10,6 @@ type RoomLite = { id: string; name: string }
 type PrefRow = {
   room_id: string | null
   level: string | null
-  dnd_enabled: boolean | null
-  dnd_start: string | null
-  dnd_end: string | null
 }
 
 interface Props {
@@ -87,21 +84,6 @@ export default function ElectronNotifier({ currentUserId, companyId, hubUsers, r
     let dlChannel: ReturnType<typeof supabase.channel> | null = null
     let cancelled = false
 
-    // Time-of-day DND window check (Texas-local), identical to lib/hub-push.ts.
-    const inDndWindow = (start: string | null, end: string | null): boolean => {
-      if (!start || !end || start === end) return false
-      const nowLocal = new Date().toLocaleTimeString('en-US', {
-        timeZone: 'America/Chicago',
-        hour12: false,
-        hour: '2-digit',
-        minute: '2-digit',
-        second: '2-digit',
-      })
-      return start < end
-        ? nowLocal >= start && nowLocal < end
-        : nowLocal >= start || nowLocal < end
-    }
-
     // Mirrors sendHubPush's eligibility filter with isMention=false (the Electron
     // notifier has no @mention concept). isDm = message is a DM, which bypasses
     // the global "mentions only" level but not muted/DND.
@@ -110,14 +92,10 @@ export default function ElectronNotifier({ currentUserId, companyId, hubUsers, r
       const global = globalPrefRef.current
       const roomPref = roomId ? roomPrefsRef.current[roomId] : undefined
 
-      // NT1 — new three-tier DND: Master (kills all) or Hub (messages) suppresses.
+      // NT1 — three-tier DND: Master (kills all) or Hub (messages) suppresses.
       if (isHubMessagingDndNow(newDndRef.current)) return true
       // Status-based DND (hub_users.status)
       if (s.status === 'dnd' && (!s.status_until || new Date(s.status_until) > new Date())) return true
-      // Pref-based DND (global row)
-      if (global?.dnd_enabled) return true
-      // Scheduled DND window (global row)
-      if (global && inDndWindow(global.dnd_start, global.dnd_end)) return true
       // Global notification level
       if (global?.level === 'muted') return true
       if (global?.level === 'mentions' && !isDm) return true
@@ -132,7 +110,7 @@ export default function ElectronNotifier({ currentUserId, companyId, hubUsers, r
       const [{ data: prefs }, { data: me }, { data: prof }] = await Promise.all([
         supabase
           .from('notification_prefs')
-          .select('room_id, level, dnd_enabled, dnd_start, dnd_end')
+          .select('room_id, level')
           .eq('user_id', currentUserId),
         supabase
           .from('hub_users')
