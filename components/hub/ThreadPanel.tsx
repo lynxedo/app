@@ -3,7 +3,6 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useToast } from '@/components/ui'
 import dynamic from 'next/dynamic'
-import data from '@emoji-mart/data'
 import { init, SearchIndex } from 'emoji-mart'
 import { createClient } from '@/lib/supabase/client'
 import { FileAttachment } from './MessageFeed'
@@ -12,7 +11,19 @@ import type { HubMessage, HubUser, Sender, FileItem, RxItem } from './MessageFee
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { renderContent } from './renderContent'
 
-init({ data })
+// Lazy emoji data — keeps the ~250kb dataset out of the initial bundle. Loaded
+// once on first need; init() then registers it so SearchIndex.search() works.
+let _emojiDataPromise: Promise<void> | null = null
+let _emojiData: unknown = null
+function ensureEmojiData(): Promise<void> {
+  if (!_emojiDataPromise) {
+    _emojiDataPromise = import('@emoji-mart/data').then(m => {
+      _emojiData = m.default
+      init({ data: _emojiData })
+    })
+  }
+  return _emojiDataPromise
+}
 
 const EmojiMartPicker = dynamic(() => import('@emoji-mart/react').then(m => m.default), {
   ssr: false,
@@ -128,6 +139,7 @@ export default function ThreadPanel({
   const [emojiStart, setEmojiStart] = useState(-1)
   const [emojiIndex, setEmojiIndex] = useState(0)
   const [emojiResults, setEmojiResults] = useState<EmojiSuggestion[]>([])
+  const [emojiData, setEmojiData] = useState<unknown>(() => _emojiData)
   // Reactions on the parent message + replies (msgId → reactors). Mirrors the
   // main feed so reacting works the same inside a thread.
   const [rxMap, setRxMap] = useState<Record<string, RxItem[]>>({})
@@ -151,9 +163,15 @@ export default function ThreadPanel({
   onReplyPostedRef.current = onReplyPosted
 
   useEffect(() => {
+    ensureEmojiData().then(() => setEmojiData(_emojiData))
+  }, [])
+
+  useEffect(() => {
     if (emojiQuery === null || emojiQuery.length === 0) { setEmojiResults([]); return }
     let cancelled = false
     ;(async () => {
+      await ensureEmojiData()
+      if (cancelled) return
       const found: Array<{ id: string; name: string; skins: { native: string }[] }> =
         await SearchIndex.search(emojiQuery) ?? []
       if (cancelled) return
@@ -938,10 +956,10 @@ export default function ThreadPanel({
                 <path strokeLinecap="round" strokeLinejoin="round" d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" />
               </svg>
             </button>
-            {showEmojiPicker && (
+            {showEmojiPicker && !!emojiData && (
               <div className="absolute bottom-full left-0 mb-2 z-50">
                 <EmojiMartPicker
-                  data={data}
+                  data={emojiData}
                   theme="dark"
                   previewPosition="none"
                   skinTonePosition="search"
