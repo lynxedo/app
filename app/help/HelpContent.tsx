@@ -2,15 +2,20 @@
 
 import Link from 'next/link'
 import { useRouter, useSearchParams } from 'next/navigation'
-import { useEffect, useRef, useState } from 'react'
+import { isValidElement, useEffect, useMemo, useRef, useState } from 'react'
+import type { ReactNode } from 'react'
 
 // ──────────────────────────────────────────────────────────────────────────
 // Shared UI primitives
 // ──────────────────────────────────────────────────────────────────────────
 
+function slugify(s: string): string {
+  return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '')
+}
+
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
-    <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+    <section id={slugify(title)} className="scroll-mt-32 bg-gray-900 border border-gray-800 rounded-2xl p-6">
       <h2 className="text-white font-semibold text-lg mb-4">{title}</h2>
       <div className="space-y-3 text-sm text-gray-300 leading-relaxed">{children}</div>
     </section>
@@ -69,6 +74,170 @@ const TABS = [
 type TabId = typeof TABS[number]['id']
 
 // ──────────────────────────────────────────────────────────────────────────
+// Content → search index
+//
+// Each tab's body is authored once as JSX (the *Tab() functions below). The
+// SAME JSX both renders the tab and feeds the search box: we walk the rendered
+// element tree to pull every <Section>'s title + plain text. Because there's a
+// single source, search can never drift out of sync with what's on the page —
+// adding or editing a Section automatically updates what's searchable.
+// ──────────────────────────────────────────────────────────────────────────
+
+// Map of tab id → the function that produces that tab's JSX. Used ONLY for
+// building the search index; the visible tab is still rendered as <XxxTab />.
+const TAB_BODY: Record<TabId, () => ReactNode> = {
+  'hub': HubTab,
+  'routing': RoutingTab,
+  'lawn-sizer': LawnSizerTab,
+  'zone-sizer': ZoneSizerTab,
+  'dialer': DialerTab,
+  'txt': TxtTab,
+  'contacts': ContactsTab,
+  'call-log': CallLogTab,
+  'marketing': MarketingTab,
+  'forms': FormsTab,
+  'products': ProductsTab,
+  'books': BooksTab,
+  'timesheet': TimesheetTab,
+  'settings': SettingsTab,
+}
+
+type IndexEntry = {
+  tabId: TabId
+  tabLabel: string
+  tabIcon: string
+  title: string
+  slug: string
+  text: string
+  haystack: string
+}
+
+// Recursively pull all plain-text out of a React node tree.
+function extractText(node: ReactNode): string {
+  if (node == null || node === false || node === true) return ''
+  if (typeof node === 'string') return node
+  if (typeof node === 'number') return String(node)
+  if (Array.isArray(node)) return node.map(extractText).join(' ')
+  if (isValidElement(node)) {
+    const props = node.props as { children?: ReactNode }
+    return extractText(props.children)
+  }
+  return ''
+}
+
+// Walk a tab body and collect each <Section>'s title + flattened text.
+function collectSections(node: ReactNode, out: { title: string; text: string }[]): void {
+  if (Array.isArray(node)) { node.forEach(n => collectSections(n, out)); return }
+  if (!isValidElement(node)) return
+  if (node.type === Section) {
+    const props = node.props as { title?: string; children?: ReactNode }
+    if (props.title) {
+      out.push({ title: props.title, text: extractText(props.children).replace(/\s+/g, ' ').trim() })
+    }
+    return // a Section never contains another Section, so stop here
+  }
+  const props = node.props as { children?: ReactNode }
+  collectSections(props.children, out)
+}
+
+function buildIndex(): IndexEntry[] {
+  const entries: IndexEntry[] = []
+  for (const tab of TABS) {
+    const sections: { title: string; text: string }[] = []
+    collectSections(TAB_BODY[tab.id](), sections)
+    for (const s of sections) {
+      entries.push({
+        tabId: tab.id,
+        tabLabel: tab.label,
+        tabIcon: tab.icon,
+        title: s.title,
+        slug: slugify(s.title),
+        text: s.text,
+        haystack: (s.title + ' ' + s.text).toLowerCase(),
+      })
+    }
+  }
+  return entries
+}
+
+function searchIndex(index: IndexEntry[], words: string[]): IndexEntry[] {
+  if (words.length === 0) return []
+  return index
+    .filter(e => words.every(w => e.haystack.includes(w)))
+    .sort((a, b) => {
+      // Section-title matches rank above body-only matches.
+      const at = words.every(w => a.title.toLowerCase().includes(w)) ? 0 : 1
+      const bt = words.every(w => b.title.toLowerCase().includes(w)) ? 0 : 1
+      return at - bt
+    })
+    .slice(0, 40)
+}
+
+function escapeRegExp(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+}
+
+// A ~180-char snippet centered on the first matched word, with matches highlighted.
+function Snippet({ text, words }: { text: string; words: string[] }) {
+  const lower = text.toLowerCase()
+  let pos = -1
+  for (const w of words) {
+    const i = lower.indexOf(w)
+    if (i >= 0 && (pos < 0 || i < pos)) pos = i
+  }
+  const start = pos < 0 ? 0 : Math.max(0, pos - 50)
+  let snippet = text.slice(start, start + 180)
+  if (start > 0) snippet = '…' + snippet
+  if (start + 180 < text.length) snippet = snippet + '…'
+  const parts = snippet.split(new RegExp(`(${words.map(escapeRegExp).join('|')})`, 'ig'))
+  return (
+    <p className="text-gray-400 text-xs mt-1 leading-relaxed">
+      {parts.map((part, i) =>
+        part && words.some(w => part.toLowerCase() === w)
+          ? <mark key={i} className="bg-orange-500/30 text-orange-200 rounded px-0.5">{part}</mark>
+          : <span key={i}>{part}</span>
+      )}
+    </p>
+  )
+}
+
+function SearchResults({ results, words, onPick }: {
+  results: IndexEntry[]
+  words: string[]
+  onPick: (tabId: TabId, slug: string) => void
+}) {
+  if (results.length === 0) {
+    return (
+      <div className="text-center py-16 text-gray-500">
+        <p className="text-3xl mb-3">🔍</p>
+        <p className="text-sm">
+          No help topics matched. Try fewer or different words, or{' '}
+          <a href="mailto:support@lynxedo.com?subject=Lynxedo%20Support%20Request" className="text-orange-400 hover:underline">contact support</a>.
+        </p>
+      </div>
+    )
+  }
+  return (
+    <div className="space-y-2">
+      <p className="text-gray-500 text-xs uppercase tracking-wider">
+        {results.length} result{results.length === 1 ? '' : 's'}
+      </p>
+      {results.map(r => (
+        <button
+          key={r.tabId + ':' + r.slug}
+          onClick={() => onPick(r.tabId, r.slug)}
+          className="block w-full text-left bg-gray-900 border border-gray-800 hover:border-orange-500/40 hover:bg-gray-900/60 rounded-xl p-4 transition-colors"
+        >
+          <span className="text-xs text-gray-500">{r.tabIcon} {r.tabLabel}</span>
+          <p className="text-white font-medium text-sm mt-0.5">{r.title}</p>
+          <Snippet text={r.text} words={words} />
+        </button>
+      ))}
+    </div>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
 // Main component
 // ──────────────────────────────────────────────────────────────────────────
 
@@ -79,6 +248,17 @@ export default function HelpContent() {
   const [activeTab, setActiveTab] = useState<TabId>(
     TABS.some(t => t.id === initial) ? initial : 'hub'
   )
+  const [query, setQuery] = useState('')
+  const pendingScrollRef = useRef<string | null>(null)
+  const [scrollNonce, setScrollNonce] = useState(0)
+
+  const index = useMemo(() => buildIndex(), [])
+  const queryWords = useMemo(
+    () => query.toLowerCase().split(/\s+/).filter(Boolean),
+    [query],
+  )
+  const results = useMemo(() => searchIndex(index, queryWords), [index, queryWords])
+  const searching = queryWords.length > 0
 
   useEffect(() => {
     const url = new URL(window.location.href)
@@ -94,8 +274,31 @@ export default function HelpContent() {
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest', inline: 'center' })
   }, [activeTab])
 
+  // After a search result is clicked, jump to (and briefly flash) its section
+  // once the target tab has mounted. Keyed on a nonce so it re-fires even when
+  // the picked section lives in the already-active tab.
+  useEffect(() => {
+    if (scrollNonce === 0) return
+    const slug = pendingScrollRef.current
+    if (!slug) return
+    const el = document.getElementById(slug)
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth', block: 'start' })
+      el.classList.add('help-flash')
+      window.setTimeout(() => el.classList.remove('help-flash'), 1600)
+    }
+  }, [scrollNonce])
+
+  function goToSection(tabId: TabId, slug: string) {
+    pendingScrollRef.current = slug
+    setQuery('')
+    setActiveTab(tabId)
+    setScrollNonce(n => n + 1)
+  }
+
   return (
     <div className="min-h-screen bg-gray-950 text-white">
+      <style>{`@keyframes helpflash{0%{background-color:rgba(249,115,22,.22)}100%{background-color:transparent}}.help-flash{animation:helpflash 1.6s ease-out}`}</style>
       <header className="border-b border-gray-800 px-6 py-4 flex items-center gap-4">
         <Link href="/hub" className="text-gray-400 hover:text-white text-sm transition-colors">
           ← Hub
@@ -103,17 +306,39 @@ export default function HelpContent() {
         <h1 className="text-xl font-bold tracking-tight">Help</h1>
       </header>
 
-      {/* Tab bar */}
+      {/* Search + tab bar */}
       <div className="sticky top-[env(safe-area-inset-top)] md:top-0 z-10 bg-gray-950/95 backdrop-blur border-b border-gray-800">
+        <div className="px-3 sm:px-4 pt-3">
+          <div className="max-w-2xl mx-auto relative">
+            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-500 text-sm pointer-events-none">🔍</span>
+            <input
+              type="text"
+              value={query}
+              onChange={e => setQuery(e.target.value)}
+              placeholder="Search help…"
+              aria-label="Search help"
+              className="w-full bg-gray-900 border border-gray-800 rounded-lg pl-9 pr-9 py-2.5 text-base md:text-sm text-white placeholder-gray-500 focus:outline-none focus:border-orange-500/50"
+            />
+            {query && (
+              <button
+                onClick={() => setQuery('')}
+                aria-label="Clear search"
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-gray-500 hover:text-white w-6 h-6 flex items-center justify-center"
+              >
+                ✕
+              </button>
+            )}
+          </div>
+        </div>
         <div className="px-2 sm:px-4">
           <div className="flex gap-1 overflow-x-auto no-scrollbar py-2 lg:justify-center">
             {TABS.map(tab => {
-              const isActive = activeTab === tab.id
+              const isActive = !searching && activeTab === tab.id
               return (
                 <button
                   key={tab.id}
                   ref={el => { tabRefs.current[tab.id] = el }}
-                  onClick={() => setActiveTab(tab.id)}
+                  onClick={() => { setQuery(''); setActiveTab(tab.id) }}
                   className={`flex-shrink-0 px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
                     isActive
                       ? 'bg-orange-500/20 text-orange-300 border border-orange-500/40'
@@ -130,30 +355,36 @@ export default function HelpContent() {
       </div>
 
       <main className="max-w-2xl mx-auto px-6 py-8 space-y-5">
-        {activeTab === 'hub'        && <HubTab />}
-        {activeTab === 'routing'    && <RoutingTab />}
-        {activeTab === 'lawn-sizer' && <LawnSizerTab />}
-        {activeTab === 'zone-sizer' && <ZoneSizerTab />}
-        {activeTab === 'dialer'     && <DialerTab />}
-        {activeTab === 'txt'        && <TxtTab />}
-        {activeTab === 'contacts'   && <ContactsTab />}
-        {activeTab === 'call-log'   && <CallLogTab />}
-        {activeTab === 'marketing'  && <MarketingTab />}
-        {activeTab === 'forms'      && <FormsTab />}
-        {activeTab === 'products'   && <ProductsTab />}
-        {activeTab === 'books'      && <BooksTab />}
-        {activeTab === 'timesheet'  && <TimesheetTab />}
-        {activeTab === 'settings'   && <SettingsTab />}
+        {searching ? (
+          <SearchResults results={results} words={queryWords} onPick={goToSection} />
+        ) : (
+          <>
+            {activeTab === 'hub'        && <HubTab />}
+            {activeTab === 'routing'    && <RoutingTab />}
+            {activeTab === 'lawn-sizer' && <LawnSizerTab />}
+            {activeTab === 'zone-sizer' && <ZoneSizerTab />}
+            {activeTab === 'dialer'     && <DialerTab />}
+            {activeTab === 'txt'        && <TxtTab />}
+            {activeTab === 'contacts'   && <ContactsTab />}
+            {activeTab === 'call-log'   && <CallLogTab />}
+            {activeTab === 'marketing'  && <MarketingTab />}
+            {activeTab === 'forms'      && <FormsTab />}
+            {activeTab === 'products'   && <ProductsTab />}
+            {activeTab === 'books'      && <BooksTab />}
+            {activeTab === 'timesheet'  && <TimesheetTab />}
+            {activeTab === 'settings'   && <SettingsTab />}
 
-        <div className="flex flex-col items-center gap-3 py-6">
-          <p className="text-gray-500 text-sm">Can&apos;t find what you&apos;re looking for?</p>
-          <a
-            href="mailto:support@lynxedo.com?subject=Lynxedo%20Support%20Request"
-            className="inline-block bg-orange-600 hover:bg-orange-500 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors text-sm"
-          >
-            Contact Support
-          </a>
-        </div>
+            <div className="flex flex-col items-center gap-3 py-6">
+              <p className="text-gray-500 text-sm">Can&apos;t find what you&apos;re looking for?</p>
+              <a
+                href="mailto:support@lynxedo.com?subject=Lynxedo%20Support%20Request"
+                className="inline-block bg-orange-600 hover:bg-orange-500 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors text-sm"
+              >
+                Contact Support
+              </a>
+            </div>
+          </>
+        )}
       </main>
     </div>
   )
@@ -173,7 +404,7 @@ function HubTab() {
 
       <Section title="Home Screen">
         <p>The Home screen is what you see when you open Hub for the first time each day. It shows the date, your greeting, the active company announcements and shout outs, and your most-used rooms — so you can get oriented before diving into a conversation.</p>
-        <p><strong className="text-white">My Time Clock card</strong> — if you have timesheet access and an employee record, a clock-in card appears near the top of Home. Tap <strong className="text-white">Clock In</strong> to start your shift (Lynxedo grabs your GPS at the same time, same as the Timesheet page). Once you&apos;re clocked in the card shows the time you started and how long you&apos;ve been on the clock; tap <strong className="text-white">Clock Out</strong> when you finish. The card mirrors what the Timesheet page does, just one tap from the landing screen so you don&apos;t have to navigate every morning.</p>
+        <p><strong className="text-white">My Time Clock card</strong> — if you have timesheet access and an employee record, a clock-in card appears near the top of Home. Tap <strong className="text-white">Clock In</strong> to start your shift (on a phone, Lynxedo grabs your GPS at the same time, same as the Timesheet page; on a desktop browser it just records the time — no location prompt). Once you&apos;re clocked in the card shows the time you started and how long you&apos;ve been on the clock; tap <strong className="text-white">Clock Out</strong> when you finish. The card mirrors what the Timesheet page does, just one tap from the landing screen so you don&apos;t have to navigate every morning.</p>
         <p><strong className="text-white">Resume where you left off</strong> — when you close and reopen Hub within 14 hours, you&apos;ll land on the last room or DM you were viewing instead of always going back to the General room. Tap a push notification and you still jump straight to that message.</p>
         <p><strong className="text-white">Auto-return to Home after long gaps</strong> — if it&apos;s been more than 14 hours since you last opened Hub, the next time you open it you&apos;ll land on Home instead. The idea: after an overnight gap you probably want to see the announcements and clock in first, not jump straight into whatever room you closed yesterday.</p>
         <Note>Don&apos;t want to land on Home? You can change your default landing page under <strong className="text-white">Settings → Account → Default landing page</strong> (Hub or Dashboard).</Note>
@@ -305,6 +536,15 @@ function HubTab() {
         <p>A room or DM opens at the newest messages. Just <strong className="text-white">scroll up</strong> and older messages load automatically as you go — no &quot;load more&quot; button. Your place stays put while the older messages slot in above, so you can keep scrolling back through the whole conversation.</p>
       </Section>
 
+      <Section title="Loading, errors &amp; not-found">
+        <p>A few things you&apos;ll see around the edges of Hub:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Loading</strong> — while a page is fetching, you see a centered spinner instead of a blank screen, so it&apos;s clear something is on its way.</li>
+          <li><strong className="text-white">Something went wrong</strong> — if a page hits an error, you get a friendly screen with a short explanation and a <strong className="text-white">Try again</strong> button (which reloads just that section) rather than a broken page. Most of the time a retry clears it.</li>
+          <li><strong className="text-white">Not found</strong> — open a link to a room, DM, or page that doesn&apos;t exist (or that you don&apos;t have access to) and you get a clear &quot;not found&quot; screen with a link back to Hub, instead of a dead end.</li>
+        </ul>
+      </Section>
+
       <Section title="Formatting Text">
         <p>Hub uses Slack-style markdown. The <strong className="text-white">Aa</strong> toolbar button opens a small popover with one-tap formatters — or type the markers directly. Either way, your message displays formatted when it sends.</p>
         <p className="font-medium text-white mt-3">Markers</p>
@@ -362,6 +602,7 @@ function HubTab() {
         <p>Anyone in the room can read and reply to a thread. When someone replies in a thread you started or participated in, you get a notification.</p>
         <p>Thread replies support the same toolbar as the main composer — <strong className="text-white">📎 attach</strong> photos and files, <strong className="text-white">Aa</strong> format (bold/italic/strike/quote), <strong className="text-white">😀</strong> insert emoji, and <strong className="text-white">⏰</strong> schedule the reply for later. Attachment-only replies (no text) work too.</p>
         <p><strong className="text-white">Reply actions</strong> — replies have the same actions as any message in the room. On desktop, hover a reply to reveal the action bar (react, forward, save a photo to Files, add to a board, and edit or delete your own); on phone, long-press a reply for the same menu. Edit and delete follow the usual rule — your own messages, and admins can delete any.</p>
+        <p><strong className="text-white">Reactions in threads</strong> — both the original message and every reply support the same emoji reactions as the main feed: the three quick picks (✅ 👍 👀) plus the full emoji picker (search, categories, recents). React on a thread message and everyone in the thread sees it update live, exactly like reacting in the room.</p>
         <p><strong className="text-white">Resize or expand the thread pane</strong> — on desktop, hover over the left edge of the thread panel to reveal a drag handle. Drag left to widen it (up to about half the screen), drag right to narrow it. Or click the <strong className="text-white">⤢ expand</strong> icon in the thread header to fill the whole pane in one click — click it again to snap back. Your preferred width is saved automatically.</p>
         <Note>📱 On phone, opening a thread takes the full screen for the most reading room — tap the <strong className="text-white">←</strong> back arrow at the top-left to return to the room. The original message scrolls up with the replies as you read.</Note>
       </Section>
@@ -590,6 +831,7 @@ function HubTab() {
           <li><strong className="text-white">Import</strong> — bulk-add leads from a spreadsheet.</li>
         </ul>
         <p className="mt-3"><strong className="text-white">Resize or reorder columns.</strong> Drag a column header to reorder it. Drag the right edge of any header to resize. Your layout is saved per-user and follows you across devices.</p>
+        <Note>If an inline edit can&apos;t save — say you briefly lost connection — the cell rolls back to its previous value and a red <strong className="text-white">&ldquo;Couldn&apos;t save that change&rdquo;</strong> toast pops up, so a failed edit is never silently swallowed. Just make the change again once you&apos;re back online.</Note>
         <AdminOnly>
           <p>Admins configure lead sources, stages, and field defaults under <strong className="text-white">Tracker → Settings</strong>.</p>
         </AdminOnly>
@@ -824,10 +1066,12 @@ function ZoneSizerTab() {
         <Note>Obstacles like driveways and sidewalks are already excluded by Claude Vision when it identifies turf and beds — the numbers you see are net.</Note>
       </Section>
 
-      <AdminOnly>
-        <p>Admins configure the per-zone square footage under <strong className="text-white">/admin/zone-sizer</strong>. Defaults are 1,000 sq ft per zone for both turf and beds. Raise the bed rate if you use drip or microspray that covers more area per zone.</p>
-        <p>Each user must have the <em>Zone Sizer</em> permission enabled in Admin → People to use the tool.</p>
-      </AdminOnly>
+      <Section title="Admin — per-zone rates &amp; access">
+        <AdminOnly>
+          <p>Admins configure the per-zone square footage under <strong className="text-white">/admin/zone-sizer</strong>. Defaults are 1,000 sq ft per zone for both turf and beds. Raise the bed rate if you use drip or microspray that covers more area per zone.</p>
+          <p>Each user must have the <em>Zone Sizer</em> permission enabled in Admin → People to use the tool.</p>
+        </AdminOnly>
+      </Section>
     </>
   )
 }
@@ -1204,10 +1448,11 @@ function TimesheetTab() {
     <>
       <Section title="Clocking In and Out">
         <p>Open Timesheet from the Hub sidebar (or use the clock icon at the top of Hub).</p>
-        <Step n={1}>Tap <strong className="text-white">Clock In</strong> when you start your shift. Lynxedo records the time and your GPS location.</Step>
+        <Step n={1}>Tap <strong className="text-white">Clock In</strong> when you start your shift. Lynxedo records the time. On a phone it also captures your GPS location; on a desktop browser it just records the time — no location prompt.</Step>
         <Step n={2}>Add a note if you want (start-of-shift conditions, crew, anything noteworthy).</Step>
         <Step n={3}>Tap <strong className="text-white">Clock Out</strong> when you&apos;re done. You&apos;ll see your total hours for the shift and the week.</Step>
-        <Note>📍 Timesheet asks for location permission the first time you clock in. If you deny it, clocking still works but the location field stays blank.</Note>
+        <Note>📍 On a phone or tablet, Timesheet asks for location permission the first time you clock in — if you deny it, clocking still works, the location just stays blank. Desktop browsers have no GPS, so they skip the prompt entirely and clock you in instantly. (Admins can also turn location capture off company-wide under Admin → Time Records.)</Note>
+        <Note>🌙 <strong className="text-white">Forgot to clock out?</strong> If a shift is left running for more than 14 hours, Lynxedo automatically clocks you out overnight so a forgotten punch doesn&apos;t balloon into a giant shift. It caps the shift at 14 hours, notes <em>&ldquo;Auto clock-out after 14h — please verify&rdquo;</em> on the record, and sends you a heads-up so you can fix the real end time if it&apos;s wrong.</Note>
       </Section>
 
       <Section title="Your Week View">
@@ -1371,14 +1616,18 @@ function FormsTab() {
           <li>Tap the form you want to fill out (e.g. <em>Irrigation Inspection Report</em>).</li>
           <li>Fill in each field — checkboxes, dates, short answers, dropdowns, etc.</li>
           <li>For the <strong className="text-white">signature field</strong>, draw directly on the canvas with your finger or stylus. Tap <em>Clear</em> to redo.</li>
-          <li>Optionally enter the customer&apos;s name and phone number at the bottom. This lets you copy a ready-made text message to send them after the job.</li>
+          <li>Optionally enter the customer&apos;s name and phone number at the bottom. With both filled in, Lynxedo automatically texts them the after-service message when you submit (and falls back to a copy-paste message if it can&apos;t send).</li>
           <li>To link the submission to a Jobber client (so a note appears on their record), tap <strong className="text-white">Link to Jobber Client</strong>, search by name, and select the customer.</li>
           <li>Tap <strong className="text-white">Submit Form</strong>. The form saves to the database. If Jobber was linked, a formatted note is added to the client automatically.</li>
         </ol>
       </Section>
 
-      <Section title="SMS Template">
-        <p>After submitting, if you entered a customer name, a pre-written text message appears on the success screen. Tap <strong className="text-white">Copy message</strong> and paste it into any texting app to send to the customer.</p>
+      <Section title="Texting the customer">
+        <p>When you submit a form with the customer&apos;s name <em>and</em> phone number filled in, Lynxedo <strong className="text-white">automatically texts them</strong> the after-service message from the company number — you&apos;ll see a green <strong className="text-emerald-300">✓ Text sent to customer</strong> on the success screen. No copy-paste needed.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li>If the customer has <strong className="text-white">opted out of texts</strong> (replied STOP), nothing is sent and you&apos;ll see a note saying so.</li>
+          <li>If the text <strong className="text-white">can&apos;t send automatically</strong> (no valid phone number, or texting isn&apos;t set up yet), the message still appears on the success screen with a <strong className="text-white">Copy message</strong> button so you can send it by hand.</li>
+        </ul>
         <p className="mt-2">The admin can customize what this message says in the Form Builder (see below).</p>
       </Section>
 
