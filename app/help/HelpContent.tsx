@@ -1092,7 +1092,7 @@ function TxtTab() {
         <p>The Txt2 sidebar lists conversations under these tabs:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Mine</strong> — conversations assigned to you (or where you&apos;re a member).</li>
-          <li><strong className="text-white">All</strong> — every active conversation on Heroes&apos; line. The whole team shares one inbox.</li>
+          <li><strong className="text-white">All</strong> — every active conversation on Heroes&apos; line. The whole team can <em>read</em> any thread here, but you can only <em>send</em> in conversations you own or have joined (see <strong className="text-white">Sending a text</strong>).</li>
           <li><strong className="text-white">Archived</strong> — closed-out conversations. They pop back to the top automatically if the customer texts again.</li>
           <li><strong className="text-white">Responder</strong> <span className="text-gray-500">(managers only)</span> — Guardian auto-text threads waiting for a human to take over.</li>
         </ul>
@@ -1104,6 +1104,7 @@ function TxtTab() {
         <Step n={2}>Type your message in the composer at the bottom and tap the <strong className="text-white">➤</strong> send button.</Step>
         <Step n={3}>The customer&apos;s replies land back in the same thread in real time, with a push notification to whoever owns the conversation.</Step>
         <p>The composer toolbar has: <strong className="text-white">📎 attach</strong> (photo/image MMS, up to 5 MB), <strong className="text-white">📋 templates</strong>, <strong className="text-white">🚗 on-my-way</strong>, <strong className="text-white">⏰ schedule</strong>, <strong className="text-white">😀 emoji</strong>, <strong className="text-white">⤢ expand</strong> (a bigger typing box), and <strong className="text-white">➤ send</strong>.</p>
+        <Note>Opened a conversation you don&apos;t own and aren&apos;t a member of? You&apos;ll see the full message history, but a <strong className="text-white">Join to reply</strong> button sits where the typing box normally is. Tap it to add yourself to the thread — the composer appears and you can text. Reading is open to the whole team; sending is just for the people on the conversation.</Note>
       </Section>
 
       <Section title="Templates">
@@ -1120,7 +1121,7 @@ function TxtTab() {
       </Section>
 
       <Section title="Assigning &amp; collaborating">
-        <p>Each conversation has an <strong className="text-white">owner</strong> (the chip reads &quot;Owner: You&quot; or the teammate&apos;s name) plus optional <strong className="text-white">members</strong> who can also see and reply. Use <strong className="text-white">+ member</strong> to pull a teammate in — they get a push so they know they&apos;ve been added.</p>
+        <p>Each conversation has an <strong className="text-white">owner</strong> (the chip reads &quot;Owner: You&quot; or the teammate&apos;s name) plus optional <strong className="text-white">members</strong> who can also see and reply. Anyone with Txt2 can <strong className="text-white">join a conversation themselves</strong> — open it and tap <strong className="text-white">Join to reply</strong> — so you never have to wait to be added. To pull <em>someone else</em> in, the owner or a Texting Manager uses <strong className="text-white">+ member</strong> (they get a push so they know they&apos;ve been added). A member can <strong className="text-white">Leave</strong> a thread anytime.</p>
         <p>The <strong className="text-white">📝 Notes</strong> panel holds internal notes that the customer never sees — context for whoever picks the conversation up next. On mobile it opens full-screen; note markers also appear inline in the thread at the point in time they were added.</p>
       </Section>
 
@@ -1147,7 +1148,7 @@ function TxtTab() {
 
       <AdminOnly>
         <p>Txt2 is gated per person. Turn on <strong className="text-white">Txt2 (new texting)</strong> for a user in <strong className="text-white">Admin → People</strong> to give them the Txt2 icon and access to <code>/hub/txt</code>. It&apos;s off by default, so the team keeps using the old Txt (Captivated) until you roll each person onto Txt2.</p>
-        <p><strong className="text-white">Two access levels.</strong> Everyone with Txt2 works the shared inbox: Mine / All / Archived, start conversations, reassign, notes, AI suggestions, archive, and group messages. <strong className="text-white">Texting Managers</strong> additionally see the unassigned <strong className="text-white">Queue</strong> and the <strong className="text-white">Responder</strong> tab, and can send <strong className="text-white">Broadcasts</strong>.</p>
+        <p><strong className="text-white">Two access levels.</strong> Everyone with Txt2 shares the inbox — they can <strong className="text-white">read</strong> any conversation in <strong className="text-white">All</strong>, start new ones, take notes, archive, and send group messages. <strong className="text-white">Sending a reply, though, is limited to the conversation&apos;s owner and its members</strong>: a non-member who opens a thread sees a <strong className="text-white">Join to reply</strong> button and adds themselves in one tap (then AI suggestions, scheduling, etc. unlock for them too). <strong className="text-white">Texting Managers</strong> additionally see the unassigned <strong className="text-white">Queue</strong> and the <strong className="text-white">Responder</strong> tab, can add or remove <em>other</em> people on a thread, and can send <strong className="text-white">Broadcasts</strong>.</p>
         <p><strong className="text-white">Admin → Txt</strong> has tabs for the phone number(s) (mark one as default), the On-My-Way wording, the company templates, Responder notifications, and the new <strong className="text-white">Managers</strong> tab — where you pick who&apos;s a Texting Manager. Admins and Txt-admins are always managers; checking anyone else there grants them the manager tier (it writes each person&apos;s <code>can_assign_txt_threads</code> flag).</p>
         <p>Customer-facing texting requires Heroes&apos; verified Twilio number to be live and configured (inbound + status webhooks, the broadcast and scheduled-send crons, and the number added in Admin → Txt). Voice (Dialer) and texting (Txt2) share the same Twilio number.</p>
       </AdminOnly>
