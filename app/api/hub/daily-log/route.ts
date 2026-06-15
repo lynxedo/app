@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { sendHubPush } from '@/lib/hub-push'
 
 type HubUserLite = { id: string; display_name: string; avatar_url: string | null }
 
@@ -119,6 +121,25 @@ export async function POST(request: Request) {
     .from('daily_log_subscribers')
     .insert({ entry_id: entry.id, user_id: user.id })
     .select()
+
+  // Non-blocking: notify the assigned tech(s) that they have a new daily log
+  ;(async () => {
+    try {
+      const admin = createAdminClient()
+      const { data: senderRow } = await admin.from('hub_users').select('display_name').eq('id', user.id).single()
+      const senderName = senderRow?.display_name ?? 'Someone'
+      const recipientIds = [tech_user_id, ...secondaries].filter(id => id !== user.id)
+      if (recipientIds.length > 0) {
+        await sendHubPush(recipientIds, {
+          title: `${senderName} added a daily log for ${log_date}`,
+          body: office_notes?.trim() ? office_notes.trim().slice(0, 120) : 'You have a new daily log entry.',
+          url: '/hub/daily-log',
+        })
+      }
+    } catch (err) {
+      console.error('[daily-log] new-entry push failed:', (err as Error).message)
+    }
+  })()
 
   // Resolve secondary tech display info for the response
   let secondaryTechs: HubUserLite[] = []
