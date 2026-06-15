@@ -40,7 +40,7 @@ const DEPT_COLORS: Record<string, { bg: string; border: string; label: string }>
   IR: { bg: 'rgba(14,165,233,0.75)', border: '#0ea5e9', label: 'Irrigation (IR)' },
   WF: { bg: 'rgba(34,197,94,0.75)', border: '#22c55e', label: 'Lawn Care (WF)' },
   PW: { bg: 'rgba(245,158,11,0.75)', border: '#f59e0b', label: 'Pet Waste (PW)' },
-  MO: { bg: 'rgba(139,92,246,0.75)', border: '#8b5cf6', label: 'Mowing (MO)' },
+  MO: { bg: 'rgba(139,92,246,0.75)', border: '#8b5cf6', label: 'Mosquito (MO)' },
   Other: { bg: 'rgba(100,116,139,0.75)', border: '#64748b', label: 'Other' },
 }
 const PIE_COLORS = ['#0ea5e9', '#38bdf8', '#22c55e', '#f59e0b', '#8b5cf6']
