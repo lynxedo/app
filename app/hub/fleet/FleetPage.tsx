@@ -339,7 +339,7 @@ export default function FleetPage() {
   )
 }
 
-function buildPopup(mapboxgl: import('mapbox-gl')['default'], device: Device, alerts: AlertEvent[]) {
+function buildPopup(mapboxgl: typeof import('mapbox-gl'), device: Device, alerts: AlertEvent[]) {
   const popup = new mapboxgl.Popup({ offset: 18, closeButton: true })
   const alertHtml =
     alerts.length === 0
