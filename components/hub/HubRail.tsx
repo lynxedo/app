@@ -652,27 +652,9 @@ export default function HubRail({
         </button>
       </div>
 
-      {/* DND quick-toggle pills — always visible above the You button */}
-      <div className="flex-none flex gap-1 px-2 pt-2 pb-1 border-t border-white/5">
-        <button
-          type="button"
-          onClick={onToggleDnd}
-          title="Master DND — silences all"
-          className={`flex-1 text-[9px] font-semibold py-1 rounded-md transition-colors leading-none ${masterDndOn ? 'bg-red-500/25 text-red-400 ring-1 ring-red-500/40' : 'bg-white/5 text-white/35 hover:text-white/60'}`}
-        >ALL</button>
-        <button
-          type="button"
-          onClick={onToggleHubDnd}
-          title="Hub notifications DND"
-          className={`flex-1 text-[9px] font-semibold py-1 rounded-md transition-colors leading-none ${hubDndOn ? 'bg-orange-500/25 text-orange-400 ring-1 ring-orange-500/40' : 'bg-white/5 text-white/35 hover:text-white/60'}`}
-        >MSG</button>
-        <button
-          type="button"
-          onClick={onToggleDialerDnd}
-          title="Calls DND"
-          className={`flex-1 text-[9px] font-semibold py-1 rounded-md transition-colors leading-none ${dialerDndOn ? 'bg-orange-500/25 text-orange-400 ring-1 ring-orange-500/40' : 'bg-white/5 text-white/35 hover:text-white/60'}`}
-        >CALL</button>
-      </div>
+      {/* DND quick-toggles now live in the "You" menu (ProfileSidebar). The optional
+          layout-token versions (renderItem master-dnd / hub-dnd / dialer-dnd) remain
+          available via the rail customizer for anyone who wants them. */}
 
       {/* Fixed footer: Settings, Admin (gated), You */}
       <div className="flex-none flex flex-col">
