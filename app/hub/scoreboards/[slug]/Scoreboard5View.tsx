@@ -26,7 +26,7 @@ type Payload = {
     lastWeekLabel: string
   }
   leadSources: { src: string; won: number; lost: number }[]
-  closes: { labels: string[]; won: number[]; upsells: number[] }
+  companyWeekly: { labels: string[]; won: number[]; upsells: number[] } // $ value
   katherineMonthly: { labels: string[]; won: number[]; upsells: number[] }
 }
 
@@ -116,9 +116,9 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
       <SectionTitle>This Week &amp; Year to Date</SectionTitle>
       <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-3">
         <Kpi label="Leads Last Week" value={kpis.leadsLastWeek.toLocaleString()} sub={`New leads · week of ${wk}`} />
-        <Kpi label="Close Rate YTD" value={`${kpis.closeRateYtd}%`} color={rateColor(kpis.closeRateYtd)} sub={`${kpis.ytdWon} won of ${kpis.ytdWon + kpis.ytdLost} decided · ${year}`} />
-        <Kpi label="Close Rate Last Week" value={`${kpis.closeRateLastWeek}%`} color={rateColor(kpis.closeRateLastWeek)} sub={`${kpis.lwWon} won of ${kpis.lwWon + kpis.lwLost} · week of ${wk}`} />
-        <Kpi label="Katherine — Close Rate Last Week" value={`${kpis.kCloseRateLastWeek}%`} color={rateColor(kpis.kCloseRateLastWeek)} sub={`${kpis.kLwWon} won of ${kpis.kLwWon + kpis.kLwLost} · week of ${wk}`} />
+        <Kpi label="Close Rate YTD" value={`${kpis.closeRateYtd}%`} color={rateColor(kpis.closeRateYtd)} sub={`${kpis.ytdWon} won / ${kpis.ytdLost} lost · leads from ${year}`} />
+        <Kpi label="Close Rate Last Week" value={`${kpis.closeRateLastWeek}%`} color={rateColor(kpis.closeRateLastWeek)} sub={`${kpis.lwWon} won / ${kpis.lwLost} lost · leads in wk of ${wk}`} />
+        <Kpi label="Katherine — Close Rate Last Week" value={`${kpis.kCloseRateLastWeek}%`} color={rateColor(kpis.kCloseRateLastWeek)} sub={`${kpis.kLwWon} won / ${kpis.kLwLost} lost · leads in wk of ${wk}`} />
         <Kpi label="Katherine — Sales Last Week" value={usd(kpis.kSalesLastWeek)} sub={`Closed Won + Upsells · week of ${wk}`} />
         <Kpi label="Company Sales YTD" value={usd(kpis.companySalesYtd)} sub={`Closed Won + Upsells · ${year}`} />
       </div>
@@ -151,22 +151,22 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
               </>}
         </Card>
 
-        {/* Chart 2 — Company closes per week, stacked won + upsells */}
+        {/* Chart 2 — Company sales per week, $ value, stacked won + upsells */}
         <Card>
-          <ChartHead title="Company Closes per Week" sub="Trailing 6 weeks · Closed Won + Upsells" />
+          <ChartHead title="Company Sales per Week" sub="Trailing 6 weeks · $ Closed Won + Upsells" />
           <ChartCanvas make={c => new Chart(c, {
             type: 'bar',
             data: {
-              labels: data.closes.labels,
+              labels: data.companyWeekly.labels,
               datasets: [
-                { label: 'Closed Won', data: data.closes.won, backgroundColor: COLOR.won.bg, borderColor: COLOR.won.border, borderWidth: 1, borderRadius: 2 },
-                { label: 'Upsells', data: data.closes.upsells, backgroundColor: COLOR.upsell.bg, borderColor: COLOR.upsell.border, borderWidth: 1, borderRadius: 2 },
+                { label: 'Closed Won', data: data.companyWeekly.won, backgroundColor: COLOR.won.bg, borderColor: COLOR.won.border, borderWidth: 1, borderRadius: 2 },
+                { label: 'Upsells', data: data.companyWeekly.upsells, backgroundColor: COLOR.upsell.bg, borderColor: COLOR.upsell.border, borderWidth: 1, borderRadius: 2 },
               ],
             },
             options: {
               responsive: true, maintainAspectRatio: false,
-              plugins: { legend: { display: false }, tooltip: { ...tooltipStyle, callbacks: { label: ctx => ` ${ctx.dataset.label}: ${ctx.parsed.y ?? 0}` } } },
-              scales: countScales,
+              plugins: { legend: { display: false }, tooltip: { ...tooltipStyle, callbacks: { label: ctx => ` ${ctx.dataset.label}: ${usd(ctx.parsed.y ?? 0)}` } } },
+              scales: usdScales,
             },
           })} />
           <ChartLegend items={[{ label: 'Closed Won', color: COLOR.won.border }, { label: 'Upsells', color: COLOR.upsell.border }]} />
