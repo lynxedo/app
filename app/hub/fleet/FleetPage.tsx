@@ -1,8 +1,13 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
+import type { Map as MapboxMap, Marker as MapboxMarker, Popup as MapboxPopup } from 'mapbox-gl'
+
+// The mapbox-gl engine (~800 KB) is browser-only and heavy, so it's lazy-loaded
+// inside the init effect via `await import('mapbox-gl')` rather than a static
+// top-level import — it stays out of the initial Fleet bundle entirely.
+type MapboxModule = (typeof import('mapbox-gl'))['default']
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
 const POLL_INTERVAL_MS = 30_000
@@ -119,14 +124,20 @@ function buildMarkerEl(device: Device, hasAlert: boolean): HTMLDivElement {
 
 export default function FleetPage() {
   const mapContainerRef = useRef<HTMLDivElement | null>(null)
-  const mapRef = useRef<mapboxgl.Map | null>(null)
-  const markersRef = useRef<Map<string, mapboxgl.Marker>>(new Map())
+  const mapRef = useRef<MapboxMap | null>(null)
+  const mapboxglRef = useRef<MapboxModule | null>(null)
+  const markersRef = useRef<Map<string, MapboxMarker>>(new Map())
   const fittedRef = useRef(false)
 
   const [devices, setDevices] = useState<Device[]>([])
   const [alerts, setAlerts] = useState<AlertEvent[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // Map-engine load/init failure (e.g. WebGL unavailable on this device). Kept
+  // separate from `error` (data-fetch errors) so the map can fail gracefully
+  // while the vehicle sidebar — which needs no WebGL — keeps working.
+  const [mapError, setMapError] = useState<string | null>(null)
+  const [mapReady, setMapReady] = useState(false)
 
   // Map of device_id → list of open alert types
   const alertsByDevice = useMemo(() => {
@@ -139,50 +150,83 @@ export default function FleetPage() {
     return m
   }, [alerts])
 
-  // Initial map setup
+  // Initial map setup — lazy-load mapbox-gl, then construct the map inside a
+  // try/catch. `new Map()` throws synchronously when WebGL can't initialize
+  // (hardware acceleration off, GPU blocklisted, remote session); catching it
+  // shows a friendly "map unavailable" panel instead of crashing the whole
+  // Fleet page (the throw used to propagate to the Hub error boundary).
   useEffect(() => {
     if (!mapContainerRef.current || mapRef.current) return
     if (!MAPBOX_TOKEN) {
-      setError('Mapbox token not configured')
+      setMapError('Mapbox token not configured')
       return
     }
-    mapboxgl.accessToken = MAPBOX_TOKEN
-    const map = new mapboxgl.Map({
-      container: mapContainerRef.current,
-      style: 'mapbox://styles/mapbox/dark-v11',
-      center: [-95.45, 30.27], // The Woodlands, TX-ish
-      zoom: 10,
-    })
-    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
-    mapRef.current = map
 
-    // Mapbox locks in the container's pixel dimensions at construct time and
-    // doesn't react to flex/grid layout shifts on its own. Hammer resize across
-    // a handful of frames in case the layout settles late, then keep observing
-    // the container for any future change (sidebar collapse, device rotation).
-    const container = mapContainerRef.current
-    let ro: ResizeObserver | null = null
-    if (container) {
-      ro = new ResizeObserver(() => map.resize())
-      ro.observe(container)
-    }
-    const resizeTimers: number[] = []
-    ;[0, 50, 200, 500, 1000].forEach((ms) => {
-      resizeTimers.push(window.setTimeout(() => map.resize(), ms))
-    })
+    let cancelled = false
+    let cleanup: (() => void) | null = null
+
+    ;(async () => {
+      try {
+        const mapboxgl = (await import('mapbox-gl')).default
+        if (cancelled || !mapContainerRef.current) return
+        mapboxglRef.current = mapboxgl
+
+        mapboxgl.accessToken = MAPBOX_TOKEN
+        const map = new mapboxgl.Map({
+          container: mapContainerRef.current,
+          style: 'mapbox://styles/mapbox/dark-v11',
+          center: [-95.45, 30.27], // The Woodlands, TX-ish
+          zoom: 10,
+        })
+        map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
+        mapRef.current = map
+        setMapError(null)
+        // A ref write doesn't re-render — flip state so the markers effect
+        // re-runs now that the (async) map actually exists.
+        setMapReady(true)
+
+        // Mapbox locks in the container's pixel dimensions at construct time and
+        // doesn't react to flex/grid layout shifts on its own. Hammer resize
+        // across a handful of frames in case the layout settles late, then keep
+        // observing the container for any future change (sidebar collapse,
+        // device rotation).
+        const container = mapContainerRef.current
+        const ro = new ResizeObserver(() => map.resize())
+        ro.observe(container)
+        const resizeTimers: number[] = []
+        ;[0, 50, 200, 500, 1000].forEach((ms) => {
+          resizeTimers.push(window.setTimeout(() => map.resize(), ms))
+        })
+        cleanup = () => {
+          resizeTimers.forEach((t) => window.clearTimeout(t))
+          ro.disconnect()
+        }
+      } catch (err) {
+        if (cancelled) return
+        const msg = err instanceof Error ? err.message : String(err)
+        setMapError(
+          /webgl/i.test(msg)
+            ? 'Map unavailable on this device — your browser can’t start WebGL. Try enabling hardware acceleration (chrome://settings/system), or view the vehicle list below.'
+            : `Map failed to load: ${msg}`,
+        )
+      }
+    })()
 
     return () => {
-      resizeTimers.forEach((t) => window.clearTimeout(t))
-      ro?.disconnect()
-      map.remove()
+      cancelled = true
+      cleanup?.()
+      mapRef.current?.remove()
       mapRef.current = null
+      setMapReady(false)
     }
   }, [])
 
-  // Render / update markers when devices or alerts change
+  // Render / update markers when devices or alerts change (or once the map is
+  // ready — mapReady gates so this re-runs after the async map init).
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
+    const mapboxgl = mapboxglRef.current
+    if (!map || !mapboxgl || !mapReady) return
     const seen = new Set<string>()
     for (const dev of devices) {
       seen.add(dev.id)
@@ -192,7 +236,7 @@ export default function FleetPage() {
       markersRef.current.get(dev.id)?.remove()
       const marker = new mapboxgl.Marker({ element: buildMarkerEl(dev, hasAlert) })
         .setLngLat([dev.lng, dev.lat])
-        .setPopup(buildPopup(dev, alertsByDevice.get(dev.id) ?? []))
+        .setPopup(buildPopup(mapboxgl, dev, alertsByDevice.get(dev.id) ?? []))
         .addTo(map)
       markersRef.current.set(dev.id, marker)
     }
@@ -210,7 +254,7 @@ export default function FleetPage() {
       map.fitBounds(bounds, { padding: 80, maxZoom: 13, duration: 0 })
       fittedRef.current = true
     }
-  }, [devices, alertsByDevice])
+  }, [devices, alertsByDevice, mapReady])
 
   // Poll devices + alerts
   useEffect(() => {
@@ -260,6 +304,14 @@ export default function FleetPage() {
     <div className="flex flex-col md:flex-row flex-1 min-h-0 w-full bg-gray-950 text-white">
       <div className="relative flex-1 min-h-[50vh] md:min-h-0 md:h-full">
         <div ref={mapContainerRef} style={{ position: 'absolute', inset: 0, width: '100%', height: '100%' }} />
+        {mapError && (
+          <div className="absolute inset-0 flex items-center justify-center bg-gray-950 p-6">
+            <div className="max-w-sm text-center">
+              <div className="text-3xl mb-3">🗺️</div>
+              <div className="text-sm text-white/80">{mapError}</div>
+            </div>
+          </div>
+        )}
         {error && (
           <div className="absolute top-4 left-4 right-4 md:right-auto md:max-w-md bg-red-900/80 border border-red-700 text-red-100 px-3 py-2 rounded text-sm">
             {error}
@@ -324,7 +376,7 @@ export default function FleetPage() {
   )
 }
 
-function buildPopup(device: Device, alerts: AlertEvent[]): mapboxgl.Popup {
+function buildPopup(mapboxgl: MapboxModule, device: Device, alerts: AlertEvent[]): MapboxPopup {
   const popup = new mapboxgl.Popup({ offset: 18, closeButton: true })
   const alertHtml =
     alerts.length === 0
