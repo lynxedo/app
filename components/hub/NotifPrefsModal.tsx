@@ -12,9 +12,6 @@ const LEVEL_OPTIONS: { value: Level; label: string; description: string }[] = [
 
 export default function NotifPrefsModal({ onClose }: { onClose: () => void }) {
   const [level, setLevel] = useState<Level>('all')
-  const [dndEnabled, setDndEnabled] = useState(false)
-  const [dndStart, setDndStart] = useState('22:00')
-  const [dndEnd, setDndEnd] = useState('07:00')
   const [saving, setSaving] = useState(false)
   const [loaded, setLoaded] = useState(false)
 
@@ -25,9 +22,6 @@ export default function NotifPrefsModal({ onClose }: { onClose: () => void }) {
         const global = (d.prefs ?? []).find((p: { room_id: string | null }) => p.room_id === null)
         if (global) {
           setLevel(global.level ?? 'all')
-          setDndEnabled(global.dnd_enabled ?? false)
-          if (global.dnd_start) setDndStart(global.dnd_start)
-          if (global.dnd_end) setDndEnd(global.dnd_end)
         }
         setLoaded(true)
       })
@@ -39,13 +33,7 @@ export default function NotifPrefsModal({ onClose }: { onClose: () => void }) {
     await fetch('/api/hub/notification-prefs', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        room_id: null,
-        level,
-        dnd_enabled: dndEnabled,
-        dnd_start: dndEnabled ? dndStart : null,
-        dnd_end: dndEnabled ? dndEnd : null,
-      }),
+      body: JSON.stringify({ room_id: null, level }),
     })
     setSaving(false)
     onClose()
@@ -89,44 +77,6 @@ export default function NotifPrefsModal({ onClose }: { onClose: () => void }) {
                   </button>
                 ))}
               </div>
-            </div>
-
-            {/* DND schedule */}
-            <div className="border-t border-gray-800 pt-4">
-              <div className="flex items-start justify-between gap-4">
-                <div>
-                  <p className="text-sm font-medium text-white">Do Not Disturb schedule</p>
-                  <p className="text-xs text-gray-500 mt-0.5">Silence all pushes during these hours</p>
-                </div>
-                <button
-                  onClick={() => setDndEnabled(d => !d)}
-                  className={`relative flex-none w-10 h-6 rounded-full transition-colors ${dndEnabled ? 'bg-brand' : 'bg-gray-700'}`}
-                >
-                  <span className={`absolute top-1 w-4 h-4 rounded-full bg-white shadow transition-transform ${dndEnabled ? 'translate-x-5' : 'translate-x-1'}`} />
-                </button>
-              </div>
-              {dndEnabled && (
-                <div className="flex items-center gap-3 mt-3">
-                  <div className="flex-1">
-                    <label className="text-xs text-gray-500 mb-1 block">From</label>
-                    <input
-                      type="time"
-                      value={dndStart}
-                      onChange={e => setDndStart(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white outline-none focus:border-brand transition-colors"
-                    />
-                  </div>
-                  <div className="flex-1">
-                    <label className="text-xs text-gray-500 mb-1 block">To</label>
-                    <input
-                      type="time"
-                      value={dndEnd}
-                      onChange={e => setDndEnd(e.target.value)}
-                      className="w-full bg-gray-800 border border-gray-700 rounded-lg px-2 py-1.5 text-sm text-white outline-none focus:border-brand transition-colors"
-                    />
-                  </div>
-                </div>
-              )}
             </div>
           </div>
         )}

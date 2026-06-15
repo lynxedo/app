@@ -13,7 +13,7 @@
 // (The legacy /timesheet page predates this hook and already implements the same
 // behavior inline; it can be migrated onto this hook in a later pass.)
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 
 export type ClockEmployee = {
   id: string
@@ -57,6 +57,20 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
   const [gpsErrorType, setGpsErrorType] = useState<'denied' | 'unavailable'>('unavailable')
   const [note, setNote] = useState('')
   const [lastOut, setLastOut] = useState<{ time: string; hours: number } | null>(null)
+
+  // TS7 — company timesheet policy: whether to capture GPS on mobile clock-in.
+  // Fetched once (RLS-scoped to the user's company). Defaults to true (capture)
+  // so a failed/empty fetch never silently drops location for companies that
+  // expect it — matches the pre-TS7 always-on behavior.
+  const gpsEnabledRef = useRef(true)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/timesheet/settings')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (!cancelled && typeof d?.settings?.gps_enabled === 'boolean') gpsEnabledRef.current = d.settings.gps_enabled })
+      .catch(() => {})
+    return () => { cancelled = true }
+  }, [])
 
   // Live tick for the elapsed display.
   useEffect(() => {
@@ -125,6 +139,12 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
 
     // Clock-out never needs GPS.
     if (action === 'out') {
+      await submitPunch(null, null)
+      return
+    }
+
+    // TS7 — company can disable GPS capture entirely (per timesheet_settings).
+    if (!gpsEnabledRef.current) {
       await submitPunch(null, null)
       return
     }
