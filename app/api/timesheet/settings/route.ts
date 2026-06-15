@@ -23,7 +23,7 @@ export async function PATCH(req: NextRequest) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_timesheet')
+    .select('role, can_admin_timesheet, company_id')
     .eq('id', user.id)
     .single()
   if (profile?.role !== 'admin' && !profile?.can_admin_timesheet) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -43,10 +43,12 @@ export async function PATCH(req: NextRequest) {
     if (key in body) update[key] = body[key]
   }
 
-  // No ID filter needed — RLS scopes this to the user's company automatically
+  // Explicit company_id filter: PostgREST rejects an UPDATE with no filter, and
+  // it's the right backstop anyway (RLS still scopes/validates on top).
   const { data, error } = await supabase
     .from('timesheet_settings')
     .update(update)
+    .eq('company_id', profile.company_id)
     .select('id, pay_period_frequency, pay_period_start_day, overtime_threshold_daily, overtime_threshold_weekly, gps_enabled, gps_visible_to_employee')
     .single()
 
