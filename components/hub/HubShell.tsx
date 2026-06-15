@@ -248,8 +248,18 @@ export default function HubShell({
     }
   }, [pathname, pathRail])
 
-  // Root font-size scaling sync.
+  // Root font-size scaling sync (SET-textsize).
+  // app/layout.tsx (server) is the SOLE owner of the INITIAL text-size class —
+  // it SSRs `text-size-${profile.hub_text_size}` onto <html>, so the first
+  // paint is already correct and there's no flash. This effect must therefore
+  // NOT re-write the class on mount (a redundant second writer); it only reacts
+  // to LIVE changes when the user picks a new size in Settings.
+  const didMountTextSize = useRef(false)
   useEffect(() => {
+    if (!didMountTextSize.current) {
+      didMountTextSize.current = true
+      return
+    }
     const html = document.documentElement
     html.classList.remove('text-size-small', 'text-size-default', 'text-size-large')
     html.classList.add(`text-size-${textSize}`)

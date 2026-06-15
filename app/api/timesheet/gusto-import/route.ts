@@ -23,6 +23,35 @@ type GustoEmployee = {
   }>
 }
 
+type DerivedComp = {
+  payType: 'hourly' | 'salary'
+  rate: number | null
+  flsa: string | null
+  title: string | null
+}
+
+// Single source of truth for turning a Gusto employee record into the fields we
+// store. Used by BOTH the preview (GET) and the apply (POST) so the two paths
+// can never derive a different pay rate from the same record.
+function deriveGustoComp(ge: GustoEmployee): DerivedComp {
+  const job = ge.jobs?.[0]
+  const comp = job?.compensations?.[0]
+  const payType: 'hourly' | 'salary' = comp?.payment_unit === 'Hour' ? 'hourly' : 'salary'
+  const rate = payType === 'hourly' ? (parseFloat(comp?.rate ?? '0') || null) : null
+  return { payType, rate, flsa: comp?.flsa_status ?? null, title: job?.title ?? null }
+}
+
+async function fetchGustoEmployees(token: string): Promise<GustoEmployee[]> {
+  const res = await fetch(
+    `${GUSTO_API}/v1/companies/${COMPANY_UUID}/employees?terminated=false`,
+    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
+  )
+  if (!res.ok) {
+    throw new Error(`Gusto API error: ${res.status} ${res.statusText}`)
+  }
+  return await res.json() as GustoEmployee[]
+}
+
 // GET — preview diff between Gusto and our DB (no changes applied)
 export async function GET() {
   const supabase = await createClient()
@@ -45,16 +74,12 @@ export async function GET() {
   }
 
   // Fetch active employees from Gusto
-  const gustoRes = await fetch(
-    `${GUSTO_API}/v1/companies/${COMPANY_UUID}/employees?terminated=false`,
-    { headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' } }
-  )
-
-  if (!gustoRes.ok) {
-    return NextResponse.json({ error: `Gusto API error: ${gustoRes.status} ${gustoRes.statusText}` }, { status: 502 })
+  let gustoEmployees: GustoEmployee[]
+  try {
+    gustoEmployees = await fetchGustoEmployees(token)
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : 'Gusto API error' }, { status: 502 })
   }
-
-  const gustoEmployees: GustoEmployee[] = await gustoRes.json()
 
   // Fetch our current employees
   const { data: dbEmployees } = await supabase.from('employees').select('*')
@@ -65,10 +90,7 @@ export async function GET() {
   // Check Gusto → DB
   for (const ge of gustoEmployees) {
     const job = ge.jobs?.[0]
-    const comp = job?.compensations?.[0]
-    const payType = comp?.payment_unit === 'Hour' ? 'hourly' : 'salary'
-    const newRate = payType === 'hourly' ? parseFloat(comp?.rate ?? '0') || null : null
-    const flsaStatus = comp?.flsa_status ?? null
+    const { payType, rate: newRate, flsa: flsaStatus } = deriveGustoComp(ge)
     const dbEmp = dbMap.get(ge.uuid)
 
     if (!dbEmp) {
@@ -142,7 +164,14 @@ export async function GET() {
   return NextResponse.json({ configured: true, changes })
 }
 
-// POST — apply selected changes
+// POST — apply selected changes.
+//
+// TS9 (audit) — pay rates, titles, and pay type are NEVER trusted from the
+// request body. The client only tells us WHICH employee (gusto_uuid) and what
+// action to take; the actual values are re-fetched live from Gusto here and
+// re-derived server-side. This closes the hole where an admin could POST an
+// inflated `new_rate` that never came from Gusto. Any mismatch between what the
+// client claimed and what Gusto actually says is logged.
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -158,37 +187,82 @@ export async function POST(req: NextRequest) {
   const { changes } = await req.json()
   if (!Array.isArray(changes)) return NextResponse.json({ error: 'changes array required' }, { status: 400 })
 
+  // Any action that writes Gusto-sourced values (rate/title/pay type) must be
+  // validated against live Gusto data. Deactivations don't need it.
+  const needsGusto = changes.some(c => c.action === 'add' || c.action === 'update_rate' || c.action === 'update_title')
+
+  const gustoByUuid = new Map<string, DerivedComp & { ge: GustoEmployee }>()
+  if (needsGusto) {
+    const token = process.env.GUSTO_ACCESS_TOKEN
+    if (!token) {
+      return NextResponse.json({ error: 'Gusto is not configured — cannot verify pay rates. Set GUSTO_ACCESS_TOKEN.' }, { status: 400 })
+    }
+    let gustoEmployees: GustoEmployee[]
+    try {
+      gustoEmployees = await fetchGustoEmployees(token)
+    } catch (e) {
+      // Refuse to apply rate/title changes we can't verify against Gusto.
+      return NextResponse.json({ error: e instanceof Error ? e.message : 'Gusto API error' }, { status: 502 })
+    }
+    for (const ge of gustoEmployees) {
+      gustoByUuid.set(ge.uuid, { ...deriveGustoComp(ge), ge })
+    }
+  }
+
   const results = { added: 0, updated: 0, deactivated: 0, errors: [] as string[] }
 
   for (const change of changes) {
     try {
       if (change.action === 'add') {
+        const g = gustoByUuid.get(change.gusto_uuid)
+        if (!g) {
+          results.errors.push(`${change.label}: not found in Gusto — skipped`)
+          continue
+        }
+        // Authoritative values come from Gusto, not the request body.
         await supabase.from('employees').upsert({
-          gusto_uuid: change.gusto_uuid,
-          first_name: change.first_name,
-          last_name: change.last_name,
-          preferred_name: change.preferred_name,
-          email: change.email,
-          phone: change.phone,
-          department: change.department,
-          job_title: change.job_title,
-          pay_type: change.pay_type,
-          flsa_status: change.flsa_status,
-          hourly_rate: change.new_rate,
+          gusto_uuid: g.ge.uuid,
+          first_name: g.ge.first_name,
+          last_name: g.ge.last_name,
+          preferred_name: g.ge.preferred_first_name ?? null,
+          email: g.ge.email,
+          phone: g.ge.phone ?? null,
+          department: g.ge.department ?? null,
+          job_title: g.title,
+          pay_type: g.payType,
+          flsa_status: g.flsa,
+          hourly_rate: g.rate,
           is_active: true,
           gusto_synced_at: new Date().toISOString(),
         }, { onConflict: 'gusto_uuid' })
         results.added++
       } else if (change.action === 'update_rate') {
+        const g = gustoByUuid.get(change.gusto_uuid)
+        if (!g || g.payType !== 'hourly' || g.rate === null) {
+          results.errors.push(`${change.label}: no current hourly rate in Gusto — skipped`)
+          continue
+        }
+        const claimed = typeof change.new_rate === 'number' ? change.new_rate : null
+        if (claimed !== null && Math.abs(claimed - g.rate) > 0.001) {
+          console.warn(
+            `[gusto-import] rate mismatch for ${change.gusto_uuid} (${change.label}): ` +
+            `request claimed $${claimed}, Gusto says $${g.rate} — applying Gusto value`
+          )
+        }
         await supabase.from('employees').update({
-          hourly_rate: change.new_rate,
+          hourly_rate: g.rate, // server-fetched, never the client value
           gusto_synced_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }).eq('id', change.id)
         results.updated++
       } else if (change.action === 'update_title') {
+        const g = gustoByUuid.get(change.gusto_uuid)
+        if (!g || !g.title) {
+          results.errors.push(`${change.label}: no current title in Gusto — skipped`)
+          continue
+        }
         await supabase.from('employees').update({
-          job_title: change.new_title,
+          job_title: g.title, // server-fetched
           gusto_synced_at: new Date().toISOString(),
           updated_at: new Date().toISOString(),
         }).eq('id', change.id)

@@ -62,6 +62,13 @@ async function mcpRequest(method: string, params: unknown = {}): Promise<unknown
 // Tool list caching (module-level, 1h TTL)
 // ---------------------------------------------------------------------------
 
+// AI10 — this cache is PER PROCESS (per PM2 cluster worker / per serverless
+// instance), NOT shared across the fleet. That's intentional: the MCP tool
+// list rarely changes and a 1h-stale list per worker is harmless. Do NOT
+// "fix" this by moving it behind a request-scoped client or recreating the
+// module on each call — that would re-fetch tools/list on every Guardian
+// question and bust the byte-stable tools prefix (see AI6 below). Admin
+// "refresh tools" calls bustToolsCache() to force a re-fetch when needed.
 let _toolsCache: { tools: Anthropic.Tool[]; fetchedAt: number } | null = null
 
 export async function getHeroesTools(): Promise<Anthropic.Tool[]> {
@@ -75,6 +82,13 @@ export async function getHeroesTools(): Promise<Anthropic.Tool[]> {
       description: t.description,
       input_schema: t.inputSchema,
     }))
+    // AI6 — sort by name so the tools array is byte-for-byte identical across
+    // requests. The tools block sits in the cached prefix ahead of the system
+    // prompt; if the MCP server ever returns tools in a different order, the
+    // prefix changes and Anthropic's prompt cache (the cache_control mark on
+    // the system block) silently misses on every call. A stable sort keeps the
+    // cache warm. Dispatch is by name, so order never affects correctness.
+    tools.sort((a, b) => a.name.localeCompare(b.name))
     _toolsCache = { tools, fetchedAt: Date.now() }
     return tools
   } catch {
