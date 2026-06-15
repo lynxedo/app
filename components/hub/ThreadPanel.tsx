@@ -7,7 +7,8 @@ import data from '@emoji-mart/data'
 import { init, SearchIndex } from 'emoji-mart'
 import { createClient } from '@/lib/supabase/client'
 import { FileAttachment } from './MessageFeed'
-import type { HubMessage, HubUser, Sender, FileItem } from './MessageFeed'
+import EmojiPicker from './EmojiPicker'
+import type { HubMessage, HubUser, Sender, FileItem, RxItem } from './MessageFeed'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { renderContent } from './renderContent'
 
@@ -60,6 +61,11 @@ function normFiles(raw: unknown): FileItem[] {
   return raw as FileItem[]
 }
 
+function normReactions(raw: unknown): RxItem[] {
+  if (!raw || !Array.isArray(raw)) return []
+  return raw as RxItem[]
+}
+
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
@@ -81,6 +87,7 @@ type Reply = {
   edited_at: string | null
   sender: Sender | Sender[] | null
   files?: FileItem[]
+  reactions?: RxItem[]
 }
 
 export default function ThreadPanel({
@@ -121,6 +128,12 @@ export default function ThreadPanel({
   const [emojiStart, setEmojiStart] = useState(-1)
   const [emojiIndex, setEmojiIndex] = useState(0)
   const [emojiResults, setEmojiResults] = useState<EmojiSuggestion[]>([])
+  // Reactions on the parent message + replies (msgId → reactors). Mirrors the
+  // main feed so reacting works the same inside a thread.
+  const [rxMap, setRxMap] = useState<Record<string, RxItem[]>>({})
+  // Which message's quick-reaction popover / full picker is open.
+  const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null)
+  const [fullReactionPickerMsgId, setFullReactionPickerMsgId] = useState<string | null>(null)
   // Emoji picker popover (toolbar 😀 button)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [showFormatPicker, setShowFormatPicker] = useState(false)
@@ -310,12 +323,31 @@ export default function ThreadPanel({
   useEffect(() => {
     supabase
       .from('messages')
-      .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot), files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)')
+      .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot), files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px), reactions (message_id, user_id, emoji)')
       .eq('parent_id', parentMessage.id)
       .is('deleted_at', null)
       .order('created_at', { ascending: true })
       .then(({ data }) => {
-        setReplies((data ?? []) as unknown as Reply[])
+        const rows = (data ?? []) as unknown as Reply[]
+        setReplies(rows)
+        setRxMap(prev => {
+          const next = { ...prev }
+          for (const r of rows) next[r.id] = normReactions(r.reactions)
+          return next
+        })
+      })
+  }, [parentMessage.id])
+
+  // Parent message reactions: seed from the message passed in, then refresh in
+  // case someone reacted to it after the feed loaded.
+  useEffect(() => {
+    setRxMap(prev => ({ ...prev, [parentMessage.id]: normReactions(parentMessage.reactions) }))
+    supabase
+      .from('reactions')
+      .select('message_id, user_id, emoji')
+      .eq('message_id', parentMessage.id)
+      .then(({ data }) => {
+        if (data) setRxMap(prev => ({ ...prev, [parentMessage.id]: data as unknown as RxItem[] }))
       })
   }, [parentMessage.id])
 
@@ -341,7 +373,7 @@ export default function ThreadPanel({
     const applyIncomingReply = async (id: string) => {
       const { data } = await supabase
         .from('messages')
-        .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot), files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px)')
+        .select('id, content, created_at, edited_at, sender:hub_users!sender_id(id, display_name, avatar_url, is_bot), files (id, filename, mime_type, size_bytes, storage_path, width_px, height_px), reactions (message_id, user_id, emoji)')
         .eq('id', id)
         .single()
       if (!data) return
@@ -351,6 +383,7 @@ export default function ThreadPanel({
         if (withoutTemp.some(r => r.id === reply.id)) return withoutTemp
         return [...withoutTemp, reply]
       })
+      setRxMap(prev => ({ ...prev, [reply.id]: normReactions(reply.reactions) }))
       onReplyPostedRef.current?.(parentMessage.id, reply.id)
     }
 
@@ -369,6 +402,25 @@ export default function ThreadPanel({
         const p = (payload.payload ?? {}) as { id?: string; parent_id?: string | null }
         if (!p.id || p.parent_id !== parentMessage.id) return
         void applyIncomingReply(p.id)
+      })
+      // Live reaction sync for the parent + replies. We only touch message ids
+      // already in rxMap (i.e. this thread), so other rooms' reactions are
+      // ignored without needing a room filter on the reactions table.
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'reactions' }, (payload) => {
+        const r = payload.new as { message_id: string; user_id: string; emoji: string }
+        setRxMap(prev => {
+          if (!(r.message_id in prev)) return prev
+          const existing = prev[r.message_id] ?? []
+          if (existing.some(x => x.user_id === r.user_id && x.emoji === r.emoji)) return prev
+          return { ...prev, [r.message_id]: [...existing, { user_id: r.user_id, emoji: r.emoji }] }
+        })
+      })
+      .on('postgres_changes', { event: 'DELETE', schema: 'public', table: 'reactions' }, (payload) => {
+        const r = payload.old as { message_id: string; user_id: string; emoji: string }
+        setRxMap(prev => {
+          if (!(r.message_id in prev)) return prev
+          return { ...prev, [r.message_id]: (prev[r.message_id] ?? []).filter(x => !(x.user_id === r.user_id && x.emoji === r.emoji)) }
+        })
       })
       .subscribe()
 
@@ -483,6 +535,115 @@ export default function ThreadPanel({
     setSending(false)
   }
 
+  // Close an open reaction picker when clicking anywhere outside the reaction
+  // UI. Listens on mousedown so the opening click (which fires on click) is
+  // never caught by the same cycle.
+  useEffect(() => {
+    if (!reactionPickerMsgId && !fullReactionPickerMsgId) return
+    const handler = (e: MouseEvent) => {
+      if (!(e.target as HTMLElement).closest('[data-reaction-ui]')) {
+        setReactionPickerMsgId(null)
+        setFullReactionPickerMsgId(null)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [reactionPickerMsgId, fullReactionPickerMsgId])
+
+  // Add or remove the current user's reaction. Optimistic, then persists via
+  // the same endpoint the main feed uses (it toggles server-side).
+  async function toggleReaction(msgId: string, emoji: string) {
+    const current = rxMap[msgId] ?? []
+    const mine = current.find(r => r.user_id === currentUserId && r.emoji === emoji)
+    setRxMap(prev => ({
+      ...prev,
+      [msgId]: mine
+        ? (prev[msgId] ?? []).filter(r => !(r.user_id === currentUserId && r.emoji === emoji))
+        : [...(prev[msgId] ?? []), { user_id: currentUserId, emoji }],
+    }))
+    await fetch('/api/hub/reactions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ message_id: msgId, emoji }),
+    })
+  }
+
+  // Reaction pills + add-reaction control for any message in the thread (the
+  // parent or a reply). Mirrors the main feed's reaction UI.
+  function renderReactions(msgId: string) {
+    const reactions = rxMap[msgId] ?? []
+    const rxGroups: Record<string, string[]> = {}
+    for (const r of reactions) {
+      if (!rxGroups[r.emoji]) rxGroups[r.emoji] = []
+      rxGroups[r.emoji].push(r.user_id)
+    }
+    return (
+      <div className="mt-1.5 flex flex-wrap items-center gap-1" data-reaction-ui>
+        {Object.entries(rxGroups).map(([emoji, userIds]) => (
+          <button
+            key={emoji}
+            onClick={() => toggleReaction(msgId, emoji)}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+              userIds.includes(currentUserId)
+                ? 'bg-brand/20 border-brand/50 text-brand'
+                : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
+            }`}
+          >
+            <span>{emoji}</span>
+            <span>{userIds.length}</span>
+          </button>
+        ))}
+        <div className="relative">
+          <button
+            onClick={() => {
+              setFullReactionPickerMsgId(null)
+              setReactionPickerMsgId(prev => (prev === msgId ? null : msgId))
+            }}
+            className="text-gray-500 hover:text-gray-300 w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-800 text-sm opacity-70 hover:opacity-100"
+            title="Add reaction"
+            aria-label="Add reaction"
+          >
+            😊
+          </button>
+          {reactionPickerMsgId === msgId && (
+            <div
+              className="absolute bottom-full left-0 mb-1 z-50 flex items-center gap-0.5 bg-gray-900 border border-gray-700 rounded-full shadow-2xl px-1 py-0.5"
+              onClick={e => e.stopPropagation()}
+            >
+              {['✅', '👍', '👀'].map(emoji => (
+                <button
+                  key={emoji}
+                  onClick={() => { toggleReaction(msgId, emoji); setReactionPickerMsgId(null) }}
+                  className="w-8 h-8 flex items-center justify-center text-base rounded-full hover:bg-gray-800"
+                  title={`React with ${emoji}`}
+                >
+                  {emoji}
+                </button>
+              ))}
+              <button
+                onClick={() => { setReactionPickerMsgId(null); setFullReactionPickerMsgId(msgId) }}
+                className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-800 text-gray-400"
+                title="More reactions"
+                aria-label="More reactions"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                </svg>
+              </button>
+            </div>
+          )}
+          {fullReactionPickerMsgId === msgId && (
+            <EmojiPicker
+              align="left"
+              onSelect={emoji => toggleReaction(msgId, emoji)}
+              onClose={() => setFullReactionPickerMsgId(null)}
+            />
+          )}
+        </div>
+      </div>
+    )
+  }
+
   const parentSender = normSender(parentMessage.sender)
   const minDateTime = new Date(Date.now() + 60000).toISOString().slice(0, 16)
   const hasContent = replyContent.trim().length > 0 || pendingFiles.length > 0
@@ -534,6 +695,7 @@ export default function ThreadPanel({
             <p className="text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
               {renderContent(parentMessage.content, hubUsers)}
             </p>
+            {renderReactions(parentMessage.id)}
           </div>
         </div>
 
@@ -594,6 +756,7 @@ export default function ThreadPanel({
                     })}
                   </div>
                 )}
+                {renderReactions(reply.id)}
               </div>
             </div>
           )
