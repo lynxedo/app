@@ -2,6 +2,7 @@
 
 import { useMemo, useState, useRef } from 'react'
 import IvrEditor, { type IvrConfig } from './IvrEditor'
+import { pickIvrTree } from '@/lib/ivr-routing'
 import ExtensionsPanel, { type ExtensionRow } from './ExtensionsPanel'
 import RingGroupsPanel, { type RingGroup } from './RingGroupsPanel'
 import { DEFAULT_DISPOSITIONS } from '@/lib/dialer-dispositions'
@@ -1156,8 +1157,7 @@ function CurrentTreePreview({
     minute: '2-digit',
   })
 
-  // Inline the picker logic here so we don't pull a server-only lib into a client component.
-  const picked = pickClientSide(ivrConfig, businessHours, holidays, now)
+  const picked = pickIvrTree({ config: ivrConfig, businessHours, holidays, now })
 
   const explain: Record<string, string> = {
     holiday: "today matches a holiday entry and a Holiday tree is configured.",
@@ -1174,84 +1174,6 @@ function CurrentTreePreview({
   )
 }
 
-// Client-side IVR-tree picker. Mirrors lib/twilio-voice.ts pickIvrTree() so we
-// don't pull server-only imports into this 'use client' file.
-function pickClientSide(
-  config: IvrConfig,
-  bh: BusinessHoursSchedule,
-  holidays: HolidayEntry[],
-  now: Date,
-): 'holiday' | 'after_hours' | 'default' {
-  const tz = bh.tz || 'America/Chicago'
-
-  function todayInTz(): { ymd: string; month: number; day: number; weekday: DayKey; minutes: number } {
-    const fmt = new Intl.DateTimeFormat('en-US', {
-      timeZone: tz,
-      weekday: 'short',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-      hour: '2-digit',
-      minute: '2-digit',
-      hour12: false,
-    })
-    const parts = fmt.formatToParts(now)
-    const get = (t: string) => parts.find((p) => p.type === t)?.value || ''
-    const wd = get('weekday')
-    const y = get('year')
-    const mo = get('month')
-    const d = get('day')
-    const h = parseInt(get('hour') || '0', 10) % 24
-    const mn = parseInt(get('minute') || '0', 10)
-    const map: Record<string, DayKey> = {
-      Sun: 'sun', Mon: 'mon', Tue: 'tue', Wed: 'wed', Thu: 'thu', Fri: 'fri', Sat: 'sat',
-    }
-    return {
-      ymd: `${y}-${mo}-${d}`,
-      month: parseInt(mo, 10),
-      day: parseInt(d, 10),
-      weekday: map[wd] || 'mon',
-      minutes: h * 60 + mn,
-    }
-  }
-
-  const t = todayInTz()
-  const hasHoliday = !!config.trees?.holiday?.root_node_id
-  if (hasHoliday) {
-    for (const h of holidays) {
-      if (h.kind === 'date' && h.date === t.ymd) return 'holiday'
-      if (h.kind === 'recurring' && h.month === t.month && h.day === t.day) return 'holiday'
-    }
-  }
-
-  const hasAfterHours = !!config.trees?.after_hours?.root_node_id
-  if (hasAfterHours && bh.enabled) {
-    const windows = bh.days?.[t.weekday] || []
-    let inside = false
-    for (const w of windows) {
-      const fm = parseHm(w.from)
-      const to = parseHm(w.to)
-      if (fm === null || to === null || fm === to) continue
-      if (fm < to) {
-        if (t.minutes >= fm && t.minutes < to) { inside = true; break }
-      } else {
-        if (t.minutes >= fm || t.minutes < to) { inside = true; break }
-      }
-    }
-    if (!inside) return 'after_hours'
-  }
-
-  return 'default'
-}
-
-function parseHm(s: string): number | null {
-  const m = /^(\d{1,2}):(\d{2})$/.exec(s)
-  if (!m) return null
-  const h = parseInt(m[1], 10)
-  const min = parseInt(m[2], 10)
-  if (h < 0 || h > 23 || min < 0 || min > 59) return null
-  return h * 60 + min
-}
 
 function DispositionsSection({
   options,
