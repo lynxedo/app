@@ -232,14 +232,14 @@ async function handleScoreboards(request: Request) {
 }
 
 // ── Board 2: WF Weed & Fert ──────────────────────────────────────────────────
-// All from Hub-synced tables: WF visit revenue (Jobber sync), recurring_services
-// + leads (Monday mirror), time_entries (timesheet). KPI metrics reflect the
-// ACTIVE book (cancelled_status='Active'); revenue is completed-visit dollars.
+// All from Hub-synced tables: WF visit revenue (Jobber sync), Jobber recurring
+// book (jobs + line_items + recurring_program_definitions), leads (Monday mirror),
+// time_entries (timesheet). KPI metrics reflect the active Jobber recurring book.
 //   - WF weekly visit revenue, trailing 6 weeks        (scoreboard_visit_revenue 'week', WF dept)
 //   - WF monthly visit revenue, trailing 4 months      (scoreboard_visit_revenue 'month', WF dept)
-//   - WF job count / avg value / annual value          (recurring_services, WF base, Active)
-//   - % with PHC / % with BWP / # with an add-on       (recurring_services.auxiliary_services)
-//   - Base-program mix (Basic/Complete/Plus/Recovery)  (recurring_services.base_program_sold)
+//   - WF job count / avg value / annual value          (Jobber recurring book, WF dept)
+//   - % with PHC / % with BWP / # with an add-on       (Jobber line_items, WF aux items)
+//   - Base-program mix (Basic/Complete/Plus/Recovery)  (recurring_program_definitions.display_name)
 //   - Per WF technician: weekly revenue by dept, $/hr last week, weekly sales $
 const WF_PHC = 'WF - Plant Health Care'
 const WF_BWP = 'WF - Bed Weed Prevention'
@@ -259,7 +259,84 @@ function wfTier(program: string): string {
 
 type TechRow = { employee_id: string; jobber_external_id: string | null; display_name: string; salesperson_name: string }
 type LeadLite = { salesperson: string | null; stage: string | null; annual_value: number | null; sold_date: string | null }
-type RecLite = { base_program_sold: string | null; auxiliary_services: string[] | null; annual_value: number | null; cancelled_status: string | null }
+type DefRow = { line_item_name: string; dept_prefix: string; is_auxiliary: boolean; display_name: string; visits_per_year: number | null }
+type RecurringJobBook = { jobId: string; clientId: string; dept: string; displayName: string; hasPHC: boolean; hasBWP: boolean; annualValue: number }
+
+function isTestClient(c: { email: string | null; phone: string | null }): boolean {
+  return (c.email ?? '').toLowerCase().includes('fakemail') ||
+    (c.phone ?? '').replace(/\D/g, '') === '2812540991'
+}
+
+// Fetches the active Jobber recurring book (jobs + line_items + recurring_program_definitions),
+// applying test-account exclusion. Replaces recurring_services reads for boards 2–4.
+async function fetchJobberRecurringBook(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  company: string
+): Promise<RecurringJobBook[] | { error: string }> {
+  const jobsRes = await supabase
+    .from('jobs')
+    .select('id, client_id')
+    .eq('company_id', company)
+    .eq('is_recurring', true)
+    .neq('job_status', 'archived')
+    .is('deleted_at', null)
+  if (jobsRes.error) return { error: jobsRes.error.message }
+  const jobs = (jobsRes.data ?? []) as Array<{ id: string; client_id: string }>
+  if (!jobs.length) return []
+
+  const allJobIds = jobs.map(j => j.id)
+  const allClientIds = [...new Set(jobs.map(j => j.client_id))]
+
+  const [liRes, clientsRes, defsRes] = await Promise.all([
+    supabase.from('line_items').select('parent_id, name, total')
+      .eq('parent_type', 'job').in('parent_id', allJobIds).is('deleted_at', null),
+    supabase.from('clients').select('id, email, phone').in('id', allClientIds),
+    supabase.from('recurring_program_definitions')
+      .select('line_item_name, dept_prefix, is_auxiliary, display_name, visits_per_year'),
+  ])
+  if (liRes.error) return { error: liRes.error.message }
+  if (clientsRes.error) return { error: clientsRes.error.message }
+  if (defsRes.error) return { error: defsRes.error.message }
+
+  const testClientIds = new Set(
+    (clientsRes.data ?? []).filter(isTestClient).map((c: { id: string }) => c.id)
+  )
+  const defsByName = new Map<string, DefRow>(
+    (defsRes.data ?? []).map((d: DefRow) => [d.line_item_name, d])
+  )
+  const liByJob = new Map<string, Array<{ name: string; total: number }>>()
+  for (const li of (liRes.data ?? []) as Array<{ parent_id: string; name: string; total: number | string | null }>) {
+    const arr = liByJob.get(li.parent_id) ?? []
+    arr.push({ name: li.name, total: Number(li.total) || 0 })
+    liByJob.set(li.parent_id, arr)
+  }
+
+  const result: RecurringJobBook[] = []
+  for (const job of jobs) {
+    if (testClientIds.has(job.client_id)) continue
+    const items = liByJob.get(job.id) ?? []
+    const baseDefs = items
+      .map(li => defsByName.get(li.name))
+      .filter((d): d is DefRow => d !== undefined && !d.is_auxiliary)
+    if (baseDefs.length === 0) continue
+
+    let annualValue = 0
+    for (const li of items) {
+      const def = defsByName.get(li.name)
+      if (def?.visits_per_year != null) annualValue += li.total * def.visits_per_year
+    }
+    const hasPHC = items.some(li => li.name === WF_PHC)
+    const hasBWP = items.some(li => li.name === WF_BWP)
+
+    const seenDepts = new Set<string>()
+    for (const def of baseDefs) {
+      if (seenDepts.has(def.dept_prefix)) continue
+      seenDepts.add(def.dept_prefix)
+      result.push({ jobId: job.id, clientId: job.client_id, dept: def.dept_prefix, displayName: def.display_name, hasPHC, hasBWP, annualValue })
+    }
+  }
+  return result
+}
 
 async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
   const t = chicagoToday()
@@ -290,18 +367,20 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const monthIndex = new Map(monthBuckets.map((b, i) => [b.key, i]))
 
   // ── Fetch everything in parallel ──
-  const [wfWeekRes, wfMonthRes, techRes, recRes, leadsRes] = await Promise.all([
+  const bookPromise = fetchJobberRecurringBook(supabase, company)
+  const [wfWeekRes, wfMonthRes, techRes, leadsRes] = await Promise.all([
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
     supabase.rpc('scoreboard_wf_technicians', { p_company_id: company }),
-    supabase.from('recurring_services').select('base_program_sold, auxiliary_services, annual_value, cancelled_status').eq('company_id', company),
     supabase.from('leads').select('salesperson, stage, annual_value, sold_date').eq('company_id', company),
   ])
   if (wfWeekRes.error) return NextResponse.json({ error: wfWeekRes.error.message }, { status: 500 })
   if (wfMonthRes.error) return NextResponse.json({ error: wfMonthRes.error.message }, { status: 500 })
   if (techRes.error) return NextResponse.json({ error: techRes.error.message }, { status: 500 })
-  if (recRes.error) return NextResponse.json({ error: recRes.error.message }, { status: 500 })
   if (leadsRes.error) return NextResponse.json({ error: leadsRes.error.message }, { status: 500 })
+  const bookOrErr = await bookPromise
+  if ('error' in bookOrErr) return NextResponse.json({ error: bookOrErr.error }, { status: 500 })
+  const book = bookOrErr
 
   // ── WF visit revenue (WF department only) ──
   const weeklyRevenue = weekKeys.map(() => 0)
@@ -313,20 +392,17 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
     if (r.dept === 'WF') { const mi = monthIndex.get(r.bucket.slice(0, 7)); if (mi !== undefined) monthlyRevenue[mi] += Number(r.total) || 0 }
   }
 
-  // ── WF recurring KPIs + program mix (ACTIVE book only) ──
-  const wf = ((recRes.data ?? []) as RecLite[]).filter(r =>
-    (r.base_program_sold || '').toUpperCase().startsWith('WF') && (r.cancelled_status || '') === 'Active')
-  const totalJobs = wf.length
-  const annualValue = wf.reduce((s, r) => s + (Number(r.annual_value) || 0), 0)
+  // ── WF recurring KPIs + program mix (Jobber active book) ──
+  const wfJobs = book.filter(r => r.dept === 'WF')
+  const totalJobs = wfJobs.length
+  const annualValue = wfJobs.reduce((s, r) => s + r.annualValue, 0)
   const avgValue = totalJobs ? annualValue / totalJobs : 0
-  const aux = (r: RecLite, name: string) => Array.isArray(r.auxiliary_services) && r.auxiliary_services.includes(name)
-  const phcCount = wf.filter(r => aux(r, WF_PHC)).length
-  const bwpCount = wf.filter(r => aux(r, WF_BWP)).length
-  // "More than one line item" = base program + at least one add-on (PHC and/or BWP).
-  const addonCount = wf.filter(r => aux(r, WF_PHC) || aux(r, WF_BWP)).length
+  const phcCount = wfJobs.filter(r => r.hasPHC).length
+  const bwpCount = wfJobs.filter(r => r.hasBWP).length
+  const addonCount = wfJobs.filter(r => r.hasPHC || r.hasBWP).length
 
   const mixMap = new Map<string, number>()
-  for (const r of wf) { const tier = wfTier(r.base_program_sold || ''); mixMap.set(tier, (mixMap.get(tier) || 0) + 1) }
+  for (const r of wfJobs) { const tier = wfTier(r.displayName); mixMap.set(tier, (mixMap.get(tier) || 0) + 1) }
   const programMix = TIER_ORDER.map(tier => ({ label: tier, n: mixMap.get(tier) || 0 })).filter(x => x.n > 0)
 
   // ── Technicians (auto-discovered WF techs) ──
@@ -403,16 +479,14 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
 }
 
 // ── Board 3: IR Irrigation ───────────────────────────────────────────────────
-// All from Hub-synced tables: IR visit revenue (Jobber sync), recurring_services
-// + leads (Monday mirror), time_entries (timesheet). Technicians are assigned
-// explicitly (scoreboard_technicians) — NOT inferred from job title/department,
-// which are unreliable for the IR crew.
-//   - Active IR Gold customers + their annual value   (recurring_services, Gold base, Active)
+// All from Hub-synced tables: IR visit revenue (Jobber sync), Jobber recurring
+// book (jobs + line_items + recurring_program_definitions), leads (Monday mirror),
+// time_entries (timesheet). Technicians assigned explicitly (scoreboard_technicians).
+//   - Active IR Gold customers + their annual value   (Jobber recurring book, IR Gold tiers)
 //   - Average repair ticket value                      (scoreboard_ir_repair_ticket RPC, trailing 12mo)
 //   - IR visit revenue weekly (6wk) + monthly (4mo), stacked by technician
 //   - Rachio sold / week + Irrigation Gold plans sold / week  (leads, trailing 6wk)
 //   - Per IR technician: $/hour last complete week     (visit revenue ÷ timesheet hours)
-const IR_GOLD_PROGRAM = 'IR - Irrigation Service Plan Gold'
 type LeadIr = { service: string[] | null; base_program_sold: string | null; stage: string | null; sold_date: string | null }
 
 async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
@@ -446,25 +520,27 @@ async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   // Repair-ticket window: trailing 12 months.
   const yearAgoStr = ymd(addDays(utcNoon(t.y, t.m, t.d), -365))
 
-  const [techRes, recRes, leadsRes, repairRes, irWeekRes, irMonthRes] = await Promise.all([
+  const bookPromise = fetchJobberRecurringBook(supabase, company)
+  const [techRes, leadsRes, repairRes, irWeekRes, irMonthRes] = await Promise.all([
     supabase.rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '3' }),
-    supabase.from('recurring_services').select('annual_value').eq('company_id', company).eq('base_program_sold', IR_GOLD_PROGRAM).eq('cancelled_status', 'Active'),
     supabase.from('leads').select('service, base_program_sold, stage, sold_date').eq('company_id', company),
     supabase.rpc('scoreboard_ir_repair_ticket', { p_company_id: company, p_start: yearAgoStr, p_end: todayStr }),
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
   ])
   if (techRes.error) return NextResponse.json({ error: techRes.error.message }, { status: 500 })
-  if (recRes.error) return NextResponse.json({ error: recRes.error.message }, { status: 500 })
   if (leadsRes.error) return NextResponse.json({ error: leadsRes.error.message }, { status: 500 })
   if (repairRes.error) return NextResponse.json({ error: repairRes.error.message }, { status: 500 })
   if (irWeekRes.error) return NextResponse.json({ error: irWeekRes.error.message }, { status: 500 })
   if (irMonthRes.error) return NextResponse.json({ error: irMonthRes.error.message }, { status: 500 })
+  const bookOrErr = await bookPromise
+  if ('error' in bookOrErr) return NextResponse.json({ error: bookOrErr.error }, { status: 500 })
+  const book = bookOrErr
 
-  // ── KPI 1+2: active IR Gold book ──
-  const goldRows = (recRes.data ?? []) as Array<{ annual_value: number | null }>
-  const activeGold = goldRows.length
-  const goldAnnualValue = goldRows.reduce((s, r) => s + (Number(r.annual_value) || 0), 0)
+  // ── KPI 1+2: active IR Gold book (Jobber source — includes all Gold tiers) ──
+  const goldJobs = book.filter(r => r.dept === 'IR' && r.displayName.toLowerCase().includes('gold'))
+  const activeGold = goldJobs.length
+  const goldAnnualValue = goldJobs.reduce((s, r) => s + r.annualValue, 0)
 
   // ── KPI 3: average repair ticket (trailing 12 months) ──
   const rt = ((repairRes.data ?? []) as Array<{ ticket_count: number; avg_value: number | null; median_value: number | null }>)[0]
@@ -568,10 +644,10 @@ async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
 }
 
 // ── Board 4: PW Pet Waste ────────────────────────────────────────────────────
-// All from Hub-synced tables: PW visit revenue (Jobber sync), recurring_services
-// (Monday mirror), time_entries (timesheet). Technicians assigned explicitly
-// via scoreboard_technicians (same mechanism as board 3).
-//   - Active PW customer count + total annual value       (recurring_services, PW% base, Active)
+// All from Hub-synced tables: PW visit revenue (Jobber sync), Jobber recurring
+// book (jobs + line_items + recurring_program_definitions), time_entries (timesheet).
+// Technicians assigned explicitly via scoreboard_technicians (same as board 3).
+//   - Active PW customer count + total annual value       (Jobber recurring book, PW dept)
 //   - PW visit revenue weekly (6wk) + monthly (4mo), stacked by technician
 //   - Per PW technician: weekly + monthly revenue by dept (ALL depts), $/hr last week
 
@@ -601,25 +677,23 @@ async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const fourMonthStart = `${monthBuckets[0].key}-01`
   const monthIndex = new Map(monthBuckets.map((b, i) => [b.key, i]))
 
-  const [techRes, recRes, pwWeekRes, pwMonthRes] = await Promise.all([
+  const bookPromise = fetchJobberRecurringBook(supabase, company)
+  const [techRes, pwWeekRes, pwMonthRes] = await Promise.all([
     supabase.rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '4' }),
-    supabase.from('recurring_services')
-      .select('annual_value')
-      .eq('company_id', company)
-      .like('base_program_sold', 'PW%')
-      .eq('cancelled_status', 'Active'),
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
   ])
   if (techRes.error) return NextResponse.json({ error: techRes.error.message }, { status: 500 })
-  if (recRes.error) return NextResponse.json({ error: recRes.error.message }, { status: 500 })
   if (pwWeekRes.error) return NextResponse.json({ error: pwWeekRes.error.message }, { status: 500 })
   if (pwMonthRes.error) return NextResponse.json({ error: pwMonthRes.error.message }, { status: 500 })
+  const bookOrErr = await bookPromise
+  if ('error' in bookOrErr) return NextResponse.json({ error: bookOrErr.error }, { status: 500 })
+  const book = bookOrErr
 
-  // ── KPIs: active PW book ──
-  const pwRecs = (recRes.data ?? []) as Array<{ annual_value: number | null }>
-  const activeCustomers = pwRecs.length
-  const annualValue = pwRecs.reduce((s, r) => s + (Number(r.annual_value) || 0), 0)
+  // ── KPIs: active PW book (Jobber source) ──
+  const pwJobs = book.filter(r => r.dept === 'PW')
+  const activeCustomers = pwJobs.length
+  const annualValue = pwJobs.reduce((s, r) => s + r.annualValue, 0)
 
   // ── Total PW visit revenue per bucket (for the "Other/Unassigned" stack) ──
   const totalWeekPw = weekKeys.map(() => 0)
