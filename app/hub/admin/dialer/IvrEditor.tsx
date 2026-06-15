@@ -2,31 +2,11 @@
 
 import { useMemo, useRef, useState } from 'react'
 import { useToast, useConfirm } from '@/components/ui'
+import type { IvrPrompt, IvrAction, IvrNode, IvrTree, IvrConfig, IvrTreeName } from '@/lib/ivr-routing'
 
-// ---------------------------------------------------------------------------
-// Local mirror of the lib/twilio-voice.ts IVR types — kept here so this is a
-// pure client component without server-only imports. If the server-side types
-// drift, this file needs the same update.
-// ---------------------------------------------------------------------------
-
-type IvrPrompt =
-  | { kind: 'tts'; text: string }
-  | { kind: 'audio'; audio_url: string }
-
-export type IvrAction =
-  | { kind: 'submenu'; target_node_id: string }
-  | { kind: 'voicemail' }
-  | { kind: 'transfer_user'; user_id: string; identity: string; timeout_sec?: number }
-  | { kind: 'transfer_pstn'; number: string; timeout_sec?: number }
-  | { kind: 'hangup' }
-  | { kind: 'say'; prompt: IvrPrompt }
-  | { kind: 'repeat'; max_repeats?: number; then?: IvrAction }
-  | { kind: 'extension'; extension: string }
-  | { kind: 'ring_group'; ring_group_id: string }
+export type { IvrPrompt, IvrAction, IvrNode, IvrTree, IvrConfig, IvrTreeName }
 
 type DigitKey = '0' | '1' | '2' | '3' | '4' | '5' | '6' | '7' | '8' | '9' | '*' | '#'
-
-export type IvrTreeName = 'default' | 'after_hours' | 'holiday'
 
 const TREE_TABS: { name: IvrTreeName; label: string; hint: string }[] = [
   { name: 'default', label: 'Default', hint: 'Runs during business hours and any time no other tree applies.' },
@@ -34,28 +14,6 @@ const TREE_TABS: { name: IvrTreeName; label: string; hint: string }[] = [
   { name: 'holiday', label: 'Holiday', hint: 'Runs on dates that match an entry in the Holidays list. Overrides After-hours.' },
 ]
 
-export type IvrNode = {
-  id: string
-  label?: string
-  prompt: IvrPrompt
-  keypresses: Partial<Record<DigitKey, IvrAction>>
-  no_input?: IvrAction
-  invalid_input?: IvrAction
-  gather_timeout_sec?: number
-}
-
-export type IvrTree = {
-  root_node_id: string
-  nodes: Record<string, IvrNode>
-}
-
-export type IvrConfig = {
-  trees: {
-    default?: IvrTree
-    after_hours?: IvrTree
-    holiday?: IvrTree
-  }
-}
 
 type HubUser = { id: string; display_name: string }
 
