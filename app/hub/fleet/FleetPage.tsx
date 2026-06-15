@@ -196,6 +196,27 @@ export default function FleetPage() {
     ;(async () => {
       const mapboxgl = (await import('mapbox-gl')).default
       if (cancelled) return
+
+      function buildPopup(device: Device, devAlerts: AlertEvent[]) {
+        const popup = new mapboxgl.Popup({ offset: 18, closeButton: true })
+        const alertHtml =
+          devAlerts.length === 0
+            ? ''
+            : `<div style="margin-top:6px;color:#fca5a5;font-size:11px">${devAlerts
+                .map((a) => `${alertLabel(a.alert_type)}`)
+                .join('<br/>')}</div>`
+        popup.setHTML(`
+          <div style="font-family:system-ui;color:#111;min-width:160px">
+            <div style="font-weight:600">${escapeHtml(device.name)}</div>
+            <div style="font-size:12px;color:#444;margin-top:2px">${statusLabel(device.drive_status)} · ${device.speed_mph} mph</div>
+            <div style="font-size:12px;color:#444">Fuel: ${device.fuel_pct == null ? '—' : device.fuel_pct + '%'}</div>
+            <div style="font-size:11px;color:#888;margin-top:2px">Ping ${relativeTime(device.last_ping)}</div>
+            ${alertHtml}
+          </div>
+        `)
+        return popup
+      }
+
       const seen = new Set<string>()
       for (const dev of devices) {
         seen.add(dev.id)
@@ -205,7 +226,7 @@ export default function FleetPage() {
         markersRef.current.get(dev.id)?.remove()
         const marker = new mapboxgl.Marker({ element: buildMarkerEl(dev, hasAlert) })
           .setLngLat([dev.lng, dev.lat])
-          .setPopup(buildPopup(mapboxgl, dev, alertsByDevice.get(dev.id) ?? []))
+          .setPopup(buildPopup(dev, alertsByDevice.get(dev.id) ?? []))
           .addTo(map)
         markersRef.current.set(dev.id, marker)
       }
@@ -337,26 +358,6 @@ export default function FleetPage() {
       </div>
     </div>
   )
-}
-
-function buildPopup(mapboxgl: typeof import('mapbox-gl'), device: Device, alerts: AlertEvent[]) {
-  const popup = new mapboxgl.Popup({ offset: 18, closeButton: true })
-  const alertHtml =
-    alerts.length === 0
-      ? ''
-      : `<div style="margin-top:6px;color:#fca5a5;font-size:11px">${alerts
-          .map((a) => `${alertLabel(a.alert_type)}`)
-          .join('<br/>')}</div>`
-  popup.setHTML(`
-    <div style="font-family:system-ui;color:#111;min-width:160px">
-      <div style="font-weight:600">${escapeHtml(device.name)}</div>
-      <div style="font-size:12px;color:#444;margin-top:2px">${statusLabel(device.drive_status)} · ${device.speed_mph} mph</div>
-      <div style="font-size:12px;color:#444">Fuel: ${device.fuel_pct == null ? '—' : device.fuel_pct + '%'}</div>
-      <div style="font-size:11px;color:#888;margin-top:2px">Ping ${relativeTime(device.last_ping)}</div>
-      ${alertHtml}
-    </div>
-  `)
-  return popup
 }
 
 function escapeHtml(s: string): string {
