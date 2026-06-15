@@ -37,6 +37,9 @@ export default function RoomView({
   initialMemberReadReceipts?: { user_id: string; last_read_at: string }[]
 }) {
   const [openThreadMsg, setOpenThreadMsg] = useState<HubMessage | null>(null)
+  // Desktop "Expand → full" — when on, the thread fills the pane and the feed
+  // hides. Drag-resize (threadWidth) is untouched and applies when collapsed.
+  const [threadExpanded, setThreadExpanded] = useState(false)
   const feedRef = useRef<MessageFeedHandle>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
@@ -93,7 +96,7 @@ export default function RoomView({
   return (
     <div ref={containerRef} className="flex flex-1 overflow-hidden">
       {/* Feed + composer — hidden on mobile when thread is open */}
-      <div className={`flex flex-col flex-1 min-w-0 ${openThreadMsg ? 'hidden md:flex' : 'flex'}`}>
+      <div className={`flex flex-col flex-1 min-w-0 ${openThreadMsg ? (threadExpanded ? 'hidden' : 'hidden md:flex') : 'flex'}`}>
         <MessageFeed
           ref={feedRef}
           roomId={roomId}
@@ -125,12 +128,13 @@ export default function RoomView({
            mobile `fixed inset-0` must win (an inline px width would fight the
            right-inset and clip the overlay). */
         <div
-          className="fixed inset-0 z-50 flex bg-gray-950 md:static md:z-auto md:bg-transparent md:flex-none md:w-[var(--thread-w)]"
+          className={`fixed inset-0 z-50 flex bg-gray-950 md:static md:z-auto md:bg-transparent ${threadExpanded ? 'md:flex-1' : 'md:flex-none md:w-[var(--thread-w)]'}`}
           style={{ '--thread-w': `${threadWidth}px` } as React.CSSProperties}
         >
-          {/* Drag handle — desktop only. Dragging left widens, right narrows. */}
+          {/* Drag handle — desktop only, and only while collapsed (expanded
+              fills the pane, so there's nothing to drag against). */}
           <div
-            className="hidden md:flex w-1.5 flex-none cursor-col-resize items-center justify-center group"
+            className={`hidden ${threadExpanded ? '' : 'md:flex'} w-1.5 flex-none cursor-col-resize items-center justify-center group`}
             onMouseDown={onDragDown}
           >
             <div className="w-px h-full bg-gray-700 group-hover:bg-indigo-500/60 transition-colors" />
@@ -139,7 +143,10 @@ export default function RoomView({
             parentMessage={openThreadMsg}
             currentUserId={currentUserId}
             hubUsers={hubUsers}
-            onClose={() => setOpenThreadMsg(null)}
+            isAdmin={isAdmin}
+            expanded={threadExpanded}
+            onToggleExpand={() => setThreadExpanded(v => !v)}
+            onClose={() => { setOpenThreadMsg(null); setThreadExpanded(false) }}
             onReplyPosted={(parentId, replyId) => feedRef.current?.bumpReplyCount(parentId, replyId)}
           />
         </div>
