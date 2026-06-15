@@ -27,6 +27,12 @@ export default function ProfileSidebar({
   onOpenActivity,
   unreadActivity,
   onStatusChanged,
+  masterDndOn = false,
+  hubDndOn = false,
+  dialerDndOn = false,
+  onToggleMasterDnd,
+  onToggleHubDnd,
+  onToggleDialerDnd,
   onClose,
   onDesktopCollapse,
 }: {
@@ -41,6 +47,12 @@ export default function ProfileSidebar({
   onOpenActivity?: () => void
   unreadActivity?: number
   onStatusChanged?: (status: Status) => void
+  masterDndOn?: boolean
+  hubDndOn?: boolean
+  dialerDndOn?: boolean
+  onToggleMasterDnd?: () => void
+  onToggleHubDnd?: () => void
+  onToggleDialerDnd?: () => void
   onClose?: () => void
   onDesktopCollapse?: () => void
 }) {
@@ -62,6 +74,14 @@ export default function ProfileSidebar({
       onStatusChanged?.(newStatus)
     }
     setSaving(false)
+  }
+
+  // "Silence everything" mirrors the Do Not Disturb status, so keep the Status
+  // section's selection in sync when it's toggled from here. (HubShell does the
+  // server writes — master_dnd_enabled + the status dot — inside onToggleMasterDnd.)
+  function handleToggleMaster() {
+    setStatus(masterDndOn ? 'available' : 'dnd')
+    onToggleMasterDnd?.()
   }
 
   async function handleSignOut() {
@@ -107,6 +127,31 @@ export default function ProfileSidebar({
             <span className="truncate flex-1 text-left">{opt.label}</span>
           </button>
         ))}
+      </div>
+
+      <div>
+        <SidebarGroupHeader>Do Not Disturb</SidebarGroupHeader>
+        <DndToggleRow
+          label="Silence everything"
+          description="Mutes all Hub & call alerts"
+          on={masterDndOn}
+          onToggle={handleToggleMaster}
+          tone="red"
+        />
+        <DndToggleRow
+          label="Mute messages"
+          description="Silence Hub message alerts"
+          on={hubDndOn}
+          onToggle={() => onToggleHubDnd?.()}
+          tone="amber"
+        />
+        <DndToggleRow
+          label="Mute calls"
+          description="Silence inbound call alerts"
+          on={dialerDndOn}
+          onToggle={() => onToggleDialerDnd?.()}
+          tone="amber"
+        />
       </div>
 
       {onTextSizeChange && (
@@ -170,5 +215,41 @@ export default function ProfileSidebar({
         </button>
       </div>
     </SidebarShell>
+  )
+}
+
+function DndToggleRow({
+  label,
+  description,
+  on,
+  onToggle,
+  tone,
+}: {
+  label: string
+  description: string
+  on: boolean
+  onToggle: () => void
+  tone: 'red' | 'amber'
+}) {
+  const onColor = tone === 'red' ? 'bg-red-500' : 'bg-amber-500'
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      onClick={onToggle}
+      className="w-full flex items-center gap-3 px-2 py-2 md:py-1.5 rounded-lg text-left hover:bg-white/[0.06] transition-colors"
+    >
+      <span className="min-w-0 flex-1">
+        <span className={`block text-sm font-medium truncate ${on ? 'text-white' : 'text-white/70'}`}>{label}</span>
+        <span className="block text-[11px] text-white/40 truncate">{description}</span>
+      </span>
+      <span
+        className={`relative w-9 h-5 rounded-full flex-none transition-colors ${on ? onColor : 'bg-white/15'}`}
+        aria-hidden="true"
+      >
+        <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow-sm transition-transform ${on ? 'translate-x-4' : ''}`} />
+      </span>
+    </button>
   )
 }

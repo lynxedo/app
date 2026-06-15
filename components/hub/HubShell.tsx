@@ -575,6 +575,22 @@ export default function HubShell({
     })
   }, [])
 
+  // Set master_dnd_enabled to an explicit value WITHOUT touching the status dot.
+  // Used to mirror a status change made from the You menu (DND status ⟹ ALL DND on,
+  // any other status ⟹ ALL DND off) — the status itself was already written by the
+  // Status picker, so we only sync the flag here.
+  const applyMasterDndFlag = useCallback((on: boolean) => {
+    setMasterDndEnabled(prev => {
+      if (prev === on) return prev
+      fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ master_dnd_enabled: on }),
+      }).then(res => { if (!res.ok) setMasterDndEnabled(prev) }).catch(() => setMasterDndEnabled(prev))
+      return on
+    })
+  }, [])
+
   // Hub notifications DND quick-toggle (sys:hub-dnd). Silences Hub push only.
   const toggleHubDnd = useCallback(() => {
     setHubDndEnabled(prev => {
@@ -720,7 +736,13 @@ export default function HubShell({
             onOpenNotifPrefs={() => setShowNotifPrefs(true)}
             onOpenActivity={() => { closeMobileDrawer(); setShowActivity(true) }}
             unreadActivity={unreadActivity}
-            onStatusChanged={s => setLiveStatus(s ?? null)}
+            onStatusChanged={s => { setLiveStatus(s ?? null); applyMasterDndFlag(s === 'dnd') }}
+            masterDndOn={masterDndEnabled}
+            hubDndOn={hubDndEnabled}
+            dialerDndOn={dialerDndEnabled}
+            onToggleMasterDnd={toggleDnd}
+            onToggleHubDnd={toggleHubDnd}
+            onToggleDialerDnd={toggleDialerDnd}
             onClose={closeMobileDrawer}
             {...collapseProps}
           />
