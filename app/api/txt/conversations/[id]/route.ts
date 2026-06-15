@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
 
 export async function GET(
-  _req: Request,
+  req: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const supabase = await createClient()
@@ -14,6 +14,12 @@ export async function GET(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { id } = await params
+  const url = new URL(req.url)
+  // Cursor for paginating older messages: ISO timestamp — return messages
+  // created BEFORE this point (exclusive). Used by the "Load older" button.
+  const before = url.searchParams.get('before')
+  // Skip conversation/notes/members fetches when only paging backwards.
+  const messagesOnly = url.searchParams.get('messages_only') === '1'
 
   // Permission gate: customer text threads are not viewable by every employee.
   // Allow Txt2 users (shared inbox) + the thread's own members/owner — the same
@@ -22,6 +28,30 @@ export async function GET(
   const perms = await getTxtConvPermissions(supabase, id, user.id)
   if (!perms.canReply) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // Pagination: initial load fetches newest 500; load-older pages fetch 100 at a time.
+  const msgLimit = before ? 100 : 500
+  let msgQuery = supabase
+    .from('txt_messages')
+    .select(
+      'id, direction, body, media_urls, status, error_message, twilio_sid, created_at, sent_by, sender:hub_users!sent_by ( id, display_name )'
+    )
+    .eq('conversation_id', id)
+    .order('created_at', { ascending: false })
+    .limit(msgLimit)
+  if (before) {
+    msgQuery = msgQuery.lt('created_at', before)
+  }
+
+  // Fast path: only messages needed (load-older pagination).
+  if (messagesOnly) {
+    const { data: msgs } = await msgQuery
+    const reversed = (msgs ?? []).slice().reverse()
+    return NextResponse.json({
+      messages: reversed,
+      has_more_older: reversed.length >= msgLimit,
+    })
   }
 
   const [convResult, messagesResult, notesResult, membersResult, groupContactsResult] =
@@ -35,17 +65,7 @@ export async function GET(
         )
         .eq('id', id)
         .single(),
-      supabase
-        .from('txt_messages')
-        .select(
-          'id, direction, body, media_urls, status, error_message, twilio_sid, created_at, sent_by, sender:hub_users!sent_by ( id, display_name )'
-        )
-        .eq('conversation_id', id)
-        // #33 — load the NEWEST 500, not the oldest 500. The old ascending+limit hid
-        // the most recent messages in any thread over 500 long (you'd never see new
-        // texts). Reversed below so the client still renders oldest→newest.
-        .order('created_at', { ascending: false })
-        .limit(500),
+      msgQuery,
       supabase
         .from('txt_notes')
         .select('id, body, created_at, created_by, author:hub_users!created_by ( id, display_name )')
@@ -66,10 +86,13 @@ export async function GET(
     return NextResponse.json({ error: 'Conversation not found' }, { status: 404 })
   }
 
+  const msgs = (messagesResult.data ?? []).slice().reverse()
   return NextResponse.json({
     conversation: convResult.data,
-    // Reverse the newest-500 back to chronological order for the chat view (#33).
-    messages: (messagesResult.data ?? []).slice().reverse(),
+    // Reverse newest-N back to chronological order for the chat view (#33).
+    messages: msgs,
+    // True when there may be more messages before the earliest one loaded.
+    has_more_older: msgs.length >= msgLimit,
     notes: notesResult.data ?? [],
     members: membersResult.data ?? [],
     group_contacts: groupContactsResult.data ?? [],

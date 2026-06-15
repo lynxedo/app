@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useLayoutEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle } from 'react'
+import { useEffect, useLayoutEffect, useRef, useState, useCallback, forwardRef, useImperativeHandle, memo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
@@ -17,6 +17,11 @@ import {
   saveMembers,
   saveReadReceipts,
 } from '@/lib/hub-cache'
+
+// Module-level stable empty arrays so non-active rows always receive the
+// same reference → React.memo sees no change → skips re-render.
+const EMPTY_REACTIONS: RxItem[] = []
+const EMPTY_BOARDS: { id: string; name: string }[] = []
 
 export type MessageFeedHandle = {
   addMessage: (msg: HubMessage) => void
@@ -92,16 +97,12 @@ function Avatar({ sender }: { sender: Sender | null }) {
 const THUMB_MAX_W = 320 // max-w-xs = 20rem = 320px
 const THUMB_MAX_H = 256 // max-h-64 = 16rem = 256px
 
-// Compute the rendered box for a thumbnail given the source's intrinsic
-// dimensions. Preserves aspect ratio, fits inside (THUMB_MAX_W × THUMB_MAX_H).
 function fitThumbnail(w: number, h: number): { width: number; height: number } {
   const ratio = Math.min(THUMB_MAX_W / w, THUMB_MAX_H / h, 1)
   return { width: Math.round(w * ratio), height: Math.round(h * ratio) }
 }
 
 export function FileAttachment({ file, onOpenLightbox }: { file: FileItem; onOpenLightbox?: () => void }) {
-  // Optimistic-send rows have a `localUrl` blob URL and a temp id; use
-  // the blob URL until realtime delivers the row with a real DB id.
   const src = file.localUrl ?? `/api/hub/files/${file.id}`
   const size = formatBytes(file.size_bytes)
 
@@ -109,12 +110,6 @@ export function FileAttachment({ file, onOpenLightbox }: { file: FileItem; onOpe
     const hasDims = file.width_px != null && file.height_px != null && file.width_px > 0 && file.height_px > 0
     const box = hasDims ? fitThumbnail(file.width_px!, file.height_px!) : null
 
-    // Lazy backfill: legacy image rows (uploaded before Session 47 image-dims
-    // shipped) have null width/height. Once the browser decodes the image we
-    // know the natural dimensions — PATCH them back to the DB so future
-    // renders see the right aspect ratio from the first paint. Skip for
-    // optimistic temp rows (no real DB id yet) and rows that already have
-    // dimensions stored.
     const onImgLoad: React.ReactEventHandler<HTMLImageElement> = (e) => {
       if (hasDims) return
       if (file.id.startsWith('temp-')) return
@@ -182,7 +177,6 @@ export function FileAttachment({ file, onOpenLightbox }: { file: FileItem; onOpe
     )
   }
 
-  // Fallback: download link for any other file type
   return (
     <a href={src} target="_blank" rel="noopener" download={file.filename} className="flex items-center gap-2.5 bg-gray-800 border border-gray-700 hover:border-gray-600 rounded-lg px-3 py-2 mt-1.5 text-sm text-gray-300 max-w-xs transition-colors">
       <span className="text-xl">📎</span>
@@ -210,10 +204,363 @@ function ForwardedBanner({ original, rooms, hubUsers }: { original: ForwardedOri
   )
 }
 
-// How many older messages to pull per scroll-up fetch. Matches the server-side
-// initial page limit in the room/PM page loaders, so hasMoreOlder can be seeded
-// from whether the first page came back full.
 const MESSAGE_PAGE_SIZE = 50
+
+// ── MessageRow ─────────────────────────────────────────────────────────────
+// Memoized per-message row. All ID-comparison state is promoted to boolean
+// props so only the one affected row re-renders when pickerMsgId, tappedMsgId,
+// editingId, etc. change. Callbacks are stable (useCallback with [] or ref-
+// backed deps) so memo() sees no new function references.
+
+type MessageRowProps = {
+  msg: HubMessage
+  currentUserId: string
+  hubUsers: HubUser[]
+  isAdmin: boolean
+  rooms?: { id: string; name: string }[]
+  isContinuation: boolean
+  isOwn: boolean
+  isEditing: boolean
+  isActionsVisible: boolean
+  isPickerOpen: boolean
+  isFullPickerOpen: boolean
+  isThreadOpen: boolean
+  isAddToBoardOpen: boolean
+  reactions: RxItem[]
+  replyCount: number
+  readersLabel: string | null
+  editContent: string
+  boardPickerBoards: { id: string; name: string }[]
+  addingToBoard: boolean
+  onTap: (msgId: string) => void
+  onStartLongPress: (msgId: string) => void
+  onCancelLongPress: () => void
+  onToggleReaction: (msgId: string, emoji: string) => void
+  onToggleQuickPicker: (msgId: string) => void
+  onOpenFullPicker: (msgId: string) => void
+  onCloseFullPicker: () => void
+  onStartEdit: (msgId: string, content: string) => void
+  onCancelEdit: () => void
+  onSaveEdit: (msgId: string) => void
+  onEditContentChange: (content: string) => void
+  onDelete: (msgId: string) => void
+  onSetForwardingMsg: (msg: HubMessage) => void
+  onSaveToFiles: (msg: HubMessage) => void
+  onOpenLightbox: (items: LightboxItem[], index: number) => void
+  onOpenBoardPicker: (msgId: string) => void
+  onAddToBoard: (boardId: string) => void
+  onCloseBoardPicker: () => void
+  onOpenThread?: (msg: HubMessage) => void
+}
+
+const MessageRow = memo(function MessageRow({
+  msg,
+  currentUserId,
+  hubUsers,
+  isAdmin,
+  rooms,
+  isContinuation,
+  isOwn,
+  isEditing,
+  isActionsVisible,
+  isPickerOpen,
+  isFullPickerOpen,
+  isThreadOpen,
+  isAddToBoardOpen,
+  reactions,
+  replyCount,
+  readersLabel,
+  editContent,
+  boardPickerBoards,
+  addingToBoard,
+  onTap,
+  onStartLongPress,
+  onCancelLongPress,
+  onToggleReaction,
+  onToggleQuickPicker,
+  onOpenFullPicker,
+  onCloseFullPicker,
+  onStartEdit,
+  onCancelEdit,
+  onSaveEdit,
+  onEditContentChange,
+  onDelete,
+  onSetForwardingMsg,
+  onSaveToFiles,
+  onOpenLightbox,
+  onOpenBoardPicker,
+  onAddToBoard,
+  onCloseBoardPicker,
+  onOpenThread,
+}: MessageRowProps) {
+  const sender = normSender(msg.sender)
+  const files = normFiles(msg.files)
+
+  const rxGroups: Record<string, string[]> = {}
+  for (const r of reactions) {
+    if (!rxGroups[r.emoji]) rxGroups[r.emoji] = []
+    rxGroups[r.emoji].push(r.user_id)
+  }
+
+  // Pre-compute lightbox items once per render so the inline IIFE is self-contained.
+  const mediaItems: LightboxItem[] = []
+  const mediaIdxByFileId: Record<string, number> = {}
+  files.forEach(f => {
+    const isImg = f.mime_type.startsWith('image/')
+    const isPdf = f.mime_type === 'application/pdf'
+    if (isImg || isPdf) {
+      mediaIdxByFileId[f.id] = mediaItems.length
+      mediaItems.push({
+        type: isImg ? 'image' : 'pdf',
+        src: isPdf && !f.localUrl ? `/api/hub/files/${f.id}?inline=pdf` : (f.localUrl ?? `/api/hub/files/${f.id}`),
+        downloadSrc: f.localUrl ?? `/api/hub/files/${f.id}`,
+        filename: f.filename,
+      })
+    }
+  })
+
+  return (
+    <div
+      className={`group relative flex items-start gap-2 py-0.5 rounded hover:bg-gray-900/50 transition-colors select-none md:select-text ${isThreadOpen ? 'bg-brand/5 border-l-2 border-brand' : ''}`}
+      onClick={() => { if (!isEditing) onTap(msg.id) }}
+      onTouchStart={() => { if (!isEditing) onStartLongPress(msg.id) }}
+      onTouchMove={onCancelLongPress}
+      onTouchEnd={onCancelLongPress}
+      onTouchCancel={onCancelLongPress}
+      onContextMenu={e => e.preventDefault()}
+      style={{ touchAction: 'pan-y', WebkitTouchCallout: 'none' }}
+    >
+      <div className="flex-none w-7 md:w-8 mt-0.5">
+        {!isContinuation ? <Avatar sender={sender} /> : null}
+      </div>
+
+      <div className="flex-1 min-w-0">
+        {!isContinuation && (
+          <div className="flex items-baseline gap-2 mb-0.5">
+            <span className="font-semibold text-sm text-white">
+              {sender?.display_name ?? 'Unknown'}
+              {sender?.is_bot && (
+                <span className="ml-1.5 text-xs bg-brand/30 text-brand px-1.5 py-0.5 rounded font-normal">Bot</span>
+              )}
+              {msg.source === 'slack' && (
+                <span title="Sent from Slack" className="ml-1.5 text-xs bg-[#4A154B]/40 text-[#ECB22E] px-1.5 py-0.5 rounded font-normal">S</span>
+              )}
+            </span>
+            <span className="text-xs text-gray-500">{formatTime(msg.created_at)}</span>
+          </div>
+        )}
+
+        {msg.forwarded_original && (
+          <ForwardedBanner original={msg.forwarded_original} rooms={rooms} hubUsers={hubUsers} />
+        )}
+
+        {isEditing ? (
+          <div className="flex gap-2">
+            <input
+              autoFocus
+              value={editContent}
+              onChange={e => onEditContentChange(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSaveEdit(msg.id) }
+                if (e.key === 'Escape') onCancelEdit()
+              }}
+              className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-brand"
+            />
+            <button onClick={() => onSaveEdit(msg.id)} className="text-xs text-brand hover:text-blue-300 px-2">Save</button>
+            <button onClick={onCancelEdit} className="text-xs text-gray-500 hover:text-gray-300 px-2">Cancel</button>
+          </div>
+        ) : (
+          msg.content && (
+            <p className="hub-message-text text-lg md:text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
+              {renderContent(msg.content, hubUsers)}
+              {msg.edited_at && <span className="ml-1.5 text-xs text-gray-600">(edited)</span>}
+            </p>
+          )
+        )}
+
+        {files.length > 0 && (
+          <div className="flex flex-wrap gap-2 mt-0.5">
+            {files.map(f => {
+              const mIdx = mediaIdxByFileId[f.id]
+              return (
+                <FileAttachment
+                  key={f.id}
+                  file={f}
+                  onOpenLightbox={
+                    mIdx !== undefined
+                      ? () => onOpenLightbox(mediaItems, mIdx)
+                      : undefined
+                  }
+                />
+              )
+            })}
+          </div>
+        )}
+
+        {Object.keys(rxGroups).length > 0 && (
+          <div className="flex flex-wrap gap-1 mt-1.5">
+            {Object.entries(rxGroups).map(([emoji, userIds]) => (
+              <button
+                key={emoji}
+                onClick={() => onToggleReaction(msg.id, emoji)}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                  userIds.includes(currentUserId)
+                    ? 'bg-brand/20 border-brand/50 text-brand'
+                    : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
+                }`}
+              >
+                <span>{emoji}</span>
+                <span>{userIds.length}</span>
+              </button>
+            ))}
+          </div>
+        )}
+
+        {replyCount > 0 && onOpenThread && (
+          <button
+            onClick={() => onOpenThread(msg)}
+            className="mt-1 text-xs text-[#6FB3E8] hover:underline"
+          >
+            {replyCount} {replyCount === 1 ? 'reply' : 'replies'}
+          </button>
+        )}
+
+        {readersLabel && (
+          <div className="mt-0.5 text-[11px] text-gray-500">{readersLabel}</div>
+        )}
+      </div>
+
+      {/* Hover actions — desktop only. Mobile uses long-press → MessageActionsSheet. */}
+      {!isEditing && (
+        <div
+          className={`flex-none transition-opacity gap-0.5 relative hidden md:flex
+            ${isActionsVisible ? 'md:opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}
+          onClick={e => e.stopPropagation()}
+        >
+          <div className="relative">
+            <button
+              onClick={() => onToggleQuickPicker(msg.id)}
+              className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-sm md:px-1.5 md:py-0.5"
+              title="Add reaction"
+            >
+              😊
+            </button>
+            {isPickerOpen && (
+              <div
+                className="absolute bottom-full right-0 mb-1 z-50 flex items-center gap-0.5 bg-gray-900 border border-gray-700 rounded-full shadow-2xl px-1 py-0.5"
+                onClick={e => e.stopPropagation()}
+              >
+                {['✅', '👍', '👀'].map(emoji => (
+                  <button
+                    key={emoji}
+                    onClick={() => { onToggleReaction(msg.id, emoji); onToggleQuickPicker(msg.id) }}
+                    className="w-8 h-8 flex items-center justify-center text-base rounded-full hover:bg-gray-800"
+                    title={`React with ${emoji}`}
+                  >
+                    {emoji}
+                  </button>
+                ))}
+                <button
+                  onClick={() => onOpenFullPicker(msg.id)}
+                  className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-800 text-gray-400"
+                  title="More reactions"
+                  aria-label="More reactions"
+                >
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                  </svg>
+                </button>
+              </div>
+            )}
+            {isFullPickerOpen && (
+              <EmojiPicker
+                onSelect={emoji => onToggleReaction(msg.id, emoji)}
+                onClose={onCloseFullPicker}
+              />
+            )}
+          </div>
+
+          <button
+            onClick={() => onSetForwardingMsg(msg)}
+            className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
+            title="Forward message"
+          >
+            ↗
+          </button>
+
+          {files.some(f => f.mime_type.startsWith('image/')) && (
+            <button
+              onClick={() => onSaveToFiles(msg)}
+              className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-sm md:px-1.5 md:py-0.5"
+              title="Save to Files"
+            >
+              📁
+            </button>
+          )}
+
+          <div className="relative">
+            <button
+              onClick={() => isAddToBoardOpen ? onCloseBoardPicker() : onOpenBoardPicker(msg.id)}
+              className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
+              title="Add to Board"
+            >
+              ☑
+            </button>
+            {isAddToBoardOpen && (
+              <div className="absolute right-0 top-9 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl py-1 min-w-[180px]" onClick={e => e.stopPropagation()}>
+                <div className="px-3 py-1.5 text-xs text-white/40 font-semibold uppercase tracking-wider border-b border-gray-800">Add to Board</div>
+                {boardPickerBoards.length === 0 && (
+                  <p className="px-3 py-2 text-xs text-gray-500">No boards yet</p>
+                )}
+                {boardPickerBoards.map(board => (
+                  <button
+                    key={board.id}
+                    disabled={addingToBoard}
+                    onClick={() => onAddToBoard(board.id)}
+                    className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+                  >
+                    {board.name}
+                  </button>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {onOpenThread && (
+            <button
+              onClick={() => onOpenThread(msg)}
+              className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
+              title="Reply in thread"
+            >
+              💬
+            </button>
+          )}
+
+          {isOwn && (
+            <button
+              onClick={() => onStartEdit(msg.id, msg.content)}
+              className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
+              title="Edit"
+            >
+              ✏️
+            </button>
+          )}
+          {(isOwn || isAdmin) && (
+            <button
+              onClick={() => onDelete(msg.id)}
+              className="text-gray-500 hover:text-red-400 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
+              title="Delete"
+            >
+              🗑️
+            </button>
+          )}
+        </div>
+      )}
+    </div>
+  )
+})
+
+// ── MessageFeed ────────────────────────────────────────────────────────────
 
 const MessageFeed = forwardRef<MessageFeedHandle, {
   roomId?: string
@@ -225,8 +572,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   onOpenThread?: (msg: HubMessage) => void
   openThreadMsgId?: string | null
   rooms?: { id: string; name: string }[]
-  // DM-only: members of this conversation and their read receipts.
-  // Drives the "Read by..." indicator under the user's latest self-send.
   conversationMembers?: HubUser[]
   initialMemberReadReceipts?: { user_id: string; last_read_at: string }[]
 }>(function MessageFeed({
@@ -242,20 +587,10 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   conversationMembers,
   initialMemberReadReceipts,
 }, ref) {
-  // Message bubbles inherit size from root font-size (S/M/L on <html>) via
-  // the same `text-lg md:text-sm` class the sidebar uses — no per-size
-  // override here, so sidebar and messages stay visually in sync.
-
   const confirmDialog = useConfirm()
   const [messages, setMessages] = useState<HubMessage[]>(initialMessages)
-  // Older-message pagination (scroll-up auto-load). The server renders the
-  // newest PAGE_SIZE; older history is fetched on demand from the server (NOT
-  // the device cache, which intentionally stays capped at the newest 50) and
-  // held in memory for this session.
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [hasMoreOlder, setHasMoreOlder] = useState(initialMessages.length >= MESSAGE_PAGE_SIZE)
-  // When prepending older messages we must NOT snap to the bottom and must keep
-  // the viewport visually still. These refs carry that intent across the render.
   const prependingRef = useRef(false)
   const prevScrollHeightRef = useRef(0)
   const prevScrollTopRef = useRef(0)
@@ -284,9 +619,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     for (const m of initialMessages) map[m.id] = m.reply_count ?? 0
     return map
   })
-  // Dedupe reply-count bumps by reply id — the sender's own local bump
-  // (from the imperative handle) and the realtime/broadcast paths can
-  // each try to increment for the same reply, which would double-count.
   const seenReplyIds = useRef<Set<string>>(new Set())
   const incrementReplyCount = useCallback((parentId: string, replyId: string) => {
     if (seenReplyIds.current.has(replyId)) return
@@ -295,31 +627,18 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   }, [])
   const bottomRef = useRef<HTMLDivElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
-  // Hide the scroll container for the brief window between first render and
-  // the initial scroll-to-bottom pin. Without this, the user sees the list
-  // paint at scrollTop=0 and then jump down — the long-standing "scroll
-  // glitch." useLayoutEffect below flips ready=true synchronously before the
-  // browser paints, so the first visible paint is already pinned to the bottom.
   const [feedReady, setFeedReady] = useState(false)
   const supabase = createClient()
 
-  // Read receipts for other members of this DM (DMs only — rooms are
-  // Slack-style: no read receipts). Keyed by user_id → last_read_at ISO.
   const [memberReceipts, setMemberReceipts] = useState<Record<string, string>>(() => {
     const map: Record<string, string> = {}
     for (const r of initialMemberReadReceipts ?? []) map[r.user_id] = r.last_read_at
     return map
   })
 
-  // #43 — typing indicator. MessageComposer broadcasts `typing` on the same
-  // feed channel; we show "X is typing…" and auto-clear each user 4s after their
-  // last keystroke (the composer re-broadcasts every ~2.5s while typing).
   const [typingUsers, setTypingUsers] = useState<{ id: string; name: string }[]>([])
   const typingTimers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
-  // Latest top-level message authored by the current user in this feed —
-  // the indicator anchors here. Falls back to null when there are no
-  // self-sent messages yet.
   const latestSelfMsg = (() => {
     if (!conversationId) return null
     for (let i = messages.length - 1; i >= 0; i--) {
@@ -331,8 +650,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     return null
   })()
 
-  // Build the "Read by ..." label. Excludes self + bots. Returns null
-  // when no other member has read up to this message.
   function readersLabelFor(msgCreatedAt: string): string | null {
     if (!conversationId || !conversationMembers) return null
     const others = conversationMembers.filter(m => m.id !== currentUserId && !m.is_bot)
@@ -342,9 +659,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       return rr && rr >= msgCreatedAt
     })
     if (readers.length === 0) return null
-    // 1-on-1 — no need to name the single other person.
     if (others.length === 1) return 'Read'
-    // Group — name up to two readers, then "& N more".
     if (readers.length === others.length) return 'Read by everyone'
     const names = readers.map(r => r.display_name.split(' ')[0])
     if (names.length === 1) return `Read by ${names[0]}`
@@ -357,9 +672,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       setMessages(prev => {
         const idx = prev.findIndex(m => m.id === msg.id)
         if (idx >= 0) {
-          // Race: if realtime already delivered this message with real
-          // DB file rows, don't let an optimistic insert (temp ids +
-          // blob URLs) clobber them.
           const existing = prev[idx]
           const existingHasRealFiles = (existing.files ?? []).some(f => !f.id.startsWith('temp-'))
           const incomingHasTempFiles = (msg.files ?? []).some(f => f.id.startsWith('temp-'))
@@ -373,30 +685,14 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
         return [...prev, msg]
       })
       setRxMap(prev => ({ ...prev, [msg.id]: normReactions(msg.reactions) }))
-      // Skip caching optimistic rows with temp file ids — realtime delivery
-      // of the real row will overwrite the cache moments later. Caching the
-      // temp row would persist blob URLs that won't resolve on next entry.
       const hasTempFiles = (msg.files ?? []).some(f => f.id.startsWith('temp-'))
       if (!hasTempFiles) patchMessage(msg)
     },
-    // Called by ThreadPanel right after a thread reply lands, so the
-    // sender sees the parent's "N replies" indicator update immediately
-    // without waiting on the (sometimes flaky) postgres_changes/broadcast
-    // paths. The dedupe ref ensures the same reply id can't double-count
-    // when realtime also delivers it later.
     bumpReplyCount(parentId: string, replyId: string) {
       incrementReplyCount(parentId, replyId)
     },
   }))
 
-  // Initial paint: jump to bottom instantly before the browser paints, so the
-  // user never sees the list render from the top and animate down. Subsequent
-  // message arrivals keep the smooth-scroll behavior below.
-  //
-  // Images load asynchronously and grow scrollHeight after our initial jump,
-  // landing the user above the true bottom on first entry. Re-pin via a
-  // ResizeObserver for ~2s after mount (covers image decode + layout), and
-  // also listen for image load events directly so we don't have to throttle.
   useLayoutEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
@@ -404,25 +700,17 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     const pin = () => { if (pinning) el.scrollTop = el.scrollHeight }
     pin()
 
-    // Reveal logic — keep visibility:hidden until either (a) all images
-    // in the visible message set have settled (warm cache resolves this
-    // synchronously, cold cache resolves it after network), or (b) a
-    // 1500ms cap fires so we never hang forever on a slow/broken image.
-    // This is what kills the "scroll jump as images load" glitch on
-    // cold-cache room entries.
     let revealed = false
     const reveal = () => {
       if (revealed) return
       revealed = true
-      pin() // one last pin right before the user sees anything
+      pin()
       setFeedReady(true)
     }
 
     const imgs = Array.from(el.querySelectorAll('img'))
     let pending = imgs.filter(img => !(img.complete && img.naturalHeight !== 0)).length
     if (pending === 0) {
-      // Warm cache: every image is already decoded. Reveal now so React's
-      // re-render lands before the browser paints — first paint is correct.
       reveal()
     }
     const onImgSettled = () => {
@@ -435,11 +723,8 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       img.addEventListener('load', onImgSettled, { once: true })
       img.addEventListener('error', onImgSettled, { once: true })
     })
-    // Cap: reveal no later than 1500ms regardless of image state so a slow
-    // attachment never blocks the whole feed from appearing.
     const revealCap = setTimeout(reveal, 1500)
 
-    // Belt-and-suspenders: multiple async re-pins in case layout settles late.
     const timers = [0, 50, 150, 400, 900, 1800].map(ms => setTimeout(pin, ms))
     const ro = new ResizeObserver(pin)
     ro.observe(el)
@@ -458,29 +743,23 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   }, [])
 
   useLayoutEffect(() => {
-    // When older messages were just prepended, keep the viewport visually still
-    // instead of snapping to the bottom. Restore scrollTop by the exact height
-    // the prepend added, so the message the user was looking at doesn't move.
     if (prependingRef.current) {
       const el = scrollContainerRef.current
       if (el) el.scrollTop = el.scrollHeight - prevScrollHeightRef.current + prevScrollTopRef.current
       prependingRef.current = false
       return
     }
-    // Snap to bottom on new messages (own send or incoming). Direct scrollTop
-    // assignment is cheaper than scrollTo({behavior:'smooth'}) and feels
-    // snappier — the smooth-scroll animation cost ~16 frames per message,
-    // visible on slower devices when the room is busy.
     const el = scrollContainerRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [messages.length])
 
-  // ── Auto-load older messages on scroll-up ──────────────────────────────────
-  // Keep the latest messages list reachable from the stable loadOlder closure
-  // without re-creating it (and the observer) on every render.
+  // Keep latest messages reachable from the stable loadOlder closure.
   const messagesRef = useRef(messages)
   messagesRef.current = messages
   const loadingOlderRef = useRef(false)
+  // Keep addToBoardMsgId reachable from the stable handleAddToBoard callback.
+  const addToBoardMsgIdRef = useRef(addToBoardMsgId)
+  addToBoardMsgIdRef.current = addToBoardMsgId
 
   const loadOlder = useCallback(async () => {
     if (loadingOlderRef.current || !hasMoreOlder) return
@@ -510,7 +789,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       if (rows.length < MESSAGE_PAGE_SIZE) setHasMoreOlder(false)
       if (rows.length === 0) return
 
-      // Enrich forwarded banners (same shape the realtime path builds).
       const fwdIds = rows.map(m => m.forwarded_from).filter(Boolean) as string[]
       if (fwdIds.length > 0) {
         const { data: origs } = await supabase
@@ -525,16 +803,12 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
         for (const m of rows) if (m.forwarded_from) m.forwarded_original = fwdMap[m.forwarded_from] ?? null
       }
 
-      // Reply counts for the older batch so their "N replies" indicator shows.
       const ids = rows.map(m => m.id)
       const { data: replyRows } = await supabase
         .from('messages').select('parent_id').in('parent_id', ids).is('deleted_at', null)
       const counts: Record<string, number> = {}
       for (const r of (replyRows ?? []) as { parent_id: string }[]) counts[r.parent_id] = (counts[r.parent_id] ?? 0) + 1
 
-      // Capture scroll metrics immediately before the DOM grows, so the layout
-      // effect can restore the viewport exactly (no jump). NOT cached to IDB —
-      // the device cache stays lean at the newest 50.
       const el = scrollContainerRef.current
       if (el) { prevScrollHeightRef.current = el.scrollHeight; prevScrollTopRef.current = el.scrollTop }
       prependingRef.current = true
@@ -560,9 +834,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     }
   }, [hasMoreOlder, roomId, conversationId, supabase])
 
-  // Fire loadOlder when the top sentinel scrolls into view. Gated on feedReady
-  // so the initial bottom-pin settles first, and on scrollTop being near the
-  // top so it can't fire spuriously while pinned to the bottom.
   useEffect(() => {
     if (!feedReady || !hasMoreOlder) return
     const root = scrollContainerRef.current
@@ -577,9 +848,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     return () => io.disconnect()
   }, [feedReady, hasMoreOlder, loadOlder])
 
-  // Persist conversation members + initial read receipts (DMs only) to cache
-  // so the next entry can hydrate them instantly. The realtime receipts
-  // channel below keeps the cache current after that.
   useEffect(() => {
     if (!conversationId) return
     if (conversationMembers && conversationMembers.length) {
@@ -591,11 +859,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [conversationId])
 
-  // Persist initialMessages (the server-rendered top-level set) to the Hub
-  // cache so the next entry into this scope can hydrate instantly. Best-effort.
-  // If initialMessages is empty (rare — server fetch returned nothing), try to
-  // hydrate from cache as a fallback so the user sees prior history while a
-  // background fetch is presumably running elsewhere.
   useEffect(() => {
     const scope: 'room' | 'conv' | null = roomId ? 'room' : conversationId ? 'conv' : null
     const scopeId = roomId ?? conversationId ?? null
@@ -623,13 +886,9 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       })
     })()
     return () => { cancelled = true }
-    // initialMessages is captured by reference from the server fetch; it does
-    // not change for the lifetime of this scope. Intentionally exclude it from
-    // deps so we don't re-write the cache on every realtime state change.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, conversationId])
 
-  // Realtime: messages
   useEffect(() => {
     const filter = roomId
       ? `room_id=eq.${roomId}`
@@ -642,11 +901,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           incrementReplyCount(payload.new.parent_id, payload.new.id)
           return
         }
-        // If someone else just sent a message into the conversation
-        // we're actively viewing, advance our read receipt immediately
-        // so the sender sees "Read" without us leaving and re-entering.
-        // (The sidebar pathname effect only fires on NAVIGATE INTO,
-        // not on incoming messages while we're already here.)
         if (payload.new.sender_id !== currentUserId) {
           fetch('/api/hub/read-receipts', {
             method: 'POST',
@@ -675,7 +929,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
               msg.forwarded_original = { ...o, sender: Array.isArray(o.sender) ? o.sender[0] : o.sender }
             }
           }
-          // Replace optimistic message (if present) with full server version including files
           setMessages(prev => {
             const idx = prev.findIndex(m => m.id === msg.id)
             if (idx >= 0) { const next = [...prev]; next[idx] = msg; return next }
@@ -699,10 +952,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           })
         }
       })
-      // Fallback path for INSERT — Chat Synx events route (and any other
-      // admin-client writer) fires this broadcast after inserting, so an
-      // open MessageFeed picks it up even if postgres_changes drops the WAL
-      // event. setMessages dedupes by id so receiving both is harmless.
       .on('broadcast', { event: 'message-inserted' }, async (payload) => {
         const p = (payload.payload ?? {}) as { id?: string; parent_id?: string | null; sender_id?: string }
         if (!p.id) return
@@ -751,10 +1000,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     return () => { supabase.removeChannel(channel) }
   }, [roomId, conversationId])
 
-  // #43 — typing indicator on its own `typing:` topic (kept off the messages
-  // `feed:` channel so it can't disturb the message stream). The composer
-  // re-broadcasts every ~2.5s while typing; each user auto-clears 4s after
-  // their last keystroke.
   useEffect(() => {
     const id = roomId ?? conversationId
     if (!id) return
@@ -782,7 +1027,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [roomId, conversationId])
 
-  // Realtime: reactions
   useEffect(() => {
     const channel = supabase
       .channel(`reactions:${roomId ?? conversationId}`)
@@ -793,9 +1037,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
           const existing = prev[r.message_id] ?? []
           if (existing.some(x => x.user_id === r.user_id && x.emoji === r.emoji)) return prev
           const nextReactions = [...existing, { user_id: r.user_id, emoji: r.emoji }]
-          // Keep the cached message's embedded reactions in sync so the next
-          // entry into this scope sees the latest set without waiting for the
-          // server refetch.
           setMessages(curr => {
             const msg = curr.find(m => m.id === r.message_id)
             if (msg) patchMessage({ ...msg, reactions: nextReactions })
@@ -822,10 +1063,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     return () => { supabase.removeChannel(channel) }
   }, [roomId, conversationId])
 
-  // Realtime: read receipts (DMs only). Lets "Read by ..." update live
-  // the moment another member opens the conversation. Listens on both
-  // postgres_changes (authoritative, but sometimes dropped on iOS/mobile)
-  // and the broadcast fallback fired by the read-receipts API route.
   useEffect(() => {
     if (!conversationId) return
 
@@ -874,8 +1111,17 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     return () => { supabase.removeChannel(channel) }
   }, [conversationId])
 
+  // ── Stable refs for volatile state used inside callbacks ────────────────
+  // Lets callbacks drop volatile deps so memo() sees the same function ref.
+  const rxMapRef = useRef(rxMap)
+  rxMapRef.current = rxMap
+  const editContentRef = useRef(editContent)
+  editContentRef.current = editContent
+
+  // ── Stable callbacks ────────────────────────────────────────────────────
+
   const toggleReaction = useCallback(async (msgId: string, emoji: string) => {
-    const current = rxMap[msgId] ?? []
+    const current = rxMapRef.current[msgId] ?? []
     const mine = current.find(r => r.user_id === currentUserId && r.emoji === emoji)
     setRxMap(prev => ({
       ...prev,
@@ -888,10 +1134,10 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ message_id: msgId, emoji }),
     })
-  }, [rxMap, currentUserId])
+  }, [currentUserId])
 
   const saveEdit = useCallback(async (msgId: string) => {
-    const trimmed = editContent.trim()
+    const trimmed = editContentRef.current.trim()
     if (!trimmed) return
     await fetch(`/api/hub/messages/${msgId}`, {
       method: 'PATCH',
@@ -899,7 +1145,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       body: JSON.stringify({ content: trimmed }),
     })
     setEditingId(null)
-  }, [editContent])
+  }, [])
 
   const deleteMessage = useCallback(async (msgId: string) => {
     if (!(await confirmDialog({ message: 'Delete this message?', danger: true }))) return
@@ -918,7 +1164,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     }
     if (target.type === 'room') body.room_id = target.id
     else body.conversation_id = target.id
-    // Forward the original message's attachments so recipients see the files too
     if (forwardingMsg.files && forwardingMsg.files.length > 0) {
       body.files = forwardingMsg.files.map(f => ({
         storage_path: f.storage_path,
@@ -937,15 +1182,18 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     setForwardingMsg(null)
   }, [forwardingMsg])
 
-  function openBoardPicker(msgId: string) {
+  const openBoardPicker = useCallback((msgId: string) => {
     setAddToBoardMsgId(msgId)
     fetch('/api/hub/boards')
       .then(r => r.json())
       .then(d => setBoardPickerBoards(d.boards ?? []))
       .catch(() => {})
-  }
+  }, [])
 
-  async function addToBoard(boardId: string, msg: HubMessage) {
+  const handleAddToBoard = useCallback(async (boardId: string) => {
+    const msgId = addToBoardMsgIdRef.current
+    const msg = messagesRef.current.find(m => m.id === msgId)
+    if (!msg) return
     setAddingToBoard(true)
     await fetch(`/api/hub/boards/${boardId}/items`, {
       method: 'POST',
@@ -954,9 +1202,9 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     })
     setAddingToBoard(false)
     setAddToBoardMsgId(null)
-  }
+  }, [])
 
-  function startLongPress(msgId: string) {
+  const startLongPress = useCallback((msgId: string) => {
     longPressFired.current = false
     if (longPressTimer.current) clearTimeout(longPressTimer.current)
     longPressTimer.current = setTimeout(() => {
@@ -964,14 +1212,63 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
       setActionSheetMsgId(msgId)
       if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(10)
     }, 500)
-  }
+  }, [])
 
-  function cancelLongPress() {
+  const cancelLongPress = useCallback(() => {
     if (longPressTimer.current) {
       clearTimeout(longPressTimer.current)
       longPressTimer.current = null
     }
-  }
+  }, [])
+
+  const handleTap = useCallback((msgId: string) => {
+    if (longPressFired.current) { longPressFired.current = false; return }
+    setTappedMsgId(prev => prev === msgId ? null : msgId)
+  }, [])
+
+  const handleStartEdit = useCallback((msgId: string, content: string) => {
+    setEditingId(msgId)
+    setEditContent(content)
+    setTappedMsgId(null)
+  }, [])
+
+  const handleCancelEdit = useCallback(() => {
+    setEditingId(null)
+  }, [])
+
+  const handleEditContentChange = useCallback((content: string) => {
+    setEditContent(content)
+  }, [])
+
+  const handleToggleQuickPicker = useCallback((msgId: string) => {
+    setFullPickerMsgId(null)
+    setPickerMsgId(prev => prev === msgId ? null : msgId)
+  }, [])
+
+  const handleOpenFullPicker = useCallback((msgId: string) => {
+    setPickerMsgId(null)
+    setFullPickerMsgId(msgId)
+  }, [])
+
+  const handleCloseFullPicker = useCallback(() => {
+    setFullPickerMsgId(null)
+  }, [])
+
+  const handleCloseBoardPicker = useCallback(() => {
+    setAddToBoardMsgId(null)
+  }, [])
+
+  const handleSetForwardingMsg = useCallback((msg: HubMessage) => {
+    setForwardingMsg(msg)
+  }, [])
+
+  const handleSetSaveToFilesMsg = useCallback((msg: HubMessage) => {
+    setSaveToFilesMsg(msg)
+  }, [])
+
+  const handleOpenLightbox = useCallback((items: LightboxItem[], index: number) => {
+    setLightbox({ items, index })
+  }, [])
 
   // Group messages by date
   const groups: { date: string; messages: HubMessage[] }[] = []
@@ -985,7 +1282,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   return (
     <>
       <div ref={scrollContainerRef} style={{ visibility: feedReady ? 'visible' : 'hidden' }} className="flex-1 overflow-y-auto w-full px-1 md:px-4 py-3 space-y-1">
-        {/* Scroll-up sentinel — when it enters view, older messages auto-load. */}
         {hasMoreOlder && <div ref={topSentinelRef} className="h-px w-full" aria-hidden />}
         {loadingOlder && (
           <div className="flex items-center justify-center py-3">
@@ -1007,296 +1303,51 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
               const isContinuation = prevMsg && prevSender?.id === sender?.id &&
                 new Date(msg.created_at).getTime() - new Date(prevMsg.created_at).getTime() < 5 * 60 * 1000
               const isOwn = sender?.id === currentUserId
-              const isEditing = editingId === msg.id
-              const isThreadOpen = openThreadMsgId === msg.id
-              const reactions = rxMap[msg.id] ?? []
-              const files = normFiles(msg.files)
-
-              const rxGroups: Record<string, string[]> = {}
-              for (const r of reactions) {
-                if (!rxGroups[r.emoji]) rxGroups[r.emoji] = []
-                rxGroups[r.emoji].push(r.user_id)
-              }
-
-              const isActionsVisible = tappedMsgId === msg.id
+              const isLatestSelf = latestSelfMsg?.id === msg.id
+              const readersLabel = isLatestSelf ? readersLabelFor(msg.created_at) : null
 
               return (
-                <div
+                <MessageRow
                   key={msg.id}
-                  className={`group relative flex items-start gap-2 py-0.5 rounded hover:bg-gray-900/50 transition-colors select-none md:select-text ${isThreadOpen ? 'bg-brand/5 border-l-2 border-brand' : ''}`}
-                  onClick={() => {
-                    if (longPressFired.current) { longPressFired.current = false; return }
-                    if (!isEditing) setTappedMsgId(prev => prev === msg.id ? null : msg.id)
-                  }}
-                  onTouchStart={() => { if (!isEditing) startLongPress(msg.id) }}
-                  onTouchMove={cancelLongPress}
-                  onTouchEnd={cancelLongPress}
-                  onTouchCancel={cancelLongPress}
-                  onContextMenu={e => e.preventDefault()}
-                  style={{ touchAction: 'pan-y', WebkitTouchCallout: 'none' }}
-                >
-                  <div className="flex-none w-7 md:w-8 mt-0.5">
-                    {!isContinuation ? <Avatar sender={sender} /> : null}
-                  </div>
-
-                  <div className="flex-1 min-w-0">
-                    {!isContinuation && (
-                      <div className="flex items-baseline gap-2 mb-0.5">
-                        <span className="font-semibold text-sm text-white">
-                          {sender?.display_name ?? 'Unknown'}
-                          {sender?.is_bot && (
-                            <span className="ml-1.5 text-xs bg-brand/30 text-brand px-1.5 py-0.5 rounded font-normal">Bot</span>
-                          )}
-                          {msg.source === 'slack' && (
-                            <span title="Sent from Slack" className="ml-1.5 text-xs bg-[#4A154B]/40 text-[#ECB22E] px-1.5 py-0.5 rounded font-normal">S</span>
-                          )}
-                        </span>
-                        <span className="text-xs text-gray-500">{formatTime(msg.created_at)}</span>
-                      </div>
-                    )}
-
-                    {/* Forwarded message banner */}
-                    {msg.forwarded_original && (
-                      <ForwardedBanner original={msg.forwarded_original} rooms={rooms} hubUsers={hubUsers} />
-                    )}
-
-                    {isEditing ? (
-                      <div className="flex gap-2">
-                        <input
-                          autoFocus
-                          value={editContent}
-                          onChange={e => setEditContent(e.target.value)}
-                          onKeyDown={e => {
-                            if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(msg.id) }
-                            if (e.key === 'Escape') setEditingId(null)
-                          }}
-                          className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-brand"
-                        />
-                        <button onClick={() => saveEdit(msg.id)} className="text-xs text-brand hover:text-blue-300 px-2">Save</button>
-                        <button onClick={() => setEditingId(null)} className="text-xs text-gray-500 hover:text-gray-300 px-2">Cancel</button>
-                      </div>
-                    ) : (
-                      msg.content && (
-                        <p className="hub-message-text text-lg md:text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
-                          {renderContent(msg.content, hubUsers)}
-                          {msg.edited_at && <span className="ml-1.5 text-xs text-gray-600">(edited)</span>}
-                        </p>
-                      )
-                    )}
-
-                    {/* File attachments */}
-                    {files.length > 0 && (() => {
-                      // Pre-compute lightbox items (images + PDFs) and their indices so
-                      // clicking any image/PDF opens the lightbox at the right slot, with
-                      // prev/next flipping through all media in this message.
-                      const mediaItems: LightboxItem[] = []
-                      const mediaIdxByFileId: Record<string, number> = {}
-                      files.forEach(f => {
-                        const isImg = f.mime_type.startsWith('image/')
-                        const isPdf = f.mime_type === 'application/pdf'
-                        if (isImg || isPdf) {
-                          mediaIdxByFileId[f.id] = mediaItems.length
-                          mediaItems.push({
-                            type: isImg ? 'image' : 'pdf',
-                            // PDFs are read as bytes by the in-app pdf.js viewer (same-origin,
-                            // no CORS); images load via the redirect. Download uses the redirect.
-                            src: isPdf && !f.localUrl ? `/api/hub/files/${f.id}?inline=pdf` : (f.localUrl ?? `/api/hub/files/${f.id}`),
-                            downloadSrc: f.localUrl ?? `/api/hub/files/${f.id}`,
-                            filename: f.filename,
-                          })
-                        }
-                      })
-                      return (
-                        <div className="flex flex-wrap gap-2 mt-0.5">
-                          {files.map(f => {
-                            const mIdx = mediaIdxByFileId[f.id]
-                            return (
-                              <FileAttachment
-                                key={f.id}
-                                file={f}
-                                onOpenLightbox={
-                                  mIdx !== undefined
-                                    ? () => setLightbox({ items: mediaItems, index: mIdx })
-                                    : undefined
-                                }
-                              />
-                            )
-                          })}
-                        </div>
-                      )
-                    })()}
-
-                    {/* Reactions */}
-                    {Object.keys(rxGroups).length > 0 && (
-                      <div className="flex flex-wrap gap-1 mt-1.5">
-                        {Object.entries(rxGroups).map(([emoji, userIds]) => (
-                          <button
-                            key={emoji}
-                            onClick={() => toggleReaction(msg.id, emoji)}
-                            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
-                              userIds.includes(currentUserId)
-                                ? 'bg-brand/20 border-brand/50 text-brand'
-                                : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
-                            }`}
-                          >
-                            <span>{emoji}</span>
-                            <span>{userIds.length}</span>
-                          </button>
-                        ))}
-                      </div>
-                    )}
-
-                    {/* Reply count */}
-                    {(replyCounts[msg.id] ?? 0) > 0 && onOpenThread && (
-                      <button
-                        onClick={() => onOpenThread(msg)}
-                        className="mt-1 text-xs text-[#6FB3E8] hover:underline"
-                      >
-                        {replyCounts[msg.id]} {replyCounts[msg.id] === 1 ? 'reply' : 'replies'}
-                      </button>
-                    )}
-
-                    {/* Read / Read by ... — only on the user's most recent
-                        self-sent top-level message in a DM. */}
-                    {latestSelfMsg?.id === msg.id && (() => {
-                      const label = readersLabelFor(msg.created_at)
-                      return label ? (
-                        <div className="mt-0.5 text-[11px] text-gray-500">{label}</div>
-                      ) : null
-                    })()}
-                  </div>
-
-                  {/* Hover actions — desktop only.
-                      Mobile uses long-press → MessageActionsSheet instead. */}
-                  {!isEditing && (
-                    <div
-                      className={`flex-none transition-opacity gap-0.5 relative hidden md:flex
-                        ${isActionsVisible ? 'md:opacity-100' : 'md:opacity-0 md:group-hover:opacity-100'}`}
-                      onClick={e => e.stopPropagation()}
-                    >
-                      <div className="relative">
-                        <button
-                          onClick={() => {
-                            setFullPickerMsgId(null)
-                            setPickerMsgId(pickerMsgId === msg.id ? null : msg.id)
-                          }}
-                          className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-sm md:px-1.5 md:py-0.5"
-                          title="Add reaction"
-                        >
-                          😊
-                        </button>
-                        {pickerMsgId === msg.id && (
-                          <div
-                            className="absolute bottom-full right-0 mb-1 z-50 flex items-center gap-0.5 bg-gray-900 border border-gray-700 rounded-full shadow-2xl px-1 py-0.5"
-                            onClick={e => e.stopPropagation()}
-                          >
-                            {['✅', '👍', '👀'].map(emoji => (
-                              <button
-                                key={emoji}
-                                onClick={() => { toggleReaction(msg.id, emoji); setPickerMsgId(null) }}
-                                className="w-8 h-8 flex items-center justify-center text-base rounded-full hover:bg-gray-800"
-                                title={`React with ${emoji}`}
-                              >
-                                {emoji}
-                              </button>
-                            ))}
-                            <button
-                              onClick={() => { setPickerMsgId(null); setFullPickerMsgId(msg.id) }}
-                              className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-800 text-gray-400"
-                              title="More reactions"
-                              aria-label="More reactions"
-                            >
-                              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
-                              </svg>
-                            </button>
-                          </div>
-                        )}
-                        {fullPickerMsgId === msg.id && (
-                          <EmojiPicker
-                            onSelect={emoji => toggleReaction(msg.id, emoji)}
-                            onClose={() => setFullPickerMsgId(null)}
-                          />
-                        )}
-                      </div>
-
-                      <button
-                        onClick={() => setForwardingMsg(msg)}
-                        className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
-                        title="Forward message"
-                      >
-                        ↗
-                      </button>
-
-                      {files.some(f => f.mime_type.startsWith('image/')) && (
-                        <button
-                          onClick={() => setSaveToFilesMsg(msg)}
-                          className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-sm md:px-1.5 md:py-0.5"
-                          title="Save to Files"
-                        >
-                          📁
-                        </button>
-                      )}
-
-                      <div className="relative">
-                        <button
-                          onClick={() => addToBoardMsgId === msg.id ? setAddToBoardMsgId(null) : openBoardPicker(msg.id)}
-                          className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
-                          title="Add to Board"
-                        >
-                          ☑
-                        </button>
-                        {addToBoardMsgId === msg.id && (
-                          <div className="absolute right-0 top-9 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl py-1 min-w-[180px]" onClick={e => e.stopPropagation()}>
-                            <div className="px-3 py-1.5 text-xs text-white/40 font-semibold uppercase tracking-wider border-b border-gray-800">Add to Board</div>
-                            {boardPickerBoards.length === 0 && (
-                              <p className="px-3 py-2 text-xs text-gray-500">No boards yet</p>
-                            )}
-                            {boardPickerBoards.map(board => (
-                              <button
-                                key={board.id}
-                                disabled={addingToBoard}
-                                onClick={() => addToBoard(board.id, msg)}
-                                className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-800 transition-colors"
-                              >
-                                {board.name}
-                              </button>
-                            ))}
-                          </div>
-                        )}
-                      </div>
-
-                      {onOpenThread && (
-                        <button
-                          onClick={() => onOpenThread(msg)}
-                          className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
-                          title="Reply in thread"
-                        >
-                          💬
-                        </button>
-                      )}
-
-                      {isOwn && (
-                        <button
-                          onClick={() => { setEditingId(msg.id); setEditContent(msg.content); setTappedMsgId(null) }}
-                          className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
-                          title="Edit"
-                        >
-                          ✏️
-                        </button>
-                      )}
-                      {(isOwn || isAdmin) && (
-                        <button
-                          onClick={() => deleteMessage(msg.id)}
-                          className="text-gray-500 hover:text-red-400 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
-                          title="Delete"
-                        >
-                          🗑️
-                        </button>
-                      )}
-                    </div>
-                  )}
-                </div>
+                  msg={msg}
+                  currentUserId={currentUserId}
+                  hubUsers={hubUsers}
+                  isAdmin={!!isAdmin}
+                  rooms={rooms}
+                  isContinuation={!!isContinuation}
+                  isOwn={isOwn}
+                  isEditing={editingId === msg.id}
+                  isActionsVisible={tappedMsgId === msg.id}
+                  isPickerOpen={pickerMsgId === msg.id}
+                  isFullPickerOpen={fullPickerMsgId === msg.id}
+                  isThreadOpen={openThreadMsgId === msg.id}
+                  isAddToBoardOpen={addToBoardMsgId === msg.id}
+                  reactions={rxMap[msg.id] ?? EMPTY_REACTIONS}
+                  replyCount={replyCounts[msg.id] ?? 0}
+                  readersLabel={readersLabel}
+                  editContent={editingId === msg.id ? editContent : ''}
+                  boardPickerBoards={addToBoardMsgId === msg.id ? boardPickerBoards : EMPTY_BOARDS}
+                  addingToBoard={addToBoardMsgId === msg.id ? addingToBoard : false}
+                  onTap={handleTap}
+                  onStartLongPress={startLongPress}
+                  onCancelLongPress={cancelLongPress}
+                  onToggleReaction={toggleReaction}
+                  onToggleQuickPicker={handleToggleQuickPicker}
+                  onOpenFullPicker={handleOpenFullPicker}
+                  onCloseFullPicker={handleCloseFullPicker}
+                  onStartEdit={handleStartEdit}
+                  onCancelEdit={handleCancelEdit}
+                  onSaveEdit={saveEdit}
+                  onEditContentChange={handleEditContentChange}
+                  onDelete={deleteMessage}
+                  onSetForwardingMsg={handleSetForwardingMsg}
+                  onSaveToFiles={handleSetSaveToFilesMsg}
+                  onOpenLightbox={handleOpenLightbox}
+                  onOpenBoardPicker={openBoardPicker}
+                  onAddToBoard={handleAddToBoard}
+                  onCloseBoardPicker={handleCloseBoardPicker}
+                  onOpenThread={onOpenThread}
+                />
               )
             })}
           </div>
@@ -1348,8 +1399,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
         )
       })()}
 
-      {/* Mobile-only board picker. Desktop uses the inline dropdown anchored
-          to the hover action bar; that bar is hidden on mobile. */}
+      {/* Mobile-only board picker */}
       {addToBoardMsgId && (
         <div className="fixed inset-0 z-50 md:hidden flex items-end" onClick={() => setAddToBoardMsgId(null)}>
           <div className="absolute inset-0 bg-black/60" />
@@ -1372,10 +1422,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                   <button
                     key={board.id}
                     disabled={addingToBoard}
-                    onClick={() => {
-                      const msg = messages.find(m => m.id === addToBoardMsgId)
-                      if (msg) addToBoard(board.id, msg)
-                    }}
+                    onClick={() => handleAddToBoard(board.id)}
                     className="w-full text-left px-5 py-3.5 text-base text-gray-100 active:bg-gray-800 transition-colors disabled:opacity-50"
                   >
                     {board.name}

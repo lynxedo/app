@@ -40,6 +40,63 @@ export async function GET(request: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  // Server-side search across contacts (name/phone) AND message bodies.
+  // Returns up to 50 matching conversations; the sidebar shows them in a
+  // dedicated search-results mode (bypasses scope/queue filtering).
+  if (scope === 'search') {
+    if (!isTxtUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    const q = (url.searchParams.get('q') || '').trim()
+    if (q.length < 2) return NextResponse.json({ conversations: [] })
+
+    const pattern = `%${q}%`
+    const [contactsRes, msgsRes] = await Promise.all([
+      supabase
+        .from('txt_contacts')
+        .select('id')
+        .or(`name.ilike.${pattern},phone.ilike.${pattern}`)
+        .limit(100),
+      supabase
+        .from('txt_messages')
+        .select('conversation_id')
+        .ilike('body', pattern)
+        .limit(300),
+    ])
+
+    // Conversations where the primary contact matches.
+    let convIdsFromContacts: string[] = []
+    const contactIds = (contactsRes.data ?? []).map((c) => c.id)
+    if (contactIds.length > 0) {
+      const { data: convRows } = await supabase
+        .from('txt_conversations')
+        .select('id')
+        .in('contact_id', contactIds)
+      convIdsFromContacts = (convRows ?? []).map((r) => r.id)
+    }
+
+    const allIds = Array.from(
+      new Set([
+        ...convIdsFromContacts,
+        ...(msgsRes.data ?? []).map((m) => m.conversation_id),
+      ])
+    )
+    if (allIds.length === 0) return NextResponse.json({ conversations: [] })
+
+    const { data: found, error: foundErr } = await supabase
+      .from('txt_conversations')
+      .select(
+        `id, kind, status, source, assigned_to, archived_by, last_message_at, last_inbound_at, last_message_preview, last_message_direction, created_at,
+         contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, do_not_text ),
+         assignee:hub_users!assigned_to ( id, display_name ),
+         members:txt_conversation_members ( user_id, role, member:hub_users!user_id ( id, display_name ) ),
+         group_contacts:txt_conversation_contacts ( contact:txt_contacts!txt_conversation_contacts_contact_id_fkey ( id, name, phone ) )`
+      )
+      .in('id', allIds)
+      .order('last_message_at', { ascending: false, nullsFirst: false })
+      .limit(50)
+    if (foundErr) return NextResponse.json({ error: foundErr.message }, { status: 500 })
+    return NextResponse.json({ conversations: found ?? [] })
+  }
+
   let query = supabase
     .from('txt_conversations')
     .select(
