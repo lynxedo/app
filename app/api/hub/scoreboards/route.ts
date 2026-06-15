@@ -80,12 +80,13 @@ async function handleScoreboards(request: Request) {
   const company = profile.company_id
 
   const board = new URL(request.url).searchParams.get('board') ?? '1'
-  if (board !== '1' && board !== '2' && board !== '3' && board !== '4') return NextResponse.json({ error: 'Unknown scoreboard' }, { status: 404 })
+  if (board !== '1' && board !== '2' && board !== '3' && board !== '4' && board !== '5') return NextResponse.json({ error: 'Unknown scoreboard' }, { status: 404 })
 
-  // Boards 2–4 have their own payloads; board 1 falls through below.
+  // Boards 2–5 have their own payloads; board 1 falls through below.
   if (board === '2') return buildWfBoard(supabase, company)
   if (board === '3') return buildIrBoard(supabase, company)
   if (board === '4') return buildPwBoard(supabase, company)
+  if (board === '5') return buildOfficeBoard(supabase, company)
 
   // ── Date windows ──
   const t = chicagoToday()
@@ -749,5 +750,150 @@ async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
       monthly: tk.monthly,
       perHour: tk.perHour,
     })),
+  })
+}
+
+// ── Board 5: Office ──────────────────────────────────────────────────────────
+// 100% from the Lead Tracker (`leads`, Monday mirror). No Jobber / recurring /
+// timesheet data. Three charts + six KPI cards:
+//   - Top 5 lead sources this month, stacked Closed Won vs Closed Lost (count)
+//   - Company closes per week, trailing 6wk, stacked Closed Won + Upsells (count)
+//   - Katherine's monthly sales, trailing 4mo, stacked Closed Won $ vs Upsells $
+//   - KPIs: leads last week · close rate YTD · close rate last week ·
+//           Katherine close rate last week · Katherine sales $ last week ·
+//           company sales YTD
+// Conventions (match the Main board): "sales $" = closed_won + upsells annual
+// value; close rate = won / (won + lost), upsells excluded; dates are
+// America/Chicago, weeks are ISO-Monday. "Katherine" is stored as "Kathryn".
+const KATHERINE = 'kathryn'
+type LeadOffice = {
+  stage: string | null; lead_source: string | null; salesperson: string | null
+  annual_value: number | null; sold_date: string | null; lead_creation_date: string | null
+}
+
+async function buildOfficeBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
+  const t = chicagoToday()
+  const yearStart = `${t.y}-01-01`
+  const thisMonthPrefix = `${t.y}-${String(t.m).padStart(2, '0')}`
+
+  // Trailing 6 ISO weeks incl. current (matches the other boards).
+  const currentMonday = mondayOf(utcNoon(t.y, t.m, t.d))
+  const sixWeekStart = addDays(currentMonday, -35)
+  const weekStarts: Date[] = Array.from({ length: 6 }, (_, i) => addDays(sixWeekStart, i * 7))
+  const weekKeys = weekStarts.map(ymd)
+  const weekLabels = weekStarts.map(weekLabel)
+  const weekIndex = new Map(weekKeys.map((k, i) => [k, i]))
+
+  // Last COMPLETE ISO week = the Mon–Sun before the current (partial) week.
+  const lastWeekStart = ymd(addDays(currentMonday, -7))
+  const lastWeekEnd = ymd(addDays(currentMonday, -1))
+  const lastWeekLabel = `${weekStarts[4].getUTCMonth() + 1}/${weekStarts[4].getUTCDate()}`
+  const inLastWeek = (d: string | null) => !!d && d >= lastWeekStart && d <= lastWeekEnd
+
+  // Trailing 4 calendar months incl. current.
+  const monthBuckets: { key: string; label: string }[] = []
+  for (let i = 3; i >= 0; i--) {
+    let mm = t.m - i, yy = t.y
+    while (mm <= 0) { mm += 12; yy -= 1 }
+    monthBuckets.push({
+      key: `${yy}-${String(mm).padStart(2, '0')}`,
+      label: MONTH_ABBR[mm - 1] + (yy !== t.y ? ` '${String(yy).slice(2)}` : ''),
+    })
+  }
+  const monthIndex = new Map(monthBuckets.map((b, i) => [b.key, i]))
+
+  const { data: leads, error: leadsErr } = await supabase
+    .from('leads')
+    .select('stage, lead_source, salesperson, annual_value, sold_date, lead_creation_date')
+    .eq('company_id', company)
+  if (leadsErr) return NextResponse.json({ error: leadsErr.message }, { status: 500 })
+
+  // ── Accumulators ──
+  // Chart 1: lead sources this month (by lead_creation_date) → won / lost counts.
+  const srcWon = new Map<string, number>()
+  const srcLost = new Map<string, number>()
+  // Chart 2: company closes per week (by sold_date) → won / upsell counts.
+  const closesWon = weekKeys.map(() => 0)
+  const closesUp = weekKeys.map(() => 0)
+  // Chart 3: Katherine monthly sales (by sold_date) → won / upsell $ value.
+  const kWonVal = monthBuckets.map(() => 0)
+  const kUpVal = monthBuckets.map(() => 0)
+  // KPIs
+  let leadsLastWeek = 0
+  let ytdWon = 0, ytdLost = 0
+  let lwWon = 0, lwLost = 0
+  let kLwWon = 0, kLwLost = 0
+  let kSalesLastWeek = 0
+  let companySalesYtd = 0
+
+  const weekOf = (d: string) =>
+    weekIndex.get(ymd(mondayOf(utcNoon(Number(d.slice(0, 4)), Number(d.slice(5, 7)), Number(d.slice(8, 10))))))
+
+  for (const l of (leads ?? []) as LeadOffice[]) {
+    const stage = l.stage
+    const val = Number(l.annual_value) || 0
+    const isKath = (l.salesperson || '').trim().toLowerCase() === KATHERINE
+
+    // Chart 1 — lead sources this month
+    if (l.lead_creation_date && l.lead_creation_date.startsWith(thisMonthPrefix)) {
+      const src = (l.lead_source || 'Unknown').trim() || 'Unknown'
+      if (stage === 'closed_won') srcWon.set(src, (srcWon.get(src) ?? 0) + 1)
+      else if (stage === 'closed_lost') srcLost.set(src, (srcLost.get(src) ?? 0) + 1)
+    }
+    // KPI 4 — leads created last complete week
+    if (inLastWeek(l.lead_creation_date)) leadsLastWeek++
+
+    // Everything below keys off sold_date (the date a deal was decided).
+    if (!l.sold_date) continue
+    const sd = l.sold_date
+
+    // Chart 2 — closes per week (trailing 6wk)
+    if (stage === 'closed_won' || stage === 'upsells') {
+      const wi = weekOf(sd)
+      if (wi !== undefined) { if (stage === 'closed_won') closesWon[wi]++; else closesUp[wi]++ }
+    }
+    // Chart 3 — Katherine monthly sales $ (trailing 4mo)
+    if (isKath && (stage === 'closed_won' || stage === 'upsells')) {
+      const mi = monthIndex.get(sd.slice(0, 7))
+      if (mi !== undefined) { if (stage === 'closed_won') kWonVal[mi] += val; else kUpVal[mi] += val }
+    }
+    // KPI 5 — close rate YTD (won / won+lost)
+    if (sd >= yearStart) {
+      if (stage === 'closed_won') ytdWon++
+      else if (stage === 'closed_lost') ytdLost++
+    }
+    // KPI 9 — company sales YTD $ (won + upsells)
+    if (sd >= yearStart && (stage === 'closed_won' || stage === 'upsells')) companySalesYtd += val
+    // KPIs 6/7/8 — last complete week
+    if (inLastWeek(sd)) {
+      if (stage === 'closed_won') { lwWon++; if (isKath) kLwWon++ }
+      else if (stage === 'closed_lost') { lwLost++; if (isKath) kLwLost++ }
+      if (isKath && (stage === 'closed_won' || stage === 'upsells')) kSalesLastWeek += val
+    }
+  }
+
+  // Chart 1 — top 5 sources by total decided volume (won + lost)
+  const allSrc = new Set<string>([...srcWon.keys(), ...srcLost.keys()])
+  const leadSources = [...allSrc]
+    .map(src => ({ src, won: srcWon.get(src) ?? 0, lost: srcLost.get(src) ?? 0 }))
+    .sort((a, b) => (b.won + b.lost) - (a.won + a.lost))
+    .slice(0, 5)
+
+  const rate = (won: number, lost: number) => (won + lost > 0 ? Math.round((won / (won + lost)) * 1000) / 10 : 0)
+
+  return NextResponse.json({
+    asOf: new Date().toISOString(),
+    kpis: {
+      leadsLastWeek,
+      closeRateYtd: rate(ytdWon, ytdLost), ytdWon, ytdLost,
+      closeRateLastWeek: rate(lwWon, lwLost), lwWon, lwLost,
+      kCloseRateLastWeek: rate(kLwWon, kLwLost), kLwWon, kLwLost,
+      kSalesLastWeek: Math.round(kSalesLastWeek),
+      companySalesYtd: Math.round(companySalesYtd),
+      lastWeekLabel,
+    },
+    leadSources,                                                   // [{ src, won, lost }]
+    closes: { labels: weekLabels, won: closesWon, upsells: closesUp },
+    katherineMonthly: { labels: monthBuckets.map(b => b.label), won: kWonVal.map(v => Math.round(v)), upsells: kUpVal.map(v => Math.round(v)) },
   })
 }

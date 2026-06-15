@@ -45,6 +45,12 @@ export const SCOREBOARDS: ScoreboardMeta[] = [
     subtitle: 'Active customers, annual value, visit revenue & technician performance',
     badge: 'PW',
   },
+  {
+    slug: '5',
+    title: 'Office',
+    subtitle: 'Lead sources, closes per week, close rates & sales — from the Lead Tracker',
+    badge: 'Office',
+  },
 ]
 
 /** Whether a user can see the Scoreboards section at all. */
