@@ -49,13 +49,16 @@ jobs:
             rm -rf .next/types
             echo "==> Type-checking before build (fast-fail)"
             npx tsc --noEmit
-            echo "==> Clean build — wipe ALL of .next first. An incremental build over a"
-            echo "    stale .next can silently drop a route's client-reference manifest"
-            echo "    when a client component is added to a layout (caused a /hub 500 on"
-            echo "    2026-06-02: 'Invariant: client reference manifest for /hub does not exist')."
-            rm -rf .next
-            echo "==> Building"
-            npm run build
+            echo "==> IN5 zero-downtime build — build a CLEAN tree into a SIDE dir (.next-build)"
+            echo "    so the live .next keeps serving during the ~2-4min build. If the build"
+            echo "    fails, .next is never touched and the old build keeps running (set -e"
+            echo "    aborts before the swap). A clean side dir also avoids the stale-manifest"
+            echo "    bug that a wiped-then-rebuilt-in-place .next caused (/hub 500 2026-06-02)."
+            rm -rf .next-build .next-old
+            NEXT_DIST_DIR=.next-build npm run build
+            echo "==> Atomic swap (sub-second): retire the live .next, promote the fresh build"
+            mv .next .next-old 2>/dev/null || true
+            mv .next-build .next
             echo "==> PM2 reload (zero-downtime graceful handoff)"
             # cluster_mode + pm2 reload: new worker starts and serves requests,
             # then old worker drains and exits — no gap in service.
@@ -70,6 +73,8 @@ jobs:
               pm2 start ecosystem.config.js --only lynxedo
               pm2 save
             fi
+            echo "==> Cleanup previous build dir (new .next is live + reloaded)"
+            rm -rf .next-old
             echo "==> Health check (up to 60s for cold start)"
             for i in $(seq 1 60); do
               if curl --fail --silent --max-time 3 http://localhost:3000/ > /dev/null 2>&1 \
