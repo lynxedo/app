@@ -118,8 +118,8 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
         <Kpi label="Leads Last Week" value={kpis.leadsLastWeek.toLocaleString()} sub={`New leads · week of ${wk}`} />
         <Kpi label="Close Rate YTD" value={`${kpis.closeRateYtd}%`} color={rateColor(kpis.closeRateYtd)} sub={`${kpis.ytdWon} won / ${kpis.ytdLost} lost · leads from ${year}`} />
         <Kpi label="Close Rate Last Week" value={`${kpis.closeRateLastWeek}%`} color={rateColor(kpis.closeRateLastWeek)} sub={`${kpis.lwWon} won / ${kpis.lwLost} lost · leads in wk of ${wk}`} />
-        <Kpi label="Katherine — Close Rate Last Week" value={`${kpis.kCloseRateLastWeek}%`} color={rateColor(kpis.kCloseRateLastWeek)} sub={`${kpis.kLwWon} won / ${kpis.kLwLost} lost · leads in wk of ${wk}`} />
-        <Kpi label="Katherine — Sales Last Week" value={usd(kpis.kSalesLastWeek)} sub={`Closed Won + Upsells · week of ${wk}`} />
+        <Kpi label="Kathryn — Close Rate Last Week" value={`${kpis.kCloseRateLastWeek}%`} color={rateColor(kpis.kCloseRateLastWeek)} sub={`${kpis.kLwWon} won / ${kpis.kLwLost} lost · leads in wk of ${wk}`} />
+        <Kpi label="Kathryn — Sales Last Week" value={usd(kpis.kSalesLastWeek)} sub={`Closed Won + Upsells · week of ${wk}`} />
         <Kpi label="Company Sales YTD" value={usd(kpis.companySalesYtd)} sub={`Closed Won + Upsells · ${year}`} />
       </div>
 
@@ -174,7 +174,7 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
 
         {/* Chart 3 — Katherine's monthly sales $, stacked won vs upsells */}
         <Card>
-          <ChartHead title="Katherine's Monthly Sales" sub="Trailing 4 months · $ annual value" />
+          <ChartHead title="Kathryn's Monthly Sales" sub="Trailing 4 months · $ annual value" />
           <ChartCanvas make={c => new Chart(c, {
             type: 'bar',
             data: {
