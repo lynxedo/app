@@ -127,6 +127,11 @@ export default function FleetPage() {
   const [alerts, setAlerts] = useState<AlertEvent[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
+  // mapbox-gl is now lazy-loaded inside the init effect, so mapRef.current is
+  // set asynchronously. Setting a ref doesn't re-render, so the markers effect
+  // (keyed on devices/alerts) could run before the map exists and bail forever.
+  // This state flips true once the map is ready and re-runs the markers effect.
+  const [mapReady, setMapReady] = useState(false)
 
   // Map of device_id → list of open alert types
   const alertsByDevice = useMemo(() => {
@@ -162,6 +167,7 @@ export default function FleetPage() {
       })
       map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
       mapRef.current = map
+      setMapReady(true)
 
       // Mapbox locks in the container's pixel dimensions at construct time and
       // doesn't react to flex/grid layout shifts on its own. Hammer resize across
@@ -185,13 +191,14 @@ export default function FleetPage() {
       cleanupResize?.()
       mapRef.current?.remove()
       mapRef.current = null
+      setMapReady(false)
     }
   }, [])
 
   // Render / update markers when devices or alerts change
   useEffect(() => {
     const map = mapRef.current
-    if (!map) return
+    if (!map || !mapReady) return
     let cancelled = false
     ;(async () => {
       const mapboxgl = (await import('mapbox-gl')).default
@@ -246,7 +253,7 @@ export default function FleetPage() {
       }
     })()
     return () => { cancelled = true }
-  }, [devices, alertsByDevice])
+  }, [devices, alertsByDevice, mapReady])
 
   // Poll devices + alerts
   useEffect(() => {

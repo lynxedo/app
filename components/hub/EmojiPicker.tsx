@@ -39,20 +39,29 @@ export default function EmojiPicker({
     <div
       className={`absolute bottom-full mb-1 z-50 ${align === 'right' ? 'right-0' : 'left-0'}`}
     >
-      <Picker
-        data={emojiData ?? undefined}
-        theme="dark"
-        previewPosition="none"
-        skinTonePosition="search"
-        navPosition="bottom"
-        perLine={8}
-        maxFrequentRows={2}
-        onEmojiSelect={(e: { native: string }) => {
-          onSelect(e.native)
-          onClose()
-        }}
-        onClickOutside={onClose}
-      />
+      {emojiData ? (
+        // Only mount the Picker once the lazily-loaded data is in hand —
+        // emoji-mart reads `data` once at mount and ignores later prop changes,
+        // so mounting with null would leave the picker permanently empty.
+        <Picker
+          data={emojiData}
+          theme="dark"
+          previewPosition="none"
+          skinTonePosition="search"
+          navPosition="bottom"
+          perLine={8}
+          maxFrequentRows={2}
+          onEmojiSelect={(e: { native: string }) => {
+            onSelect(e.native)
+            onClose()
+          }}
+          onClickOutside={onClose}
+        />
+      ) : (
+        <div className="bg-gray-900 border border-white/10 rounded-lg px-4 py-3 text-xs text-white/50">
+          Loading emoji…
+        </div>
+      )}
     </div>
   )
 }

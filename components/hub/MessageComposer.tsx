@@ -901,7 +901,7 @@ export default function MessageComposer({
               <path strokeLinecap="round" strokeLinejoin="round" d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" />
             </svg>
           </button>
-          {showEmojiPicker && (
+          {showEmojiPicker && emojiData && (
             <div className="absolute bottom-full left-0 mb-2 z-50">
               <EmojiMartPicker
                 data={emojiData}
