@@ -48,6 +48,7 @@ const RAIL_BY_PREFIX: Array<[string, RailId]> = [
   ['/hub/tracker', 'tracker'],
   ['/hub/routing', 'routing'],
   ['/hub/fleet', 'fleet'],
+  ['/hub/scoreboards', 'scoreboards'],
   ['/hub/books', 'books'],
   ['/hub/lawn', 'lawn'],
   ['/hub/dialer', 'dialer'],
