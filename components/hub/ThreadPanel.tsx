@@ -1,12 +1,15 @@
 'use client'
 
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
-import { useToast } from '@/components/ui'
+import { useToast, useConfirm } from '@/components/ui'
 import dynamic from 'next/dynamic'
 import { init, SearchIndex } from 'emoji-mart'
 import { createClient } from '@/lib/supabase/client'
 import { FileAttachment } from './MessageFeed'
 import EmojiPicker from './EmojiPicker'
+import ForwardModal, { type ForwardTarget } from './ForwardModal'
+import SaveToFilesModal from './SaveToFilesModal'
+import MessageActionsSheet from './MessageActionsSheet'
 import type { HubMessage, HubUser, Sender, FileItem, RxItem } from './MessageFeed'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { renderContent } from './renderContent'
@@ -105,12 +108,20 @@ export default function ThreadPanel({
   parentMessage,
   currentUserId,
   hubUsers,
+  isAdmin,
+  expanded,
+  onToggleExpand,
   onClose,
   onReplyPosted,
 }: {
   parentMessage: HubMessage
   currentUserId: string
   hubUsers: HubUser[]
+  isAdmin?: boolean
+  // Desktop "Expand → full" toggle, driven by RoomView. Drag-resize is
+  // unaffected; this just snaps the panel to fill the pane and back.
+  expanded?: boolean
+  onToggleExpand?: () => void
   onClose: () => void
   // Fired right after a thread reply lands in the DB so the main feed
   // can bump the parent's "N replies" indicator immediately. The realtime
@@ -120,6 +131,7 @@ export default function ThreadPanel({
   onReplyPosted?: (parentId: string, replyId: string) => void
 }) {
   const toast = useToast()
+  const confirmDialog = useConfirm()
   const [replies, setReplies] = useState<Reply[]>([])
   const [replyContent, setReplyContent] = useState('')
   const [sending, setSending] = useState(false)
@@ -146,6 +158,22 @@ export default function ThreadPanel({
   // Which message's quick-reaction popover / full picker is open.
   const [reactionPickerMsgId, setReactionPickerMsgId] = useState<string | null>(null)
   const [fullReactionPickerMsgId, setFullReactionPickerMsgId] = useState<string | null>(null)
+  // Per-reply action bar (desktop hover bar + mobile long-press sheet), so a
+  // reply has the same actions as a message in the main feed. The bar's emoji
+  // picker uses its own state (bar*) separate from the reaction-pill picker
+  // above so the two don't fight over the shared outside-click handler.
+  const [editingId, setEditingId] = useState<string | null>(null)
+  const [editContent, setEditContent] = useState('')
+  const [barPickerMsgId, setBarPickerMsgId] = useState<string | null>(null)
+  const [barFullPickerMsgId, setBarFullPickerMsgId] = useState<string | null>(null)
+  const [forwardingReply, setForwardingReply] = useState<Reply | null>(null)
+  const [saveToFilesReply, setSaveToFilesReply] = useState<Reply | null>(null)
+  const [addToBoardMsgId, setAddToBoardMsgId] = useState<string | null>(null)
+  const [boardPickerBoards, setBoardPickerBoards] = useState<{ id: string; name: string }[]>([])
+  const [addingToBoard, setAddingToBoard] = useState(false)
+  const [actionSheetMsgId, setActionSheetMsgId] = useState<string | null>(null)
+  const longPressTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  const longPressFired = useRef(false)
   // Emoji picker popover (toolbar 😀 button)
   const [showEmojiPicker, setShowEmojiPicker] = useState(false)
   const [showFormatPicker, setShowFormatPicker] = useState(false)
@@ -662,6 +690,119 @@ export default function ThreadPanel({
     )
   }
 
+  // Pills-only reaction render for replies — a reply's add-reaction entry point
+  // lives in its hover bar / long-press sheet (like the main feed), so we don't
+  // also show the persistent 😊 button that renderReactions() adds.
+  function renderReactionPills(msgId: string) {
+    const reactions = rxMap[msgId] ?? []
+    if (reactions.length === 0) return null
+    const rxGroups: Record<string, string[]> = {}
+    for (const r of reactions) {
+      if (!rxGroups[r.emoji]) rxGroups[r.emoji] = []
+      rxGroups[r.emoji].push(r.user_id)
+    }
+    return (
+      <div className="mt-1.5 flex flex-wrap items-center gap-1">
+        {Object.entries(rxGroups).map(([emoji, userIds]) => (
+          <button
+            key={emoji}
+            onClick={() => toggleReaction(msgId, emoji)}
+            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+              userIds.includes(currentUserId)
+                ? 'bg-brand/20 border-brand/50 text-brand'
+                : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
+            }`}
+          >
+            <span>{emoji}</span>
+            <span>{userIds.length}</span>
+          </button>
+        ))}
+      </div>
+    )
+  }
+
+  // Edit a reply. Optimistic — the thread's realtime channel only subscribes to
+  // INSERTs (not UPDATEs), so the local list is the source of truth here.
+  async function saveReplyEdit(msgId: string) {
+    const trimmed = editContent.trim()
+    if (!trimmed) return
+    setReplies(prev => prev.map(r => (r.id === msgId ? { ...r, content: trimmed, edited_at: new Date().toISOString() } : r)))
+    setEditingId(null)
+    await fetch(`/api/hub/messages/${msgId}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: trimmed }),
+    })
+  }
+
+  // Delete a reply — own message, or any message if admin (same rule as the
+  // main feed). Confirm first, then drop it from the local list on success.
+  async function deleteReply(msgId: string) {
+    if (!(await confirmDialog({ message: 'Delete this message?', danger: true }))) return
+    const res = await fetch(`/api/hub/messages/${msgId}`, { method: 'DELETE' })
+    if (res.ok) setReplies(prev => prev.filter(r => r.id !== msgId))
+  }
+
+  async function handleForward(target: ForwardTarget, comment: string) {
+    if (!forwardingReply) return
+    const files = normFiles(forwardingReply.files)
+    const body: Record<string, unknown> = { forwarded_from: forwardingReply.id, content: comment }
+    if (target.type === 'room') body.room_id = target.id
+    else body.conversation_id = target.id
+    if (files.length > 0) {
+      body.files = files.map(f => ({
+        storage_path: f.storage_path,
+        filename: f.filename,
+        mime_type: f.mime_type,
+        size_bytes: f.size_bytes,
+        width_px: f.width_px ?? null,
+        height_px: f.height_px ?? null,
+      }))
+    }
+    await fetch('/api/hub/messages', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    })
+    setForwardingReply(null)
+  }
+
+  function openBoardPicker(msgId: string) {
+    setAddToBoardMsgId(msgId)
+    fetch('/api/hub/boards')
+      .then(r => r.json())
+      .then(d => setBoardPickerBoards(d.boards ?? []))
+      .catch(() => {})
+  }
+
+  async function addToBoard(boardId: string, reply: Reply) {
+    setAddingToBoard(true)
+    await fetch(`/api/hub/boards/${boardId}/items`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ content: reply.content, forwarded_from_message_id: reply.id }),
+    })
+    setAddingToBoard(false)
+    setAddToBoardMsgId(null)
+  }
+
+  function startLongPress(msgId: string) {
+    longPressFired.current = false
+    if (longPressTimer.current) clearTimeout(longPressTimer.current)
+    longPressTimer.current = setTimeout(() => {
+      longPressFired.current = true
+      setActionSheetMsgId(msgId)
+      if (typeof navigator !== 'undefined' && 'vibrate' in navigator) navigator.vibrate(10)
+    }, 500)
+  }
+
+  function cancelLongPress() {
+    if (longPressTimer.current) {
+      clearTimeout(longPressTimer.current)
+      longPressTimer.current = null
+    }
+  }
+
   const parentSender = normSender(parentMessage.sender)
   const minDateTime = new Date(Date.now() + 60000).toISOString().slice(0, 16)
   const hasContent = replyContent.trim().length > 0 || pendingFiles.length > 0
@@ -696,6 +837,28 @@ export default function ThreadPanel({
         {replies.length > 0 && (
           <span className="text-xs text-gray-500">· {replies.length} {replies.length === 1 ? 'reply' : 'replies'}</span>
         )}
+        <div className="flex-1" />
+        {/* Desktop-only Expand → full toggle. Drag-resize still works; this just
+            snaps the panel to fill the pane (and back). Hidden on mobile, where
+            the thread is already a full-screen takeover. */}
+        {onToggleExpand && (
+          <button
+            onClick={onToggleExpand}
+            aria-label={expanded ? 'Collapse thread' : 'Expand thread'}
+            title={expanded ? 'Collapse' : 'Expand'}
+            className="hidden md:flex text-gray-400 hover:text-white transition-colors w-7 h-7 items-center justify-center rounded-lg hover:bg-gray-800 flex-none"
+          >
+            {expanded ? (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M9 9V4.5M9 9H4.5M9 9L3.75 3.75M9 15v4.5M9 15H4.5M9 15l-5.25 5.25M15 9h4.5M15 9V4.5M15 9l5.25-5.25M15 15h4.5M15 15v4.5m0-4.5l5.25 5.25" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 3.75v4.5m0-4.5h4.5m-4.5 0L9 9M3.75 20.25v-4.5m0 4.5h4.5m-4.5 0L9 15M20.25 3.75h-4.5m4.5 0v4.5m0-4.5L15 9m5.25 11.25h-4.5m4.5 0v-4.5m0 4.5L15 15" />
+              </svg>
+            )}
+          </button>
+        )}
       </div>
 
       {/* Scrollable area — the original message is now the first item here (not
@@ -723,6 +886,8 @@ export default function ThreadPanel({
         {replies.map(reply => {
           const sender = normSender(reply.sender)
           const files = normFiles(reply.files)
+          const isOwn = sender?.id === currentUserId
+          const isEditing = editingId === reply.id
           // Build the lightbox slice for THIS reply so navigation is scoped
           // to this message's media (matches MessageFeed's per-message scope).
           const mediaItems: LightboxItem[] = []
@@ -743,18 +908,44 @@ export default function ThreadPanel({
             }
           }
           return (
-            <div key={reply.id} className="flex items-start gap-3">
+            <div
+              key={reply.id}
+              className="group relative flex items-start gap-3 rounded transition-colors hover:bg-gray-900/40 select-none md:select-text"
+              onTouchStart={() => { if (!isEditing) startLongPress(reply.id) }}
+              onTouchMove={cancelLongPress}
+              onTouchEnd={cancelLongPress}
+              onTouchCancel={cancelLongPress}
+              onContextMenu={e => e.preventDefault()}
+              style={{ touchAction: 'pan-y', WebkitTouchCallout: 'none' }}
+            >
               <Avatar sender={sender} />
               <div className="flex-1 min-w-0">
                 <div className="flex items-baseline gap-2 mb-1">
                   <span className="font-semibold text-sm text-white">{sender?.display_name ?? 'Unknown'}</span>
                   <span className="text-xs text-gray-600">{formatTime(reply.created_at)}</span>
                 </div>
-                {reply.content && reply.content.trim() && (
-                  <p className="hub-message-text text-lg md:text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
-                    {renderContent(reply.content, hubUsers)}
-                    {reply.edited_at && <span className="ml-1 text-xs text-gray-600">(edited)</span>}
-                  </p>
+                {isEditing ? (
+                  <div className="flex gap-2">
+                    <input
+                      autoFocus
+                      value={editContent}
+                      onChange={e => setEditContent(e.target.value)}
+                      onKeyDown={e => {
+                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveReplyEdit(reply.id) }
+                        if (e.key === 'Escape') setEditingId(null)
+                      }}
+                      className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-brand"
+                    />
+                    <button onClick={() => saveReplyEdit(reply.id)} className="text-xs text-brand hover:text-blue-300 px-2">Save</button>
+                    <button onClick={() => setEditingId(null)} className="text-xs text-gray-500 hover:text-gray-300 px-2">Cancel</button>
+                  </div>
+                ) : (
+                  reply.content && reply.content.trim() && (
+                    <p className="hub-message-text text-lg md:text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
+                      {renderContent(reply.content, hubUsers)}
+                      {reply.edited_at && <span className="ml-1 text-xs text-gray-600">(edited)</span>}
+                    </p>
+                  )
                 )}
                 {files.length > 0 && (
                   <div className={files.length > 1 ? 'grid grid-cols-2 gap-1.5 mt-1' : ''}>
@@ -774,8 +965,126 @@ export default function ThreadPanel({
                     })}
                   </div>
                 )}
-                {renderReactions(reply.id)}
+                {renderReactionPills(reply.id)}
               </div>
+
+              {/* Desktop hover actions — mobile uses long-press → the sheet
+                  below. Mirrors the main feed's bar, minus "Reply in thread"
+                  (we're already in the thread). */}
+              {!isEditing && (
+                <div
+                  className="flex-none gap-0.5 relative hidden md:flex opacity-0 group-hover:opacity-100 transition-opacity"
+                  onClick={e => e.stopPropagation()}
+                >
+                  <div className="relative">
+                    <button
+                      onClick={() => { setBarFullPickerMsgId(null); setBarPickerMsgId(barPickerMsgId === reply.id ? null : reply.id) }}
+                      className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800 text-sm"
+                      title="Add reaction"
+                    >
+                      😊
+                    </button>
+                    {barPickerMsgId === reply.id && (
+                      <div
+                        className="absolute bottom-full right-0 mb-1 z-50 flex items-center gap-0.5 bg-gray-900 border border-gray-700 rounded-full shadow-2xl px-1 py-0.5"
+                        onClick={e => e.stopPropagation()}
+                      >
+                        {['✅', '👍', '👀'].map(emoji => (
+                          <button
+                            key={emoji}
+                            onClick={() => { toggleReaction(reply.id, emoji); setBarPickerMsgId(null) }}
+                            className="w-8 h-8 flex items-center justify-center text-base rounded-full hover:bg-gray-800"
+                            title={`React with ${emoji}`}
+                          >
+                            {emoji}
+                          </button>
+                        ))}
+                        <button
+                          onClick={() => { setBarPickerMsgId(null); setBarFullPickerMsgId(reply.id) }}
+                          className="w-8 h-8 flex items-center justify-center rounded-full hover:bg-gray-800 text-gray-400"
+                          title="More reactions"
+                          aria-label="More reactions"
+                        >
+                          <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                          </svg>
+                        </button>
+                      </div>
+                    )}
+                    {barFullPickerMsgId === reply.id && (
+                      <EmojiPicker
+                        onSelect={emoji => toggleReaction(reply.id, emoji)}
+                        onClose={() => setBarFullPickerMsgId(null)}
+                      />
+                    )}
+                  </div>
+
+                  <button
+                    onClick={() => setForwardingReply(reply)}
+                    className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800 text-xs"
+                    title="Forward message"
+                  >
+                    ↗
+                  </button>
+
+                  {files.some(f => f.mime_type.startsWith('image/')) && (
+                    <button
+                      onClick={() => setSaveToFilesReply(reply)}
+                      className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800 text-sm"
+                      title="Save to Files"
+                    >
+                      📁
+                    </button>
+                  )}
+
+                  <div className="relative">
+                    <button
+                      onClick={() => (addToBoardMsgId === reply.id ? setAddToBoardMsgId(null) : openBoardPicker(reply.id))}
+                      className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800 text-xs"
+                      title="Add to Board"
+                    >
+                      ☑
+                    </button>
+                    {addToBoardMsgId === reply.id && (
+                      <div className="absolute right-0 top-9 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl py-1 min-w-[180px]" onClick={e => e.stopPropagation()}>
+                        <div className="px-3 py-1.5 text-xs text-white/40 font-semibold uppercase tracking-wider border-b border-gray-800">Add to Board</div>
+                        {boardPickerBoards.length === 0 && (
+                          <p className="px-3 py-2 text-xs text-gray-500">No boards yet</p>
+                        )}
+                        {boardPickerBoards.map(board => (
+                          <button
+                            key={board.id}
+                            disabled={addingToBoard}
+                            onClick={() => addToBoard(board.id, reply)}
+                            className="w-full text-left px-3 py-2 text-sm text-gray-200 hover:bg-gray-800 transition-colors"
+                          >
+                            {board.name}
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  {isOwn && (
+                    <button
+                      onClick={() => { setEditingId(reply.id); setEditContent(reply.content) }}
+                      className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800 text-xs"
+                      title="Edit"
+                    >
+                      ✏️
+                    </button>
+                  )}
+                  {(isOwn || isAdmin) && (
+                    <button
+                      onClick={() => deleteReply(reply.id)}
+                      className="text-gray-500 hover:text-red-400 px-1.5 py-0.5 rounded hover:bg-gray-800 text-xs"
+                      title="Delete"
+                    >
+                      🗑️
+                    </button>
+                  )}
+                </div>
+              )}
             </div>
           )
         })}
@@ -1035,6 +1344,95 @@ export default function ThreadPanel({
           startIndex={lightbox.index}
           onClose={() => setLightbox(null)}
         />
+      )}
+
+      {forwardingReply && (
+        <ForwardModal
+          currentUserId={currentUserId}
+          messagePreview={forwardingReply.content}
+          onClose={() => setForwardingReply(null)}
+          onForward={handleForward}
+        />
+      )}
+
+      {saveToFilesReply && (
+        <SaveToFilesModal
+          attachments={normFiles(saveToFilesReply.files)}
+          onClose={() => setSaveToFilesReply(null)}
+        />
+      )}
+
+      {/* Mobile long-press action sheet for a reply. */}
+      {actionSheetMsgId && (() => {
+        const reply = replies.find(r => r.id === actionSheetMsgId)
+        if (!reply) return null
+        const s = normSender(reply.sender)
+        const isOwn = s?.id === currentUserId
+        const files = normFiles(reply.files)
+        return (
+          <MessageActionsSheet
+            hasText={!!reply.content?.trim()}
+            hasImages={files.some(f => f.mime_type.startsWith('image/'))}
+            isOwn={isOwn}
+            isAdmin={!!isAdmin}
+            hasOnOpenThread={false}
+            onClose={() => setActionSheetMsgId(null)}
+            onCopy={() => { navigator.clipboard?.writeText(reply.content ?? '').catch(() => {}) }}
+            onAddReaction={emoji => toggleReaction(reply.id, emoji)}
+            onForward={() => setForwardingReply(reply)}
+            onSaveToFiles={() => setSaveToFilesReply(reply)}
+            onAddToBoard={() => openBoardPicker(reply.id)}
+            onOpenThread={() => {}}
+            onEdit={() => { setEditingId(reply.id); setEditContent(reply.content) }}
+            onDelete={() => deleteReply(reply.id)}
+          />
+        )
+      })()}
+
+      {/* Mobile board picker — desktop uses the inline dropdown in the hover bar. */}
+      {addToBoardMsgId && (
+        <div className="fixed inset-0 z-50 md:hidden flex items-end" onClick={() => setAddToBoardMsgId(null)}>
+          <div className="absolute inset-0 bg-black/60" />
+          <div
+            className="relative w-full bg-gray-900 border-t border-gray-800 rounded-t-2xl shadow-2xl"
+            style={{ paddingBottom: 'env(safe-area-inset-bottom)' }}
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex justify-center pt-2 pb-1">
+              <div className="w-10 h-1 rounded-full bg-gray-700" />
+            </div>
+            <div className="px-5 py-2 text-xs text-white/40 font-semibold uppercase tracking-wider border-b border-gray-800">
+              Add to Board
+            </div>
+            {boardPickerBoards.length === 0 ? (
+              <p className="px-5 py-4 text-sm text-gray-500">No boards yet</p>
+            ) : (
+              <div className="max-h-[60vh] overflow-y-auto">
+                {boardPickerBoards.map(board => (
+                  <button
+                    key={board.id}
+                    disabled={addingToBoard}
+                    onClick={() => {
+                      const reply = replies.find(r => r.id === addToBoardMsgId)
+                      if (reply) addToBoard(board.id, reply)
+                    }}
+                    className="w-full text-left px-5 py-3.5 text-base text-gray-100 active:bg-gray-800 transition-colors disabled:opacity-50"
+                  >
+                    {board.name}
+                  </button>
+                ))}
+              </div>
+            )}
+            <div className="border-t border-gray-800 px-4 py-1">
+              <button
+                onClick={() => setAddToBoardMsgId(null)}
+                className="w-full py-3 text-base text-gray-400 active:text-white transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )
