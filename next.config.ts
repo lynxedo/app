@@ -1,6 +1,13 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
+  // IN5 — zero-downtime deploy. The build output dir is overridable via
+  // NEXT_DIST_DIR so the deploy can build into a SIDE dir (.next-build) while
+  // the live .next keeps serving, then atomically swap. Unset (the default,
+  // and what `next start` runs with) it resolves to '.next' — identical to the
+  // previous behavior. See .github/workflows/deploy*.yml.
+  distDir: process.env.NEXT_DIST_DIR || '.next',
+
   // Playwright drives a real Chromium binary for the Route Builder's
   // "Send Order Only" flow (lib/jobber-playwright.ts). It must NOT be bundled
   // by webpack — let Node resolve it from node_modules at runtime.
