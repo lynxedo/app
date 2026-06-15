@@ -495,8 +495,14 @@ export default function ThreadPanel({
     >
       {/* Compact header. On mobile the thread is a full-screen takeover (the
           room-name bar is hidden underneath), so the back arrow returns to the
-          feed; on desktop it collapses the side panel. */}
-      <div className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-800 flex-none">
+          feed; on desktop it collapses the side panel. The overlay is
+          `fixed inset-0` on mobile, so it covers HubShell's safe-area spacer —
+          pad the top by the iOS inset ourselves or the back arrow lands under
+          the status bar in the native app (env() is 0 on desktop/PWA, no-op). */}
+      <div
+        className="flex items-center gap-2 px-3 py-2.5 border-b border-gray-800 flex-none"
+        style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.625rem)' }}
+      >
         <button
           onClick={onClose}
           aria-label="Close thread"
