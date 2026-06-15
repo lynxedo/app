@@ -17,5 +17,13 @@ export async function GET(request: NextRequest) {
   })
 
   const url = `https://appcenter.intuit.com/connect/oauth2?${params}`
-  return NextResponse.redirect(url)
+  const response = NextResponse.redirect(url)
+  response.cookies.set('qbo_oauth_state', state, {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    maxAge: 10 * 60,
+    path: '/',
+  })
+  return response
 }

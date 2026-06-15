@@ -8,6 +8,7 @@ export const runtime = 'nodejs'
 // Single-tenant: Heroes Lawn Care. When Lynxedo onboards more companies, map the
 // webhook's base64 accountId → company_id here instead.
 const COMPANY_ID = '00000000-0000-0000-0000-000000000002'
+const EXPECTED_ACCOUNT_ID = process.env.JOBBER_ACCOUNT_ID
 
 /**
  * Jobber signs each webhook with HMAC-SHA256 over the raw body, keyed by the
@@ -47,6 +48,12 @@ export async function POST(req: NextRequest) {
   // Acknowledge anything we can't parse so Jobber doesn't retry forever.
   if (!evt?.topic || !evt?.itemId) {
     console.warn('[jobber-webhook] unrecognized payload shape, acking')
+    return new NextResponse('ok', { status: 200 })
+  }
+
+  // Reject events from unexpected Jobber accounts (ack so Jobber doesn't retry).
+  if (EXPECTED_ACCOUNT_ID && evt.accountId && evt.accountId !== EXPECTED_ACCOUNT_ID) {
+    console.warn('[jobber-webhook] unexpected accountId, ignoring:', evt.accountId)
     return new NextResponse('ok', { status: 200 })
   }
 
