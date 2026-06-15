@@ -223,7 +223,17 @@ export default function TxtConversationView({
   // composer, prompting before clobbering an existing draft.
   const [suggestOpen, setSuggestOpen] = useState(false)
   const [suggestLoading, setSuggestLoading] = useState(false)
-  const canReplyHere = isOwnerMe || isMemberMe || canAssign
+  // SENDING is restricted to the owner or an added member — NOT every Txt2
+  // user. A non-participant reads the thread but must Join first to get a
+  // composer. (Managers join too — being a manager no longer grants a silent
+  // voice in someone else's thread.)
+  const canReplyHere = isOwnerMe || isMemberMe
+  // An unassigned (Queue) thread has no owner yet; replying to it claims it,
+  // so the composer is shown there for any Txt2 user.
+  const isUnassigned = conversation.status === 'unassigned'
+  // The composer (and its toolbar) renders when the user can actually send:
+  // they're a participant, or it's an unclaimed Queue thread.
+  const canComposeHere = canReplyHere || isUnassigned
 
   async function runSuggestReply(tone: SuggestTone) {
     setSuggestOpen(false)
@@ -536,6 +546,37 @@ export default function TxtConversationView({
           { user_id: userId, role: 'member', user: { id: u.id, display_name: u.display_name } },
         ])
       }
+    }
+  }
+
+  // Self-join — any Txt2 user can add themselves so they get a voice in the
+  // thread (then the composer appears). No need to wait to be added.
+  const [joining, setJoining] = useState(false)
+  async function joinConversation() {
+    if (joining) return
+    setJoining(true)
+    try {
+      const res = await fetch(`/api/txt/conversations/${conversation.id}/members`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ user_id: currentUserId }),
+      })
+      if (res.ok) {
+        setMembers((prev) =>
+          prev.some((m) => m.user_id === currentUserId)
+            ? prev
+            : [
+                ...prev,
+                {
+                  user_id: currentUserId,
+                  role: 'member',
+                  user: { id: currentUserId, display_name: currentUserName || 'You' },
+                },
+              ]
+        )
+      }
+    } finally {
+      setJoining(false)
     }
   }
 
@@ -952,7 +993,7 @@ export default function TxtConversationView({
           </div>
           {/* From-number chip (Session 54). Only shows when 2+ numbers exist so
               single-number setups stay clean. Owner / member / manager can change. */}
-          {numbers.length >= 2 && (isOwnerMe || isMemberMe || canAssign) && (
+          {numbers.length >= 2 && canReplyHere && (
             <div className="relative">
               <button
                 type="button"
@@ -1294,8 +1335,9 @@ export default function TxtConversationView({
         )}
       </div>
 
-      {/* Composer */}
-      {!isArchived && (
+      {/* Composer — only when the user can actually send (owner / member, or an
+          unclaimed Queue thread). Non-participants get the Join panel below. */}
+      {!isArchived && canComposeHere && (
         <div className="border-t border-white/10 px-3 py-2 bg-[#0B2237]">
           {sendError && (
             <div className="text-xs text-red-300 mb-1 px-1">{sendError}</div>
@@ -1636,6 +1678,25 @@ export default function TxtConversationView({
               )}
             </button>
           </div>
+        </div>
+      )}
+
+      {/* Join-to-reply — shown to a Txt2 user who's viewing this thread but
+          isn't a participant yet. Reading is open to everyone; sending isn't.
+          One click adds them as a member and reveals the composer. */}
+      {!isArchived && !canComposeHere && (
+        <div className="border-t border-white/10 px-4 py-3 bg-[#0B2237] flex items-center justify-between gap-3">
+          <span className="text-sm text-white/50">
+            You&apos;re viewing this conversation. Join it to send a reply.
+          </span>
+          <button
+            type="button"
+            onClick={joinConversation}
+            disabled={joining}
+            className="flex-none text-sm px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white"
+          >
+            {joining ? 'Joining…' : 'Join to reply'}
+          </button>
         </div>
       )}
 

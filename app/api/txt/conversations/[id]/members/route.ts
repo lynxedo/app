@@ -7,8 +7,10 @@ import { sendHubPush } from '@/lib/hub-push'
 // POST /api/txt/conversations/[id]/members  — add a member
 // DELETE /api/txt/conversations/[id]/members?user_id=... — remove a member
 //
-// Only the conversation owner or a Txt manager can add/remove members.
-// Members can text + add notes but not archive or change ownership.
+// Adding/removing OTHER people is owner/manager only. But ANY Txt2 user may
+// add THEMSELVES (self-join) so they get a voice in a shared-inbox thread
+// without waiting to be added. Members can text + add notes but not archive or
+// change ownership; a member may always remove themselves.
 
 export async function POST(
   request: Request,
@@ -28,7 +30,9 @@ export async function POST(
   }
 
   const perms = await getTxtConvPermissions(supabase, id, user.id)
-  if (!perms.canManageMembers) {
+  // Owner/manager can add anyone; any Txt2 user can self-join.
+  const isSelfJoin = targetUserId === user.id && perms.isTxtUser
+  if (!perms.canManageMembers && !isSelfJoin) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -48,8 +52,9 @@ export async function POST(
   }
 
   // Notify the newly added teammate — but only on a fresh add (skip the
-  // duplicate case, which means they were already on the thread).
-  if (!error) {
+  // duplicate case, which means they were already on the thread) and never on
+  // a self-join (no point pinging yourself).
+  if (!error && targetUserId !== user.id) {
     try {
       const [{ data: conv }, { data: adder }] = await Promise.all([
         admin
