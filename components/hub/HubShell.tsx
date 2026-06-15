@@ -19,6 +19,7 @@ import ActivitySidebar from './sidebars/ActivitySidebar'
 import TxtSidebar from './sidebars/TxtSidebar'
 import TxtV2Sidebar from './sidebars/TxtV2Sidebar'
 import DialerSidebar from './sidebars/DialerSidebar'
+import ScoreboardsSidebar from './sidebars/ScoreboardsSidebar'
 import AnnouncementTicker, { type Announcement } from './AnnouncementTicker'
 import HubQuickCompose from './HubQuickCompose'
 import TimesheetClockModal from './TimesheetClockModal'
@@ -715,6 +716,8 @@ export default function HubShell({
             {...collapseProps}
           />
         )
+      case 'scoreboards':
+        return <ScoreboardsSidebar isAdmin={!!isAdmin} onClose={closeMobileDrawer} {...collapseProps} />
       case 'links':
         return <LinksSidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'activity':
