@@ -66,6 +66,7 @@ const TABS = [
   { id: 'marketing',    icon: '📣', label: 'Marketing' },
   { id: 'forms',        icon: '📝', label: 'Forms' },
   { id: 'products',     icon: '📦', label: 'Products' },
+  { id: 'scoreboards',  icon: '🏆', label: 'Scoreboards' },
   { id: 'books',        icon: '📊', label: 'Books' },
   { id: 'timesheet',    icon: '🕐', label: 'Timesheet' },
   { id: 'settings',     icon: '⚙️', label: 'Settings' },
@@ -97,6 +98,7 @@ const TAB_BODY: Record<TabId, () => ReactNode> = {
   'marketing': MarketingTab,
   'forms': FormsTab,
   'products': ProductsTab,
+  'scoreboards': ScoreboardsTab,
   'books': BooksTab,
   'timesheet': TimesheetTab,
   'settings': SettingsTab,
@@ -369,8 +371,9 @@ export default function HelpContent() {
             {activeTab === 'call-log'   && <CallLogTab />}
             {activeTab === 'marketing'  && <MarketingTab />}
             {activeTab === 'forms'      && <FormsTab />}
-            {activeTab === 'products'   && <ProductsTab />}
-            {activeTab === 'books'      && <BooksTab />}
+            {activeTab === 'products'    && <ProductsTab />}
+            {activeTab === 'scoreboards' && <ScoreboardsTab />}
+            {activeTab === 'books'       && <BooksTab />}
             {activeTab === 'timesheet'  && <TimesheetTab />}
             {activeTab === 'settings'   && <SettingsTab />}
 
@@ -1714,6 +1717,50 @@ function ProductsTab() {
 
         <Section title="Permissions">
           <p>Controlled by the <strong className="text-white">Products</strong> grant in <strong className="text-white">Admin → People → Admin Access</strong> (for managers) — or any full admin. Off by default.</p>
+        </Section>
+      </AdminOnly>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// SCOREBOARDS
+// ──────────────────────────────────────────────────────────────────────────
+
+function ScoreboardsTab() {
+  return (
+    <>
+      <Section title="What Scoreboards Are">
+        <p>Scoreboards are live KPI dashboards that pull numbers from Jobber, your recurring services, timesheets, and the Lead Tracker. Each board focuses on one area of the business:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Main</strong> — company-wide metrics: revenue, jobs, avg ticket, active customers, and more.</li>
+          <li><strong className="text-white">WF Weed &amp; Fert</strong> — job count/value, program mix (PHC/BWP%), and per-tech revenue + $/hr.</li>
+          <li><strong className="text-white">IR Irrigation</strong> — Gold book size, avg repair ticket, visit revenue by tech, Rachio + Gold sold/week.</li>
+          <li><strong className="text-white">PW Pet Waste</strong> — active customers + annual value, visit revenue by tech (weekly + monthly), and a full cross-department view for Bonnie.</li>
+          <li><strong className="text-white">Office</strong> — office-staff performance metrics.</li>
+        </ul>
+        <p className="mt-2">Scoreboards are at <strong className="text-white">/hub/scoreboards</strong> — tap a board in the left sidebar to open it.</p>
+      </Section>
+
+      <Section title="Access — Who Sees What">
+        <p>There are two gates:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Scoreboards section access</strong> — the <em>Scoreboards</em> toggle in <strong className="text-white">Admin → People</strong>. A user without this flag sees no Scoreboards link at all.</li>
+          <li><strong className="text-white">Per-board access</strong> — once the section is on, a user still sees <em>only the boards you explicitly grant them</em>. By default they can't open any board until an admin enables them one by one.</li>
+        </ul>
+        <p className="mt-2">Admins always see every board regardless of both gates.</p>
+      </Section>
+
+      <AdminOnly>
+        <Section title="Enabling Scoreboard Access (Admin)">
+          <p>Two steps in sequence:</p>
+          <Step n={1}>Go to <strong className="text-white">Admin → People</strong>, find the user, and turn on the <strong className="text-white">Scoreboards</strong> toggle. This gives them access to the Scoreboards section.</Step>
+          <Step n={2}>Go to <strong className="text-white">Admin → Scoreboards → Who can see each board</strong>. Find the user&apos;s row and click the board buttons you want them to see — each button lights up sky-blue when the board is granted. Changes save instantly. A user with the section flag but no boards granted will see the Scoreboards nav item but an empty sidebar.</Step>
+        </Section>
+
+        <Section title="Technician Assignment (Admin)">
+          <p>The <strong className="text-white">Technician assignments</strong> panel at <strong className="text-white">Admin → Scoreboards</strong> controls which employees show up in the per-tech charts on the WF, IR, and PW boards. Assign the right people to each board there — the charts update immediately.</p>
+          <Note>Technician assignment is separate from view access: assigning someone to a board doesn&apos;t let them see the board, and granting view access doesn&apos;t put them in the charts.</Note>
         </Section>
       </AdminOnly>
     </>
