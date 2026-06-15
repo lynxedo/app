@@ -636,12 +636,22 @@ async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const book = bookOrErr
 
   // ── KPIs: active PW book (Jobber source) ──
-  // Count DISTINCT customers, not jobs: a 2x/week customer is entered as two
-  // jobs (one per service day) but is one membership. Annual value still sums
-  // all jobs (each day's recurring revenue is real).
+  // A 2x/week customer is entered as two identical day-split jobs (one per
+  // service day) but is ONE membership. Count distinct customers, and value the
+  // membership ONCE: each job's annual_value already = per-visit price × the
+  // plan's yearly visits (e.g. $20 × 104 = $2,080 for 2x/week), so summing both
+  // day-jobs would double it. Collapse identical (customer, plan, value) jobs;
+  // genuinely distinct plans for one customer still sum.
   const pwJobs = book.filter(r => r.dept === 'PW')
   const activeCustomers = new Set(pwJobs.map(r => r.clientId)).size
-  const annualValue = pwJobs.reduce((s, r) => s + r.annualValue, 0)
+  const pwSeen = new Set<string>()
+  let annualValue = 0
+  for (const r of pwJobs) {
+    const key = `${r.clientId}|${r.displayName}|${r.annualValue}`
+    if (pwSeen.has(key)) continue
+    pwSeen.add(key)
+    annualValue += r.annualValue
+  }
 
   // ── Total PW visit revenue per bucket (for the "Other/Unassigned" stack) ──
   const totalWeekPw = weekKeys.map(() => 0)
