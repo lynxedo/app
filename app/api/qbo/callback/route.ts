@@ -6,9 +6,15 @@ export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
   const code = searchParams.get('code')
   const realmId = searchParams.get('realmId')
+  const state = searchParams.get('state')
+  const expectedState = request.cookies.get('qbo_oauth_state')?.value
 
   if (!code || !realmId) {
     return NextResponse.json({ error: 'Missing code or realmId' }, { status: 400 })
+  }
+
+  if (!state || !expectedState || state !== expectedState) {
+    return NextResponse.json({ error: 'Invalid state parameter' }, { status: 400 })
   }
 
   let tokens: { access_token: string; refresh_token: string; expires_in: number }
@@ -37,5 +43,7 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Failed to save tokens' }, { status: 500 })
   }
 
-  return NextResponse.redirect(new URL('/books', process.env.NEXT_PUBLIC_APP_URL!))
+  const redirect = NextResponse.redirect(new URL('/books', process.env.NEXT_PUBLIC_APP_URL!))
+  redirect.cookies.delete('qbo_oauth_state')
+  return redirect
 }
