@@ -53,14 +53,20 @@ function BoardRow({
 
 export default function ScoreboardsSidebar({
   isAdmin,
+  allowedSlugs,
   onClose,
   onDesktopCollapse,
 }: {
   isAdmin?: boolean
+  /** Board slugs this user may see. Admins see all; undefined = none (non-admin). */
+  allowedSlugs?: string[]
   onClose?: () => void
   onDesktopCollapse?: () => void
 }) {
   const pathname = usePathname() ?? ''
+  const visibleBoards = isAdmin
+    ? SCOREBOARDS
+    : SCOREBOARDS.filter(b => (allowedSlugs ?? []).includes(b.slug))
 
   return (
     <SidebarShell title="Scoreboards" onClose={onClose} onDesktopCollapse={onDesktopCollapse}>
@@ -78,7 +84,7 @@ export default function ScoreboardsSidebar({
           <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider">Boards</span>
         </div>
         <div className="space-y-1">
-          {SCOREBOARDS.map(b => {
+          {visibleBoards.map(b => {
             const href = `/hub/scoreboards/${b.slug}`
             return (
               <BoardRow

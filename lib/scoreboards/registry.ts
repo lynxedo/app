@@ -1,14 +1,19 @@
 /* Central registry of Scoreboards (KPI dashboards). Adding a new board = add an
  * entry here + a view component + a case in app/hub/scoreboards/[slug]/page.tsx.
  *
- * Per-board access: V1 gates the whole section behind the single
- * `can_access_scoreboards` flag. `requiredFlag` is the seam for the future
- * "certain workers see certain boards" feature — when a per-board permission
- * model lands, set it here and filter on it in the index + the [slug] gate. */
+ * Access model (two layers):
+ *   1. Section gate — `can_access_scoreboards` (Admin -> People). Whether the user
+ *      can open the Scoreboards section at all.
+ *   2. Per-board view access — `scoreboard_board_access` rows (Admin -> Scoreboards).
+ *      Which specific boards a non-admin user may open. Default is nothing-until-
+ *      granted: a user with the section flag but no grants sees zero boards.
+ *   Admins (role = 'admin') always see every board, regardless of grants. */
 
 export type ScoreboardPerms = {
   isAdmin: boolean
   canAccessScoreboards: boolean
+  /** Board slugs this user is explicitly granted. Ignored for admins (who see all). */
+  allowedBoardSlugs?: string[]
 }
 
 export type ScoreboardMeta = {
@@ -16,8 +21,6 @@ export type ScoreboardMeta = {
   title: string
   subtitle: string
   badge?: string
-  /** Future per-board gate. Unset = visible to anyone who can see the section. */
-  requiredFlag?: keyof ScoreboardPerms
 }
 
 export const SCOREBOARDS: ScoreboardMeta[] = [
@@ -53,15 +56,26 @@ export const SCOREBOARDS: ScoreboardMeta[] = [
   },
 ]
 
-/** Whether a user can see the Scoreboards section at all. */
+/** Whether a user can see the Scoreboards section at all (i.e. has ≥1 visible board). */
 export function canSeeScoreboards(perms: ScoreboardPerms): boolean {
-  return perms.isAdmin || perms.canAccessScoreboards
+  if (perms.isAdmin) return true
+  if (!perms.canAccessScoreboards) return false
+  return (perms.allowedBoardSlugs?.length ?? 0) > 0
+}
+
+/** Whether a user may open one specific board. */
+export function canSeeBoard(perms: ScoreboardPerms, slug: string): boolean {
+  if (perms.isAdmin) return true
+  if (!perms.canAccessScoreboards) return false
+  return (perms.allowedBoardSlugs ?? []).includes(slug)
 }
 
 /** The boards a given user is allowed to see. */
 export function boardsForUser(perms: ScoreboardPerms): ScoreboardMeta[] {
-  if (!canSeeScoreboards(perms)) return []
-  return SCOREBOARDS.filter(b => !b.requiredFlag || perms[b.requiredFlag])
+  if (perms.isAdmin) return SCOREBOARDS
+  if (!perms.canAccessScoreboards) return []
+  const allowed = new Set(perms.allowedBoardSlugs ?? [])
+  return SCOREBOARDS.filter(b => allowed.has(b.slug))
 }
 
 export function getScoreboard(slug: string): ScoreboardMeta | null {
