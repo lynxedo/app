@@ -21,12 +21,12 @@ export async function GET(
   // Skip conversation/notes/members fetches when only paging backwards.
   const messagesOnly = url.searchParams.get('messages_only') === '1'
 
-  // Permission gate: customer text threads are not viewable by every employee.
-  // Allow Txt2 users (shared inbox) + the thread's own members/owner — the same
-  // `canReply` gate the send/schedule/PATCH handlers use. Checked BEFORE any
-  // data is fetched so a forbidden caller gets nothing.
+  // Permission gate: customer text threads are not viewable by every employee,
+  // but any Txt2 user can READ the shared inbox (the "All" tab) — sending is
+  // gated separately (`canReply`, owner/member only). Checked BEFORE any data
+  // is fetched so a forbidden caller gets nothing.
   const perms = await getTxtConvPermissions(supabase, id, user.id)
-  if (!perms.canReply) {
+  if (!perms.canView) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 

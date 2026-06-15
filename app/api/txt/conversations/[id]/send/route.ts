@@ -78,9 +78,13 @@ export async function POST(
     }
   }
 
-  // Permission: caller must be a member, the owner, or a Txt manager.
+  // Permission: caller must be the owner or an added member. The one exception
+  // is an unassigned (Queue) thread — any Txt2 user may reply to it, which
+  // auto-claims it below. A non-participant on an ASSIGNED thread is rejected;
+  // they must join first.
   const perms = await getTxtConvPermissions(supabase, conversationId, user.id)
-  const canReplyHere = perms.canReply || conv.status === 'unassigned'
+  const canReplyHere =
+    perms.canReply || (conv.status === 'unassigned' && perms.isTxtUser)
   if (!canReplyHere) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
