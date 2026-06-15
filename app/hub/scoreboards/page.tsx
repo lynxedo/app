@@ -2,6 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { boardsForUser } from '@/lib/scoreboards/registry'
+import { getGrantedBoardSlugs } from '@/lib/scoreboards/access'
 
 export const metadata = { title: 'Scoreboards' }
 export const dynamic = 'force-dynamic'
@@ -17,9 +18,11 @@ export default async function ScoreboardsIndexPage() {
     .eq('id', user.id)
     .single()
 
+  const isAdmin = profile?.role === 'admin'
   const perms = {
-    isAdmin: profile?.role === 'admin',
+    isAdmin,
     canAccessScoreboards: !!profile?.can_access_scoreboards,
+    allowedBoardSlugs: isAdmin ? [] : await getGrantedBoardSlugs(supabase, user.id),
   }
   const boards = boardsForUser(perms)
   if (boards.length === 0) redirect('/hub')

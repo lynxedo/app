@@ -76,6 +76,7 @@ export default function HubShell({
   canAccessForms,
   canAccessDailyLogV2,
   canAccessScoreboards,
+  scoreboardSlugs,
   companyId,
   dialerGlobalRing,
   myPresenceMode,
@@ -131,6 +132,7 @@ export default function HubShell({
   canAccessForms?: boolean
   canAccessDailyLogV2?: boolean
   canAccessScoreboards?: boolean
+  scoreboardSlugs?: string[]
   companyId?: string
   /** Session 58.5: when true (default) AND canAccessDialer, the Twilio
    *  Device registers on every Hub page so IncomingCall pops anywhere. */
@@ -727,7 +729,7 @@ export default function HubShell({
           />
         )
       case 'scoreboards':
-        return <ScoreboardsSidebar isAdmin={!!isAdmin} onClose={closeMobileDrawer} {...collapseProps} />
+        return <ScoreboardsSidebar isAdmin={!!isAdmin} allowedSlugs={scoreboardSlugs} onClose={closeMobileDrawer} {...collapseProps} />
       case 'links':
         return <LinksSidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'activity':

@@ -2,6 +2,7 @@ import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { isJobberConnected } from '@/lib/jobber'
+import { getGrantedBoardSlugs } from '@/lib/scoreboards/access'
 import SettingsForm from './SettingsForm'
 
 export const metadata = { title: 'Settings' }
@@ -45,6 +46,14 @@ export default async function SettingsPage() {
     level: (notifPrefResult.data?.level ?? 'all') as 'all' | 'mentions' | 'muted',
   }
 
+  // Scoreboards is gated per-board (Admin -> Scoreboards): a user with the section
+  // flag but no granted boards effectively has no access, so don't offer it as a
+  // pinnable rail tool. Admins always have it.
+  const isSettingsAdmin = profileResult.data?.role === 'admin'
+  const effectiveCanAccessScoreboards =
+    isSettingsAdmin ||
+    (!!profileResult.data?.can_access_scoreboards &&
+      (await getGrantedBoardSlugs(supabase, user.id)).length > 0)
   const railPermissions = {
     isAdmin: profileResult.data?.role === 'admin',
     canAccessTracker: !!profileResult.data?.can_access_tracker,
@@ -61,7 +70,7 @@ export default async function SettingsPage() {
     canAccessTimesheet: !!profileResult.data?.can_access_timesheet,
     canAccessForms: !!profileResult.data?.can_access_forms,
     canAccessDailyLogV2: !!profileResult.data?.can_access_daily_log_v2,
-    canAccessScoreboards: !!profileResult.data?.can_access_scoreboards,
+    canAccessScoreboards: effectiveCanAccessScoreboards,
   }
 
   const txtSignature = (profileResult.data?.txt_signature ?? '') as string

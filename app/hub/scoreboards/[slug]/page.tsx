@@ -1,6 +1,7 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { getScoreboard, canSeeScoreboards } from '@/lib/scoreboards/registry'
+import { getScoreboard, canSeeBoard } from '@/lib/scoreboards/registry'
+import { getGrantedBoardSlugs } from '@/lib/scoreboards/access'
 import Scoreboard1View from './Scoreboard1View'
 import Scoreboard2View from './Scoreboard2View'
 import Scoreboard3View from './Scoreboard3View'
@@ -25,13 +26,14 @@ export default async function ScoreboardPage({ params }: { params: Promise<{ slu
     .eq('id', user.id)
     .single()
 
+  const isAdmin = profile?.role === 'admin'
   const perms = {
-    isAdmin: profile?.role === 'admin',
+    isAdmin,
     canAccessScoreboards: !!profile?.can_access_scoreboards,
+    allowedBoardSlugs: isAdmin ? [] : await getGrantedBoardSlugs(supabase, user.id),
   }
-  // Section gate now; per-board gate (board.requiredFlag) honored for the future.
-  if (!canSeeScoreboards(perms)) redirect('/hub')
-  if (board.requiredFlag && !perms[board.requiredFlag]) redirect('/hub')
+  // Section gate + per-board view grant (Admin -> Scoreboards). Admins see all.
+  if (!canSeeBoard(perms, board.slug)) redirect('/hub')
 
   switch (board.slug) {
     case '1':

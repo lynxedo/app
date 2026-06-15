@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getGrantedBoardSlugs } from '@/lib/scoreboards/access'
 
 export const dynamic = 'force-dynamic'
 
@@ -74,13 +75,21 @@ async function handleScoreboards(request: Request) {
     .eq('id', user.id)
     .single()
   if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
-  if (profile.role !== 'admin' && !profile.can_access_scoreboards) {
+  const isAdmin = profile.role === 'admin'
+  if (!isAdmin && !profile.can_access_scoreboards) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
   const company = profile.company_id
 
   const board = new URL(request.url).searchParams.get('board') ?? '1'
   if (board !== '1' && board !== '2' && board !== '3' && board !== '4' && board !== '5') return NextResponse.json({ error: 'Unknown scoreboard' }, { status: 404 })
+
+  // Per-board view grant (Admin -> Scoreboards). Admins bypass; non-admins must
+  // be explicitly granted this board even when they have section access.
+  if (!isAdmin) {
+    const allowed = await getGrantedBoardSlugs(supabase, user.id)
+    if (!allowed.includes(board)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   // Boards 2–5 have their own payloads; board 1 falls through below.
   if (board === '2') return buildWfBoard(supabase, company)
@@ -316,7 +325,7 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const [wfWeekRes, wfMonthRes, techRes, leadsRes] = await Promise.all([
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
-    supabase.rpc('scoreboard_wf_technicians', { p_company_id: company }),
+    supabase.rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '2' }),
     supabase.from('leads').select('salesperson, stage, annual_value, sold_date').eq('company_id', company),
   ])
   if (wfWeekRes.error) return NextResponse.json({ error: wfWeekRes.error.message }, { status: 500 })
@@ -350,7 +359,7 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   for (const r of wfJobs) { const tier = wfTier(r.displayName); mixMap.set(tier, (mixMap.get(tier) || 0) + 1) }
   const programMix = TIER_ORDER.map(tier => ({ label: tier, n: mixMap.get(tier) || 0 })).filter(x => x.n > 0)
 
-  // ── Technicians (auto-discovered WF techs) ──
+  // ── Technicians (explicitly assigned in Admin -> Scoreboards, board 2) ──
   const techRows = (techRes.data ?? []) as TechRow[]
   const leads = (leadsRes.data ?? []) as LeadLite[]
 

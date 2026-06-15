@@ -6013,6 +6013,30 @@ export type Database = {
           },
         ]
       }
+      scoreboard_board_access: {
+        Row: {
+          board_slug: string
+          company_id: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          board_slug: string
+          company_id: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          board_slug?: string
+          company_id?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: []
+      }
       scoreboard_technicians: {
         Row: {
           board_slug: string

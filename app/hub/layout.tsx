@@ -17,6 +17,7 @@ import { markActive } from '@/lib/hub-activity'
 import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
 import { resolveLayout, reconcileSeededApps } from '@/lib/hub-layout'
 import type { RailPermissions } from '@/components/hub/railCatalog'
+import { SCOREBOARDS } from '@/lib/scoreboards/registry'
 
 export const metadata: Metadata = {
   title: 'Hub',
@@ -176,8 +177,18 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAdminMarketing = profileResult.data?.can_admin_marketing ?? false
   const canAccessForms = profileResult.data?.can_access_forms ?? true
   const canAccessDailyLogV2 = profileResult.data?.can_access_daily_log_v2 ?? false
-  const canAccessScoreboards = profileResult.data?.can_access_scoreboards ?? false
+  const rawCanAccessScoreboards = profileResult.data?.can_access_scoreboards ?? false
   const companyId = profileResult.data?.company_id ?? ''
+  // Per-board view access (Admin -> Scoreboards). Admins see all boards; non-admins
+  // see only explicitly-granted boards, and the section is hidden entirely when they
+  // have none. Only query when the section flag is on (admins skip the query too).
+  const scoreboardSlugs: string[] = isAdmin
+    ? SCOREBOARDS.map(b => b.slug)
+    : rawCanAccessScoreboards
+      ? ((await admin.from('scoreboard_board_access').select('board_slug').eq('user_id', user.id)).data ?? [])
+          .map(r => r.board_slug as string)
+      : []
+  const canAccessScoreboards = isAdmin || (rawCanAccessScoreboards && scoreboardSlugs.length > 0)
   // Session 58.5: per-user opt-out. Defaults true server-side so any user
   // with can_access_dialer gets Hub-wide ringing on first login.
   const dialerGlobalRing = profileResult.data?.dialer_global_ring ?? true
@@ -311,6 +322,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessForms={canAccessForms}
         canAccessDailyLogV2={canAccessDailyLogV2}
         canAccessScoreboards={canAccessScoreboards}
+        scoreboardSlugs={scoreboardSlugs}
         companyId={companyId}
         dialerGlobalRing={dialerGlobalRing}
         myPresenceMode={myPresenceMode}
