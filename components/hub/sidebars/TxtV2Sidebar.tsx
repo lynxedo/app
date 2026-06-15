@@ -104,6 +104,9 @@ export default function TxtV2Sidebar({
   const [actioningId, setActioningId] = useState<string | null>(null)
   const [assignOpenId, setAssignOpenId] = useState<string | null>(null)
   const [users, setUsers] = useState<SimpleUser[]>([])
+  // Server-side search results (non-null when search.length >= 2).
+  const [searchResults, setSearchResults] = useState<Conversation[] | null>(null)
+  const [searchingServer, setSearchingServer] = useState(false)
 
   // Per-conversation read tracking (per-device, like the rail dot). Maps a
   // conversation id → the ISO time this device last opened it. A conversation
@@ -197,6 +200,34 @@ export default function TxtV2Sidebar({
       supabase.removeChannel(channel)
     }
   }, [load, companyId])
+
+  // Server-side full-text search (debounced 250ms). Fires when the query is
+  // ≥ 2 chars; searches contacts by name/phone AND message bodies. Resets to
+  // null when the query is cleared so the normal scoped list reappears.
+  useEffect(() => {
+    if (search.length < 2) {
+      setSearchResults(null)
+      return
+    }
+    let cancelled = false
+    const t = setTimeout(async () => {
+      setSearchingServer(true)
+      const res = await fetch(
+        `/api/txt/conversations?scope=search&q=${encodeURIComponent(search)}`
+      )
+      if (cancelled) return
+      setSearchingServer(false)
+      if (res.ok) {
+        const data = await res.json()
+        setSearchResults(data.conversations || [])
+      }
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+      setSearchingServer(false)
+    }
+  }, [search])
 
   // Mark the currently-open conversation read — on navigation AND on every
   // list refresh, so a thread you're actively viewing stays read as new
@@ -385,6 +416,66 @@ export default function TxtV2Sidebar({
 
       {scope === 'contacts' ? (
         <SidebarContactsList canCall={canCall} canText onClose={onClose} />
+      ) : searchResults !== null ? (
+        // Server search results mode — shown when search.length >= 2
+        <div className="flex-1 overflow-y-auto min-h-0">
+          {searchingServer && searchResults.length === 0 && (
+            <div className="py-12 text-center"><Spinner size={6} /></div>
+          )}
+          {!searchingServer && searchResults.length === 0 && (
+            <EmptyState title="No matching conversations." />
+          )}
+          {searchResults.length > 0 && (
+            <div>
+              <div className="px-4 pt-2 pb-1 text-[10px] uppercase tracking-wide text-white/40">
+                {searchResults.length} result{searchResults.length === 1 ? '' : 's'}
+              </div>
+              <ul>
+                {searchResults.map((c) => {
+                  const active = pathname === `/hub/txt/${c.id}`
+                  const unread = isUnread(c)
+                  return (
+                    <li key={c.id}>
+                      <Link
+                        href={`/hub/txt/${c.id}`}
+                        onClick={() => { markRead(c.id); onClose?.() }}
+                        className={`block px-4 py-2 border-l-2 ${
+                          active
+                            ? 'bg-white/5 border-emerald-400'
+                            : 'border-transparent hover:bg-white/5'
+                        }`}
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="flex items-center gap-1.5 min-w-0">
+                            {unread && (
+                              <span className="w-2 h-2 rounded-full bg-orange-400 flex-none" aria-label="Unread" />
+                            )}
+                            <span className={`text-sm truncate ${unread ? 'font-semibold text-white' : 'font-medium'}`}>
+                              {displayNameFor(c)}
+                            </span>
+                          </span>
+                          <span className={`text-[10px] flex-none ${unread ? 'text-orange-300' : 'text-white/40'}`}>
+                            {formatRelative(c.last_message_at || c.created_at)}
+                          </span>
+                        </div>
+                        <div className="flex items-center justify-between gap-2 mt-0.5">
+                          <span className={`text-[11px] truncate ${unread ? 'text-white/70' : 'text-white/40'}`}>
+                            {previewFor(c)}
+                          </span>
+                          <span className="flex items-center gap-1 text-[10px] flex-none">
+                            {c.status === 'archived' && (
+                              <span className="text-white/30">archived</span>
+                            )}
+                          </span>
+                        </div>
+                      </Link>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )}
+        </div>
       ) : (
       <div className="flex-1 overflow-y-auto min-h-0">
         {loading && conversations.length === 0 && queue.length === 0 && (

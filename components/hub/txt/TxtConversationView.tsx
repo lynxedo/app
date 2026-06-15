@@ -187,6 +187,14 @@ export default function TxtConversationView({
   // Hold the message list hidden until it's pinned to the bottom, so opening a
   // conversation never shows a scroll jump (mirrors the Hub MessageFeed).
   const [feedReady, setFeedReady] = useState(false)
+  // Load-older pagination (#33 part 2): true when the server indicated there
+  // are messages before the earliest one currently loaded.
+  const [hasMoreOlder, setHasMoreOlder] = useState(initialMessages.length >= 500)
+  const [loadingOlder, setLoadingOlder] = useState(false)
+  // Refs used to restore scroll position after prepending older messages so the
+  // view doesn't jump. prependingRef tells the snap-to-bottom useEffect to skip.
+  const prependingRef = useRef(false)
+  const prevScrollRef = useRef<{ scrollTop: number; scrollHeight: number } | null>(null)
 
   const isGroup = conversation.kind === 'group'
   const ownerId = conversation.assigned_to
@@ -410,12 +418,66 @@ export default function TxtConversationView({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
 
+  // After prepending older messages: restore scroll so the view doesn't jump.
+  // useLayoutEffect fires before paint, so the user never sees the jump.
+  useLayoutEffect(() => {
+    if (!prependingRef.current) return
+    const el = scrollContainerRef.current
+    const prev = prevScrollRef.current
+    if (!el || !prev) return
+    el.scrollTop = prev.scrollTop + (el.scrollHeight - prev.scrollHeight)
+    prevScrollRef.current = null
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [messages])
+
   // Snap to the bottom on a new message (own send or incoming poll). Instant,
-  // not smooth — matches "just opens to the bottom".
+  // not smooth — matches "just opens to the bottom". Skip when a prepend just
+  // happened (prependingRef stays true until this effect clears it).
   useEffect(() => {
+    if (prependingRef.current) {
+      prependingRef.current = false
+      return
+    }
     const el = scrollContainerRef.current
     if (el) el.scrollTop = el.scrollHeight
   }, [messages.length, conversation.id])
+
+  async function loadOlderMessages() {
+    if (loadingOlder || !hasMoreOlder) return
+    const oldest = messages[0]
+    if (!oldest) return
+    setLoadingOlder(true)
+    const el = scrollContainerRef.current
+    if (el) {
+      prevScrollRef.current = { scrollTop: el.scrollTop, scrollHeight: el.scrollHeight }
+    }
+    prependingRef.current = true
+    try {
+      const res = await fetch(
+        `/api/txt/conversations/${conversation.id}?messages_only=1&before=${encodeURIComponent(oldest.created_at)}`
+      )
+      if (!res.ok) {
+        prependingRef.current = false
+        prevScrollRef.current = null
+        return
+      }
+      const data = await res.json()
+      const older: Message[] = data.messages || []
+      setHasMoreOlder(data.has_more_older ?? older.length >= 100)
+      if (older.length > 0) {
+        setMessages((prev) => [...older, ...prev])
+        // prependingRef is cleared by the snap-to-bottom useEffect above
+      } else {
+        prependingRef.current = false
+        prevScrollRef.current = null
+      }
+    } catch {
+      prependingRef.current = false
+      prevScrollRef.current = null
+    } finally {
+      setLoadingOlder(false)
+    }
+  }
 
   // #27 — realtime. Instead of re-fetching the whole thread every 8s (which
   // churned the message list and felt laggy), we refetch only when something
@@ -1088,6 +1150,18 @@ export default function TxtConversationView({
           style={{ visibility: feedReady ? 'visible' : 'hidden' }}
           className="flex-1 overflow-y-auto px-4 py-4 space-y-2"
         >
+          {hasMoreOlder && (
+            <div className="flex justify-center py-2">
+              <button
+                type="button"
+                onClick={loadOlderMessages}
+                disabled={loadingOlder}
+                className="text-xs text-white/50 hover:text-white px-3 py-1.5 rounded-md bg-white/5 hover:bg-white/10 disabled:opacity-50"
+              >
+                {loadingOlder ? 'Loading…' : '↑ Load older messages'}
+              </button>
+            </div>
+          )}
           {messages.length === 0 && (
             <div className="text-center text-white/40 text-sm py-8">
               No messages yet.
