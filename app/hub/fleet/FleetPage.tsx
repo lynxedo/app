@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useRef, useState } from 'react'
-import type mapboxgl from 'mapbox-gl'
+import mapboxgl from 'mapbox-gl'
 import 'mapbox-gl/dist/mapbox-gl.css'
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
@@ -127,11 +127,6 @@ export default function FleetPage() {
   const [alerts, setAlerts] = useState<AlertEvent[]>([])
   const [error, setError] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
-  // mapbox-gl is now lazy-loaded inside the init effect, so mapRef.current is
-  // set asynchronously. Setting a ref doesn't re-render, so the markers effect
-  // (keyed on devices/alerts) could run before the map exists and bail forever.
-  // This state flips true once the map is ready and re-runs the markers effect.
-  const [mapReady, setMapReady] = useState(false)
 
   // Map of device_id → list of open alert types
   const alertsByDevice = useMemo(() => {
@@ -151,109 +146,71 @@ export default function FleetPage() {
       setError('Mapbox token not configured')
       return
     }
+    mapboxgl.accessToken = MAPBOX_TOKEN
+    const map = new mapboxgl.Map({
+      container: mapContainerRef.current,
+      style: 'mapbox://styles/mapbox/dark-v11',
+      center: [-95.45, 30.27], // The Woodlands, TX-ish
+      zoom: 10,
+    })
+    map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
+    mapRef.current = map
 
-    let cancelled = false
-    let cleanupResize: (() => void) | null = null
-
-    ;(async () => {
-      const mapboxgl = (await import('mapbox-gl')).default
-      if (cancelled || !mapContainerRef.current) return
-      mapboxgl.accessToken = MAPBOX_TOKEN
-      const map = new mapboxgl.Map({
-        container: mapContainerRef.current,
-        style: 'mapbox://styles/mapbox/dark-v11',
-        center: [-95.45, 30.27], // The Woodlands, TX-ish
-        zoom: 10,
-      })
-      map.addControl(new mapboxgl.NavigationControl({ showCompass: false }), 'top-right')
-      mapRef.current = map
-      setMapReady(true)
-
-      // Mapbox locks in the container's pixel dimensions at construct time and
-      // doesn't react to flex/grid layout shifts on its own. Hammer resize across
-      // a handful of frames in case the layout settles late, then keep observing
-      // the container for any future change (sidebar collapse, device rotation).
-      const container = mapContainerRef.current
-      const ro = new ResizeObserver(() => map.resize())
+    // Mapbox locks in the container's pixel dimensions at construct time and
+    // doesn't react to flex/grid layout shifts on its own. Hammer resize across
+    // a handful of frames in case the layout settles late, then keep observing
+    // the container for any future change (sidebar collapse, device rotation).
+    const container = mapContainerRef.current
+    let ro: ResizeObserver | null = null
+    if (container) {
+      ro = new ResizeObserver(() => map.resize())
       ro.observe(container)
-      const resizeTimers: number[] = []
-      ;[0, 50, 200, 500, 1000].forEach((ms) => {
-        resizeTimers.push(window.setTimeout(() => map.resize(), ms))
-      })
-      cleanupResize = () => {
-        resizeTimers.forEach((t) => window.clearTimeout(t))
-        ro.disconnect()
-      }
-    })()
+    }
+    const resizeTimers: number[] = []
+    ;[0, 50, 200, 500, 1000].forEach((ms) => {
+      resizeTimers.push(window.setTimeout(() => map.resize(), ms))
+    })
 
     return () => {
-      cancelled = true
-      cleanupResize?.()
-      mapRef.current?.remove()
+      resizeTimers.forEach((t) => window.clearTimeout(t))
+      ro?.disconnect()
+      map.remove()
       mapRef.current = null
-      setMapReady(false)
     }
   }, [])
 
   // Render / update markers when devices or alerts change
   useEffect(() => {
     const map = mapRef.current
-    if (!map || !mapReady) return
-    let cancelled = false
-    ;(async () => {
-      const mapboxgl = (await import('mapbox-gl')).default
-      if (cancelled) return
-
-      function buildPopup(device: Device, devAlerts: AlertEvent[]) {
-        const popup = new mapboxgl.Popup({ offset: 18, closeButton: true })
-        const alertHtml =
-          devAlerts.length === 0
-            ? ''
-            : `<div style="margin-top:6px;color:#fca5a5;font-size:11px">${devAlerts
-                .map((a) => `${alertLabel(a.alert_type)}`)
-                .join('<br/>')}</div>`
-        popup.setHTML(`
-          <div style="font-family:system-ui;color:#111;min-width:160px">
-            <div style="font-weight:600">${escapeHtml(device.name)}</div>
-            <div style="font-size:12px;color:#444;margin-top:2px">${statusLabel(device.drive_status)} · ${device.speed_mph} mph</div>
-            <div style="font-size:12px;color:#444">Fuel: ${device.fuel_pct == null ? '—' : device.fuel_pct + '%'}</div>
-            <div style="font-size:11px;color:#888;margin-top:2px">Ping ${relativeTime(device.last_ping)}</div>
-            ${alertHtml}
-          </div>
-        `)
-        return popup
+    if (!map) return
+    const seen = new Set<string>()
+    for (const dev of devices) {
+      seen.add(dev.id)
+      const hasAlert = (alertsByDevice.get(dev.id)?.length ?? 0) > 0
+      // Rebuild the marker every tick so heading rotation, status color,
+      // and alert badges all stay in sync without manually patching DOM nodes.
+      markersRef.current.get(dev.id)?.remove()
+      const marker = new mapboxgl.Marker({ element: buildMarkerEl(dev, hasAlert) })
+        .setLngLat([dev.lng, dev.lat])
+        .setPopup(buildPopup(dev, alertsByDevice.get(dev.id) ?? []))
+        .addTo(map)
+      markersRef.current.set(dev.id, marker)
+    }
+    // Clean up markers for vehicles that have disappeared
+    for (const [id, marker] of markersRef.current.entries()) {
+      if (!seen.has(id)) {
+        marker.remove()
+        markersRef.current.delete(id)
       }
-
-      const seen = new Set<string>()
-      for (const dev of devices) {
-        seen.add(dev.id)
-        const hasAlert = (alertsByDevice.get(dev.id)?.length ?? 0) > 0
-        // Rebuild the marker every tick so heading rotation, status color,
-        // and alert badges all stay in sync without manually patching DOM nodes.
-        markersRef.current.get(dev.id)?.remove()
-        const marker = new mapboxgl.Marker({ element: buildMarkerEl(dev, hasAlert) })
-          .setLngLat([dev.lng, dev.lat])
-          .setPopup(buildPopup(dev, alertsByDevice.get(dev.id) ?? []))
-          .addTo(map)
-        markersRef.current.set(dev.id, marker)
-      }
-      // Clean up markers for vehicles that have disappeared
-      for (const [id, marker] of markersRef.current.entries()) {
-        if (!seen.has(id)) {
-          marker.remove()
-          markersRef.current.delete(id)
-        }
-      }
-      // On first non-empty load, fit bounds to all vehicles
-      if (!fittedRef.current && devices.length > 0) {
-        const bounds = new mapboxgl.LngLatBounds()
-        for (const d of devices) bounds.extend([d.lng, d.lat])
-        map.fitBounds(bounds, { padding: 80, maxZoom: 13, duration: 0 })
-        fittedRef.current = true
-      }
-    })()
-    return () => { cancelled = true }
-  }, [devices, alertsByDevice, mapReady])
+    }
+    // On first non-empty load, fit bounds to all vehicles
+    if (!fittedRef.current && devices.length > 0) {
+      const bounds = new mapboxgl.LngLatBounds()
+      for (const d of devices) bounds.extend([d.lng, d.lat])
+      map.fitBounds(bounds, { padding: 80, maxZoom: 13, duration: 0 })
+      fittedRef.current = true
+    }
+  }, [devices, alertsByDevice])
 
   // Poll devices + alerts
   useEffect(() => {
@@ -365,6 +322,26 @@ export default function FleetPage() {
       </div>
     </div>
   )
+}
+
+function buildPopup(device: Device, alerts: AlertEvent[]): mapboxgl.Popup {
+  const popup = new mapboxgl.Popup({ offset: 18, closeButton: true })
+  const alertHtml =
+    alerts.length === 0
+      ? ''
+      : `<div style="margin-top:6px;color:#fca5a5;font-size:11px">${alerts
+          .map((a) => `${alertLabel(a.alert_type)}`)
+          .join('<br/>')}</div>`
+  popup.setHTML(`
+    <div style="font-family:system-ui;color:#111;min-width:160px">
+      <div style="font-weight:600">${escapeHtml(device.name)}</div>
+      <div style="font-size:12px;color:#444;margin-top:2px">${statusLabel(device.drive_status)} · ${device.speed_mph} mph</div>
+      <div style="font-size:12px;color:#444">Fuel: ${device.fuel_pct == null ? '—' : device.fuel_pct + '%'}</div>
+      <div style="font-size:11px;color:#888;margin-top:2px">Ping ${relativeTime(device.last_ping)}</div>
+      ${alertHtml}
+    </div>
+  `)
+  return popup
 }
 
 function escapeHtml(s: string): string {

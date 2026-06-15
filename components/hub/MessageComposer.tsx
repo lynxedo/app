@@ -3,23 +3,16 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { useToast } from '@/components/ui'
 import dynamic from 'next/dynamic'
+import data from '@emoji-mart/data'
 import { init, SearchIndex } from 'emoji-mart'
-
-let _emojiDataPromise: Promise<void> | null = null
-let _emojiData: unknown = null
-function ensureEmojiData(): Promise<void> {
-  if (!_emojiDataPromise) {
-    _emojiDataPromise = import('@emoji-mart/data').then(m => {
-      _emojiData = m.default
-      init({ data: _emojiData })
-    })
-  }
-  return _emojiDataPromise
-}
 import type { HubMessage, HubUser } from './MessageFeed'
 import ScheduledMessagesModal from './ScheduledMessagesModal'
 import { matchMentionedUsers, isAmbiguousFirstName } from '@/lib/hub-mentions'
 import { createClient } from '@/lib/supabase/client'
+
+// emoji-mart needs its data registered once before SearchIndex.search() works.
+// Calling init() multiple times is a no-op, so module-load is fine.
+init({ data })
 
 const EmojiMartPicker = dynamic(() => import('@emoji-mart/react').then(m => m.default), {
   ssr: false,
@@ -93,7 +86,6 @@ export default function MessageComposer({
   const [emojiStart, setEmojiStart] = useState(-1)
   const [emojiIndex, setEmojiIndex] = useState(0)
   const [emojiResults, setEmojiResults] = useState<EmojiSuggestion[]>([])
-  const [emojiData, setEmojiData] = useState<unknown>(() => _emojiData)
   // Scheduled send
   const [scheduledAt, setScheduledAt] = useState<string>('') // ISO datetime-local string
   const [showScheduler, setShowScheduler] = useState(false)
@@ -178,10 +170,6 @@ export default function MessageComposer({
   const mentionedUserIds = new Set(matchMentionedUsers(content, hubUsers))
   const mentionedDndUsers = hubUsers.filter(u => u.status === 'dnd' && mentionedUserIds.has(u.id))
 
-  useEffect(() => {
-    ensureEmojiData().then(() => setEmojiData(_emojiData))
-  }, [])
-
   // Run emoji search whenever the :name: query changes.
   useEffect(() => {
     if (emojiQuery === null || emojiQuery.length === 0) {
@@ -190,8 +178,6 @@ export default function MessageComposer({
     }
     let cancelled = false
     ;(async () => {
-      await ensureEmojiData()
-      if (cancelled) return
       // SearchIndex.search returns up to 90 results sorted by relevance.
       const found: Array<{ id: string; name: string; skins: { native: string }[] }> =
         await SearchIndex.search(emojiQuery) ?? []
@@ -901,10 +887,10 @@ export default function MessageComposer({
               <path strokeLinecap="round" strokeLinejoin="round" d="M8 14s1.5 2 4 2 4-2 4-2M9 9h.01M15 9h.01" />
             </svg>
           </button>
-          {showEmojiPicker && !!emojiData && (
+          {showEmojiPicker && (
             <div className="absolute bottom-full left-0 mb-2 z-50">
               <EmojiMartPicker
-                data={emojiData}
+                data={data}
                 theme="dark"
                 previewPosition="none"
                 skinTonePosition="search"
