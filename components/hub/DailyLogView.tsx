@@ -175,6 +175,7 @@ function EntryCard({
   const [confirmDelete, setConfirmDelete] = useState(false)
   const [boardPickerUpdateId, setBoardPickerUpdateId] = useState<string | null>(null)
   const [reactionPickerUpdateId, setReactionPickerUpdateId] = useState<string | null>(null)
+  const [rxPopoverKey, setRxPopoverKey] = useState<string | null>(null)
   const [notesBoardOpen, setNotesBoardOpen] = useState(false)
   const [isSubscribed, setIsSubscribed] = useState(entry.subscriber_ids.includes(currentUserId))
   const [togglingSubscribe, setTogglingSubscribe] = useState(false)
@@ -814,24 +815,40 @@ function EntryCard({
                             const tooltipText = names.length <= 3
                               ? names.join(', ')
                               : `${names.slice(0, 3).join(', ')} +${names.length - 3} more`
+                            const pillKey = `${u.id}-${emoji}`
+                            const isOpen = rxPopoverKey === pillKey
+                            const isMine = ids.includes(currentUserId)
                             return (
                               <div key={emoji} className="relative group/rxpill">
+                                {/* Desktop hover tooltip */}
                                 <div className="absolute bottom-full left-0 mb-1.5 z-50 hidden group-hover/rxpill:block bg-gray-900 border border-gray-700 text-white text-xs rounded-md px-2.5 py-1.5 whitespace-nowrap pointer-events-none shadow-xl">
                                   <span className="font-medium">{tooltipText}</span>
                                   <span className="text-gray-400"> reacted with {emoji}</span>
                                 </div>
-                                <button
-                                  title={`${tooltipText} reacted with ${emoji}`}
-                                  onClick={() => toggleUpdateReaction(u.id, emoji)}
-                                  className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
-                                    ids.includes(currentUserId)
-                                      ? 'bg-brand/20 border-brand/50 text-brand'
-                                      : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
-                                  }`}
-                                >
-                                  <span>{emoji}</span>
-                                  <span>{ids.length}</span>
-                                </button>
+                                {/* Mobile tap-on-count popover */}
+                                {isOpen && (
+                                  <div className="absolute bottom-full left-0 mb-1.5 z-50 bg-gray-900 border border-gray-700 text-white text-xs rounded-md px-2.5 py-1.5 whitespace-nowrap shadow-xl pointer-events-none">
+                                    <span className="font-medium">{tooltipText}</span>
+                                    <span className="text-gray-400"> reacted with {emoji}</span>
+                                  </div>
+                                )}
+                                {/* Split pill: emoji = toggle, count = show who reacted */}
+                                <div className={`flex items-center rounded-full text-xs border overflow-hidden transition-colors ${
+                                  isMine
+                                    ? 'bg-brand/20 border-brand/50 text-brand'
+                                    : 'bg-gray-800 border-gray-700 text-gray-400'
+                                }`}>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); toggleUpdateReaction(u.id, emoji) }}
+                                    className="pl-2 pr-1 py-0.5 hover:bg-white/10 transition-colors"
+                                    title="Toggle reaction"
+                                  >{emoji}</button>
+                                  <button
+                                    onClick={e => { e.stopPropagation(); setRxPopoverKey(prev => prev === pillKey ? null : pillKey) }}
+                                    className="pl-1 pr-2 py-0.5 font-medium hover:bg-white/10 transition-colors"
+                                    title={tooltipText}
+                                  >{ids.length}</button>
+                                </div>
                               </div>
                             )
                           })}
