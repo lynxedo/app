@@ -1,5 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { sendHubPush } from '@/lib/hub-push'
 
 export async function GET(
   request: Request,
@@ -83,5 +85,35 @@ export async function POST(
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Non-blocking: notify all board members (minus the creator) about the new task
+  ;(async () => {
+    try {
+      const admin = createAdminClient()
+      const [{ data: boardRow }, { data: senderRow }, { data: memberRows }] = await Promise.all([
+        admin.from('boards').select('name, is_private, created_by').eq('id', boardId).single(),
+        admin.from('hub_users').select('display_name').eq('id', user.id).single(),
+        admin.from('board_members').select('user_id').eq('board_id', boardId),
+      ])
+      const recipientSet = new Set<string>()
+      if (boardRow?.created_by && boardRow.created_by !== user.id) recipientSet.add(boardRow.created_by)
+      for (const m of (memberRows ?? []) as { user_id: string }[]) {
+        if (m.user_id !== user.id) recipientSet.add(m.user_id)
+      }
+      const recipientIds = [...recipientSet]
+      if (recipientIds.length > 0) {
+        const senderName = senderRow?.display_name ?? 'Someone'
+        const boardName = boardRow?.name ?? 'a board'
+        await sendHubPush(recipientIds, {
+          title: `${senderName} added a task to ${boardName}`,
+          body: content.trim().slice(0, 120),
+          url: `/hub/board/${boardId}`,
+        })
+      }
+    } catch (err) {
+      console.error('[board items] new-item push failed:', (err as Error).message)
+    }
+  })()
+
   return NextResponse.json({ ...item, comment_count: 0, attachment_count: 0 }, { status: 201 })
 }

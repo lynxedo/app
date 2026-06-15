@@ -625,20 +625,32 @@ export default function ThreadPanel({
     }
     return (
       <div className="mt-1.5 flex flex-wrap items-center gap-1" data-reaction-ui>
-        {Object.entries(rxGroups).map(([emoji, userIds]) => (
-          <button
-            key={emoji}
-            onClick={() => toggleReaction(msgId, emoji)}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
-              userIds.includes(currentUserId)
-                ? 'bg-brand/20 border-brand/50 text-brand'
-                : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
-            }`}
-          >
-            <span>{emoji}</span>
-            <span>{userIds.length}</span>
-          </button>
-        ))}
+        {Object.entries(rxGroups).map(([emoji, userIds]) => {
+          const names = userIds.map(id => hubUsers.find(u => u.id === id)?.display_name ?? 'Someone')
+          const tooltipText = names.length <= 3
+            ? names.join(', ')
+            : `${names.slice(0, 3).join(', ')} +${names.length - 3} more`
+          return (
+            <div key={emoji} className="relative group/rxpill">
+              <div className="absolute bottom-full left-0 mb-1.5 z-50 hidden group-hover/rxpill:block bg-gray-900 border border-gray-700 text-white text-xs rounded-md px-2.5 py-1.5 whitespace-nowrap pointer-events-none shadow-xl">
+                <span className="font-medium">{tooltipText}</span>
+                <span className="text-gray-400"> reacted with {emoji}</span>
+              </div>
+              <button
+                title={`${tooltipText} reacted with ${emoji}`}
+                onClick={() => toggleReaction(msgId, emoji)}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                  userIds.includes(currentUserId)
+                    ? 'bg-brand/20 border-brand/50 text-brand'
+                    : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
+                }`}
+              >
+                <span>{emoji}</span>
+                <span>{userIds.length}</span>
+              </button>
+            </div>
+          )
+        })}
         <div className="relative">
           <button
             onClick={() => {
@@ -703,20 +715,32 @@ export default function ThreadPanel({
     }
     return (
       <div className="mt-1.5 flex flex-wrap items-center gap-1">
-        {Object.entries(rxGroups).map(([emoji, userIds]) => (
-          <button
-            key={emoji}
-            onClick={() => toggleReaction(msgId, emoji)}
-            className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
-              userIds.includes(currentUserId)
-                ? 'bg-brand/20 border-brand/50 text-brand'
-                : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
-            }`}
-          >
-            <span>{emoji}</span>
-            <span>{userIds.length}</span>
-          </button>
-        ))}
+        {Object.entries(rxGroups).map(([emoji, userIds]) => {
+          const names = userIds.map(id => hubUsers.find(u => u.id === id)?.display_name ?? 'Someone')
+          const tooltipText = names.length <= 3
+            ? names.join(', ')
+            : `${names.slice(0, 3).join(', ')} +${names.length - 3} more`
+          return (
+            <div key={emoji} className="relative group/rxpill">
+              <div className="absolute bottom-full left-0 mb-1.5 z-50 hidden group-hover/rxpill:block bg-gray-900 border border-gray-700 text-white text-xs rounded-md px-2.5 py-1.5 whitespace-nowrap pointer-events-none shadow-xl">
+                <span className="font-medium">{tooltipText}</span>
+                <span className="text-gray-400"> reacted with {emoji}</span>
+              </div>
+              <button
+                title={`${tooltipText} reacted with ${emoji}`}
+                onClick={() => toggleReaction(msgId, emoji)}
+                className={`flex items-center gap-1 px-2 py-0.5 rounded-full text-xs border transition-colors ${
+                  userIds.includes(currentUserId)
+                    ? 'bg-brand/20 border-brand/50 text-brand'
+                    : 'bg-gray-800 border-gray-700 text-gray-400 hover:border-gray-500'
+                }`}
+              >
+                <span>{emoji}</span>
+                <span>{userIds.length}</span>
+              </button>
+            </div>
+          )
+        })}
       </div>
     )
   }
