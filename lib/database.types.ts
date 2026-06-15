@@ -8028,6 +8028,18 @@ export type Database = {
           total_value: number
         }[]
       }
+      scoreboard_recurring_book: {
+        Args: { p_company_id: string }
+        Returns: {
+          annual_value: number
+          client_id: string
+          dept_prefix: string
+          display_name: string
+          has_bwp: boolean
+          has_phc: boolean
+          job_id: string
+        }[]
+      }
       scoreboard_tech_hours: {
         Args: {
           p_company_id: string

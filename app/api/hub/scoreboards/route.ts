@@ -241,8 +241,6 @@ async function handleScoreboards(request: Request) {
 //   - % with PHC / % with BWP / # with an add-on       (Jobber line_items, WF aux items)
 //   - Base-program mix (Basic/Complete/Plus/Recovery)  (recurring_program_definitions.display_name)
 //   - Per WF technician: weekly revenue by dept, $/hr last week, weekly sales $
-const WF_PHC = 'WF - Plant Health Care'
-const WF_BWP = 'WF - Bed Weed Prevention'
 const TIER_ORDER = ['Basic', 'Complete', 'Plus', 'Recovery', 'Other'] as const
 const round1 = (n: number) => Math.round(n * 10) / 10
 
@@ -259,83 +257,28 @@ function wfTier(program: string): string {
 
 type TechRow = { employee_id: string; jobber_external_id: string | null; display_name: string; salesperson_name: string }
 type LeadLite = { salesperson: string | null; stage: string | null; annual_value: number | null; sold_date: string | null }
-type DefRow = { line_item_name: string; dept_prefix: string; is_auxiliary: boolean; display_name: string; visits_per_year: number | null }
-type RecurringJobBook = { jobId: string; clientId: string; dept: string; displayName: string; hasPHC: boolean; hasBWP: boolean; annualValue: number }
-
-function isTestClient(c: { email: string | null; phone: string | null }): boolean {
-  return (c.email ?? '').toLowerCase().includes('fakemail') ||
-    (c.phone ?? '').replace(/\D/g, '') === '2812540991'
-}
+type RecurringJobBook = { dept: string; displayName: string; hasPHC: boolean; hasBWP: boolean; annualValue: number }
+type RecurringBookRow = { dept_prefix: string; display_name: string; has_phc: boolean; has_bwp: boolean; annual_value: number | string | null }
 
 // Fetches the active Jobber recurring book (jobs + line_items + recurring_program_definitions),
-// applying test-account exclusion. Replaces recurring_services reads for boards 2–4.
+// one row per (active recurring job, base-program dept), with test accounts excluded.
+// Replaces recurring_services (Monday mirror) reads for boards 2–4. The join +
+// test-account filter happen in the scoreboard_recurring_book SECURITY DEFINER RPC
+// so the route never has to .in() hundreds of job ids (URL blowup → "fetch failed")
+// or hit Supabase's 1000-row read cap on the ~2k job line items.
 async function fetchJobberRecurringBook(
   supabase: Awaited<ReturnType<typeof createClient>>,
   company: string
 ): Promise<RecurringJobBook[] | { error: string }> {
-  const jobsRes = await supabase
-    .from('jobs')
-    .select('id, client_id')
-    .eq('company_id', company)
-    .eq('is_recurring', true)
-    .neq('job_status', 'archived')
-    .is('deleted_at', null)
-  if (jobsRes.error) return { error: jobsRes.error.message }
-  const jobs = (jobsRes.data ?? []) as Array<{ id: string; client_id: string }>
-  if (!jobs.length) return []
-
-  const allJobIds = jobs.map(j => j.id)
-  const allClientIds = [...new Set(jobs.map(j => j.client_id))]
-
-  const [liRes, clientsRes, defsRes] = await Promise.all([
-    supabase.from('line_items').select('parent_id, name, total')
-      .eq('parent_type', 'job').in('parent_id', allJobIds).is('deleted_at', null),
-    supabase.from('clients').select('id, email, phone').in('id', allClientIds),
-    supabase.from('recurring_program_definitions')
-      .select('line_item_name, dept_prefix, is_auxiliary, display_name, visits_per_year'),
-  ])
-  if (liRes.error) return { error: liRes.error.message }
-  if (clientsRes.error) return { error: clientsRes.error.message }
-  if (defsRes.error) return { error: defsRes.error.message }
-
-  const testClientIds = new Set(
-    (clientsRes.data ?? []).filter(isTestClient).map((c: { id: string }) => c.id)
-  )
-  const defsByName = new Map<string, DefRow>(
-    (defsRes.data ?? []).map((d: DefRow) => [d.line_item_name, d])
-  )
-  const liByJob = new Map<string, Array<{ name: string; total: number }>>()
-  for (const li of (liRes.data ?? []) as Array<{ parent_id: string; name: string; total: number | string | null }>) {
-    const arr = liByJob.get(li.parent_id) ?? []
-    arr.push({ name: li.name, total: Number(li.total) || 0 })
-    liByJob.set(li.parent_id, arr)
-  }
-
-  const result: RecurringJobBook[] = []
-  for (const job of jobs) {
-    if (testClientIds.has(job.client_id)) continue
-    const items = liByJob.get(job.id) ?? []
-    const baseDefs = items
-      .map(li => defsByName.get(li.name))
-      .filter((d): d is DefRow => d !== undefined && !d.is_auxiliary)
-    if (baseDefs.length === 0) continue
-
-    let annualValue = 0
-    for (const li of items) {
-      const def = defsByName.get(li.name)
-      if (def?.visits_per_year != null) annualValue += li.total * def.visits_per_year
-    }
-    const hasPHC = items.some(li => li.name === WF_PHC)
-    const hasBWP = items.some(li => li.name === WF_BWP)
-
-    const seenDepts = new Set<string>()
-    for (const def of baseDefs) {
-      if (seenDepts.has(def.dept_prefix)) continue
-      seenDepts.add(def.dept_prefix)
-      result.push({ jobId: job.id, clientId: job.client_id, dept: def.dept_prefix, displayName: def.display_name, hasPHC, hasBWP, annualValue })
-    }
-  }
-  return result
+  const { data, error } = await supabase.rpc('scoreboard_recurring_book', { p_company_id: company })
+  if (error) return { error: error.message }
+  return ((data ?? []) as RecurringBookRow[]).map(r => ({
+    dept: r.dept_prefix,
+    displayName: r.display_name,
+    hasPHC: r.has_phc,
+    hasBWP: r.has_bwp,
+    annualValue: Number(r.annual_value) || 0,
+  }))
 }
 
 async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
