@@ -231,6 +231,20 @@ export default function TxtConversationView({
   // composer, prompting before clobbering an existing draft.
   const [suggestOpen, setSuggestOpen] = useState(false)
   const [suggestLoading, setSuggestLoading] = useState(false)
+
+  // "Polish draft" (✨) — Unified Inbox Session 5. Refines the user's OWN draft
+  // (grammar/tone/clarity) via /refine-draft without replacing their intent.
+  // polishUndo holds the pre-polish text so the user can revert with one click.
+  const [polishLoading, setPolishLoading] = useState(false)
+  const [polishUndo, setPolishUndo] = useState<string | null>(null)
+
+  // "Catch me up" — Unified Inbox Session 5. A 2–3 sentence relationship roll-up
+  // built from stored call/voicemail summaries + recent texts. Read-only; gated
+  // on can_access_unified_inbox (the prop), shown in the header.
+  const [catchOpen, setCatchOpen] = useState(false)
+  const [catchLoading, setCatchLoading] = useState(false)
+  const [catchSummary, setCatchSummary] = useState<string | null>(null)
+  const [catchError, setCatchError] = useState<string | null>(null)
   // SENDING is restricted to the owner or an added member — NOT every Txt2
   // user. A non-participant reads the thread but must Join first to get a
   // composer. (Managers join too — being a manager no longer grants a silent
@@ -280,6 +294,81 @@ export default function TxtConversationView({
       setSendError("Couldn't generate suggestion — try again")
     } finally {
       setSuggestLoading(false)
+    }
+  }
+
+  // ✨ Polish — send the user's current draft to /refine-draft and swap in the
+  // cleaned version, stashing the original so they can undo. Never generates a
+  // reply; it only refines what they already typed/dictated.
+  async function runPolishDraft() {
+    const draft = text.trim()
+    if (polishLoading || !draft) return
+    setPolishLoading(true)
+    setSendError('')
+    try {
+      const res = await fetch(
+        `/api/txt/conversations/${conversation.id}/refine-draft`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ draft_text: text }),
+        }
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data.error || !data.refined) {
+        setSendError(data.error || "Couldn't polish the draft — try again")
+        return
+      }
+      const refined: string = data.refined
+      if (refined.trim() === draft) {
+        // Already clean — nothing to undo, no churn.
+        return
+      }
+      setPolishUndo(text)
+      // A polished draft is no longer a verbatim template, so drop the flag.
+      setSelectedTemplateId(null)
+      setText(refined)
+      setTimeout(() => textareaRef.current?.focus(), 0)
+    } catch {
+      setSendError("Couldn't polish the draft — try again")
+    } finally {
+      setPolishLoading(false)
+    }
+  }
+
+  function undoPolish() {
+    if (polishUndo === null) return
+    setText(polishUndo)
+    setPolishUndo(null)
+    setTimeout(() => textareaRef.current?.focus(), 0)
+  }
+
+  // "Catch me up" — fetch a fresh roll-up each open (cheap; relationship state
+  // changes as new texts/calls land).
+  async function runCatchMeUp() {
+    if (catchOpen) {
+      setCatchOpen(false)
+      return
+    }
+    setCatchOpen(true)
+    setCatchLoading(true)
+    setCatchError(null)
+    setCatchSummary(null)
+    try {
+      const res = await fetch(
+        `/api/txt/conversations/${conversation.id}/catch-me-up`,
+        { method: 'POST' }
+      )
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok || data.error) {
+        setCatchError(data.error || "Couldn't summarize — try again")
+        return
+      }
+      setCatchSummary(data.summary || 'No summary available.')
+    } catch {
+      setCatchError("Couldn't summarize — try again")
+    } finally {
+      setCatchLoading(false)
     }
   }
 
@@ -539,11 +628,18 @@ export default function TxtConversationView({
     }
   }, [conversation.id, companyId])
 
-  // Unified Inbox (Session 2) — pull the contact's call + voicemail events and
-  // interleave them into the thread. Read-only, behind can_access_unified_inbox.
+  // Unified Inbox (Session 2 + 5) — pull the contact's call + voicemail events
+  // and interleave them into the thread. Read-only, behind can_access_unified_inbox.
   // Per-contact (not per-conversation): group threads have no single contact and
-  // are text-only in v1 (PRD §7.3). Refetch-on-load is the documented S2 scope;
-  // live insertion across channels is Session 5.
+  // are text-only in v1 (PRD §7.3).
+  //
+  // Session 5 realtime: in addition to the on-load fetch, subscribe to the
+  // call transcription pipeline's `call-updated` broadcast on
+  // `call-log2:{companyId}` (lib/call-transcribe.ts) so a new/finished call —
+  // and the voicemail folded into it — appears live without a reload. Texts
+  // already refresh via the `txt:{companyId}` channel above; orphan voicemails
+  // catch up on the 30s reconcile. The per-contact timeline query is tiny, so a
+  // broadcast for any call in the company just re-fetches this contact cheaply.
   useEffect(() => {
     const contactId = conversation.contact?.id
     if (!canAccessUnifiedInbox || isGroup || !contactId) {
@@ -551,9 +647,10 @@ export default function TxtConversationView({
       return
     }
     let cancelled = false
-    ;(async () => {
+
+    async function loadCallEvents() {
       try {
-        const res = await fetch(`/api/txt/timeline?contact_id=${encodeURIComponent(contactId)}`)
+        const res = await fetch(`/api/txt/timeline?contact_id=${encodeURIComponent(contactId!)}`)
         if (!res.ok || cancelled) return
         const data = await res.json()
         const events: TimelineCallEvent[] = (data.events || []).filter(
@@ -563,11 +660,21 @@ export default function TxtConversationView({
       } catch {
         /* non-fatal — the thread still renders texts + notes */
       }
-    })()
+    }
+
+    loadCallEvents()
+
+    const supabase = createClient()
+    const channel = supabase
+      .channel(`call-log2:${companyId}`)
+      .on('broadcast', { event: 'call-updated' }, () => loadCallEvents())
+      .subscribe()
+
     return () => {
       cancelled = true
+      supabase.removeChannel(channel)
     }
-  }, [canAccessUnifiedInbox, isGroup, conversation.contact?.id])
+  }, [canAccessUnifiedInbox, isGroup, conversation.contact?.id, companyId])
 
   async function addMember(userId: string) {
     setAddMemberOpen(false)
@@ -821,6 +928,10 @@ export default function TxtConversationView({
 
   function handleTextChange(value: string) {
     setText(value)
+    // A manual edit invalidates the ✨ Polish undo buffer (it no longer maps
+    // back to a single pre-polish draft). Polish itself sets text via setText,
+    // not this handler, so its undo buffer survives.
+    if (polishUndo !== null) setPolishUndo(null)
     // If the user is editing in a way that no longer matches the picked
     // template's body, drop the template_id flag so substitution doesn't
     // run on unrelated text. We keep template_id set only when the current
@@ -1162,6 +1273,30 @@ export default function TxtConversationView({
               📞
             </button>
           )}
+          {/* Catch me up — Unified Inbox Session 5. Read-only AI roll-up of the
+              whole relationship. Behind can_access_unified_inbox; direct threads
+              only (groups are text-only in v1) and only when there's history. */}
+          {canAccessUnifiedInbox && !isGroup && (messages.length > 0 || callEvents.length > 0) && (
+            <button
+              type="button"
+              onClick={runCatchMeUp}
+              disabled={catchLoading}
+              className={`text-xs px-2 py-1 rounded-md inline-flex items-center gap-1 disabled:opacity-60 ${
+                catchOpen
+                  ? 'bg-sky-500/25 text-sky-100'
+                  : 'bg-sky-500/15 text-sky-200 hover:bg-sky-500/25'
+              }`}
+              title="Catch me up on this customer"
+              aria-label="Catch me up"
+            >
+              {catchLoading ? (
+                <span className="inline-block w-3 h-3 border-2 border-sky-200 border-t-transparent rounded-full animate-spin" />
+              ) : (
+                <span aria-hidden>🧭</span>
+              )}
+              <span className="hidden sm:inline">Catch me up</span>
+            </button>
+          )}
           {/* Suggest Reply (Guardian) — Guardian Session 3. Dual-gated:
               hasGuardian (user has any guardian_tier) AND canReply on this
               thread AND at least one message exists AND not archived AND not
@@ -1235,6 +1370,32 @@ export default function TxtConversationView({
           </button>
         </div>
       </div>
+
+      {/* Catch me up — collapsible summary panel below the header. Renders only
+          while open; a fresh roll-up is fetched each time it's opened. */}
+      {catchOpen && (
+        <div className="px-4 py-2.5 bg-sky-500/10 border-b border-sky-500/25 text-sm flex items-start gap-2">
+          <span aria-hidden className="mt-0.5">🧭</span>
+          <div className="flex-1 min-w-0">
+            {catchLoading ? (
+              <span className="text-sky-200/70">Catching you up…</span>
+            ) : catchError ? (
+              <span className="text-orange-200">{catchError}</span>
+            ) : (
+              <span className="text-sky-50/90 whitespace-pre-wrap">{catchSummary}</span>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => setCatchOpen(false)}
+            className="flex-none text-sky-200/60 hover:text-sky-100 text-xs px-1"
+            title="Dismiss"
+            aria-label="Dismiss catch me up"
+          >
+            ✕
+          </button>
+        </div>
+      )}
 
       {/* Opt-out banner — always visible (even when the thread is archived) so
           staff immediately see the contact is on the do-not-text list. The
@@ -1730,6 +1891,37 @@ export default function TxtConversationView({
             </div>
 
             <div className="flex-1" />
+
+            {/* ✨ Polish draft — Unified Inbox Session 5. Refines the user's own
+                draft (never generates one). Active only when there's text and
+                the contact isn't opted out. After polishing, an ↩ Undo restores
+                the original draft until the user edits again. */}
+            {polishUndo !== null ? (
+              <button
+                type="button"
+                onClick={undoPolish}
+                className="text-[11px] text-white/60 hover:text-white px-1.5 py-1 rounded-md hover:bg-white/10 mr-0.5"
+                title="Undo polish — restore your original draft"
+                aria-label="Undo polish"
+              >
+                ↩ Undo
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={runPolishDraft}
+                disabled={polishLoading || !text.trim() || !!conversation.contact?.do_not_text}
+                className="text-violet-300/80 hover:text-violet-200 disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-violet-500/15 mr-0.5"
+                title="Polish my draft — clean up grammar &amp; tone"
+                aria-label="Polish draft"
+              >
+                {polishLoading ? (
+                  <span className="inline-block w-3.5 h-3.5 border-2 border-violet-300 border-t-transparent rounded-full animate-spin align-middle" />
+                ) : (
+                  <span className="text-base leading-none">✨</span>
+                )}
+              </button>
+            )}
 
             <span className="text-[10px] text-white/40 mr-1">
               {text.length > 0 && `${text.length}`}
