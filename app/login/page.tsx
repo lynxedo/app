@@ -12,6 +12,7 @@ function LoginForm() {
   const [loading, setLoading] = useState(false)
   const [verifying, setVerifying] = useState(false)
   const [googleLoading, setGoogleLoading] = useState(false)
+  const [appleLoading, setAppleLoading] = useState(false)
   const [error, setError] = useState('')
   const [passwordMode, setPasswordMode] = useState(false)
   const [password, setPassword] = useState('')
@@ -68,6 +69,47 @@ function LoginForm() {
     } else {
       await supabase.auth.signInWithOAuth({
         provider: 'google',
+        options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback` },
+      })
+    }
+  }
+
+  // Sign in with Apple — mirrors the Google flow (web-based OAuth). Required on
+  // iOS by App Store Guideline 4.8 because we also offer a third-party login.
+  const handleAppleLogin = async () => {
+    setAppleLoading(true)
+    setError('')
+    const supabase = createClient()
+    const isNative = typeof window !== 'undefined' &&
+      ('Capacitor' in window || localStorage.getItem('lynxedo_native') === '1')
+    const isAndroidNative = isNative && /android/i.test(navigator.userAgent)
+
+    if (isNative) {
+      const redirectTo = isAndroidNative
+        ? 'https://lynxedo.com/auth/callback?app=android'
+        : 'com.lynxedo.hub://auth/callback'
+
+      const { data, error: oauthError } = await supabase.auth.signInWithOAuth({
+        provider: 'apple',
+        options: {
+          redirectTo,
+          skipBrowserRedirect: true,
+        },
+      })
+      if (oauthError || !data?.url) {
+        setError('Could not start Apple sign-in. Please try again.')
+        setAppleLoading(false)
+        return
+      }
+      try {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        await (window as any).Capacitor.Plugins.Browser.open({ url: data.url })
+      } catch {
+        window.location.href = data.url
+      }
+    } else {
+      await supabase.auth.signInWithOAuth({
+        provider: 'apple',
         options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback` },
       })
     }
@@ -186,6 +228,17 @@ function LoginForm() {
               <path fill="#EA4335" d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"/>
             </svg>
             {googleLoading ? 'Redirecting...' : 'Sign in with Google'}
+          </button>
+
+          <button
+            onClick={handleAppleLogin}
+            disabled={appleLoading || sent}
+            className="w-full flex items-center justify-center gap-3 bg-black hover:bg-gray-900 disabled:opacity-50 text-white font-medium rounded-lg py-2.5 text-sm transition-colors mb-6 border border-gray-700"
+          >
+            <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
+              <path d="M17.05 12.04c-.03-2.53 2.07-3.74 2.16-3.8-1.18-1.72-3.01-1.96-3.66-1.99-1.56-.16-3.04.92-3.83.92-.79 0-2-.9-3.29-.87-1.69.02-3.25.98-4.12 2.5-1.76 3.05-.45 7.56 1.26 10.03.83 1.21 1.82 2.57 3.12 2.52 1.25-.05 1.72-.81 3.23-.81 1.51 0 1.93.81 3.25.78 1.34-.02 2.19-1.23 3.01-2.45.95-1.4 1.34-2.76 1.36-2.83-.03-.01-2.61-1-2.64-3.97zM14.6 4.84c.69-.84 1.16-2 1.03-3.16-1 .04-2.21.66-2.92 1.5-.64.74-1.2 1.93-1.05 3.06 1.11.09 2.25-.56 2.94-1.4z"/>
+            </svg>
+            {appleLoading ? 'Redirecting...' : 'Sign in with Apple'}
           </button>
 
           <div className="relative mb-6">
