@@ -87,15 +87,17 @@ export async function proxy(request: NextRequest) {
     const landingPath = profile?.landing_page === 'dashboard' ? '/dashboard' : '/hub/home'
 
     // Membership check: access is granted to anyone provisioned into a company —
-    // i.e. explicitly invited by an admin. "Sign in with Google" stays restricted to
-    // the company's Workspace domain because the new-user trigger only auto-creates a
-    // profile for domain-matching emails; a Google account with no profile lands here
-    // with no company_id and is signed out. Admin-invited users (ANY email, incl.
-    // personal Gmail) get a profile at invite time and sign in with an email code.
+    // i.e. explicitly invited by an admin, or whose email domain matched a company
+    // in the new-user trigger. An account with no company_id never matched and
+    // wasn't invited (e.g. a brand-new public sign-up, including Sign in with
+    // Apple with Hide My Email). Send it to a clean /welcome screen rather than a
+    // hard sign-out — RLS blocks all data while company_id is null, and /welcome
+    // offers a sign-out. (/welcome is outside this middleware's matcher, so there
+    // is no redirect loop.)
     if (!profile || !profile.company_id) {
       const url = request.nextUrl.clone()
-      url.pathname = '/api/auth/signout'
-      url.searchParams.set('reason', 'unauthorized')
+      url.pathname = '/welcome'
+      url.search = ''
       return NextResponse.redirect(url)
     }
 
