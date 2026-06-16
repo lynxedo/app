@@ -7377,6 +7377,7 @@ export type Database = {
           can_access_timesheet: boolean | null
           can_access_tracker: boolean | null
           can_access_txt: boolean
+          can_access_unified_inbox: boolean
           can_access_zone_sizer: boolean
           can_admin_announcements: boolean
           can_admin_contacts: boolean
@@ -7442,6 +7443,7 @@ export type Database = {
           can_access_timesheet?: boolean | null
           can_access_tracker?: boolean | null
           can_access_txt?: boolean
+          can_access_unified_inbox?: boolean
           can_access_zone_sizer?: boolean
           can_admin_announcements?: boolean
           can_admin_contacts?: boolean
@@ -7507,6 +7509,7 @@ export type Database = {
           can_access_timesheet?: boolean | null
           can_access_tracker?: boolean | null
           can_access_txt?: boolean
+          can_access_unified_inbox?: boolean
           can_access_zone_sizer?: boolean
           can_admin_announcements?: boolean
           can_admin_contacts?: boolean
@@ -7945,6 +7948,7 @@ export type Database = {
           can_access_timesheet: boolean
           can_access_tracker: boolean
           can_access_txt: boolean
+          can_access_unified_inbox: boolean
           can_access_zone_sizer: boolean
           can_admin_announcements: boolean
           can_admin_contacts: boolean
@@ -7973,6 +7977,26 @@ export type Database = {
           last_sign_in_at: string
           phone: string
           role: string
+        }[]
+      }
+      get_contact_timeline: {
+        Args: { p_company_id: string; p_contact_id: string }
+        Returns: {
+          actor: string
+          ai_reply_sent_at: string
+          body: string
+          direction: string
+          duration_seconds: number
+          id: string
+          kind: string
+          media_urls: string[]
+          recording_path: string
+          sentiment: string
+          status: string
+          summary: string
+          transcript: string
+          ts: string
+          voicemail_id: string
         }[]
       }
       get_last_top_level_message_per_conversation: {
