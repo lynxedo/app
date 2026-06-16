@@ -25,9 +25,27 @@ type Conversation = {
   contact: { id: string; name: string; phone: string; do_not_text: boolean } | null
   assignee: { id: string; display_name: string } | null
   group_contacts?: Array<{ contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null }>
+  // Unified Inbox (Session 3) — present only when can_access_unified_inbox.
+  last_call_at?: string | null
+  last_voicemail_at?: string | null
+  last_activity_at?: string | null
+  last_activity_type?: 'text' | 'call' | 'voicemail' | null
+  has_missed_call?: boolean
+  has_voicemail?: boolean
+  has_unheard_voicemail?: boolean
+  last_inbound_activity_at?: string | null
 }
 
 type Scope = 'mine' | 'all' | 'archived' | 'responder' | 'contacts'
+type ViewFilter = 'all' | 'unread' | 'missed' | 'voicemails'
+
+// Last-activity-type icon for the rail (one icon per row, not a per-channel
+// badge — PRD §3.2). Matches the marker emoji used in TimelineMarkers.tsx.
+const ACTIVITY_ICON: Record<'text' | 'call' | 'voicemail', string> = {
+  text: '💬',
+  call: '📞',
+  voicemail: '🎙',
+}
 
 type SimpleUser = { id: string; display_name: string }
 
@@ -78,6 +96,7 @@ export default function TxtV2Sidebar({
   onDesktopCollapse,
   canManage,
   canCall = false,
+  canAccessUnifiedInbox = false,
   currentUserId,
   companyId,
 }: {
@@ -87,12 +106,16 @@ export default function TxtV2Sidebar({
   canManage: boolean
   /** Show the 📞 Call button on contact rows (user has dialer access). */
   canCall?: boolean
+  /** Unified inbox: rows carry cross-channel activity → show the activity icon,
+   *  the Missed/Voicemails filters, and fold calls/VMs into the unread dot. */
+  canAccessUnifiedInbox?: boolean
   currentUserId: string
   companyId: string
 }) {
   const pathname = usePathname() || ''
   const toast = useToast()
   const [scope, setScope] = useState<Scope>('all')
+  const [viewFilter, setViewFilter] = useState<ViewFilter>('all')
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [queue, setQueue] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(false)
@@ -238,13 +261,43 @@ export default function TxtV2Sidebar({
   }, [pathname, conversations, markRead])
 
   // A conversation is unread when a customer inbound landed after this device
-  // last opened it. The currently-open thread never shows a dot.
+  // last opened it. The currently-open thread never shows a dot. With the
+  // unified inbox on, "inbound" also covers a missed call or a new voicemail
+  // (last_inbound_activity_at), so the same dot lights for any unhandled
+  // incoming on any channel — and opening the thread (which shows the markers)
+  // clears it via the existing per-device reads stamp.
   function isUnread(c: Conversation) {
     if (c.status === 'archived') return false
-    if (!c.last_inbound_at) return false
     if (pathname === `/hub/txt/${c.id}`) return false
+    const inbound = canAccessUnifiedInbox
+      ? c.last_inbound_activity_at ?? c.last_inbound_at
+      : c.last_inbound_at
+    if (!inbound) return false
     const seen = reads[c.id]
-    return !seen || c.last_inbound_at > seen
+    return !seen || inbound > seen
+  }
+
+  // Within-list lens (unified inbox only): All · Unread · Missed · Voicemails.
+  function passesViewFilter(c: Conversation) {
+    if (!canAccessUnifiedInbox || viewFilter === 'all') return true
+    if (viewFilter === 'unread') return isUnread(c)
+    if (viewFilter === 'missed') return !!c.has_missed_call
+    if (viewFilter === 'voicemails') return !!c.has_voicemail
+    return true
+  }
+
+  // Leading icon showing the last activity type for a row (unified inbox only).
+  function activityIcon(c: Conversation) {
+    if (!canAccessUnifiedInbox || !c.last_activity_type) return null
+    return (
+      <span
+        className="flex-none text-[11px] leading-none opacity-70"
+        aria-hidden
+        title={`Last activity: ${c.last_activity_type}`}
+      >
+        {ACTIVITY_ICON[c.last_activity_type]}
+      </span>
+    )
   }
 
   // Sidebar subline: the last message snippet ("You: …" for outbound), falling
@@ -275,12 +328,13 @@ export default function TxtV2Sidebar({
     [search]
   )
 
-  const filteredQueue = queue.filter(matchesSearch)
+  const filteredQueue = queue.filter(matchesSearch).filter(passesViewFilter)
   // In the All view the unassigned threads also come back in the main list —
   // drop them so they only appear once (in the pinned Queue section above).
   const filteredMain = conversations
     .filter((c) => !(scope === 'all' && c.status === 'unassigned'))
     .filter(matchesSearch)
+    .filter(passesViewFilter)
 
   async function claim(id: string, e: React.MouseEvent) {
     e.preventDefault()
@@ -412,6 +466,32 @@ export default function TxtV2Sidebar({
               </button>
             ))}
         </div>
+
+        {/* Unified inbox lens: filter the current list by channel/state. One
+            icon per row already shows the last activity type; these chips
+            narrow to what needs attention. Hidden on the Contacts tab. */}
+        {canAccessUnifiedInbox && scope !== 'contacts' && (
+          <div className="flex flex-wrap gap-1 text-[11px]">
+            {([
+              ['all', 'All'],
+              ['unread', 'Unread'],
+              ['missed', 'Missed'],
+              ['voicemails', 'Voicemails'],
+            ] as [ViewFilter, string][]).map(([id, label]) => (
+              <button
+                key={id}
+                onClick={() => setViewFilter(id)}
+                className={`px-2 py-0.5 rounded-full border transition ${
+                  viewFilter === id
+                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200'
+                    : 'border-white/10 text-white/50 hover:text-white/80'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       {scope === 'contacts' ? (
@@ -450,12 +530,13 @@ export default function TxtV2Sidebar({
                             {unread && (
                               <span className="w-2 h-2 rounded-full bg-orange-400 flex-none" aria-label="Unread" />
                             )}
+                            {activityIcon(c)}
                             <span className={`text-sm truncate ${unread ? 'font-semibold text-white' : 'font-medium'}`}>
                               {displayNameFor(c)}
                             </span>
                           </span>
                           <span className={`text-[10px] flex-none ${unread ? 'text-orange-300' : 'text-white/40'}`}>
-                            {formatRelative(c.last_message_at || c.created_at)}
+                            {formatRelative(c.last_activity_at || c.last_message_at || c.created_at)}
                           </span>
                         </div>
                         <div className="flex items-center justify-between gap-2 mt-0.5">
@@ -507,11 +588,14 @@ export default function TxtV2Sidebar({
                       className={`block px-4 py-2 ${active ? 'bg-white/5' : 'hover:bg-white/5'}`}
                     >
                       <div className="flex items-center justify-between gap-2">
-                        <span className="font-medium text-sm truncate">
-                          {displayNameFor(c)}
+                        <span className="flex items-center gap-1.5 min-w-0">
+                          {activityIcon(c)}
+                          <span className="font-medium text-sm truncate">
+                            {displayNameFor(c)}
+                          </span>
                         </span>
                         <span className="text-[10px] text-white/40 flex-none">
-                          {formatRelative(c.last_message_at || c.created_at)}
+                          {formatRelative(c.last_activity_at || c.last_message_at || c.created_at)}
                         </span>
                       </div>
                       <div className="text-[11px] text-white/40 truncate mt-0.5">
@@ -617,12 +701,13 @@ export default function TxtV2Sidebar({
                           aria-label="Unread"
                         />
                       )}
+                      {activityIcon(c)}
                       <span className={`text-sm truncate ${unread ? 'font-semibold text-white' : 'font-medium'}`}>
                         {displayNameFor(c)}
                       </span>
                     </span>
                     <span className={`text-[10px] flex-none ${unread ? 'text-orange-300' : 'text-white/40'}`}>
-                      {formatRelative(c.last_message_at || c.created_at)}
+                      {formatRelative(c.last_activity_at || c.last_message_at || c.created_at)}
                     </span>
                   </div>
                   <div className="flex items-center justify-between gap-2 mt-0.5">
