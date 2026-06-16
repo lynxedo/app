@@ -778,12 +778,12 @@ function GroupSection({
   onSetSort: (id: string, dir: 'asc' | 'desc' | null) => void
 }) {
   const totalWidth = columns.reduce((sum, c) => sum + c.width, 0) + 32 + 56 // checkbox col + actions col
-  // Freeze the checkbox + first two columns (sticky-left). Offsets are computed
+  // Freeze the checkbox + first column (sticky-left). Offsets are computed
   // from live column widths so the freeze tracks resizing. NOTE: the wrapper must
   // NOT have overflow-hidden — an overflow!=visible ancestor becomes the sticky
   // scrollport and silently defeats the left-freeze.
   const CHECKBOX_W = 32
-  const freezeCount = Math.min(2, columns.length)
+  const freezeCount = Math.min(1, columns.length)
   const colLeft: number[] = []
   { let acc = CHECKBOX_W; for (let i = 0; i < columns.length; i++) { colLeft[i] = acc; acc += columns[i].width } }
   return (
@@ -1777,18 +1777,20 @@ export default function TrackerPage({
       <style>{`
         .tracker-no-sb { scrollbar-width: none; -ms-overflow-style: none; }
         .tracker-no-sb::-webkit-scrollbar { display: none; }
-        /* Always-visible vertical scrollbar (native overlay bars auto-hide on
-           macOS / iOS / the apps). Styling ::-webkit-scrollbar forces a
-           persistent, click-and-drag bar on the right edge. */
-        .tracker-vsb { scrollbar-width: thin; scrollbar-color: #4f46e5 transparent; }
-        .tracker-vsb::-webkit-scrollbar { width: 12px; }
-        .tracker-vsb::-webkit-scrollbar-track { background: transparent; }
+        /* Always-visible vertical scrollbar. Native overlay bars auto-hide on
+           macOS / iOS / the apps. IMPORTANT: do NOT set scrollbar-width:thin —
+           in current Chrome that makes the standard property win and the
+           ::-webkit-scrollbar width below is ignored, giving a zero-width
+           auto-hiding overlay bar. scrollbar-width:auto keeps webkit honored. */
+        .tracker-vsb { scrollbar-width: auto; scrollbar-color: #6366f1 rgba(120,120,140,0.12); }
+        .tracker-vsb::-webkit-scrollbar { width: 14px; }
+        .tracker-vsb::-webkit-scrollbar-track { background: rgba(120,120,140,0.12); }
         .tracker-vsb::-webkit-scrollbar-thumb {
-          background: #4f46e5; border-radius: 6px;
+          background: #6366f1; border-radius: 7px;
           border: 3px solid transparent; background-clip: content-box;
         }
         .tracker-vsb::-webkit-scrollbar-thumb:hover {
-          background: #6366f1; background-clip: content-box;
+          background: #818cf8; background-clip: content-box;
         }
       `}</style>
       {/* Main */}
