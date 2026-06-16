@@ -1778,11 +1778,13 @@ export default function TrackerPage({
         .tracker-no-sb { scrollbar-width: none; -ms-overflow-style: none; }
         .tracker-no-sb::-webkit-scrollbar { display: none; }
         /* Always-visible vertical scrollbar. Native overlay bars auto-hide on
-           macOS / iOS / the apps. IMPORTANT: do NOT set scrollbar-width:thin —
-           in current Chrome that makes the standard property win and the
-           ::-webkit-scrollbar width below is ignored, giving a zero-width
-           auto-hiding overlay bar. scrollbar-width:auto keeps webkit honored. */
-        .tracker-vsb { scrollbar-width: auto; scrollbar-color: #6366f1 rgba(120,120,140,0.12); }
+           macOS / iOS / the apps. IMPORTANT: do NOT set scrollbar-width:thin OR a
+           custom scrollbar-color — in current Chrome EITHER one switches the element
+           to standard scrollbar rendering and the ::-webkit-scrollbar rules below are
+           ignored, leaving a zero-width auto-hiding overlay bar (verified live: custom
+           scrollbar-color -> gutter 0; removed -> gutter 14). Color comes from the
+           ::-webkit-scrollbar-thumb instead, keeping the webkit path in control. */
+        .tracker-vsb { scrollbar-width: auto; }
         .tracker-vsb::-webkit-scrollbar { width: 14px; }
         .tracker-vsb::-webkit-scrollbar-track { background: rgba(120,120,140,0.12); }
         .tracker-vsb::-webkit-scrollbar-thumb {
