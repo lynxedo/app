@@ -25,7 +25,7 @@ export default async function HubLeadTrackerRoute() {
   }
 
   const initialColumnLayout = Array.isArray(profile?.tracker_column_layout)
-    ? profile.tracker_column_layout as { id: string; width: number }[]
+    ? profile.tracker_column_layout as { id: string; width: number; hidden?: boolean }[]
     : null
 
   return <TrackerPage settings={settings} currentUser={currentUser} initialColumnLayout={initialColumnLayout} />
