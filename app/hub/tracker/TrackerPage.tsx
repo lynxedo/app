@@ -1430,6 +1430,16 @@ export default function TrackerPage({
     const r = hScrollRef.current
     if (r) setHMetrics(m => ({ ...m, left: r.scrollLeft }))
   }, [])
+
+  const maxScroll = Math.max(0, hMetrics.scroll - hMetrics.client)
+  const hOverflow = maxScroll > 1
+  const thumbW = hMetrics.scroll > 0 && hMetrics.track > 0 ? Math.max(48, hMetrics.track * (hMetrics.client / hMetrics.scroll)) : 48
+  const thumbLeft = maxScroll > 0 ? (hMetrics.track - thumbW) * (hMetrics.left / maxScroll) : 0
+
+  // Re-measure whenever the scroll region (re)mounts or its content width changes.
+  // Deps include `loading` and `hOverflow` on purpose: the scroll container doesn't
+  // exist during the initial "Loading…" render, and the track element only mounts
+  // once the bar is shown — both need a fresh measure pass once they appear.
   useEffect(() => {
     const r = hScrollRef.current
     if (!r) return
@@ -1438,12 +1448,8 @@ export default function TrackerPage({
     ro.observe(r)
     if (trackRef.current) ro.observe(trackRef.current)
     return () => ro.disconnect()
-  }, [contentWidth, measureScroll])
+  }, [contentWidth, loading, hOverflow, measureScroll])
 
-  const maxScroll = Math.max(0, hMetrics.scroll - hMetrics.client)
-  const hOverflow = maxScroll > 1
-  const thumbW = hMetrics.scroll > 0 ? Math.max(48, hMetrics.track * (hMetrics.client / hMetrics.scroll)) : 0
-  const thumbLeft = maxScroll > 0 ? (hMetrics.track - thumbW) * (hMetrics.left / maxScroll) : 0
   const nudge = (dir: number) => hScrollRef.current?.scrollBy({ left: dir * Math.max(240, hMetrics.client * 0.8), behavior: 'smooth' })
   const onThumbDrag = (e: React.MouseEvent) => {
     e.preventDefault()
