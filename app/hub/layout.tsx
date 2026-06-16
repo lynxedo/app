@@ -179,6 +179,11 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessDailyLogV2 = profileResult.data?.can_access_daily_log_v2 ?? false
   const rawCanAccessScoreboards = profileResult.data?.can_access_scoreboards ?? false
   const companyId = profileResult.data?.company_id ?? ''
+  // A signed-in account with no company never auto-joined one (its email domain
+  // didn't match a registered company in handle_new_user). Send it to a clean
+  // welcome screen instead of an empty Hub. Every real user has a company, so
+  // this only affects brand-new unaffiliated sign-ups (e.g. Sign in with Apple).
+  if (!companyId) redirect('/welcome')
   // Per-board view access (Admin -> Scoreboards). Admins see all boards; non-admins
   // see only explicitly-granted boards, and the section is hidden entirely when they
   // have none. Only query when the section flag is on (admins skip the query too).
