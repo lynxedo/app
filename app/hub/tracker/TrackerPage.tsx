@@ -534,6 +534,8 @@ function LeadRow({
   lightMode,
   statusColors,
   columns,
+  freezeCount,
+  colLeft,
 }: {
   lead: Lead
   opts: TrackerSettings
@@ -545,6 +547,8 @@ function LeadRow({
   lightMode: boolean
   statusColors: Record<string, string>
   columns: Array<ColumnDef & { width: number }>
+  freezeCount: number
+  colLeft: number[]
 }) {
   const rowCls = checked
     ? lightMode ? 'bg-indigo-50' : 'bg-indigo-950/30'
@@ -554,7 +558,11 @@ function LeadRow({
 
   return (
     <tr className={rowCls}>
-      <td className="px-3 py-2 text-center" onClick={e => e.stopPropagation()}>
+      <td
+        className={`px-3 py-2 text-center sticky z-10 ${frozenBg(lightMode, checked)}`}
+        style={{ left: 0 }}
+        onClick={e => e.stopPropagation()}
+      >
         <input
           type="checkbox"
           checked={checked}
@@ -562,16 +570,143 @@ function LeadRow({
           className="rounded accent-indigo-500 cursor-pointer"
         />
       </td>
-      {columns.map(col => (
-        <td key={col.id} className="px-3 py-2 text-sm overflow-hidden" style={{ maxWidth: col.width }}>
-          {col.render(lead, ctx)}
-        </td>
-      ))}
+      {columns.map((col, i) => {
+        const frozen = i < freezeCount
+        const isLastFrozen = i === freezeCount - 1
+        return (
+          <td
+            key={col.id}
+            className={`px-3 py-2 text-sm overflow-hidden ${
+              frozen
+                ? `sticky z-10 ${frozenBg(lightMode, checked)} ${isLastFrozen ? (lightMode ? 'border-r border-gray-200' : 'border-r border-gray-800') : ''}`
+                : ''
+            }`}
+            style={frozen ? { maxWidth: col.width, left: colLeft[i] } : { maxWidth: col.width }}
+          >
+            {col.render(lead, ctx)}
+          </td>
+        )
+      })}
       <td className="px-3 py-2 text-center whitespace-nowrap">
         <button onClick={() => onEdit(lead.id)} title="Edit lead" className="text-gray-600 hover:text-indigo-400 transition-colors text-sm leading-none mr-2">✎</button>
         <button onClick={() => onOpenNotes(lead.id)} title="Notes" className="text-gray-600 hover:text-indigo-400 transition-colors text-base leading-none">💬</button>
       </td>
     </tr>
+  )
+}
+
+// Opaque background for a frozen (sticky) cell — must be solid so scrolling
+// columns slide cleanly underneath. Mirrors the row's base / hover / selected bg.
+function frozenBg(lightMode: boolean, checked: boolean): string {
+  if (checked) return lightMode ? 'bg-indigo-50' : 'bg-indigo-950'
+  return lightMode ? 'bg-white group-hover:bg-gray-50' : 'bg-gray-950 group-hover:bg-gray-900'
+}
+
+// ────────────────────────────────────────────────
+// Column header — sort (click cycles, ▾ menu for explicit A→Z / Z→A / Clear),
+// drag-to-reorder, drag-edge-to-resize, and optional left-freeze (sticky).
+// ────────────────────────────────────────────────
+function ColumnHeader({
+  col, sort, onToggleSort, onSetSort, onColumnResize, onColumnReorder,
+  lightMode, frozen, leftOffset, isLastFrozen,
+}: {
+  col: ColumnDef & { width: number }
+  sort: SortState
+  onToggleSort: (id: string) => void
+  onSetSort: (id: string, dir: 'asc' | 'desc' | null) => void
+  onColumnResize: (id: string, width: number) => void
+  onColumnReorder: (fromId: string, toId: string) => void
+  lightMode: boolean
+  frozen: boolean
+  leftOffset: number
+  isLastFrozen: boolean
+}) {
+  const [menuOpen, setMenuOpen] = useState(false)
+  const active = sort?.key === col.id
+  const frozenCls = frozen
+    ? `sticky z-20 ${lightMode ? 'bg-white' : 'bg-gray-950'} ${isLastFrozen ? (lightMode ? 'border-r border-gray-200' : 'border-r border-gray-800') : ''}`
+    : ''
+  return (
+    <th
+      className={`px-3 py-1.5 font-medium relative select-none cursor-grab active:cursor-grabbing ${frozenCls}`}
+      style={frozen ? { left: leftOffset } : undefined}
+      draggable
+      onDragStart={e => {
+        e.dataTransfer.setData('text/x-tracker-col', col.id)
+        e.dataTransfer.effectAllowed = 'move'
+      }}
+      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
+      onDrop={e => {
+        e.preventDefault()
+        const fromId = e.dataTransfer.getData('text/x-tracker-col')
+        if (fromId && fromId !== col.id) onColumnReorder(fromId, col.id)
+      }}
+      title="Click to sort · ▾ for A→Z / Z→A · drag header to reorder · drag right edge to resize"
+    >
+      <span className="inline-flex items-center gap-1">
+        <span
+          onClick={() => onToggleSort(col.id)}
+          className="cursor-pointer hover:text-gray-300 inline-flex items-center gap-1"
+        >
+          {col.label}
+          {active && <span className="text-indigo-400">{sort!.dir === 'asc' ? '▲' : '▼'}</span>}
+        </span>
+        <button
+          onClick={e => { e.stopPropagation(); setMenuOpen(o => !o) }}
+          onMouseDown={e => e.stopPropagation()}
+          className={`text-[10px] leading-none px-0.5 ${active ? 'text-indigo-400' : 'text-gray-600 hover:text-gray-300'}`}
+          title="Sort options"
+          aria-label="Sort options"
+        >▾</button>
+      </span>
+      {menuOpen && (
+        <>
+          <div className="fixed inset-0 z-40" onClick={() => setMenuOpen(false)} />
+          <div className={`absolute left-2 top-full mt-1 z-50 w-36 rounded-lg border shadow-2xl py-1 text-xs font-normal ${
+            lightMode ? 'bg-white border-gray-200 text-gray-700' : 'bg-gray-900 border-gray-700 text-gray-200'
+          }`}>
+            <button
+              onClick={() => { onSetSort(col.id, 'asc'); setMenuOpen(false) }}
+              className={`w-full text-left px-3 py-1.5 ${lightMode ? 'hover:bg-gray-100' : 'hover:bg-gray-800'} ${active && sort!.dir === 'asc' ? 'text-indigo-400' : ''}`}
+            >Sort A → Z</button>
+            <button
+              onClick={() => { onSetSort(col.id, 'desc'); setMenuOpen(false) }}
+              className={`w-full text-left px-3 py-1.5 ${lightMode ? 'hover:bg-gray-100' : 'hover:bg-gray-800'} ${active && sort!.dir === 'desc' ? 'text-indigo-400' : ''}`}
+            >Sort Z → A</button>
+            <button
+              onClick={() => { onSetSort(col.id, null); setMenuOpen(false) }}
+              className={`w-full text-left px-3 py-1.5 ${lightMode ? 'hover:bg-gray-100' : 'hover:bg-gray-800'}`}
+            >Clear sort</button>
+          </div>
+        </>
+      )}
+      <span
+        role="separator"
+        aria-orientation="vertical"
+        onMouseDown={e => {
+          e.preventDefault()
+          e.stopPropagation()
+          const startX = e.clientX
+          const startWidth = col.width
+          function onMove(ev: MouseEvent) {
+            const dx = ev.clientX - startX
+            const next = Math.max(50, Math.min(600, startWidth + dx))
+            onColumnResize(col.id, next)
+          }
+          function onUp() {
+            window.removeEventListener('mousemove', onMove)
+            window.removeEventListener('mouseup', onUp)
+          }
+          window.addEventListener('mousemove', onMove)
+          window.addEventListener('mouseup', onUp)
+        }}
+        className="group/resize absolute top-0 right-0 h-full w-2 flex items-center justify-center cursor-col-resize"
+        onDragStart={e => e.preventDefault()}
+        title="Drag to resize column"
+      >
+        <span className={`h-3/5 w-px transition-all group-hover/resize:w-0.5 group-hover/resize:bg-indigo-400 ${lightMode ? 'bg-gray-300' : 'bg-gray-700'}`} />
+      </span>
+    </th>
   )
 }
 
@@ -621,6 +756,7 @@ function GroupSection({
   onColumnReorder,
   sort,
   onToggleSort,
+  onSetSort,
 }: {
   group: { key: string; label: string; leads: Lead[] }
   collapsed: boolean
@@ -639,14 +775,23 @@ function GroupSection({
   onColumnReorder: (fromId: string, toId: string) => void
   sort: SortState
   onToggleSort: (id: string) => void
+  onSetSort: (id: string, dir: 'asc' | 'desc' | null) => void
 }) {
   const totalWidth = columns.reduce((sum, c) => sum + c.width, 0) + 32 + 56 // checkbox col + actions col
+  // Freeze the checkbox + first two columns (sticky-left). Offsets are computed
+  // from live column widths so the freeze tracks resizing. NOTE: the wrapper must
+  // NOT have overflow-hidden — an overflow!=visible ancestor becomes the sticky
+  // scrollport and silently defeats the left-freeze.
+  const CHECKBOX_W = 32
+  const freezeCount = Math.min(2, columns.length)
+  const colLeft: number[] = []
+  { let acc = CHECKBOX_W; for (let i = 0; i < columns.length; i++) { colLeft[i] = acc; acc += columns[i].width } }
   return (
-    <div className="rounded-lg overflow-hidden shadow-sm">
+    <div className="rounded-lg shadow-sm">
       {/* Full-width colored stage header */}
       <div
         onClick={onToggle}
-        className="flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:opacity-90 transition-opacity"
+        className={`flex items-center gap-3 px-4 py-2.5 cursor-pointer hover:opacity-90 transition-opacity rounded-t-lg ${collapsed ? 'rounded-b-lg' : ''}`}
         style={{ backgroundColor: stageColor }}
       >
         <div onClick={e => e.stopPropagation()}>
@@ -671,58 +816,24 @@ function GroupSection({
                   ? 'text-gray-500 border-gray-200'
                   : 'text-gray-500 border-gray-800/50'
               }`}>
-                <th className="px-3 py-1.5"></th>
-                {columns.map(col => (
-                  <th
+                <th
+                  className={`px-3 py-1.5 sticky z-20 ${lightMode ? 'bg-white' : 'bg-gray-950'}`}
+                  style={{ left: 0 }}
+                ></th>
+                {columns.map((col, i) => (
+                  <ColumnHeader
                     key={col.id}
-                    className="px-3 py-1.5 font-medium relative select-none cursor-grab active:cursor-grabbing"
-                    draggable
-                    onDragStart={e => {
-                      e.dataTransfer.setData('text/x-tracker-col', col.id)
-                      e.dataTransfer.effectAllowed = 'move'
-                    }}
-                    onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move' }}
-                    onDrop={e => {
-                      e.preventDefault()
-                      const fromId = e.dataTransfer.getData('text/x-tracker-col')
-                      if (fromId && fromId !== col.id) onColumnReorder(fromId, col.id)
-                    }}
-                    title="Click to sort · drag header to reorder · drag right edge to resize"
-                  >
-                    <span
-                      onClick={() => onToggleSort(col.id)}
-                      className="cursor-pointer hover:text-gray-300 inline-flex items-center gap-1"
-                    >
-                      {col.label}
-                      {sort?.key === col.id && <span className="text-indigo-400">{sort.dir === 'asc' ? '▲' : '▼'}</span>}
-                    </span>
-                    <span
-                      role="separator"
-                      aria-orientation="vertical"
-                      onMouseDown={e => {
-                        e.preventDefault()
-                        e.stopPropagation()
-                        const startX = e.clientX
-                        const startWidth = col.width
-                        function onMove(ev: MouseEvent) {
-                          const dx = ev.clientX - startX
-                          const next = Math.max(50, Math.min(600, startWidth + dx))
-                          onColumnResize(col.id, next)
-                        }
-                        function onUp() {
-                          window.removeEventListener('mousemove', onMove)
-                          window.removeEventListener('mouseup', onUp)
-                        }
-                        window.addEventListener('mousemove', onMove)
-                        window.addEventListener('mouseup', onUp)
-                      }}
-                      className="group/resize absolute top-0 right-0 h-full w-2 flex items-center justify-center cursor-col-resize"
-                      onDragStart={e => e.preventDefault()}
-                      title="Drag to resize column"
-                    >
-                      <span className={`h-3/5 w-px transition-all group-hover/resize:w-0.5 group-hover/resize:bg-indigo-400 ${lightMode ? 'bg-gray-300' : 'bg-gray-700'}`} />
-                    </span>
-                  </th>
+                    col={col}
+                    sort={sort}
+                    onToggleSort={onToggleSort}
+                    onSetSort={onSetSort}
+                    onColumnResize={onColumnResize}
+                    onColumnReorder={onColumnReorder}
+                    lightMode={lightMode}
+                    frozen={i < freezeCount}
+                    leftOffset={colLeft[i]}
+                    isLastFrozen={i === freezeCount - 1}
+                  />
                 ))}
                 <th className="px-3 py-1.5"></th>
               </tr>
@@ -741,6 +852,8 @@ function GroupSection({
                   lightMode={lightMode}
                   statusColors={opts.status_colors ?? {}}
                   columns={columns}
+                  freezeCount={freezeCount}
+                  colLeft={colLeft}
                 />
               ))}
               {group.leads.length === 0 && (
@@ -1658,9 +1771,22 @@ export default function TrackerPage({
       <style>{`
         .tracker-no-sb { scrollbar-width: none; -ms-overflow-style: none; }
         .tracker-no-sb::-webkit-scrollbar { display: none; }
+        /* Always-visible vertical scrollbar (native overlay bars auto-hide on
+           macOS / iOS / the apps). Styling ::-webkit-scrollbar forces a
+           persistent, click-and-drag bar on the right edge. */
+        .tracker-vsb { scrollbar-width: thin; scrollbar-color: #4f46e5 transparent; }
+        .tracker-vsb::-webkit-scrollbar { width: 12px; }
+        .tracker-vsb::-webkit-scrollbar-track { background: transparent; }
+        .tracker-vsb::-webkit-scrollbar-thumb {
+          background: #4f46e5; border-radius: 6px;
+          border: 3px solid transparent; background-clip: content-box;
+        }
+        .tracker-vsb::-webkit-scrollbar-thumb:hover {
+          background: #6366f1; background-clip: content-box;
+        }
       `}</style>
       {/* Main */}
-      <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 relative">
+      <div className="flex-1 overflow-y-scroll overflow-x-hidden min-w-0 relative tracker-vsb">
         {/* Toolbar */}
         <div className="sticky top-0 z-10 bg-gray-950 border-b border-gray-800">
           {/* Board title */}
@@ -1756,6 +1882,15 @@ export default function TrackerPage({
               </>
             )}
           </div>
+          {currentUser.isAdmin && (
+            <Link
+              href="/hub/tracker/settings"
+              className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+              title="Tracker settings — status & stage colors, options"
+            >
+              ⚙ Settings
+            </Link>
+          )}
           <button
             onClick={toggleLightMode}
             className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
@@ -1805,6 +1940,7 @@ export default function TrackerPage({
                   onColumnReorder={handleColumnReorder}
                   sort={sort}
                   onToggleSort={id => setSort(s => cycleSort(s, id))}
+                  onSetSort={(id, dir) => setSort(dir ? { key: id, dir } : null)}
                 />
               ))}
             </div>
