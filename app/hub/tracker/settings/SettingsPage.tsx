@@ -401,7 +401,7 @@ export default function SettingsPage({
   }
 
   return (
-    <div className="px-6 py-6 max-w-3xl">
+    <div className="flex-1 min-h-0 overflow-y-auto px-6 py-6 max-w-3xl">
       <div className="flex items-center justify-between mb-6">
         <div>
           <h2 className="text-lg font-semibold text-white">Tracker Settings</h2>
