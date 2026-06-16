@@ -435,6 +435,10 @@ async function syncClients(
         external_id: `${raw.id}_primary`,
         client_id: clientId,
         is_primary: true,
+        // NOT-NULL column with a DB default, but in a batched upsert PostgREST
+        // sends explicit NULL for rows that omit the key (the per-contact rows
+        // below set it), so the default never applies — set it here too.
+        is_billing_contact: false,
         first_name: raw.firstName ?? null,
         last_name: raw.lastName ?? null,
         name: raw.name ?? null,
