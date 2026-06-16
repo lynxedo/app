@@ -497,25 +497,25 @@ function leadSortValue(lead: Lead, id: string): unknown {
   }
 }
 
-type ColumnEntry = { id: string; width: number }
+type ColumnEntry = { id: string; width: number; hidden?: boolean }
 
-function resolveColumns(layout: ColumnEntry[] | null): Array<ColumnDef & { width: number }> {
+function resolveColumns(layout: ColumnEntry[] | null): Array<ColumnDef & { width: number; hidden: boolean }> {
   const byId = new Map(LEAD_COLUMNS.map(c => [c.id, c]))
   const seen = new Set<string>()
-  const out: Array<ColumnDef & { width: number }> = []
+  const out: Array<ColumnDef & { width: number; hidden: boolean }> = []
   // Apply saved order first, skipping any unknown ids (e.g. column removed in code).
   if (layout) {
     for (const entry of layout) {
       const def = byId.get(entry.id)
       if (def && !seen.has(entry.id)) {
-        out.push({ ...def, width: Math.max(50, Math.min(600, entry.width || def.defaultWidth)) })
+        out.push({ ...def, width: Math.max(50, Math.min(600, entry.width || def.defaultWidth)), hidden: entry.hidden === true })
         seen.add(entry.id)
       }
     }
   }
   // Append any new columns (added in code after layout was saved) at the end in default order.
   for (const def of LEAD_COLUMNS) {
-    if (!seen.has(def.id)) out.push({ ...def, width: def.defaultWidth })
+    if (!seen.has(def.id)) out.push({ ...def, width: def.defaultWidth, hidden: false })
   }
   return out
 }
@@ -658,7 +658,7 @@ function GroupSection({
       </div>
 
       {!collapsed && (
-        <div className={`overflow-x-auto ${lightMode ? 'bg-white' : ''}`}>
+        <div className={lightMode ? 'bg-white' : ''}>
           <table className="w-full" style={{ minWidth: totalWidth, tableLayout: 'fixed' }}>
             <colgroup>
               <col style={{ width: 32 }} />
@@ -675,7 +675,7 @@ function GroupSection({
                 {columns.map(col => (
                   <th
                     key={col.id}
-                    className="px-3 py-1.5 font-medium relative select-none"
+                    className="px-3 py-1.5 font-medium relative select-none cursor-grab active:cursor-grabbing"
                     draggable
                     onDragStart={e => {
                       e.dataTransfer.setData('text/x-tracker-col', col.id)
@@ -687,7 +687,7 @@ function GroupSection({
                       const fromId = e.dataTransfer.getData('text/x-tracker-col')
                       if (fromId && fromId !== col.id) onColumnReorder(fromId, col.id)
                     }}
-                    title="Click to sort · drag to reorder · drag right edge to resize"
+                    title="Click to sort · drag header to reorder · drag right edge to resize"
                   >
                     <span
                       onClick={() => onToggleSort(col.id)}
@@ -716,9 +716,12 @@ function GroupSection({
                         window.addEventListener('mousemove', onMove)
                         window.addEventListener('mouseup', onUp)
                       }}
-                      className="absolute top-0 right-0 h-full w-1.5 cursor-col-resize hover:bg-indigo-400/40"
+                      className="group/resize absolute top-0 right-0 h-full w-2 flex items-center justify-center cursor-col-resize"
                       onDragStart={e => e.preventDefault()}
-                    />
+                      title="Drag to resize column"
+                    >
+                      <span className={`h-3/5 w-px transition-all group-hover/resize:w-0.5 group-hover/resize:bg-indigo-400 ${lightMode ? 'bg-gray-300' : 'bg-gray-700'}`} />
+                    </span>
                   </th>
                 ))}
                 <th className="px-3 py-1.5"></th>
@@ -1361,15 +1364,17 @@ export default function TrackerPage({
   const [bulkWorking, setBulkWorking] = useState(false)
   const [lightMode, setLightMode] = useState(false)
 
-  // Column layout — width + order persisted per-user via /api/tracker/column-layout.
-  // null layout means "use defaults"; resolveColumns merges saved order/width with
+  // Column layout — width + order + visibility persisted per-user via /api/tracker/column-layout.
+  // null layout means "use defaults"; resolveColumns merges saved order/width/hidden with
   // any new defaults the code adds later.
-  const [columnLayout, setColumnLayout] = useState<{ id: string; width: number }[] | null>(initialColumnLayout ?? null)
+  const [columnLayout, setColumnLayout] = useState<{ id: string; width: number; hidden?: boolean }[] | null>(initialColumnLayout ?? null)
+  const [columnsMenuOpen, setColumnsMenuOpen] = useState(false)
   const effectiveColumns = resolveColumns(columnLayout)
+  const visibleColumns = effectiveColumns.filter(c => !c.hidden)
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
-  const persistLayout = useCallback((next: Array<ColumnDef & { width: number }>) => {
+  const persistLayout = useCallback((next: Array<ColumnDef & { width: number; hidden: boolean }>) => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
-    const payload = next.map(c => ({ id: c.id, width: c.width }))
+    const payload = next.map(c => c.hidden ? { id: c.id, width: c.width, hidden: true } : { id: c.id, width: c.width })
     setColumnLayout(payload)
     saveTimerRef.current = setTimeout(() => {
       fetch('/api/tracker/column-layout', {
@@ -1392,6 +1397,48 @@ export default function TrackerPage({
     next.splice(toIdx, 0, moved)
     persistLayout(next)
   }, [effectiveColumns, persistLayout])
+  const handleToggleColumn = useCallback((id: string) => {
+    // Don't allow hiding the last visible column.
+    const next = effectiveColumns.map(c => c.id === id ? { ...c, hidden: !c.hidden } : c)
+    if (next.every(c => c.hidden)) return
+    persistLayout(next)
+  }, [effectiveColumns, persistLayout])
+  const handleResetColumns = useCallback(() => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current)
+    setColumnLayout(null)
+    fetch('/api/tracker/column-layout', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ layout: [] }),
+    }).catch(() => {})
+    setColumnsMenuOpen(false)
+  }, [])
+
+  // Shared horizontal scroll: one always-visible scrollbar pinned to the bottom that
+  // scrolls every stage group together (instead of a per-group bar buried at the
+  // bottom of each long group). The real scroll container's native bar is hidden;
+  // the sticky "fake" bar below is kept in sync with it both directions.
+  const hScrollRef = useRef<HTMLDivElement>(null)
+  const fakeBarRef = useRef<HTMLDivElement>(null)
+  const [hOverflow, setHOverflow] = useState(false)
+  const contentWidth = visibleColumns.reduce((sum, c) => sum + c.width, 0) + 32 + 56 + 24 // cols + checkbox + actions + p-3 padding
+  const onRealScroll = useCallback(() => {
+    const r = hScrollRef.current, f = fakeBarRef.current
+    if (r && f && f.scrollLeft !== r.scrollLeft) f.scrollLeft = r.scrollLeft
+  }, [])
+  const onFakeScroll = useCallback(() => {
+    const r = hScrollRef.current, f = fakeBarRef.current
+    if (r && f && r.scrollLeft !== f.scrollLeft) r.scrollLeft = f.scrollLeft
+  }, [])
+  useEffect(() => {
+    const r = hScrollRef.current
+    if (!r) return
+    const measure = () => setHOverflow(r.scrollWidth > r.clientWidth + 1)
+    measure()
+    const ro = new ResizeObserver(measure)
+    ro.observe(r)
+    return () => ro.disconnect()
+  }, [contentWidth])
 
   useEffect(() => {
     const stored = localStorage.getItem('tracker-light-mode')
@@ -1584,8 +1631,17 @@ export default function TrackerPage({
 
   return (
     <div className="flex flex-1 overflow-hidden">
+      <style>{`
+        .tracker-no-sb { scrollbar-width: none; -ms-overflow-style: none; }
+        .tracker-no-sb::-webkit-scrollbar { display: none; }
+        .tracker-hbar { scrollbar-width: thin; scrollbar-color: rgba(129,140,248,0.6) rgba(120,120,140,0.15); }
+        .tracker-hbar::-webkit-scrollbar { height: 12px; }
+        .tracker-hbar::-webkit-scrollbar-track { background: rgba(120,120,140,0.12); border-radius: 6px; }
+        .tracker-hbar::-webkit-scrollbar-thumb { background: rgba(129,140,248,0.55); border-radius: 6px; }
+        .tracker-hbar::-webkit-scrollbar-thumb:hover { background: rgba(129,140,248,0.85); }
+      `}</style>
       {/* Main */}
-      <div className="flex-1 overflow-auto min-w-0">
+      <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 relative">
         {/* Toolbar */}
         <div className="sticky top-0 z-10 bg-gray-950 border-b border-gray-800">
           {/* Board title */}
@@ -1635,6 +1691,52 @@ export default function TrackerPage({
           </select>
           <span className="text-xs text-gray-600 px-1">{totalLeads} lead{totalLeads !== 1 ? 's' : ''}</span>
           <div className="flex-1" />
+          <div className="relative">
+            <button
+              onClick={() => setColumnsMenuOpen(o => !o)}
+              className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+              title="Show, hide, or reset columns"
+            >
+              Columns ▾
+            </button>
+            {columnsMenuOpen && (
+              <>
+                <div className="fixed inset-0 z-20" onClick={() => setColumnsMenuOpen(false)} />
+                <div className="absolute right-0 mt-1 z-30 w-56 bg-gray-900 border border-gray-700 rounded-lg shadow-2xl py-1.5">
+                  <div className="px-3 pb-1.5 mb-1 border-b border-gray-800 text-[11px] uppercase tracking-wide text-gray-500">Show columns</div>
+                  <div className="max-h-72 overflow-y-auto">
+                    {effectiveColumns.map(col => {
+                      const isLastVisible = !col.hidden && visibleColumns.length === 1
+                      return (
+                        <label
+                          key={col.id}
+                          className={`flex items-center gap-2 px-3 py-1.5 text-sm ${isLastVisible ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer hover:bg-gray-800 text-gray-200'}`}
+                          title={isLastVisible ? 'At least one column must stay visible' : undefined}
+                        >
+                          <input
+                            type="checkbox"
+                            checked={!col.hidden}
+                            disabled={isLastVisible}
+                            onChange={() => handleToggleColumn(col.id)}
+                            className="rounded accent-indigo-500"
+                          />
+                          {col.label}
+                        </label>
+                      )
+                    })}
+                  </div>
+                  <div className="border-t border-gray-800 mt-1 pt-1">
+                    <button
+                      onClick={handleResetColumns}
+                      className="w-full text-left px-3 py-1.5 text-sm text-gray-400 hover:bg-gray-800 hover:text-white transition-colors"
+                    >
+                      Reset to default
+                    </button>
+                  </div>
+                </div>
+              </>
+            )}
+          </div>
           <button
             onClick={toggleLightMode}
             className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap"
@@ -1657,33 +1759,48 @@ export default function TrackerPage({
           </div>
         </div>
 
-        {/* Groups */}
+        {/* Groups — one shared horizontal scroll region (native bar hidden; the sticky
+            bar below drives it) so every group slides left/right together. */}
         {loading ? (
           <div className="flex items-center justify-center py-20 text-gray-600 text-sm">Loading leads…</div>
         ) : (
-          <div className="space-y-3 p-3">
-            {groupedLeads.map(group => (
-              <GroupSection
-                key={group.key}
-                group={group}
-                collapsed={collapsedGroups.has(group.key)}
-                onToggle={() => toggleGroup(group.key)}
-                opts={opts}
-                selectedIds={selectedIds}
-                onToggleSelect={toggleSelect}
-                onToggleGroupAll={toggleGroupAll}
-                onUpdate={updateLead}
-                onOpenNotes={id => { setNotesLeadId(id); setEditLeadId(null); setNewLeadOpen(false) }}
-                onEdit={id => { setEditLeadId(id); setNotesLeadId(null); setNewLeadOpen(false) }}
-                stageColor={opts.stage_colors?.[group.key] ?? DEFAULT_STAGE_COLORS[group.key]}
-                lightMode={lightMode}
-                columns={effectiveColumns}
-                onColumnResize={handleColumnResize}
-                onColumnReorder={handleColumnReorder}
-                sort={sort}
-                onToggleSort={id => setSort(s => cycleSort(s, id))}
-              />
-            ))}
+          <div ref={hScrollRef} onScroll={onRealScroll} className="tracker-no-sb overflow-x-auto">
+            <div className="space-y-3 p-3 pb-5" style={{ minWidth: contentWidth }}>
+              {groupedLeads.map(group => (
+                <GroupSection
+                  key={group.key}
+                  group={group}
+                  collapsed={collapsedGroups.has(group.key)}
+                  onToggle={() => toggleGroup(group.key)}
+                  opts={opts}
+                  selectedIds={selectedIds}
+                  onToggleSelect={toggleSelect}
+                  onToggleGroupAll={toggleGroupAll}
+                  onUpdate={updateLead}
+                  onOpenNotes={id => { setNotesLeadId(id); setEditLeadId(null); setNewLeadOpen(false) }}
+                  onEdit={id => { setEditLeadId(id); setNotesLeadId(null); setNewLeadOpen(false) }}
+                  stageColor={opts.stage_colors?.[group.key] ?? DEFAULT_STAGE_COLORS[group.key]}
+                  lightMode={lightMode}
+                  columns={visibleColumns}
+                  onColumnResize={handleColumnResize}
+                  onColumnReorder={handleColumnReorder}
+                  sort={sort}
+                  onToggleSort={id => setSort(s => cycleSort(s, id))}
+                />
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* Always-visible shared horizontal scrollbar, pinned to the bottom of the
+            viewport and kept in sync with the groups scroll region above. */}
+        {!loading && hOverflow && (
+          <div
+            ref={fakeBarRef}
+            onScroll={onFakeScroll}
+            className="tracker-hbar sticky bottom-0 z-20 overflow-x-auto bg-gray-950/90 backdrop-blur border-t border-gray-800"
+          >
+            <div style={{ width: contentWidth, height: 1 }} />
           </div>
         )}
       </div>

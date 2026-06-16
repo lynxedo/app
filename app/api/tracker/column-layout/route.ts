@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
-type LayoutEntry = { id: string; width: number }
+type LayoutEntry = { id: string; width: number; hidden?: boolean }
 
 export async function POST(request: Request) {
   const supabase = await createClient()
@@ -18,7 +18,9 @@ export async function POST(request: Request) {
     if (!entry || typeof entry.id !== 'string') continue
     const w = Number(entry.width)
     if (!Number.isFinite(w)) continue
-    sanitized.push({ id: entry.id, width: Math.max(50, Math.min(600, Math.round(w))) })
+    const out: LayoutEntry = { id: entry.id, width: Math.max(50, Math.min(600, Math.round(w))) }
+    if (entry.hidden === true) out.hidden = true
+    sanitized.push(out)
   }
 
   const { error } = await supabase
