@@ -20,6 +20,7 @@ import TxtSidebar from './sidebars/TxtSidebar'
 import TxtV2Sidebar from './sidebars/TxtV2Sidebar'
 import DialerSidebar from './sidebars/DialerSidebar'
 import ScoreboardsSidebar from './sidebars/ScoreboardsSidebar'
+import TrackerSidebar from './sidebars/TrackerSidebar'
 import AnnouncementTicker, { type Announcement } from './AnnouncementTicker'
 import HubQuickCompose from './HubQuickCompose'
 import TimesheetClockModal from './TimesheetClockModal'
@@ -730,6 +731,8 @@ export default function HubShell({
         )
       case 'scoreboards':
         return <ScoreboardsSidebar isAdmin={!!isAdmin} allowedSlugs={scoreboardSlugs} onClose={closeMobileDrawer} {...collapseProps} />
+      case 'tracker':
+        return <TrackerSidebar isAdmin={!!isAdmin} onClose={closeMobileDrawer} {...collapseProps} />
       case 'links':
         return <LinksSidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'activity':
@@ -762,7 +765,7 @@ export default function HubShell({
             {...collapseProps}
           />
         )
-      // hub + every other catalog id (tracker, routing, etc.) → Hub sidebar
+      // hub + every other catalog id (routing, etc.) → Hub sidebar
       case 'hub':
       default:
         return (
