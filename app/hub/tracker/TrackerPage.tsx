@@ -1415,30 +1415,54 @@ export default function TrackerPage({
   }, [])
 
   // Shared horizontal scroll: one always-visible scrollbar pinned to the bottom that
-  // scrolls every stage group together (instead of a per-group bar buried at the
-  // bottom of each long group). The real scroll container's native bar is hidden;
-  // the sticky "fake" bar below is kept in sync with it both directions.
+  // scrolls every stage group together (instead of a per-group native bar buried at the
+  // bottom of each long group). Native scrollbars auto-hide on macOS / iOS / the apps,
+  // so we render a custom always-visible thumb + ◀ ▶ arrows that drive the scroll region.
   const hScrollRef = useRef<HTMLDivElement>(null)
-  const fakeBarRef = useRef<HTMLDivElement>(null)
-  const [hOverflow, setHOverflow] = useState(false)
+  const trackRef = useRef<HTMLDivElement>(null)
+  const [hMetrics, setHMetrics] = useState({ left: 0, client: 0, scroll: 0, track: 0 })
   const contentWidth = visibleColumns.reduce((sum, c) => sum + c.width, 0) + 32 + 56 + 24 // cols + checkbox + actions + p-3 padding
-  const onRealScroll = useCallback(() => {
-    const r = hScrollRef.current, f = fakeBarRef.current
-    if (r && f && f.scrollLeft !== r.scrollLeft) f.scrollLeft = r.scrollLeft
+  const measureScroll = useCallback(() => {
+    const r = hScrollRef.current
+    if (r) setHMetrics({ left: r.scrollLeft, client: r.clientWidth, scroll: r.scrollWidth, track: trackRef.current?.clientWidth ?? 0 })
   }, [])
-  const onFakeScroll = useCallback(() => {
-    const r = hScrollRef.current, f = fakeBarRef.current
-    if (r && f && r.scrollLeft !== f.scrollLeft) r.scrollLeft = f.scrollLeft
+  const onRealScroll = useCallback(() => {
+    const r = hScrollRef.current
+    if (r) setHMetrics(m => ({ ...m, left: r.scrollLeft }))
   }, [])
   useEffect(() => {
     const r = hScrollRef.current
     if (!r) return
-    const measure = () => setHOverflow(r.scrollWidth > r.clientWidth + 1)
-    measure()
-    const ro = new ResizeObserver(measure)
+    measureScroll()
+    const ro = new ResizeObserver(measureScroll)
     ro.observe(r)
+    if (trackRef.current) ro.observe(trackRef.current)
     return () => ro.disconnect()
-  }, [contentWidth])
+  }, [contentWidth, measureScroll])
+
+  const maxScroll = Math.max(0, hMetrics.scroll - hMetrics.client)
+  const hOverflow = maxScroll > 1
+  const thumbW = hMetrics.scroll > 0 ? Math.max(48, hMetrics.track * (hMetrics.client / hMetrics.scroll)) : 0
+  const thumbLeft = maxScroll > 0 ? (hMetrics.track - thumbW) * (hMetrics.left / maxScroll) : 0
+  const nudge = (dir: number) => hScrollRef.current?.scrollBy({ left: dir * Math.max(240, hMetrics.client * 0.8), behavior: 'smooth' })
+  const onThumbDrag = (e: React.MouseEvent) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startLeft = hMetrics.left
+    const denom = hMetrics.track - thumbW
+    function onMove(ev: MouseEvent) {
+      if (denom <= 0) return
+      const dx = ev.clientX - startX
+      const next = startLeft + dx * (maxScroll / denom)
+      if (hScrollRef.current) hScrollRef.current.scrollLeft = Math.max(0, Math.min(maxScroll, next))
+    }
+    function onUp() {
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   useEffect(() => {
     const stored = localStorage.getItem('tracker-light-mode')
@@ -1634,11 +1658,6 @@ export default function TrackerPage({
       <style>{`
         .tracker-no-sb { scrollbar-width: none; -ms-overflow-style: none; }
         .tracker-no-sb::-webkit-scrollbar { display: none; }
-        .tracker-hbar { scrollbar-width: thin; scrollbar-color: rgba(129,140,248,0.6) rgba(120,120,140,0.15); }
-        .tracker-hbar::-webkit-scrollbar { height: 12px; }
-        .tracker-hbar::-webkit-scrollbar-track { background: rgba(120,120,140,0.12); border-radius: 6px; }
-        .tracker-hbar::-webkit-scrollbar-thumb { background: rgba(129,140,248,0.55); border-radius: 6px; }
-        .tracker-hbar::-webkit-scrollbar-thumb:hover { background: rgba(129,140,248,0.85); }
       `}</style>
       {/* Main */}
       <div className="flex-1 overflow-y-auto overflow-x-hidden min-w-0 relative">
@@ -1793,14 +1812,41 @@ export default function TrackerPage({
         )}
 
         {/* Always-visible shared horizontal scrollbar, pinned to the bottom of the
-            viewport and kept in sync with the groups scroll region above. */}
+            viewport. Custom thumb + arrows because native bars auto-hide on Mac/iOS/apps. */}
         {!loading && hOverflow && (
-          <div
-            ref={fakeBarRef}
-            onScroll={onFakeScroll}
-            className="tracker-hbar sticky bottom-0 z-20 overflow-x-auto bg-gray-950/90 backdrop-blur border-t border-gray-800"
-          >
-            <div style={{ width: contentWidth, height: 1 }} />
+          <div className="sticky bottom-0 z-20 flex items-center gap-2 px-3 py-1.5 bg-gray-950/95 backdrop-blur border-t border-gray-800">
+            <button
+              onClick={() => nudge(-1)}
+              className="shrink-0 w-7 h-6 flex items-center justify-center rounded-md bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs"
+              title="Scroll left"
+              aria-label="Scroll left"
+            >◀</button>
+            <div
+              ref={trackRef}
+              onClick={e => {
+                // Click on the track jumps toward that position.
+                const rect = e.currentTarget.getBoundingClientRect()
+                const denom = hMetrics.track - thumbW
+                if (denom <= 0) return
+                const next = ((e.clientX - rect.left - thumbW / 2) / denom) * maxScroll
+                if (hScrollRef.current) hScrollRef.current.scrollLeft = Math.max(0, Math.min(maxScroll, next))
+              }}
+              className="relative flex-1 h-2.5 rounded-full bg-gray-800 cursor-pointer"
+            >
+              <div
+                onMouseDown={onThumbDrag}
+                onClick={e => e.stopPropagation()}
+                className="absolute top-0 h-2.5 rounded-full bg-indigo-500 hover:bg-indigo-400 cursor-grab active:cursor-grabbing transition-colors"
+                style={{ width: thumbW, left: thumbLeft }}
+                title="Drag to scroll"
+              />
+            </div>
+            <button
+              onClick={() => nudge(1)}
+              className="shrink-0 w-7 h-6 flex items-center justify-center rounded-md bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs"
+              title="Scroll right"
+              aria-label="Scroll right"
+            >▶</button>
           </div>
         )}
       </div>
