@@ -156,6 +156,9 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     mobile?: (string | null)[]
   }
   const canAccessTracker = profileResult.data?.can_access_tracker ?? false
+  const canAccessFiles = profileResult.data?.can_access_files ?? false
+  const canAccessPesticideRecords = profileResult.data?.can_access_pesticide_records ?? false
+  const canAccessHub = profileResult.data?.can_access_hub ?? false
   const canAccessCallLog = profileResult.data?.can_access_call_log ?? false
   const canAccessCallLog2 = profileResult.data?.can_access_call_log2 ?? false
   const canAccessLawn = profileResult.data?.can_access_lawn ?? false
@@ -221,6 +224,9 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
     canAccessScoreboards: !!canAccessScoreboards,
+    canAccessFiles: !!canAccessFiles,
+    canAccessPesticideRecords: !!canAccessPesticideRecords,
+    canAccessHub: !!canAccessHub,
   }
   const resolvedLayout = resolveLayout(
     profileResult.data?.hub_layout ?? null,
@@ -327,6 +333,9 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessForms={canAccessForms}
         canAccessDailyLogV2={canAccessDailyLogV2}
         canAccessScoreboards={canAccessScoreboards}
+        canAccessFiles={canAccessFiles}
+        canAccessPesticideRecords={canAccessPesticideRecords}
+        canAccessHub={canAccessHub}
         scoreboardSlugs={scoreboardSlugs}
         companyId={companyId}
         dialerGlobalRing={dialerGlobalRing}

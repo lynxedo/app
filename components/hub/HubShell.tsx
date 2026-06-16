@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { usePathname } from 'next/navigation'
+import { usePathname, useRouter } from 'next/navigation'
 import HubSidebar from './HubSidebar'
 import { useHubMessageInsert } from './HubMessagesProvider'
 import HubRail, { railFromPath } from './HubRail'
@@ -77,6 +77,9 @@ export default function HubShell({
   canAccessForms,
   canAccessDailyLogV2,
   canAccessScoreboards,
+  canAccessFiles,
+  canAccessPesticideRecords,
+  canAccessHub,
   scoreboardSlugs,
   companyId,
   dialerGlobalRing,
@@ -133,6 +136,9 @@ export default function HubShell({
   canAccessForms?: boolean
   canAccessDailyLogV2?: boolean
   canAccessScoreboards?: boolean
+  canAccessFiles?: boolean
+  canAccessPesticideRecords?: boolean
+  canAccessHub?: boolean
   scoreboardSlugs?: string[]
   companyId?: string
   /** Session 58.5: when true (default) AND canAccessDialer, the Twilio
@@ -183,6 +189,28 @@ export default function HubShell({
   // remembers the last server value so we only re-sync on a real change.
   const layoutSavingRef = useRef(false)
   const lastSyncedLayoutRef = useRef(initialLayout ? JSON.stringify(initialLayout) : '')
+  // NAV-PermGrant: SPA navigation never re-runs the server layout, so a freshly
+  // granted app icon wouldn't appear until a hard reload (rare in the installed
+  // app/PWA). Refresh the server tree when the user returns to the app (tab
+  // visible / window focus), throttled to once a minute so we don't refetch on
+  // every blur. The initialLayout→liveLayout effect below then surfaces the icon.
+  const router = useRouter()
+  const lastLayoutRefreshRef = useRef(0)
+  useEffect(() => {
+    const maybeRefresh = () => {
+      if (document.visibilityState !== 'visible') return
+      const now = Date.now()
+      if (now - lastLayoutRefreshRef.current < 60_000) return
+      lastLayoutRefreshRef.current = now
+      router.refresh()
+    }
+    document.addEventListener('visibilitychange', maybeRefresh)
+    window.addEventListener('focus', maybeRefresh)
+    return () => {
+      document.removeEventListener('visibilitychange', maybeRefresh)
+      window.removeEventListener('focus', maybeRefresh)
+    }
+  }, [router])
   // Lightweight conversation list so DM tokens on the rail/dock/drawer can show
   // a label + avatar. (The sidebar fetches its own richer copy.)
   const [railConversations, setRailConversations] = useState<RailConversation[]>([])
@@ -678,6 +706,9 @@ export default function HubShell({
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
     canAccessScoreboards: !!canAccessScoreboards,
+    canAccessFiles: !!canAccessFiles,
+    canAccessPesticideRecords: !!canAccessPesticideRecords,
+    canAccessHub: !!canAccessHub,
   }
 
   function renderSidebar() {

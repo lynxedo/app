@@ -12,10 +12,12 @@ export default async function PesticideRecordsPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('company_id')
+    .select('company_id, role, can_access_pesticide_records')
     .eq('id', user.id)
     .single()
   if (!profile?.company_id) redirect('/dashboard')
+  const isAdmin = profile.role === 'admin'
+  if (!isAdmin && !profile.can_access_pesticide_records) redirect('/hub')
 
   return <PesticideRecordsView />
 }

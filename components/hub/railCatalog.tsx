@@ -67,6 +67,9 @@ export type RailPermissions = {
   canAccessForms: boolean
   canAccessDailyLogV2: boolean
   canAccessScoreboards: boolean
+  canAccessFiles: boolean
+  canAccessPesticideRecords: boolean
+  canAccessHub: boolean
 }
 
 function I({ d, fill = false }: { d: string; fill?: boolean }) {
@@ -234,11 +237,11 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'call-log',     label: 'Call Log',      href: '/hub/call-log', prefixMatch: true, pickable: true, requires: 'canAccessCallLog' },
   { id: 'call-log2',   label: 'Call Log 2',    href: '/hub/call-log2', prefixMatch: true, pickable: true, requires: 'canAccessCallLog2' },
   { id: 'time-records', label: 'Time Records',  href: '/hub/admin/timesheet', prefixMatch: true, pickable: true, requires: 'isAdmin' },
-  { id: 'files',        label: 'Files',         href: '/hub/files', pickable: true },
+  { id: 'files',        label: 'Files',         href: '/hub/files', pickable: true, requires: 'canAccessFiles' },
   { id: 'company-news', label: 'Company News',  href: '/hub/pages/company-news', pickable: true },
-  { id: 'contacts',     label: 'Contacts',      href: '/hub/contacts', prefixMatch: true, pickable: true },
+  { id: 'contacts',     label: 'Contacts',      href: '/hub/contacts', prefixMatch: true, pickable: true, requires: 'canAccessHub' },
   { id: 'marketing', label: 'Marketing', href: '/hub/marketing/social', prefixMatch: true, pickable: true, requires: 'canAccessMarketing' },
-  { id: 'pesticide-records', label: 'Pesticide Records', href: '/hub/pesticide-records', prefixMatch: true, pickable: true },
+  { id: 'pesticide-records', label: 'Pesticide Records', href: '/hub/pesticide-records', prefixMatch: true, pickable: true, requires: 'canAccessPesticideRecords' },
   { id: 'forms',     label: 'Forms',     href: '/hub/forms', prefixMatch: true, pickable: true, requires: 'canAccessForms' },
   { id: 'reports',   label: 'Reports',   href: '/hub/reports', prefixMatch: true, pickable: true, requires: 'isAdmin' },
   { id: 'scoreboards', label: 'Scoreboards', href: '/hub/scoreboards', prefixMatch: true, pickable: true, requires: 'canAccessScoreboards' },
