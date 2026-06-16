@@ -14,12 +14,15 @@
 //
 // Deletes are HARD (Ben's call) but guarded: a board that returns 0 rows — or a
 // pull smaller than half the existing mirror — aborts deletes for that board so
-// a transient Monday API hiccup can never wipe a table.
+// a transient Monday API hiccup can never wipe a table. (recurring + route only.)
 //
-// `leads` had no monday_item_id originally, so the first run re-keys existing
-// leads to their Monday item via a full-tuple positional match (pairs 1:1 even
-// when several leads share name+phone). Lead Comments are NOT re-synced as notes
-// (one-time import; re-syncing would duplicate them).
+// LEADS BOARD is INSERT-ONLY. Lynxedo is now system-of-record for leads — the
+// team edits them in Lynxedo and lib/monday-push.ts mirrors changes back to
+// Monday. So this pull never overwrites or deletes an existing lead (that would
+// clobber Lynxedo edits); it only inserts genuinely-new Monday-born leads (e.g.
+// the Monday intake form) and seeds their push state. `leads` had no
+// monday_item_id originally, so the re-key still pairs any unkeyed lead 1:1 to
+// its Monday item. Lead Comments are NOT re-synced as notes (one-time import).
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
@@ -372,17 +375,37 @@ async function syncLeads(admin: SupabaseClient, dryRun: boolean, report: BoardRe
   report.unmatchedNames = leftoverIds.map(id => nameById.get(id) ?? '(unknown)').slice(0, 25)
 
   if (!dryRun) {
-    // 1. backfill monday_item_id onto matched existing leads
+    // 1. backfill monday_item_id onto matched existing leads (one-time re-key;
+    //    a no-op once every lead is keyed)
     for (const a of assignments) {
       const { error: uErr } = await admin.from('leads').update({ monday_item_id: a.mondayId }).eq('id', a.leadId)
       if (uErr) throw new Error(`leads re-key update: ${uErr.message}`)
     }
-    // 2. upsert every Monday lead (refreshes keyed rows, inserts genuinely new)
-    await upsertRows(admin, 'leads', mondayLeads)
-    report.upserted = mondayLeads.length
-    // 3. guarded hard-delete of keyed leads no longer in Monday
-    const pulledIds = new Set(mondayLeads.map(l => l.monday_item_id))
-    await guardedDelete(admin, 'leads', pulledIds, (q: any) => q, report)
+    // 2. INSERT-ONLY. Lynxedo is now system-of-record for leads (the team works
+    //    them in Lynxedo, and lib/monday-push.ts writes changes back to Monday).
+    //    So the pull only brings in genuinely-new Monday-born leads (e.g. the
+    //    Monday intake form). It NEVER overwrites or deletes an existing lead —
+    //    that would clobber the team's Lynxedo edits.
+    if (newLeads.length) {
+      const { data: inserted, error: insErr } = await admin
+        .from('leads').insert(newLeads).select('id, monday_item_id, updated_at')
+      if (insErr) throw new Error(`leads insert: ${insErr.message}`)
+      // Seed push state for each freshly-pulled lead so the Lynxedo->Monday push
+      // treats it as already in sync (no redundant write-back of what we pulled).
+      const seed = (inserted ?? [])
+        .filter((r: any) => r.monday_item_id)
+        .map((r: any) => ({
+          lead_id: r.id as string,
+          monday_item_id: r.monday_item_id as string,
+          last_pushed_updated_at: r.updated_at as string,
+        }))
+      if (seed.length) {
+        const { error: seedErr } = await admin
+          .from('lead_monday_sync').upsert(seed, { onConflict: 'lead_id' })
+        if (seedErr) throw new Error(`lead_monday_sync seed: ${seedErr.message}`)
+      }
+    }
+    report.upserted = newLeads.length
   } else {
     report.upserted = 0
   }
