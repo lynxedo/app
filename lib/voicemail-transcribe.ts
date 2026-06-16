@@ -274,6 +274,32 @@ async function triggerAutoReply(opts: {
 
   if (!responder?.ai_reply_enabled) return
 
+  // ATOMIC CLAIM — guarantees exactly ONE auto-reply per voicemail.
+  //
+  // processVoicemail() can run concurrently (the voicemail/complete webhook
+  // fires it, and the 1-min transcribe cron backstop also sweeps any row whose
+  // transcript hasn't been written back yet). Each run independently passed the
+  // `ai_reply_sent_at IS NULL` read and reached here, so all of them used to
+  // send — that's how one caller got three texts (each a separate Claude
+  // generation, hence the slightly different wording). Stamp ai_reply_sent_at
+  // NOW with a conditional `.is(null)` update: Postgres serializes the racing
+  // UPDATEs and only one matches the null row, so only one run proceeds. The
+  // losers get no row back and bail. On a hard send failure below we reset it to
+  // null so a later run can retry. (Compliance bonus: at most one text even if
+  // the send path itself partially fails.)
+  const claimedAt = new Date().toISOString()
+  const { data: claimed } = await admin
+    .from('voicemails')
+    .update({ ai_reply_sent_at: claimedAt })
+    .eq('id', opts.voicemailId)
+    .is('ai_reply_sent_at', null)
+    .select('id')
+    .maybeSingle()
+  if (!claimed) {
+    console.log('[responder-ai] skipping — auto-reply already claimed/sent', opts.voicemailId)
+    return
+  }
+
   // Respect do_not_text — same check the inbound webhook does.
   const { data: contact } = await admin
     .from('txt_contacts')
@@ -323,10 +349,12 @@ async function triggerAutoReply(opts: {
         afterhours_no_message_template: responder.afterhours_no_message_template,
       },
     })
-    if (fallback.textSent) {
+    // ai_reply_sent_at is already stamped (claimed above). If the fallback send
+    // failed, release the claim so a later cron sweep can retry.
+    if (!fallback.textSent) {
       await admin
         .from('voicemails')
-        .update({ ai_reply_sent_at: new Date().toISOString() })
+        .update({ ai_reply_sent_at: null })
         .eq('id', opts.voicemailId)
     }
     console.log(
@@ -345,11 +373,18 @@ async function triggerAutoReply(opts: {
     systemPrompt: (responder.ai_reply_prompt as string | null) ?? null,
   })
 
-  // Log the result back to the voicemails row so it's visible in call-log2.
+  // ai_reply_sent_at is already stamped (claimed above). On success, record the
+  // body so it's visible in call-log2. On failure, release the claim so a later
+  // cron sweep can retry the reply.
   if (result.smsSent && result.smsBody) {
     await admin
       .from('voicemails')
-      .update({ ai_reply_body: result.smsBody, ai_reply_sent_at: new Date().toISOString() })
+      .update({ ai_reply_body: result.smsBody })
+      .eq('id', opts.voicemailId)
+  } else {
+    await admin
+      .from('voicemails')
+      .update({ ai_reply_sent_at: null })
       .eq('id', opts.voicemailId)
   }
 
