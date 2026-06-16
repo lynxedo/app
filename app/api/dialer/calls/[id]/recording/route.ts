@@ -20,11 +20,18 @@ export async function GET(
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('can_access_call_log2, can_admin_dialer, role, company_id')
+    .select('can_access_call_log2, can_admin_dialer, can_access_unified_inbox, role, company_id')
     .eq('id', user.id)
     .single()
 
-  if (!profile?.can_access_call_log2 && profile?.role !== 'admin' && !profile?.can_admin_dialer) {
+  // Unified Inbox is a read-all view (PRD §6): a manager with only
+  // can_access_unified_inbox can play recordings without dialer/call-log2 access.
+  if (
+    !profile?.can_access_call_log2 &&
+    profile?.role !== 'admin' &&
+    !profile?.can_admin_dialer &&
+    !profile?.can_access_unified_inbox
+  ) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 

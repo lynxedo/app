@@ -7,6 +7,7 @@ import TemplatePicker, { filterTemplates, type PickerTemplate } from './Template
 import EmojiPicker from '@/components/hub/EmojiPicker'
 import { createClient } from '@/lib/supabase/client'
 import { renderTemplate, DEFAULT_ON_MY_WAY_TEMPLATE } from '@/lib/txt-templates'
+import { CallMarker, VoicemailMarker, type TimelineCallEvent } from './TimelineMarkers'
 
 type Message = {
   id: string
@@ -124,6 +125,7 @@ export default function TxtConversationView({
   companyId,
   canAssign,
   canAccessDialer,
+  canAccessUnifiedInbox = false,
   hasGuardian = false,
 }: {
   initialConversation: Conversation
@@ -138,12 +140,18 @@ export default function TxtConversationView({
   companyId: string
   canAssign: boolean
   canAccessDialer: boolean
+  canAccessUnifiedInbox?: boolean
   hasGuardian?: boolean
 }) {
   const router = useRouter()
   const [conversation, setConversation] = useState(initialConversation)
   const [messages, setMessages] = useState(initialMessages)
   const [notes, setNotes] = useState(initialNotes)
+  // Unified Inbox (Session 2) — call + voicemail markers, additive on top of the
+  // existing texts (messages) + notes timeline. Only the 'call'/'voicemail' kinds
+  // are kept from /api/txt/timeline; texts/notes already come from their own
+  // state above, so this never double-renders them. Flag off => never fetched.
+  const [callEvents, setCallEvents] = useState<TimelineCallEvent[]>([])
   const [members, setMembers] = useState<Member[]>(initialMembers)
   const groupContacts = initialGroupContacts
     .map((row) => unwrap(row.contact))
@@ -450,7 +458,7 @@ export default function TxtConversationView({
     }
     const el = scrollContainerRef.current
     if (el) el.scrollTop = el.scrollHeight
-  }, [messages.length, conversation.id])
+  }, [messages.length, callEvents.length, conversation.id])
 
   async function loadOlderMessages() {
     if (loadingOlder || !hasMoreOlder) return
@@ -530,6 +538,36 @@ export default function TxtConversationView({
       supabase.removeChannel(channel)
     }
   }, [conversation.id, companyId])
+
+  // Unified Inbox (Session 2) — pull the contact's call + voicemail events and
+  // interleave them into the thread. Read-only, behind can_access_unified_inbox.
+  // Per-contact (not per-conversation): group threads have no single contact and
+  // are text-only in v1 (PRD §7.3). Refetch-on-load is the documented S2 scope;
+  // live insertion across channels is Session 5.
+  useEffect(() => {
+    const contactId = conversation.contact?.id
+    if (!canAccessUnifiedInbox || isGroup || !contactId) {
+      setCallEvents([])
+      return
+    }
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch(`/api/txt/timeline?contact_id=${encodeURIComponent(contactId)}`)
+        if (!res.ok || cancelled) return
+        const data = await res.json()
+        const events: TimelineCallEvent[] = (data.events || []).filter(
+          (e: { kind?: string }) => e.kind === 'call' || e.kind === 'voicemail'
+        )
+        if (!cancelled) setCallEvents(events)
+      } catch {
+        /* non-fatal — the thread still renders texts + notes */
+      }
+    })()
+    return () => {
+      cancelled = true
+    }
+  }, [canAccessUnifiedInbox, isGroup, conversation.contact?.id])
 
   async function addMember(userId: string) {
     setAddMemberOpen(false)
@@ -848,15 +886,42 @@ export default function TxtConversationView({
   // the server validates send_at is in the future).
   const minScheduleDateTime = new Date(Date.now() + 60_000).toISOString().slice(0, 16)
 
-  // Interleave internal notes into the message stream as small markers, in
-  // chronological order, so staff can see where in the conversation a note was
-  // taken. Tapping a marker opens the notes panel.
+  // Resolve a hub user id to a first name for call-marker attribution (the
+  // call's initiated_by). Falls back to nothing when unknown.
+  function actorFirstName(userId: string | null): string | null {
+    if (!userId) return null
+    const u = hubUsers.find((x) => x.id === userId)
+    return u?.display_name?.trim().split(/\s+/)[0] || null
+  }
+
+  // "Guardian auto-replied" affordance → scroll to the auto-reply text. The AI
+  // reply is an outbound message (sent_by null) sent at/after the voicemail's
+  // ai_reply_sent_at; jump to the first such bubble.
+  function jumpToGuardianReply(ts: string) {
+    const target = messages.find(
+      (m) => m.direction === 'outbound' && !m.sent_by && new Date(m.created_at).getTime() >= new Date(ts).getTime()
+    )
+    const el = target && scrollContainerRef.current?.querySelector(`[data-msg-id="${target.id}"]`)
+    if (el) {
+      ;(el as HTMLElement).scrollIntoView({ behavior: 'smooth', block: 'center' })
+      el.classList.add('ring-2', 'ring-purple-400/70')
+      setTimeout(() => el.classList.remove('ring-2', 'ring-purple-400/70'), 1600)
+    }
+  }
+
+  // Interleave internal notes — and, behind the Unified Inbox flag, call +
+  // voicemail markers — into the message stream as small centered markers, in
+  // chronological order, so the thread reads as one story (texts = bubbles,
+  // everything else = quiet expandable divider). Tapping a note marker opens the
+  // notes panel; tapping a call/vm marker expands its audio/transcript inline.
   const timeline: Array<
     | { kind: 'message'; id: string; at: string; message: Message }
     | { kind: 'note'; id: string; at: string; note: Note }
+    | { kind: 'event'; id: string; at: string; event: TimelineCallEvent }
   > = [
     ...messages.map((m) => ({ kind: 'message' as const, id: `m-${m.id}`, at: m.created_at, message: m })),
     ...notes.map((n) => ({ kind: 'note' as const, id: `n-${n.id}`, at: n.created_at, note: n })),
+    ...callEvents.map((e) => ({ kind: 'event' as const, id: `${e.kind}-${e.id}`, at: e.ts, event: e })),
   ].sort((a, b) => new Date(a.at).getTime() - new Date(b.at).getTime())
 
   // Notes panel body (list + composer) — shared between the desktop right rail
@@ -1203,7 +1268,7 @@ export default function TxtConversationView({
               </button>
             </div>
           )}
-          {messages.length === 0 && (
+          {timeline.length === 0 && (
             <div className="text-center text-white/40 text-sm py-8">
               No messages yet.
             </div>
@@ -1226,6 +1291,19 @@ export default function TxtConversationView({
                 </div>
               )
             }
+            if (item.kind === 'event') {
+              const e = item.event
+              return e.kind === 'voicemail' ? (
+                <VoicemailMarker key={item.id} event={e} onJumpToReply={jumpToGuardianReply} />
+              ) : (
+                <CallMarker
+                  key={item.id}
+                  event={e}
+                  actorName={actorFirstName(e.actor)}
+                  onJumpToReply={jumpToGuardianReply}
+                />
+              )
+            }
             const m = item.message
             const isOutbound = m.direction === 'outbound'
             // Who sent this outbound message: the user's first name, or
@@ -1240,7 +1318,8 @@ export default function TxtConversationView({
                 className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}
               >
                 <div
-                  className={`max-w-[75%] rounded-2xl px-3 py-2 ${
+                  data-msg-id={m.id}
+                  className={`max-w-[75%] rounded-2xl px-3 py-2 transition-shadow ${
                     isOutbound
                       ? m.status === 'failed'
                         ? 'bg-red-500/20 border border-red-500/40'

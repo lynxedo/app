@@ -15,7 +15,7 @@ export default async function TxtConversationPage({
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_txt, can_assign_txt_threads, can_access_dialer, can_access_txt, guardian_tier, company_id')
+    .select('role, can_admin_txt, can_assign_txt_threads, can_access_dialer, can_access_txt, can_access_unified_inbox, guardian_tier, company_id')
     .eq('id', user.id)
     .single()
 
@@ -28,6 +28,7 @@ export default async function TxtConversationPage({
     profile?.can_assign_txt_threads === true
 
   const canAccessDialer = profile?.can_access_dialer === true
+  const canAccessUnifiedInbox = profile?.role === 'admin' || profile?.can_access_unified_inbox === true
   const hasGuardian = !!profile?.guardian_tier
 
   const [
@@ -101,6 +102,7 @@ export default async function TxtConversationPage({
       companyId={profile?.company_id || ''}
       canAssign={!!canAssign}
       canAccessDialer={canAccessDialer}
+      canAccessUnifiedInbox={canAccessUnifiedInbox}
       hasGuardian={hasGuardian}
     />
   )
