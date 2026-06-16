@@ -1455,14 +1455,18 @@ export default function TrackerPage({
   settings,
   currentUser,
   initialColumnLayout,
+  initialLeads,
 }: {
   settings: TrackerSettings | null
   currentUser: CurrentUser
   initialColumnLayout?: { id: string; width: number }[] | null
+  initialLeads?: Lead[] | null
 }) {
   const toast = useToast()
-  const [leads, setLeads] = useState<Lead[]>([])
-  const [loading, setLoading] = useState(true)
+  const [leads, setLeads] = useState<Lead[]>(initialLeads ?? [])
+  // Seeded from the server prefetch → no spinner on first paint. Only show the
+  // loading state when we genuinely have nothing yet.
+  const [loading, setLoading] = useState(!initialLeads)
   const [search, setSearch] = useState('')
   const [stageFilter, setStageFilter] = useState('')
   const [statusFilter, setStatusFilter] = useState('')
@@ -1616,7 +1620,15 @@ export default function TrackerPage({
     setLoading(false)
   }, [search, stageFilter, statusFilter, salespersonFilter])
 
+  // When the server already seeded the unfiltered list, skip the redundant
+  // first client fetch (no filters are active on mount). Any later filter/search
+  // change re-runs fetchLeads normally.
+  const skipFirstFetch = useRef(!!initialLeads)
   useEffect(() => {
+    if (skipFirstFetch.current) {
+      skipFirstFetch.current = false
+      return
+    }
     const t = setTimeout(fetchLeads, search ? 350 : 0)
     return () => clearTimeout(t)
   }, [fetchLeads])
@@ -1797,8 +1809,10 @@ export default function TrackerPage({
       `}</style>
       {/* Main */}
       <div className="flex-1 overflow-y-scroll overflow-x-hidden min-w-0 relative tracker-vsb">
-        {/* Toolbar */}
-        <div className="sticky top-0 z-10 bg-gray-950 border-b border-gray-800">
+        {/* Toolbar — z-30 so it paints above the frozen first column (body z-10,
+            header z-20); otherwise the sticky-left column bleeds over the header
+            on vertical scroll instead of disappearing behind it. */}
+        <div className="sticky top-0 z-30 bg-gray-950 border-b border-gray-800">
           {/* Board title */}
           <div className="px-4 pt-2.5 pb-1.5 flex items-center gap-2 max-md:pl-14">
             <Link

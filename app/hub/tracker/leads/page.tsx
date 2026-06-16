@@ -1,5 +1,6 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { fetchLeadsWithNotes } from '@/lib/tracker/leads'
 import TrackerPage from '../TrackerPage'
 
 export default async function HubLeadTrackerRoute() {
@@ -18,6 +19,16 @@ export default async function HubLeadTrackerRoute() {
     .select('*')
     .single()
 
+  // Prefetch the full (unfiltered) lead list on the server so the table paints
+  // with data on first load — no client round-trip, no "Loading leads…" gap.
+  // A failed prefetch just falls back to the client fetch (empty initial list).
+  let initialLeads: Awaited<ReturnType<typeof fetchLeadsWithNotes>> | null = null
+  try {
+    initialLeads = await fetchLeadsWithNotes(supabase)
+  } catch {
+    initialLeads = null
+  }
+
   const currentUser = {
     email: user.email ?? '',
     name: user.email?.split('@')[0] ?? 'Unknown',
@@ -28,5 +39,12 @@ export default async function HubLeadTrackerRoute() {
     ? profile.tracker_column_layout as { id: string; width: number; hidden?: boolean }[]
     : null
 
-  return <TrackerPage settings={settings} currentUser={currentUser} initialColumnLayout={initialColumnLayout} />
+  return (
+    <TrackerPage
+      settings={settings}
+      currentUser={currentUser}
+      initialColumnLayout={initialColumnLayout}
+      initialLeads={initialLeads}
+    />
+  )
 }

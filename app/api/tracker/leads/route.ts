@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { fetchLeadsWithNotes } from '@/lib/tracker/leads'
 
 export async function GET(request: Request) {
   const supabase = await createClient()
@@ -7,47 +8,17 @@ export async function GET(request: Request) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const { searchParams } = new URL(request.url)
-  const search = searchParams.get('search') ?? ''
-  const stage = searchParams.get('stage') ?? ''
-  const status = searchParams.get('status') ?? ''
-  const salesperson = searchParams.get('salesperson') ?? ''
-
-  let query = supabase
-    .from('leads')
-    .select('id, first_name, last_name, phone, email, service, lead_source, status, stage, lead_creation_date, sold_date, salesperson, base_program_sold, auxiliary_services, annual_value, service_address, created_at, updated_at')
-    .order('created_at', { ascending: false })
-
-  if (stage) query = query.eq('stage', stage)
-  if (status) query = query.eq('status', status)
-  if (salesperson) query = query.eq('salesperson', salesperson)
-  if (search) {
-    query = query.or(
-      `first_name.ilike.%${search}%,last_name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`
-    )
+  try {
+    const result = await fetchLeadsWithNotes(supabase, {
+      search: searchParams.get('search') ?? '',
+      stage: searchParams.get('stage') ?? '',
+      status: searchParams.get('status') ?? '',
+      salesperson: searchParams.get('salesperson') ?? '',
+    })
+    return NextResponse.json(result)
+  } catch (err) {
+    return NextResponse.json({ error: (err as Error).message }, { status: 500 })
   }
-
-  const { data: leads, error } = await query
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-
-  if (!leads || leads.length === 0) return NextResponse.json([])
-
-  // Fetch latest note per lead
-  const leadIds = leads.map(l => l.id)
-  const { data: notes } = await supabase
-    .from('lead_notes')
-    .select('lead_id, note, created_by, created_at')
-    .in('lead_id', leadIds)
-    .order('created_at', { ascending: false })
-
-  const latestNoteMap = new Map<string, { note: string; created_by: string; created_at: string }>()
-  for (const n of notes ?? []) {
-    if (!latestNoteMap.has(n.lead_id)) {
-      latestNoteMap.set(n.lead_id, { note: n.note, created_by: n.created_by, created_at: n.created_at })
-    }
-  }
-
-  const result = leads.map(l => ({ ...l, latest_note: latestNoteMap.get(l.id) ?? null }))
-  return NextResponse.json(result)
 }
 
 export async function POST(request: Request) {
