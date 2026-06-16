@@ -50,6 +50,7 @@ export default async function AdminPage() {
     can_access_forms: boolean; can_admin_forms: boolean; can_admin_products: boolean;
     can_access_daily_log_v2: boolean;
     can_access_call_log2: boolean; can_access_scoreboards: boolean;
+    can_access_files: boolean; can_access_pesticide_records: boolean;
     display_name: string | null; avatar_url: string | null; invite_sent_at: string | null;
     full_name: string | null;
   }) => ({
@@ -99,6 +100,8 @@ export default async function AdminPage() {
       can_access_daily_log_v2: r.can_access_daily_log_v2,
       can_access_call_log2: r.can_access_call_log2,
       can_access_scoreboards: r.can_access_scoreboards,
+      can_access_files: r.can_access_files,
+      can_access_pesticide_records: r.can_access_pesticide_records,
     },
   }))
 

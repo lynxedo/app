@@ -8,7 +8,7 @@ export default async function FilesPage() {
   if (!user) redirect('/login')
 
   const [profileResult, filesResult, tagsResult] = await Promise.all([
-    supabase.from('user_profiles').select('role').eq('id', user.id).single(),
+    supabase.from('user_profiles').select('role, can_access_files').eq('id', user.id).single(),
     supabase
       .from('hub_files')
       .select(`
@@ -24,6 +24,7 @@ export default async function FilesPage() {
   ])
 
   const isAdmin = profileResult.data?.role === 'admin'
+  if (!isAdmin && !profileResult.data?.can_access_files) redirect('/hub')
 
   const files = (filesResult.data ?? []).map((f: {
     id: string

@@ -41,6 +41,8 @@ type UserProfile = {
   can_access_daily_log_v2: boolean
   can_access_call_log2: boolean
   can_access_scoreboards: boolean
+  can_access_files: boolean
+  can_access_pesticide_records: boolean
 }
 
 type User = {
@@ -86,7 +88,9 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_access_forms', label: 'Forms' },
   { key: 'can_access_daily_log_v2', label: 'Daily Log v2' },
   { key: 'can_access_call_log2', label: 'Call Log 2' },
-  { key: 'can_access_scoreboards', label: 'Scoreboards' },
+  { key: 'can_access_scoreboards', label: 'Scoreboards (also assign boards in Admin → Scoreboards)' },
+  { key: 'can_access_files', label: 'Files' },
+  { key: 'can_access_pesticide_records', label: 'Pesticide Records' },
 ]
 
 const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
@@ -227,6 +231,8 @@ export default function AdminPanel({
             can_access_daily_log_v2: false,
             can_access_call_log2: false,
             can_access_scoreboards: false,
+            can_access_files: false,
+            can_access_pesticide_records: false,
           },
         }
         setUsers(prev => [...prev, newUser])
@@ -361,6 +367,8 @@ export default function AdminPanel({
             can_access_daily_log_v2: false,
             can_access_call_log2: false,
             can_access_scoreboards: false,
+            can_access_files: false,
+            can_access_pesticide_records: false,
           },
         }
         setUsers(prev => [...prev, newUser])

@@ -7372,6 +7372,8 @@ export type Database = {
           can_access_lawn: boolean
           can_access_marketing: boolean
           can_access_responder: boolean
+          can_access_files: boolean
+          can_access_pesticide_records: boolean
           can_access_routing: boolean
           can_access_scoreboards: boolean | null
           can_access_timesheet: boolean | null
@@ -7438,6 +7440,8 @@ export type Database = {
           can_access_lawn?: boolean
           can_access_marketing?: boolean
           can_access_responder?: boolean
+          can_access_files?: boolean
+          can_access_pesticide_records?: boolean
           can_access_routing?: boolean
           can_access_scoreboards?: boolean | null
           can_access_timesheet?: boolean | null
@@ -7504,6 +7508,8 @@ export type Database = {
           can_access_lawn?: boolean
           can_access_marketing?: boolean
           can_access_responder?: boolean
+          can_access_files?: boolean
+          can_access_pesticide_records?: boolean
           can_access_routing?: boolean
           can_access_scoreboards?: boolean | null
           can_access_timesheet?: boolean | null
@@ -7943,6 +7949,8 @@ export type Database = {
           can_access_lawn: boolean
           can_access_marketing: boolean
           can_access_responder: boolean
+          can_access_files: boolean
+          can_access_pesticide_records: boolean
           can_access_routing: boolean
           can_access_scoreboards: boolean
           can_access_timesheet: boolean
