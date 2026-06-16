@@ -1755,7 +1755,7 @@ function ScoreboardsTab() {
         <Section title="Enabling Scoreboard Access (Admin)">
           <p>Two steps in sequence:</p>
           <Step n={1}>Go to <strong className="text-white">Admin → People</strong>, find the user, and turn on the <strong className="text-white">Scoreboards</strong> toggle. This gives them access to the Scoreboards section.</Step>
-          <Step n={2}>Go to <strong className="text-white">Admin → Scoreboards → Who can see each board</strong>. Find the user&apos;s row and click the board buttons you want them to see — each button lights up sky-blue when the board is granted. Changes save instantly. A user with the section flag but no boards granted will see the Scoreboards nav item but an empty sidebar.</Step>
+          <Step n={2}>Go to <strong className="text-white">Admin → Scoreboards → Who can see each board</strong>. Find the user&apos;s row and click the board buttons you want them to see — each button lights up sky-blue when the board is granted. Changes save instantly. A user with the section flag but <em>no</em> boards granted won&apos;t see the Scoreboards icon in their app drawer at all, and if they open the link directly they&apos;ll get a &ldquo;No scoreboards assigned yet&rdquo; message — so granting at least one board here is what actually turns Scoreboards on for them.</Step>
         </Section>
 
         <Section title="Technician Assignment (Admin)">
