@@ -200,7 +200,7 @@ export function CallMarker({
         <span className="opacity-50">· {fmtTime(event.ts)}</span>
         {actorName && <span className="opacity-50 truncate">· {actorName}</span>}
         {preview && (
-          <span className="text-red-100/60 truncate">— &ldquo;{preview}&rdquo;</span>
+          <span className="text-red-100/60 truncate min-w-0">— &ldquo;{preview}&rdquo;</span>
         )}
         {hasDetail && <span className="opacity-40">{expanded ? '▾' : '▸'}</span>}
       </button>
@@ -245,7 +245,7 @@ export function VoicemailMarker({
         {dur && <span className="opacity-70">{dur}</span>}
         <span className="opacity-50">· {fmtTime(event.ts)}</span>
         {preview && (
-          <span className="text-red-100/60 truncate">— &ldquo;{preview}&rdquo;</span>
+          <span className="text-red-100/60 truncate min-w-0">— &ldquo;{preview}&rdquo;</span>
         )}
         <span className="opacity-40">{expanded ? '▾' : '▸'}</span>
       </button>
