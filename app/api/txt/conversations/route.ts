@@ -277,11 +277,11 @@ export async function GET(request: Request) {
     }
     query = query.in('id', ids).neq('status', 'archived')
   } else if (scope === 'unassigned') {
-    // The unassigned Queue is the HUMAN triage queue. Guardian/Responder
-    // conversations live in their own Responder tab (source='responder'), so
-    // keep unclaimed Guardian threads out of the human queue. (null-safe: keep
-    // rows with no source set.)
-    query = query.eq('status', 'unassigned').or('source.is.null,source.neq.responder')
+    // The unassigned Queue is the unified triage queue. Unified Inbox Session 6:
+    // Guardian/Responder threads (source='responder') now fold INTO this Queue
+    // as unclaimed items (surfaced with a "Guardian replied" badge in the rail)
+    // instead of living in a separate Responder tab. So no source exclusion.
+    query = query.eq('status', 'unassigned')
   } else if (scope === 'archived') {
     query = query.eq('status', 'archived')
     if (!isTxtUser) {
@@ -289,8 +289,6 @@ export async function GET(request: Request) {
     }
   } else if (scope === 'all') {
     query = query.neq('status', 'archived')
-  } else if (scope === 'responder') {
-    query = query.eq('source', 'responder').neq('status', 'archived')
   } else {
     return NextResponse.json({ error: 'Invalid scope' }, { status: 400 })
   }

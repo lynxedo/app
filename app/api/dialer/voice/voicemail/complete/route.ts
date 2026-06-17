@@ -11,6 +11,10 @@ import {
 } from '@/lib/twilio-voice'
 import { processVoicemail } from '@/lib/voicemail-transcribe'
 import { enrichTxtContactName } from '@/lib/dialer-lookup'
+import {
+  ensureInboundQueueConversation,
+  findOrCreateContactByPhone,
+} from '@/lib/txt-inbound-queue'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -159,6 +163,35 @@ export async function POST(request: NextRequest) {
       .update({ status: 'voicemail' })
       .eq('id', callId)
       .in('status', ['ringing', 'no-answer', 'busy', 'failed', 'canceled'])
+  }
+
+  // Unified Inbox Session 6 (Option A) — a voicemail behaves like an inbound
+  // text: surface it in the unified Queue so the office can triage it without a
+  // dialer/voicemail detour. Find-or-create the contact (best-effort), then
+  // find-or-create/reopen an unassigned conversation. No-ops cleanly on an
+  // already-open thread (the timeline marker shows the VM inline). Fully
+  // wrapped — must never break the voicemail flow.
+  try {
+    let queueContactId = contactId
+    if (!queueContactId && fromNumber) {
+      queueContactId = await findOrCreateContactByPhone(
+        admin,
+        HEROES_COMPANY_ID,
+        fromNumber
+      )
+    }
+    if (queueContactId) {
+      const mmss = durationSec
+        ? `${Math.floor(durationSec / 60)}:${String(durationSec % 60).padStart(2, '0')}`
+        : ''
+      await ensureInboundQueueConversation(admin, {
+        companyId: HEROES_COMPANY_ID,
+        contactId: queueContactId,
+        preview: mmss ? `🎙 Voicemail (${mmss})` : '🎙 Voicemail',
+      })
+    }
+  } catch (e) {
+    console.warn('[voicemail.complete] queue ensure failed', e)
   }
 
   // Push fan-out:

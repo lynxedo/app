@@ -78,14 +78,12 @@ export async function POST(
     }
   }
 
-  // Permission: caller must be the owner or an added member. The one exception
-  // is an unassigned (Queue) thread — any Txt2 user may reply to it, which
-  // auto-claims it below. A non-participant on an ASSIGNED thread is rejected;
-  // they must join first.
+  // Permission: caller must be the owner or an added member. Claiming an
+  // unassigned (Queue) thread, or joining one owned by someone else, is now an
+  // EXPLICIT action (the Claim / Join buttons) — never a side effect of typing
+  // a reply. A non-participant is rejected here and must Claim or Join first.
   const perms = await getTxtConvPermissions(supabase, conversationId, user.id)
-  const canReplyHere =
-    perms.canReply || (conv.status === 'unassigned' && perms.isTxtUser)
-  if (!canReplyHere) {
+  if (!perms.canReply) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
@@ -154,26 +152,6 @@ export async function POST(
 
   if (insertErr || !inserted) {
     return NextResponse.json({ error: 'Insert failed' }, { status: 500 })
-  }
-
-  // Auto-claim on first reply (direct conversations only — group ownership is
-  // set at creation and never auto-transferred).
-  if (!isGroup && conv.status === 'unassigned') {
-    await admin
-      .from('txt_conversations')
-      .update({ assigned_to: user.id, status: 'assigned' })
-      .eq('id', conversationId)
-    // Promote sender to owner via members table too.
-    await admin.from('txt_conversation_members').delete().match({
-      conversation_id: conversationId,
-      user_id: user.id,
-    })
-    await admin.from('txt_conversation_members').insert({
-      conversation_id: conversationId,
-      user_id: user.id,
-      role: 'owner',
-      added_by: user.id,
-    })
   }
 
   await admin

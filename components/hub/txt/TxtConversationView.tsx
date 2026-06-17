@@ -246,16 +246,19 @@ export default function TxtConversationView({
   const [catchSummary, setCatchSummary] = useState<string | null>(null)
   const [catchError, setCatchError] = useState<string | null>(null)
   // SENDING is restricted to the owner or an added member — NOT every Txt2
-  // user. A non-participant reads the thread but must Join first to get a
-  // composer. (Managers join too — being a manager no longer grants a silent
-  // voice in someone else's thread.)
+  // user. A non-participant reads the thread but must Claim (Queue) or Join
+  // (someone else's thread) first to get a composer. (Managers join too — being
+  // a manager no longer grants a silent voice in someone else's thread.)
   const canReplyHere = isOwnerMe || isMemberMe
-  // An unassigned (Queue) thread has no owner yet; replying to it claims it,
-  // so the composer is shown there for any Txt2 user.
+  // An unassigned (Queue) thread has no owner yet — it's claimable.
   const isUnassigned = conversation.status === 'unassigned'
-  // The composer (and its toolbar) renders when the user can actually send:
-  // they're a participant, or it's an unclaimed Queue thread.
-  const canComposeHere = canReplyHere || isUnassigned
+  // The composer (and its toolbar) renders ONLY when the user can actually
+  // send: they're the owner or an added member. Claiming/joining are explicit
+  // header/footer actions that reveal the composer after they succeed.
+  const canComposeHere = canReplyHere
+  // Archiving for everyone is owner-level — owner or a Txt manager only
+  // (`canAssign` is the manager flag from the page). Mirrors the server gate.
+  const canArchive = isOwnerMe || canAssign
 
   async function runSuggestReply(tone: SuggestTone) {
     setSuggestOpen(false)
@@ -1361,13 +1364,15 @@ export default function TxtConversationView({
               </span>
             )}
           </button>
-          <button
-            onClick={toggleArchive}
-            className="text-xs px-2 py-1 rounded-md bg-white/10 hover:bg-white/20"
-            title={isArchived ? 'Reopen' : 'Archive'}
-          >
-            {isArchived ? '↺' : '✓'}
-          </button>
+          {canArchive && (
+            <button
+              onClick={toggleArchive}
+              className="text-xs px-2 py-1 rounded-md bg-white/10 hover:bg-white/20"
+              title={isArchived ? 'Reopen' : 'Archive'}
+            >
+              {isArchived ? '↺' : '✓'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -1952,13 +1957,33 @@ export default function TxtConversationView({
         </div>
       )}
 
-      {/* Join-to-reply — shown to a Txt2 user who's viewing this thread but
-          isn't a participant yet. Reading is open to everyone; sending isn't.
-          One click adds them as a member and reveals the composer. */}
-      {!isArchived && !canComposeHere && (
+      {/* Claim — an unassigned (Queue) thread has no owner. Any Txt2 user can
+          claim it (becomes owner), which reveals the composer. Claiming is
+          explicit; replying no longer silently claims. */}
+      {!isArchived && !canComposeHere && isUnassigned && (
         <div className="border-t border-white/10 px-4 py-3 bg-[#0B2237] flex items-center justify-between gap-3">
           <span className="text-sm text-white/50">
-            You&apos;re viewing this conversation. Join it to send a reply.
+            Unclaimed conversation. Claim it to reply.
+          </span>
+          <button
+            type="button"
+            onClick={() => assignTo(currentUserId)}
+            className="flex-none text-sm px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-white"
+          >
+            Claim it
+          </button>
+        </div>
+      )}
+
+      {/* Join-to-reply — shown to a Txt2 user viewing a thread owned by someone
+          else. Reading is open to everyone; sending isn't. One click adds them
+          as a member and reveals the composer. */}
+      {!isArchived && !canComposeHere && !isUnassigned && (
+        <div className="border-t border-white/10 px-4 py-3 bg-[#0B2237] flex items-center justify-between gap-3">
+          <span className="text-sm text-white/50">
+            {conversation.assignee && conversation.assignee.id !== currentUserId
+              ? `You're viewing ${conversation.assignee.display_name.split(' ')[0]}'s conversation. Join it to send a reply.`
+              : "You're viewing this conversation. Join it to send a reply."}
           </span>
           <button
             type="button"
@@ -1973,7 +1998,9 @@ export default function TxtConversationView({
 
       {isArchived && (
         <div className="border-t border-white/10 px-4 py-3 bg-amber-500/5 text-amber-200 text-sm text-center">
-          This conversation is archived. Tap ↺ above to reopen.
+          {canArchive
+            ? 'This conversation is archived. Tap ↺ above to reopen.'
+            : 'This conversation is archived.'}
         </div>
       )}
 

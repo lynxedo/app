@@ -36,7 +36,7 @@ type Conversation = {
   last_inbound_activity_at?: string | null
 }
 
-type Scope = 'mine' | 'all' | 'archived' | 'responder' | 'contacts'
+type Scope = 'mine' | 'all' | 'archived' | 'contacts'
 type ViewFilter = 'all' | 'unread' | 'missed' | 'voicemails'
 
 // Last-activity-type icon for the rail (one icon per row, not a per-channel
@@ -177,7 +177,7 @@ export default function TxtV2Sidebar({
       return
     }
     setLoading(true)
-    const showQueue = canManage && scope !== 'archived' && scope !== 'responder'
+    const showQueue = canManage && scope !== 'archived'
     const requests: Promise<Response>[] = [
       fetch(`/api/txt/conversations?scope=${scope}&limit=100`),
     ]
@@ -395,7 +395,6 @@ export default function TxtV2Sidebar({
     { id: 'mine', label: 'Mine', show: true },
     { id: 'all', label: 'All', show: true },
     { id: 'archived', label: 'Archived', show: true },
-    { id: 'responder', label: 'Responder', show: canManage },
     { id: 'contacts', label: 'Contacts', show: true },
   ]
 
@@ -566,7 +565,7 @@ export default function TxtV2Sidebar({
         {/* Pinned Queue section — unassigned threads, always at the top for
             managers (in Mine + All). Highlighted, with inline Claim / Assign /
             Archive so they can be triaged without leaving the list. */}
-        {canManage && scope !== 'archived' && scope !== 'responder' && filteredQueue.length > 0 && (
+        {canManage && scope !== 'archived' && filteredQueue.length > 0 && (
           <div className="bg-orange-500/[0.06] border-b border-orange-500/20">
             <div className="px-4 pt-2 pb-1 flex items-center gap-2">
               <span className="text-[10px] uppercase tracking-wide text-orange-300/80 font-semibold">
@@ -671,8 +670,6 @@ export default function TxtV2Sidebar({
                 ? 'Nothing assigned to you yet.'
                 : scope === 'archived'
                 ? 'No archived conversations.'
-                : scope === 'responder'
-                ? 'No Guardian auto-texts yet.'
                 : 'No conversations.'
             }
           />

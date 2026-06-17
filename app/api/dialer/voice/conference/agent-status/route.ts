@@ -5,6 +5,10 @@ import { advanceRingGroup } from '@/lib/dialer-conference-connect'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 import { lookupByPhone } from '@/lib/dialer-lookup'
+import {
+  ensureInboundQueueConversation,
+  findOrCreateContactByPhone,
+} from '@/lib/txt-inbound-queue'
 
 function xml(body: string, status = 200) {
   return new NextResponse(body, { status, headers: { 'Content-Type': 'text/xml' } })
@@ -119,6 +123,29 @@ export async function POST(request: NextRequest) {
                 groupKey: `missed_call_${callRow.id}`,
               }
             ).catch(() => {})
+          }
+
+          // Unified Inbox Session 6 (Option A) — a missed inbound call behaves
+          // like an inbound text: surface it in the unified Queue so the office
+          // can triage even when the caller leaves no voicemail. Idempotent and
+          // shared with the voicemail-complete path (a VM-left missed call just
+          // resolves the same conversation). Fully wrapped — never breaks the
+          // call flow.
+          try {
+            const queueContactId = await findOrCreateContactByPhone(
+              admin,
+              callRow.company_id,
+              callRow.from_number || ''
+            )
+            if (queueContactId) {
+              await ensureInboundQueueConversation(admin, {
+                companyId: callRow.company_id,
+                contactId: queueContactId,
+                preview: '📞 Missed call',
+              })
+            }
+          } catch (e) {
+            console.warn('[dialer.conference.agent-status] queue ensure failed', e)
           }
         }
       } catch (e) {
