@@ -9,7 +9,7 @@ export default async function TxtIndexPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_txt, can_assign_txt_threads, can_access_txt')
+    .select('role, can_admin_txt, can_assign_txt_threads, can_access_txt, can_access_unified_inbox')
     .eq('id', user.id)
     .single()
 
@@ -18,6 +18,8 @@ export default async function TxtIndexPage() {
   if (!profile?.can_access_txt) redirect('/hub/clients')
 
   const isAdmin = profile?.role === 'admin' || profile?.can_admin_txt === true
+  const canAccessUnifiedInbox =
+    profile?.role === 'admin' || profile?.can_access_unified_inbox === true
 
-  return <TxtLandingPanel isAdmin={!!isAdmin} />
+  return <TxtLandingPanel isAdmin={!!isAdmin} canAccessUnifiedInbox={canAccessUnifiedInbox} />
 }

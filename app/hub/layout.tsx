@@ -176,6 +176,10 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     isAdmin ||
     profileResult.data?.can_admin_txt === true ||
     profileResult.data?.can_assign_txt_threads === true
+  // Unified inbox (read-all lens) — admin OR the per-user flag. Mirrors the
+  // conversation-page gate so the rail and the thread agree.
+  const canAccessUnifiedInbox =
+    isAdmin || profileResult.data?.can_access_unified_inbox === true
   const canAccessMarketing = profileResult.data?.can_access_marketing ?? false
   const canAdminMarketing = profileResult.data?.can_admin_marketing ?? false
   const canAccessForms = profileResult.data?.can_access_forms ?? true
@@ -328,6 +332,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessDialer={canAccessDialer}
         canAccessTxt={canAccessTxt}
         canManageTxt={canManageTxt}
+        canAccessUnifiedInbox={canAccessUnifiedInbox}
         canAccessMarketing={canAccessMarketing}
         canAdminMarketing={canAdminMarketing}
         canAccessForms={canAccessForms}

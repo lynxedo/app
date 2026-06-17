@@ -7379,6 +7379,7 @@ export type Database = {
           can_access_timesheet: boolean | null
           can_access_tracker: boolean | null
           can_access_txt: boolean
+          can_access_unified_inbox: boolean
           can_access_zone_sizer: boolean
           can_admin_announcements: boolean
           can_admin_contacts: boolean
@@ -7446,6 +7447,7 @@ export type Database = {
           can_access_timesheet?: boolean | null
           can_access_tracker?: boolean | null
           can_access_txt?: boolean
+          can_access_unified_inbox?: boolean
           can_access_zone_sizer?: boolean
           can_admin_announcements?: boolean
           can_admin_contacts?: boolean
@@ -7513,6 +7515,7 @@ export type Database = {
           can_access_timesheet?: boolean | null
           can_access_tracker?: boolean | null
           can_access_txt?: boolean
+          can_access_unified_inbox?: boolean
           can_access_zone_sizer?: boolean
           can_admin_announcements?: boolean
           can_admin_contacts?: boolean
@@ -7953,6 +7956,7 @@ export type Database = {
           can_access_timesheet: boolean
           can_access_tracker: boolean
           can_access_txt: boolean
+          can_access_unified_inbox: boolean
           can_access_zone_sizer: boolean
           can_admin_announcements: boolean
           can_admin_contacts: boolean
@@ -7981,6 +7985,26 @@ export type Database = {
           last_sign_in_at: string
           phone: string
           role: string
+        }[]
+      }
+      get_contact_timeline: {
+        Args: { p_company_id: string; p_contact_id: string }
+        Returns: {
+          actor: string
+          ai_reply_sent_at: string
+          body: string
+          direction: string
+          duration_seconds: number
+          id: string
+          kind: string
+          media_urls: string[]
+          recording_path: string
+          sentiment: string
+          status: string
+          summary: string
+          transcript: string
+          ts: string
+          voicemail_id: string
         }[]
       }
       get_last_top_level_message_per_conversation: {
@@ -8058,6 +8082,18 @@ export type Database = {
           median_value: number
           ticket_count: number
           total_value: number
+        }[]
+      }
+      scoreboard_recurring_book: {
+        Args: { p_company_id: string }
+        Returns: {
+          annual_value: number
+          client_id: string
+          dept_prefix: string
+          display_name: string
+          has_bwp: boolean
+          has_phc: boolean
+          job_id: string
         }[]
       }
       scoreboard_tech_hours: {

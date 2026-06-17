@@ -18,6 +18,7 @@ type UserProfile = {
   can_access_zone_sizer: boolean
   can_access_dialer: boolean
   can_access_txt: boolean
+  can_access_unified_inbox: boolean
   can_post_shout_outs: boolean
   can_admin_people: boolean
   can_admin_hub: boolean
@@ -81,6 +82,7 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_access_zone_sizer', label: 'Zone Sizer' },
   { key: 'can_access_dialer', label: 'Dialer' },
   { key: 'can_access_txt', label: 'Txt2 (new texting)' },
+  { key: 'can_access_unified_inbox', label: 'Unified Inbox' },
   { key: 'can_post_shout_outs', label: 'Post Shout Outs' },
   { key: 'can_access_marketing', label: 'Marketing' },
   { key: 'can_access_forms', label: 'Forms' },
@@ -206,6 +208,7 @@ export default function AdminPanel({
             can_access_zone_sizer: false,
             can_access_dialer: false,
             can_access_txt: false,
+            can_access_unified_inbox: false,
             can_post_shout_outs: false,
             can_admin_people: false,
             can_admin_hub: false,
@@ -341,6 +344,7 @@ export default function AdminPanel({
             can_access_zone_sizer: false,
             can_access_dialer: false,
             can_access_txt: false,
+            can_access_unified_inbox: false,
             can_post_shout_outs: false,
             can_admin_people: false,
             can_admin_hub: false,

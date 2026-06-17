@@ -9,7 +9,7 @@ export type TxtConvPermissions = {
   isManager: boolean
   isTxtUser: boolean // any teammate with Txt2 access
   canView: boolean // read the thread: participant OR any Txt2 user (shared "All" inbox)
-  canArchive: boolean // owner OR any Txt2 user
+  canArchive: boolean // owner OR a Txt manager (admin / can_admin_txt / can_assign_txt_threads)
   canManageMembers: boolean // add/remove OTHER people: owner OR a Txt manager
   canReply: boolean // SEND a text: owner or added member ONLY
   canJoin: boolean // self-join: any Txt2 user who isn't already a participant
@@ -61,7 +61,10 @@ export async function getTxtConvPermissions(
     isTxtUser,
     // Read access: any participant OR any Txt2 user (keeps the "All" tab open).
     canView: isMember || isTxtUser,
-    canArchive: isOwner || isTxtUser,
+    // Archiving for everyone is owner-level — only the owner or a Txt manager.
+    // (A plain Txt2 teammate viewing the shared inbox must NOT archive someone
+    // else's thread.) Admins/managers keep the override.
+    canArchive: isOwner || isManager,
     // Adding/removing OTHER people is privileged — owner of the thread or a
     // Txt manager. (Self-join is handled separately via `canJoin`.)
     canManageMembers: isOwner || isManager,

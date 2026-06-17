@@ -72,6 +72,7 @@ export default function HubShell({
   canAccessDialer,
   canAccessTxt,
   canManageTxt,
+  canAccessUnifiedInbox,
   canAccessMarketing,
   canAdminMarketing,
   canAccessForms,
@@ -131,6 +132,7 @@ export default function HubShell({
   canAccessDialer?: boolean
   canAccessTxt?: boolean
   canManageTxt?: boolean
+  canAccessUnifiedInbox?: boolean
   canAccessMarketing?: boolean
   canAdminMarketing?: boolean
   canAccessForms?: boolean
@@ -734,6 +736,7 @@ export default function HubShell({
             {...collapseProps}
             canManage={!!canManageTxt}
             canCall={!!canAccessDialer}
+            canAccessUnifiedInbox={!!canAccessUnifiedInbox}
             currentUserId={currentUserId}
             companyId={companyId || ''}
           />

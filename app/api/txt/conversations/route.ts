@@ -1,6 +1,152 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { buildMessagePreview } from '@/lib/txt-preview'
+
+// ── Unified Inbox (Session 3): cross-channel last-activity enrichment ───────
+// When the caller can_access_unified_inbox, each conversation row is decorated
+// with its contact's most-recent call + voicemail so the left rail can sort by
+// GREATEST(last text, last call, last voicemail), show a last-activity-type
+// icon, and filter on Missed / Voicemails. Read-only; calls/voicemails are read
+// via the admin client + an explicit company_id filter, exactly as the dialer
+// recording route does (those tables are service-role-scoped, not user-RLS).
+// Flag off → this never runs and the list is texts-only, unchanged.
+
+type ConvRow = {
+  id: string
+  last_message_at: string | null
+  last_inbound_at: string | null
+  created_at: string
+  contact?: { id?: string } | { id?: string }[] | null
+  [k: string]: unknown
+}
+
+const MISSED_STATUSES = new Set(['no-answer', 'voicemail'])
+
+function contactIdOf(c: ConvRow): string | null {
+  const inner = Array.isArray(c.contact) ? c.contact[0] : c.contact
+  return inner?.id ?? null
+}
+
+/** Latest of a set of ISO timestamps (nulls ignored). Returns null if all null. */
+function latestIso(...vals: (string | null | undefined)[]): string | null {
+  let best: string | null = null
+  let bestT = -Infinity
+  for (const v of vals) {
+    if (!v) continue
+    const t = Date.parse(v)
+    if (Number.isFinite(t) && t > bestT) {
+      bestT = t
+      best = v
+    }
+  }
+  return best
+}
+
+async function enrichWithCallActivity(
+  admin: ReturnType<typeof createAdminClient>,
+  companyId: string,
+  convs: ConvRow[]
+): Promise<ConvRow[]> {
+  if (convs.length === 0 || !companyId) return convs
+  const contactIds = Array.from(
+    new Set(convs.map(contactIdOf).filter((x): x is string => !!x))
+  )
+  if (contactIds.length === 0) return convs
+
+  type Agg = {
+    lastCallAt: string | null
+    lastVmAt: string | null
+    lastMissedAt: string | null
+    hasMissed: boolean
+    hasVm: boolean
+    hasUnheardVm: boolean
+  }
+  const byContact = new Map<string, Agg>()
+  const get = (id: string): Agg => {
+    let a = byContact.get(id)
+    if (!a) {
+      a = { lastCallAt: null, lastVmAt: null, lastMissedAt: null, hasMissed: false, hasVm: false, hasUnheardVm: false }
+      byContact.set(id, a)
+    }
+    return a
+  }
+
+  const [callsRes, vmsRes] = await Promise.all([
+    admin
+      .from('calls')
+      .select('contact_id, created_at, direction, status')
+      .eq('company_id', companyId)
+      .in('contact_id', contactIds)
+      .order('created_at', { ascending: false })
+      .limit(5000),
+    admin
+      .from('voicemails')
+      .select('contact_id, created_at, heard_at')
+      .eq('company_id', companyId)
+      .in('contact_id', contactIds)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: false })
+      .limit(5000),
+  ])
+
+  // Rows arrive newest-first, so the first row seen for a contact is the latest.
+  for (const row of callsRes.data ?? []) {
+    if (!row.contact_id) continue
+    const a = get(row.contact_id)
+    if (!a.lastCallAt) a.lastCallAt = row.created_at
+    const missed = row.direction === 'inbound' && !!row.status && MISSED_STATUSES.has(row.status)
+    if (missed) {
+      a.hasMissed = true
+      if (!a.lastMissedAt) a.lastMissedAt = row.created_at
+    }
+  }
+  for (const row of vmsRes.data ?? []) {
+    if (!row.contact_id) continue
+    const a = get(row.contact_id)
+    if (!a.lastVmAt) a.lastVmAt = row.created_at
+    a.hasVm = true
+    if (!row.heard_at) a.hasUnheardVm = true
+  }
+
+  const enriched = convs.map((c) => {
+    const cid = contactIdOf(c)
+    const a = cid ? byContact.get(cid) : undefined
+    const base = c.last_message_at ?? c.created_at ?? null
+    const lastCallAt = a?.lastCallAt ?? null
+    const lastVmAt = a?.lastVmAt ?? null
+    const lastActivityAt = latestIso(base, lastCallAt, lastVmAt) ?? base
+    // Type of the newest activity. Voicemail/call only win when strictly newer
+    // than the last text; ties resolve to text (the conversation's spine).
+    let lastActivityType: 'text' | 'call' | 'voicemail' = 'text'
+    if (lastActivityAt && lastActivityAt === lastVmAt && lastActivityAt !== base) {
+      lastActivityType = 'voicemail'
+    } else if (lastActivityAt && lastActivityAt === lastCallAt && lastActivityAt !== base) {
+      lastActivityType = 'call'
+    }
+    return {
+      ...c,
+      last_call_at: lastCallAt,
+      last_voicemail_at: lastVmAt,
+      last_activity_at: lastActivityAt,
+      last_activity_type: lastActivityType,
+      has_missed_call: !!a?.hasMissed,
+      has_voicemail: !!a?.hasVm,
+      has_unheard_voicemail: !!a?.hasUnheardVm,
+      // Folds missed calls + voicemails into the unread signal so the rail's
+      // existing per-device "reads" dot lights for any unhandled inbound.
+      last_inbound_activity_at: latestIso(c.last_inbound_at, lastVmAt, a?.lastMissedAt),
+    }
+  })
+
+  // Re-sort by most-recent activity of ANY channel (the unified-inbox sort).
+  enriched.sort((x, y) => {
+    const tx = x.last_activity_at ? Date.parse(x.last_activity_at as string) : -Infinity
+    const ty = y.last_activity_at ? Date.parse(y.last_activity_at as string) : -Infinity
+    return ty - tx
+  })
+  return enriched
+}
 
 // GET /api/txt/conversations
 // Query: scope=mine|unassigned|all|archived, search?, limit?
@@ -22,7 +168,7 @@ export async function GET(request: Request) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_txt, can_assign_txt_threads, can_access_txt')
+    .select('role, can_admin_txt, can_assign_txt_threads, can_access_txt, can_access_unified_inbox, company_id')
     .eq('id', user.id)
     .single()
   const isManager =
@@ -30,6 +176,11 @@ export async function GET(request: Request) {
     profile?.can_admin_txt === true ||
     profile?.can_assign_txt_threads === true
   const isTxtUser = isManager || profile?.can_access_txt === true
+  // Unified inbox is a read-all lens: admin OR the per-user flag. Gates the
+  // cross-channel activity enrichment only — send/call paths gate separately.
+  const canAccessUnifiedInbox =
+    profile?.role === 'admin' || profile?.can_access_unified_inbox === true
+  const companyId = profile?.company_id || ''
 
   // The shared "All" inbox is visible to every Txt2 user. The unassigned
   // Queue and the Responder tab stay manager-only.
@@ -94,7 +245,11 @@ export async function GET(request: Request) {
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .limit(50)
     if (foundErr) return NextResponse.json({ error: foundErr.message }, { status: 500 })
-    return NextResponse.json({ conversations: found ?? [] })
+    const foundRows = (found ?? []) as unknown as ConvRow[]
+    const out = canAccessUnifiedInbox
+      ? await enrichWithCallActivity(createAdminClient(), companyId, foundRows)
+      : foundRows
+    return NextResponse.json({ conversations: out })
   }
 
   let query = supabase
@@ -122,11 +277,11 @@ export async function GET(request: Request) {
     }
     query = query.in('id', ids).neq('status', 'archived')
   } else if (scope === 'unassigned') {
-    // The unassigned Queue is the HUMAN triage queue. Guardian/Responder
-    // conversations live in their own Responder tab (source='responder'), so
-    // keep unclaimed Guardian threads out of the human queue. (null-safe: keep
-    // rows with no source set.)
-    query = query.eq('status', 'unassigned').or('source.is.null,source.neq.responder')
+    // The unassigned Queue is the unified triage queue. Unified Inbox Session 6:
+    // Guardian/Responder threads (source='responder') now fold INTO this Queue
+    // as unclaimed items (surfaced with a "Guardian replied" badge in the rail)
+    // instead of living in a separate Responder tab. So no source exclusion.
+    query = query.eq('status', 'unassigned')
   } else if (scope === 'archived') {
     query = query.eq('status', 'archived')
     if (!isTxtUser) {
@@ -134,8 +289,6 @@ export async function GET(request: Request) {
     }
   } else if (scope === 'all') {
     query = query.neq('status', 'archived')
-  } else if (scope === 'responder') {
-    query = query.eq('source', 'responder').neq('status', 'archived')
   } else {
     return NextResponse.json({ error: 'Invalid scope' }, { status: 400 })
   }
@@ -201,5 +354,8 @@ export async function GET(request: Request) {
     }
   }
 
-  return NextResponse.json({ conversations: results })
+  const out = canAccessUnifiedInbox
+    ? await enrichWithCallActivity(createAdminClient(), companyId, results as unknown as ConvRow[])
+    : results
+  return NextResponse.json({ conversations: out })
 }
