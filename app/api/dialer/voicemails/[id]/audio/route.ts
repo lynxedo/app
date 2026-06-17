@@ -20,10 +20,11 @@ export async function GET(
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('company_id, can_access_dialer')
+    .select('company_id, can_access_dialer, can_access_unified_inbox, role')
     .eq('id', user.id)
     .single()
-  if (!profile?.can_access_dialer) {
+  // Playable by dialer users, admins, and the read-all Unified Inbox view (PRD §6).
+  if (!profile?.can_access_dialer && profile?.role !== 'admin' && !profile?.can_access_unified_inbox) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
