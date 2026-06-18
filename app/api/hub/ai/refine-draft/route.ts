@@ -4,6 +4,7 @@ import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
+import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { writeAuditLog } from '@/lib/guardian-audit'
 
 // "Polish draft" for Hub Rooms and DMs. Refines the user's own draft —
@@ -38,8 +39,10 @@ function formatHistory(rows: MessageRow[]): string {
     .join('\n')
 }
 
-const SYSTEM_PROMPT = [
-  `You are an editor helping a Heroes Lawn Care team member polish a draft internal message before they send it in the company team chat.`,
+// Task-specific layer. Shared identity + voice come from GUARDIAN_CORE via
+// buildGuardianSystem(); this only describes the polish job.
+const POLISH_TASK = [
+  `Your task: act as an editor and polish a Heroes Lawn Care team member's draft internal message before they send it in the company team chat.`,
   ``,
   `Your job is to refine the team member's OWN draft — fix grammar, spelling, punctuation, and capitalization; tighten clarity; smooth tone to be warm and collegial — WITHOUT changing what they are trying to say.`,
   ``,
@@ -115,7 +118,10 @@ export async function POST(request: Request) {
   const historyText = formatHistory(messages)
 
   const adminClient = createAdminClient()
-  const model = await getGuardianModel(adminClient, companyId).catch(() => CLAUDE_MODEL)
+  const [model, system] = await Promise.all([
+    getGuardianModel(adminClient, companyId).catch(() => CLAUDE_MODEL),
+    buildGuardianSystem({ companyId, knowledge: 'voice', task: POLISH_TASK, admin: adminClient }),
+  ])
 
   const userMessage = [
     historyText
@@ -136,7 +142,7 @@ export async function POST(request: Request) {
     const response = await anthropic.messages.create({
       model,
       max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
+      system,
       messages: [{ role: 'user', content: userMessage }],
     })
     refined = response.content

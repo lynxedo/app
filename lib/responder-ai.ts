@@ -13,7 +13,7 @@
 import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import { sendSms } from '@/lib/twilio'
 import { RESPONDER_REPLY_SYSTEM_DEFAULT } from '@/lib/responder-ai-prompt'
-import { getAlwaysIncludedDocs } from '@/lib/guardian-knowledge'
+import { buildGuardianSystem, type SystemBlock } from '@/lib/guardian-persona'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildMessagePreview } from '@/lib/txt-preview'
 import { enrichTxtContactName } from '@/lib/dialer-lookup'
@@ -89,18 +89,19 @@ export async function generateAndSendResponderReply(opts: {
     return { smsSent: false, smsBody: null, error: 'no transcript or summary to work from', latency_ms: 0 }
   }
 
-  // Append always-included Guardian knowledge-base docs (same protocol as
-  // buildSystemPrompt() in lib/hub-claude.ts).
-  let systemPrompt = basePrompt
+  // Build the shared Guardian system prompt: GUARDIAN_CORE + always-included KB
+  // docs + the customer-service playbook (knowledge: 'customer'), with this
+  // responder's admin-edited training (basePrompt = responder_settings
+  // .ai_reply_prompt) as the task layer. Using the same builder as the Txt2 and
+  // Hub helpers is what gives every surface one consistent voice + knowledge.
+  // Falls back to the base prompt alone if the build fails (non-fatal).
+  let systemPrompt: SystemBlock = basePrompt
   try {
-    const admin = createAdminClient()
-    const kbDocs = await getAlwaysIncludedDocs(admin, companyId)
-    if (kbDocs.length > 0) {
-      const kbSection = kbDocs
-        .map(doc => `---\n\n## ${doc.title}\n\n${doc.body}`)
-        .join('\n\n')
-      systemPrompt = `${basePrompt}\n\n${kbSection}`
-    }
+    systemPrompt = await buildGuardianSystem({
+      companyId,
+      knowledge: 'customer',
+      task: basePrompt,
+    })
   } catch {
     // KB load failure is non-fatal — proceed with the base prompt
   }

@@ -2,11 +2,10 @@ import Anthropic from '@anthropic-ai/sdk'
 import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
-  estimateTokens,
-  getAlwaysIncludedDocs,
   getGuardianSettings,
   resolveReadKnowledgeDoc,
 } from '@/lib/guardian-knowledge'
+import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { getMcpToolFilter, type GuardianTier } from '@/lib/guardian-permissions'
 import {
   getTodayWebSearchCount,
@@ -17,7 +16,6 @@ import {
 const MCP_URL = 'https://mcp.lynxedo.com/mcp'
 const MAX_TOOL_ITERATIONS = 6
 const TOOLS_CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
-const PROMPT_CACHE_MIN_TOKENS = 1024 // Anthropic's activation floor
 const WEB_SEARCH_TOOL_TYPE = 'web_search_20250305'
 const PER_QUESTION_SEARCH_BUDGET = 3
 
@@ -146,43 +144,24 @@ type SystemBlock =
   | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
 
 /**
- * Build the system prompt for a Guardian call. Returns the system param in the
- * shape Anthropic expects, with cache_control attached when the prefix is
- * large enough to trigger prompt caching (≥ 1024 tokens). When under the
- * floor we skip cache_control and log a warning — Anthropic silently ignores
- * under-threshold cache marks, so attaching it anyway would just pay full
- * price with no indication.
+ * Build the system prompt for a Guardian call. Delegates to the shared
+ * buildGuardianSystem() so a direct @Guardian question shares the exact same
+ * identity (GUARDIAN_CORE), always-included Knowledge Base docs, and the
+ * customer-service playbook (knowledge: 'customer') used by the Responder and
+ * the Txt2/Hub composer helpers — so "how do I handle this customer?" answers
+ * from the real playbook. The caller's basePrompt (the Hub assistant framing +
+ * conversation history) is passed as the task layer. cache_control is attached
+ * to the stable prefix when it's large enough to cache.
  */
 async function buildSystemPrompt(
   basePrompt: string,
   companyId: string
 ): Promise<SystemBlock> {
-  const admin = createAdminClient()
-  let alwaysIncludedText = ''
-  try {
-    const docs = await getAlwaysIncludedDocs(admin, companyId)
-    if (docs.length > 0) {
-      alwaysIncludedText = docs
-        .map(d => `## ${d.title}\n\n${d.body}`)
-        .join('\n\n---\n\n')
-    }
-  } catch (e) {
-    console.warn('[guardian] failed to load always-included docs:', e)
-  }
-
-  const fullText = alwaysIncludedText
-    ? `${basePrompt}\n\n---\n\n${alwaysIncludedText}`
-    : basePrompt
-
-  const tokens = estimateTokens(fullText)
-  if (tokens < PROMPT_CACHE_MIN_TOKENS) {
-    console.warn(
-      `[guardian] prompt cache skipped — system prompt under ${PROMPT_CACHE_MIN_TOKENS} tokens (~${tokens})`
-    )
-    return fullText
-  }
-
-  return [{ type: 'text', text: fullText, cache_control: { type: 'ephemeral' } }]
+  return buildGuardianSystem({
+    companyId,
+    knowledge: 'customer',
+    task: basePrompt,
+  })
 }
 
 export async function askClaude({

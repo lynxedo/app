@@ -4,6 +4,7 @@ import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
+import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { writeAuditLog } from '@/lib/guardian-audit'
 
 // "Suggest reply" for Hub Rooms and DMs. Generates a suggested internal
@@ -40,7 +41,9 @@ function formatHistory(rows: MessageRow[]): string {
     .join('\n')
 }
 
-function buildSystemPrompt(tone: Tone): string {
+// Task-specific layer. Shared identity + voice come from GUARDIAN_CORE via
+// buildGuardianSystem(); this only describes the suggest job + tone.
+function buildSuggestTask(tone: Tone): string {
   const toneGuide: Record<Tone, string> = {
     professional: 'Clear, concise, and business-appropriate. Direct and helpful without being stiff.',
     friendly: 'Warm and approachable — how a close teammate would talk. Casual but still sensible.',
@@ -48,9 +51,7 @@ function buildSystemPrompt(tone: Tone): string {
   }
 
   return [
-    `You are helping a Heroes Lawn Care team member compose an internal message to their colleagues in the company's team chat app (Hub).`,
-    ``,
-    `Your task: suggest a single natural internal message they can send as-is or lightly edit.`,
+    `Your task: help a Heroes Lawn Care team member compose an internal message to their colleagues in the company's team chat app (Hub). Suggest a single natural internal message they can send as-is or lightly edit.`,
     `Tone: ${tone} — ${toneGuide[tone]}`,
     ``,
     `Rules:`,
@@ -126,7 +127,10 @@ export async function POST(request: Request) {
   }
 
   const adminClient = createAdminClient()
-  const model = await getGuardianModel(adminClient, companyId).catch(() => CLAUDE_MODEL)
+  const [model, system] = await Promise.all([
+    getGuardianModel(adminClient, companyId).catch(() => CLAUDE_MODEL),
+    buildGuardianSystem({ companyId, knowledge: 'voice', task: buildSuggestTask(tone), admin: adminClient }),
+  ])
 
   const historyText = formatHistory(messages)
   const userMessage = `Conversation history:\n${historyText}\n\n---\nSuggest a ${tone} reply to the most recent message.`
@@ -140,7 +144,7 @@ export async function POST(request: Request) {
     const response = await anthropic.messages.create({
       model,
       max_tokens: MAX_TOKENS,
-      system: buildSystemPrompt(tone),
+      system,
       messages: [{ role: 'user', content: userMessage }],
     })
     suggestion = response.content

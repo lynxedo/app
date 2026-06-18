@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
+import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { resolveGuardianTier, type GuardianTier } from '@/lib/guardian-permissions'
 import { writeAuditLog } from '@/lib/guardian-audit'
 
@@ -53,8 +54,10 @@ function formatHistory(rows: MessageRow[]): string {
     .join('\n')
 }
 
-const SYSTEM_PROMPT = [
-  `You are an editor helping Heroes Lawn Care staff polish a draft SMS reply to a customer before they send it.`,
+// Task-specific layer. Shared identity + voice come from GUARDIAN_CORE via
+// buildGuardianSystem(); this only describes the polish job.
+const POLISH_TASK = [
+  `Your task: act as an editor and polish Heroes Lawn Care staff's draft SMS reply to a customer before they send it.`,
   ``,
   `Your job is to refine the staff member's OWN draft — fix grammar, spelling, punctuation, and capitalization; tighten clarity; smooth tone to be warm and professional — WITHOUT changing what they are trying to say.`,
   ``,
@@ -137,6 +140,13 @@ export async function POST(
   const messages = ((messagesRes.data || []) as MessageRow[]).reverse() // chronological
   const historyText = formatHistory(messages)
 
+  const system = await buildGuardianSystem({
+    companyId,
+    knowledge: 'voice',
+    task: POLISH_TASK,
+    admin: adminClient,
+  })
+
   const userMessage = [
     historyText
       ? `Recent conversation (for tone/register only — do not answer it):\n${historyText}`
@@ -157,7 +167,7 @@ export async function POST(
     const response = await anthropic.messages.create({
       model,
       max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
+      system,
       messages: [{ role: 'user', content: userMessage }],
     })
     refined = response.content
