@@ -1,7 +1,7 @@
 'use client'
 
 import Link from 'next/link'
-import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode } from 'react'
+import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode, type MouseEvent as ReactMouseEvent } from 'react'
 import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
 import { useToast } from '@/components/ui'
 
@@ -69,14 +69,22 @@ type TrackerSettings = {
 
 type CurrentUser = { email: string; name: string; isAdmin: boolean }
 
-// ── Default contact types by attempt # ───────────
-const DEFAULT_CONTACT_TYPES: Record<number, ContactTypes> = {
+// ── Suggested contact types by attempt # (highlighted, not pre-checked) ───────────
+const EXPECTED_CONTACT_TYPES: Record<number, ContactTypes> = {
   1: { call: true, text: true, email: true },
   2: { call: false, text: true, email: false },
   3: { call: false, text: false, email: true },
   4: { call: true, text: false, email: false },
   5: { call: true, text: true, email: true },
 }
+
+const BLANK_CONTACT_TYPES: ContactTypes = { call: false, text: false, email: false }
+
+// Notes column resize (shared across all expanded rows, persisted per-browser)
+const NOTES_WIDTH_KEY = 'tracker_attempt_notes_width'
+const NOTES_WIDTH_DEFAULT = 280
+const NOTES_WIDTH_MIN = 120
+const NOTES_WIDTH_MAX = 640
 
 // ── Formatters ───────────────────────────────────
 function fmtDate(d: string | null): string {
@@ -419,12 +427,42 @@ function AttemptsRows({ leadId, lightMode, totalColSpan }: {
 }) {
   const [attempts, setAttempts] = useState<LeadAttempt[]>([])
   const [loading, setLoading] = useState(true)
+  const [notesWidth, setNotesWidth] = useState(NOTES_WIDTH_DEFAULT)
+  const dragRef = useRef<{ startX: number; startW: number } | null>(null)
 
   useEffect(() => {
     fetch(`/api/tracker/leads/${leadId}/attempts`)
       .then(r => r.json())
       .then(data => { setAttempts(Array.isArray(data) ? data : []); setLoading(false) })
   }, [leadId])
+
+  // Keep a ref in sync so the mouseup handler persists the final width
+  const notesWidthRef = useRef(notesWidth)
+  useEffect(() => { notesWidthRef.current = notesWidth }, [notesWidth])
+
+  // Restore saved Notes column width
+  useEffect(() => {
+    const saved = Number(localStorage.getItem(NOTES_WIDTH_KEY))
+    if (saved >= NOTES_WIDTH_MIN && saved <= NOTES_WIDTH_MAX) setNotesWidth(saved)
+  }, [])
+
+  function startResize(e: ReactMouseEvent) {
+    e.preventDefault()
+    dragRef.current = { startX: e.clientX, startW: notesWidth }
+    function onMove(ev: MouseEvent) {
+      if (!dragRef.current) return
+      const w = Math.min(NOTES_WIDTH_MAX, Math.max(NOTES_WIDTH_MIN, dragRef.current.startW + (ev.clientX - dragRef.current.startX)))
+      setNotesWidth(w)
+    }
+    function onUp() {
+      if (dragRef.current) localStorage.setItem(NOTES_WIDTH_KEY, String(notesWidthRef.current))
+      dragRef.current = null
+      window.removeEventListener('mousemove', onMove)
+      window.removeEventListener('mouseup', onUp)
+    }
+    window.addEventListener('mousemove', onMove)
+    window.addEventListener('mouseup', onUp)
+  }
 
   function getAttempt(n: number): LeadAttempt | null {
     return attempts.find(a => a.attempt_number === n) ?? null
@@ -436,7 +474,7 @@ function AttemptsRows({ leadId, lightMode, totalColSpan }: {
       attempt_number: n,
       attempted_date: patch.attempted_date ?? existing?.attempted_date ?? null,
       notes: patch.notes ?? existing?.notes ?? null,
-      contact_types: patch.contact_types ?? existing?.contact_types ?? DEFAULT_CONTACT_TYPES[n],
+      contact_types: patch.contact_types ?? existing?.contact_types ?? BLANK_CONTACT_TYPES,
     }
     const res = await fetch(`/api/tracker/leads/${leadId}/attempts`, {
       method: 'PUT',
@@ -461,23 +499,33 @@ function AttemptsRows({ leadId, lightMode, totalColSpan }: {
   return (
     <tr>
       <td colSpan={totalColSpan} className={`px-0 py-0 border-t ${borderColor}`}>
-        <div className={`${rowBg} px-8 py-2`}>
+        <div className={`${rowBg} px-8 py-2 overflow-x-auto`}>
           {loading ? (
             <p className={`text-xs ${textMuted} py-2`}>Loading attempts…</p>
           ) : (
-            <table className="w-full text-xs">
+            <table className="text-xs" style={{ tableLayout: 'fixed', width: 64 + 128 + notesWidth + 192 + 24 }}>
               <thead>
                 <tr className={textMuted}>
-                  <th className="text-left font-medium py-1 pr-3 w-16">Attempt</th>
-                  <th className="text-left font-medium py-1 pr-3 w-32">Date</th>
-                  <th className="text-left font-medium py-1 pr-3">Notes</th>
-                  <th className="text-left font-medium py-1 w-48">Type</th>
+                  <th className="text-left font-medium py-1 pr-3" style={{ width: 64 }}>Attempt</th>
+                  <th className="text-left font-medium py-1 pr-3" style={{ width: 128 }}>Date</th>
+                  <th className="text-left font-medium py-1 pr-3 relative" style={{ width: notesWidth }}>
+                    Notes
+                    <span
+                      onMouseDown={startResize}
+                      className="absolute top-0 right-0 h-full w-2 cursor-col-resize select-none group flex items-center justify-end"
+                      title="Drag to resize Notes column"
+                    >
+                      <span className={`h-3.5 w-px ${lightMode ? 'bg-gray-300 group-hover:bg-indigo-500' : 'bg-gray-600 group-hover:bg-indigo-400'} transition-colors`} />
+                    </span>
+                  </th>
+                  <th className="text-left font-medium py-1" style={{ width: 192 }}>Type</th>
                 </tr>
               </thead>
               <tbody className={`divide-y ${lightMode ? 'divide-gray-100' : 'divide-gray-800'}`}>
                 {[1, 2, 3, 4, 5].map(n => {
                   const a = getAttempt(n)
-                  const ct: ContactTypes = a?.contact_types ?? DEFAULT_CONTACT_TYPES[n]
+                  const ct: ContactTypes = a?.contact_types ?? BLANK_CONTACT_TYPES
+                  const expected = EXPECTED_CONTACT_TYPES[n]
                   return (
                     <tr key={n} className={lightMode ? 'hover:bg-gray-100' : 'hover:bg-gray-800/40'}>
                       <td className={`py-1.5 pr-3 font-semibold ${textBase}`}>{n}</td>
@@ -498,18 +546,29 @@ function AttemptsRows({ leadId, lightMode, totalColSpan }: {
                         />
                       </td>
                       <td className="py-1.5">
-                        <div className="flex items-center gap-3">
-                          {(['call', 'text', 'email'] as const).map(k => (
-                            <label key={k} className={`flex items-center gap-1 cursor-pointer select-none ${ct[k] ? textBase : textMuted}`}>
-                              <input
-                                type="checkbox"
-                                checked={ct[k]}
-                                onChange={() => save(n, { contact_types: { ...ct, [k]: !ct[k] } })}
-                                className="rounded accent-indigo-500 cursor-pointer"
-                              />
-                              <span className="capitalize">{k}</span>
-                            </label>
-                          ))}
+                        <div className="flex items-center gap-2">
+                          {(['call', 'text', 'email'] as const).map(k => {
+                            const isExpected = expected[k]
+                            return (
+                              <label
+                                key={k}
+                                className={`flex items-center gap-1 cursor-pointer select-none rounded px-1.5 py-0.5 transition-colors ${
+                                  isExpected
+                                    ? (lightMode ? 'bg-amber-100 text-amber-800 ring-1 ring-amber-300' : 'bg-amber-400/15 text-amber-300 ring-1 ring-amber-400/40')
+                                    : (ct[k] ? textBase : textMuted)
+                                }`}
+                                title={isExpected ? 'Suggested for this attempt' : undefined}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={ct[k]}
+                                  onChange={() => save(n, { contact_types: { ...ct, [k]: !ct[k] } })}
+                                  className="rounded accent-indigo-500 cursor-pointer"
+                                />
+                                <span className="capitalize">{k}</span>
+                              </label>
+                            )
+                          })}
                         </div>
                       </td>
                     </tr>
