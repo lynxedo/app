@@ -65,6 +65,13 @@ type EmojiSuggestion = {
   native: string
 }
 
+type SuggestTone = 'professional' | 'friendly' | 'funny'
+const SUGGEST_TONES: { value: SuggestTone; label: string; emoji: string }[] = [
+  { value: 'professional', label: 'Professional', emoji: '💼' },
+  { value: 'friendly', label: 'Friendly', emoji: '😊' },
+  { value: 'funny', label: 'Funny', emoji: '😄' },
+]
+
 export default function MessageComposer({
   roomId,
   conversationId,
@@ -111,6 +118,21 @@ export default function MessageComposer({
   // room/DM open starts collapsed (Session 39 PRD).
   const [expanded, setExpanded] = useState(false)
 
+  // Suggest reply (Guardian) — tone picker popover + loading state.
+  const [suggestOpen, setSuggestOpen] = useState(false)
+  const [suggestLoading, setSuggestLoading] = useState(false)
+  const suggestRef = useRef<HTMLDivElement>(null)
+
+  // Polish draft (✨) — refines the user's own draft. polishUndo lets them
+  // revert to the pre-polish text with one click.
+  const [polishLoading, setPolishLoading] = useState(false)
+  const [polishUndo, setPolishUndo] = useState<string | null>(null)
+
+  // Catch me up — dismissable summary banner for returning to a busy channel.
+  const [catchLoading, setCatchLoading] = useState(false)
+  const [catchSummary, setCatchSummary] = useState<string | null>(null)
+  const [catchError, setCatchError] = useState<string | null>(null)
+
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const draftSaveTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
@@ -132,6 +154,14 @@ export default function MessageComposer({
     typingChannelRef.current = ch
     return () => { supabase.removeChannel(ch); typingChannelRef.current = null }
     // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [roomId, conversationId])
+
+  // Reset catch-me-up state when switching rooms/DMs so stale summaries
+  // don't carry over into a different channel.
+  useEffect(() => {
+    setCatchSummary(null)
+    setCatchError(null)
+    setPolishUndo(null)
   }, [roomId, conversationId])
 
   const broadcastTyping = useCallback(() => {
@@ -232,6 +262,18 @@ export default function MessageComposer({
     return () => document.removeEventListener('mousedown', handler)
   }, [showFormatPicker])
 
+  // Close suggest popover on outside click
+  useEffect(() => {
+    if (!suggestOpen) return
+    function handler(e: MouseEvent) {
+      if (suggestRef.current && !suggestRef.current.contains(e.target as Node)) {
+        setSuggestOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handler)
+    return () => document.removeEventListener('mousedown', handler)
+  }, [suggestOpen])
+
   function autoSize() {
     const el = textareaRef.current
     if (!el) return
@@ -254,6 +296,10 @@ export default function MessageComposer({
     setContent(val)
     if (sendError) setSendError(null)
     if (val.trim()) broadcastTyping()
+
+    // A manual edit invalidates the ✨ Polish undo buffer — the pre-polish
+    // draft no longer maps back to the current content.
+    if (polishUndo !== null) setPolishUndo(null)
 
     const beforeCursor = val.slice(0, cursor)
 
@@ -548,6 +594,112 @@ export default function MessageComposer({
     })
   }
 
+  // ---- AI: Suggest reply ----
+  async function runSuggestReply(tone: SuggestTone) {
+    setSuggestOpen(false)
+    if (suggestLoading) return
+    setSuggestLoading(true)
+    setSendError(null)
+    try {
+      const res = await fetch('/api/hub/ai/suggest-reply', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: roomId ?? null,
+          conversation_id: conversationId ?? null,
+          tone,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error || !data.suggestion) {
+        setSendError(data.error || "Couldn't generate suggestion — try again")
+        return
+      }
+      const suggestion: string = data.suggestion
+      if (content.trim()) {
+        if (!window.confirm('Replace your current draft with the suggestion?')) return
+      }
+      setContent(suggestion)
+      setPolishUndo(null) // suggestion invalidates any undo buffer
+      textareaRef.current?.focus()
+    } catch {
+      setSendError("Couldn't generate suggestion — try again")
+    } finally {
+      setSuggestLoading(false)
+    }
+  }
+
+  // ---- AI: Polish draft ----
+  async function runPolishDraft() {
+    const draft = content.trim()
+    if (polishLoading || !draft) return
+    setPolishLoading(true)
+    setSendError(null)
+    try {
+      const res = await fetch('/api/hub/ai/refine-draft', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: roomId ?? null,
+          conversation_id: conversationId ?? null,
+          draft_text: draft,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error || !data.refined) {
+        setSendError(data.error || "Couldn't polish the draft — try again")
+        return
+      }
+      const refined: string = data.refined
+      if (refined.trim() === draft) {
+        toast.success('Looks good already — nothing to change.')
+        return
+      }
+      setPolishUndo(content) // save pre-polish for undo
+      setContent(refined)
+      textareaRef.current?.focus()
+    } catch {
+      setSendError("Couldn't polish the draft — try again")
+    } finally {
+      setPolishLoading(false)
+    }
+  }
+
+  function runUndoPolish() {
+    if (polishUndo === null) return
+    setContent(polishUndo)
+    setPolishUndo(null)
+    textareaRef.current?.focus()
+  }
+
+  // ---- AI: Catch me up ----
+  async function runCatchMeUp() {
+    if (catchLoading) return
+    setCatchLoading(true)
+    setCatchSummary(null)
+    setCatchError(null)
+    try {
+      const res = await fetch('/api/hub/ai/catch-me-up', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          room_id: roomId ?? null,
+          conversation_id: conversationId ?? null,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok || data.error) {
+        setCatchError(data.error || 'Could not generate summary — try again')
+        return
+      }
+      setCatchSummary(data.summary ?? null)
+    } catch {
+      setCatchError('Could not generate summary — try again')
+    } finally {
+      setCatchLoading(false)
+    }
+  }
+
   const send = useCallback(async () => {
     const trimmed = content.trim()
     if ((!trimmed && pendingFiles.length === 0) || sending) return
@@ -573,6 +725,8 @@ export default function MessageComposer({
     if (textareaRef.current) textareaRef.current.style.height = 'auto'
     // Auto-collapse the expanded composer on send (PRD).
     setExpanded(false)
+    // Clear polish undo on send.
+    setPolishUndo(null)
 
     // #5 — on failure, restore the unsent text + files (+ draft) so the message
     // is never silently lost; surface a retry hint.
@@ -647,6 +801,7 @@ export default function MessageComposer({
   const minDateTime = new Date(Date.now() + 60000).toISOString().slice(0, 16)
 
   const hasContent = content.trim().length > 0 || pendingFiles.length > 0
+  const hasDraft = content.trim().length > 0
 
   return (
     <div
@@ -709,6 +864,25 @@ export default function MessageComposer({
             {mentionedDndUsers.map(u => u.display_name.split(' ')[0]).join(', ')}
             {mentionedDndUsers.length === 1 ? ' has' : ' have'} Do Not Disturb on — they may not be notified.
           </span>
+        </div>
+      )}
+
+      {/* Catch me up summary banner */}
+      {(catchSummary || catchError) && (
+        <div className={`mb-2 px-3 py-2 rounded-lg flex items-start gap-2 text-xs ${
+          catchError
+            ? 'bg-red-500/10 border border-red-500/20 text-red-300'
+            : 'bg-indigo-500/10 border border-indigo-500/20 text-indigo-200'
+        }`}>
+          {!catchError && <span className="flex-none mt-0.5">🧠</span>}
+          <span className="flex-1">{catchError ?? catchSummary}</span>
+          <button
+            onClick={() => { setCatchSummary(null); setCatchError(null) }}
+            className="flex-none text-current opacity-50 hover:opacity-100 transition-opacity ml-1"
+            aria-label="Dismiss catch me up"
+          >
+            ✕
+          </button>
         </div>
       )}
 
@@ -798,7 +972,7 @@ export default function MessageComposer({
       </div>
 
       {/* Toolbar bar below the input. Order (Slack-style):
-          📎 attach · Aa format · 😀 emoji · @ mention · ⏰ schedule · ▶ Send */}
+          📎 attach · Aa format · 😀 emoji · @ mention · ⏰ schedule · 🧠 catch-up · ✨ suggest · ✨ polish · ▶ Send */}
       <div className="flex items-center gap-1 mt-1.5 px-1">
         {/* Attach */}
         <button
@@ -980,6 +1154,87 @@ export default function MessageComposer({
             </div>
           )}
         </div>
+
+        {/* Divider */}
+        <div className="w-px h-4 bg-gray-700 mx-0.5 flex-none" />
+
+        {/* 🧠 Catch me up */}
+        <button
+          type="button"
+          onClick={runCatchMeUp}
+          disabled={catchLoading}
+          className="text-gray-500 hover:text-indigo-400 disabled:opacity-40 transition-colors p-1.5 rounded-md hover:bg-gray-800 text-sm"
+          title="Catch me up on recent messages"
+          aria-label="Catch me up"
+        >
+          {catchLoading ? (
+            <div className="w-4 h-4 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" />
+          ) : (
+            <span className="text-base leading-none">🧠</span>
+          )}
+        </button>
+
+        {/* ✨ Suggest reply — tone picker popover */}
+        <div className="relative" ref={suggestRef}>
+          <button
+            type="button"
+            onClick={() => setSuggestOpen(v => !v)}
+            disabled={suggestLoading}
+            className="text-gray-500 hover:text-purple-400 disabled:opacity-40 transition-colors p-1.5 rounded-md hover:bg-gray-800"
+            title="Suggest a reply"
+            aria-label="Suggest a reply"
+          >
+            {suggestLoading ? (
+              <div className="w-4 h-4 border-2 border-purple-400 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <span className="text-base leading-none">✨</span>
+            )}
+          </button>
+          {suggestOpen && !suggestLoading && (
+            <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-1.5 z-50 flex flex-col gap-0.5 min-w-[140px]">
+              <p className="text-xs text-gray-500 px-2 py-1 font-medium">Suggest reply as…</p>
+              {SUGGEST_TONES.map(t => (
+                <button
+                  key={t.value}
+                  type="button"
+                  onClick={() => runSuggestReply(t.value)}
+                  className="flex items-center gap-2 px-2 py-1.5 text-sm text-gray-300 hover:text-white hover:bg-gray-800 rounded-lg transition-colors text-left"
+                >
+                  <span>{t.emoji}</span>
+                  <span>{t.label}</span>
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* ✨ Polish draft — shown when there's a draft. Becomes ↩ Undo after polishing. */}
+        {polishUndo !== null ? (
+          <button
+            type="button"
+            onClick={runUndoPolish}
+            className="text-gray-500 hover:text-amber-400 transition-colors p-1.5 rounded-md hover:bg-gray-800 text-xs font-medium"
+            title="Undo polish — restore your original draft"
+            aria-label="Undo polish"
+          >
+            ↩
+          </button>
+        ) : hasDraft ? (
+          <button
+            type="button"
+            onClick={runPolishDraft}
+            disabled={polishLoading}
+            className="text-gray-500 hover:text-amber-400 disabled:opacity-40 transition-colors p-1.5 rounded-md hover:bg-gray-800 text-xs font-medium"
+            title="Polish my draft"
+            aria-label="Polish draft"
+          >
+            {polishLoading ? (
+              <div className="w-4 h-4 border-2 border-amber-400 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <span className="text-base leading-none">🪄</span>
+            )}
+          </button>
+        ) : null}
 
         {/* Expand / shrink the composer — lives in the toolbar instead of a
             dedicated row above the input, so it no longer creates an empty band
