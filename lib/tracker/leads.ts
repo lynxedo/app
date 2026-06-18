@@ -10,13 +10,6 @@ export type LeadFilters = {
 const LEAD_COLUMNS =
   'id, first_name, last_name, phone, email, service, lead_source, status, stage, lead_creation_date, sold_date, salesperson, base_program_sold, auxiliary_services, annual_value, service_address, created_at, updated_at'
 
-/**
- * Fetch leads (optionally filtered) plus the latest note per lead.
- *
- * Shared by the GET /api/tracker/leads route (filtered, client-driven) and the
- * Lead Tracker server component (unfiltered, for first-paint prefetch) so the
- * two never drift. RLS scopes rows to the caller's company.
- */
 export async function fetchLeadsWithNotes(
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   supabase: SupabaseClient<any, 'public', any>,
@@ -42,20 +35,37 @@ export async function fetchLeadsWithNotes(
   if (error) throw error
   if (!leads || leads.length === 0) return []
 
-  // Latest note per lead — one query, newest-first, take the first hit per id.
   const leadIds = leads.map(l => l.id)
-  const { data: notes } = await supabase
-    .from('lead_notes')
-    .select('lead_id, note, created_by, created_at')
-    .in('lead_id', leadIds)
-    .order('created_at', { ascending: false })
+
+  // Fetch latest notes and custom column values in parallel
+  const [notesRes, colValRes] = await Promise.all([
+    supabase
+      .from('lead_notes')
+      .select('lead_id, note, created_by, created_at')
+      .in('lead_id', leadIds)
+      .order('created_at', { ascending: false }),
+    supabase
+      .from('lead_column_values')
+      .select('lead_id, column_id, value')
+      .in('lead_id', leadIds),
+  ])
 
   const latestNoteMap = new Map<string, { note: string; created_by: string; created_at: string }>()
-  for (const n of notes ?? []) {
+  for (const n of notesRes.data ?? []) {
     if (!latestNoteMap.has(n.lead_id)) {
       latestNoteMap.set(n.lead_id, { note: n.note, created_by: n.created_by, created_at: n.created_at })
     }
   }
 
-  return leads.map(l => ({ ...l, latest_note: latestNoteMap.get(l.id) ?? null }))
+  const colValMap = new Map<string, Record<string, string | null>>()
+  for (const cv of colValRes.data ?? []) {
+    if (!colValMap.has(cv.lead_id)) colValMap.set(cv.lead_id, {})
+    colValMap.get(cv.lead_id)![cv.column_id] = cv.value
+  }
+
+  return leads.map(l => ({
+    ...l,
+    latest_note: latestNoteMap.get(l.id) ?? null,
+    custom_values: colValMap.get(l.id) ?? {},
+  }))
 }
