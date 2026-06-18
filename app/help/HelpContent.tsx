@@ -520,10 +520,20 @@ function HubTab() {
           <li><strong className="text-white">😀 Emoji</strong> — opens a full emoji picker with search, categories, recents, and skin tones.</li>
           <li><strong className="text-white">@ Mention</strong> — inserts <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> and opens the name picker. Mentioned people get a push notification even if their notifications are set to Mentions only. You can also just type <code className="bg-gray-800 px-1 rounded text-orange-300">@</code> directly. When two teammates share a first name, picking one inserts their <em>full</em> name so only that person is pinged — and names with accents or apostrophes (José, O&apos;Brien) match correctly.</li>
           <li><strong className="text-white">⏰ Schedule</strong> — pick a future date/time. The button turns blue, the Send button turns yellow, and a banner shows when it&apos;ll go out. Click the ✕ on the banner to switch back to send-now. The popover also has a <strong className="text-white">View scheduled messages</strong> link that opens a list of everything you have queued across all rooms and DMs — edit the body, reschedule the time, send right now, or delete.</li>
+          <li><strong className="text-white">🧠 Catch me up · ✨ Suggest · 🪄 Polish</strong> — AI writing helpers, after the divider. See the next section.</li>
           <li><strong className="text-white">▶ Send</strong> — sends the message. Hidden until you&apos;ve started typing or attached something.</li>
         </ul>
         <p className="font-medium text-white mt-3">Typing emoji by name</p>
         <p>Type <code className="bg-gray-800 px-1 rounded text-orange-300">:</code> followed by a name and a list of matches pops up. <code className="bg-gray-800 px-1 rounded">:smile</code> → 😄, <code className="bg-gray-800 px-1 rounded">:fire</code> → 🔥, <code className="bg-gray-800 px-1 rounded">:thumbsup</code> → 👍. Arrow keys to navigate the list, Enter or Tab to insert.</p>
+      </Section>
+
+      <Section title="AI writing help">
+        <p>Three AI helpers live in the composer toolbar, just after the small divider. They work in every room and DM and are available to everyone on the team.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">🧠 Catch me up</strong> — tap it and you get a 2–3 sentence recap of what&apos;s been happening in this room or DM, drawn from the recent messages — the main topics, any decisions or action items, and anything still open. The summary shows in a banner just above the box; tap the ✕ to dismiss it. Great for jumping back into a busy channel after being out.</li>
+          <li><strong className="text-white">✨ Suggest</strong> — drafts a reply for you based on the recent conversation. Tap it and pick a tone — <strong className="text-white">💼 Professional</strong>, <strong className="text-white">😊 Friendly</strong>, or <strong className="text-white">😄 Funny</strong> — and the suggestion drops into the box for you to send as-is or tweak. If you&apos;ve already typed something, it&apos;ll ask before replacing it.</li>
+          <li><strong className="text-white">🪄 Polish</strong> — cleans up <em>your own</em> draft (grammar, spelling, clarity, tone) without changing what you meant. It only shows up once you&apos;ve typed something. After polishing, the button becomes an <strong className="text-white">↩ Undo</strong> so you can put your original wording back with one tap.</li>
+        </ul>
       </Section>
 
       <Section title="Viewing photos, videos, and PDFs">
