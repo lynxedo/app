@@ -203,10 +203,14 @@ export async function processVoicemail(
       ? ((await claudeSummarize(transcript)) ?? dgSummary)
       : dgSummary
 
-    // Write back to the voicemails row.
+    // Write back to the voicemails row. Persist '' (not null) for a silent /
+    // empty transcript: the cron backstop selects rows where transcript IS NULL,
+    // so writing null here left silent voicemails (hang-ups, etc.) eligible
+    // forever and the sweep re-downloaded + re-transcribed them on every run.
+    // Storing '' marks them done so they're never re-swept.
     await admin
       .from('voicemails')
-      .update({ transcript: transcript || null, summary: summary || null })
+      .update({ transcript, summary: summary || null })
       .eq('id', voicemailId)
 
     console.log(
