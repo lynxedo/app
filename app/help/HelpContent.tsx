@@ -827,17 +827,23 @@ function HubTab() {
       </Section>
 
       <Section title="Tracker (Lead Pipeline)">
-        <p>Tracker is the lead pipeline — every inbound lead from any source ends up here as a card you move through stages (New → Quoted → Won / Lost).</p>
-        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">Pipeline</strong> — kanban view, drag cards between stages.</li>
-          <li><strong className="text-white">Dashboard</strong> — counts and conversion rates by source, by month.</li>
-          <li><strong className="text-white">Import</strong> — bulk-add leads from a spreadsheet.</li>
-        </ul>
-        <p className="mt-3"><strong className="text-white">Resize or reorder columns.</strong> Drag a column header to reorder it. Drag the right edge of any header to resize. Your layout is saved per-user and follows you across devices.</p>
-        <Note>If an inline edit can&apos;t save — say you briefly lost connection — the cell rolls back to its previous value and a red <strong className="text-white">&ldquo;Couldn&apos;t save that change&rdquo;</strong> toast pops up, so a failed edit is never silently swallowed. Just make the change again once you&apos;re back online.</Note>
+        <p>Tracker is the lead pipeline — every inbound lead from any source ends up here as a row, grouped under the stage it&apos;s in. There&apos;s no separate &ldquo;Stage&rdquo; column anymore; a lead&apos;s stage <em>is</em> the group it sits under. Move a lead by dragging it (or via the bulk action bar / the edit drawer) into a different stage group.</p>
+        <p className="mt-3"><strong className="text-white">Collapse a stage</strong> with the arrow on the <em>left</em> of each stage header, next to the select-all checkbox.</p>
+        <p className="mt-3"><strong className="text-white">Resize or reorder columns.</strong> Drag a column header to reorder it. Drag the right edge of any header to resize. Column order is saved <em>per-user</em> and follows you across devices.</p>
+
+        <p className="mt-4 font-medium text-white">Contact attempts</p>
+        <p>Click the ▶ arrow at the start of any lead row to expand <strong className="text-white">5 contact-attempt rows</strong>. Each has an attempted date, a free-text note (drag the divider on the Notes header to make that column wider — it stays put), and Call / Text / Email checkboxes. The boxes you&apos;re <em>expected</em> to use for that attempt show an amber highlight (Attempt 1 → all three, 2 → Text, 3 → Email, 4 → Call, 5 → all three) — they start unchecked, so check each one off as you actually do it.</p>
+
         <AdminOnly>
-          <p>Admins configure lead sources, stages, and field defaults under <strong className="text-white">Tracker → Settings</strong>.</p>
+          <p className="mt-4 font-medium text-white">Admin — Tracker → Settings</p>
+          <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+            <li><strong className="text-white">Stages</strong> — add, rename (double-click the label), recolor (click the swatch), reorder (▲▼), or delete a stage. Deleting one asks which stage to move its leads into. These save instantly.</li>
+            <li><strong className="text-white">Custom Columns</strong> — add your own columns and pick the type: text, number, date, dropdown, checkbox, or phone. Dropdowns get an inline options editor. New/deleted columns apply to everyone (each person still controls their own column order).</li>
+            <li><strong className="text-white">Dropdown options &amp; colors</strong> — manage Status / Service / Lead Source / Salesperson / Base Program / Auxiliary lists, status colors, and auto-move rules.</li>
+          </ul>
         </AdminOnly>
+
+        <Note>If an inline edit can&apos;t save — say you briefly lost connection — the cell rolls back to its previous value and a red <strong className="text-white">&ldquo;Couldn&apos;t save that change&rdquo;</strong> toast pops up, so a failed edit is never silently swallowed. Just make the change again once you&apos;re back online.</Note>
       </Section>
     </>
   )
