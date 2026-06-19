@@ -93,10 +93,13 @@ export default async function HubHomePage() {
   const shoutOuts = allActive.filter(a => a.type === 'shout_out').slice(0, 5)
 
   return (
-    <div className="flex-1 overflow-y-auto">
-      {/* Acknowledgement gate — blocks the Home screen with unread announcements
-          once the worker is clocked in (announcements only, not shout-outs). */}
-      <AnnouncementAckGate clockedInInitial={timeClockInitial?.clocked_in ?? false} />
+    <div className="flex-1 overflow-y-auto" data-ack-home-root>
+      {/* Acknowledgement gate (announcements only, not shout-outs). Pops on clock-in
+          OR when the user first tries to leave Home — so it reaches salaried staff
+          who never clock in too. data-ack-home-root marks the Home content so the
+          gate can tell a "leaving Home" click (the surrounding nav) from an
+          interaction inside Home. */}
+      <AnnouncementAckGate />
       <div className="max-w-3xl mx-auto px-6 py-8 md:py-12">
         <div className="mb-8">
           <h1 className="text-2xl md:text-3xl font-bold text-white">{greetingFor(now)}, {firstName}</h1>
