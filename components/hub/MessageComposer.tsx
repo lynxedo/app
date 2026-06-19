@@ -248,6 +248,22 @@ export default function MessageComposer({
   // Resize when we toggle expanded or content changes.
   useEffect(() => { autoSize() }, [expanded, content])
 
+  // Keep the cursor ready to type: focus the box when a room/DM opens (desktop
+  // only — autofocusing on mobile would pop the keyboard over the thread) and
+  // again after each send completes. send() can't focus synchronously because
+  // the textarea is still disabled={sending} at that instant (so its .focus()
+  // call no-ops); this refocuses once React re-enables it.
+  const wasSendingRef = useRef(false)
+  useEffect(() => {
+    if (wasSendingRef.current && !sending) textareaRef.current?.focus()
+    wasSendingRef.current = sending
+  }, [sending])
+  useEffect(() => {
+    const isMobile = typeof window !== 'undefined'
+      && window.matchMedia('(max-width: 767px)').matches
+    if (!isMobile) textareaRef.current?.focus()
+  }, [roomId, conversationId])
+
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value
     const cursor = e.target.selectionStart ?? val.length

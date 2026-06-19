@@ -134,6 +134,22 @@ function labelFor(pos: number): string {
   return pos < 9 ? String(pos + 1) : String.fromCharCode(97 + (pos - 9))
 }
 
+// Client-side ETA formatting — mirrors the server's fmtTime/toISOLocal so a
+// manual drag-reorder can recompute arrival times from the cached matrix
+// without another round-trip (same approach as the Basic builder).
+function fmtTimeClient(totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60) % 24
+  const m = Math.round(totalMinutes % 60)
+  const ampm = h >= 12 ? 'PM' : 'AM'
+  const h12 = h % 12 === 0 ? 12 : h % 12
+  return `${h12}:${m.toString().padStart(2, '0')} ${ampm}`
+}
+function toISOLocalClient(date: string, totalMinutes: number): string {
+  const h = Math.floor(totalMinutes / 60) % 24
+  const m = Math.round(totalMinutes % 60)
+  return `${date}T${h.toString().padStart(2, '0')}:${m.toString().padStart(2, '0')}:00`
+}
+
 function dayHeading(day: string): string {
   return new Date(day + 'T12:00:00').toLocaleDateString('en-US', {
     weekday: 'long', month: 'short', day: 'numeric',
@@ -239,6 +255,17 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
   const [usingMatrix, setUsingMatrix] = useState<boolean | null>(null)
   const [geocodeFailed, setGeocodeFailed] = useState<string[]>([])
   const [fallbackStops, setFallbackStops] = useState<string[]>([])
+  // Matrix + speed kept so a manual drag-reorder can recompute ETAs client-side.
+  const [durationMatrix, setDurationMatrix] = useState<number[][] | null>(null)
+  const [avgSpeedKmh, setAvgSpeedKmh] = useState<number>(40)
+  // Lock a stop as first / last before optimizing (parity with Basic mode).
+  const [lockedFirstId, setLockedFirstId] = useState<string | null>(null)
+  const [lockedLastId, setLockedLastId] = useState<string | null>(null)
+  // Drag-to-reorder the optimized route; isManualOrder flags that times are
+  // stale until the user hits "Recalculate".
+  const [isManualOrder, setIsManualOrder] = useState(false)
+  const [draggingIdx, setDraggingIdx] = useState<number | null>(null)
+  const [dragOverIdx, setDragOverIdx] = useState<number | null>(null)
 
   // ── Holding area (batches) ──────────────────────────────────────────────
   const [batches, setBatches] = useState<RouteBatch[]>([])
@@ -362,6 +389,10 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     setOptimizeError(null)
     setDepotCoord(null)
     setUsingMatrix(null)
+    setDurationMatrix(null)
+    setIsManualOrder(false)
+    setLockedFirstId(null)
+    setLockedLastId(null)
     setGeocodeFailed([])
     setFallbackStops([])
     setSelectedIds(new Set())
@@ -391,19 +422,28 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     }
   }
 
-  async function optimizeSelected() {
+  // lockFirst/lockLast default to current state for the plain Optimize button,
+  // but the lock toggles pass explicit values to dodge the setState-timing
+  // stale-closure trap (state isn't flushed by the time we re-optimize).
+  async function optimizeSelected(lockFirst: string | null = lockedFirstId, lockLast: string | null = lockedLastId) {
     const chosen = (visits ?? []).filter(v => selectedIds.has(v.id) && coordsById.has(v.id))
-    if (chosen.length < 2) {
-      setOptimizeError('Select at least 2 stops (use the lasso or the row checkboxes).')
+    if (chosen.length < 1) {
+      setOptimizeError('Select at least 1 stop (use the lasso or the row checkboxes).')
       return
     }
     setOptimizing(true)
     setOptimizeError(null)
     setGeocodeFailed([])
     setFallbackStops([])
+    setIsManualOrder(false)
     try {
       const [hh, mm] = startTime.split(':').map(Number)
       const startHour = hh + mm / 60
+      // Locked first/last → indices within `chosen` (the optimizer resolves them
+      // to its internal address groups). Only sent when the locked stop is
+      // actually part of this selection.
+      const lockedFirstIdx = lockFirst ? chosen.findIndex(v => v.id === lockFirst) : -1
+      const lockedLastIdx = lockLast ? chosen.findIndex(v => v.id === lockLast) : -1
       const res = await fetch('/api/optimize', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -415,6 +455,8 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
           visitLineItems: chosen.map(v => v.lineItemNames ?? []),
           visitTypes: chosen.map(v => v.type ?? 'visit'),
           durationMethod,
+          lockedFirstIdx: lockedFirstIdx >= 0 ? lockedFirstIdx : undefined,
+          lockedLastIdx: lockedLastIdx >= 0 ? lockedLastIdx : undefined,
         }),
       })
       const data: {
@@ -425,12 +467,16 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
         depotCoord: { lat: number; lng: number }
         usingMatrix?: boolean
         matrixIndices?: number[]
+        durationMatrix?: number[][] | null
+        avgSpeedKmh?: number
         error?: string
       } = await res.json()
       if (data.error) { setOptimizeError(data.error); return }
 
       setGeocodeFailed((data.geocodeFailed ?? []).map(i => chosen[i]?.clientName).filter(Boolean) as string[])
       setUsingMatrix(data.usingMatrix ?? false)
+      setDurationMatrix(data.durationMatrix ?? null)
+      setAvgSpeedKmh(data.avgSpeedKmh ?? 40)
       if (data.depotCoord) setDepotCoord(data.depotCoord)
       setFallbackStops((data.legs ?? [])
         .map((leg, i) => leg.usedFallback ? chosen[data.order[i]]?.clientName : null)
@@ -455,6 +501,79 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     } finally {
       setOptimizing(false)
     }
+  }
+
+  // Toggle a stop as the locked first/last, then re-run the optimizer (with the
+  // new locks passed explicitly) so the route honors it. A stop can't be both
+  // first and last, so setting one clears the other if it collides.
+  function toggleLockFirst(id: string) {
+    const nextFirst = lockedFirstId === id ? null : id
+    const nextLast = lockedLastId === id ? null : lockedLastId
+    setLockedFirstId(nextFirst)
+    setLockedLastId(nextLast)
+    optimizeSelected(nextFirst, nextLast)
+  }
+  function toggleLockLast(id: string) {
+    const nextLast = lockedLastId === id ? null : id
+    const nextFirst = lockedFirstId === id ? null : lockedFirstId
+    setLockedLastId(nextLast)
+    setLockedFirstId(nextFirst)
+    optimizeSelected(nextFirst, nextLast)
+  }
+
+  // Recompute ETAs / drive times / miles after a manual drag-reorder, from the
+  // cached duration matrix (mirrors the server's leg math + the Basic builder).
+  function recalculateETAs() {
+    if (!optimized || optimized.length === 0) return
+    const [hh, mm] = startTime.split(':').map(Number)
+    let elapsedMin = (hh + mm / 60) * 60
+    let prevMatrixIdx = 0  // depot = matrix index 0
+    const recalculated = optimized.map((v, i) => {
+      let driveMin: number
+      let distKm: number
+      const prev = i === 0 ? (depotCoord ?? { lat: v.lat, lng: v.lng }) : { lat: optimized[i - 1].lat, lng: optimized[i - 1].lng }
+      if (durationMatrix) {
+        driveMin = Math.round(durationMatrix[prevMatrixIdx][v.matrixIndex] / 60)
+        distKm = Math.round(haversineKm(prev, { lat: v.lat, lng: v.lng }) * 10) / 10
+      } else {
+        distKm = Math.round(haversineKm(prev, { lat: v.lat, lng: v.lng }) * 10) / 10
+        driveMin = Math.round((distKm / avgSpeedKmh) * 60)
+      }
+      elapsedMin += driveMin
+      const eta = fmtTimeClient(elapsedMin)
+      const startAtISO = startDate ? toISOLocalClient(startDate, elapsedMin) : null
+      const endAtISO = startDate ? toISOLocalClient(startDate, elapsedMin + v.onSiteMinutes) : null
+      elapsedMin += v.onSiteMinutes
+      prevMatrixIdx = v.matrixIndex
+      return { ...v, stopNumber: i + 1, driveMinutes: driveMin, distanceKm: distKm, eta, startAtISO, endAtISO }
+    })
+    setOptimized(recalculated)
+    setIsManualOrder(false)
+  }
+
+  // Drag-to-reorder the optimized list. Dropping commits the new order and marks
+  // it manual (times become stale until Recalculate).
+  function handleStopDrop(targetIdx: number) {
+    setOptimized(prev => {
+      if (!prev || draggingIdx === null || draggingIdx === targetIdx) return prev
+      const next = [...prev]
+      const [moved] = next.splice(draggingIdx, 1)
+      next.splice(targetIdx, 0, moved)
+      return next.map((v, i) => ({ ...v, stopNumber: i + 1 }))
+    })
+    setIsManualOrder(true)
+    setDraggingIdx(null)
+    setDragOverIdx(null)
+  }
+
+  function clearOptimized() {
+    setOptimized(null)
+    setDepotCoord(null)
+    setUsingMatrix(null)
+    setDurationMatrix(null)
+    setIsManualOrder(false)
+    setLockedFirstId(null)
+    setLockedLastId(null)
   }
 
   // ── Holding area: load / create / send / delete ──────────────────────────
@@ -563,17 +682,33 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     }
   }
 
+  // Top-of-holding confirmation shown after a batch auto-clears on Jobber send
+  // (the batch row itself is gone, so the success needs its own surface).
+  const [holdingNotice, setHoldingNotice] = useState<string | null>(null)
+
   // Generic per-batch action runner: tracks busy state, captures a result
-  // message, and on success stamps the send channel + reloads.
+  // message, and on success either (a) removes the batch from holding — the
+  // default for a Jobber send, which is the terminal step — or (b) stamps the
+  // send channel and keeps the batch (Daily Log sends).
   async function runBatchAction(
     batchId: string,
     action: string,
     fn: () => Promise<{ ok: boolean; text: string; channel?: 'jobber' | 'daily_log' }>,
+    opts?: { removeOnSuccess?: boolean },
   ) {
     setBatchBusy(prev => ({ ...prev, [batchId]: action }))
     setBatchMsg(prev => { const n = { ...prev }; delete n[batchId]; return n })
     try {
       const result = await fn()
+      if (result.ok && opts?.removeOnSuccess) {
+        // Terminal Jobber send → clear it from holding so it doesn't linger
+        // (Ben's request: no more manual Delete after a send). A failed/partial
+        // send keeps the batch so it can be retried.
+        await fetch(`/api/hub/routing/batches/${batchId}`, { method: 'DELETE' })
+        await loadBatches()
+        setHoldingNotice(`✓ ${result.text} · removed from holding`)
+        return
+      }
       setBatchMsg(prev => ({ ...prev, [batchId]: { ok: result.ok, text: result.text } }))
       if (result.ok && result.channel) {
         await fetch(`/api/hub/routing/batches/${batchId}`, {
@@ -612,7 +747,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       return data.allOk
         ? { ok: true, channel: 'jobber', text: `Order sent to Jobber (${okCount} stops)` }
         : { ok: false, text: `Partial: ${okCount}/${stops.length} reordered` }
-    })
+    }, { removeOnSuccess: true })
   }
 
   function sendBatchWithTimes(b: RouteBatch) {
@@ -640,7 +775,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       return data.allOk
         ? { ok: true, channel: 'jobber', text: `Times sent for ${b.assigned_date} (${okCount} stops)` }
         : { ok: false, text: `Partial: ${okCount}/${visitsPayload.length} updated` }
-    })
+    }, { removeOnSuccess: true })
   }
 
   function sendBatchDailyLogV2(b: RouteBatch) {
@@ -815,6 +950,15 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     }
     return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))
   }, [visits, heldVisitIds])
+
+  // Stops whose address the map system couldn't geocode — no pin, and excluded
+  // from any optimized route. Surfaced in a persistent panel (not just a
+  // transient banner) so they never silently vanish from the workflow; the user
+  // fixes the address in Jobber and reloads. Only meaningful once geocoding settles.
+  const unmappableVisits = useMemo(() => {
+    if (!visits || coordsLoading) return []
+    return visits.filter(v => !heldVisitIds.has(v.id) && !coordsById.has(v.id))
+  }, [visits, coordsById, coordsLoading, heldVisitIds])
 
   // ── Derived: map pins ──────────────────────────────────────────────────────
   const routePosById = useMemo(() => {
@@ -1026,6 +1170,39 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
         </div>
       )}
 
+      {/* Item A — persistent "couldn't map" panel. These stops have no map
+          location and can't be optimized/sent, so we never silently drop them:
+          they stay listed here (and badged ⚠ in the day list) until the address
+          is fixed in Jobber and the visits reloaded. */}
+      {unmappableVisits.length > 0 && (
+        <div className="bg-red-950/40 border border-red-800/70 rounded-2xl overflow-hidden">
+          <div className="px-4 py-2.5 bg-red-900/30 border-b border-red-800/50 flex items-center gap-2">
+            <span aria-hidden>⚠️</span>
+            <span className="text-sm font-semibold text-red-200">
+              {unmappableVisits.length} stop{unmappableVisits.length !== 1 ? 's' : ''} couldn&apos;t be mapped
+            </span>
+            <span className="text-xs text-red-300/70 ml-1">— excluded from routing until the address is fixed</span>
+          </div>
+          <ul className="divide-y divide-red-900/40">
+            {unmappableVisits.map(v => (
+              <li key={v.id} className="px-4 py-2 flex items-start justify-between gap-3 text-sm">
+                <div className="min-w-0">
+                  <p className="font-medium text-white truncate">{v.clientName}</p>
+                  <p className="text-xs text-red-200/70 truncate">{v.addressString || '(no address on file)'}</p>
+                </div>
+                <span className="shrink-0 text-[11px] text-red-300/70">
+                  {dayHeading(v.dayDate)}
+                  {selectedUserIds.length > 1 ? ` · ${users.find(u => u.id === v.techId)?.name?.split(' ')[0] ?? 'tech'}` : ''}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <p className="px-4 py-2 text-[11px] text-red-300/60 border-t border-red-900/40">
+            Fix the address on the visit in Jobber (or add a missing street/city/ZIP), then reload visits. They&apos;ll then map and route normally.
+          </p>
+        </div>
+      )}
+
       {/* Optimized route summary */}
       {optimized && optimized.length > 0 && (
         <div className="bg-gray-900 border border-green-800/60 rounded-2xl p-5">
@@ -1043,21 +1220,62 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
               <span>⏱ {Math.floor(totalOnSiteMin / 60)}h {totalOnSiteMin % 60}m on-site</span>
               <span>📍 {totalMiles} mi</span>
               <button
-                onClick={() => { setOptimized(null); setDepotCoord(null); setUsingMatrix(null) }}
+                onClick={clearOptimized}
                 className="px-3 py-1 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg font-medium"
               >
                 Clear route
               </button>
             </div>
           </div>
-          <ol className="mt-3 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-1">
-            {optimized.map(v => (
-              <li key={v.id} className="flex items-center gap-2 text-sm py-1 border-b border-gray-800/60">
-                <span className="w-6 h-6 shrink-0 rounded-full bg-red-700 text-white text-xs font-bold flex items-center justify-center">{v.stopNumber}</span>
-                <span className="flex-1 min-w-0 truncate text-white">{v.clientName}</span>
-                <span className="text-xs text-orange-400 shrink-0">~{v.eta}</span>
-              </li>
-            ))}
+          {isManualOrder && (
+            <div className="mt-3 flex items-center justify-between gap-3 bg-amber-900/30 border border-amber-700/60 text-amber-200 rounded-lg px-3 py-2 text-xs">
+              <span>Order changed — arrival times are stale until you recalculate.</span>
+              <button
+                onClick={recalculateETAs}
+                className="shrink-0 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-md font-medium"
+              >
+                ↻ Recalculate times
+              </button>
+            </div>
+          )}
+          <p className="mt-3 text-[11px] text-gray-500">Drag <span className="text-gray-400">⠿</span> to reorder · 📌 locks a stop first/last and re-optimizes the rest.</p>
+          <ol className="mt-1.5">
+            {optimized.map((v, idx) => {
+              const isDragging = draggingIdx === idx
+              const isTarget = dragOverIdx === idx && draggingIdx !== idx
+              return (
+                <li
+                  key={v.id}
+                  draggable
+                  onDragStart={() => setDraggingIdx(idx)}
+                  onDragEnd={() => { setDraggingIdx(null); setDragOverIdx(null) }}
+                  onDragOver={e => { e.preventDefault(); if (draggingIdx !== null && draggingIdx !== idx) setDragOverIdx(idx) }}
+                  onDrop={e => { e.preventDefault(); handleStopDrop(idx) }}
+                  className={`flex items-center gap-2 text-sm py-1.5 border-b border-gray-800/60 ${isDragging ? 'opacity-40' : ''} ${isTarget ? 'border-t-2 border-t-orange-500' : ''}`}
+                >
+                  <span className="text-gray-600 shrink-0 cursor-grab select-none text-lg leading-none" title="Drag to reorder">⠿</span>
+                  <span className="w-6 h-6 shrink-0 rounded-full bg-red-700 text-white text-xs font-bold flex items-center justify-center">{v.stopNumber}</span>
+                  <span className="flex-1 min-w-0 truncate text-white">{v.clientName}</span>
+                  <span className="text-xs text-orange-400 shrink-0 mr-1">~{v.eta}</span>
+                  <button
+                    onClick={() => toggleLockFirst(v.id)}
+                    disabled={optimizing}
+                    title="Lock as first stop"
+                    className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-50 ${lockedFirstId === v.id ? 'bg-orange-500 border-orange-400 text-white' : 'border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'}`}
+                  >
+                    📌 1st
+                  </button>
+                  <button
+                    onClick={() => toggleLockLast(v.id)}
+                    disabled={optimizing}
+                    title="Lock as last stop"
+                    className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-50 ${lockedLastId === v.id ? 'bg-orange-500 border-orange-400 text-white' : 'border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'}`}
+                  >
+                    📌 Last
+                  </button>
+                </li>
+              )
+            })}
           </ol>
           <div className="mt-4 flex items-center justify-between flex-wrap gap-3 pt-3 border-t border-gray-800">
             <p className="text-xs text-gray-500 max-w-md">
@@ -1211,8 +1429,8 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                   <button onClick={() => setSelectedIds(new Set())} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 text-gray-300 rounded-lg text-xs font-medium">Clear</button>
                 )}
                 <button
-                  onClick={optimizeSelected}
-                  disabled={optimizing || selectedCount < 2}
+                  onClick={() => optimizeSelected()}
+                  disabled={optimizing || selectedCount < 1}
                   className="px-4 py-1.5 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-xs font-medium transition-colors"
                 >
                   {optimizing ? 'Optimizing…' : `⚡ Optimize ${selectedCount || ''}`.trim()}
@@ -1303,6 +1521,13 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
               )}
             </div>
           </div>
+        </div>
+      )}
+
+      {holdingNotice && (
+        <div className="bg-green-900/40 border border-green-700 text-green-300 rounded-lg px-4 py-2.5 text-sm flex items-center justify-between gap-3">
+          <span>{holdingNotice}</span>
+          <button onClick={() => setHoldingNotice(null)} className="shrink-0 text-green-400/70 hover:text-green-200" aria-label="Dismiss">✕</button>
         </div>
       )}
 

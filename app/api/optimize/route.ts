@@ -105,7 +105,13 @@ async function fetchDurationMatrix(
   try {
     const coordStr = points.map(p => `${p.lng},${p.lat}`).join(';')
     const url = `https://api.mapbox.com/directions-matrix/v1/mapbox/driving/${coordStr}?sources=all&destinations=all&access_token=${token}`
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    // The Mapbox token is referrer-restricted to lynxedo.com — a server-side call
+    // (no browser Referer) 403s without this header, which silently dropped every
+    // route to straight-line distances instead of real road times.
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: { Referer: process.env.NEXT_PUBLIC_APP_URL || 'https://lynxedo.com' },
+    })
     if (!res.ok) return null
     const data = await res.json() as { code: string; durations: number[][] }
     return data.code === 'Ok' ? data.durations : null

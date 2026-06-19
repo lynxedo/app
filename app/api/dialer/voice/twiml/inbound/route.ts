@@ -18,6 +18,7 @@ import {
 import { buildIvrContext } from '@/lib/dialer-ivr-context'
 import { conferenceRoomName } from '@/lib/twilio-conference'
 import { connectInboundToAgentViaConference, isAgentDndNow } from '@/lib/dialer-conference-connect'
+import { findOrCreateTxtContact } from '@/lib/dialer-lookup'
 import type { ResponderMode } from '@/lib/responder'
 
 const HEROES_COMPANY_ID =
@@ -101,14 +102,13 @@ export async function POST(request: NextRequest) {
   let contactId: string | null = null
 
   try {
+    // Find-or-create the contact (the Unified Inbox spine), normalizing to E.164
+    // — mirrors the inbound-SMS path. Previously this only *looked up* an exact
+    // phone match, so first-time callers (and any non-normalized number) left
+    // contact_id NULL, which dropped the call from the contact's timeline and
+    // per-contact call history.
     if (fromNumber) {
-      const { data: contact } = await admin
-        .from('txt_contacts')
-        .select('id')
-        .eq('company_id', HEROES_COMPANY_ID)
-        .eq('phone', fromNumber)
-        .maybeSingle()
-      contactId = contact?.id ?? null
+      contactId = await findOrCreateTxtContact(HEROES_COMPANY_ID, fromNumber)
     }
 
     await admin.from('calls').insert({

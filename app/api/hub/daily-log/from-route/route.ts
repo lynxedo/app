@@ -94,12 +94,15 @@ export async function POST(request: Request) {
   const admin = createAdminClient()
 
   // Find existing daily log entry for this {company, date, tech}, or create one.
+  // Exclude soft-deleted tombstones — otherwise we'd push stops into a deleted
+  // entry the list hides (and never create the live one the user expects).
   const { data: existingEntry } = await admin
     .from('daily_log_entries')
     .select('id')
     .eq('company_id', profile.company_id)
     .eq('log_date', body.log_date)
     .eq('tech_user_id', techUserId)
+    .is('deleted_at', null)
     .maybeSingle()
 
   let entryId: string
