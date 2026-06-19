@@ -1706,32 +1706,36 @@ function ProductsTab() {
         <p className="mt-2">It lives at <strong className="text-white">Admin → Products</strong> and is managed by admins (or anyone with the Products admin grant).</p>
       </Section>
 
-      <Section title="Groups, Items &amp; Sub-items">
-        <p>The catalog is three levels deep — like the lead tracker, but one deeper:</p>
+      <Section title="Groups &amp; products">
+        <p>The catalog is organized in two levels:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
           <li><strong className="text-white">Group</strong> — the product type (Fertilizer, Insecticide, Fungicide…). Each group header collapses and expands.</li>
-          <li><strong className="text-white">Item</strong> — the physical product you buy (e.g. <em>Acelepryn</em>). Holds the package price, size, unit, EPA #, active ingredient, batch info — and the inventory counts.</li>
-          <li><strong className="text-white">Sub-item</strong> — a rate the product is applied at (e.g. <em>0.1 rate</em>, <em>High Rate</em>). Click the arrow on an item to expand its sub-items; each carries its own application rate and derived cost. Use <strong className="text-white">+ Add sub-item</strong> to add another rate.</li>
+          <li><strong className="text-white">Product</strong> — one row per product <em>at a specific rate</em>. Because the same chemical is often used at different rates, each rate is its own row (e.g. <em>Acelepryn 0.1 rate</em> and <em>Acelepryn 0.2 rate</em> are separate products). Each row holds its price, package size, unit, application rate, EPA #, active ingredient, label link, batch info, and inventory.</li>
         </ul>
-        <p className="mt-2">Why split rates out? Because the same product gets applied at different rates for different jobs. Inventory is counted once on the item, but pesticide records and route capacity need the exact rate — which lives on the sub-item.</p>
+        <p className="mt-2">This matches your Products spreadsheet exactly — one line per priced, rated product — so what you see here is what feeds the pricing, route-capacity, and pesticide tools.</p>
+      </Section>
+
+      <Section title="Application rate &amp; rate basis">
+        <p>Every product has an <strong className="text-white">application rate</strong> and a <strong className="text-white">rate basis</strong> — a dropdown set to either <em>per 1,000 sq ft</em> (most products) or <em>per gallon</em> (the DRF spray-mix products). Nothing is hardcoded: flip the basis on any product yourself in its expanded editor.</p>
       </Section>
 
       <Section title="Cost per 1,000 sq ft">
-        <p>You never type the cost — it&apos;s calculated. From <strong className="text-white">package size ÷ rate</strong> the system works out how many 1,000-sq-ft a package covers, then <strong className="text-white">package price ÷ that</strong> gives the cost per 1,000 sq ft. Update the price from your invoices and every rate&apos;s cost updates automatically.</p>
+        <p>You never type the cost — it&apos;s calculated. From <strong className="text-white">package size ÷ rate</strong> the system works out how many 1,000-sq-ft a package covers, then <strong className="text-white">package price ÷ that</strong> gives the cost per 1,000 sq ft (shown with a <em>/1k</em> or <em>/gal</em> tag matching the basis). Update the price from your invoices and the cost updates automatically.</p>
       </Section>
 
       <Section title="Inventory by location">
-        <p>Each storage location (Vehicle 1, Shop, North Shop…) is its own column. Type how many packages are at each location; the <strong className="text-white">Total</strong> and <strong className="text-emerald-300">$ Value</strong> columns add up automatically (total packages × package price). Counts live on the item, not per rate.</p>
+        <p>Each storage location (Vehicle 1, Shop, North Shop…) is its own column. Type how many packages are at each location; the <strong className="text-white">Total</strong> and <strong className="text-emerald-300">$ Value</strong> columns add up automatically (total packages × package price).</p>
       </Section>
 
       <AdminOnly>
         <Section title="Adding &amp; editing products (Admin)">
           <p>In <strong className="text-white">Admin → Products</strong> (Catalog tab):</p>
           <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
-            <li><strong className="text-white">+ Add product</strong> — name + group + price + size + unit, then expand it to add sub-items and the rest of the details.</li>
-            <li>Click any item&apos;s arrow to <strong className="text-white">expand</strong> it — edit every field, manage its rates, and see derived costs.</li>
-            <li><strong className="text-white">Package price</strong> and the per-location inventory cells edit right in the table — changes save as you click away.</li>
-            <li>The <strong className="text-white">✕</strong> on a row deletes that item (and its sub-items + inventory).</li>
+            <li><strong className="text-white">+ Add product</strong> — name, group, price, size, unit, rate, and basis; then expand it to fill in EPA #, active ingredient, label, and batch info.</li>
+            <li>Click any product&apos;s arrow to <strong className="text-white">expand</strong> it — edit every field and see the derived cost.</li>
+            <li><strong className="text-white">Package price</strong>, <strong className="text-white">application rate</strong>, and the per-location inventory cells edit right in the table — changes save as you click away.</li>
+            <li>The <strong className="text-white">✕</strong> on a row removes that product. It&apos;s a <em>soft delete</em> — the row is hidden but kept in the database, so a deleted product can be restored if needed.</li>
+            <li><strong className="text-white">Monthly batch update:</strong> expand a product and update its <strong className="text-white">Batch #</strong> and <strong className="text-white">Batch date</strong> — these flow onto the pesticide records.</li>
           </ul>
         </Section>
 

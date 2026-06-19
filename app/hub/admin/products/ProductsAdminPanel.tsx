@@ -1,58 +1,29 @@
 'use client'
 
-import { Fragment, useEffect, useMemo, useState } from 'react'
+import { Fragment, useMemo, useState, useEffect } from 'react'
 import {
-  type Product, type ProductVariant, type ProductLocationInventory,
+  type Product, type ProductLocationInventory,
   type ProductCategory, type InventoryLocation, type RateBasis,
   RATE_BASIS_LABELS, costPer1000, ksfPerPackage, inventoryTotal, inventoryValue,
   fmtMoney, fmtNum,
 } from '@/lib/products'
 import { useConfirm } from '@/components/ui'
 
-// The loaded item carries its sub-items + per-location inventory inline (Supabase nested select).
+// Flat model (Products/Pricing Master PRD, Session 1): one row per priced+rated product.
+// The loaded item carries its per-location inventory inline (Supabase nested select).
 type Item = Product & {
-  product_variants: ProductVariant[]
   product_location_inventory: ProductLocationInventory[]
 }
 
-const UNIT_OPTIONS = ['lbs', 'oz', 'fl oz', 'g', 'gal', 'each']
-const RATE_BASIS_ORDER: RateBasis[] = ['per_1000sqft', 'per_gallon', 'per_tree', 'other']
+const UNIT_OPTIONS = ['lbs', 'oz', 'fl oz', 'g', 'ml', 'gal', 'application']
+const RATE_BASIS_ORDER: RateBasis[] = ['per_1000sqft', 'per_gallon']
 
 function costSuffix(basis: RateBasis): string {
-  if (basis === 'per_1000sqft') return ' /1k'
-  if (basis === 'per_gallon') return ' /gal'
-  if (basis === 'per_tree') return ' /tree'
-  return ''
-}
-
-function sortedVariants(item: Item): ProductVariant[] {
-  return [...item.product_variants].sort(
-    (a, b) => (a.sort_order - b.sort_order) || (a.label ?? '').localeCompare(b.label ?? ''),
-  )
-}
-
-// Collapsed-row cost summary: single variant → exact; multiple → range across the dominant basis.
-function itemCostSummary(item: Item): string | null {
-  const vs = item.product_variants.filter(v => v.is_active)
-  if (vs.length === 0) return null
-  if (vs.length === 1) {
-    const c = costPer1000(item.package_price, item.package_size, vs[0].application_rate)
-    return c == null ? null : fmtMoney(c) + costSuffix(vs[0].rate_basis)
-  }
-  const basisGroup = vs.some(v => v.rate_basis === 'per_1000sqft')
-    ? vs.filter(v => v.rate_basis === 'per_1000sqft')
-    : vs
-  const costs = basisGroup
-    .map(v => costPer1000(item.package_price, item.package_size, v.application_rate))
-    .filter((c): c is number => c != null)
-  if (!costs.length) return null
-  const min = Math.min(...costs), max = Math.max(...costs)
-  const suffix = costSuffix(basisGroup[0].rate_basis)
-  return min === max ? fmtMoney(min) + suffix : `${fmtMoney(min)}–${fmtMoney(max)}${suffix}`
+  return basis === 'per_gallon' ? ' /gal' : ' /1k'
 }
 
 // ---------------------------------------------------------------------------
-// Inline-editable number cell (used for package price + per-location quantity).
+// Inline-editable number cell (package price, application rate, per-location qty).
 // ---------------------------------------------------------------------------
 function NumberCell({
   value, onSave, placeholder = '', prefix = '', className = '', width = 'w-20',
@@ -91,161 +62,14 @@ function NumberCell({
 }
 
 // ---------------------------------------------------------------------------
-// Sub-items (rates) manager — shown in an expanded item panel.
-// ---------------------------------------------------------------------------
-function VariantManager({
-  item, onChange, onError,
-}: {
-  item: Item
-  onChange: (variants: ProductVariant[]) => void
-  onError: (msg: string) => void
-}) {
-  const confirmDialog = useConfirm()
-  const [adding, setAdding] = useState(false)
-  const [label, setLabel] = useState('')
-  const [rate, setRate] = useState('')
-  const [basis, setBasis] = useState<RateBasis>('per_1000sqft')
-  const [busy, setBusy] = useState(false)
-
-  async function addVariant() {
-    setBusy(true)
-    const res = await fetch('/api/admin/product-variants', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        product_id: item.id,
-        label: label.trim() || null,
-        application_rate: rate.trim() === '' ? null : Number(rate),
-        rate_basis: basis,
-      }),
-    })
-    setBusy(false)
-    if (res.ok) {
-      const { variant } = await res.json()
-      onChange([...item.product_variants, variant])
-      setLabel(''); setRate(''); setBasis('per_1000sqft'); setAdding(false)
-    } else {
-      const d = await res.json().catch(() => ({}))
-      onError(d.error || 'Failed to add sub-item')
-    }
-  }
-
-  async function saveVariant(id: string, patch: Partial<ProductVariant>) {
-    const res = await fetch(`/api/admin/product-variants/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(patch),
-    })
-    if (res.ok) {
-      const { variant } = await res.json()
-      onChange(item.product_variants.map(v => v.id === id ? variant : v))
-    } else {
-      const d = await res.json().catch(() => ({}))
-      onError(d.error || 'Failed to save sub-item')
-    }
-  }
-
-  async function deleteVariant(id: string) {
-    if (!(await confirmDialog({ message: 'Delete this sub-item (rate)?', danger: true }))) return
-    const res = await fetch(`/api/admin/product-variants/${id}`, { method: 'DELETE' })
-    if (res.ok) onChange(item.product_variants.filter(v => v.id !== id))
-    else onError('Failed to delete sub-item')
-  }
-
-  const vs = sortedVariants(item)
-
-  return (
-    <div className="bg-gray-950/60 border border-gray-800 rounded-xl p-4">
-      <div className="flex items-center justify-between mb-3">
-        <h4 className="text-sm font-semibold text-gray-200">Sub-items (rates)</h4>
-        {!adding && (
-          <button onClick={() => setAdding(true)} className="text-indigo-400 hover:text-indigo-300 text-xs font-medium">
-            + Add sub-item
-          </button>
-        )}
-      </div>
-
-      {vs.length === 0 && !adding && (
-        <p className="text-gray-600 text-sm italic mb-2">No rates yet — add one so the routing tool and pesticide records have a rate to use.</p>
-      )}
-
-      {vs.length > 0 && (
-        <div className="space-y-1.5 mb-2">
-          {vs.map(v => {
-            const cost = costPer1000(item.package_price, item.package_size, v.application_rate)
-            const ksf = ksfPerPackage(item.package_size, v.application_rate)
-            return (
-              <div key={v.id} className="flex items-center gap-2 flex-wrap bg-gray-900 border border-gray-800 rounded-lg px-3 py-2">
-                <input
-                  defaultValue={v.label ?? ''}
-                  placeholder="label (e.g. High Rate)"
-                  onBlur={e => { const val = e.target.value.trim() || null; if (val !== v.label) saveVariant(v.id, { label: val }) }}
-                  className="flex-1 min-w-[140px] bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500"
-                />
-                <div className="flex items-center gap-1">
-                  <span className="text-xs text-gray-500">rate</span>
-                  <NumberCell
-                    value={v.application_rate}
-                    width="w-16"
-                    onSave={n => saveVariant(v.id, { application_rate: n })}
-                  />
-                  <span className="text-xs text-gray-500">{item.unit || '?'}</span>
-                </div>
-                <select
-                  value={v.rate_basis}
-                  onChange={e => saveVariant(v.id, { rate_basis: e.target.value as RateBasis })}
-                  className="bg-gray-800 border border-gray-700 rounded px-1.5 py-1 text-xs text-gray-300 focus:outline-none focus:border-indigo-500"
-                >
-                  {RATE_BASIS_ORDER.map(b => <option key={b} value={b}>{RATE_BASIS_LABELS[b]}</option>)}
-                </select>
-                <span className="text-xs text-gray-400 whitespace-nowrap w-28 text-right" title="Derived cost per 1,000 sq ft">
-                  {cost == null ? '—' : fmtMoney(cost) + costSuffix(v.rate_basis)}
-                  {ksf != null && <span className="text-gray-600"> · {fmtNum(ksf, 1)} Ksf/pkg</span>}
-                </span>
-                <button onClick={() => deleteVariant(v.id)} className="text-gray-600 hover:text-red-400 text-sm" title="Delete sub-item" aria-label="Remove">✕</button>
-              </div>
-            )
-          })}
-        </div>
-      )}
-
-      {adding && (
-        <div className="flex items-end gap-2 flex-wrap bg-gray-900 border border-indigo-700/40 rounded-lg px-3 py-2 mt-1">
-          <div>
-            <label className="block text-[11px] text-gray-500 mb-0.5">Label</label>
-            <input value={label} onChange={e => setLabel(e.target.value)} placeholder="e.g. High Rate"
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500" />
-          </div>
-          <div>
-            <label className="block text-[11px] text-gray-500 mb-0.5">Rate ({item.unit || '?'})</label>
-            <input value={rate} onChange={e => setRate(e.target.value)} inputMode="decimal" placeholder="0"
-              className="w-20 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-white text-right placeholder-gray-600 focus:outline-none focus:border-indigo-500" />
-          </div>
-          <div>
-            <label className="block text-[11px] text-gray-500 mb-0.5">Basis</label>
-            <select value={basis} onChange={e => setBasis(e.target.value as RateBasis)}
-              className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-gray-300 focus:outline-none focus:border-indigo-500">
-              {RATE_BASIS_ORDER.map(b => <option key={b} value={b}>{RATE_BASIS_LABELS[b]}</option>)}
-            </select>
-          </div>
-          <button onClick={addVariant} disabled={busy} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium px-3 py-1.5 rounded">Add</button>
-          <button onClick={() => { setAdding(false); setLabel(''); setRate('') }} className="text-gray-500 hover:text-gray-300 text-sm px-2 py-1.5">Cancel</button>
-        </div>
-      )}
-    </div>
-  )
-}
-
-// ---------------------------------------------------------------------------
-// Expanded item editor — all the item-level fields.
+// Expanded item editor — all the item-level fields (flat model).
 // ---------------------------------------------------------------------------
 function ItemEditor({
-  item, categories, onSaveField, onError,
+  item, categories, onSaveField,
 }: {
   item: Item
   categories: ProductCategory[]
   onSaveField: (field: string, value: unknown) => void
-  onError: (msg: string) => void
 }) {
   function txt(field: keyof Item, label: string, opts: { placeholder?: string; full?: boolean } = {}) {
     return (
@@ -262,8 +86,8 @@ function ItemEditor({
   }
 
   return (
-    <div className="bg-gray-950/60 border border-gray-800 rounded-xl p-4 mb-3">
-      <h4 className="text-sm font-semibold text-gray-200 mb-3">Item details</h4>
+    <div className="bg-gray-950/60 border border-gray-800 rounded-xl p-4 mb-1">
+      <h4 className="text-sm font-semibold text-gray-200 mb-3">Product details</h4>
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
         {txt('name', 'Name', { placeholder: 'Product name' })}
         <div>
@@ -277,7 +101,6 @@ function ItemEditor({
             {categories.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
           </select>
         </div>
-        {txt('description', 'Description', { placeholder: 'e.g. granular, slow-release', full: true })}
         <div>
           <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Package price</label>
           <NumberCell value={item.package_price} prefix="$" width="w-full" onSave={n => onSaveField('package_price', n)} />
@@ -298,8 +121,25 @@ function ItemEditor({
             />
           </div>
         </div>
+        <div className="grid grid-cols-2 gap-2">
+          <div>
+            <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Application rate</label>
+            <NumberCell value={item.application_rate} width="w-full" onSave={n => onSaveField('application_rate', n)} />
+          </div>
+          <div>
+            <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Rate basis</label>
+            <select
+              value={item.rate_basis}
+              onChange={e => onSaveField('rate_basis', e.target.value as RateBasis)}
+              className="w-full bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+            >
+              {RATE_BASIS_ORDER.map(b => <option key={b} value={b}>{RATE_BASIS_LABELS[b]}</option>)}
+            </select>
+          </div>
+        </div>
         {txt('epa_reg_number', 'EPA Reg #', { placeholder: '279-3206' })}
         {txt('active_ingredient', 'Active ingredient', { placeholder: 'Bifenthrin 7.9%' })}
+        {txt('label_url', 'Label URL', { placeholder: 'https://… (official label PDF)', full: true })}
         <div>
           <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Batch #</label>
           <input
@@ -317,8 +157,12 @@ function ItemEditor({
             className="w-full bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
           />
         </div>
+        {txt('description', 'Description', { placeholder: 'e.g. granular, slow-release', full: true })}
         {txt('notes', 'Notes', { full: true })}
       </div>
+      {item.label_url && (
+        <a href={item.label_url} target="_blank" rel="noopener noreferrer" className="inline-block mt-3 text-indigo-400 hover:text-indigo-300 text-xs underline">Open label PDF ↗</a>
+      )}
     </div>
   )
 }
@@ -437,7 +281,8 @@ export default function ProductsAdminPanel({
 
   // add-product form
   const [addingItem, setAddingItem] = useState(false)
-  const [newItem, setNewItem] = useState({ name: '', category_id: '', package_price: '', package_size: '', unit: '' })
+  const blankNew = { name: '', category_id: '', package_price: '', package_size: '', unit: '', application_rate: '', rate_basis: 'per_1000sqft' as RateBasis }
+  const [newItem, setNewItem] = useState(blankNew)
   const [addBusy, setAddBusy] = useState(false)
 
   const activeLocations = useMemo(
@@ -446,11 +291,6 @@ export default function ProductsAdminPanel({
   )
 
   function flash(msg: string) { setError(msg); setTimeout(() => setError(''), 4000) }
-
-  // ----- item helpers -----
-  function patchLocal(id: string, patch: Partial<Item>) {
-    setProducts(prev => prev.map(p => p.id === id ? { ...p, ...patch } : p))
-  }
 
   async function saveItemField(id: string, field: string, value: unknown) {
     setProducts(prev => prev.map(p => p.id === id ? { ...p, [field]: value } as Item : p))
@@ -488,13 +328,15 @@ export default function ProductsAdminPanel({
         package_price: newItem.package_price.trim() === '' ? null : Number(newItem.package_price),
         package_size: newItem.package_size.trim() === '' ? null : Number(newItem.package_size),
         unit: newItem.unit.trim() || null,
+        application_rate: newItem.application_rate.trim() === '' ? null : Number(newItem.application_rate),
+        rate_basis: newItem.rate_basis,
       }),
     })
     setAddBusy(false)
     if (res.ok) {
       const { product } = await res.json()
       setProducts(prev => [...prev, product])
-      setNewItem({ name: '', category_id: '', package_price: '', package_size: '', unit: '' })
+      setNewItem(blankNew)
       setAddingItem(false)
       setExpandedId(product.id)
     } else {
@@ -504,10 +346,10 @@ export default function ProductsAdminPanel({
   }
 
   async function deleteProduct(id: string, name: string) {
-    if (!(await confirmDialog({ message: `Delete "${name}" and all its sub-items + inventory?\n\nThis cannot be undone.`, danger: true }))) return
+    if (!(await confirmDialog({ message: `Remove "${name}" from the catalog?\n\nIt's soft-deleted (kept in the database, hidden from lists) — tell Ben if you need it restored.`, danger: true }))) return
     const res = await fetch(`/api/admin/products/${id}`, { method: 'DELETE' })
     if (res.ok) setProducts(prev => prev.filter(p => p.id !== id))
-    else flash('Failed to delete product')
+    else flash('Failed to remove product')
   }
 
   // ----- grouping -----
@@ -517,7 +359,8 @@ export default function ProductsAdminPanel({
     return products.filter(p =>
       p.name.toLowerCase().includes(q) ||
       (p.description ?? '').toLowerCase().includes(q) ||
-      p.product_variants.some(v => (v.label ?? '').toLowerCase().includes(q)),
+      (p.active_ingredient ?? '').toLowerCase().includes(q) ||
+      (p.epa_reg_number ?? '').toLowerCase().includes(q),
     )
   }, [products, search])
 
@@ -546,14 +389,17 @@ export default function ProductsAdminPanel({
   }
 
   const totalItems = products.length
-  const totalVariants = products.reduce((s, p) => s + p.product_variants.length, 0)
+  const perGallonCount = products.filter(p => p.rate_basis === 'per_gallon').length
 
   return (
     <div className="text-white">
       <div className="flex flex-wrap items-center justify-between gap-3 mb-6">
         <div>
-          <h2 className="text-lg font-semibold">Products & Inventory</h2>
-          <p className="text-sm text-gray-400 mt-0.5">{totalItems} products · {totalVariants} rates · {activeLocations.length} locations</p>
+          <h2 className="text-lg font-semibold">Products &amp; Inventory</h2>
+          <p className="text-sm text-gray-400 mt-0.5">
+            {totalItems} products · {activeLocations.length} location{activeLocations.length === 1 ? '' : 's'}
+            {perGallonCount > 0 && <span className="text-gray-500"> · {perGallonCount} per-gallon</span>}
+          </p>
         </div>
         <div className="flex items-center gap-2">
           {error && <span className="text-red-400 text-sm">{error}</span>}
@@ -568,7 +414,7 @@ export default function ProductsAdminPanel({
         <div className="space-y-4 max-w-2xl">
           <EntityList
             title="Product Groups" noun="group"
-            hint="Product types (Fertilizer, Insecticide, …). Items are organized under these."
+            hint="Product types (Fertilizer, Insecticide, …). Products are organized under these."
             items={categories} endpoint="/api/admin/product-categories"
             deleteWarning="Delete this group? Products in it are kept and become Uncategorized."
             onChange={rows => setCategories(rows as ProductCategory[])} onError={flash}
@@ -585,7 +431,7 @@ export default function ProductsAdminPanel({
         <>
           <div className="flex flex-wrap items-center gap-2 mb-4">
             <input
-              value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products…"
+              value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products, ingredient, EPA #…"
               className="flex-1 min-w-[200px] max-w-sm bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
             />
             {!addingItem && (
@@ -623,13 +469,25 @@ export default function ProductsAdminPanel({
                 <input value={newItem.unit} onChange={e => setNewItem({ ...newItem, unit: e.target.value })} list="product-unit-options" placeholder="lbs"
                   className="w-20 bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500" />
               </div>
+              <div>
+                <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Rate</label>
+                <input value={newItem.application_rate} onChange={e => setNewItem({ ...newItem, application_rate: e.target.value })} inputMode="decimal" placeholder="0"
+                  className="w-20 bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-sm text-white text-right focus:outline-none focus:border-indigo-500" />
+              </div>
+              <div>
+                <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Basis</label>
+                <select value={newItem.rate_basis} onChange={e => setNewItem({ ...newItem, rate_basis: e.target.value as RateBasis })}
+                  className="bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500">
+                  {RATE_BASIS_ORDER.map(b => <option key={b} value={b}>{RATE_BASIS_LABELS[b]}</option>)}
+                </select>
+              </div>
               <button onClick={addProduct} disabled={addBusy || !newItem.name.trim()} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-1.5 rounded">Create</button>
-              <button onClick={() => { setAddingItem(false); setNewItem({ name: '', category_id: '', package_price: '', package_size: '', unit: '' }) }} className="text-gray-500 hover:text-gray-300 text-sm px-2 py-1.5">Cancel</button>
+              <button onClick={() => { setAddingItem(false); setNewItem(blankNew) }} className="text-gray-500 hover:text-gray-300 text-sm px-2 py-1.5">Cancel</button>
             </div>
           )}
 
           {groups.length === 0 && (
-            <p className="text-gray-500 text-sm italic py-8 text-center">No products yet. Click “Add product”, or import your spreadsheet.</p>
+            <p className="text-gray-500 text-sm italic py-8 text-center">No products found{search ? ' for this search' : ''}.</p>
           )}
 
           <div className="space-y-5">
@@ -637,7 +495,7 @@ export default function ProductsAdminPanel({
               const collapsed = collapsedGroups.has(group.key)
               return (
                 <div key={group.key}>
-                  <button onClick={() => toggleGroup(group.key)} className="flex items-center gap-2 mb-2 text-left group/header">
+                  <button onClick={() => toggleGroup(group.key)} className="flex items-center gap-2 mb-2 text-left">
                     <span className={`text-gray-500 text-xs transition-transform ${collapsed ? '' : 'rotate-90'}`}>▶</span>
                     <h3 className="text-sm font-semibold text-gray-200">{group.name}</h3>
                     <span className="text-xs text-gray-500">({group.items.length})</span>
@@ -645,12 +503,13 @@ export default function ProductsAdminPanel({
 
                   {!collapsed && (
                     <div className="overflow-x-auto border border-gray-800 rounded-xl">
-                      <table className="w-full text-sm min-w-[680px]">
+                      <table className="w-full text-sm min-w-[760px]">
                         <thead>
                           <tr className="text-[11px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
                             <th className="text-left font-medium px-3 py-2">Product</th>
                             <th className="text-right font-medium px-3 py-2 whitespace-nowrap">Pkg price</th>
                             <th className="text-right font-medium px-3 py-2 whitespace-nowrap">Size</th>
+                            <th className="text-right font-medium px-3 py-2 whitespace-nowrap">Rate</th>
                             <th className="text-right font-medium px-3 py-2 whitespace-nowrap">Cost / 1k</th>
                             {activeLocations.map(loc => (
                               <th key={loc.id} className="text-right font-medium px-3 py-2 whitespace-nowrap">{loc.name}</th>
@@ -665,9 +524,9 @@ export default function ProductsAdminPanel({
                             const expanded = expandedId === item.id
                             const total = inventoryTotal(item.product_location_inventory)
                             const value = inventoryValue(total, item.package_price)
-                            const cost = itemCostSummary(item)
-                            const variantCount = item.product_variants.length
-                            const colSpan = 7 + activeLocations.length
+                            const cost = costPer1000(item.package_price, item.package_size, item.application_rate)
+                            const ksf = ksfPerPackage(item.package_size, item.application_rate)
+                            const colSpan = 8 + activeLocations.length
                             return (
                               <Fragment key={item.id}>
                                 <tr className={`border-b border-gray-800/60 hover:bg-gray-900/40 ${expanded ? 'bg-gray-900/40' : ''}`}>
@@ -676,15 +535,20 @@ export default function ProductsAdminPanel({
                                       <span className={`text-gray-600 text-xs mt-1 transition-transform ${expanded ? 'rotate-90' : ''}`}>▶</span>
                                       <span>
                                         <span className="text-white font-medium">{item.name}</span>
-                                        {variantCount > 0 && <span className="ml-2 text-[11px] text-gray-500">{variantCount} rate{variantCount === 1 ? '' : 's'}</span>}
+                                        {item.epa_reg_number && <span className="ml-2 text-[11px] text-gray-500">{item.epa_reg_number}</span>}
                                         {!item.is_active && <span className="ml-2 text-[11px] text-amber-500">inactive</span>}
-                                        {item.description && <span className="block text-xs text-gray-500">{item.description}</span>}
+                                        {item.active_ingredient && <span className="block text-xs text-gray-500">{item.active_ingredient}</span>}
                                       </span>
                                     </button>
                                   </td>
                                   <td className="px-3 py-2 text-right"><NumberCell value={item.package_price} prefix="$" width="w-20" onSave={n => saveItemField(item.id, 'package_price', n)} /></td>
                                   <td className="px-3 py-2 text-right text-gray-400 whitespace-nowrap">{item.package_size != null ? `${fmtNum(item.package_size)} ${item.unit ?? ''}` : '—'}</td>
-                                  <td className="px-3 py-2 text-right text-gray-300 whitespace-nowrap">{cost ?? '—'}</td>
+                                  <td className="px-3 py-2 text-right whitespace-nowrap">
+                                    <NumberCell value={item.application_rate} width="w-16" onSave={n => saveItemField(item.id, 'application_rate', n)} />
+                                  </td>
+                                  <td className="px-3 py-2 text-right text-gray-300 whitespace-nowrap" title={ksf != null ? `${fmtNum(ksf, 1)} Ksf per package` : undefined}>
+                                    {cost == null ? '—' : fmtMoney(cost) + costSuffix(item.rate_basis)}
+                                  </td>
                                   {activeLocations.map(loc => {
                                     const row = item.product_location_inventory.find(r => r.location_id === loc.id)
                                     return (
@@ -696,14 +560,13 @@ export default function ProductsAdminPanel({
                                   <td className="px-3 py-2 text-right text-gray-200 font-medium">{fmtNum(total)}</td>
                                   <td className="px-3 py-2 text-right text-emerald-400 whitespace-nowrap">{fmtMoney(value)}</td>
                                   <td className="px-2 py-2 text-right">
-                                    <button onClick={() => deleteProduct(item.id, item.name)} className="text-gray-700 hover:text-red-400 text-sm" title="Delete product" aria-label="Remove">✕</button>
+                                    <button onClick={() => deleteProduct(item.id, item.name)} className="text-gray-700 hover:text-red-400 text-sm" title="Remove product" aria-label="Remove">✕</button>
                                   </td>
                                 </tr>
                                 {expanded && (
                                   <tr key={`${item.id}-x`}>
                                     <td colSpan={colSpan} className="px-3 pb-4 pt-1 bg-gray-900/40">
-                                      <ItemEditor item={item} categories={categories} onSaveField={(f, v) => saveItemField(item.id, f, v)} onError={flash} />
-                                      <VariantManager item={item} onChange={vs => patchLocal(item.id, { product_variants: vs })} onError={flash} />
+                                      <ItemEditor item={item} categories={categories} onSaveField={(f, v) => saveItemField(item.id, f, v)} />
                                     </td>
                                   </tr>
                                 )}
