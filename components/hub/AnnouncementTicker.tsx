@@ -17,8 +17,6 @@ export type Announcement = {
   reactions: Reaction[]
 }
 
-const REACTION_EMOJIS = ['👍', '❤️', '😂', '🎉', '🙌', '👀']
-
 // Both tickers share one CSS marquee keyframe (translateX 0 → -50% over a fixed
 // duration), so the linear scroll speed scales with text length — a long shout-out
 // scrolls faster than a short announcement. We instead drive a CONSTANT speed
@@ -44,35 +42,17 @@ const STYLE: Record<AnnType, { icon: string; bg: string; border: string; text: s
   },
 }
 
-function groupReactions(reactions: Reaction[], currentUserId: string) {
-  const counts: Record<string, { count: number; mine: boolean }> = {}
-  for (const r of reactions) {
-    if (!counts[r.emoji]) counts[r.emoji] = { count: 0, mine: false }
-    counts[r.emoji].count++
-    if (r.user_id === currentUserId) counts[r.emoji].mine = true
-  }
-  return counts
-}
-
 function TickerBar({
   announcement,
-  currentUserId,
   canEdit,
   onEdit,
   onDismiss,
-  onReactionsChange,
-  reactions,
 }: {
   announcement: Announcement
-  currentUserId: string
   canEdit: boolean
   onEdit: () => void
   onDismiss: () => void
-  onReactionsChange: (next: Reaction[]) => void
-  reactions: Reaction[]
 }) {
-  const [showPicker, setShowPicker] = useState(false)
-  const pickerRef = useRef<HTMLDivElement>(null)
   const style = STYLE[announcement.type]
 
   // Constant-speed marquee: measure the rendered width and set the animation
@@ -87,35 +67,6 @@ function TickerBar({
     const travel = el.scrollWidth / 2
     if (travel > 0) setMarqueeDuration(travel / MARQUEE_SPEED_PX_PER_SEC)
   }, [announcement.content])
-
-  useEffect(() => {
-    if (!showPicker) return
-    function handler(e: MouseEvent) {
-      if (pickerRef.current && !pickerRef.current.contains(e.target as Node)) {
-        setShowPicker(false)
-      }
-    }
-    document.addEventListener('mousedown', handler)
-    return () => document.removeEventListener('mousedown', handler)
-  }, [showPicker])
-
-  async function toggleReaction(emoji: string) {
-    setShowPicker(false)
-    const existing = reactions.find(r => r.user_id === currentUserId && r.emoji === emoji)
-    const next = existing
-      ? reactions.filter(r => !(r.user_id === currentUserId && r.emoji === emoji))
-      : [...reactions, { announcement_id: announcement.id, user_id: currentUserId, emoji }]
-    onReactionsChange(next)
-
-    await fetch(`/api/hub/announcements/${announcement.id}/reactions`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ emoji }),
-    })
-  }
-
-  const grouped = groupReactions(reactions, currentUserId)
-  const hasReactions = Object.keys(grouped).length > 0
 
   return (
     <div
@@ -145,48 +96,6 @@ function TickerBar({
           ✎
         </button>
       )}
-
-      <div className="flex items-center gap-1 flex-none relative" ref={pickerRef}>
-        {hasReactions && (
-          <button
-            onClick={() => setShowPicker(v => !v)}
-            className="flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/10 hover:bg-white/20 transition-colors text-xs text-white/70"
-          >
-            {Object.entries(grouped).map(([emoji, { count, mine }]) => (
-              <span key={emoji} className={mine ? 'text-white' : ''}>
-                {emoji} {count}
-              </span>
-            ))}
-          </button>
-        )}
-
-        {!hasReactions && (
-          <button
-            onClick={() => setShowPicker(v => !v)}
-            className="text-white/30 hover:text-white/60 transition-colors text-xs px-1"
-            title="Add reaction"
-          >
-            😊
-          </button>
-        )}
-
-        {showPicker && (
-          <div className="absolute bottom-full right-0 mb-1 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-2 flex gap-1 z-50">
-            {REACTION_EMOJIS.map(emoji => {
-              const mine = grouped[emoji]?.mine
-              return (
-                <button
-                  key={emoji}
-                  onClick={() => toggleReaction(emoji)}
-                  className={`w-8 h-8 rounded-lg text-lg flex items-center justify-center transition-colors ${mine ? 'bg-brand/30' : 'hover:bg-gray-700'}`}
-                >
-                  {emoji}
-                </button>
-              )
-            })}
-          </div>
-        )}
-      </div>
 
       <button
         onClick={onDismiss}
@@ -280,11 +189,6 @@ export default function AnnouncementTicker({
     }
     return next
   })
-  const [reactionsById, setReactionsById] = useState<Record<string, Reaction[]>>(() => {
-    const out: Record<string, Reaction[]> = {}
-    for (const a of initialActive ?? []) out[a.id] = a.reactions ?? []
-    return out
-  })
   const [editing, setEditing] = useState<Announcement | null>(null)
 
   // Sync dismissed-state from localStorage whenever the active set changes
@@ -301,11 +205,7 @@ export default function AnnouncementTicker({
     fetch('/api/hub/announcements')
       .then(r => r.json())
       .then((d: { active?: Announcement[] }) => {
-        const list = d.active ?? []
-        setActive(list)
-        const r: Record<string, Reaction[]> = {}
-        for (const a of list) r[a.id] = a.reactions ?? []
-        setReactionsById(r)
+        setActive(d.active ?? [])
       })
       .catch(() => {})
   }, [])
@@ -322,13 +222,7 @@ export default function AnnouncementTicker({
           fetch('/api/hub/announcements')
             .then(r => r.json())
             .then((d: { active?: Announcement[] }) => {
-              const list = d.active ?? []
-              setActive(list)
-              setReactionsById(prev => {
-                const next: Record<string, Reaction[]> = {}
-                for (const a of list) next[a.id] = prev[a.id] ?? a.reactions ?? []
-                return next
-              })
+              setActive(d.active ?? [])
             })
             .catch(() => {})
         }
@@ -357,12 +251,9 @@ export default function AnnouncementTicker({
         <TickerBar
           key={a.id}
           announcement={a}
-          currentUserId={currentUserId}
           canEdit={!!isAdmin || a.created_by === currentUserId}
           onEdit={() => setEditing(a)}
           onDismiss={() => dismiss(a.id)}
-          reactions={reactionsById[a.id] ?? []}
-          onReactionsChange={next => setReactionsById(prev => ({ ...prev, [a.id]: next }))}
         />
       ))}
       {editing && (
