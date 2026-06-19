@@ -1,6 +1,7 @@
 'use client'
 
 import Link from 'next/link'
+import { useEffect, useRef } from 'react'
 import { useClockPunch, type ClockEmployee } from '@/hooks/use-clock-punch'
 
 export type HomeTimeClockInitial = {
@@ -34,6 +35,16 @@ export default function HomeTimeClockCard({ initial }: { initial: HomeTimeClockI
     retry,
     dismissWarning,
   } = useClockPunch({ initial, tickMs: 60000 })
+
+  // Tell the Home announcement gate the moment the worker clocks in, so unread
+  // announcements pop right after clocking in (not just on a fresh page load).
+  const prevClockedIn = useRef(initial.clocked_in)
+  useEffect(() => {
+    if (clockedIn && !prevClockedIn.current) {
+      window.dispatchEvent(new Event('lynxedo:clocked-in'))
+    }
+    prevClockedIn.current = clockedIn
+  }, [clockedIn])
 
   // GPS denied — replace the card with a focused warning + recovery actions
   if (gpsStatus === 'warning') {

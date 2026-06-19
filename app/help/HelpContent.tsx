@@ -646,6 +646,7 @@ function HubTab() {
           <li><strong className="text-white">🎉 Shout Outs (gold)</strong> — recognition for great work, customer compliments, milestones.</li>
         </ul>
         <p>Hit <strong className="text-white">✕</strong> to dismiss a ticker from your view — it stays hidden on that device until a new announcement of the same type is posted. Click the ticker text to open the full <strong className="text-white">Company News</strong> page where everything is sorted by Active / Archived / Expired.</p>
+        <Note>📢 <strong className="text-white">Read-first gate:</strong> once you clock in, any active <strong className="text-white">announcement</strong> you haven&apos;t acknowledged pops up on the Home screen and you tap <strong className="text-white">✓ Got it</strong> to continue. You only see each one once — it won&apos;t nag you again on later days unless a new announcement is posted. Shout outs never gate; this is announcements only.</Note>
         <AdminOnly>
           <p>Admins manage announcements from <strong className="text-white">/admin/hub → Announcements</strong>. Anyone with the <em>Can post Shout Outs</em> flag enabled can post shout outs from the same page. Posting a new active announcement automatically archives the previous one — only one of each type is live at a time.</p>
           <p><strong className="text-white">Edit</strong> — click Edit on the active announcement card to change the text (expiration is preserved). The ✎ pencil on the ticker itself also opens the same edit modal.</p>
