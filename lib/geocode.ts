@@ -58,10 +58,19 @@ export async function geocodeAddresses(addresses: string[]): Promise<(LatLng | n
 }
 
 /**
- * Geocodes a single-line address using the US Census Geocoder (no auth required).
- * Returns { lat, lng } or null if the address couldn't be matched.
+ * Geocode a single-line address. Tries the US Census geocoder first (free, no
+ * auth, good coverage for established addresses), then falls back to Mapbox —
+ * whose database covers the newer / exurban addresses the Census TIGER data
+ * lacks (e.g. fast-growing Houston exurbs like Tomball 77375). Returns
+ * { lat, lng } or null if neither can place it.
  */
 export async function geocodeAddress(address: string): Promise<LatLng | null> {
+  const census = await geocodeViaCensus(address)
+  if (census) return census
+  return geocodeViaMapbox(address)
+}
+
+async function geocodeViaCensus(address: string): Promise<LatLng | null> {
   try {
     const url =
       `https://geocoding.geo.census.gov/geocoder/locations/onelineaddress` +
@@ -76,6 +85,33 @@ export async function geocodeAddress(address: string): Promise<LatLng | null> {
 
     const { x, y } = matches[0].coordinates // x = lng, y = lat
     return { lat: Number(y), lng: Number(x) }
+  } catch {
+    return null
+  }
+}
+
+// Mapbox forward geocoding, restricted to address-level results. We only accept
+// a match that carries a house number (the `address` field) at high relevance —
+// so a vague or mistyped input can never snap a stop to a city/street centroid
+// (it stays "unmappable" instead, which the Route Optimizer surfaces for a fix).
+async function geocodeViaMapbox(address: string): Promise<LatLng | null> {
+  const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
+  if (!token) return null
+  try {
+    const url =
+      `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json` +
+      `?country=US&limit=1&types=address&access_token=${token}`
+    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    if (!res.ok) return null
+
+    const data = await res.json()
+    const f = data?.features?.[0]
+    if (!f) return null
+    // Precision guard: require a house number + a confident match.
+    if (!f.address || typeof f.relevance !== 'number' || f.relevance < 0.8) return null
+    const center = f.center // [lng, lat]
+    if (!Array.isArray(center) || typeof center[0] !== 'number' || typeof center[1] !== 'number') return null
+    return { lat: center[1], lng: center[0] }
   } catch {
     return null
   }
