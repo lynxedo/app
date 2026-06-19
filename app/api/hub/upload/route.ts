@@ -37,8 +37,15 @@ export async function POST(request: Request) {
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
     'text/plain', 'text/csv',
     'video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo', 'video/mpeg', 'video/ogg',
+    'application/vnd.android.package-archive', // Android APK (app install file)
   ])
-  if (!ALLOWED_TYPES.has(file.type)) {
+  // Browsers frequently report an empty or generic MIME for some files — most
+  // notably .apk, where the OS doesn't map the extension to a MIME type — so the
+  // MIME check alone would wrongly reject them. Fall back to an extension
+  // allowlist when the reported MIME isn't one we recognize.
+  const ext = (file.name.includes('.') ? file.name.split('.').pop()! : 'bin').toLowerCase()
+  const ALLOWED_EXT = new Set(['apk'])
+  if (!ALLOWED_TYPES.has(file.type) && !ALLOWED_EXT.has(ext)) {
     return NextResponse.json({ error: 'File type not allowed' }, { status: 400 })
   }
 
@@ -49,7 +56,6 @@ export async function POST(request: Request) {
     .single()
   if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
 
-  const ext = file.name.includes('.') ? file.name.split('.').pop() : 'bin'
   const key = `hub/${profile.company_id}/${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
 
   const buffer = Buffer.from(await file.arrayBuffer())
@@ -59,14 +65,16 @@ export async function POST(request: Request) {
     Bucket: process.env.CF_R2_BUCKET_NAME!,
     Key: key,
     Body: buffer,
-    ContentType: file.type || 'application/octet-stream',
+    // Use the real MIME when the browser provided one; otherwise infer apk so
+    // the phone recognizes the download as an installable package.
+    ContentType: file.type || (ext === 'apk' ? 'application/vnd.android.package-archive' : 'application/octet-stream'),
     ContentDisposition: `inline; filename="${encodeURIComponent(file.name)}"`,
   }))
 
   return NextResponse.json({
     storage_path: key,
     filename: file.name,
-    mime_type: file.type || 'application/octet-stream',
+    mime_type: file.type || (ext === 'apk' ? 'application/vnd.android.package-archive' : 'application/octet-stream'),
     size_bytes: file.size,
     width_px,
     height_px,
