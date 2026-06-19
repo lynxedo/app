@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import ContactModal, { type ContactForModal } from './ContactModal'
 import TemplatePicker, { filterTemplates, type PickerTemplate } from './TemplatePicker'
 import EmojiPicker from '@/components/hub/EmojiPicker'
+import MediaLightbox, { type LightboxItem } from '@/components/hub/MediaLightbox'
 import { createClient } from '@/lib/supabase/client'
 import { renderTemplate, DEFAULT_ON_MY_WAY_TEMPLATE } from '@/lib/txt-templates'
 import { CallMarker, VoicemailMarker, type TimelineCallEvent } from './TimelineMarkers'
@@ -73,6 +74,39 @@ type GroupContactRow = {
 function unwrap<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null
   return Array.isArray(value) ? value[0] || null : value
+}
+
+// Classify an MMS attachment by file extension. The inbound webhook stores R2
+// keys with an extension derived from Twilio's Content-Type (image/jpeg→.jpeg,
+// video/quicktime→.quicktime, video/mp4→.mp4, etc.), and outbound uploads keep
+// their original name, so extension is a reliable signal.
+function mediaKind(mu: string): 'image' | 'video' | 'pdf' | 'other' {
+  const u = mu.toLowerCase()
+  if (/\.(jpe?g|png|gif|webp|heic|heif|bmp)(?:[?#]|$)/.test(u)) return 'image'
+  if (/\.(mp4|mov|m4v|webm|3gp|3gpp|quicktime|avi|mpeg|mpg|ogg)(?:[?#]|$)/.test(u)) return 'video'
+  if (/\.pdf(?:[?#]|$)/.test(u)) return 'pdf'
+  return 'other'
+}
+
+// Map a Twilio delivery failure (stored raw in txt_messages.error_message —
+// usually just the numeric code) to a short plain-English reason, so staff can
+// tell a non-textable number from a transient/technical failure at a glance.
+// `hard` = the number/contact won't accept texts; `soft` = try again / technical.
+function friendlyDeliveryError(raw: string): { label: string; hard: boolean } {
+  const code = raw.trim()
+  switch (code) {
+    case '30006': return { label: '🚫 Landline — can’t receive texts', hard: true }
+    case '30005': return { label: '🚫 Number invalid or unreachable', hard: true }
+    case '30004': return { label: '🚫 Message blocked by the carrier', hard: true }
+    case '21610': return { label: '🚫 Contact opted out (texted STOP)', hard: true }
+    case '30003': return { label: '⚠ Phone unreachable (off / no signal) — may work later', hard: false }
+    case '30007': return { label: '⚠ Blocked by carrier filtering', hard: false }
+    case '30002': return { label: '⚠ Account issue — couldn’t send', hard: false }
+  }
+  if (/invalid .*phone number/i.test(code)) return { label: '🚫 Bad phone number', hard: true }
+  if (/not configured/i.test(code)) return { label: 'Not sent — texting not configured (staging)', hard: false }
+  if (/^\d{4,6}$/.test(code)) return { label: `Delivery failed (code ${code})`, hard: false }
+  return { label: code || 'Delivery failed', hard: false }
 }
 
 function formatPhone(phone: string) {
@@ -189,6 +223,10 @@ export default function TxtConversationView({
     { storage_path: string; filename: string; preview: string }[]
   >([])
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
+  // In-app media viewer (#3) — images + PDFs open here instead of a new browser
+  // tab (which returns null in the iOS Capacitor webview, so taps did nothing).
+  // Videos play inline in the bubble, mirroring Hub DMs/Rooms.
+  const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
@@ -391,6 +429,21 @@ export default function TxtConversationView({
     loadScheduled()
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Keep the cursor ready to type: focus the composer when a thread opens
+  // (desktop only — autofocusing on mobile would pop the keyboard over the
+  // thread) and again after each send completes. sendMessage can't focus
+  // synchronously because the textarea is disabled={sending} at that instant,
+  // so this refocuses once React re-enables it.
+  const wasSendingRef = useRef(false)
+  useEffect(() => {
+    if (wasSendingRef.current && !sending) textareaRef.current?.focus()
+    wasSendingRef.current = sending
+  }, [sending])
+  useEffect(() => {
+    const isMobile = typeof navigator !== 'undefined' && /Mobi|Android|iPhone/i.test(navigator.userAgent)
+    if (!isMobile) textareaRef.current?.focus()
+  }, [conversation.id])
 
   // On-My-Way: render the company template (or the default) with the contact's
   // first name, the sender, the company, and the chosen ETA, then drop it into
@@ -644,8 +697,11 @@ export default function TxtConversationView({
   // catch up on the 30s reconcile. The per-contact timeline query is tiny, so a
   // broadcast for any call in the company just re-fetches this contact cheaply.
   useEffect(() => {
+    // Call + voicemail markers now show for everyone who can open the thread
+    // (Ben's call, June 19) — not just Unified Inbox flag holders. Direct
+    // threads only; groups have no single contact and stay text-only (PRD §7.3).
     const contactId = conversation.contact?.id
-    if (!canAccessUnifiedInbox || isGroup || !contactId) {
+    if (isGroup || !contactId) {
       setCallEvents([])
       return
     }
@@ -677,7 +733,7 @@ export default function TxtConversationView({
       cancelled = true
       supabase.removeChannel(channel)
     }
-  }, [canAccessUnifiedInbox, isGroup, conversation.contact?.id, companyId])
+  }, [isGroup, conversation.contact?.id, companyId])
 
   async function addMember(userId: string) {
     setAddMemberOpen(false)
@@ -1419,8 +1475,8 @@ export default function TxtConversationView({
       <div className="flex-1 flex min-h-0">
         <div
           ref={scrollContainerRef}
-          style={{ visibility: feedReady ? 'visible' : 'hidden' }}
-          className="flex-1 overflow-y-auto px-4 py-4 space-y-2"
+          style={{ visibility: feedReady ? 'visible' : 'hidden', overscrollBehaviorX: 'none' }}
+          className="flex-1 overflow-y-auto overflow-x-hidden px-4 py-4 space-y-2"
         >
           {hasMoreOlder && (
             <div className="flex justify-center py-2">
@@ -1496,56 +1552,89 @@ export default function TxtConversationView({
                   {m.body && (
                     <div className="text-sm whitespace-pre-wrap break-words">{m.body}</div>
                   )}
-                  {m.media_urls?.length > 0 && (
-                    <div className={`grid gap-1 ${m.body ? 'mt-2' : ''} ${
-                      m.media_urls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
-                    }`}>
-                      {m.media_urls.map((mu, i) => {
-                        // mu can be a raw storage_path (current format from
-                        // /api/txt/upload + inbound webhook) or, rarely, an
-                        // already-fully-qualified URL.
-                        const src = /^https?:\/\//i.test(mu)
-                          ? mu
-                          : `/api/txt/media/${mu}`
-                        // Guess image-vs-other by extension; current upload
-                        // route only accepts images so this is almost always
-                        // an image, but inbound MMS could in theory carry
-                        // non-image types.
-                        const isImage = /\.(jpe?g|png|gif|webp)$/i.test(mu) ||
-                          /\.(jpe?g|png|gif|webp)(?:[?#]|$)/i.test(mu)
-                        if (isImage) {
+                  {m.media_urls?.length > 0 && (() => {
+                    // mu can be a raw storage_path (current format from
+                    // /api/txt/upload + inbound webhook) or, rarely, an
+                    // already-fully-qualified URL.
+                    const toSrc = (mu: string) =>
+                      /^https?:\/\//i.test(mu) ? mu : `/api/txt/media/${mu}`
+                    // Build the lightbox set (images + PDFs, in order) and map
+                    // each media index to its slide so a tap opens the right one.
+                    // Videos play inline and aren't part of the lightbox.
+                    const lbItems: LightboxItem[] = []
+                    const lbIndex: Record<number, number> = {}
+                    m.media_urls.forEach((mu, i) => {
+                      const k = mediaKind(mu)
+                      if (k === 'image' || k === 'pdf') {
+                        lbIndex[i] = lbItems.length
+                        lbItems.push({ type: k, src: toSrc(mu), filename: `attachment-${i + 1}`, downloadSrc: toSrc(mu) })
+                      }
+                    })
+                    return (
+                      <div className={`grid gap-1 ${m.body ? 'mt-2' : ''} ${
+                        m.media_urls.length === 1 ? 'grid-cols-1' : 'grid-cols-2'
+                      }`}>
+                        {m.media_urls.map((mu, i) => {
+                          const k = mediaKind(mu)
+                          const src = toSrc(mu)
+                          if (k === 'image') {
+                            return (
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => setLightbox({ items: lbItems, index: lbIndex[i] ?? 0 })}
+                                className="block rounded-md overflow-hidden bg-black/20 p-0 border-0"
+                                aria-label="Open image"
+                              >
+                                {/* eslint-disable-next-line @next/next/no-img-element */}
+                                <img
+                                  src={src}
+                                  alt="attachment"
+                                  loading="lazy"
+                                  className="w-full max-h-64 object-cover cursor-pointer"
+                                />
+                              </button>
+                            )
+                          }
+                          if (k === 'video') {
+                            return (
+                              <video
+                                key={i}
+                                src={src}
+                                controls
+                                preload="metadata"
+                                playsInline
+                                className="w-full max-h-64 rounded-md bg-black"
+                              />
+                            )
+                          }
+                          if (k === 'pdf') {
+                            return (
+                              <button
+                                key={i}
+                                type="button"
+                                onClick={() => setLightbox({ items: lbItems, index: lbIndex[i] ?? 0 })}
+                                className="text-xs underline text-white/80 hover:text-white text-left"
+                              >
+                                📄 attachment {i + 1}
+                              </button>
+                            )
+                          }
                           return (
                             <a
                               key={i}
                               href={src}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="block rounded-md overflow-hidden bg-black/20"
+                              className="text-xs underline text-white/80 hover:text-white"
                             >
-                              {/* eslint-disable-next-line @next/next/no-img-element */}
-                              <img
-                                src={src}
-                                alt="attachment"
-                                loading="lazy"
-                                className="w-full max-h-64 object-cover"
-                              />
+                              📎 attachment {i + 1}
                             </a>
                           )
-                        }
-                        return (
-                          <a
-                            key={i}
-                            href={src}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs underline text-white/80 hover:text-white"
-                          >
-                            📎 attachment {i + 1}
-                          </a>
-                        )
-                      })}
-                    </div>
-                  )}
+                        })}
+                      </div>
+                    )
+                  })()}
                   <div className="flex items-center gap-1.5 mt-1 text-[10px] text-white/60">
                     {senderLabel && (
                       <>
@@ -1561,9 +1650,17 @@ export default function TxtConversationView({
                       </>
                     )}
                   </div>
-                  {m.error_message && isOutbound && (
-                    <div className="text-[10px] text-red-300 mt-0.5">{m.error_message}</div>
-                  )}
+                  {m.error_message && isOutbound && (() => {
+                    const fe = friendlyDeliveryError(m.error_message)
+                    return (
+                      <div
+                        className={`text-[10px] mt-0.5 ${fe.hard ? 'text-red-300' : 'text-amber-300/90'}`}
+                        title={`Twilio: ${m.error_message}`}
+                      >
+                        {fe.label}
+                      </div>
+                    )
+                  })()}
                 </div>
               </div>
             )
@@ -2073,6 +2170,14 @@ export default function TxtConversationView({
             setConversation({ ...conversation, contact: updated })
             setEditContactOpen(false)
           }}
+        />
+      )}
+
+      {lightbox && (
+        <MediaLightbox
+          items={lightbox.items}
+          startIndex={lightbox.index}
+          onClose={() => setLightbox(null)}
         />
       )}
     </div>

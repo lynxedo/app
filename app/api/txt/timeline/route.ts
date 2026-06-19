@@ -48,11 +48,18 @@ export async function GET(request: Request) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, company_id, can_access_unified_inbox')
+    .select('role, company_id, can_access_unified_inbox, can_access_txt')
     .eq('id', user.id)
     .single()
 
-  const canRead = profile?.role === 'admin' || profile?.can_access_unified_inbox === true
+  // Anyone who can open a Txt2 thread can see that contact's call + voicemail
+  // history alongside the texts they already see (Ben's call, June 19) — the
+  // richer Unified Inbox surfaces (its own page, Catch-me-up) stay gated on
+  // can_access_unified_inbox in the UI.
+  const canRead =
+    profile?.role === 'admin' ||
+    profile?.can_access_unified_inbox === true ||
+    profile?.can_access_txt === true
   if (!canRead) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   if (!profile?.company_id) {
     return NextResponse.json({ error: 'No company' }, { status: 403 })

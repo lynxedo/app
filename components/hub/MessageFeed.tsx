@@ -1310,7 +1310,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
 
   return (
     <>
-      <div ref={scrollContainerRef} style={{ visibility: feedReady ? 'visible' : 'hidden' }} className="flex-1 overflow-y-auto w-full px-1 md:px-4 py-3 space-y-1">
+      <div ref={scrollContainerRef} style={{ visibility: feedReady ? 'visible' : 'hidden', overscrollBehaviorX: 'none' }} className="flex-1 overflow-y-auto overflow-x-hidden w-full px-1 md:px-4 py-3 space-y-1">
         {hasMoreOlder && <div ref={topSentinelRef} className="h-px w-full" aria-hidden />}
         {loadingOlder && (
           <div className="flex items-center justify-center py-3">
