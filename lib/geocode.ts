@@ -101,7 +101,13 @@ async function geocodeViaMapbox(address: string): Promise<LatLng | null> {
     const url =
       `https://api.mapbox.com/geocoding/v5/mapbox.places/${encodeURIComponent(address)}.json` +
       `?country=US&limit=1&types=address&access_token=${token}`
-    const res = await fetch(url, { signal: AbortSignal.timeout(8000) })
+    // The Mapbox token is URL/referrer-restricted to lynxedo.com, so a server-side
+    // call (no browser Referer) gets a 403 unless we send the app origin as the
+    // Referer. NEXT_PUBLIC_APP_URL is staging.lynxedo.com / lynxedo.com per env.
+    const res = await fetch(url, {
+      signal: AbortSignal.timeout(8000),
+      headers: { Referer: process.env.NEXT_PUBLIC_APP_URL || 'https://lynxedo.com' },
+    })
     if (!res.ok) return null
 
     const data = await res.json()
