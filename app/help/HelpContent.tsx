@@ -67,6 +67,7 @@ const TABS = [
   { id: 'forms',        icon: '📝', label: 'Forms' },
   { id: 'products',     icon: '📦', label: 'Products' },
   { id: 'service-builder', icon: '🧮', label: 'Service Builder' },
+  { id: 'service-mapping', icon: '🔗', label: 'Service Mapping' },
   { id: 'pricer',       icon: '🧾', label: 'Pricer' },
   { id: 'scoreboards',  icon: '🏆', label: 'Scoreboards' },
   { id: 'books',        icon: '📊', label: 'Books' },
@@ -101,6 +102,7 @@ const TAB_BODY: Record<TabId, () => ReactNode> = {
   'forms': FormsTab,
   'products': ProductsTab,
   'service-builder': ServiceBuilderTab,
+  'service-mapping': ServiceMappingTab,
   'pricer': PricerTab,
   'scoreboards': ScoreboardsTab,
   'books': BooksTab,
@@ -377,6 +379,7 @@ export default function HelpContent() {
             {activeTab === 'forms'      && <FormsTab />}
             {activeTab === 'products'    && <ProductsTab />}
             {activeTab === 'service-builder' && <ServiceBuilderTab />}
+            {activeTab === 'service-mapping' && <ServiceMappingTab />}
             {activeTab === 'pricer'      && <PricerTab />}
             {activeTab === 'scoreboards' && <ScoreboardsTab />}
             {activeTab === 'books'       && <BooksTab />}
@@ -1802,6 +1805,44 @@ function ServiceBuilderTab() {
         </Section>
         <Section title="Permissions">
           <p>Uses the same <strong className="text-white">Products</strong> grant as the Products catalog — full admins, or managers with the Products admin grant.</p>
+        </Section>
+      </AdminOnly>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// SERVICE MAPPING
+// ──────────────────────────────────────────────────────────────────────────
+
+function ServiceMappingTab() {
+  return (
+    <>
+      <Section title="What is Service Mapping?">
+        <p>Service Mapping connects the work you sell to the products you actually apply. It lives at <strong className="text-white">Admin → Service Mapping</strong> and has two tabs: the <strong className="text-white">Line-Item Map</strong> (which products a Jobber line item uses) and <strong className="text-white">Current Rounds</strong> (which round is active for each program). This is the layer the Route Capacity tool and the Pesticide record read from — so every job knows its products and rates.</p>
+      </Section>
+
+      <Section title="Line-Item Map">
+        <p>Map each Jobber line item to the product(s) it applies — <strong className="text-white">a line item can use several products</strong>, so add each one. To add a mapping, start typing the line item (the field suggests your real Jobber names with how often each is used) and pick a product, then <strong className="text-white">+ Add</strong>.</p>
+        <p className="mt-2">Each mapping row lets you set:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Rate + Unit</strong> — overrides the product&apos;s default rate for this line item (leave blank to use the product default).</li>
+          <li><strong className="text-white">Program</strong> — which program this belongs to.</li>
+          <li><strong className="text-white">Tank</strong> — the default tank (1–4); routes can override it.</li>
+          <li><strong className="text-white">Match</strong> — <em>contains</em> (the line item includes this text) or <em>exact</em>.</li>
+          <li><strong className="text-white">Notes</strong> and an <strong className="text-white">Active</strong> toggle.</li>
+        </ul>
+        <p className="mt-2">Changes save as you go. <strong className="text-white">Remove</strong> takes a product off a line item (soft delete — kept in the database).</p>
+      </Section>
+
+      <Section title="Current Rounds">
+        <p>Each program has a set of rounds, and one of them is the <strong className="text-white">active round</strong> — the products being applied right now. Click <strong className="text-white">Make current</strong> on a round to activate it; only one round per program can be active, so switching automatically clears the previous one. Click the active badge again to clear it.</p>
+        <p className="mt-2">Within a round you can edit the <strong className="text-white">products</strong> (add from the dropdown, remove with the × on each chip), rename the round, set an <strong className="text-white">effective date</strong>, add a new round, or delete one. Most programs were pre-loaded with their rounds — you mainly need to mark which one is current and adjust the products.</p>
+      </Section>
+
+      <AdminOnly>
+        <Section title="Permissions">
+          <p>Uses the same <strong className="text-white">Products</strong> grant as the Products catalog and the Service Builder — full admins, or managers with the Products admin grant.</p>
         </Section>
       </AdminOnly>
     </>
