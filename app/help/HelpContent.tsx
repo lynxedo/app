@@ -66,6 +66,7 @@ const TABS = [
   { id: 'marketing',    icon: '📣', label: 'Marketing' },
   { id: 'forms',        icon: '📝', label: 'Forms' },
   { id: 'products',     icon: '📦', label: 'Products' },
+  { id: 'service-builder', icon: '🧮', label: 'Service Builder' },
   { id: 'scoreboards',  icon: '🏆', label: 'Scoreboards' },
   { id: 'books',        icon: '📊', label: 'Books' },
   { id: 'timesheet',    icon: '🕐', label: 'Timesheet' },
@@ -98,6 +99,7 @@ const TAB_BODY: Record<TabId, () => ReactNode> = {
   'marketing': MarketingTab,
   'forms': FormsTab,
   'products': ProductsTab,
+  'service-builder': ServiceBuilderTab,
   'scoreboards': ScoreboardsTab,
   'books': BooksTab,
   'timesheet': TimesheetTab,
@@ -372,6 +374,7 @@ export default function HelpContent() {
             {activeTab === 'marketing'  && <MarketingTab />}
             {activeTab === 'forms'      && <FormsTab />}
             {activeTab === 'products'    && <ProductsTab />}
+            {activeTab === 'service-builder' && <ServiceBuilderTab />}
             {activeTab === 'scoreboards' && <ScoreboardsTab />}
             {activeTab === 'books'       && <BooksTab />}
             {activeTab === 'timesheet'  && <TimesheetTab />}
@@ -1745,6 +1748,57 @@ function ProductsTab() {
 
         <Section title="Permissions">
           <p>Controlled by the <strong className="text-white">Products</strong> grant in <strong className="text-white">Admin → People → Admin Access</strong> (for managers) — or any full admin. Off by default.</p>
+        </Section>
+      </AdminOnly>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// SERVICE BUILDER
+// ──────────────────────────────────────────────────────────────────────────
+
+function ServiceBuilderTab() {
+  return (
+    <>
+      <Section title="What is the Service Builder?">
+        <p>The Service Builder is your Round Creator spreadsheet, rebuilt as a live engine. You build a program out of <strong className="text-white">rounds</strong> (visits) and the products in each, set your visits, labor, and pricing, and instantly see <strong className="text-white">cost per round, annual cost, a price chart across lawn sizes, COGS, and gross-profit margin</strong>. When the numbers look right, you <strong className="text-white">publish</strong> the program&apos;s price chart — and the Pricer quotes from it. Edit once; everything recalculates.</p>
+        <p className="mt-2">It lives at <strong className="text-white">Admin → Service Builder</strong> and reads products straight from the <strong className="text-white">Products</strong> catalog — so a price change there flows through here with no re-typing.</p>
+      </Section>
+
+      <Section title="Programs &amp; versions">
+        <p>Use the dropdown at the top to pick a program. Each program can have several <strong className="text-white">versions</strong> — e.g. a <em>2026</em> version you&apos;re quoting from today and a <em>2027</em> version you&apos;re planning ahead. Every version has a status:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-amber-300">Draft</strong> — a work-in-progress. Never used by the Pricer, so you can tinker freely.</li>
+          <li><strong className="text-emerald-300">Published</strong> — live. The Pricer quotes from this. Set an <strong className="text-white">Effective from</strong> date to schedule a future version (e.g. publish 2027 pricing now, dated Jan 1 — it activates on its own).</li>
+          <li><strong className="text-gray-300">Archived</strong> — kept for history, out of the way.</li>
+        </ul>
+        <p className="mt-2"><strong className="text-white">+ New program</strong>, <strong className="text-white">Duplicate as version</strong>, <strong className="text-white">Rename</strong>, and <strong className="text-white">Delete</strong> (soft — kept in the database) are next to the dropdown.</p>
+      </Section>
+
+      <Section title="Rounds &amp; products">
+        <p>A program is a set of rounds. Add products to each round from the dropdown — each one shows its cost per 1,000 sq ft. The round&apos;s cost/K is the sum, and the program&apos;s <strong className="text-white">annual product cost/K</strong> is the sum of all rounds.</p>
+        <p className="mt-2"><strong className="text-white">↧ Seed from current composition</strong> fills the rounds from the program&apos;s saved round composition, so you don&apos;t start from a blank slate. (It matches on the program name.)</p>
+      </Section>
+
+      <Section title="Labor, COGS &amp; margin">
+        <p>Annual labor = (Size × Minutes-per-K ÷ 60) × $/hr × Visits. Minutes-per-K is <strong className="text-white">tiered</strong> — a small-lawn rate at or below your size threshold and a more efficient large-lawn rate above it (e.g. 2 min/K ≤ 15K, 1.5 min/K above). <strong className="text-white">COGS</strong> = annual product + annual labor; <strong className="text-white">GP margin</strong> = (annual price − COGS) ÷ annual price. <strong className="text-white">Per-treatment is always annual ÷ visits</strong>, computed — so the old ÷8-vs-÷12 spreadsheet bug can&apos;t happen here.</p>
+      </Section>
+
+      <Section title="Price chart, averages &amp; the target helper">
+        <p>The <strong className="text-white">price chart</strong> shows every metric across the lawn sizes you list. The <strong className="text-white">averages</strong> box shows whether margin holds as lawns scale across a size range. The <strong className="text-white">target-margin helper</strong> lets you enter a target GP% at a size and tells you the Price/K (or Base fee) to set to hit it.</p>
+      </Section>
+
+      <Section title="Per-gallon products">
+        <p>Products priced <em>per gallon</em> (the DRF spray-mix chemicals) use your tank ratio — gallons of mix per 1,000 sq ft (default 2) — to work out their cost per 1,000 sq ft. The <strong className="text-white">Tank gal / K</strong> field on each program lets you adjust that ratio. Products that aren&apos;t expressible per 1,000 sq ft (e.g. per-tree trunk drenches) show <em>n/a</em> and aren&apos;t counted in the round cost.</p>
+      </Section>
+
+      <AdminOnly>
+        <Section title="Publishing">
+          <p>When a version&apos;s margins look right, click <strong className="text-emerald-300">Publish</strong>. That marks it live and snapshots its margins for the record. The Pricer (and any customer-facing quote) reads the published version. Editing a published version updates the live numbers — so for big changes, duplicate to a new draft version first, then publish when ready.</p>
+        </Section>
+        <Section title="Permissions">
+          <p>Uses the same <strong className="text-white">Products</strong> grant as the Products catalog — full admins, or managers with the Products admin grant.</p>
         </Section>
       </AdminOnly>
     </>
