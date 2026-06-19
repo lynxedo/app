@@ -212,6 +212,62 @@ export async function enrichTxtContactName(
   }
 }
 
+// Find — or create — the txt_contacts row for a phone number, returning its id.
+// This is the contact "spine" the Unified Inbox keys on, so the inbound VOICE
+// path can link a calls row to a contact the same way the inbound SMS path does
+// (previously the voice path only *looked up* an existing contact, leaving
+// contact_id NULL for first-time callers). Normalizes to E.164, then:
+//   - existing row → return it (enrich a placeholder name in the background)
+//   - none → create with the E.164 as a placeholder name and enrich async, so
+//     the hot voice-webhook path isn't blocked on the Jobber-mirror lookup.
+// Race-safe against the txt_contacts (company_id, phone) unique constraint.
+// Never throws — returns null only when the number can't be normalized.
+export async function findOrCreateTxtContact(
+  companyId: string,
+  phoneRaw: string,
+): Promise<string | null> {
+  const e164 = toE164(phoneRaw)
+  if (!e164) return null
+  try {
+    const admin = createAdminClient()
+    const { data: existing } = await admin
+      .from('txt_contacts')
+      .select('id, name')
+      .eq('company_id', companyId)
+      .eq('phone', e164)
+      .maybeSingle()
+    if (existing) {
+      if (existing.name === e164) void enrichTxtContactName(companyId, e164)
+      return existing.id
+    }
+    // ignoreDuplicates so a concurrent create (e.g. a near-simultaneous inbound
+    // SMS) never clobbers a real name back to the placeholder — on conflict the
+    // insert is skipped and we re-select the winner below.
+    const { data: created } = await admin
+      .from('txt_contacts')
+      .upsert(
+        { company_id: companyId, phone: e164, name: e164 },
+        { onConflict: 'company_id,phone', ignoreDuplicates: true },
+      )
+      .select('id')
+      .maybeSingle()
+    if (created?.id) {
+      void enrichTxtContactName(companyId, e164)
+      return created.id
+    }
+    const { data: again } = await admin
+      .from('txt_contacts')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('phone', e164)
+      .maybeSingle()
+    return again?.id ?? null
+  } catch (err) {
+    console.warn('[dialer-lookup] findOrCreateTxtContact failed', phoneRaw, err)
+    return null
+  }
+}
+
 export async function lookupByPhone(
   phoneRaw: string,
   companyId?: string | null,
