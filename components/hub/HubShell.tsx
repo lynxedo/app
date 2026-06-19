@@ -80,6 +80,7 @@ export default function HubShell({
   canAccessScoreboards,
   canAccessFiles,
   canAccessPesticideRecords,
+  canAccessPricer,
   canAccessHub,
   scoreboardSlugs,
   companyId,
@@ -140,6 +141,7 @@ export default function HubShell({
   canAccessScoreboards?: boolean
   canAccessFiles?: boolean
   canAccessPesticideRecords?: boolean
+  canAccessPricer?: boolean
   canAccessHub?: boolean
   scoreboardSlugs?: string[]
   companyId?: string
@@ -710,6 +712,7 @@ export default function HubShell({
     canAccessScoreboards: !!canAccessScoreboards,
     canAccessFiles: !!canAccessFiles,
     canAccessPesticideRecords: !!canAccessPesticideRecords,
+    canAccessPricer: !!canAccessPricer,
     canAccessHub: !!canAccessHub,
   }
 
@@ -759,6 +762,7 @@ export default function HubShell({
             canAdminMarketing={!!canAdminMarketing}
             canAccessForms={!!canAccessForms}
             canAccessScoreboards={!!canAccessScoreboards}
+            canAccessPricer={!!canAccessPricer}
             onClose={closeMobileDrawer}
             {...collapseProps}
           />

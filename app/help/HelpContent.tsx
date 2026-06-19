@@ -67,6 +67,7 @@ const TABS = [
   { id: 'forms',        icon: '📝', label: 'Forms' },
   { id: 'products',     icon: '📦', label: 'Products' },
   { id: 'service-builder', icon: '🧮', label: 'Service Builder' },
+  { id: 'pricer',       icon: '🧾', label: 'Pricer' },
   { id: 'scoreboards',  icon: '🏆', label: 'Scoreboards' },
   { id: 'books',        icon: '📊', label: 'Books' },
   { id: 'timesheet',    icon: '🕐', label: 'Timesheet' },
@@ -100,6 +101,7 @@ const TAB_BODY: Record<TabId, () => ReactNode> = {
   'forms': FormsTab,
   'products': ProductsTab,
   'service-builder': ServiceBuilderTab,
+  'pricer': PricerTab,
   'scoreboards': ScoreboardsTab,
   'books': BooksTab,
   'timesheet': TimesheetTab,
@@ -375,6 +377,7 @@ export default function HelpContent() {
             {activeTab === 'forms'      && <FormsTab />}
             {activeTab === 'products'    && <ProductsTab />}
             {activeTab === 'service-builder' && <ServiceBuilderTab />}
+            {activeTab === 'pricer'      && <PricerTab />}
             {activeTab === 'scoreboards' && <ScoreboardsTab />}
             {activeTab === 'books'       && <BooksTab />}
             {activeTab === 'timesheet'  && <TimesheetTab />}
@@ -1799,6 +1802,49 @@ function ServiceBuilderTab() {
         </Section>
         <Section title="Permissions">
           <p>Uses the same <strong className="text-white">Products</strong> grant as the Products catalog — full admins, or managers with the Products admin grant.</p>
+        </Section>
+      </AdminOnly>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// PRICER
+// ──────────────────────────────────────────────────────────────────────────
+
+function PricerTab() {
+  return (
+    <>
+      <Section title="What is the Pricer?">
+        <p>The Pricer is a fast quoting tool for the office and sales team. Enter a customer&apos;s <strong className="text-white">lawn size</strong> and it instantly prices every program — per visit and annual — plus the add-ons. It lives at <strong className="text-white">Pricer</strong> in your app menu (under Tools → Sales).</p>
+        <p className="mt-2">All the numbers come <strong className="text-white">live from the Service Builder</strong> — whatever an admin has published is what you quote. When pricing changes, it&apos;s published once in the Builder and the Pricer updates automatically. There&apos;s nothing to edit here.</p>
+      </Section>
+
+      <Section title="Quoting a customer">
+        <p>Type the lawn size in <strong className="text-white">thousands of square feet</strong> at the top (e.g. <em>10</em> = 10,000 sq ft; minimum 3K). Every program card recalculates as you type:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Annual programs</strong> show the <em>per-visit</em> price and the <em>annual</em> total.</li>
+          <li><strong className="text-white">One-time &amp; seasonal services</strong> show a single one-time price.</li>
+        </ul>
+        <p className="mt-2">Coming from the <strong className="text-white">Lawn Sizer</strong>? It can hand the measured size straight in, so the quote is ready the moment the page opens.</p>
+      </Section>
+
+      <Section title="Add-ons">
+        <p>Three add-ons price off their own inputs rather than lawn size:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Moisture Manager</strong> — priced from lawn size; always shown.</li>
+          <li><strong className="text-white">Bed Weed Control</strong> — enter the <em>bed area</em> (in thousands) to see pricing.</li>
+          <li><strong className="text-white">Plant Health Care</strong> — pick a <em>difficulty tier</em> (based on landscape complexity, not size).</li>
+        </ul>
+        <p className="mt-2">Each add-on shows its annual total plus the per-visit cost on an 8-visit and a 12-visit plan, so you can fold it into whichever program the customer chooses.</p>
+      </Section>
+
+      <AdminOnly>
+        <Section title="Where the numbers come from">
+          <p>The Pricer reads the <strong className="text-white">published</strong> price chart for each program — specifically the live version whose effective date is on or before today. Drafts never appear, and a future-dated version waits until its date. To change what the team quotes, edit and publish in the <strong className="text-white">Service Builder</strong>.</p>
+        </Section>
+        <Section title="Permissions">
+          <p>Grant <strong className="text-white">Pricer</strong> per person in <strong className="text-white">Admin → People</strong>. Admins always have access. It&apos;s a read-only quoting view — no one can change pricing from here.</p>
         </Section>
       </AdminOnly>
     </>

@@ -32,6 +32,7 @@ export type CatalogId =
   | 'forms'
   | 'reports'
   | 'scoreboards'
+  | 'pricer'        // staff quoting tool, gated by canAccessPricer
   | 'people'        // admin-only (Admin → People)
   | 'guardian'      // admin-only (Admin → Guardian)
   | 'products'      // admin-only (Admin → Products)
@@ -69,6 +70,7 @@ export type RailPermissions = {
   canAccessScoreboards: boolean
   canAccessFiles: boolean
   canAccessPesticideRecords: boolean
+  canAccessPricer: boolean
   canAccessHub: boolean
 }
 
@@ -140,6 +142,8 @@ const PATHS = {
   announcements: 'M3 9v6h4l5 4V5L7 9H3zM15.5 9a4 4 0 010 6M17.5 7a7 7 0 010 10',
   // File Tags — a luggage-style tag with its hole.
   fileTags: 'M9.568 3H5.25A2.25 2.25 0 003 5.25v4.318c0 .597.237 1.17.659 1.591l9.581 9.581c.699.699 1.78.872 2.607.33a18.095 18.095 0 005.223-5.223c.542-.827.369-1.908-.33-2.607L11.16 3.66A2.25 2.25 0 009.568 3zM6.5 6.5h.01',
+  // Pricer (staff quoting tool) — a calculator with a result row + keypad dots.
+  pricer: 'M6 3h12a1 1 0 011 1v16a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1zM8 7h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01',
 }
 
 // Reusable icon factory (also used by the Tools sidebar and Hub sidebar
@@ -173,6 +177,7 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
     case 'forms':         return <I d={PATHS.forms} />
     case 'reports':       return <I d={PATHS.reports} />
     case 'scoreboards':   return <I d={PATHS.scoreboards} />
+    case 'pricer':        return <I d={PATHS.pricer} />
     case 'people':        return <I d={PATHS.people} />
     case 'guardian':      return <I d={PATHS.guardian} />
     case 'products':      return <I d={PATHS.products} />
@@ -245,6 +250,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'forms',     label: 'Forms',     href: '/hub/forms', prefixMatch: true, pickable: true, requires: 'canAccessForms' },
   { id: 'reports',   label: 'Reports',   href: '/hub/reports', prefixMatch: true, pickable: true, requires: 'isAdmin' },
   { id: 'scoreboards', label: 'Scoreboards', href: '/hub/scoreboards', prefixMatch: true, pickable: true, requires: 'canAccessScoreboards' },
+  { id: 'pricer',      label: 'Pricer',      href: '/hub/pricer', prefixMatch: true, pickable: true, requires: 'canAccessPricer' },
 ]
 
 export function catalogEntriesFor(perms: RailPermissions): CatalogEntry[] {

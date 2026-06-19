@@ -61,6 +61,7 @@ export default function ToolsSidebar({
   canAdminMarketing,
   canAccessForms,
   canAccessScoreboards,
+  canAccessPricer,
   onClose,
   onDesktopCollapse,
 }: {
@@ -79,6 +80,7 @@ export default function ToolsSidebar({
   canAdminMarketing: boolean
   canAccessForms?: boolean
   canAccessScoreboards?: boolean
+  canAccessPricer?: boolean
   onClose?: () => void
   onDesktopCollapse?: () => void
 }) {
@@ -93,7 +95,7 @@ export default function ToolsSidebar({
   const toggle = (k: string) => setOpen(p => ({ ...p, [k]: !p[k] }))
 
   const hasOperations = canAccessRouting || canAccessFleet || canAccessTimesheet || canAccessForms || canAccessScoreboards || isAdmin
-  const hasSales = canAccessTracker || canAccessLawn || canAccessZoneSizer
+  const hasSales = canAccessTracker || canAccessLawn || canAccessZoneSizer || canAccessPricer
   const hasComms = true // Contacts is always shown under Communications; Dialer + Call Log gated below
   const hasFinance = canAccessBooks
 
@@ -127,6 +129,7 @@ export default function ToolsSidebar({
           {open.sales && (
             <>
               {canAccessTracker && <ToolRow href="/hub/tracker" iconId="tracker" label="Tracker" prefixMatch onClose={onClose} />}
+              {canAccessPricer && <ToolRow href="/hub/pricer" iconId="pricer" label="Pricer" prefixMatch onClose={onClose} />}
               {canAccessLawn && <ToolRow href="/hub/lawn" iconId="lawn" label="Lawn Sizer" onClose={onClose} />}
               {canAccessZoneSizer && <ToolRow href="/hub/zone-sizer" iconId="zone-sizer" label="Zone Sizer" onClose={onClose} />}
             </>
