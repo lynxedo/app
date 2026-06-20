@@ -5,6 +5,7 @@ import AdvancedRouteMap, { type AdvPin } from '@/components/AdvancedRouteMap'
 import { openUrlWithFallback } from '@/lib/open-url'
 import { buildAdvancedRouteSheetHtml, type RouteSheetStop } from '@/lib/advanced-route-sheet'
 import { resolvePinColors, DEFAULT_PIN_COLOR, MAX_HALO_ARCS, EMPTY_PIN_SETTINGS, type PinSettings } from '@/lib/pin-colors'
+import { computeRouteLoadout, fmtQty, type CapacityData, type RouteStopInput } from '@/lib/route-capacity'
 
 interface JobberUser { id: string; name: string }
 
@@ -281,6 +282,57 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
   const [batchTechId, setBatchTechId] = useState<string>('')
   const [batchLabel, setBatchLabel] = useState('')
   const [creatingBatch, setCreatingBatch] = useState(false)
+
+  // ── Tank loadout (Route Capacity Part C) ──────────────────────────────────
+  const [capacityData, setCapacityData] = useState<CapacityData | null>(null)
+  const [tankOverrides, setTankOverrides] = useState<Map<string, number>>(new Map())
+  const [loadoutOpen, setLoadoutOpen] = useState(true)
+  // A stable handle for "the run on screen" so per-route/day tank choices persist.
+  const routeKey = useMemo(() => `adv:${[...selectedUserIds].sort().join('+') || 'all'}`, [selectedUserIds])
+
+  // Load the tanks + product mappings once (read-only; the calc is client-side).
+  useEffect(() => {
+    fetch('/api/hub/routing/capacity-data')
+      .then(r => r.json())
+      .then(d => { if (d && Array.isArray(d.tanks)) setCapacityData({ tanks: d.tanks, serviceProducts: d.serviceProducts ?? [], products: d.products ?? [] }) })
+      .catch(() => {})
+  }, [])
+
+  // Pull any saved tank overrides for this run/day when a route is optimized.
+  useEffect(() => {
+    if (!optimized || optimized.length === 0) return
+    fetch(`/api/hub/routing/tank-assignments?route_code=${encodeURIComponent(routeKey)}&run_date=${encodeURIComponent(startDate)}`)
+      .then(r => r.json())
+      .then(d => {
+        const m = new Map<string, number>()
+        if (d && d.assignments) for (const [pid, tn] of Object.entries(d.assignments)) m.set(pid, Number(tn))
+        setTankOverrides(m)
+      })
+      .catch(() => {})
+  }, [optimized, routeKey, startDate])
+
+  const loadout = useMemo(() => {
+    if (!optimized || optimized.length === 0 || !capacityData) return null
+    const stops: RouteStopInput[] = optimized.map(v => ({
+      id: v.id, clientName: v.clientName, jobTitle: v.jobTitle, lineItemNames: v.lineItemNames ?? [],
+    }))
+    return computeRouteLoadout(stops, capacityData, tankOverrides)
+  }, [optimized, capacityData, tankOverrides])
+
+  // Move a product to a different tank for this run/day (Part B).
+  const setProductTank = async (productId: string, tank: number | null) => {
+    setTankOverrides(prev => {
+      const m = new Map(prev)
+      if (tank == null) m.delete(productId); else m.set(productId, tank)
+      return m
+    })
+    try {
+      await fetch('/api/hub/routing/tank-assignments', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ route_code: routeKey, run_date: startDate, product_id: productId, tank_number: tank }),
+      })
+    } catch { /* override stays applied locally even if the save fails */ }
+  }
 
   const initedTechRef = useRef(false)
 
@@ -1277,6 +1329,110 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
               )
             })}
           </ol>
+
+          {/* Tank loadout (Route Capacity Part C) */}
+          {loadout && (
+            <div className="mt-4 pt-3 border-t border-gray-800">
+              <button
+                onClick={() => setLoadoutOpen(o => !o)}
+                className="w-full flex items-center justify-between gap-3 text-left"
+              >
+                <span className="font-semibold text-sm flex items-center gap-2">
+                  <span>{loadoutOpen ? '▾' : '▸'}</span> 🧪 Tank loadout
+                </span>
+                <span className="text-xs text-gray-400">
+                  {(loadout.totalSqft).toLocaleString()} sq ft
+                  {loadout.stopsMissingSize.length > 0 && (
+                    <span className="text-amber-400"> · {loadout.stopsMissingSize.length} stop{loadout.stopsMissingSize.length !== 1 ? 's' : ''} missing size</span>
+                  )}
+                </span>
+              </button>
+
+              {loadoutOpen && (
+                <div className="mt-3 space-y-4">
+                  {!loadout.hasMappings ? (
+                    <div className="bg-gray-800/40 border border-gray-700 rounded-lg p-3 text-xs text-gray-400">
+                      No product mappings yet. Map your Jobber line items to products in{' '}
+                      <a href="/hub/admin/service-mapping" className="text-orange-400 hover:underline">Admin → Service Mapping</a>{' '}
+                      and the loadout (product amounts + tank fill) will appear here automatically.
+                    </div>
+                  ) : (
+                    <>
+                      {/* Tank fill bars */}
+                      {loadout.tanks.length > 0 && (
+                        <div className="space-y-2">
+                          {loadout.tanks.map(t => {
+                            const pct = t.fillPct == null ? null : Math.round(t.fillPct * 100)
+                            const barPct = t.fillPct == null ? 0 : Math.min(t.fillPct, 1) * 100
+                            return (
+                              <div key={t.tank_number}>
+                                <div className="flex items-center justify-between text-xs mb-1">
+                                  <span className="text-gray-300">{t.label || `Tank ${t.tank_number}`}</span>
+                                  <span className={t.overflow ? 'text-red-400 font-medium' : 'text-gray-400'}>
+                                    {pct == null
+                                      ? 'set a capacity in Admin → Routing'
+                                      : <>{pct}% · {Math.round(t.loadedSqft).toLocaleString()} / {Math.round(t.sprayableSqft ?? 0).toLocaleString()} sq ft{t.overflow ? ' · ⚠ needs a refill' : ''}</>}
+                                  </span>
+                                </div>
+                                <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+                                  <div className={`h-full ${t.overflow ? 'bg-red-500' : barPct > 80 ? 'bg-amber-500' : 'bg-green-600'}`} style={{ width: `${barPct}%` }} />
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      )}
+
+                      {/* Per-product amounts + tank override */}
+                      {loadout.products.length > 0 ? (
+                        <div className="overflow-x-auto">
+                          <table className="w-full text-xs">
+                            <thead>
+                              <tr className="text-gray-500 text-left border-b border-gray-800">
+                                <th className="py-1 pr-2 font-medium">Product</th>
+                                <th className="py-1 px-2 font-medium text-right">Amount</th>
+                                <th className="py-1 pl-2 font-medium">Tank</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {loadout.products.map(p => (
+                                <tr key={p.product_id} className="border-b border-gray-800/50">
+                                  <td className="py-1.5 pr-2 text-white">{p.name}</td>
+                                  <td className="py-1.5 px-2 text-right text-gray-300 whitespace-nowrap">{fmtQty(p.quantity)} {p.unit}</td>
+                                  <td className="py-1.5 pl-2">
+                                    <select
+                                      value={tankOverrides.get(p.product_id) ?? p.tank ?? ''}
+                                      onChange={e => setProductTank(p.product_id, e.target.value === '' ? null : Number(e.target.value))}
+                                      className="bg-gray-950 border border-gray-800 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-orange-500"
+                                    >
+                                      <option value="">— none —</option>
+                                      {(capacityData?.tanks.filter(t => t.is_active).map(t => t.tank_number) ?? [1, 2, 3, 4]).map(n => (
+                                        <option key={n} value={n}>Tank {n}</option>
+                                      ))}
+                                    </select>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      ) : (
+                        <p className="text-xs text-gray-500">No products matched these stops&apos; line items.</p>
+                      )}
+
+                      {loadout.unmappedLineItems.length > 0 && (
+                        <p className="text-[11px] text-gray-500">
+                          <span className="text-amber-400">Unmapped:</span> {loadout.unmappedLineItems.slice(0, 8).join(', ')}
+                          {loadout.unmappedLineItems.length > 8 ? `, +${loadout.unmappedLineItems.length - 8} more` : ''} — these line items have no product mapping yet.
+                        </p>
+                      )}
+                    </>
+                  )}
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="mt-4 flex items-center justify-between flex-wrap gap-3 pt-3 border-t border-gray-800">
             <p className="text-xs text-gray-500 max-w-md">
               Park this route in the holding area to assign it a day + tech. It leaves the map and list so you can keep building other days; send it to Jobber / Daily Log later.

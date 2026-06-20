@@ -26,6 +26,15 @@ interface JobberUser {
   name: string
 }
 
+interface TankRow {
+  id: string
+  tank_number: number
+  label: string | null
+  gallon_capacity: number | null
+  application_rate: number
+  is_active: boolean
+}
+
 interface Props {
   initial: Settings
   jobberConnected: boolean
@@ -80,12 +89,67 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
   const [pinSave, setPinSave] = useState<SaveState>('idle')
   const [pinErr, setPinErr] = useState<string | null>(null)
 
+  // ── Tanks (Route Capacity Part A) ─────────────────────────────────────────
+  const [tanks, setTanks] = useState<TankRow[]>([])
+  const [tanksErr, setTanksErr] = useState<string | null>(null)
+  const [tanksBusy, setTanksBusy] = useState(false)
+
   useEffect(() => {
     fetch('/api/routing/pin-settings')
       .then(r => r.json())
       .then(d => { if (d.pin_settings) setPinSettings(d.pin_settings) })
       .catch(() => {})
   }, [])
+
+  useEffect(() => {
+    fetch('/api/admin/tanks')
+      .then(r => r.json())
+      .then(d => { if (Array.isArray(d.tanks)) setTanks(d.tanks) })
+      .catch(() => {})
+  }, [])
+
+  const sprayableSqft = (t: TankRow): number | null =>
+    t.gallon_capacity != null && t.application_rate ? (t.gallon_capacity / t.application_rate) * 1000 : null
+
+  const addTank = async () => {
+    setTanksErr(null); setTanksBusy(true)
+    const used = new Set(tanks.map(t => t.tank_number))
+    const next = [1, 2, 3, 4].find(n => !used.has(n))
+    if (!next) { setTanksErr('All 4 tanks are configured.'); setTanksBusy(false); return }
+    try {
+      const res = await fetch('/api/admin/tanks', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tank_number: next, label: `Tank ${next}`, gallon_capacity: null, application_rate: 2 }),
+      })
+      const d = await res.json()
+      if (!res.ok) { setTanksErr(d.error || 'Could not add tank'); return }
+      setTanks(prev => [...prev, d.tank].sort((a, b) => a.tank_number - b.tank_number))
+    } catch { setTanksErr('Could not add tank') } finally { setTanksBusy(false) }
+  }
+
+  const updateTankLocal = (id: string, patch: Partial<TankRow>) =>
+    setTanks(prev => prev.map(t => (t.id === id ? { ...t, ...patch } : t)))
+
+  const saveTank = async (id: string, patch: Partial<TankRow>) => {
+    setTanksErr(null)
+    try {
+      const res = await fetch(`/api/admin/tanks/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(patch),
+      })
+      const d = await res.json()
+      if (!res.ok) { setTanksErr(d.error || 'Could not save tank'); return }
+      setTanks(prev => prev.map(t => (t.id === id ? d.tank : t)).sort((a, b) => a.tank_number - b.tank_number))
+    } catch { setTanksErr('Could not save tank') }
+  }
+
+  const deleteTank = async (id: string) => {
+    setTanksErr(null)
+    try {
+      const res = await fetch(`/api/admin/tanks/${id}`, { method: 'DELETE' })
+      if (!res.ok) { const d = await res.json().catch(() => ({})); setTanksErr(d.error || 'Could not delete tank'); return }
+      setTanks(prev => prev.filter(t => t.id !== id))
+    } catch { setTanksErr('Could not delete tank') }
+  }
 
   const refreshPinLineItems = async () => {
     setPinLoadingItems(true)
@@ -663,6 +727,97 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
           {depotErr && <p className="text-red-400 text-sm">{depotErr}</p>}
           {saveBtn('Save', depotSave, saveDepot)}
         </div>
+      </section>
+
+      {/* Tanks (Route Capacity Part A) */}
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <div className="flex items-center justify-between gap-3 mb-1">
+          <h2 className="font-semibold text-lg">Tanks</h2>
+          <button
+            onClick={addTank}
+            disabled={tanksBusy || tanks.length >= 4}
+            className="px-3 py-1.5 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+          >
+            + Add tank
+          </button>
+        </div>
+        <p className="text-gray-400 text-sm mb-5">
+          Up to 4 mixed tanks. The mix rate (gallons per 1,000 sq ft) sets how much area a full tank can spray —
+          shown live below. Advanced Routing uses these to calculate how full each tank gets per route.
+        </p>
+        {tanksErr && <p className="text-red-400 text-sm mb-3">{tanksErr}</p>}
+        {tanks.length === 0 ? (
+          <p className="text-gray-500 text-sm">No tanks yet. Add one to get started.</p>
+        ) : (
+          <div className="space-y-3">
+            {tanks.map(t => {
+              const cov = sprayableSqft(t)
+              return (
+                <div key={t.id} className={`border rounded-xl p-4 ${t.is_active ? 'border-gray-800' : 'border-gray-800/50 opacity-60'}`}>
+                  <div className="grid grid-cols-2 md:grid-cols-5 gap-3 items-end">
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1.5">Tank #</label>
+                      <select
+                        value={t.tank_number}
+                        onChange={e => { const v = Number(e.target.value); updateTankLocal(t.id, { tank_number: v }); saveTank(t.id, { tank_number: v }) }}
+                        className={inputCls}
+                      >
+                        {[1, 2, 3, 4].map(n => <option key={n} value={n}>{n}</option>)}
+                      </select>
+                    </div>
+                    <div className="col-span-1 md:col-span-2">
+                      <label className="block text-xs text-gray-400 mb-1.5">Label</label>
+                      <input
+                        value={t.label ?? ''}
+                        onChange={e => updateTankLocal(t.id, { label: e.target.value })}
+                        onBlur={e => saveTank(t.id, { label: e.target.value })}
+                        placeholder={`Tank ${t.tank_number}`}
+                        className={inputCls}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1.5">Capacity (gal)</label>
+                      <input
+                        type="number" min={0} step="any"
+                        value={t.gallon_capacity ?? ''}
+                        onChange={e => updateTankLocal(t.id, { gallon_capacity: e.target.value === '' ? null : Number(e.target.value) })}
+                        onBlur={e => saveTank(t.id, { gallon_capacity: e.target.value === '' ? null : Number(e.target.value) })}
+                        className={inputCls}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-gray-400 mb-1.5">Mix rate (gal/1k)</label>
+                      <input
+                        type="number" min={0} step="any"
+                        value={t.application_rate}
+                        onChange={e => updateTankLocal(t.id, { application_rate: Number(e.target.value) })}
+                        onBlur={e => saveTank(t.id, { application_rate: Number(e.target.value) })}
+                        className={inputCls}
+                      />
+                    </div>
+                  </div>
+                  <div className="flex items-center justify-between gap-3 mt-3">
+                    <p className="text-xs text-gray-400">
+                      {cov != null
+                        ? <>Covers <span className="text-green-400 font-medium">~{Math.round(cov).toLocaleString()} sq ft</span> per full tank</>
+                        : <span className="text-gray-500">Enter a capacity to see coverage</span>}
+                    </p>
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1.5 text-xs text-gray-400 cursor-pointer">
+                        <input
+                          type="checkbox" checked={t.is_active}
+                          onChange={e => { updateTankLocal(t.id, { is_active: e.target.checked }); saveTank(t.id, { is_active: e.target.checked }) }}
+                        />
+                        Active
+                      </label>
+                      <button onClick={() => deleteTank(t.id)} className="text-xs text-red-400 hover:text-red-300">Delete</button>
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+        )}
       </section>
     </div>
   )

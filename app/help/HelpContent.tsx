@@ -942,6 +942,16 @@ function RoutingTab() {
         <p><strong className="text-white">Holding area:</strong> park an optimized selection for a specific day + tech with <strong className="text-white">Send to Holding</strong>. Those stops leave the map/list so you can keep building other days. From the holding area you can view the route sheet or send each batch to Jobber / Daily Log. <strong className="text-white">A batch automatically clears from holding once you send it to Jobber</strong> (Send Order Only / Send with Times) — no need to delete it afterward. Daily Log sends keep the batch so you can still send it to Jobber too; use <strong className="text-white">Delete</strong> to remove a batch manually (its stops return to the map).</p>
       </Section>
 
+      <Section title="Tank loadout (Advanced)">
+        <p>Once you optimize a selection, a <strong className="text-white">🧪 Tank loadout</strong> panel appears under the stop list. It reads each stop&apos;s lawn size (from the &ldquo;K&rdquo; in the job title, e.g. <em>RC1 25K</em> = 25,000 sq ft) and the products mapped to those line items, and shows you, before the day runs:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">How much of each product to mix</strong> — totalled across every stop on the route, in the product&apos;s own unit.</li>
+          <li><strong className="text-white">Tank fill bars</strong> — how full each tank gets (route sq ft ÷ what a full tank can spray). A bar turns <span className="text-red-400">red</span> with a <strong className="text-white">⚠ needs a refill</strong> note when the route is bigger than the tank can cover in one fill.</li>
+          <li><strong className="text-white">Which tank each product goes in</strong> — change the tank from the dropdown next to a product to move it for this run/day (e.g. &ldquo;today Root Rot goes in Tank 1&rdquo;). Your choice is remembered for that route and day; it doesn&apos;t change anyone else&apos;s run.</li>
+        </ul>
+        <p>If the panel says <strong className="text-white">&ldquo;No product mappings yet&rdquo;</strong>, an admin needs to map your Jobber line items to products in <Link href="/hub/admin/service-mapping" className="text-orange-400 hover:text-orange-300">Admin → Service Mapping</Link> first. Stops whose job title has no size, or line items with no product mapping, are called out so nothing is silently missed.</p>
+      </Section>
+
       <Section title="Printing the Route Sheet">
         <p>Click <strong className="text-white">Print Route Sheet</strong> to open a printable version (a new tab in a browser; opens in place inside the iPhone/Android app):</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
@@ -964,6 +974,11 @@ function RoutingTab() {
           <div className="border border-gray-700 rounded-xl p-4 mt-3">
             <p className="text-white font-medium mb-2">Depot</p>
             <p>The starting and ending point for every route — your shop, warehouse, or home base. Enter the full street address and click Save. Lynxedo geocodes it and shows a green ✓ when it&apos;s valid.</p>
+          </div>
+
+          <div className="border border-gray-700 rounded-xl p-4 mt-3">
+            <p className="text-white font-medium mb-2">Tanks</p>
+            <p>Set up the spray tanks the crew mixes into — up to <strong className="text-white">4</strong>. For each tank give it a label, its <strong className="text-white">gallon capacity</strong>, and the <strong className="text-white">mix rate</strong> (gallons applied per 1,000 sq ft — Heroes runs 2). The panel shows live how much area a full tank covers (e.g. 180 gal ÷ 2 = ~90,000 sq ft). The Advanced Route Optimizer&apos;s Tank loadout uses these numbers to show how full each tank gets per route. Changes save as you type; untick <strong className="text-white">Active</strong> to retire a tank without deleting it.</p>
           </div>
 
           <div className="border border-gray-700 rounded-xl p-4">
