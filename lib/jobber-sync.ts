@@ -17,6 +17,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { jobberGraphQLAdmin } from '@/lib/jobber'
 import { postGuardianToUserDm } from '@/lib/guardian-post'
+import { createPesticideRecordFromJobberVisit } from '@/lib/pesticide'
 
 const COMPANY_ID = '00000000-0000-0000-0000-000000000002' // Heroes Lawn Care
 
@@ -1292,8 +1293,21 @@ export async function processJobberWebhookEvent(
         await syncJobs(userId, companyId, undefined, [itemId]); break
       case 'VISIT_CREATE':
       case 'VISIT_UPDATE':
-      case 'VISIT_COMPLETE':
         await syncVisits(userId, companyId, undefined, [itemId]); break
+      case 'VISIT_COMPLETE': {
+        await syncVisits(userId, companyId, undefined, [itemId])
+        // Session 9 — auto pesticide record on completion. Best-effort, deduped
+        // on (company_id, jobber_visit_id); never clobbers a Daily Log V2 record.
+        try {
+          const outcome = await createPesticideRecordFromJobberVisit({
+            admin, companyId, jobberVisitId: itemId, occurredAt,
+          })
+          console.log(`[jobber-webhook] pesticide ${itemId}: ${outcome}`)
+        } catch (e) {
+          console.error('[jobber-webhook] pesticide record failed for', itemId, e)
+        }
+        break
+      }
       default:
         console.log(`[jobber-webhook] ignoring topic ${topic}`)
         return
