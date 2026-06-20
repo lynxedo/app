@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { Spinner, EmptyState } from '@/components/ui'
+import { fmtQty, type StoredRouteLoadout } from '@/lib/route-capacity'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -101,6 +102,7 @@ type Entry = {
   tech: HubUser | null
   stops: Stop[]
   secondary_techs: HubUser[]
+  route_loadout: StoredRouteLoadout | null
 }
 
 type ApiResponse = {
@@ -532,6 +534,100 @@ export default function DailyLogV2View({
   )
 }
 
+// ── Route loadout header (Route Capacity Part D) ────────────────────────────────
+// Read-only display of the loadout snapshot written when the route was sent from
+// the Route Optimizer: predicted times, total sq ft, tank fill, products to mix.
+function fmtHrsMin(min: number | null | undefined): string | null {
+  if (min == null || min <= 0) return null
+  const h = Math.floor(min / 60), m = Math.round(min % 60)
+  return h > 0 ? `${h}h ${m}m` : `${m}m`
+}
+
+function RouteLoadoutHeader({ loadout }: { loadout: StoredRouteLoadout | null }) {
+  const [open, setOpen] = useState(true)
+  if (!loadout) return null
+
+  const drive = fmtHrsMin(loadout.predicted_drive_minutes)
+  const onsite = fmtHrsMin(loadout.predicted_onsite_minutes)
+  const hasProducts = loadout.products.length > 0
+  const hasTanks = loadout.tanks.length > 0
+  // Nothing useful to show (no times, no products, no tanks) — stay out of the way.
+  if (!drive && !onsite && !hasProducts && !hasTanks && loadout.total_sqft === 0) return null
+
+  return (
+    <div className="px-5 py-3 bg-sky-500/5 border-b border-gray-800">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between gap-3 text-left">
+        <span className="text-xs font-medium text-sky-300 flex items-center gap-2">
+          <span>{open ? '▾' : '▸'}</span> 🧪 Route Loadout
+        </span>
+        <span className="text-[11px] text-gray-400 flex items-center gap-2 flex-wrap justify-end">
+          {onsite && <span>⏱ {onsite} on-site</span>}
+          {drive && <span>🚗 {drive} drive</span>}
+          {loadout.total_sqft > 0 && <span>📐 {loadout.total_sqft.toLocaleString()} sq ft</span>}
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-3">
+          {hasTanks && (
+            <div className="space-y-2">
+              {loadout.tanks.map(t => {
+                const pct = t.fill_pct == null ? null : Math.round(t.fill_pct * 100)
+                const barPct = t.fill_pct == null ? 0 : Math.min(t.fill_pct, 1) * 100
+                return (
+                  <div key={t.tank_number}>
+                    <div className="flex items-center justify-between text-[11px] mb-1">
+                      <span className="text-gray-300">{t.label || `Tank ${t.tank_number}`}</span>
+                      <span className={t.overflow ? 'text-red-400 font-medium' : 'text-gray-400'}>
+                        {pct == null ? '—' : <>{pct}% · {Math.round(t.sqft_loaded).toLocaleString()} / {Math.round(t.sprayable_sqft ?? 0).toLocaleString()} sq ft{t.overflow ? ' · ⚠ refill' : ''}</>}
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+                      <div className={`h-full ${t.overflow ? 'bg-red-500' : barPct > 80 ? 'bg-amber-500' : 'bg-green-600'}`} style={{ width: `${barPct}%` }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {hasProducts ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="text-gray-500 text-left border-b border-gray-800">
+                    <th className="py-1 pr-2 font-medium">Product</th>
+                    <th className="py-1 px-2 font-medium text-right">Amount</th>
+                    <th className="py-1 pl-2 font-medium">Tank</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadout.products.map(p => (
+                    <tr key={p.product_id} className="border-b border-gray-800/50">
+                      <td className="py-1 pr-2 text-white">{p.name}</td>
+                      <td className="py-1 px-2 text-right text-gray-300 whitespace-nowrap">{fmtQty(p.quantity)} {p.unit}</td>
+                      <td className="py-1 pl-2 text-gray-400">{p.tank ? `Tank ${p.tank}` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : !loadout.has_mappings ? (
+            <p className="text-[11px] text-gray-500">No product mappings configured — product amounts unavailable.</p>
+          ) : null}
+
+          {loadout.unmapped_line_items.length > 0 && (
+            <p className="text-[11px] text-gray-500">
+              <span className="text-amber-400">Unmapped:</span> {loadout.unmapped_line_items.slice(0, 6).join(', ')}
+              {loadout.unmapped_line_items.length > 6 ? `, +${loadout.unmapped_line_items.length - 6} more` : ''}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── EntryCard ─────────────────────────────────────────────────────────────────
 
 function EntryCard({
@@ -710,6 +806,9 @@ function EntryCard({
           <div className="text-sm text-gray-200 whitespace-pre-wrap">{entry.office_notes}</div>
         </div>
       ) : null}
+
+      {/* Route loadout (Route Capacity Part D) — products, tanks, predicted times */}
+      <RouteLoadoutHeader loadout={entry.route_loadout} />
 
       {/* Map */}
       {hasMap && (

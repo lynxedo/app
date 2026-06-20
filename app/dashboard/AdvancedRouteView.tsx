@@ -858,6 +858,8 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
           tech_jobber_user_id: b.assigned_tech_jobber_id,
           tech_jobber_user_name: b.assigned_tech_name,
           stops,
+          predicted_drive_minutes: b.total_drive_minutes,
+          predicted_onsite_minutes: b.total_onsite_minutes,
         }),
       })
       const data = await res.json() as { stop_count?: number; action?: string; error?: string }

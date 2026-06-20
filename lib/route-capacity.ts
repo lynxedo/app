@@ -218,3 +218,44 @@ export function fmtQty(n: number): string {
   if (!isFinite(n)) return '0'
   return (Math.round(n * 100) / 100).toLocaleString(undefined, { maximumFractionDigits: 2 })
 }
+
+// ── Persisted snapshot (Route Capacity Part D) ────────────────────────────────
+// The shape written to daily_log_entries.route_loadout when a route is sent to
+// Daily Log (PRD §8.9). It's a self-contained snapshot — Daily Log V2 only reads
+// and displays it, never recomputes — so field names use snake_case to read
+// naturally as stored JSON.
+export type StoredLoadoutProduct = { product_id: string; name: string; quantity: number; unit: string; tank: number | null }
+export type StoredLoadoutTank = { tank_number: number; label: string | null; gallon_capacity: number | null; sprayable_sqft: number | null; sqft_loaded: number; fill_pct: number | null; overflow: boolean }
+
+export type StoredRouteLoadout = {
+  predicted_onsite_minutes: number | null
+  predicted_drive_minutes: number | null
+  total_sqft: number
+  has_mappings: boolean
+  products: StoredLoadoutProduct[]
+  tanks: StoredLoadoutTank[]
+  unmapped_line_items: string[]
+  stops_missing_size: string[]
+  computed_at: string
+}
+
+// Map the live RouteLoadout + route totals into the persisted snapshot.
+export function toStoredLoadout(
+  loadout: RouteLoadout,
+  opts: { predictedOnsiteMinutes?: number | null; predictedDriveMinutes?: number | null; computedAt: string },
+): StoredRouteLoadout {
+  return {
+    predicted_onsite_minutes: opts.predictedOnsiteMinutes ?? null,
+    predicted_drive_minutes: opts.predictedDriveMinutes ?? null,
+    total_sqft: loadout.totalSqft,
+    has_mappings: loadout.hasMappings,
+    products: loadout.products.map(p => ({ product_id: p.product_id, name: p.name, quantity: p.quantity, unit: p.unit, tank: p.tank })),
+    tanks: loadout.tanks.map(t => ({
+      tank_number: t.tank_number, label: t.label, gallon_capacity: t.gallon_capacity,
+      sprayable_sqft: t.sprayableSqft, sqft_loaded: t.loadedSqft, fill_pct: t.fillPct, overflow: t.overflow,
+    })),
+    unmapped_line_items: loadout.unmappedLineItems,
+    stops_missing_size: loadout.stopsMissingSize,
+    computed_at: opts.computedAt,
+  }
+}
