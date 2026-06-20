@@ -781,9 +781,12 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     return [...b.stops].sort((a, z) => a.ord - z.ord)
   }
 
-  function sendBatchOrderOnly(b: RouteBatch) {
+  // Pushes the batch's DAY + TECH back to Jobber (official API) and leaves the
+  // stops as Anytime, unordered. The optimized order stays in Lynxedo's Daily
+  // Log / route sheet — Jobber can't reorder Anytime visits via its public API.
+  function sendBatchAssignOnly(b: RouteBatch) {
     const stops = orderedStops(b)
-    runBatchAction(b.id, 'order', async () => {
+    runBatchAction(b.id, 'assign', async () => {
       const res = await fetch('/api/reorder-jobber', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -797,8 +800,8 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       if (data.error) return { ok: false, text: data.error }
       const okCount = data.results?.filter(r => r.success).length ?? 0
       return data.allOk
-        ? { ok: true, channel: 'jobber', text: `Order sent to Jobber (${okCount} stops)` }
-        : { ok: false, text: `Partial: ${okCount}/${stops.length} reordered` }
+        ? { ok: true, channel: 'jobber', text: `Day + team sent to Jobber (${okCount} stops)` }
+        : { ok: false, text: `Partial: ${okCount}/${stops.length} updated` }
     }, { removeOnSuccess: true })
   }
 
@@ -1745,8 +1748,8 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                           <button onClick={() => viewBatchRouteSheet(b)} disabled={!!busy} className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg text-xs font-medium">
                             {busy === 'sheet' ? 'Building…' : '📄 Route Sheet'}
                           </button>
-                          <button onClick={() => sendBatchOrderOnly(b)} disabled={!!busy} className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-100 rounded-lg text-xs font-medium">
-                            {busy === 'order' ? 'Sending…' : 'Send Order Only'}
+                          <button onClick={() => sendBatchAssignOnly(b)} disabled={!!busy} title="Pushes the day + assigned tech to Jobber. Stops stay Anytime; the optimized order lives in the Daily Log / route sheet." className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-100 rounded-lg text-xs font-medium">
+                            {busy === 'assign' ? 'Sending…' : 'Send Day + Team'}
                           </button>
                           <button onClick={() => sendBatchWithTimes(b)} disabled={!!busy} className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-lg text-xs font-medium">
                             {busy === 'times' ? 'Sending…' : 'Send with Times'}
