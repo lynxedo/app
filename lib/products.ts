@@ -79,6 +79,7 @@ export type Product = {
   notes: string | null
   batch_number: string | null
   batch_date: string | null
+  reorder_threshold: number | null  // low-stock alert level, in packages (Session 10)
   is_active: boolean
   sort_order: number
   deleted_at: string | null

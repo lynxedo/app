@@ -1730,7 +1730,7 @@ function ProductsTab() {
   return (
     <>
       <Section title="What is Products?">
-        <p>Products is the master catalog of everything you apply — fertilizers, herbicides, fungicides, insecticides, and more — each with its price, package size, application rate, and on-hand inventory. It&apos;s the &ldquo;spreadsheet&rdquo; the cost numbers, inventory counts, and (soon) the route-capacity and pesticide-record tools all read from.</p>
+        <p>Products is the master catalog of everything you apply — fertilizers, herbicides, fungicides, insecticides, and more — each with its price, package size, application rate, and on-hand inventory. It&apos;s the &ldquo;spreadsheet&rdquo; the cost numbers, inventory counts, route-capacity tool, and pesticide records all read from.</p>
         <p className="mt-2">It lives at <strong className="text-white">Admin → Products</strong> and is managed by admins (or anyone with the Products admin grant).</p>
       </Section>
 
@@ -1755,6 +1755,12 @@ function ProductsTab() {
         <p>Each storage location (Vehicle 1, Shop, North Shop…) is its own column. Type how many packages are at each location; the <strong className="text-white">Total</strong> and <strong className="text-emerald-300">$ Value</strong> columns add up automatically (total packages × package price).</p>
       </Section>
 
+      <Section title="Automatic stock decrement &amp; low-stock alerts">
+        <p>You don&apos;t have to subtract product by hand. When a route&apos;s <strong className="text-white">last stop is marked complete in Daily Log v2</strong>, the system reads that route&apos;s loadout (the products + amounts computed by Route Capacity), converts each amount to <strong className="text-white">packages</strong> (amount ÷ package size), and subtracts it from stock — once per route, automatically.</p>
+        <p className="mt-2">Set a <strong className="text-white">Reorder at (packages)</strong> level on any product (in its expanded editor). When a decrement drops that product&apos;s total on-hand below the level, the row turns <span className="text-amber-400">amber with a ⚠ low badge</span> and <strong className="text-white">@Guardian sends a low-stock alert</strong> to the people and rooms you&apos;ve chosen. The alert fires once on crossing — it won&apos;t nag you every route once it&apos;s already low.</p>
+        <p className="mt-2 text-gray-500 text-sm">Two things make this work: products need a <em>package size</em> (so amounts can convert to packages), and the route needs line-item → product mappings in <strong className="text-white">Admin → Service Mapping</strong>. Manual edits to the inventory cells still work anytime for corrections.</p>
+      </Section>
+
       <AdminOnly>
         <Section title="Adding &amp; editing products (Admin)">
           <p>In <strong className="text-white">Admin → Products</strong> (Catalog tab):</p>
@@ -1767,8 +1773,9 @@ function ProductsTab() {
           </ul>
         </Section>
 
-        <Section title="Groups &amp; locations (Settings)">
+        <Section title="Groups, locations &amp; alert settings (Settings)">
           <p>The <strong className="text-white">Settings</strong> sub-tab manages your <strong className="text-white">Product Groups</strong> and <strong className="text-white">Inventory Locations</strong> — add, rename, or delete each. Deleting a group keeps its products (they become Uncategorized); deleting a location removes its inventory counts.</p>
+          <p className="mt-2">It also has <strong className="text-white">Stock decrement &amp; low-stock alerts</strong>: pick which location route spraying deducts from (defaults to your first active location), turn low-stock alerts on/off, and choose which people get a Guardian DM and which rooms get a post when a product runs low.</p>
         </Section>
 
         <Section title="Permissions">

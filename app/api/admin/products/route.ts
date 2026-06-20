@@ -37,7 +37,7 @@ export async function POST(request: Request) {
     if (isErr(v)) return NextResponse.json({ error: `${key} ${v.err}` }, { status: 400 })
     fields[key] = v
   }
-  for (const key of ['package_price', 'package_size', 'application_rate'] as const) {
+  for (const key of ['package_price', 'package_size', 'application_rate', 'reorder_threshold'] as const) {
     const v = numOrNull(body[key])
     if (isErr(v)) return NextResponse.json({ error: `${key} ${v.err}` }, { status: 400 })
     fields[key] = v

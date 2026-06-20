@@ -15,6 +15,15 @@ type Item = Product & {
   product_location_inventory: ProductLocationInventory[]
 }
 
+type HubUser = { id: string; display_name: string }
+type Room = { id: string; name: string }
+type InventorySettingsState = {
+  deduct_location_id: string | null
+  low_stock_alerts_enabled: boolean
+  alert_recipient_user_ids: string[]
+  alert_recipient_room_ids: string[]
+}
+
 const UNIT_OPTIONS = ['lbs', 'oz', 'fl oz', 'g', 'ml', 'gal', 'application']
 const RATE_BASIS_ORDER: RateBasis[] = ['per_1000sqft', 'per_gallon']
 
@@ -157,6 +166,11 @@ function ItemEditor({
             className="w-full bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
           />
         </div>
+        <div>
+          <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Reorder at (packages)</label>
+          <NumberCell value={item.reorder_threshold} placeholder="—" width="w-full" onSave={n => onSaveField('reorder_threshold', n)} />
+          <p className="text-[10px] text-gray-600 mt-1">Alert when total on-hand drops below this.</p>
+        </div>
         {txt('description', 'Description', { placeholder: 'e.g. granular, slow-release', full: true })}
         {txt('notes', 'Notes', { full: true })}
       </div>
@@ -264,15 +278,41 @@ function EntityList({
 // ---------------------------------------------------------------------------
 export default function ProductsAdminPanel({
   initialProducts, initialCategories, initialLocations,
+  hubUsers = [], rooms = [], initialSettings,
 }: {
   initialProducts: Item[]
   initialCategories: ProductCategory[]
   initialLocations: InventoryLocation[]
+  hubUsers?: HubUser[]
+  rooms?: Room[]
+  initialSettings?: InventorySettingsState
 }) {
   const confirmDialog = useConfirm()
   const [products, setProducts] = useState<Item[]>(initialProducts)
   const [categories, setCategories] = useState<ProductCategory[]>(initialCategories)
   const [locations, setLocations] = useState<InventoryLocation[]>(initialLocations)
+  const [settings, setSettings] = useState<InventorySettingsState>(initialSettings ?? {
+    deduct_location_id: null, low_stock_alerts_enabled: true,
+    alert_recipient_user_ids: [], alert_recipient_room_ids: [],
+  })
+  const [settingsSaved, setSettingsSaved] = useState(false)
+
+  async function saveSettings(patch: Partial<InventorySettingsState>) {
+    const next = { ...settings, ...patch }
+    setSettings(next)
+    const res = await fetch('/api/admin/inventory-settings', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(patch),
+    })
+    if (res.ok) setSettingsSaved(true)
+    else flash('Failed to save alert settings')
+  }
+
+  function toggleRecipient(field: 'alert_recipient_user_ids' | 'alert_recipient_room_ids', id: string) {
+    const set = new Set(settings[field])
+    if (set.has(id)) set.delete(id); else set.add(id)
+    void saveSettings({ [field]: [...set] } as Partial<InventorySettingsState>)
+  }
   const [view, setView] = useState<'catalog' | 'settings'>('catalog')
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -426,6 +466,60 @@ export default function ProductsAdminPanel({
             deleteWarning="Delete this location? Its inventory counts will be removed."
             onChange={rows => setLocations(rows as InventoryLocation[])} onError={flash}
           />
+
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 space-y-4">
+            <div>
+              <h3 className="text-sm font-semibold text-gray-200">Stock decrement &amp; low-stock alerts</h3>
+              <p className="text-xs text-gray-500 mt-1">
+                When a route&apos;s last stop is marked complete, the products on its loadout are
+                subtracted from stock here. When a product drops below its reorder level (set per
+                product in the Catalog), @Guardian alerts the people/rooms you pick below.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[11px] uppercase tracking-wide text-gray-500 mb-1">Deduct stock from</label>
+              <select
+                value={settings.deduct_location_id ?? ''}
+                onChange={e => saveSettings({ deduct_location_id: e.target.value || null })}
+                className="bg-gray-800 border border-gray-700 rounded px-2.5 py-1.5 text-sm text-white focus:outline-none focus:border-indigo-500"
+              >
+                <option value="">Primary location (first active)</option>
+                {activeLocations.map(l => <option key={l.id} value={l.id}>{l.name}</option>)}
+              </select>
+            </div>
+
+            <label className="flex items-center justify-between">
+              <span className="text-sm text-gray-300">Send low-stock alerts</span>
+              <button
+                onClick={() => saveSettings({ low_stock_alerts_enabled: !settings.low_stock_alerts_enabled })}
+                className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings.low_stock_alerts_enabled ? 'bg-indigo-600' : 'bg-gray-700'}`}
+                aria-pressed={settings.low_stock_alerts_enabled}
+              >
+                <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${settings.low_stock_alerts_enabled ? 'translate-x-6' : 'translate-x-1'}`} />
+              </button>
+            </label>
+
+            {settings.low_stock_alerts_enabled && (
+              <div className="space-y-4">
+                <RecipientGrid
+                  title="DM these people"
+                  empty="No users in this company yet."
+                  items={hubUsers.map(u => ({ id: u.id, label: u.display_name }))}
+                  selected={settings.alert_recipient_user_ids}
+                  onToggle={id => toggleRecipient('alert_recipient_user_ids', id)}
+                />
+                <RecipientGrid
+                  title="Post in these rooms"
+                  empty="No active rooms to choose from."
+                  items={rooms.map(r => ({ id: r.id, label: `#${r.name}` }))}
+                  selected={settings.alert_recipient_room_ids}
+                  onToggle={id => toggleRecipient('alert_recipient_room_ids', id)}
+                />
+              </div>
+            )}
+            {settingsSaved && <span className="text-xs text-emerald-400">Saved ✓</span>}
+          </div>
         </div>
       ) : (
         <>
@@ -524,6 +618,7 @@ export default function ProductsAdminPanel({
                             const expanded = expandedId === item.id
                             const total = inventoryTotal(item.product_location_inventory)
                             const value = inventoryValue(total, item.package_price)
+                            const lowStock = item.reorder_threshold != null && total < Number(item.reorder_threshold)
                             const cost = costPer1000(item.package_price, item.package_size, item.application_rate)
                             const ksf = ksfPerPackage(item.package_size, item.application_rate)
                             const colSpan = 8 + activeLocations.length
@@ -557,7 +652,10 @@ export default function ProductsAdminPanel({
                                       </td>
                                     )
                                   })}
-                                  <td className="px-3 py-2 text-right text-gray-200 font-medium">{fmtNum(total)}</td>
+                                  <td className={`px-3 py-2 text-right font-medium whitespace-nowrap ${lowStock ? 'text-amber-400' : 'text-gray-200'}`}>
+                                    {fmtNum(total)}
+                                    {lowStock && <span className="ml-1.5 text-[10px] uppercase tracking-wide" title={`Below reorder level (${fmtNum(item.reorder_threshold)})`}>⚠ low</span>}
+                                  </td>
                                   <td className="px-3 py-2 text-right text-emerald-400 whitespace-nowrap">{fmtMoney(value)}</td>
                                   <td className="px-2 py-2 text-right">
                                     <button onClick={() => deleteProduct(item.id, item.name)} className="text-gray-700 hover:text-red-400 text-sm" title="Remove product" aria-label="Remove">✕</button>
@@ -591,6 +689,45 @@ export default function ProductsAdminPanel({
       <datalist id="product-unit-options">
         {UNIT_OPTIONS.map(u => <option key={u} value={u} />)}
       </datalist>
+    </div>
+  )
+}
+
+// Recipient picker (mirrors the Fleet admin pattern) for low-stock alerts.
+function RecipientGrid({
+  title, empty, items, selected, onToggle,
+}: {
+  title: string
+  empty: string
+  items: { id: string; label: string }[]
+  selected: string[]
+  onToggle: (id: string) => void
+}) {
+  const selectedSet = new Set(selected)
+  return (
+    <div>
+      <div className="flex items-center justify-between mb-1.5">
+        <span className="text-sm font-medium text-gray-300">{title}</span>
+        <span className="text-xs text-gray-500">{selectedSet.size} selected</span>
+      </div>
+      {items.length === 0 ? (
+        <p className="text-sm text-gray-500">{empty}</p>
+      ) : (
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-56 overflow-y-auto">
+          {items.map(it => {
+            const on = selectedSet.has(it.id)
+            return (
+              <label
+                key={it.id}
+                className={`flex items-center gap-2.5 px-3 py-2 rounded-lg cursor-pointer border transition-colors ${on ? 'bg-indigo-600/20 border-indigo-500/40' : 'bg-gray-800/50 border-gray-700 hover:bg-gray-800'}`}
+              >
+                <input type="checkbox" checked={on} onChange={() => onToggle(it.id)} className="accent-indigo-500" />
+                <span className="text-sm text-gray-200">{it.label}</span>
+              </label>
+            )
+          })}
+        </div>
+      )}
     </div>
   )
 }

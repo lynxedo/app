@@ -32,7 +32,7 @@ export async function PATCH(request: Request, context: { params: Promise<{ id: s
       update[key] = v
     }
   }
-  for (const key of ['package_price', 'package_size', 'application_rate'] as const) {
+  for (const key of ['package_price', 'package_size', 'application_rate', 'reorder_threshold'] as const) {
     if (key in body) {
       const v = numOrNull(body[key])
       if (isErr(v)) return NextResponse.json({ error: `${key} ${v.err}` }, { status: 400 })

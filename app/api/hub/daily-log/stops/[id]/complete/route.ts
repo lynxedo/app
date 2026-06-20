@@ -5,6 +5,8 @@ import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
 import { evaluateEventAutomations } from '@/lib/automations'
 import type { WeatherSnapshot } from '@/lib/nws-weather'
 import { matchChemicalsForLineItems } from '@/lib/pesticide'
+import { applyRouteSprayDecrements } from '@/lib/inventory'
+import type { StoredRouteLoadout } from '@/lib/route-capacity'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface VisitMutationResponse {
@@ -303,6 +305,23 @@ export async function POST(
         ? `Jobber push failed — ${e.message}`
         : 'Jobber push failed (unknown error)'
     }
+  }
+
+  // Session 10 — when the route's spraying is done (last stop complete), decrement
+  // inventory from the route's stored loadout. Best-effort, non-blocking, idempotent.
+  if (isLastStop) {
+    void (async () => {
+      const { data: entryRow } = await admin
+        .from('daily_log_entries')
+        .select('route_loadout')
+        .eq('id', stop.entry_id)
+        .maybeSingle<{ route_loadout: StoredRouteLoadout | null }>()
+      const res = await applyRouteSprayDecrements({
+        admin, companyId: entry.company_id, entryId: stop.entry_id,
+        loadout: entryRow?.route_loadout ?? null,
+      })
+      console.log(`[inventory] route ${stop.entry_id} decrement:`, res)
+    })().catch(err => console.error('[inventory] route decrement failed for', stop.entry_id, err))
   }
 
   // Fire any "daily log stop completed" automations (best-effort, non-blocking).
