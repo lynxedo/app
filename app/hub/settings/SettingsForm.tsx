@@ -475,12 +475,12 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
   return (
     <div>
       {/* Tab bar */}
-      <div className="flex gap-1 mb-8 bg-gray-900 border border-gray-800 rounded-xl p-1 max-md:ml-12">
+      <div className="flex gap-1 mb-8 bg-gray-900 border border-gray-800 rounded-xl p-1 max-md:ml-12 overflow-x-auto">
         {tabs.map(tab => (
           <button
             key={tab.id}
             onClick={() => setActiveTab(tab.id)}
-            className={`flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
+            className={`flex-none whitespace-nowrap md:flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
               activeTab === tab.id
                 ? 'bg-gray-800 text-white'
                 : 'text-gray-500 hover:text-gray-300'
