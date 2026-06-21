@@ -107,6 +107,29 @@ function formatStop(type: 'visit' | 'assessment', i: number, data: {
   return { stopNumber: i + 1, ...data }
 }
 
+// Heroes' operating timezone. Jobber reads a bare datetime (e.g.
+// "2026-06-23T00:00:00") as UTC, so a day window built that way is shifted ~5-6h
+// and an all-day item from the adjacent day overlaps it — which leaked a Monday
+// assessment into a Tuesday pull (test-findings #8). Build the bounds with the
+// correct local offset instead (DST-aware).
+const ROUTING_TZ = 'America/Chicago'
+
+function tzOffset(date: string, timeZone: string): string {
+  const parts = new Intl.DateTimeFormat('en-US', {
+    timeZone, timeZoneName: 'longOffset',
+    year: 'numeric', month: '2-digit', day: '2-digit',
+  }).formatToParts(new Date(`${date}T12:00:00Z`))
+  const name = parts.find(p => p.type === 'timeZoneName')?.value ?? ''
+  const m = name.match(/GMT([+-])(\d{2}):?(\d{2})?/)
+  if (!m) return '-06:00' // CST fallback
+  return `${m[1]}${m[2]}:${m[3] ?? '00'}`
+}
+
+function localDayBounds(date: string, timeZone = ROUTING_TZ): { start: string; end: string } {
+  const offset = tzOffset(date, timeZone)
+  return { start: `${date}T00:00:00${offset}`, end: `${date}T23:59:59${offset}` }
+}
+
 export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const date = searchParams.get('date')
@@ -114,6 +137,8 @@ export async function GET(request: Request) {
 
   if (!date || !assignedTo)
     return NextResponse.json({ error: 'date and userId are required' }, { status: 400 })
+
+  const { start: dayStart, end: dayEnd } = localDayBounds(date)
 
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -124,13 +149,13 @@ export async function GET(request: Request) {
     const [visitResult, assessResult] = await Promise.all([
       jobberGraphQL<{ data: { visits: { nodes: JobberVisit[] } }; errors?: Array<{ message: string }> }>(
         user.id, VISITS_QUERY,
-        { filter: { startAt: { after: `${date}T00:00:00`, before: `${date}T23:59:59` }, assignedTo } }
+        { filter: { startAt: { after: dayStart, before: dayEnd }, assignedTo } }
       ),
       jobberGraphQL<{ data: { scheduledItems: { nodes: Array<Record<string, unknown>> } }; errors?: Array<{ message: string }> }>(
         user.id, ASSESSMENTS_QUERY,
         { filter: {
           scheduleItemType: 'ASSESSMENT',
-          occursWithin: { startAt: `${date}T00:00:00`, endAt: `${date}T23:59:59` },
+          occursWithin: { startAt: dayStart, endAt: dayEnd },
           assignedTo: [assignedTo],
         }}
       ).catch(() => null),  // assessments are optional — don't break if they fail
