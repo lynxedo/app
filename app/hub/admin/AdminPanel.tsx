@@ -514,14 +514,14 @@ function DevToolsCard() {
         </div>
         {isStaging ? (
           <button
-            onClick={() => { window.location.href = 'https://lynxedo.com/hub' }}
+            onClick={() => { window.location.replace('https://lynxedo.com/hub') }}
             className="px-4 py-2 bg-green-700 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
           >
             Switch to Production
           </button>
         ) : (
           <button
-            onClick={() => { window.location.href = 'https://staging.lynxedo.com/hub' }}
+            onClick={() => { window.location.replace('https://staging.lynxedo.com/hub') }}
             className="px-4 py-2 bg-yellow-700 hover:bg-yellow-600 text-white text-sm font-medium rounded-lg transition-colors"
           >
             Switch to Staging
