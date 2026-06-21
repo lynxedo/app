@@ -94,6 +94,7 @@ type ServiceReport = {
 type Entry = {
   id: string
   log_date: string
+  created_by: string | null
   office_notes: string | null
   route_sheet_url: string | null
   route_sheet_name: string | null
@@ -688,24 +689,50 @@ function EntryCard({
 
   const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null)
 
+  // Route sheet lives in local state so an upload/replace reflects immediately
+  // (the parent re-fetches on the next poll, but this keeps the card in sync now).
+  const [routeSheet, setRouteSheet] = useState<{ url: string | null; name: string | null }>({
+    url: entry.route_sheet_url,
+    name: entry.route_sheet_name,
+  })
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+  const routeSheetInputRef = useRef<HTMLInputElement>(null)
+  const canEditRouteSheet = isAdmin || (entry.created_by != null && entry.created_by === currentUserId)
+
   function openRouteSheet() {
     // Open in the in-app viewer (MediaLightbox) — renders inside the logged-in Hub
     // webview, so it works on every platform including the iOS/Android apps. The old
     // window.open('', '_blank') gesture-popup returns null in the iOS Capacitor
     // webview, so the route sheet never opened there. HTML sheets render in an
     // iframe; PDFs render via pdf.js (canvas).
-    if (!entry.route_sheet_url) return
-    const isHtml = entry.route_sheet_url.endsWith('.html')
+    if (!routeSheet.url) return
+    const isHtml = routeSheet.url.endsWith('.html')
     const base = `/api/hub/daily-log/${entry.id}/route-sheet`
     setLightbox({
       items: [{
         type: isHtml ? 'html' : 'pdf',
         src: isHtml ? base : `${base}?inline=pdf`,
         downloadSrc: base,
-        filename: entry.route_sheet_name ?? 'Route Sheet',
+        filename: routeSheet.name ?? 'Route Sheet',
       }],
       index: 0,
     })
+  }
+
+  async function uploadRouteSheet(file: File) {
+    setUploading(true)
+    setUploadError('')
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch(`/api/hub/daily-log/${entry.id}/upload`, { method: 'POST', body: fd })
+    const data = await res.json()
+    setUploading(false)
+    if (res.ok) {
+      setRouteSheet({ url: data.route_sheet_url, name: data.route_sheet_name })
+    } else {
+      setUploadError(data.error ?? 'Upload failed')
+    }
   }
 
   const stopsWithCoords = entry.stops.filter(s => s.lat != null && s.lng != null)
@@ -850,18 +877,52 @@ function EntryCard({
         )}
       </div>
 
-      {/* Route sheet link */}
-      {entry.route_sheet_url && (
-        <div className="px-5 py-3 bg-gray-900/50 border-t border-gray-800 text-xs">
+      {/* Route Sheet — mirrors Daily Log v1 (clickable card + Upload/Replace PDF) */}
+      <div className="px-5 py-3 bg-gray-900/50 border-t border-gray-800">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Route Sheet</span>
+          {canEditRouteSheet && (
+            <button
+              onClick={() => routeSheetInputRef.current?.click()}
+              disabled={uploading}
+              className="text-xs text-brand hover:text-blue-300 transition-colors disabled:opacity-40"
+            >
+              {uploading ? 'Uploading…' : routeSheet.url ? 'Replace' : '+ Upload PDF'}
+            </button>
+          )}
+          <input
+            ref={routeSheetInputRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            className="hidden"
+            onChange={e => {
+              const f = e.target.files?.[0]
+              if (f) uploadRouteSheet(f)
+              e.target.value = ''
+            }}
+          />
+        </div>
+        {uploadError && <p className="text-xs text-red-400 mb-1">{uploadError}</p>}
+        {routeSheet.url ? (
           <button
             type="button"
             onClick={openRouteSheet}
-            className="text-sky-400 hover:underline"
+            className="w-full text-left cursor-pointer flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700/80 border border-gray-700 rounded-xl transition-colors group"
           >
-            📎 {entry.route_sheet_name ?? 'Route Sheet'}
+            <svg className="w-5 h-5 text-red-400 flex-none" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM12 14h-2v2h2v-2zm0-4h-2v3h2v-3z" />
+            </svg>
+            <span className="text-sm text-gray-300 group-hover:text-white truncate flex-1">
+              {routeSheet.name ?? 'Route Sheet'}
+            </span>
+            <svg className="w-3.5 h-3.5 text-gray-500 group-hover:text-gray-300 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
           </button>
-        </div>
-      )}
+        ) : (
+          <p className="text-sm text-gray-600 italic">No route sheet attached</p>
+        )}
+      </div>
 
       {isAdmin && (
         <div className="px-5 py-2 bg-gray-900/30 border-t border-gray-800 text-[10px] text-gray-600 uppercase tracking-wide">

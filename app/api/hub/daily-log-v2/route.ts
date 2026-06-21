@@ -35,7 +35,7 @@ export async function GET(request: Request) {
   const { data: entries, error } = await supabase
     .from('daily_log_entries')
     .select(`
-      id, log_date, office_notes, route_sheet_url, route_sheet_name, created_at,
+      id, log_date, office_notes, route_sheet_url, route_sheet_name, created_at, created_by,
       route_loadout,
       secondary_tech_user_ids, completed_at, completed_by, closed_at, closed_by,
       tech:hub_users!tech_user_id(id, display_name, avatar_url),

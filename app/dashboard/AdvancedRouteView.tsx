@@ -855,6 +855,32 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
       duration_minutes: s.onsite_minutes,
     }))
     runBatchAction(b.id, 'dlv2', async () => {
+      // Build the same printable route-sheet HTML Daily Log v1 attaches, so the
+      // DL v2 entry gets an identical "Print / Save as PDF" route sheet.
+      const sheetStops: RouteSheetStop[] = orderedStops(b).map(s => ({
+        stopNumber: s.ord,
+        clientName: s.client_name,
+        addressString: s.address,
+        phone: s.client_phone,
+        jobTitle: s.job_title ?? '',
+        eta: s.eta,
+        driveMinutes: s.drive_minutes,
+        onSiteMinutes: s.onsite_minutes,
+        distanceKm: s.distance_km,
+        lat: s.lat ?? 0,
+        lng: s.lng ?? 0,
+        lineItems: s.line_items,
+        services: s.services,
+        totalPrice: s.total_price,
+        instructions: s.instructions,
+      }))
+      const html = await buildAdvancedRouteSheetHtml({
+        techName: b.assigned_tech_name!,
+        date: b.assigned_date,
+        stops: sheetStops,
+        depot: (b.depot_lat != null && b.depot_lng != null) ? { lat: b.depot_lat, lng: b.depot_lng } : null,
+        mapboxToken: process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? '',
+      })
       const res = await fetch('/api/hub/daily-log/from-route', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -866,6 +892,8 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
           predicted_drive_minutes: b.total_drive_minutes,
           predicted_onsite_minutes: b.total_onsite_minutes,
           tank_overrides: b.tank_overrides ?? null,
+          route_html: html || null,
+          route_name: `${b.assigned_tech_name} - ${b.assigned_date}.html`,
         }),
       })
       const data = await res.json() as { stop_count?: number; action?: string; error?: string }
