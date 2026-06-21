@@ -85,11 +85,15 @@ function formatTime(iso: string) {
 }
 
 function Avatar({ sender }: { sender: Sender | null }) {
+  const [imgError, setImgError] = useState(false)
   if (!sender) return <div className="w-7 h-7 rounded-full bg-gray-700 flex-none" />
-  if (sender.avatar_url) return <img src={`/api/profile/avatar/${sender.id}`} alt="" className="w-7 h-7 rounded-full flex-none object-cover" />
+  const initials = sender.display_name.slice(0, 2).toUpperCase()
+  if (sender.avatar_url && !imgError) {
+    return <img src={`/api/profile/avatar/${sender.id}`} alt="" className="w-7 h-7 rounded-full flex-none object-cover" onError={() => setImgError(true)} />
+  }
   return (
     <div className={`w-7 h-7 rounded-full flex-none flex items-center justify-center text-xs font-bold text-white ${sender.is_bot ? 'bg-brand' : 'bg-gray-600'}`}>
-      {sender.display_name.slice(0, 2).toUpperCase()}
+      {initials}
     </div>
   )
 }
