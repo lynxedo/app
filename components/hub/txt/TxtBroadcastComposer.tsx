@@ -44,7 +44,7 @@ export default function TxtBroadcastComposer({ onClose }: { onClose: () => void 
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center px-4">
-      <div className="bg-[#0F2E47] border border-white/10 rounded-lg w-full max-w-2xl h-[90vh] flex flex-col">
+      <div className="bg-[var(--t-panel)] border border-white/10 rounded-lg w-full max-w-2xl h-[90vh] flex flex-col">
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
           <h2 className="font-medium">New broadcast</h2>
           <button onClick={onClose} className="text-white/50 hover:text-white" aria-label="Close">

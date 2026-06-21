@@ -214,7 +214,7 @@ export default function DialerSidebar({
   return (
     <aside
       className="h-full w-72 text-white flex flex-col flex-none min-h-0"
-      style={{ background: 'linear-gradient(180deg,#0f2236,#0b1726)', borderRight: '1px solid rgba(255,255,255,.06)' }}
+      style={{ background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))', borderRight: '1px solid rgba(255,255,255,.06)' }}
       aria-label="Dialer sidebar"
     >
       <SidebarHeader title="Dialer" onClose={onClose} onDesktopCollapse={onDesktopCollapse} />

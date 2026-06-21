@@ -28,7 +28,7 @@ const MARQUEE_SPEED_PX_PER_SEC = 30
 const STYLE: Record<AnnType, { icon: string; bg: string; border: string; text: string; ariaLabel: string }> = {
   announcement: {
     icon: '📢',
-    bg: 'bg-[#0F2D45]',
+    bg: 'bg-[var(--t-panel)]',
     border: 'border-white/10',
     text: 'text-white/80',
     ariaLabel: 'Company announcement',

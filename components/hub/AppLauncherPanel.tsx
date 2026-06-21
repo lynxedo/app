@@ -170,7 +170,7 @@ export default function AppLauncherPanel({
     <>
       <div className="hidden md:block fixed inset-0 z-[49]" onClick={onClose} aria-hidden="true" />
 
-      <div className="hidden md:flex fixed left-16 top-0 bottom-0 z-50 w-72 flex-col overflow-hidden shadow-2xl" style={{ background: 'linear-gradient(180deg,#0d1a2c,#0a1422)', borderRight: '1px solid rgba(255,255,255,.08)' }}>
+      <div className="hidden md:flex fixed left-16 top-0 bottom-0 z-50 w-72 flex-col overflow-hidden shadow-2xl" style={{ background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))', borderRight: '1px solid rgba(255,255,255,.08)' }}>
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/[0.07] flex-none" style={{ paddingTop: 'calc(env(safe-area-inset-top, 0) + 0.75rem)' }}>
           <span className="font-semibold text-sm text-white">Your apps</span>
           <div className="flex items-center gap-1">

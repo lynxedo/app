@@ -401,7 +401,7 @@ export default function TxtV2Sidebar({
   return (
     <aside
       className="h-full w-72 text-white flex flex-col flex-none min-h-0"
-      style={{ background: 'linear-gradient(180deg,#0f2236,#0b1726)', borderRight: '1px solid rgba(255,255,255,.06)' }}
+      style={{ background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))', borderRight: '1px solid rgba(255,255,255,.06)' }}
       aria-label="Txt sidebar"
     >
       <SidebarHeader title="Txt" onClose={onClose} onDesktopCollapse={onDesktopCollapse} />
@@ -627,7 +627,7 @@ export default function TxtV2Sidebar({
                           Assign ▾
                         </button>
                         {assignOpenId === c.id && (
-                          <div className="absolute left-0 top-full mt-1 w-44 max-h-56 overflow-y-auto bg-[#0F2E47] border border-white/15 rounded-md shadow-xl z-30">
+                          <div className="absolute left-0 top-full mt-1 w-44 max-h-56 overflow-y-auto bg-[var(--t-panel)] border border-white/15 rounded-md shadow-xl z-30">
                             {users.length === 0 && (
                               <div className="px-3 py-2 text-[11px] text-white/40">
                                 No teammates
@@ -838,7 +838,7 @@ function NewConversationModal({
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center px-4">
-      <div className="bg-[#0F2E47] border border-white/10 rounded-lg w-full max-w-md max-h-[80vh] flex flex-col">
+      <div className="bg-[var(--t-panel)] border border-white/10 rounded-lg w-full max-w-md max-h-[80vh] flex flex-col">
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
           <h2 className="font-medium">New conversation</h2>
           <button onClick={onClose} className="text-white/50 hover:text-white" aria-label="Close">×</button>

@@ -1136,7 +1136,7 @@ export default function TxtConversationView({
       {/* Header */}
       <div
         data-hide-on-keyboard
-        className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2 bg-[#0B2237]"
+        className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2 bg-[var(--t-panel-deep)]"
       >
         {isGroup ? (
           <div className="min-w-0 text-left">
@@ -1193,7 +1193,7 @@ export default function TxtConversationView({
                 : 'Unassigned'}
             </button>
             {assignOpen && (
-              <div className="absolute right-0 mt-1 w-56 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 max-h-80 overflow-y-auto">
+              <div className="absolute right-0 mt-1 w-56 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 max-h-80 overflow-y-auto">
                 {conversation.status === 'unassigned' && (
                   <button
                     onClick={() => assignTo(currentUserId)}
@@ -1244,7 +1244,7 @@ export default function TxtConversationView({
                 })()}
               </button>
               {numberPickerOpen && (
-                <div className="absolute right-0 mt-1 w-60 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 max-h-72 overflow-y-auto">
+                <div className="absolute right-0 mt-1 w-60 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 max-h-72 overflow-y-auto">
                   <button
                     type="button"
                     onClick={() => setFromNumber(null)}
@@ -1383,7 +1383,7 @@ export default function TxtConversationView({
                   <span className="hidden sm:inline">Suggest</span>
                 </button>
                 {suggestOpen && !suggestLoading && (
-                  <div className="absolute right-0 mt-1 w-44 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30">
+                  <div className="absolute right-0 mt-1 w-44 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30">
                     <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-white/40 border-b border-white/10">
                       Tone
                     </div>
@@ -1668,7 +1668,7 @@ export default function TxtConversationView({
         </div>
 
         {showNotes && (
-          <div className="hidden md:flex flex-col w-72 border-l border-white/10 bg-[#0B2237] min-h-0">
+          <div className="hidden md:flex flex-col w-72 border-l border-white/10 bg-[var(--t-panel-deep)] min-h-0">
             <div className="px-3 py-2 border-b border-white/10 text-xs text-amber-300">
               Internal notes (not sent to customer)
             </div>
@@ -1680,7 +1680,7 @@ export default function TxtConversationView({
       {/* Composer — only when the user can actually send (owner / member, or an
           unclaimed Queue thread). Non-participants get the Join panel below. */}
       {!isArchived && canComposeHere && (
-        <div className="border-t border-white/10 px-3 py-2 bg-[#0B2237]">
+        <div className="border-t border-white/10 px-3 py-2 bg-[var(--t-panel-deep)]">
           {sendError && (
             <div className="text-xs text-red-300 mb-1 px-1">{sendError}</div>
           )}
@@ -1789,7 +1789,7 @@ export default function TxtConversationView({
                 width (like the template picker) so they never run off-screen on
                 mobile. Triggered from the toolbar buttons below. */}
             {omwOpen && !isGroup && conversation.contact && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 p-2">
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 p-2">
                 <div className="text-[11px] text-white/50 px-1 pb-1.5">
                   On my way — pick an ETA
                 </div>
@@ -1830,7 +1830,7 @@ export default function TxtConversationView({
               </div>
             )}
             {scheduleOpen && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 p-3 max-h-[60vh] overflow-y-auto">
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 p-3 max-h-[60vh] overflow-y-auto">
                 <div className="text-[11px] text-white/50 pb-1.5">Schedule for later</div>
                 <input
                   type="datetime-local"
@@ -2058,7 +2058,7 @@ export default function TxtConversationView({
           claim it (becomes owner), which reveals the composer. Claiming is
           explicit; replying no longer silently claims. */}
       {!isArchived && !canComposeHere && isUnassigned && (
-        <div className="border-t border-white/10 px-4 py-3 bg-[#0B2237] flex items-center justify-between gap-3">
+        <div className="border-t border-white/10 px-4 py-3 bg-[var(--t-panel-deep)] flex items-center justify-between gap-3">
           <span className="text-sm text-white/50">
             Unclaimed conversation. Claim it to reply.
           </span>
@@ -2076,7 +2076,7 @@ export default function TxtConversationView({
           else. Reading is open to everyone; sending isn't. One click adds them
           as a member and reveals the composer. */}
       {!isArchived && !canComposeHere && !isUnassigned && (
-        <div className="border-t border-white/10 px-4 py-3 bg-[#0B2237] flex items-center justify-between gap-3">
+        <div className="border-t border-white/10 px-4 py-3 bg-[var(--t-panel-deep)] flex items-center justify-between gap-3">
           <span className="text-sm text-white/50">
             {conversation.assignee && conversation.assignee.id !== currentUserId
               ? `You're viewing ${conversation.assignee.display_name.split(' ')[0]}'s conversation. Join it to send a reply.`
@@ -2104,7 +2104,7 @@ export default function TxtConversationView({
       {/* Mobile notes overlay — the desktop rail is hidden on small screens, so
           on mobile the 📝 button opens this full-screen panel instead. */}
       {showNotes && (
-        <div className="md:hidden fixed inset-0 z-50 bg-[#0B2237] flex flex-col">
+        <div className="md:hidden fixed inset-0 z-50 bg-[var(--t-panel-deep)] flex flex-col">
           <div
             className="px-4 pb-3 border-b border-white/10 flex items-center justify-between"
             style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}
@@ -2130,7 +2130,7 @@ export default function TxtConversationView({
           onClick={() => setAddMemberOpen(false)}
         >
           <div
-            className="bg-[#0F2E47] border border-white/10 rounded-lg w-full max-w-xs max-h-[70vh] flex flex-col"
+            className="bg-[var(--t-panel)] border border-white/10 rounded-lg w-full max-w-xs max-h-[70vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">

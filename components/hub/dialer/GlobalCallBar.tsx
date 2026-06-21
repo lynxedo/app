@@ -253,7 +253,7 @@ export default function GlobalCallBar() {
           page. Reuses the existing ActiveCall component for keypad / transfer /
           audio-route, so it stays in lockstep with the /hub/dialer experience. */}
       {expanded && (
-        <div className="absolute top-full left-0 right-0 z-50 bg-[#0b2236] border-b border-white/10 shadow-2xl px-4 py-5 max-h-[70vh] overflow-y-auto">
+        <div className="absolute top-full left-0 right-0 z-50 bg-[var(--t-panel-deep)] border-b border-white/10 shadow-2xl px-4 py-5 max-h-[70vh] overflow-y-auto">
           <ActiveCall
             status={device.state === 'placing' ? 'placing' : 'in-call'}
             who={device.inCallWith}

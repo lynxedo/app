@@ -148,7 +148,7 @@ export default function AnnouncementAckGate() {
 
         <div className="flex-1 overflow-y-auto px-6 py-4 space-y-3">
           {pending.map((a) => (
-            <div key={a.id} className="bg-[#0F2D45] border border-white/10 rounded-xl p-4">
+            <div key={a.id} className="bg-[var(--t-panel)] border border-white/10 rounded-xl p-4">
               <p className="text-white whitespace-pre-wrap break-words">{a.content}</p>
               <div className="mt-3 flex justify-end">
                 <button

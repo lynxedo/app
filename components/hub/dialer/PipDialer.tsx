@@ -340,7 +340,7 @@ export default function PipDialer({ pipWindow }: { pipWindow: Window }) {
   }
 
   return createPortal(
-    <div className="min-h-screen w-full bg-[#0b2236] text-white px-4 py-4 flex flex-col font-sans">
+    <div className="min-h-screen w-full bg-[var(--t-panel-deep)] text-white px-4 py-4 flex flex-col font-sans">
       {body}
     </div>,
     pipWindow.document.body

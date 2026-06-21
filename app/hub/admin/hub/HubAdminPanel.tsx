@@ -1355,7 +1355,7 @@ Content-Type: application/json
         <div className="space-y-6">
           {/* Active announcement */}
           {activeAnnouncement && (
-            <div className="bg-[#0F2D45] border border-brand/40 rounded-2xl p-5">
+            <div className="bg-[var(--t-panel)] border border-brand/40 rounded-2xl p-5">
               <div className="flex items-start justify-between gap-4">
                 <div className="flex-1 min-w-0">
                   <div className="text-xs text-[#6FB3E8] font-semibold uppercase tracking-wider mb-1">📢 Active Announcement</div>

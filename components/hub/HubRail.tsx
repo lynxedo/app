@@ -446,7 +446,7 @@ export default function HubRail({
           <span className={`relative ${active === 'hub' ? 'text-sky-300' : ''}`}>
             <CatalogIcon id="hub" />
             {unreadHub && (
-              <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]" aria-label="Unread messages" />
+              <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[var(--t-rail)]" aria-label="Unread messages" />
             )}
           </span>
           <span>Hub</span>
@@ -467,7 +467,7 @@ export default function HubRail({
           <span className="relative">
             <CatalogIcon id="time-clock" />
             {isClockedIn && (
-              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#0a1f33] bg-emerald-500" aria-hidden="true" />
+              <span className="absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[var(--t-rail)] bg-emerald-500" aria-hidden="true" />
             )}
           </span>
           <span>Clock</span>
@@ -508,7 +508,7 @@ export default function HubRail({
           <span className={`relative ${active === 'txt2' ? 'text-sky-300' : ''}`}>
             <CatalogIcon id="txt2" />
             {txtUnread && active !== 'txt2' && (
-              <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]" aria-label="Unread texts" />
+              <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[var(--t-rail)]" aria-label="Unread texts" />
             )}
           </span>
           <span>Txt2</span>
@@ -531,10 +531,10 @@ export default function HubRail({
           <span className={`relative ${active === 'dialer' ? 'text-sky-300' : ''}`}>
             <CatalogIcon id="dialer" />
             {missedCall && active !== 'dialer' && (
-              <span className="absolute -top-0.5 -left-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]" aria-label="Missed call" />
+              <span className="absolute -top-0.5 -left-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[var(--t-rail)]" aria-label="Missed call" />
             )}
             {unheardVoicemails > 0 && (
-              <span className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 border-2 border-[#0a1f33] text-[9px] font-bold text-white flex items-center justify-center leading-none" aria-label={`${unheardVoicemails} unheard voicemail${unheardVoicemails === 1 ? '' : 's'}`}>
+              <span className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 border-2 border-[var(--t-rail)] text-[9px] font-bold text-white flex items-center justify-center leading-none" aria-label={`${unheardVoicemails} unheard voicemail${unheardVoicemails === 1 ? '' : 's'}`}>
                 {unheardVoicemails > 9 ? '9+' : unheardVoicemails}
               </span>
             )}
@@ -575,7 +575,7 @@ export default function HubRail({
         <span className={`relative ${isActive ? 'text-sky-300' : ''}`}>
           {entry.icon}
           {showDailyLogDot && (
-            <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[#0a1f33]" aria-label="New Daily Log updates" />
+            <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[var(--t-rail)]" aria-label="New Daily Log updates" />
           )}
         </span>
         <span className="truncate max-w-[58px]">{entry.label}</span>
@@ -701,7 +701,7 @@ export default function HubRail({
             ) : (
               firstInitial
             )}
-            <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[#0a1f33] ${statusColor}`} aria-hidden="true" />
+            <span className={`absolute -bottom-0.5 -right-0.5 w-2.5 h-2.5 rounded-full border-2 border-[var(--t-rail)] ${statusColor}`} aria-hidden="true" />
           </span>
           <span>You</span>
         </button>

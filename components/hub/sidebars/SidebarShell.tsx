@@ -123,7 +123,7 @@ export default function SidebarShell({
   return (
     <aside
       className="h-full w-72 text-white flex flex-col flex-none"
-      style={{ background: 'linear-gradient(180deg,#0f2236,#0b1726)', borderRight: '1px solid rgba(255,255,255,.06)' }}
+      style={{ background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))', borderRight: '1px solid rgba(255,255,255,.06)' }}
       aria-label={`${title} sidebar`}
     >
       <SidebarHeader title={title} action={action} onClose={onClose} onDesktopCollapse={onDesktopCollapse} />

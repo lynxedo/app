@@ -71,7 +71,7 @@ function ChartCanvas({ make, height = 240 }: { make: (canvas: HTMLCanvasElement)
 // ── Layout primitives ──
 function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
   return (
-    <div className={`relative overflow-hidden rounded-2xl border border-sky-400/12 bg-gradient-to-br from-[#0f2e47] to-[#1a3d5c] p-5 ${className}`}>
+    <div className={`relative overflow-hidden rounded-2xl border border-sky-400/12 bg-gradient-to-br from-[var(--t-panel)] to-[var(--t-sidebar)] p-5 ${className}`}>
       <span className="absolute inset-x-0 top-0 h-0.5 bg-gradient-to-r from-sky-500 via-sky-400 to-transparent" />
       {children}
     </div>
@@ -205,8 +205,8 @@ export default function Scoreboard5View({ meta }: { meta: ScoreboardMeta }) {
   const { data, error, reload } = useScoreboardData<Payload>(meta.slug)
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto bg-[#0b1929] text-slate-200">
-      <header className="flex items-center gap-3.5 border-b border-sky-400/15 bg-gradient-to-br from-[#0f2e47] to-[#1a3d5c] px-5 py-4 max-md:pl-14">
+    <div className="flex-1 min-h-0 overflow-y-auto bg-[var(--t-well)] text-slate-200">
+      <header className="flex items-center gap-3.5 border-b border-sky-400/15 bg-gradient-to-br from-[var(--t-panel)] to-[var(--t-sidebar)] px-5 py-4 max-md:pl-14">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-400 text-lg">🏢</div>
         <div>
           <div className="flex items-baseline gap-2.5">
