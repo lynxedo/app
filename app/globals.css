@@ -425,6 +425,84 @@ html.theme-heroesglass .t-sidebar-surface {
   backdrop-filter: blur(18px) saturate(140%);
 }
 
+/* ══ HYBRID · dark nav + light workspace (Eclipse / Cobalt / Pine) ════════════
+   Same shape as Heroes: light gray-scale remap for the workspace, dark sidebar,
+   and the .t-sidebar-surface scope re-asserts dark-mode text on the dark nav. */
+html.theme-eclipse, html.theme-cobalt, html.theme-pine {
+  --color-gray-950: #f6f8fb; --color-gray-900: #eef2f7; --color-gray-800: #e2e8f0;
+  --color-gray-700: #cbd5e1; --color-gray-600: #94a3b8; --color-gray-500: #64748b;
+  --color-gray-400: #475569; --color-gray-300: #334155; --color-gray-200: #1e293b;
+  --color-gray-100: #0f172a; --color-gray-50: #020617; --color-white: #1e293b;
+  --t-panel-deep: #edf2f7; --t-panel: #f1f5f9;
+}
+html.theme-eclipse { --t-rail:#0e1626; --t-well:#13203a; --t-sidebar:#16233b; --t-sidebar-hover:#1f3052; --t-accent:#4f46e5; --t-accent-hover:#4338ca; --t-accent-contrast:#fff; --t-heading:#c7d2fe; --t-heading-hover:#e0e7ff; }
+html.theme-cobalt  { --t-rail:#042a52; --t-well:#053a72; --t-sidebar:#0a4f8c; --t-sidebar-hover:#0e5ea8; --t-accent:#1277e0; --t-accent-hover:#0b5cb8; --t-accent-contrast:#fff; --t-heading:#bae0ff; --t-heading-hover:#dcefff; }
+html.theme-pine    { --t-rail:#0a1410; --t-well:#102218; --t-sidebar:#14241c; --t-sidebar-hover:#1d3528; --t-accent:#16a34a; --t-accent-hover:#15803d; --t-accent-contrast:#fff; --t-heading:#bbf7d0; --t-heading-hover:#dcfce7; }
+html.theme-eclipse .t-sidebar-surface, html.theme-cobalt .t-sidebar-surface, html.theme-pine .t-sidebar-surface {
+  --color-white:#fff; --color-gray-950:#030712; --color-gray-900:#111827; --color-gray-800:#1f2937; --color-gray-700:#374151; --color-gray-600:#4b5563; --color-gray-500:#6b7280; --color-gray-400:#9ca3af; --color-gray-300:#d1d5db; --color-gray-200:#e5e7eb; --color-gray-100:#f3f4f6; --color-gray-50:#f9fafb;
+}
+
+/* ══ HYBRID · light nav + dark workspace (Twilight / Daybreak / Sandstone) ═════
+   Workspace stays dark (default grays / white text); only the sidebar surfaces
+   go light, and their .t-sidebar-surface scope flips text dark on the light nav. */
+html.theme-twilight  { --t-rail:#e3e8f0; --t-well:#eef1f6; --t-sidebar:#eef1f6; --t-sidebar-hover:#dfe5ee; --t-panel-deep:#171b22; --t-panel:#1c2029; --t-accent:#f59e0b; --t-accent-hover:#d97706; --t-accent-contrast:#2a1a02; --t-heading:#b45309; --t-heading-hover:#92400e; }
+html.theme-daybreak  { --t-rail:#e6ebf1; --t-well:#f1f5f9; --t-sidebar:#f1f5f9; --t-sidebar-hover:#e2e8f0; --t-panel-deep:#171c26; --t-panel:#1d2532; --t-accent:#22d3ee; --t-accent-hover:#0891b2; --t-accent-contrast:#04252b; --t-heading:#0e7490; --t-heading-hover:#155e75; }
+html.theme-sandstone { --t-rail:#e6dccb; --t-well:#f0e7d9; --t-sidebar:#f0e7d9; --t-sidebar-hover:#e4d8c4; --t-panel-deep:#1f1814; --t-panel:#241d18; --t-accent:#ff5277; --t-accent-hover:#e83a60; --t-accent-contrast:#fff; --t-heading:#be123c; --t-heading-hover:#9f1239; }
+html.theme-twilight .t-sidebar-surface, html.theme-daybreak .t-sidebar-surface, html.theme-sandstone .t-sidebar-surface {
+  --color-white:#1e293b; --color-gray-950:#f6f8fb; --color-gray-900:#eef2f7; --color-gray-800:#e2e8f0; --color-gray-700:#cbd5e1; --color-gray-600:#94a3b8; --color-gray-500:#64748b; --color-gray-400:#475569; --color-gray-300:#334155; --color-gray-200:#1e293b; --color-gray-100:#0f172a; --color-gray-50:#020617;
+}
+
+/* ══ LIQUID GLASS · dark (Aurora / Nebula / Tide / Obsidian / Ember) ═══════════
+   Shared translucent surfaces + white text; each adds its own gradient + accent.
+   (Heroes Glass keeps its own block above; same recipe.) */
+html.theme-aurora, html.theme-nebula, html.theme-tide, html.theme-obsidian, html.theme-emberglass {
+  --color-gray-950: rgba(7,18,30,.5); --color-gray-900: rgba(255,255,255,.07); --color-gray-800: rgba(255,255,255,.12); --color-gray-700: rgba(255,255,255,.16); --color-white:#fff;
+  --t-rail: rgba(255,255,255,.05); --t-well: rgba(255,255,255,.09); --t-panel-deep: rgba(255,255,255,.05); --t-panel: rgba(255,255,255,.07); --t-sidebar: rgba(255,255,255,.08); --t-sidebar-hover: rgba(255,255,255,.14);
+}
+html.theme-aurora     { --t-accent:#c4a6ff; --t-accent-hover:#d3bbff; --t-accent-contrast:#1c1340; --t-heading:#e9ddff; --t-heading-hover:#f3ecff; }
+html.theme-nebula     { --t-accent:#ff9ad1; --t-accent-hover:#ffb1db; --t-accent-contrast:#3a0e2a; --t-heading:#ffd9ee; --t-heading-hover:#ffe9f5; }
+html.theme-tide       { --t-accent:#5eead4; --t-accent-hover:#7af0de; --t-accent-contrast:#04332a; --t-heading:#c7f9ee; --t-heading-hover:#e3fcf6; }
+html.theme-obsidian   { --t-accent:#7dd3fc; --t-accent-hover:#a5e0fd; --t-accent-contrast:#07293a; --t-heading:#cdeeff; --t-heading-hover:#e6f7ff; }
+html.theme-emberglass { --t-accent:#ffae6b; --t-accent-hover:#ffc089; --t-accent-contrast:#3a1c08; --t-heading:#ffdfc4; --t-heading-hover:#ffeede; }
+html.theme-aurora     .hub-root { background:linear-gradient(135deg,#3b1d6e 0%,#1e3a8a 52%,#0e7490 100%); }
+html.theme-nebula     .hub-root { background:linear-gradient(135deg,#6d214f 0%,#3b1d6e 50%,#1a1a4f 100%); }
+html.theme-tide       .hub-root { background:linear-gradient(135deg,#0f3443 0%,#134e5e 50%,#0a5f4a 100%); }
+html.theme-obsidian   .hub-root { background:linear-gradient(135deg,#23272e 0%,#1a1d24 50%,#0f1115 100%); }
+html.theme-emberglass .hub-root { background:linear-gradient(135deg,#4a1d2a 0%,#5e2417 50%,#2d1410 100%); }
+
+/* ══ LIQUID GLASS · light (Frost / Sherbet / Seafoam / Sky / Honey) ═══════════
+   Translucent light frost panels + dark text over a pastel gradient. */
+html.theme-frost, html.theme-sherbet, html.theme-seafoam, html.theme-sky, html.theme-honey {
+  --color-gray-950: rgba(255,255,255,.42); --color-gray-900: rgba(255,255,255,.62); --color-gray-800: rgba(255,255,255,.78);
+  --color-gray-700:#cbd5e1; --color-gray-600:#94a3b8; --color-gray-500:#64748b; --color-gray-400:#475569; --color-gray-300:#334155; --color-gray-200:#1e293b; --color-gray-100:#0f172a; --color-gray-50:#020617; --color-white:#1e293b;
+  --t-rail: rgba(255,255,255,.42); --t-well: rgba(255,255,255,.5); --t-panel-deep: rgba(255,255,255,.55); --t-panel: rgba(255,255,255,.6); --t-sidebar: rgba(255,255,255,.5); --t-sidebar-hover: rgba(255,255,255,.66);
+}
+html.theme-frost   { --t-accent:#6d28d9; --t-accent-hover:#5b21b6; --t-accent-contrast:#fff; --t-heading:#6d28d9; --t-heading-hover:#5b21b6; }
+html.theme-sherbet { --t-accent:#e8536f; --t-accent-hover:#d63d5b; --t-accent-contrast:#fff; --t-heading:#be123c; --t-heading-hover:#9f1239; }
+html.theme-seafoam { --t-accent:#0d9488; --t-accent-hover:#0b7d73; --t-accent-contrast:#fff; --t-heading:#0d9488; --t-heading-hover:#0b7d73; }
+html.theme-sky     { --t-accent:#2563eb; --t-accent-hover:#1d4ed8; --t-accent-contrast:#fff; --t-heading:#2563eb; --t-heading-hover:#1d4ed8; }
+html.theme-honey   { --t-accent:#d97706; --t-accent-hover:#b45309; --t-accent-contrast:#fff; --t-heading:#b45309; --t-heading-hover:#92400e; }
+html.theme-frost   .hub-root { background:linear-gradient(135deg,#dbe4ff 0%,#ecdcff 50%,#d6f0fb 100%); }
+html.theme-sherbet .hub-root { background:linear-gradient(135deg,#ffe4e6 0%,#ffe9d6 50%,#ffe0f0 100%); }
+html.theme-seafoam .hub-root { background:linear-gradient(135deg,#d8f3e8 0%,#d6f0fb 50%,#e4f7ec 100%); }
+html.theme-sky     .hub-root { background:linear-gradient(135deg,#dbeeff 0%,#e0e7ff 50%,#d6f0fb 100%); }
+html.theme-honey   .hub-root { background:linear-gradient(135deg,#fff4d6 0%,#fdebc8 50%,#fff0e0 100%); }
+
+/* Backdrop-blur for every glass theme (chrome + main content area). */
+html.theme-aurora .hub-main, html.theme-aurora .t-sidebar-surface,
+html.theme-nebula .hub-main, html.theme-nebula .t-sidebar-surface,
+html.theme-tide .hub-main, html.theme-tide .t-sidebar-surface,
+html.theme-obsidian .hub-main, html.theme-obsidian .t-sidebar-surface,
+html.theme-emberglass .hub-main, html.theme-emberglass .t-sidebar-surface,
+html.theme-frost .hub-main, html.theme-frost .t-sidebar-surface,
+html.theme-sherbet .hub-main, html.theme-sherbet .t-sidebar-surface,
+html.theme-seafoam .hub-main, html.theme-seafoam .t-sidebar-surface,
+html.theme-sky .hub-main, html.theme-sky .t-sidebar-surface,
+html.theme-honey .hub-main, html.theme-honey .t-sidebar-surface {
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
 /* Dark themes (other than Midnight): instead of inheriting Midnight's gold
    heading from :root, each tints its sidebar sub-headings with a light shade of
    its own accent — distinct per theme, still readable on dark (note #1). */
