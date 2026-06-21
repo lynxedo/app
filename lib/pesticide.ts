@@ -309,12 +309,21 @@ export async function createPesticideRecordFromJobberVisit(args: {
     tech_notes: null,
   }
 
-  // INSERT … ON CONFLICT (company_id, jobber_visit_id) DO NOTHING.
+  // Plain INSERT. The dedup key is a PARTIAL unique index
+  // (company_id, jobber_visit_id) WHERE jobber_visit_id IS NOT NULL — a plain
+  // PostgREST ON CONFLICT cannot target a partial index (Postgres 42P10), which
+  // silently dropped every record (test-findings #10, same shape as #6). Insert
+  // directly; a genuine duplicate (race with the DL V2 path) raises 23505, which
+  // we treat as "already logged."
   const { error } = await admin
     .from('pesticide_records')
-    .upsert(recordBody, { onConflict: 'company_id,jobber_visit_id', ignoreDuplicates: true })
+    .insert(recordBody)
   if (error) {
-    console.error('[pesticide] webhook record insert failed:', error.message)
+    // 23505 = unique violation: the DL V2 path already logged this visit. Any
+    // other error is a real failure worth surfacing (was masked by the upsert).
+    if (error.code !== '23505') {
+      console.error('[pesticide] webhook record insert failed:', error.message)
+    }
     return 'duplicate'
   }
   return 'created'
