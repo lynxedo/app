@@ -122,7 +122,7 @@ export default function SidebarShell({
 }) {
   return (
     <aside
-      className="h-full w-72 text-white flex flex-col flex-none"
+      className="t-sidebar-surface h-full w-72 text-white flex flex-col flex-none"
       style={{ background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))', borderRight: '1px solid rgba(255,255,255,.06)' }}
       aria-label={`${title} sidebar`}
     >

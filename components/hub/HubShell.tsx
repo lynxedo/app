@@ -305,7 +305,7 @@ export default function HubShell({
 
   // Theme class sync — same pattern as textSize above.
   // Server stamps the initial theme-* class; this effect only fires on live changes.
-  const THEME_NAMES = ['midnight','carbon','evergreen','slate','ember','mocha','daylight','linen','sage','arctic','blossom','graphite']
+  const THEME_NAMES = ['midnight','carbon','evergreen','slate','ember','mocha','daylight','linen','sage','arctic','blossom','graphite','heroes']
   const didMountTheme = useRef(false)
   useEffect(() => {
     if (!didMountTheme.current) {

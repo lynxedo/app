@@ -21,6 +21,7 @@ const THEME_DEFS = [
   { id: 'arctic',    label: 'Arctic',    accent: '#0d9488', dark: false },
   { id: 'blossom',   label: 'Blossom',   accent: '#7c3aed', dark: false },
   { id: 'graphite',  label: 'Graphite',  accent: '#3b6ea5', dark: false },
+  { id: 'heroes',    label: 'Heroes',    accent: '#007848', dark: true },
 ]
 
 const STATUS_OPTIONS: { value: Status; label: string; dot: string }[] = [

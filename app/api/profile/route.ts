@@ -71,7 +71,7 @@ export async function PUT(request: Request) {
   if (phone !== undefined) profileUpdates.phone = phone || null
   if (hub_text_size !== undefined) profileUpdates.hub_text_size = hub_text_size
   if (hub_theme !== undefined) {
-    const validThemes = ['midnight','carbon','evergreen','slate','ember','mocha','daylight','linen','sage','arctic','blossom','graphite']
+    const validThemes = ['midnight','carbon','evergreen','slate','ember','mocha','daylight','linen','sage','arctic','blossom','graphite','heroes']
     if (!validThemes.includes(hub_theme)) {
       return NextResponse.json({ error: 'invalid hub_theme' }, { status: 400 })
     }

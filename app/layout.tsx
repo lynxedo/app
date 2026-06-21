@@ -50,7 +50,7 @@ export default async function RootLayout({
     if (hub_text_size === 'small' || hub_text_size === 'large' || hub_text_size === 'default') {
       textSize = hub_text_size
     }
-    const validThemes = ['midnight','carbon','evergreen','slate','ember','mocha','daylight','linen','sage','arctic','blossom','graphite']
+    const validThemes = ['midnight','carbon','evergreen','slate','ember','mocha','daylight','linen','sage','arctic','blossom','graphite','heroes']
     if (data?.hub_theme && validThemes.includes(data.hub_theme)) {
       theme = data.hub_theme
     }

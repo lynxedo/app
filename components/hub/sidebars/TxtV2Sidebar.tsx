@@ -400,7 +400,7 @@ export default function TxtV2Sidebar({
 
   return (
     <aside
-      className="h-full w-72 text-white flex flex-col flex-none min-h-0"
+      className="t-sidebar-surface h-full w-72 text-white flex flex-col flex-none min-h-0"
       style={{ background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))', borderRight: '1px solid rgba(255,255,255,.06)' }}
       aria-label="Txt sidebar"
     >

@@ -341,6 +341,54 @@ html.theme-graphite {
   --t-accent-contrast: #ffffff;
 }
 
+/* ══ Heroes Lawn Care (brand: green #007848, blue #005894, gold #e6b252) ═══════
+   A HYBRID: dark Heroes-blue sidebar over a light workspace. The page uses the
+   light gray-scale remap (light work area, dark text); the sidebar then re-asserts
+   dark-mode text values within .t-sidebar-surface so its text stays light on the
+   dark blue. Green is the work-area accent (buttons/links); gold tints the sidebar
+   sub-headings. This is the first hybrid — pattern reused by Eclipse/Cobalt/Pine. */
+html.theme-heroes {
+  --color-gray-950:   #f4f8f6;
+  --color-gray-900:   #e8f1ec;
+  --color-gray-800:   #d7e6dd;
+  --color-gray-700:   #bdd0c6;
+  --color-gray-600:   #8aa99a;
+  --color-gray-500:   #5a7565;
+  --color-gray-400:   #3f5749;
+  --color-gray-300:   #2a3d33;
+  --color-gray-200:   #18261f;
+  --color-gray-100:   #0d1712;
+  --color-gray-50:    #040806;
+  --color-white:      #16261d;
+  --t-rail:           #003a63;
+  --t-well:           #004f82;
+  --t-panel-deep:     #edf4f0;
+  --t-panel:          #f4f8f6;
+  --t-sidebar:        #005894;
+  --t-sidebar-hover:  #0a6aa8;
+  --t-accent:         #007848;
+  --t-accent-hover:   #00633b;
+  --t-accent-contrast:#ffffff;
+  --t-heading:        #e6b252;
+  --t-heading-hover:  #f0c97a;
+}
+/* Re-assert dark-mode text values on the dark sidebar surface (un-remaps the
+   light gray scale just inside the sidebar). Reused by every dark-nav hybrid. */
+html.theme-heroes .t-sidebar-surface {
+  --color-white:    #ffffff;
+  --color-gray-950: #030712;
+  --color-gray-900: #111827;
+  --color-gray-800: #1f2937;
+  --color-gray-700: #374151;
+  --color-gray-600: #4b5563;
+  --color-gray-500: #6b7280;
+  --color-gray-400: #9ca3af;
+  --color-gray-300: #d1d5db;
+  --color-gray-200: #e5e7eb;
+  --color-gray-100: #f3f4f6;
+  --color-gray-50:  #f9fafb;
+}
+
 /* Dark themes (other than Midnight): instead of inheriting Midnight's gold
    heading from :root, each tints its sidebar sub-headings with a light shade of
    its own accent — distinct per theme, still readable on dark (note #1). */

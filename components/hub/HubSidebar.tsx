@@ -947,7 +947,7 @@ export default function HubSidebar({
 
   return (
     <>
-      <aside className="w-screen md:w-72 flex-none flex flex-col h-full" style={{ background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))' }}>
+      <aside className="t-sidebar-surface w-screen md:w-72 flex-none flex flex-col h-full" style={{ background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))' }}>
         {/* Workspace header */}
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
           <div className="font-bold text-white text-lg md:text-sm tracking-wide min-w-0 truncate">Hub</div>
