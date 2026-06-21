@@ -37,7 +37,9 @@ const STYLE: Record<AnnType, { icon: string; bg: string; border: string; text: s
     icon: '🎉',
     bg: 'bg-amber-500/10',
     border: 'border-amber-400/30',
-    text: 'text-amber-100',
+    // theme-aware: light cream on dark themes, dark amber on light themes
+    // (--t-shout-text in globals.css) so it stays readable everywhere
+    text: 'text-[var(--t-shout-text)]',
     ariaLabel: 'Shout out',
   },
 }

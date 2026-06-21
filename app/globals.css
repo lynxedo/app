@@ -110,9 +110,13 @@ html.theme-midnight {
   --t-accent-hover:    #2470a8;
   --t-accent-contrast: #ffffff;
   /* Sidebar section sub-headings (Favorites, Rooms, You, etc.). Gold reads well
-     on every dark theme; light themes override this to their accent below. */
+     on Midnight; other dark themes override to a light tint of their own accent
+     (note #1, Ben Jun 21); light themes override to their accent below. */
   --t-heading:         #fcd34d;
   --t-heading-hover:   #fde68a;
+  /* Shout-out ticker text — light cream on dark themes; light themes flip it to
+     a dark amber below so it stays readable (note #2, Ben Jun 21). */
+  --t-shout-text:      #fde68a;
 }
 
 /* ── Carbon — charcoal + violet ─────────────────────────────────────────────── */
@@ -337,13 +341,24 @@ html.theme-graphite {
   --t-accent-contrast: #ffffff;
 }
 
+/* Dark themes (other than Midnight): instead of inheriting Midnight's gold
+   heading from :root, each tints its sidebar sub-headings with a light shade of
+   its own accent — distinct per theme, still readable on dark (note #1). */
+html.theme-carbon    { --t-heading: #c4b5fd; --t-heading-hover: #ddd6fe; }
+html.theme-evergreen { --t-heading: #86efac; --t-heading-hover: #bbf7d0; }
+html.theme-slate     { --t-heading: #a5f3fc; --t-heading-hover: #cffafe; }
+html.theme-ember     { --t-heading: #fda4af; --t-heading-hover: #fecdd3; }
+html.theme-mocha     { --t-heading: #f3d29a; --t-heading-hover: #f9e3bf; }
+
 /* Light themes: the gold section-heading color from :root is too pale on light
    backgrounds, so each light theme tints its sidebar sub-headings with its own
-   accent instead (readable + theme-coordinated). */
+   accent instead (readable + theme-coordinated). Shout-out ticker text also
+   flips to a dark amber so it's not invisible on light backgrounds (note #2). */
 html.theme-daylight, html.theme-linen, html.theme-sage,
 html.theme-arctic, html.theme-blossom, html.theme-graphite {
   --t-heading:         var(--t-accent);
   --t-heading-hover:   var(--t-accent-hover);
+  --t-shout-text:      #92400e;
 }
 
 /* S/M/L text size — applied to <html> from server (hub_text_size).
