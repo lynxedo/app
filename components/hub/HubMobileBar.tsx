@@ -333,7 +333,7 @@ export default function HubMobileBar({
   return (
     <nav
       className={`md:hidden fixed bottom-0 left-0 right-0 z-30 flex items-stretch transition-transform duration-200 ${hidden ? 'translate-y-full' : 'translate-y-0'}`}
-      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)', background: 'linear-gradient(180deg,#0c1726,#0a1120)', borderTop: '1px solid rgba(255,255,255,.07)' }}
+      style={{ paddingBottom: 'env(safe-area-inset-bottom, 0)', background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))', borderTop: '1px solid rgba(255,255,255,.07)' }}
       aria-label="Hub bottom navigation"
     >
       {items.map((token, idx) => renderItem(token, idx))}

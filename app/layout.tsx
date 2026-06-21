@@ -41,6 +41,7 @@ export default async function RootLayout({
   // pages it served) are retired; everything lives in /hub now. We still read
   // the profile here for the global text-size class.
   let textSize: 'small' | 'default' | 'large' = 'default'
+  let theme = 'midnight'
 
   if (user) {
     // Shared, request-cached profile fetch — the Hub layout reuses the same row.
@@ -49,12 +50,16 @@ export default async function RootLayout({
     if (hub_text_size === 'small' || hub_text_size === 'large' || hub_text_size === 'default') {
       textSize = hub_text_size
     }
+    const validThemes = ['midnight','carbon','evergreen','slate','ember','mocha','daylight','linen','sage','arctic','blossom','graphite']
+    if (data?.hub_theme && validThemes.includes(data.hub_theme)) {
+      theme = data.hub_theme
+    }
   }
 
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased text-size-${textSize}`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased text-size-${textSize} theme-${theme}`}
     >
       <body className="min-h-full flex flex-col">
         {children}

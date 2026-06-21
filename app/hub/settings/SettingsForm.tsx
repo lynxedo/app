@@ -715,7 +715,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
                 }}
                 className="sr-only peer"
               />
-              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-red-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
+              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-red-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-[#ffffff] after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
             </label>
           </div>
           <p className="text-gray-400 text-sm mb-5">
@@ -757,7 +757,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
                 }}
                 className="sr-only peer"
               />
-              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
+              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-[#ffffff] after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
             </label>
           </div>
           <p className="text-gray-400 text-sm mb-5">
@@ -800,7 +800,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
                 }}
                 className="sr-only peer"
               />
-              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
+              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-[#ffffff] after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
             </label>
           </div>
           <p className="text-gray-400 text-sm mb-5">

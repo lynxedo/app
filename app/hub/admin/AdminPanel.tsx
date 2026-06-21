@@ -705,7 +705,7 @@ function UserRow({
                 onClick={() => onChange(user.id, key, !enabled)}
                 className={`relative w-9 h-5 rounded-full transition-colors focus:outline-none ${enabled ? 'bg-blue-600' : 'bg-gray-700'}`}
               >
-                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-[#ffffff] shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0'}`} />
               </button>
               <span className="text-sm text-gray-300">{label}</span>
             </label>
@@ -737,7 +737,7 @@ function UserRow({
                     onClick={() => !isAdminRole && onChange(user.id, key, !enabled)}
                     className={`relative w-9 h-5 rounded-full transition-colors focus:outline-none ${enabled ? 'bg-amber-500' : 'bg-gray-700'} ${isAdminRole ? 'cursor-default' : ''}`}
                   >
-                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-white shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                    <span className={`absolute top-0.5 left-0.5 w-4 h-4 rounded-full bg-[#ffffff] shadow transition-transform ${enabled ? 'translate-x-4' : 'translate-x-0'}`} />
                   </button>
                   <span className="text-sm text-gray-300">{label}</span>
                 </label>

@@ -150,6 +150,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     forms: !!profileResult.data?.can_admin_forms,
   }
   const initialTextSize = profileResult.data?.hub_text_size ?? 'default'
+  const initialTheme = profileResult.data?.hub_theme ?? 'midnight'
   const initialPinnedIds: string[] = profileResult.data?.hub_pinned_ids ?? []
   const legacyRailConfig = (profileResult.data?.rail_config ?? null) as null | {
     desktop?: (string | null)[]
@@ -321,6 +322,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         adminGrants={adminGrants}
         initialActiveAnnouncements={initialActiveAnnouncements}
         initialTextSize={initialTextSize}
+        initialTheme={initialTheme}
         initialPinnedIds={initialPinnedIds}
         initialIsClockedIn={initialIsClockedIn}
         initialLayout={initialLayout}

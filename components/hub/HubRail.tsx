@@ -388,10 +388,10 @@ export default function HubRail({
           title={room.name}
         >
           <ActiveBar show={isActive} />
-          <span className={`relative flex items-center justify-center w-5 h-5 rounded-md text-[11px] font-bold ${isActive ? 'bg-sky-400 text-[#0a1120]' : 'bg-white/15 text-white/80'}`}>
+          <span className={`relative flex items-center justify-center w-5 h-5 rounded-md text-[11px] font-bold ${isActive ? 'bg-sky-400 text-[var(--t-rail)]' : 'bg-white/15 text-white/80'}`}>
             {letter}
             {room.is_private && (
-              <span className="absolute -bottom-1 -right-1 flex items-center justify-center w-3 h-3 rounded-full bg-[#0a1120] text-white/85" aria-hidden="true"><LockIcon className="w-2 h-2" /></span>
+              <span className="absolute -bottom-1 -right-1 flex items-center justify-center w-3 h-3 rounded-full bg-[var(--t-rail)] text-white/85" aria-hidden="true"><LockIcon className="w-2 h-2" /></span>
             )}
           </span>
           <span className="truncate max-w-[58px]">{room.name}</span>
@@ -594,7 +594,7 @@ export default function HubRail({
   return (
     <nav
       className="hidden md:flex flex-col w-16 flex-none"
-      style={{ paddingTop: 'env(safe-area-inset-top, 0)', background: 'linear-gradient(180deg,#0b1626,#0a1120)', borderRight: '1px solid rgba(255,255,255,.06)' }}
+      style={{ paddingTop: 'env(safe-area-inset-top, 0)', background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))', borderRight: '1px solid rgba(255,255,255,.06)' }}
       aria-label="Hub navigation"
     >
       {/* Search */}

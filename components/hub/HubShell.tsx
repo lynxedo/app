@@ -57,6 +57,7 @@ export default function HubShell({
   adminGrants,
   initialActiveAnnouncements,
   initialTextSize,
+  initialTheme,
   initialPinnedIds,
   initialIsClockedIn,
   initialLayout,
@@ -118,6 +119,7 @@ export default function HubShell({
   }
   initialActiveAnnouncements?: Announcement[]
   initialTextSize?: string
+  initialTheme?: string
   initialPinnedIds?: string[]
   initialIsClockedIn?: boolean
   initialLayout?: HubLayout | null
@@ -231,6 +233,7 @@ export default function HubShell({
   const [showTimeClock, setShowTimeClock] = useState(false)
   const [showNotifPrefs, setShowNotifPrefs] = useState(false)
   const [textSize, setTextSize] = useState(initialTextSize ?? 'default')
+  const [theme, setTheme] = useState(initialTheme ?? 'midnight')
   const [liveStatus, setLiveStatus] = useState<string | null>(currentUserStatus ?? null)
   const [masterDndEnabled, setMasterDndEnabled] = useState<boolean>(initialMasterDndEnabled)
   const [hubDndEnabled, setHubDndEnabled] = useState<boolean>(initialHubDndEnabled)
@@ -299,6 +302,20 @@ export default function HubShell({
     html.classList.remove('text-size-small', 'text-size-default', 'text-size-large')
     html.classList.add(`text-size-${textSize}`)
   }, [textSize])
+
+  // Theme class sync — same pattern as textSize above.
+  // Server stamps the initial theme-* class; this effect only fires on live changes.
+  const THEME_NAMES = ['midnight','carbon','evergreen','slate','ember','mocha','daylight','linen','sage','arctic','blossom','graphite']
+  const didMountTheme = useRef(false)
+  useEffect(() => {
+    if (!didMountTheme.current) {
+      didMountTheme.current = true
+      return
+    }
+    const html = document.documentElement
+    html.classList.remove(...THEME_NAMES.map(t => `theme-${t}`))
+    html.classList.add(`theme-${theme}`)
+  }, [theme]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mirror keyboardOpen onto the body so CSS can react. Headers tagged with
   // data-hide-on-keyboard collapse on mobile when the composer is focused.
@@ -789,6 +806,8 @@ export default function HubShell({
             initialStatus={liveStatus}
             textSize={textSize}
             onTextSizeChange={setTextSize}
+            theme={theme}
+            onThemeChange={setTheme}
             onOpenNotifPrefs={() => setShowNotifPrefs(true)}
             onOpenActivity={() => { closeMobileDrawer(); setShowActivity(true) }}
             unreadActivity={unreadActivity}
@@ -940,7 +959,7 @@ export default function HubShell({
       {sidebarCollapsed && !pathname.startsWith('/hub/home') && (
         <button
           onClick={toggleSidebarCollapsed}
-          className="hidden md:flex fixed left-16 top-1/2 -translate-y-1/2 z-30 items-center justify-center w-5 h-12 bg-[#1A3D5C] hover:bg-[#22506F] border-y border-r border-white/10 rounded-r text-white/80 hover:text-white transition-colors"
+          className="hidden md:flex fixed left-16 top-1/2 -translate-y-1/2 z-30 items-center justify-center w-5 h-12 bg-[var(--t-sidebar)] hover:bg-[var(--t-sidebar-hover)] border-y border-r border-white/10 rounded-r text-white/80 hover:text-white transition-colors"
           aria-label="Show sidebar"
           title="Show sidebar"
         >

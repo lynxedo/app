@@ -17,12 +17,12 @@ const STATUS_OPTIONS: { value: Status; label: string; dot: string; description: 
 export function StatusDot({ status, onCall = false }: { status: string | null | undefined; onCall?: boolean }) {
   // On a phone call outranks every other state — a purple dot, shown anywhere a
   // user's presence renders (S2 of the Desktop Dialer Control work).
-  if (onCall) return <span className="w-2.5 h-2.5 rounded-full bg-purple-500 ring-1 ring-[#1A3D5C] flex-none" title="On a call" />
-  if (!status || status === 'available') return <span className="w-2.5 h-2.5 rounded-full bg-green-400 ring-1 ring-[#1A3D5C] flex-none" />
-  if (status === 'busy') return <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 ring-1 ring-[#1A3D5C] flex-none" />
-  if (status === 'dnd') return <span className="w-2.5 h-2.5 rounded-full bg-red-500 ring-1 ring-[#1A3D5C] flex-none" />
-  if (status === 'offline') return <span className="w-2.5 h-2.5 rounded-full bg-gray-500 ring-1 ring-[#1A3D5C] flex-none" />
-  return <span className="w-2.5 h-2.5 rounded-full bg-gray-500 ring-1 ring-[#1A3D5C] flex-none" />
+  if (onCall) return <span className="w-2.5 h-2.5 rounded-full bg-purple-500 ring-1 ring-[var(--t-sidebar)] flex-none" title="On a call" />
+  if (!status || status === 'available') return <span className="w-2.5 h-2.5 rounded-full bg-green-400 ring-1 ring-[var(--t-sidebar)] flex-none" />
+  if (status === 'busy') return <span className="w-2.5 h-2.5 rounded-full bg-yellow-400 ring-1 ring-[var(--t-sidebar)] flex-none" />
+  if (status === 'dnd') return <span className="w-2.5 h-2.5 rounded-full bg-red-500 ring-1 ring-[var(--t-sidebar)] flex-none" />
+  if (status === 'offline') return <span className="w-2.5 h-2.5 rounded-full bg-gray-500 ring-1 ring-[var(--t-sidebar)] flex-none" />
+  return <span className="w-2.5 h-2.5 rounded-full bg-gray-500 ring-1 ring-[var(--t-sidebar)] flex-none" />
 }
 
 export default function StatusPicker({

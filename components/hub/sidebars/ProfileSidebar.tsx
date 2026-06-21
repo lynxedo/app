@@ -8,6 +8,21 @@ import SidebarShell, { SidebarGroupHeader, SidebarLinkRow } from './SidebarShell
 
 type Status = 'available' | 'busy' | 'dnd' | null
 
+const THEME_DEFS = [
+  { id: 'midnight',  label: 'Midnight',  accent: '#2e7eb8', dark: true },
+  { id: 'carbon',    label: 'Carbon',    accent: '#7c6cf0', dark: true },
+  { id: 'evergreen', label: 'Evergreen', accent: '#2faa5f', dark: true },
+  { id: 'slate',     label: 'Slate',     accent: '#14b8c4', dark: true },
+  { id: 'ember',     label: 'Ember',     accent: '#e84d6b', dark: true },
+  { id: 'mocha',     label: 'Mocha',     accent: '#d4a24e', dark: true },
+  { id: 'daylight',  label: 'Daylight',  accent: '#2563eb', dark: false },
+  { id: 'linen',     label: 'Linen',     accent: '#d97706', dark: false },
+  { id: 'sage',      label: 'Sage',      accent: '#16a34a', dark: false },
+  { id: 'arctic',    label: 'Arctic',    accent: '#0d9488', dark: false },
+  { id: 'blossom',   label: 'Blossom',   accent: '#7c3aed', dark: false },
+  { id: 'graphite',  label: 'Graphite',  accent: '#3b6ea5', dark: false },
+]
+
 const STATUS_OPTIONS: { value: Status; label: string; dot: string }[] = [
   { value: 'available', label: 'Available', dot: 'bg-green-400' },
   { value: 'busy', label: 'Busy', dot: 'bg-yellow-400' },
@@ -23,6 +38,8 @@ export default function ProfileSidebar({
   initialStatus,
   textSize,
   onTextSizeChange,
+  theme,
+  onThemeChange,
   onOpenNotifPrefs,
   onOpenActivity,
   unreadActivity,
@@ -43,6 +60,8 @@ export default function ProfileSidebar({
   initialStatus: string | null
   textSize?: string
   onTextSizeChange?: (size: string) => void
+  theme?: string
+  onThemeChange?: (theme: string) => void
   onOpenNotifPrefs?: () => void
   onOpenActivity?: () => void
   unreadActivity?: number
@@ -171,6 +190,54 @@ export default function ProfileSidebar({
                   {size === 'small' ? 'S' : size === 'default' ? 'M' : 'L'}
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {onThemeChange && (
+        <div>
+          <SidebarGroupHeader>Theme</SidebarGroupHeader>
+          <div className="px-2 space-y-2">
+            <div>
+              <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1.5">Dark</p>
+              <div className="flex flex-wrap gap-1.5">
+                {THEME_DEFS.filter(t => t.dark).map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    title={t.label}
+                    onClick={() => {
+                      onThemeChange(t.id)
+                      fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_theme: t.id }) })
+                    }}
+                    className={`w-6 h-6 rounded-full transition-all flex-none ${
+                      theme === t.id ? 'ring-2 ring-white ring-offset-1 ring-offset-transparent scale-110' : 'opacity-60 hover:opacity-100'
+                    }`}
+                    style={{ background: t.accent }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1.5">Light</p>
+              <div className="flex flex-wrap gap-1.5">
+                {THEME_DEFS.filter(t => !t.dark).map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    title={t.label}
+                    onClick={() => {
+                      onThemeChange(t.id)
+                      fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_theme: t.id }) })
+                    }}
+                    className={`w-6 h-6 rounded-full transition-all flex-none border border-white/20 ${
+                      theme === t.id ? 'ring-2 ring-white ring-offset-1 ring-offset-transparent scale-110' : 'opacity-70 hover:opacity-100'
+                    }`}
+                    style={{ background: t.accent }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         </div>

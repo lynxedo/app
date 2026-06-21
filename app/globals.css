@@ -70,6 +70,269 @@ body {
   animation: marquee 18s linear infinite;
 }
 
+/* ─── Theme system ────────────────────────────────────────────────────────────
+   12 curated themes (6 dark, 6 light). The server stamps html.theme-{name} on
+   first paint (same pattern as text-size-*). HubShell manages live class
+   updates when the user switches themes in their profile sidebar.
+
+   Sidebar variable family (all themes):
+     --t-rail          leftmost nav strip (darkest in dark / slightly subdued in light)
+     --t-well          second strip layer
+     --t-panel-deep    deep panel / header backgrounds
+     --t-panel         main panel surfaces
+     --t-sidebar       full sidebar background
+     --t-sidebar-hover item hover state
+
+   Accent family (all themes):
+     --t-accent         primary interactive color (buttons, active states)
+     --t-accent-hover   hover / pressed variant
+     --t-accent-contrast text that sits on top of --t-accent
+
+   Light themes additionally remap the Tailwind gray scale so that
+     bg-gray-950 (page bg) → near-white
+   and override --color-white so that
+     text-white (primary text) → dark slate
+   without touching individual class instances in component files.
+   Toggle knob fills that must stay white use bg-[#ffffff] (literal hex) so
+   they are excluded from the CSS variable remapping.
+   ──────────────────────────────────────────────────────────────────────────── */
+
+/* ── Midnight — navy + blue (DEFAULT — all users start here) ───────────────── */
+:root,
+html.theme-midnight {
+  --t-rail:            #0a1120;
+  --t-well:            #0b1929;
+  --t-panel-deep:      #0b2237;
+  --t-panel:           #0f2e47;
+  --t-sidebar:         #1a3d5c;
+  --t-sidebar-hover:   #22506f;
+  --t-accent:          #2e7eb8;
+  --t-accent-hover:    #2470a8;
+  --t-accent-contrast: #ffffff;
+}
+
+/* ── Carbon — charcoal + violet ─────────────────────────────────────────────── */
+html.theme-carbon {
+  --t-rail:            #020305;
+  --t-well:            #050609;
+  --t-panel-deep:      #07080d;
+  --t-panel:           #090b10;
+  --t-sidebar:         #0b0d11;
+  --t-sidebar-hover:   #141619;
+  --t-accent:          #7c6cf0;
+  --t-accent-hover:    #6c5ce0;
+  --t-accent-contrast: #ffffff;
+}
+
+/* ── Evergreen — dark green + emerald ──────────────────────────────────────── */
+html.theme-evergreen {
+  --t-rail:            #020804;
+  --t-well:            #040c07;
+  --t-panel-deep:      #060f0a;
+  --t-panel:           #08110b;
+  --t-sidebar:         #0a1410;
+  --t-sidebar-hover:   #122018;
+  --t-accent:          #2faa5f;
+  --t-accent-hover:    #279051;
+  --t-accent-contrast: #ffffff;
+}
+
+/* ── Slate — blue-gray + teal ──────────────────────────────────────────────── */
+html.theme-slate {
+  --t-rail:            #050a0e;
+  --t-well:            #070e14;
+  --t-panel-deep:      #090f18;
+  --t-panel:           #0b121b;
+  --t-sidebar:         #0e151d;
+  --t-sidebar-hover:   #16202c;
+  --t-accent:          #14b8c4;
+  --t-accent-hover:    #10a0ab;
+  --t-accent-contrast: #ffffff;
+}
+
+/* ── Ember — warm dark + rose ──────────────────────────────────────────────── */
+html.theme-ember {
+  --t-rail:            #060404;
+  --t-well:            #090606;
+  --t-panel-deep:      #0c0807;
+  --t-panel:           #0f0a08;
+  --t-sidebar:         #100c0a;
+  --t-sidebar-hover:   #1e1614;
+  --t-accent:          #e84d6b;
+  --t-accent-hover:    #d4435f;
+  --t-accent-contrast: #ffffff;
+}
+
+/* ── Mocha — warm dark + gold ──────────────────────────────────────────────── */
+html.theme-mocha {
+  --t-rail:            #060504;
+  --t-well:            #090705;
+  --t-panel-deep:      #0c0906;
+  --t-panel:           #0f0b08;
+  --t-sidebar:         #120e0a;
+  --t-sidebar-hover:   #1e1810;
+  --t-accent:          #d4a24e;
+  --t-accent-hover:    #c09040;
+  --t-accent-contrast: #ffffff;
+}
+
+/* ══ Light themes ════════════════════════════════════════════════════════════
+   Gray scale is inverted (Tailwind's --color-gray-* custom properties) and
+   --color-white is remapped so text-white / bg-gray-950 etc. flip to light
+   equivalents automatically. Each theme additionally defines its sidebar +
+   accent family.
+   ═════════════════════════════════════════════════════════════════════════ */
+
+/* ── Daylight — white + blue ───────────────────────────────────────────────── */
+html.theme-daylight {
+  --color-gray-950:    #f8fafc;
+  --color-gray-900:    #f1f5f9;
+  --color-gray-800:    #e2e8f0;
+  --color-gray-700:    #cbd5e1;
+  --color-gray-600:    #94a3b8;
+  --color-gray-500:    #64748b;
+  --color-gray-400:    #475569;
+  --color-gray-300:    #334155;
+  --color-gray-200:    #1e293b;
+  --color-gray-100:    #0f172a;
+  --color-gray-50:     #020617;
+  --color-white:       #1e293b;
+  --t-rail:            #dde4ec;
+  --t-well:            #e8eef5;
+  --t-panel-deep:      #edf2f7;
+  --t-panel:           #f1f5f9;
+  --t-sidebar:         #f1f5f9;
+  --t-sidebar-hover:   #e2e8f0;
+  --t-accent:          #2563eb;
+  --t-accent-hover:    #1d4ed8;
+  --t-accent-contrast: #ffffff;
+}
+
+/* ── Linen — cream + amber ─────────────────────────────────────────────────── */
+html.theme-linen {
+  --color-gray-950:    #fdf9f5;
+  --color-gray-900:    #f7f0e6;
+  --color-gray-800:    #ede2d0;
+  --color-gray-700:    #dfd2be;
+  --color-gray-600:    #b09a80;
+  --color-gray-500:    #7d6a52;
+  --color-gray-400:    #5c4e3a;
+  --color-gray-300:    #3d3226;
+  --color-gray-200:    #261e14;
+  --color-gray-100:    #160e08;
+  --color-gray-50:     #090400;
+  --color-white:       #261e14;
+  --t-rail:            #d9ccba;
+  --t-well:            #e8dece;
+  --t-panel-deep:      #f0e8da;
+  --t-panel:           #f0e7d9;
+  --t-sidebar:         #f0e7d9;
+  --t-sidebar-hover:   #e4d8c4;
+  --t-accent:          #d97706;
+  --t-accent-hover:    #c06900;
+  --t-accent-contrast: #ffffff;
+}
+
+/* ── Sage — soft green ─────────────────────────────────────────────────────── */
+html.theme-sage {
+  --color-gray-950:    #f4f9f4;
+  --color-gray-900:    #eaf3ea;
+  --color-gray-800:    #d8e9d8;
+  --color-gray-700:    #c3d9c3;
+  --color-gray-600:    #8aab8a;
+  --color-gray-500:    #567856;
+  --color-gray-400:    #3b5a3b;
+  --color-gray-300:    #273d27;
+  --color-gray-200:    #162516;
+  --color-gray-100:    #0a120a;
+  --color-gray-50:     #030603;
+  --color-white:       #162516;
+  --t-rail:            #cddccd;
+  --t-well:            #dde9dd;
+  --t-panel-deep:      #e5ede5;
+  --t-panel:           #e9f1e9;
+  --t-sidebar:         #e9f1e9;
+  --t-sidebar-hover:   #d8e8d8;
+  --t-accent:          #16a34a;
+  --t-accent-hover:    #15803d;
+  --t-accent-contrast: #ffffff;
+}
+
+/* ── Arctic — crisp white + teal ───────────────────────────────────────────── */
+html.theme-arctic {
+  --color-gray-950:    #f4f9fa;
+  --color-gray-900:    #e8f3f5;
+  --color-gray-800:    #d4e8ea;
+  --color-gray-700:    #bcd9dd;
+  --color-gray-600:    #7aadb3;
+  --color-gray-500:    #3d7b82;
+  --color-gray-400:    #2a5c62;
+  --color-gray-300:    #1a3d42;
+  --color-gray-200:    #0e262a;
+  --color-gray-100:    #061417;
+  --color-gray-50:     #020809;
+  --color-white:       #0e262a;
+  --t-rail:            #c4d9dc;
+  --t-well:            #d5e5e7;
+  --t-panel-deep:      #deebec;
+  --t-panel:           #e8f1f2;
+  --t-sidebar:         #e8f1f2;
+  --t-sidebar-hover:   #d5e7e9;
+  --t-accent:          #0d9488;
+  --t-accent-hover:    #0b8076;
+  --t-accent-contrast: #ffffff;
+}
+
+/* ── Blossom — light + violet ──────────────────────────────────────────────── */
+html.theme-blossom {
+  --color-gray-950:    #faf6fe;
+  --color-gray-900:    #f3eaf9;
+  --color-gray-800:    #e6d8f3;
+  --color-gray-700:    #d5c3e8;
+  --color-gray-600:    #a888c8;
+  --color-gray-500:    #7a549e;
+  --color-gray-400:    #5b3d7c;
+  --color-gray-300:    #3d255a;
+  --color-gray-200:    #27133d;
+  --color-gray-100:    #160824;
+  --color-gray-50:     #07030f;
+  --color-white:       #27133d;
+  --t-rail:            #d5c3e6;
+  --t-well:            #e3d4f0;
+  --t-panel-deep:      #ece0f5;
+  --t-panel:           #f1eaf9;
+  --t-sidebar:         #f1eaf9;
+  --t-sidebar-hover:   #e5d8f2;
+  --t-accent:          #7c3aed;
+  --t-accent-hover:    #6d28d9;
+  --t-accent-contrast: #ffffff;
+}
+
+/* ── Graphite — neutral gray + steel blue ──────────────────────────────────── */
+html.theme-graphite {
+  --color-gray-950:    #f7f8f9;
+  --color-gray-900:    #eceef1;
+  --color-gray-800:    #dde0e5;
+  --color-gray-700:    #cdd1d8;
+  --color-gray-600:    #9aa0ad;
+  --color-gray-500:    #636b78;
+  --color-gray-400:    #464d59;
+  --color-gray-300:    #2c323d;
+  --color-gray-200:    #1a1f28;
+  --color-gray-100:    #0c0e13;
+  --color-gray-50:     #040508;
+  --color-white:       #1a1f28;
+  --t-rail:            #cdd1d8;
+  --t-well:            #d9dce2;
+  --t-panel-deep:      #e3e6ea;
+  --t-panel:           #eceef1;
+  --t-sidebar:         #eceef1;
+  --t-sidebar-hover:   #dde0e5;
+  --t-accent:          #3b6ea5;
+  --t-accent-hover:    #2f5a8c;
+  --t-accent-contrast: #ffffff;
+}
+
 /* S/M/L text size — applied to <html> from server (hub_text_size).
    Scales every rem-based size in the app: sidebar, settings, help, etc.
    Message bubbles get an additional explicit override in MessageFeed /
