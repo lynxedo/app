@@ -10,6 +10,7 @@ import HubMobileMore from './HubMobileMore'
 import AppLauncherPanel from './AppLauncherPanel'
 import LayoutEditor from './LayoutEditor'
 import HubActivityPanel from './HubActivityBell'
+import { THEME_IDS } from '@/lib/themes'
 import ToolsSidebar from './sidebars/ToolsSidebar'
 import LinksSidebar from './sidebars/LinksSidebar'
 import AdminSidebar from './sidebars/AdminSidebar'
@@ -305,7 +306,7 @@ export default function HubShell({
 
   // Theme class sync — same pattern as textSize above.
   // Server stamps the initial theme-* class; this effect only fires on live changes.
-  const THEME_NAMES = ['midnight','carbon','evergreen','slate','ember','mocha','daylight','linen','sage','arctic','blossom','graphite','heroes']
+  const THEME_NAMES = THEME_IDS
   const didMountTheme = useRef(false)
   useEffect(() => {
     if (!didMountTheme.current) {

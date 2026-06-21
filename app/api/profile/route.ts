@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isValidLayoutShape } from '@/lib/hub-layout'
+import { THEME_IDS } from '@/lib/themes'
 
 export async function GET() {
   const supabase = await createClient()
@@ -71,7 +72,7 @@ export async function PUT(request: Request) {
   if (phone !== undefined) profileUpdates.phone = phone || null
   if (hub_text_size !== undefined) profileUpdates.hub_text_size = hub_text_size
   if (hub_theme !== undefined) {
-    const validThemes = ['midnight','carbon','evergreen','slate','ember','mocha','daylight','linen','sage','arctic','blossom','graphite','heroes']
+    const validThemes = THEME_IDS
     if (!validThemes.includes(hub_theme)) {
       return NextResponse.json({ error: 'invalid hub_theme' }, { status: 400 })
     }

@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { getCurrentUser, getCurrentProfile } from "@/lib/supabase/current-user";
+import { THEME_IDS } from "@/lib/themes";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -50,7 +51,7 @@ export default async function RootLayout({
     if (hub_text_size === 'small' || hub_text_size === 'large' || hub_text_size === 'default') {
       textSize = hub_text_size
     }
-    const validThemes = ['midnight','carbon','evergreen','slate','ember','mocha','daylight','linen','sage','arctic','blossom','graphite','heroes']
+    const validThemes = THEME_IDS
     if (data?.hub_theme && validThemes.includes(data.hub_theme)) {
       theme = data.hub_theme
     }

@@ -5,24 +5,9 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import SidebarShell, { SidebarGroupHeader, SidebarLinkRow } from './SidebarShell'
+import { THEMES as THEME_DEFS } from '@/lib/themes'
 
 type Status = 'available' | 'busy' | 'dnd' | null
-
-const THEME_DEFS = [
-  { id: 'midnight',  label: 'Midnight',  accent: '#2e7eb8', dark: true },
-  { id: 'carbon',    label: 'Carbon',    accent: '#7c6cf0', dark: true },
-  { id: 'evergreen', label: 'Evergreen', accent: '#2faa5f', dark: true },
-  { id: 'slate',     label: 'Slate',     accent: '#14b8c4', dark: true },
-  { id: 'ember',     label: 'Ember',     accent: '#e84d6b', dark: true },
-  { id: 'mocha',     label: 'Mocha',     accent: '#d4a24e', dark: true },
-  { id: 'daylight',  label: 'Daylight',  accent: '#2563eb', dark: false },
-  { id: 'linen',     label: 'Linen',     accent: '#d97706', dark: false },
-  { id: 'sage',      label: 'Sage',      accent: '#16a34a', dark: false },
-  { id: 'arctic',    label: 'Arctic',    accent: '#0d9488', dark: false },
-  { id: 'blossom',   label: 'Blossom',   accent: '#7c3aed', dark: false },
-  { id: 'graphite',  label: 'Graphite',  accent: '#3b6ea5', dark: false },
-  { id: 'heroes',    label: 'Heroes',    accent: '#007848', dark: true },
-]
 
 const STATUS_OPTIONS: { value: Status; label: string; dot: string }[] = [
   { value: 'available', label: 'Available', dot: 'bg-green-400' },
