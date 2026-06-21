@@ -91,7 +91,7 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_access_call_log2', label: 'Call Log 2' },
   { key: 'can_access_scoreboards', label: 'Scoreboards (also assign boards in Admin → Scoreboards)' },
   { key: 'can_access_files', label: 'Files' },
-  { key: 'can_access_pesticide_records', label: 'Pesticide Records' },
+  { key: 'can_access_pesticide_records', label: 'Products Used' },
   { key: 'can_access_pricer', label: 'Pricer (staff quoting tool)' },
 ]
 

@@ -1351,14 +1351,14 @@ function StopRow({
             </div>
           )}
 
-          {/* Pesticide record link */}
+          {/* Products-used record link */}
           {stop.pesticide_record_id && (
             <a
               href={`/hub/pesticide-records/${stop.pesticide_record_id}`}
               onClick={e => e.stopPropagation()}
               className="block bg-emerald-500/5 border border-emerald-500/30 rounded px-3 py-2 text-xs text-emerald-200 hover:bg-emerald-500/10 transition-colors"
             >
-              🧪 Pesticide record on file →
+              🧪 Products used — view record →
             </a>
           )}
 

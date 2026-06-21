@@ -95,6 +95,9 @@ export async function GET(request: Request) {
   const { searchParams } = new URL(request.url)
   const from = searchParams.get('from')
   const to = searchParams.get('to')
+  // epa_only=1 → TDA pesticide-compliance export: only EPA-registered products.
+  // Default (all products) includes fertilizers and other non-EPA products.
+  const epaOnly = searchParams.get('epa_only') === '1'
 
   let query = supabase
     .from('pesticide_records')
@@ -111,7 +114,13 @@ export async function GET(request: Request) {
   const lines: string[] = [CSV_HEADERS.map(escapeCsv).join(',')]
 
   for (const r of (data ?? []) as RecordRow[]) {
-    const chemicals = Array.isArray(r.chemicals_applied) ? r.chemicals_applied : []
+    let chemicals = Array.isArray(r.chemicals_applied) ? r.chemicals_applied : []
+    // TDA export: keep only EPA-registered products; drop the record entirely
+    // if nothing qualifies (so fertilizer-only visits don't appear).
+    if (epaOnly) {
+      chemicals = chemicals.filter(c => (c.epa_registration_number ?? '').trim() !== '')
+      if (chemicals.length === 0) continue
+    }
     const w = r.weather ?? null
 
     if (chemicals.length === 0) {
@@ -163,7 +172,7 @@ export async function GET(request: Request) {
 
   const csv = lines.join('\r\n') + '\r\n'
   const dateRange = (from || to) ? `_${from ?? 'earliest'}_to_${to ?? 'latest'}` : ''
-  const filename = `pesticide-records${dateRange}.csv`
+  const filename = `${epaOnly ? 'tda-pesticide-records' : 'products-used'}${dateRange}.csv`
 
   return new NextResponse(csv, {
     headers: {

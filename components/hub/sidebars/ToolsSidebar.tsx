@@ -194,7 +194,7 @@ export default function ToolsSidebar({
           <>
             <ToolRow href="/hub/pages/company-news" iconId="company-news" label="Company News" onClose={onClose} />
             <ToolRow href="/hub/files" iconId="files" label="Files" onClose={onClose} />
-            <ToolRow href="/hub/pesticide-records" iconId="pesticide-records" label="Pesticide Records" prefixMatch onClose={onClose} />
+            <ToolRow href="/hub/pesticide-records" iconId="pesticide-records" label="Products Used" prefixMatch onClose={onClose} />
           </>
         )}
       </div>

@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import PesticideRecordsView from './PesticideRecordsView'
 
-export const metadata = { title: 'Pesticide Records' }
+export const metadata = { title: 'Products Used' }
 export const dynamic = 'force-dynamic'
 
 export default async function PesticideRecordsPage() {

@@ -68,7 +68,7 @@ const TOOL_CATALOG: Record<string, ToolDef> = {
   'tool:call-log2':     { id: 'tool:call-log2',     label: 'Call Log 2',      icon: '🤖', href: '/hub/call-log2',    prefixMatch: true },
   'tool:books':         { id: 'tool:books',         label: 'Books',           icon: '📊', href: '/books',            prefixMatch: true },
   'tool:fleet':         { id: 'tool:fleet',         label: 'Fleet',           icon: '🚛', href: '/hub/fleet',        prefixMatch: true },
-  'tool:pesticide-records': { id: 'tool:pesticide-records', label: 'Pesticide Records', icon: '🧪', href: '/hub/pesticide-records', prefixMatch: true },
+  'tool:pesticide-records': { id: 'tool:pesticide-records', label: 'Products Used', icon: '🧪', href: '/hub/pesticide-records', prefixMatch: true },
   'tool:marketing':     { id: 'tool:marketing',     label: 'Marketing – Social', icon: '📣', href: '/hub/marketing/social', prefixMatch: true },
   'tool:forms':         { id: 'tool:forms',         label: 'Forms',              icon: '📋', href: '/hub/forms',            prefixMatch: true },
 }
