@@ -9,6 +9,7 @@ import {
   type PriceChart, type BuilderRound, type ChartStatus,
   STATUS_LABELS, defaultBuilderSettings, productCostPerK, roundCostPerK,
   annualProductPerK, metricsAt, minutesPerK, slugifyProgramKey, pct,
+  DEFAULT_LABOR_RATE, DEFAULT_MIN_LOW, DEFAULT_MIN_HIGH, DEFAULT_LABOR_THRESHOLD,
 } from '@/lib/service-builder'
 
 type SeededRound = { id: string; program: string; round_label: string | null; product_ids: string[] }
@@ -292,14 +293,19 @@ export default function ServiceBuilderPanel({
             </div>
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
               <NumField label="Visits / year" value={active.visits} k={active.id} onSave={v => edit({ visits: v })} />
-              <NumField label="Labor rate ($/hr)" value={active.labor_rate} k={active.id} onSave={v => edit({ labor_rate: v })} />
-              <NumField label="Min/K (small)" value={active.min_low} k={active.id} onSave={v => edit({ min_low: v })} step="0.1" />
-              <NumField label="Min/K (large)" value={active.min_high} k={active.id} onSave={v => edit({ min_high: v })} step="0.1" />
-              <NumField label="Size threshold (K)" value={active.threshold} k={active.id} onSave={v => edit({ threshold: v })} />
+              <NumField label="Labor rate ($/hr)" value={active.labor_rate ?? DEFAULT_LABOR_RATE} k={active.id} onSave={v => edit({ labor_rate: v })} />
+              <NumField label="Min/K (small)" value={active.min_low ?? DEFAULT_MIN_LOW} k={active.id} onSave={v => edit({ min_low: v })} step="0.1" />
+              <NumField label="Min/K (large)" value={active.min_high ?? DEFAULT_MIN_HIGH} k={active.id} onSave={v => edit({ min_high: v })} step="0.1" />
+              <NumField label="Size threshold (K)" value={active.threshold ?? DEFAULT_LABOR_THRESHOLD} k={active.id} onSave={v => edit({ threshold: v })} />
               <NumField label="Base fee ($)" value={active.base_fee} k={active.id} onSave={v => edit({ base_fee: v })} />
               <NumField label="Price per K ($)" value={active.price_per_k} k={active.id} onSave={v => edit({ price_per_k: v })} step="0.5" />
               <NumField label="Tank gal / K" value={settings.tankGalPerK} k={active.id} onSave={v => editSettings({ tankGalPerK: v ?? 2 })} step="0.5" />
             </div>
+            {(active.labor_rate == null || active.min_low == null || active.min_high == null || active.threshold == null) && (
+              <p className="mt-2 text-xs text-amber-400">
+                Labor not set on this program — showing Heroes standard ({DEFAULT_LABOR_RATE}/hr, {DEFAULT_MIN_LOW}/{DEFAULT_MIN_HIGH} min/K, {DEFAULT_LABOR_THRESHOLD}K threshold). Edit a value to lock it in, or Publish to save these.
+              </p>
+            )}
           </div>
 
           {/* rounds */}
@@ -355,7 +361,7 @@ export default function ServiceBuilderPanel({
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <Stat k="Annual product / K" v={fmtMoney(annPerK)} />
             <Stat k="Avg product / round / K" v={fmtMoney(active.rounds?.length ? annPerK / active.rounds.length : 0)} />
-            <Stat k="Labor / K / visit" v={fmtMoney((minutesPerK(active, 1) / 60) * (active.labor_rate ?? 0))} />
+            <Stat k="Labor / K / visit" v={fmtMoney((minutesPerK(active, 1) / 60) * (active.labor_rate ?? DEFAULT_LABOR_RATE))} />
             <Stat k="Visits / year" v={String(active.visits ?? 0)} />
           </div>
 

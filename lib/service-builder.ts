@@ -18,6 +18,15 @@ import { costPer1000 } from '@/lib/products'
 // builder_settings.tankGalPerK so nothing is silently hardcoded.
 export const DEFAULT_TANK_GAL_PER_K = 2
 
+// Heroes' current labor standard (Master PRD §7.2), used as the fallback when a
+// chart hasn't set its own labor inputs — otherwise labor would compute to $0 and
+// silently inflate GP. An explicit 0 is respected (only null/undefined defaults).
+//   2.0 min/K at or below 15K, 1.5 min/K above 15K, $28/hr.
+export const DEFAULT_LABOR_RATE = 28
+export const DEFAULT_MIN_LOW = 2
+export const DEFAULT_MIN_HIGH = 1.5
+export const DEFAULT_LABOR_THRESHOLD = 15
+
 export type ChartStatus = 'draft' | 'published' | 'archived'
 
 export const STATUS_LABELS: Record<ChartStatus, string> = {
@@ -130,8 +139,10 @@ export function annualProductPerK(
 }
 
 export function minutesPerK(chart: Pick<PriceChart, 'threshold' | 'min_low' | 'min_high'>, sizeK: number): number {
-  const threshold = chart.threshold ?? 0
-  return sizeK <= threshold ? (chart.min_low ?? 0) : (chart.min_high ?? 0)
+  const threshold = chart.threshold ?? DEFAULT_LABOR_THRESHOLD
+  const low = chart.min_low ?? DEFAULT_MIN_LOW
+  const high = chart.min_high ?? DEFAULT_MIN_HIGH
+  return sizeK <= threshold ? low : high
 }
 
 export type SizeMetrics = {
@@ -157,7 +168,7 @@ export function metricsAt(
   const visits = chart.visits ?? 0
   const base = chart.base_fee ?? 0
   const perK = chart.price_per_k ?? 0
-  const laborRate = chart.labor_rate ?? 0
+  const laborRate = chart.labor_rate ?? DEFAULT_LABOR_RATE
 
   const annProduct = annualProductPerK(chart, productById, galPerK) * K
   const annLabor = (K * minutesPerK(chart, K)) / 60 * laborRate * visits
