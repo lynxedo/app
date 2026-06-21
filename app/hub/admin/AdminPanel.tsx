@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useToast, useConfirm } from '@/components/ui'
 
 type UserProfile = {
@@ -489,6 +489,45 @@ export default function AdminPanel({
         </div>
       </div>
 
+      {isSuperAdmin && <DevToolsCard />}
+
+    </div>
+  )
+}
+
+function DevToolsCard() {
+  const [isStaging, setIsStaging] = useState(false)
+  useEffect(() => {
+    setIsStaging(window.location.hostname.startsWith('staging.'))
+  }, [])
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+      <h2 className="font-semibold text-lg mb-1">Dev Tools</h2>
+      <p className="text-gray-500 text-sm mb-4">Admin-only. Switch the app between production and staging environments.</p>
+      <div className="flex items-center gap-4 flex-wrap">
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${isStaging ? 'bg-yellow-400' : 'bg-green-400'}`} />
+          <span className="text-sm text-gray-300">
+            Currently on: <span className="text-white font-medium">{isStaging ? 'Staging' : 'Production'}</span>
+          </span>
+        </div>
+        {isStaging ? (
+          <button
+            onClick={() => { window.location.href = 'https://lynxedo.com/hub' }}
+            className="px-4 py-2 bg-green-700 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Switch to Production
+          </button>
+        ) : (
+          <button
+            onClick={() => { window.location.href = 'https://staging.lynxedo.com/hub' }}
+            className="px-4 py-2 bg-yellow-700 hover:bg-yellow-600 text-white text-sm font-medium rounded-lg transition-colors"
+          >
+            Switch to Staging
+          </button>
+        )}
+      </div>
     </div>
   )
 }
