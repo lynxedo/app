@@ -1,6 +1,7 @@
 'use client'
 
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useRef } from 'react'
+import { createClient } from '@/lib/supabase/client'
 import { useToast, useConfirm } from '@/components/ui'
 
 type UserProfile = {
@@ -497,9 +498,29 @@ export default function AdminPanel({
 
 function DevToolsCard() {
   const [isStaging, setIsStaging] = useState(false)
+  const [switching, setSwitching] = useState(false)
+  const mounted = useRef(false)
+
   useEffect(() => {
+    mounted.current = true
     setIsStaging(window.location.hostname.startsWith('staging.'))
   }, [])
+
+  async function switchToStaging() {
+    setSwitching(true)
+    try {
+      const supabase = createClient()
+      const { data: { session } } = await supabase.auth.getSession()
+      if (session?.access_token && session?.refresh_token) {
+        const params = new URLSearchParams({ at: session.access_token, rt: session.refresh_token })
+        window.location.replace(`https://staging.lynxedo.com/auth/staging-handoff?${params}`)
+      } else {
+        window.location.replace('https://staging.lynxedo.com/hub')
+      }
+    } catch {
+      window.location.replace('https://staging.lynxedo.com/hub')
+    }
+  }
 
   return (
     <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
@@ -521,10 +542,11 @@ function DevToolsCard() {
           </button>
         ) : (
           <button
-            onClick={() => { window.location.replace('https://staging.lynxedo.com/hub') }}
-            className="px-4 py-2 bg-yellow-700 hover:bg-yellow-600 text-white text-sm font-medium rounded-lg transition-colors"
+            onClick={switchToStaging}
+            disabled={switching}
+            className="px-4 py-2 bg-yellow-700 hover:bg-yellow-600 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors"
           >
-            Switch to Staging
+            {switching ? 'Switching…' : 'Switch to Staging'}
           </button>
         )}
       </div>

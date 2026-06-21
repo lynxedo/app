@@ -83,14 +83,18 @@ function formatBytes(b: number) {
 }
 
 function Avatar({ sender }: { sender: Sender | null }) {
+  const [imgError, setImgError] = useState(false)
   if (!sender) return <div className="w-8 h-8 rounded-full bg-gray-700 flex-none" />
-  if (sender.avatar_url) return <img src={`/api/profile/avatar/${sender.id}`} alt="" className="w-8 h-8 rounded-full flex-none object-cover ring-1 ring-inset ring-white/10" />
   const initials = sender.display_name.slice(0, 2).toUpperCase()
-  return (
+  const initialsEl = (
     <div className={`w-8 h-8 rounded-full flex-none flex items-center justify-center text-xs font-bold text-white ring-1 ring-inset ring-white/15 ${sender.is_bot ? 'bg-gradient-to-br from-[#38bdf8] to-brand' : 'bg-gradient-to-br from-slate-500 to-slate-700'}`}>
       {initials}
     </div>
   )
+  if (sender.avatar_url && !imgError) {
+    return <img src={`/api/profile/avatar/${sender.id}`} alt="" className="w-8 h-8 rounded-full flex-none object-cover ring-1 ring-inset ring-white/10" onError={() => setImgError(true)} />
+  }
+  return initialsEl
 }
 
 // Layout constraints for chat image thumbnails — must match the CSS below.

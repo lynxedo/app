@@ -23,9 +23,9 @@ export async function GET(
     .single()
 
   const key = hubUser?.avatar_url
-  if (!key || key.startsWith('http')) {
-    return NextResponse.json({ error: 'No avatar' }, { status: 404 })
-  }
+  if (!key) return NextResponse.json({ error: 'No avatar' }, { status: 404 })
+  // Legacy Google/OAuth profile picture — redirect directly
+  if (key.startsWith('http')) return NextResponse.redirect(key)
 
   const url = await getSignedUrl(
     getR2Client(),
