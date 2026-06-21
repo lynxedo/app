@@ -164,19 +164,39 @@ async function upsertPesticideRecord(args: {
   }
 
   // No record tracked on the stop yet. If this stop has a Jobber visit, the
-  // VISIT_COMPLETE webhook may have already created a record for it — upsert on
-  // the (company_id, jobber_visit_id) dedup key so DL V2 ADOPTS and enriches it
-  // (DL V2 is the primary path: real arrival-time weather + technician). Stops
-  // without a Jobber visit (jobber_visit_id null) are excluded from the partial
-  // unique index, so a plain insert is correct there.
+  // VISIT_COMPLETE webhook may have already created a record for it — DL V2 is
+  // the primary path (real arrival-time weather + technician), so we ADOPT and
+  // enrich it. The dedup key is a PARTIAL unique index
+  // (company_id, jobber_visit_id) WHERE jobber_visit_id IS NOT NULL, which a
+  // plain PostgREST ON CONFLICT cannot target (Postgres 42P10) — that silently
+  // dropped every record (test-findings #10). So insert directly; on a 23505
+  // unique violation (webhook beat us to it) look up the existing record and
+  // UPDATE it in place. Stops without a Jobber visit fall through to the plain
+  // insert below (jobber_visit_id null is excluded from the partial index).
   if (stop.jobber_visit_id) {
-    const { data: upserted, error } = await admin
+    const { data: inserted, error } = await admin
       .from('pesticide_records')
-      .upsert(recordBody, { onConflict: 'company_id,jobber_visit_id' })
+      .insert(recordBody)
       .select('id')
       .single()
-    if (error || !upserted) return null
-    return upserted.id
+    if (!error && inserted) return inserted.id
+    if (error?.code === '23505') {
+      const { data: existing } = await admin
+        .from('pesticide_records')
+        .select('id')
+        .eq('company_id', entry.company_id)
+        .eq('jobber_visit_id', stop.jobber_visit_id)
+        .maybeSingle<{ id: string }>()
+      if (existing) {
+        const { error: updateError } = await admin
+          .from('pesticide_records')
+          .update(recordBody)
+          .eq('id', existing.id)
+        if (updateError) return null
+        return existing.id
+      }
+    }
+    return null
   }
 
   const { data: inserted, error } = await admin
