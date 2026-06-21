@@ -163,7 +163,7 @@ export default function PesticideRecordsView() {
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 md:p-8 text-center">
               <p className="text-gray-400 mb-2">No pesticide records in this range.</p>
               <p className="text-sm text-gray-500">
-                Records are created automatically when a Daily Log v2 stop is marked complete and any of its line items match a mapping configured in <Link href="/hub/admin/daily-log" className="text-sky-400 hover:underline">Daily Log Admin</Link>.
+                Records are created automatically when a visit is completed — either by marking a stop complete in <Link href="/hub/daily-log-v2" className="text-sky-400 hover:underline">Daily Log v2</Link> or when Jobber reports the visit complete — and any of its line items match a product in <Link href="/hub/admin/service-mapping" className="text-sky-400 hover:underline">Admin → Service Mapping</Link>.
               </p>
             </div>
           )}

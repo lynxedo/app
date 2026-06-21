@@ -157,7 +157,9 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   }
   const canAccessTracker = profileResult.data?.can_access_tracker ?? false
   const canAccessFiles = profileResult.data?.can_access_files ?? false
-  const canAccessPesticideRecords = profileResult.data?.can_access_pesticide_records ?? false
+  // Admins always have access (matches the page guard), so it shows in the nav
+  // for them instead of being reachable only by typing the URL.
+  const canAccessPesticideRecords = isAdmin || (profileResult.data?.can_access_pesticide_records ?? false)
   const canAccessHub = profileResult.data?.can_access_hub ?? false
   const canAccessCallLog = profileResult.data?.can_access_call_log ?? false
   const canAccessCallLog2 = profileResult.data?.can_access_call_log2 ?? false
