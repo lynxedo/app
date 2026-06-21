@@ -868,7 +868,7 @@ export default function HubShell({
 
   const shell = (
     <>
-    <div className="flex h-[100dvh] bg-gray-950 text-white overflow-hidden">
+    <div className="hub-root flex h-[100dvh] bg-gray-950 text-white overflow-hidden">
       {mobileDrawerOpen && (
         <div
           className="fixed left-0 right-0 top-0 z-40 bg-black/60 md:hidden"
@@ -971,7 +971,7 @@ export default function HubShell({
       )}
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+      <div className="hub-main flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {/* Mobile safe-area-top spacer — there is no top chrome anymore, so
             content would otherwise bleed under the iOS notch / Dynamic Island. */}
         <div

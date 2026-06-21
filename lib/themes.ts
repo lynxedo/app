@@ -33,7 +33,8 @@ export const THEMES: ThemeDef[] = [
   { id: 'blossom',   label: 'Blossom',   accent: '#7c3aed', dark: false, cat: 'Light' },
   { id: 'graphite',  label: 'Graphite',  accent: '#3b6ea5', dark: false, cat: 'Light' },
   // Heroes Lawn Care (brand)
-  { id: 'heroes',    label: 'Heroes',    accent: '#007848', dark: true,  cat: 'Heroes Lawn Care' },
+  { id: 'heroes',      label: 'Heroes',       accent: '#007848', dark: true, cat: 'Heroes Lawn Care' },
+  { id: 'heroesglass', label: 'Heroes Glass', accent: '#e6b252', dark: true, cat: 'Heroes Lawn Care' },
 ]
 
 export const THEME_IDS = THEMES.map(t => t.id)

@@ -389,6 +389,42 @@ html.theme-heroes .t-sidebar-surface {
   --color-gray-50:  #f9fafb;
 }
 
+/* ══ Heroes Glass — liquid-glass take on the brand (FIRST GLASS THEME) ═════════
+   Frosted, translucent, blurred panels floating over a blue→green brand
+   gradient. Three pieces: (1) the gradient lives on .hub-root (the app shell);
+   (2) panels are translucent via the gray-scale + --t-* remap below so the
+   gradient glows through; (3) the chrome (.t-sidebar-surface) and the main
+   content area (.hub-main) get backdrop-blur. Pattern reused by the other glass
+   themes (Aurora/Frost/etc.). ⚠ backdrop-filter is GPU work — check phone perf. */
+html.theme-heroesglass {
+  /* translucent panel scale: dark veil for the page, light frost for cards */
+  --color-gray-950: rgba(7,18,30,.55);
+  --color-gray-900: rgba(255,255,255,.07);
+  --color-gray-800: rgba(255,255,255,.12);
+  --color-gray-700: rgba(255,255,255,.16);
+  --color-white:    #ffffff;
+  --t-rail:           rgba(255,255,255,.05);
+  --t-well:           rgba(255,255,255,.09);
+  --t-panel-deep:     rgba(255,255,255,.05);
+  --t-panel:          rgba(255,255,255,.07);
+  --t-sidebar:        rgba(255,255,255,.08);
+  --t-sidebar-hover:  rgba(255,255,255,.14);
+  --t-accent:         #e6b252;
+  --t-accent-hover:   #f0c468;
+  --t-accent-contrast:#2a1f08;
+  --t-heading:        #ffe6a8;
+  --t-heading-hover:  #fff0cc;
+  --t-shout-text:     #ffe6a8;
+}
+html.theme-heroesglass .hub-root {
+  background: linear-gradient(135deg,#005894 0%,#00734f 55%,#00603a 100%);
+}
+html.theme-heroesglass .hub-main,
+html.theme-heroesglass .t-sidebar-surface {
+  -webkit-backdrop-filter: blur(18px) saturate(140%);
+  backdrop-filter: blur(18px) saturate(140%);
+}
+
 /* Dark themes (other than Midnight): instead of inheriting Midnight's gold
    heading from :root, each tints its sidebar sub-headings with a light shade of
    its own accent — distinct per theme, still readable on dark (note #1). */
