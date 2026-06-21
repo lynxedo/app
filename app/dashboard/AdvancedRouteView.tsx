@@ -48,6 +48,7 @@ interface RouteBatch {
   total_miles: number
   depot_lat: number | null
   depot_lng: number | null
+  tank_overrides: Record<string, number> | null
   sent_to_jobber_at: string | null
   sent_to_daily_log_at: string | null
   created_at: string
@@ -711,6 +712,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
           total_miles: optimized.reduce((s, v) => s + v.distanceKm, 0) / 1.609,
           depot_lat: depotCoord?.lat ?? null,
           depot_lng: depotCoord?.lng ?? null,
+          tank_overrides: tankOverrides.size ? Object.fromEntries(tankOverrides) : null,
         }),
       })
       const data = await res.json()
@@ -863,6 +865,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
           stops,
           predicted_drive_minutes: b.total_drive_minutes,
           predicted_onsite_minutes: b.total_onsite_minutes,
+          tank_overrides: b.tank_overrides ?? null,
         }),
       })
       const data = await res.json() as { stop_count?: number; action?: string; error?: string }

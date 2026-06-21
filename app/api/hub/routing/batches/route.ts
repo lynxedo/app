@@ -40,6 +40,7 @@ interface CreateBatchRequest {
   total_miles?: number
   depot_lat?: number | null
   depot_lng?: number | null
+  tank_overrides?: Record<string, number> | null  // product_id → tank_number (Part B), kept for the DL v2 loadout
 }
 
 // GET — list this company's holding-area batches (newest day first).
@@ -104,6 +105,7 @@ export async function POST(request: Request) {
       total_miles: body.total_miles ?? 0,
       depot_lat: body.depot_lat ?? null,
       depot_lng: body.depot_lng ?? null,
+      tank_overrides: body.tank_overrides ?? null,
     })
     .select('*')
     .single()

@@ -33,6 +33,7 @@ interface FromRouteRequest {
   stops: StopPayload[]
   predicted_drive_minutes?: number | null   // route total — for the Daily Log loadout header (Part D)
   predicted_onsite_minutes?: number | null  // route total — falls back to Σ stop duration_minutes
+  tank_overrides?: Record<string, number> | null  // product_id → tank_number, from the optimizer (Part B)
 }
 
 export async function POST(request: Request) {
@@ -99,9 +100,9 @@ export async function POST(request: Request) {
 
   // Route Capacity Part D — compute the tank loadout snapshot for this route and
   // store it on the entry. Daily Log V2 only displays it (never recomputes).
-  // Uses each product's default tank (service_products.tank_default); per-route
-  // tank overrides from Advanced Routing are a live planning aid and aren't
-  // carried into the saved snapshot in v1.
+  // The optimizer's per-route tank overrides (product_id → tank_number) are
+  // passed through so the saved snapshot keeps the same tank choices the user
+  // saw on screen; absent that, each product falls back to service_products.tank_default.
   const capacity = await loadCapacityData(admin, profile.company_id)
   const loadoutStops: RouteStopInput[] = body.stops.map(s => ({
     id: s.jobber_visit_id ?? s.client_name,
@@ -109,9 +110,16 @@ export async function POST(request: Request) {
     jobTitle: s.job_title ?? '',
     lineItemNames: Array.isArray(s.line_items) ? s.line_items.map(li => li.name) : [],
   }))
+  const tankOverrides = new Map<string, number>(
+    body.tank_overrides && typeof body.tank_overrides === 'object'
+      ? Object.entries(body.tank_overrides)
+          .map(([pid, tn]) => [pid, Number(tn)] as [string, number])
+          .filter(([, tn]) => Number.isFinite(tn))
+      : [],
+  )
   const computed = computeRouteLoadout(loadoutStops, {
     tanks: capacity.tanks, serviceProducts: capacity.serviceProducts, products: capacity.products,
-  })
+  }, tankOverrides)
   const onsiteFromStops = body.stops.reduce((sum, s) => sum + (s.duration_minutes ?? 0), 0)
   const routeLoadout = toStoredLoadout(computed, {
     predictedDriveMinutes: typeof body.predicted_drive_minutes === 'number' ? body.predicted_drive_minutes : null,
