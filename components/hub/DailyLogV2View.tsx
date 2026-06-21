@@ -4,6 +4,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { Spinner, EmptyState } from '@/components/ui'
+import { fmtQty, type StoredRouteLoadout } from '@/lib/route-capacity'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -93,6 +94,7 @@ type ServiceReport = {
 type Entry = {
   id: string
   log_date: string
+  created_by: string | null
   office_notes: string | null
   route_sheet_url: string | null
   route_sheet_name: string | null
@@ -101,6 +103,7 @@ type Entry = {
   tech: HubUser | null
   stops: Stop[]
   secondary_techs: HubUser[]
+  route_loadout: StoredRouteLoadout | null
 }
 
 type ApiResponse = {
@@ -532,6 +535,100 @@ export default function DailyLogV2View({
   )
 }
 
+// ── Route loadout header (Route Capacity Part D) ────────────────────────────────
+// Read-only display of the loadout snapshot written when the route was sent from
+// the Route Optimizer: predicted times, total sq ft, tank fill, products to mix.
+function fmtHrsMin(min: number | null | undefined): string | null {
+  if (min == null || min <= 0) return null
+  const h = Math.floor(min / 60), m = Math.round(min % 60)
+  return h > 0 ? `${h}h ${m}m` : `${m}m`
+}
+
+function RouteLoadoutHeader({ loadout }: { loadout: StoredRouteLoadout | null }) {
+  const [open, setOpen] = useState(true)
+  if (!loadout) return null
+
+  const drive = fmtHrsMin(loadout.predicted_drive_minutes)
+  const onsite = fmtHrsMin(loadout.predicted_onsite_minutes)
+  const hasProducts = loadout.products.length > 0
+  const hasTanks = loadout.tanks.length > 0
+  // Nothing useful to show (no times, no products, no tanks) — stay out of the way.
+  if (!drive && !onsite && !hasProducts && !hasTanks && loadout.total_sqft === 0) return null
+
+  return (
+    <div className="px-5 py-3 bg-sky-500/5 border-b border-gray-800">
+      <button onClick={() => setOpen(o => !o)} className="w-full flex items-center justify-between gap-3 text-left">
+        <span className="text-xs font-medium text-sky-300 flex items-center gap-2">
+          <span>{open ? '▾' : '▸'}</span> 🧪 Route Loadout
+        </span>
+        <span className="text-[11px] text-gray-400 flex items-center gap-2 flex-wrap justify-end">
+          {onsite && <span>⏱ {onsite} on-site</span>}
+          {drive && <span>🚗 {drive} drive</span>}
+          {loadout.total_sqft > 0 && <span>📐 {loadout.total_sqft.toLocaleString()} sq ft</span>}
+        </span>
+      </button>
+
+      {open && (
+        <div className="mt-3 space-y-3">
+          {hasTanks && (
+            <div className="space-y-2">
+              {loadout.tanks.map(t => {
+                const pct = t.fill_pct == null ? null : Math.round(t.fill_pct * 100)
+                const barPct = t.fill_pct == null ? 0 : Math.min(t.fill_pct, 1) * 100
+                return (
+                  <div key={t.tank_number}>
+                    <div className="flex items-center justify-between text-[11px] mb-1">
+                      <span className="text-gray-300">{t.label || `Tank ${t.tank_number}`}</span>
+                      <span className={t.overflow ? 'text-red-400 font-medium' : 'text-gray-400'}>
+                        {pct == null ? '—' : <>{pct}% · {Math.round(t.sqft_loaded).toLocaleString()} / {Math.round(t.sprayable_sqft ?? 0).toLocaleString()} sq ft{t.overflow ? ' · ⚠ refill' : ''}</>}
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-gray-800 overflow-hidden">
+                      <div className={`h-full ${t.overflow ? 'bg-red-500' : barPct > 80 ? 'bg-amber-500' : 'bg-green-600'}`} style={{ width: `${barPct}%` }} />
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {hasProducts ? (
+            <div className="overflow-x-auto">
+              <table className="w-full text-[11px]">
+                <thead>
+                  <tr className="text-gray-500 text-left border-b border-gray-800">
+                    <th className="py-1 pr-2 font-medium">Product</th>
+                    <th className="py-1 px-2 font-medium text-right">Amount</th>
+                    <th className="py-1 pl-2 font-medium">Tank</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {loadout.products.map(p => (
+                    <tr key={p.product_id} className="border-b border-gray-800/50">
+                      <td className="py-1 pr-2 text-white">{p.name}</td>
+                      <td className="py-1 px-2 text-right text-gray-300 whitespace-nowrap">{fmtQty(p.quantity)} {p.unit}</td>
+                      <td className="py-1 pl-2 text-gray-400">{p.tank ? `Tank ${p.tank}` : '—'}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          ) : !loadout.has_mappings ? (
+            <p className="text-[11px] text-gray-500">No product mappings configured — product amounts unavailable.</p>
+          ) : null}
+
+          {loadout.unmapped_line_items.length > 0 && (
+            <p className="text-[11px] text-gray-500">
+              <span className="text-amber-400">Unmapped:</span> {loadout.unmapped_line_items.slice(0, 6).join(', ')}
+              {loadout.unmapped_line_items.length > 6 ? `, +${loadout.unmapped_line_items.length - 6} more` : ''}
+            </p>
+          )}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── EntryCard ─────────────────────────────────────────────────────────────────
 
 function EntryCard({
@@ -592,24 +689,50 @@ function EntryCard({
 
   const [lightbox, setLightbox] = useState<{ items: LightboxItem[]; index: number } | null>(null)
 
+  // Route sheet lives in local state so an upload/replace reflects immediately
+  // (the parent re-fetches on the next poll, but this keeps the card in sync now).
+  const [routeSheet, setRouteSheet] = useState<{ url: string | null; name: string | null }>({
+    url: entry.route_sheet_url,
+    name: entry.route_sheet_name,
+  })
+  const [uploading, setUploading] = useState(false)
+  const [uploadError, setUploadError] = useState('')
+  const routeSheetInputRef = useRef<HTMLInputElement>(null)
+  const canEditRouteSheet = isAdmin || (entry.created_by != null && entry.created_by === currentUserId)
+
   function openRouteSheet() {
     // Open in the in-app viewer (MediaLightbox) — renders inside the logged-in Hub
     // webview, so it works on every platform including the iOS/Android apps. The old
     // window.open('', '_blank') gesture-popup returns null in the iOS Capacitor
     // webview, so the route sheet never opened there. HTML sheets render in an
     // iframe; PDFs render via pdf.js (canvas).
-    if (!entry.route_sheet_url) return
-    const isHtml = entry.route_sheet_url.endsWith('.html')
+    if (!routeSheet.url) return
+    const isHtml = routeSheet.url.endsWith('.html')
     const base = `/api/hub/daily-log/${entry.id}/route-sheet`
     setLightbox({
       items: [{
         type: isHtml ? 'html' : 'pdf',
         src: isHtml ? base : `${base}?inline=pdf`,
         downloadSrc: base,
-        filename: entry.route_sheet_name ?? 'Route Sheet',
+        filename: routeSheet.name ?? 'Route Sheet',
       }],
       index: 0,
     })
+  }
+
+  async function uploadRouteSheet(file: File) {
+    setUploading(true)
+    setUploadError('')
+    const fd = new FormData()
+    fd.append('file', file)
+    const res = await fetch(`/api/hub/daily-log/${entry.id}/upload`, { method: 'POST', body: fd })
+    const data = await res.json()
+    setUploading(false)
+    if (res.ok) {
+      setRouteSheet({ url: data.route_sheet_url, name: data.route_sheet_name })
+    } else {
+      setUploadError(data.error ?? 'Upload failed')
+    }
   }
 
   const stopsWithCoords = entry.stops.filter(s => s.lat != null && s.lng != null)
@@ -711,6 +834,9 @@ function EntryCard({
         </div>
       ) : null}
 
+      {/* Route loadout (Route Capacity Part D) — products, tanks, predicted times */}
+      <RouteLoadoutHeader loadout={entry.route_loadout} />
+
       {/* Map */}
       {hasMap && (
         <div className="border-b border-gray-800">
@@ -751,18 +877,52 @@ function EntryCard({
         )}
       </div>
 
-      {/* Route sheet link */}
-      {entry.route_sheet_url && (
-        <div className="px-5 py-3 bg-gray-900/50 border-t border-gray-800 text-xs">
+      {/* Route Sheet — mirrors Daily Log v1 (clickable card + Upload/Replace PDF) */}
+      <div className="px-5 py-3 bg-gray-900/50 border-t border-gray-800">
+        <div className="flex items-center justify-between mb-1.5">
+          <span className="text-xs font-semibold text-white/40 uppercase tracking-wider">Route Sheet</span>
+          {canEditRouteSheet && (
+            <button
+              onClick={() => routeSheetInputRef.current?.click()}
+              disabled={uploading}
+              className="text-xs text-brand hover:text-blue-300 transition-colors disabled:opacity-40"
+            >
+              {uploading ? 'Uploading…' : routeSheet.url ? 'Replace' : '+ Upload PDF'}
+            </button>
+          )}
+          <input
+            ref={routeSheetInputRef}
+            type="file"
+            accept=".pdf,application/pdf"
+            className="hidden"
+            onChange={e => {
+              const f = e.target.files?.[0]
+              if (f) uploadRouteSheet(f)
+              e.target.value = ''
+            }}
+          />
+        </div>
+        {uploadError && <p className="text-xs text-red-400 mb-1">{uploadError}</p>}
+        {routeSheet.url ? (
           <button
             type="button"
             onClick={openRouteSheet}
-            className="text-sky-400 hover:underline"
+            className="w-full text-left cursor-pointer flex items-center gap-2 px-3 py-2 bg-gray-800 hover:bg-gray-700/80 border border-gray-700 rounded-xl transition-colors group"
           >
-            📎 {entry.route_sheet_name ?? 'Route Sheet'}
+            <svg className="w-5 h-5 text-red-400 flex-none" fill="currentColor" viewBox="0 0 24 24">
+              <path d="M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zm-1 1.5L18.5 9H13V3.5zM12 14h-2v2h2v-2zm0-4h-2v3h2v-3z" />
+            </svg>
+            <span className="text-sm text-gray-300 group-hover:text-white truncate flex-1">
+              {routeSheet.name ?? 'Route Sheet'}
+            </span>
+            <svg className="w-3.5 h-3.5 text-gray-500 group-hover:text-gray-300 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+            </svg>
           </button>
-        </div>
-      )}
+        ) : (
+          <p className="text-sm text-gray-600 italic">No route sheet attached</p>
+        )}
+      </div>
 
       {isAdmin && (
         <div className="px-5 py-2 bg-gray-900/30 border-t border-gray-800 text-[10px] text-gray-600 uppercase tracking-wide">
@@ -1191,14 +1351,14 @@ function StopRow({
             </div>
           )}
 
-          {/* Pesticide record link */}
+          {/* Products-used record link */}
           {stop.pesticide_record_id && (
             <a
               href={`/hub/pesticide-records/${stop.pesticide_record_id}`}
               onClick={e => e.stopPropagation()}
               className="block bg-emerald-500/5 border border-emerald-500/30 rounded px-3 py-2 text-xs text-emerald-200 hover:bg-emerald-500/10 transition-colors"
             >
-              🧪 Pesticide record on file →
+              🧪 Products used — view record →
             </a>
           )}
 

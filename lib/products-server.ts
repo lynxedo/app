@@ -21,8 +21,9 @@ export async function loadProductsData(admin: SupabaseClient, companyId: string)
   const [products, categories, locations] = await Promise.all([
     admin
       .from('products')
-      .select('*, product_variants(*), product_location_inventory(*)')
+      .select('*, product_location_inventory(*)')
       .eq('company_id', companyId)
+      .is('deleted_at', null)
       .order('name', { ascending: true }),
     admin
       .from('product_categories')
@@ -78,7 +79,7 @@ export function boolOr(v: unknown, def: boolean): boolean {
   return typeof v === 'boolean' ? v : def
 }
 
-const RATE_BASES = ['per_1000sqft', 'per_gallon', 'per_tree', 'other']
+const RATE_BASES = ['per_1000sqft', 'per_gallon']
 export function rateBasisOr(v: unknown, def = 'per_1000sqft'): string | { err: string } {
   if (v === undefined || v === null || v === '') return def
   if (typeof v === 'string' && RATE_BASES.includes(v)) return v

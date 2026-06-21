@@ -70,21 +70,25 @@ export type Product = {
   description: string | null
   package_price: number | null  // cost per package (from invoices)
   package_size: number | null   // container size, in `unit`
-  unit: string | null           // unit shared by package_size AND each variant's rate
+  unit: string | null           // unit shared by package_size AND application_rate
+  application_rate: number | null // amount of `unit` applied per the rate_basis (flat model)
+  rate_basis: RateBasis          // 'per_1000sqft' | 'per_gallon'
   epa_reg_number: string | null
   active_ingredient: string | null
+  label_url: string | null       // link to the official EPA / SDS label PDF
   notes: string | null
   batch_number: string | null
   batch_date: string | null
+  reorder_threshold: number | null  // low-stock alert level, in packages (Session 10)
   is_active: boolean
   sort_order: number
+  deleted_at: string | null
   created_at: string
   updated_at: string
 }
 
-// Item joined with its sub-items + per-location inventory — the shape the admin grid renders.
+// Item joined with its per-location inventory — the shape the admin grid renders.
 export type ProductWithDetail = Product & {
-  variants: ProductVariant[]
   inventory: ProductLocationInventory[]
 }
 

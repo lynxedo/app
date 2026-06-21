@@ -66,6 +66,9 @@ const TABS = [
   { id: 'marketing',    icon: '📣', label: 'Marketing' },
   { id: 'forms',        icon: '📝', label: 'Forms' },
   { id: 'products',     icon: '📦', label: 'Products' },
+  { id: 'service-builder', icon: '🧮', label: 'Service Builder' },
+  { id: 'service-mapping', icon: '🔗', label: 'Service Mapping' },
+  { id: 'pricer',       icon: '🧾', label: 'Pricer' },
   { id: 'scoreboards',  icon: '🏆', label: 'Scoreboards' },
   { id: 'books',        icon: '📊', label: 'Books' },
   { id: 'timesheet',    icon: '🕐', label: 'Timesheet' },
@@ -98,6 +101,9 @@ const TAB_BODY: Record<TabId, () => ReactNode> = {
   'marketing': MarketingTab,
   'forms': FormsTab,
   'products': ProductsTab,
+  'service-builder': ServiceBuilderTab,
+  'service-mapping': ServiceMappingTab,
+  'pricer': PricerTab,
   'scoreboards': ScoreboardsTab,
   'books': BooksTab,
   'timesheet': TimesheetTab,
@@ -372,6 +378,9 @@ export default function HelpContent() {
             {activeTab === 'marketing'  && <MarketingTab />}
             {activeTab === 'forms'      && <FormsTab />}
             {activeTab === 'products'    && <ProductsTab />}
+            {activeTab === 'service-builder' && <ServiceBuilderTab />}
+            {activeTab === 'service-mapping' && <ServiceMappingTab />}
+            {activeTab === 'pricer'      && <PricerTab />}
             {activeTab === 'scoreboards' && <ScoreboardsTab />}
             {activeTab === 'books'       && <BooksTab />}
             {activeTab === 'timesheet'  && <TimesheetTab />}
@@ -741,8 +750,12 @@ function HubTab() {
       <Section title="Daily Log v2 (preview)">
         <p>A new tech-facing view of the day&apos;s work, available at <Link href="/hub/daily-log-v2" className="text-sky-400 hover:underline">/hub/daily-log-v2</Link>. The original Daily Log keeps working unchanged — both run in parallel while v2 is iterating.</p>
         <p>What&apos;s different: instead of one text-based card with office instructions and tech updates, v2 shows the day&apos;s <strong className="text-white">stops as an ordered list</strong> with customer names, addresses, scheduled times, and line items. A map at the top of each entry shows the route with numbered pins.</p>
-        <p><strong className="text-white">How stops get there:</strong> open the <Link href="/hub/routing" className="text-orange-400 hover:text-orange-300">Route Optimizer</Link>, build a route, then click the new <strong className="text-sky-300">Send to Daily Log</strong> button (blue, next to Send Order Only and Send with Times). The stops queue up under the target tech&apos;s entry for that day. If an entry doesn&apos;t exist yet it&apos;s created; if one already exists with office instructions, those stay — only stops get added or replaced.</p>
+        <p><strong className="text-white">How stops get there:</strong> open the <Link href="/hub/routing" className="text-orange-400 hover:text-orange-300">Route Optimizer</Link>, build a route, then click the new <strong className="text-sky-300">Send to Daily Log</strong> button (blue, next to Send Day + Team and Send with Times). The stops queue up under the target tech&apos;s entry for that day. If an entry doesn&apos;t exist yet it&apos;s created; if one already exists with office instructions, those stay — only stops get added or replaced.</p>
         <p>You can run <em>Send to Daily Log</em> independently of the Jobber sends. Sending it doesn&apos;t change anything in Jobber. Re-running it after re-optimizing replaces the stops list with the new order.</p>
+
+        <p className="mt-4"><strong className="text-white">🧪 Route Loadout header:</strong> when a route is sent from the Advanced Route Optimizer, a collapsible loadout panel appears near the top of the tech&apos;s day (under Office Instructions). It shows the route&apos;s <strong className="text-white">predicted on-site + drive time</strong>, <strong className="text-white">total square footage</strong>, <strong className="text-white">tank fill bars</strong> (with a red ⚠ refill flag if a route overflows a tank), and the <strong className="text-white">amount of each product to mix</strong> and which tank it goes in — so the crew can load the truck before they roll. It&apos;s a snapshot taken at send time; product amounts appear once line items are mapped to products in <Link href="/hub/admin/service-mapping" className="text-orange-400 hover:text-orange-300">Admin → Service Mapping</Link>.</p>
+
+        <p className="mt-4"><strong className="text-white">📎 Route Sheet (print / save as PDF):</strong> just like the original Daily Log, sending a route from the optimizer attaches a printable route sheet to the entry. It appears in a <strong className="text-white">Route Sheet</strong> section at the bottom of the day&apos;s card — tap it to open the full sheet (map, stop list, and per-stop line items) in the in-app viewer, then use its <strong className="text-white">Print / Save as PDF</strong> button for a printed copy. You can also <strong className="text-white">+ Upload PDF</strong> (or <strong className="text-white">Replace</strong>) to attach your own route-sheet PDF.</p>
 
         <p className="mt-4"><strong className="text-white">Tap a stop</strong> to expand it. The detail panel shows:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
@@ -774,17 +787,20 @@ function HubTab() {
 
         <p className="mt-4"><strong className="text-white">Weather snapshot</strong> — when you tap <em>Mark Complete</em>, the app calls the National Weather Service ({/* eslint-disable-next-line @next/next/no-html-link-for-pages */}<a href="https://api.weather.gov" target="_blank" rel="noopener noreferrer" className="text-sky-400 hover:underline">api.weather.gov</a>) for the current observed conditions at the stop&apos;s coordinates and stamps temperature, conditions, wind, and humidity onto the record. The data shows up in the expanded detail panel as <em className="text-gray-300">&ldquo;Weather at completion · 78°F · Partly Cloudy · Wind 8 mph · Humidity 64%&rdquo;</em>. NWS is free, no key, US-only — when it&apos;s slow or down the stop still marks complete fine, weather is just null. The snapshot is also attached to the pesticide application record (below) for TDA compliance.</p>
 
-        <p className="mt-4"><strong className="text-white">Pesticide records</strong> — for any stop with a chemical line item (e.g. <em>&ldquo;Fire Ant Treatment&rdquo;</em>, <em>&ldquo;Weed &amp; Feed&rdquo;</em>), Mark Complete also creates a <Link href="/hub/pesticide-records" className="text-sky-400 hover:underline">pesticide application record</Link> capturing application time, location, customer, applicator, chemicals (with EPA registration #), and weather. Required for TDA compliance. If a record was created you&apos;ll see a green <em>🧪 Pesticide record on file →</em> link in the detail panel. Reopen and re-complete keeps the existing record (records are never deleted to clean up). What triggers a record is the line-item mapping admins maintain under Daily Log Admin — see <Link href="/hub/pesticide-records" className="text-sky-400 hover:underline">Pesticide Records</Link> tab for the full list view + CSV export.</p>
+        <p className="mt-4"><strong className="text-white">Products Used log</strong> — for any stop with a line item that maps to a product (a pesticide like <em>&ldquo;Fire Ant Treatment&rdquo;</em> <strong>or</strong> a fertilizer like <em>&ldquo;Soil Revive&rdquo;</em>), Mark Complete also writes a <Link href="/hub/pesticide-records" className="text-sky-400 hover:underline">Products Used record</Link> capturing application time, location, customer, applicator, the products used, and weather. EPA registration # and active ingredient are recorded when the product has them (fertilizers simply have none). The EPA-registered subset is what you file for TDA compliance. Reopen and re-complete keeps the existing record (records are never deleted to clean up). What gets logged is the <strong className="text-white">Service Mapping</strong> line-item → product map admins maintain — see the <Link href="/hub/pesticide-records" className="text-sky-400 hover:underline">Products Used</Link> tab for the full list + CSV exports.</p>
+
+        <p className="mt-4"><strong className="text-white">Two paths, one record.</strong> A record is created whether a visit is completed in <strong className="text-white">Daily Log v2</strong> <em>or</em> directly in Jobber — when a Jobber visit is marked complete, a webhook creates the same kind of record automatically. Both paths read the same Service Mapping and write to the same place, deduped per Jobber visit, so you never get two records for one visit. Daily Log v2 is the richer source (it captures the technician and the weather at the moment of arrival); the Jobber path fills in any visit completed outside the app (weather there is best-effort from the property address, and the applicator name may be blank).</p>
 
         <AdminOnly>
-          <p className="mt-4"><strong className="text-white">Pesticide line-item mappings</strong> live at <strong>/admin/daily-log</strong> in the same admin page as completion notifications. Each mapping has a <em>match text</em> (case-insensitive contains or exact, against the Jobber line-item name), <em>chemical name</em>, <em>EPA registration #</em>, <em>active ingredients</em>, <em>target pests</em>, and <em>application rate</em>. When a stop is completed, every line item on the visit is checked against every active mapping; matches roll into the record&apos;s <em>chemicals_applied</em> list (one entry per match). Disable a mapping with the <em>Disable</em> button to stop it from triggering new records — existing records stay intact.</p>
+          <p className="mt-4"><strong className="text-white">What gets logged</strong> is driven by the <strong className="text-white">Service Mapping → Line-Item Map</strong> (<strong>Admin → Service Mapping</strong>). Map a Jobber line item (case-insensitive contains or exact) to one or more <strong className="text-white">products</strong> — <strong className="text-white">map every product you want logged, including fertilizers</strong>, not just EPA pesticides. The details on the record — name, EPA registration # (if any), active ingredient, application rate, batch # — are pulled live from each mapped product in the Products catalog (no re-typing). When a visit completes, every line item is checked against every active mapping; matches roll into the record&apos;s products-used list (one entry per matched product). Set a product&apos;s mapping inactive to stop it logging new records — existing records stay intact. <em>(The old per-line-item pesticide mapping screen under Daily Log Admin is retired — mappings now live in Service Mapping, the single source the route-capacity tool also reads.)</em></p>
         </AdminOnly>
       </Section>
 
-      <Section title="Pesticide Records">
-        <p>Available at <Link href="/hub/pesticide-records" className="text-sky-400 hover:underline">/hub/pesticide-records</Link>. Auto-generated TDA-compliance records for any pesticide application captured via Daily Log v2. Filter by date range or search by customer / address / technician. Each row shows the customer, application time, applicator, chemicals applied (with EPA numbers), and the weather snapshot at completion. Tap a row for the full detail view.</p>
-        <p><strong className="text-white">Export CSV</strong> — the button in the top-right downloads all visible records in TDA-friendly CSV format. The CSV expands one row per chemical applied (so a stop with 2 matching products yields 2 rows) and includes all 19 fields TDA inspectors look for. Useful for periodic compliance submissions or audit pulls.</p>
-        <p>Records are created automatically — you don&apos;t add them by hand. They appear when a Daily Log v2 stop with matching line items is marked complete. If the mapping configuration changes after a record is created, the existing record stays as it was at the time of application (the chemicals_applied list is a snapshot, not a live join).</p>
+      <Section title="Products Used">
+        <p>Available at <Link href="/hub/pesticide-records" className="text-sky-400 hover:underline">/hub/pesticide-records</Link>. An automatic log of <strong className="text-white">every product applied</strong> on a completed visit — fertilizers included, not just EPA pesticides — captured whether the visit was completed in Daily Log v2 or directly in Jobber. Filter by date range or search by customer / address / technician. Each row shows the customer, application time, applicator, the products used, and the weather snapshot at completion. EPA-registered products show a green 🧪 chip with the EPA #; non-EPA products (e.g. fertilizers) show a 🌿 chip. Tap a row for the full detail view.</p>
+        <p><strong className="text-white">Show: All products / EPA-registered only</strong> — toggle the on-screen list between every product used and just the EPA-registered ones.</p>
+        <p><strong className="text-white">Two CSV exports</strong> (top-right): <strong className="text-white">All products</strong> downloads everything used in the range; <strong className="text-white">TDA pesticide export</strong> filters to EPA-registered products only — the state pesticide-compliance format. Both expand to one row per product (so a visit with 2 matching products yields 2 rows). EPA #, active ingredients, and rate are filled in where the product has them.</p>
+        <p>Records are created automatically — you don&apos;t add them by hand. They appear when a visit with matching line items is marked complete, either in Daily Log v2 or in Jobber. If the mapping configuration changes after a record is created, the existing record stays as it was at the time of application (the products-used list is a snapshot, not a live join).</p>
         <p>Records are preserved across stop reopen. If a tech reopens then re-completes a stop, the record is updated in place with the fresh timestamp + weather, not duplicated.</p>
       </Section>
 
@@ -903,15 +919,15 @@ function RoutingTab() {
         <p>After optimizing you have <strong className="text-white">three independent send buttons</strong>. Two push to Jobber (pick one), the third populates Daily Log v2. You can use any combination — they don&apos;t conflict.</p>
 
         <div className="border border-gray-700 rounded-xl p-4 mt-3">
-          <p className="text-white font-medium mb-2">Send Order Only (green button)</p>
-          <p>Keeps visits as &ldquo;anytime&rdquo; in Jobber but sets the stop order so the Jobber mobile app and printed route sheet follow the optimized sequence. Techs stay flexible on timing — no appointment times are written.</p>
-          <p className="mt-2 text-xs text-gray-500">Behind the scenes this uses Jobber&apos;s internal &ldquo;anytime route order&rdquo; controls. Changes apply live in Jobber — no page refresh needed.</p>
+          <p className="text-white font-medium mb-2">Send Day + Team (gray button) — was &ldquo;Send Order Only&rdquo;</p>
+          <p>Pushes each visit&apos;s <strong className="text-white">day and assigned tech</strong> back to Jobber and leaves the stops as &ldquo;anytime&rdquo; (no appointment times). The crew follows the optimized <strong className="text-white">order</strong> in the Daily Log / printed route sheet — not in Jobber.</p>
+          <p className="mt-2 text-xs text-gray-500">Why not the order? Jobber&apos;s API can&apos;t reorder anytime visits, and Jobber now blocks the old behind-the-scenes workaround. So Lynxedo writes only what changes during planning (the day + who&apos;s assigned) and keeps the sequence in the route sheet. In <strong>Basic</strong> mode this button is <strong className="text-white">Send Team to Jobber</strong> and just reassigns the route to the tech you pick in &ldquo;Reassign to&rdquo;.</p>
         </div>
 
         <div className="border border-gray-700 rounded-xl p-4 mt-3">
           <p className="text-white font-medium mb-2">Send with Times (orange button)</p>
-          <p>Writes the calculated ETA as the scheduled appointment time for each visit (and each assessment). This converts anytime visits to scheduled visits in Jobber.</p>
-          <p className="mt-2 text-xs text-gray-500">Use this when you want appointments shown to customers in Jobber notifications, or when techs need fixed time slots.</p>
+          <p>Writes the calculated ETA as the scheduled appointment time for each visit (and each assessment). This converts anytime visits to scheduled visits in Jobber — so the Jobber day view shows them <strong className="text-white">in the optimized order</strong>.</p>
+          <p className="mt-2 text-xs text-gray-500">This is the way to get the optimized order into Jobber itself. The times are sequence markers, not promises — if you don&apos;t want customers to see a specific time, edit the Jobber visit-reminder template to show only the date.</p>
         </div>
 
         <div className="border border-gray-700 rounded-xl p-4 mt-3">
@@ -920,9 +936,9 @@ function RoutingTab() {
           <p className="mt-2 text-xs text-gray-500">Use this any time you want techs to see the route in the tech-facing Daily Log view, with or without sending to Jobber.</p>
         </div>
 
-        <p className="mt-3"><strong className="text-white">Reassign to</strong> (above the buttons) picks which tech the visits should end up under. Applies to all three send modes — Jobber assignment AND the Daily Log entry. <strong className="text-amber-300">Required when multiple techs were loaded</strong> — Jobber&apos;s anytime stop order is per-tech, and Daily Log entries are per-tech, so consolidating to one tech is mandatory.</p>
+        <p className="mt-3"><strong className="text-white">Reassign to</strong> (above the buttons) picks which tech the visits should end up under. Applies to all three send modes — Jobber assignment AND the Daily Log entry. <strong className="text-amber-300">Required when multiple techs were loaded</strong> — Daily Log entries are per-tech, so consolidating to one tech is mandatory.</p>
 
-        <Note>⚠️ Send with Times overwrites any existing appointment times on those visits. Send Order Only just sets the stop sequence. Send to Daily Log replaces the prior stops list (if any) but never touches Jobber.</Note>
+        <Note>⚠️ Send with Times overwrites any existing appointment times on those visits. Send Day + Team only updates the day and assigned tech (stops stay anytime, order lives in the route sheet). Send to Daily Log replaces the prior stops list (if any) but never touches Jobber.</Note>
       </Section>
 
       <Section title="Advanced mode (lasso + holding area)">
@@ -930,7 +946,17 @@ function RoutingTab() {
         <p><strong className="text-white">Optimize</strong> the selection to see the route, drive time, and ETAs. You can optimize as few as <strong className="text-white">one stop</strong> — handy when you just want to see drive time and the path from the depot for a single stop before parking it.</p>
         <p><strong className="text-white">Lock first / last</strong> and <strong className="text-white">drag to reorder</strong>: on the optimized list, the <strong className="text-white">📌 1st</strong> / <strong className="text-white">📌 Last</strong> buttons pin a stop and re-optimize the rest around it, and you can drag stops with the <span className="text-gray-400">⠿</span> handle to set the order by hand — then hit <strong className="text-white">↻ Recalculate times</strong> to refresh the ETAs (same as Basic mode).</p>
         <p><strong className="text-white">Couldn&apos;t-map panel:</strong> if a visit&apos;s address can&apos;t be located, it shows in a red <strong className="text-white">&ldquo;couldn&apos;t be mapped&rdquo;</strong> panel (and is flagged with a ⚠ in the day list) instead of silently disappearing. Fix the address on the visit in Jobber and reload visits — it&apos;ll then map and route normally.</p>
-        <p><strong className="text-white">Holding area:</strong> park an optimized selection for a specific day + tech with <strong className="text-white">Send to Holding</strong>. Those stops leave the map/list so you can keep building other days. From the holding area you can view the route sheet or send each batch to Jobber / Daily Log. <strong className="text-white">A batch automatically clears from holding once you send it to Jobber</strong> (Send Order Only / Send with Times) — no need to delete it afterward. Daily Log sends keep the batch so you can still send it to Jobber too; use <strong className="text-white">Delete</strong> to remove a batch manually (its stops return to the map).</p>
+        <p><strong className="text-white">Holding area:</strong> park an optimized selection for a specific day + tech with <strong className="text-white">Send to Holding</strong>. Those stops leave the map/list so you can keep building other days. From the holding area you can view the route sheet or send each batch to Jobber / Daily Log. <strong className="text-white">A batch automatically clears from holding once you send it to Jobber</strong> (Send Day + Team / Send with Times) — no need to delete it afterward. Daily Log sends keep the batch so you can still send it to Jobber too; use <strong className="text-white">Delete</strong> to remove a batch manually (its stops return to the map).</p>
+      </Section>
+
+      <Section title="Tank loadout (Advanced)">
+        <p>Once you optimize a selection, a <strong className="text-white">🧪 Tank loadout</strong> panel appears under the stop list. It reads each stop&apos;s lawn size (from the &ldquo;K&rdquo; in the job title, e.g. <em>RC1 25K</em> = 25,000 sq ft) and the products mapped to those line items, and shows you, before the day runs:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">How much of each product to mix</strong> — totalled across every stop on the route, in the product&apos;s own unit.</li>
+          <li><strong className="text-white">Tank fill bars</strong> — how full each tank gets (route sq ft ÷ what a full tank can spray). A bar turns <span className="text-red-400">red</span> with a <strong className="text-white">⚠ needs a refill</strong> note when the route is bigger than the tank can cover in one fill.</li>
+          <li><strong className="text-white">Which tank each product goes in</strong> — change the tank from the dropdown next to a product to move it for this run/day (e.g. &ldquo;today Root Rot goes in Tank 1&rdquo;). Your choice is remembered for that route and day; it doesn&apos;t change anyone else&apos;s run.</li>
+        </ul>
+        <p>If the panel says <strong className="text-white">&ldquo;No product mappings yet&rdquo;</strong>, an admin needs to map your Jobber line items to products in <Link href="/hub/admin/service-mapping" className="text-orange-400 hover:text-orange-300">Admin → Service Mapping</Link> first. Stops whose job title has no size, or line items with no product mapping, are called out so nothing is silently missed.</p>
       </Section>
 
       <Section title="Printing the Route Sheet">
@@ -955,6 +981,11 @@ function RoutingTab() {
           <div className="border border-gray-700 rounded-xl p-4 mt-3">
             <p className="text-white font-medium mb-2">Depot</p>
             <p>The starting and ending point for every route — your shop, warehouse, or home base. Enter the full street address and click Save. Lynxedo geocodes it and shows a green ✓ when it&apos;s valid.</p>
+          </div>
+
+          <div className="border border-gray-700 rounded-xl p-4 mt-3">
+            <p className="text-white font-medium mb-2">Tanks</p>
+            <p>Set up the spray tanks the crew mixes into — up to <strong className="text-white">4</strong>. For each tank give it a label, its <strong className="text-white">gallon capacity</strong>, and the <strong className="text-white">mix rate</strong> (gallons applied per 1,000 sq ft — Heroes runs 2). The panel shows live how much area a full tank covers (e.g. 180 gal ÷ 2 = ~90,000 sq ft). The Advanced Route Optimizer&apos;s Tank loadout uses these numbers to show how full each tank gets per route. Changes save as you type; untick <strong className="text-white">Active</strong> to retire a tank without deleting it.</p>
           </div>
 
           <div className="border border-gray-700 rounded-xl p-4">
@@ -1702,45 +1733,188 @@ function ProductsTab() {
   return (
     <>
       <Section title="What is Products?">
-        <p>Products is the master catalog of everything you apply — fertilizers, herbicides, fungicides, insecticides, and more — each with its price, package size, application rate, and on-hand inventory. It&apos;s the &ldquo;spreadsheet&rdquo; the cost numbers, inventory counts, and (soon) the route-capacity and pesticide-record tools all read from.</p>
+        <p>Products is the master catalog of everything you apply — fertilizers, herbicides, fungicides, insecticides, and more — each with its price, package size, application rate, and on-hand inventory. It&apos;s the &ldquo;spreadsheet&rdquo; the cost numbers, inventory counts, route-capacity tool, and pesticide records all read from.</p>
         <p className="mt-2">It lives at <strong className="text-white">Admin → Products</strong> and is managed by admins (or anyone with the Products admin grant).</p>
       </Section>
 
-      <Section title="Groups, Items &amp; Sub-items">
-        <p>The catalog is three levels deep — like the lead tracker, but one deeper:</p>
+      <Section title="Groups &amp; products">
+        <p>The catalog is organized in two levels:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
           <li><strong className="text-white">Group</strong> — the product type (Fertilizer, Insecticide, Fungicide…). Each group header collapses and expands.</li>
-          <li><strong className="text-white">Item</strong> — the physical product you buy (e.g. <em>Acelepryn</em>). Holds the package price, size, unit, EPA #, active ingredient, batch info — and the inventory counts.</li>
-          <li><strong className="text-white">Sub-item</strong> — a rate the product is applied at (e.g. <em>0.1 rate</em>, <em>High Rate</em>). Click the arrow on an item to expand its sub-items; each carries its own application rate and derived cost. Use <strong className="text-white">+ Add sub-item</strong> to add another rate.</li>
+          <li><strong className="text-white">Product</strong> — one row per product <em>at a specific rate</em>. Because the same chemical is often used at different rates, each rate is its own row (e.g. <em>Acelepryn 0.1 rate</em> and <em>Acelepryn 0.2 rate</em> are separate products). Each row holds its price, package size, unit, application rate, EPA #, active ingredient, label link, batch info, and inventory.</li>
         </ul>
-        <p className="mt-2">Why split rates out? Because the same product gets applied at different rates for different jobs. Inventory is counted once on the item, but pesticide records and route capacity need the exact rate — which lives on the sub-item.</p>
+        <p className="mt-2">This matches your Products spreadsheet exactly — one line per priced, rated product — so what you see here is what feeds the pricing, route-capacity, and pesticide tools.</p>
+      </Section>
+
+      <Section title="Application rate &amp; rate basis">
+        <p>Every product has an <strong className="text-white">application rate</strong> and a <strong className="text-white">rate basis</strong> — a dropdown set to either <em>per 1,000 sq ft</em> (most products) or <em>per gallon</em> (the DRF spray-mix products). Nothing is hardcoded: flip the basis on any product yourself in its expanded editor.</p>
       </Section>
 
       <Section title="Cost per 1,000 sq ft">
-        <p>You never type the cost — it&apos;s calculated. From <strong className="text-white">package size ÷ rate</strong> the system works out how many 1,000-sq-ft a package covers, then <strong className="text-white">package price ÷ that</strong> gives the cost per 1,000 sq ft. Update the price from your invoices and every rate&apos;s cost updates automatically.</p>
+        <p>You never type the cost — it&apos;s calculated. From <strong className="text-white">package size ÷ rate</strong> the system works out how many 1,000-sq-ft a package covers, then <strong className="text-white">package price ÷ that</strong> gives the cost per 1,000 sq ft (shown with a <em>/1k</em> or <em>/gal</em> tag matching the basis). Update the price from your invoices and the cost updates automatically.</p>
       </Section>
 
       <Section title="Inventory by location">
-        <p>Each storage location (Vehicle 1, Shop, North Shop…) is its own column. Type how many packages are at each location; the <strong className="text-white">Total</strong> and <strong className="text-emerald-300">$ Value</strong> columns add up automatically (total packages × package price). Counts live on the item, not per rate.</p>
+        <p>Each storage location (Vehicle 1, Shop, North Shop…) is its own column. Type how many packages are at each location; the <strong className="text-white">Total</strong> and <strong className="text-emerald-300">$ Value</strong> columns add up automatically (total packages × package price).</p>
+      </Section>
+
+      <Section title="Automatic stock decrement &amp; low-stock alerts">
+        <p>You don&apos;t have to subtract product by hand. When a route&apos;s <strong className="text-white">last stop is marked complete in Daily Log v2</strong>, the system reads that route&apos;s loadout (the products + amounts computed by Route Capacity), converts each amount to <strong className="text-white">packages</strong> (amount ÷ package size), and subtracts it from stock — once per route, automatically.</p>
+        <p className="mt-2">Set a <strong className="text-white">Reorder at (packages)</strong> level on any product (in its expanded editor). When a decrement drops that product&apos;s total on-hand below the level, the row turns <span className="text-amber-400">amber with a ⚠ low badge</span> and <strong className="text-white">@Guardian sends a low-stock alert</strong> to the people and rooms you&apos;ve chosen. The alert fires once on crossing — it won&apos;t nag you every route once it&apos;s already low.</p>
+        <p className="mt-2 text-gray-500 text-sm">Two things make this work: products need a <em>package size</em> (so amounts can convert to packages), and the route needs line-item → product mappings in <strong className="text-white">Admin → Service Mapping</strong>. Manual edits to the inventory cells still work anytime for corrections.</p>
       </Section>
 
       <AdminOnly>
         <Section title="Adding &amp; editing products (Admin)">
           <p>In <strong className="text-white">Admin → Products</strong> (Catalog tab):</p>
           <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
-            <li><strong className="text-white">+ Add product</strong> — name + group + price + size + unit, then expand it to add sub-items and the rest of the details.</li>
-            <li>Click any item&apos;s arrow to <strong className="text-white">expand</strong> it — edit every field, manage its rates, and see derived costs.</li>
-            <li><strong className="text-white">Package price</strong> and the per-location inventory cells edit right in the table — changes save as you click away.</li>
-            <li>The <strong className="text-white">✕</strong> on a row deletes that item (and its sub-items + inventory).</li>
+            <li><strong className="text-white">+ Add product</strong> — name, group, price, size, unit, rate, and basis; then expand it to fill in EPA #, active ingredient, label, and batch info.</li>
+            <li>Click any product&apos;s arrow to <strong className="text-white">expand</strong> it — edit every field and see the derived cost.</li>
+            <li><strong className="text-white">Package price</strong>, <strong className="text-white">application rate</strong>, and the per-location inventory cells edit right in the table — changes save as you click away.</li>
+            <li>The <strong className="text-white">✕</strong> on a row removes that product. It&apos;s a <em>soft delete</em> — the row is hidden but kept in the database, so a deleted product can be restored if needed.</li>
+            <li><strong className="text-white">Monthly batch update:</strong> expand a product and update its <strong className="text-white">Batch #</strong> and <strong className="text-white">Batch date</strong> — these flow onto the pesticide records.</li>
           </ul>
         </Section>
 
-        <Section title="Groups &amp; locations (Settings)">
+        <Section title="Groups, locations &amp; alert settings (Settings)">
           <p>The <strong className="text-white">Settings</strong> sub-tab manages your <strong className="text-white">Product Groups</strong> and <strong className="text-white">Inventory Locations</strong> — add, rename, or delete each. Deleting a group keeps its products (they become Uncategorized); deleting a location removes its inventory counts.</p>
+          <p className="mt-2">It also has <strong className="text-white">Stock decrement &amp; low-stock alerts</strong>: pick which location route spraying deducts from (defaults to your first active location), turn low-stock alerts on/off, and choose which people get a Guardian DM and which rooms get a post when a product runs low.</p>
         </Section>
 
         <Section title="Permissions">
           <p>Controlled by the <strong className="text-white">Products</strong> grant in <strong className="text-white">Admin → People → Admin Access</strong> (for managers) — or any full admin. Off by default.</p>
+        </Section>
+      </AdminOnly>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// SERVICE BUILDER
+// ──────────────────────────────────────────────────────────────────────────
+
+function ServiceBuilderTab() {
+  return (
+    <>
+      <Section title="What is the Service Builder?">
+        <p>The Service Builder is your Round Creator spreadsheet, rebuilt as a live engine. You build a program out of <strong className="text-white">rounds</strong> (visits) and the products in each, set your visits, labor, and pricing, and instantly see <strong className="text-white">cost per round, annual cost, a price chart across lawn sizes, COGS, and gross-profit margin</strong>. When the numbers look right, you <strong className="text-white">publish</strong> the program&apos;s price chart — and the Pricer quotes from it. Edit once; everything recalculates.</p>
+        <p className="mt-2">It lives at <strong className="text-white">Admin → Service Builder</strong> and reads products straight from the <strong className="text-white">Products</strong> catalog — so a price change there flows through here with no re-typing.</p>
+      </Section>
+
+      <Section title="Programs &amp; versions">
+        <p>Use the dropdown at the top to pick a program. Each program can have several <strong className="text-white">versions</strong> — e.g. a <em>2026</em> version you&apos;re quoting from today and a <em>2027</em> version you&apos;re planning ahead. Every version has a status:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-amber-300">Draft</strong> — a work-in-progress. Never used by the Pricer, so you can tinker freely.</li>
+          <li><strong className="text-emerald-300">Published</strong> — live. The Pricer quotes from this. Set an <strong className="text-white">Effective from</strong> date to schedule a future version (e.g. publish 2027 pricing now, dated Jan 1 — it activates on its own).</li>
+          <li><strong className="text-gray-300">Archived</strong> — kept for history, out of the way.</li>
+        </ul>
+        <p className="mt-2"><strong className="text-white">+ New program</strong>, <strong className="text-white">Duplicate as version</strong>, <strong className="text-white">Rename</strong>, and <strong className="text-white">Delete</strong> (soft — kept in the database) are next to the dropdown.</p>
+      </Section>
+
+      <Section title="Rounds &amp; products">
+        <p>A program is a set of rounds. Add products to each round from the dropdown — each one shows its cost per 1,000 sq ft. The round&apos;s cost/K is the sum, and the program&apos;s <strong className="text-white">annual product cost/K</strong> is the sum of all rounds.</p>
+        <p className="mt-2"><strong className="text-white">↧ Seed from current composition</strong> fills the rounds from the program&apos;s saved round composition, so you don&apos;t start from a blank slate. (It matches on the program name.)</p>
+      </Section>
+
+      <Section title="Labor, COGS &amp; margin">
+        <p>Annual labor = (Size × Minutes-per-K ÷ 60) × $/hr × Visits. Minutes-per-K is <strong className="text-white">tiered</strong> — a small-lawn rate at or below your size threshold and a more efficient large-lawn rate above it (e.g. 2 min/K ≤ 15K, 1.5 min/K above). <strong className="text-white">COGS</strong> = annual product + annual labor; <strong className="text-white">GP margin</strong> = (annual price − COGS) ÷ annual price. <strong className="text-white">Per-treatment is always annual ÷ visits</strong>, computed — so the old ÷8-vs-÷12 spreadsheet bug can&apos;t happen here.</p>
+      </Section>
+
+      <Section title="Price chart, averages &amp; the target helper">
+        <p>The <strong className="text-white">price chart</strong> shows every metric across the lawn sizes you list. The <strong className="text-white">averages</strong> box shows whether margin holds as lawns scale across a size range. The <strong className="text-white">target-margin helper</strong> lets you enter a target GP% at a size and tells you the Price/K (or Base fee) to set to hit it.</p>
+      </Section>
+
+      <Section title="Per-gallon products">
+        <p>Products priced <em>per gallon</em> (the DRF spray-mix chemicals) use your tank ratio — gallons of mix per 1,000 sq ft (default 2) — to work out their cost per 1,000 sq ft. The <strong className="text-white">Tank gal / K</strong> field on each program lets you adjust that ratio. Products that aren&apos;t expressible per 1,000 sq ft (e.g. per-tree trunk drenches) show <em>n/a</em> and aren&apos;t counted in the round cost.</p>
+      </Section>
+
+      <AdminOnly>
+        <Section title="Publishing">
+          <p>When a version&apos;s margins look right, click <strong className="text-emerald-300">Publish</strong>. That marks it live and snapshots its margins for the record. The Pricer (and any customer-facing quote) reads the published version. Editing a published version updates the live numbers — so for big changes, duplicate to a new draft version first, then publish when ready.</p>
+        </Section>
+        <Section title="Permissions">
+          <p>Uses the same <strong className="text-white">Products</strong> grant as the Products catalog — full admins, or managers with the Products admin grant.</p>
+        </Section>
+      </AdminOnly>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// SERVICE MAPPING
+// ──────────────────────────────────────────────────────────────────────────
+
+function ServiceMappingTab() {
+  return (
+    <>
+      <Section title="What is Service Mapping?">
+        <p>Service Mapping connects the work you sell to the products you actually apply. It lives at <strong className="text-white">Admin → Service Mapping</strong> and has two tabs: the <strong className="text-white">Line-Item Map</strong> (which products a Jobber line item uses) and <strong className="text-white">Current Rounds</strong> (which round is active for each program). This is the layer the Route Capacity tool and the Products Used log read from — so every job knows its products and rates.</p>
+      </Section>
+
+      <Section title="Line-Item Map">
+        <p>Map each Jobber line item to the product(s) it applies — <strong className="text-white">a line item can use several products</strong>, so add each one. To add a mapping, start typing the line item (the field suggests your real Jobber names with how often each is used) and pick a product, then <strong className="text-white">+ Add</strong>.</p>
+        <p className="mt-2">Each mapping row lets you set:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Rate + Unit</strong> — overrides the product&apos;s default rate for this line item (leave blank to use the product default).</li>
+          <li><strong className="text-white">Program</strong> — which program this belongs to.</li>
+          <li><strong className="text-white">Tank</strong> — the default tank (1–4); routes can override it.</li>
+          <li><strong className="text-white">Match</strong> — <em>contains</em> (the line item includes this text) or <em>exact</em>.</li>
+          <li><strong className="text-white">Notes</strong> and an <strong className="text-white">Active</strong> toggle.</li>
+        </ul>
+        <p className="mt-2">Changes save as you go. <strong className="text-white">Remove</strong> takes a product off a line item (soft delete — kept in the database).</p>
+      </Section>
+
+      <Section title="Current Rounds">
+        <p>Each program has a set of rounds, and one of them is the <strong className="text-white">active round</strong> — the products being applied right now. Click <strong className="text-white">Make current</strong> on a round to activate it; only one round per program can be active, so switching automatically clears the previous one. Click the active badge again to clear it.</p>
+        <p className="mt-2">Within a round you can edit the <strong className="text-white">products</strong> (add from the dropdown, remove with the × on each chip), rename the round, set an <strong className="text-white">effective date</strong>, add a new round, or delete one. Most programs were pre-loaded with their rounds — you mainly need to mark which one is current and adjust the products.</p>
+      </Section>
+
+      <AdminOnly>
+        <Section title="Permissions">
+          <p>Uses the same <strong className="text-white">Products</strong> grant as the Products catalog and the Service Builder — full admins, or managers with the Products admin grant.</p>
+        </Section>
+      </AdminOnly>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// PRICER
+// ──────────────────────────────────────────────────────────────────────────
+
+function PricerTab() {
+  return (
+    <>
+      <Section title="What is the Pricer?">
+        <p>The Pricer is a fast quoting tool for the office and sales team. Enter a customer&apos;s <strong className="text-white">lawn size</strong> and it instantly prices every program — per visit and annual — plus the add-ons. It lives at <strong className="text-white">Pricer</strong> in your app menu (under Tools → Sales).</p>
+        <p className="mt-2">All the numbers come <strong className="text-white">live from the Service Builder</strong> — whatever an admin has published is what you quote. When pricing changes, it&apos;s published once in the Builder and the Pricer updates automatically. There&apos;s nothing to edit here.</p>
+      </Section>
+
+      <Section title="Quoting a customer">
+        <p>Type the lawn size in <strong className="text-white">thousands of square feet</strong> at the top (e.g. <em>10</em> = 10,000 sq ft; minimum 3K). Every program card recalculates as you type:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Annual programs</strong> show the <em>per-visit</em> price and the <em>annual</em> total.</li>
+          <li><strong className="text-white">One-time &amp; seasonal services</strong> show a single one-time price.</li>
+        </ul>
+        <p className="mt-2">Coming from the <strong className="text-white">Lawn Sizer</strong>? It can hand the measured size straight in, so the quote is ready the moment the page opens.</p>
+      </Section>
+
+      <Section title="Add-ons">
+        <p>Three add-ons price off their own inputs rather than lawn size:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Moisture Manager</strong> — priced from lawn size; always shown.</li>
+          <li><strong className="text-white">Bed Weed Control</strong> — enter the <em>bed area</em> (in thousands) to see pricing.</li>
+          <li><strong className="text-white">Plant Health Care</strong> — pick a <em>difficulty tier</em> (based on landscape complexity, not size).</li>
+        </ul>
+        <p className="mt-2">Each add-on shows its annual total plus the per-visit cost on an 8-visit and a 12-visit plan, so you can fold it into whichever program the customer chooses.</p>
+      </Section>
+
+      <AdminOnly>
+        <Section title="Where the numbers come from">
+          <p>The Pricer reads the <strong className="text-white">published</strong> price chart for each program — specifically the live version whose effective date is on or before today. Drafts never appear, and a future-dated version waits until its date. To change what the team quotes, edit and publish in the <strong className="text-white">Service Builder</strong>.</p>
+        </Section>
+        <Section title="Permissions">
+          <p>Grant <strong className="text-white">Pricer</strong> per person in <strong className="text-white">Admin → People</strong>. Admins always have access. It&apos;s a read-only quoting view — no one can change pricing from here.</p>
         </Section>
       </AdminOnly>
     </>

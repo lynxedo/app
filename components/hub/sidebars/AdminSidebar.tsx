@@ -107,6 +107,12 @@ export default function AdminSidebar({
       {show(grants.products) && (
         <AdminRow href="/hub/admin/products" iconId="products" label="Products" onClose={onClose} />
       )}
+      {show(grants.products) && (
+        <AdminRow href="/hub/admin/service-builder" iconId="products" label="Service Builder" onClose={onClose} />
+      )}
+      {show(grants.products) && (
+        <AdminRow href="/hub/admin/service-mapping" iconId="products" label="Service Mapping" onClose={onClose} />
+      )}
       {show(grants.zone_sizer) && (
         <AdminRow href="/hub/admin/zone-sizer" iconId="zone-sizer" label="Zone Sizer" onClose={onClose} />
       )}

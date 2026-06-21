@@ -4,6 +4,9 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
 import { evaluateEventAutomations } from '@/lib/automations'
 import type { WeatherSnapshot } from '@/lib/nws-weather'
+import { matchChemicalsForLineItems } from '@/lib/pesticide'
+import { applyRouteSprayDecrements } from '@/lib/inventory'
+import type { StoredRouteLoadout } from '@/lib/route-capacity'
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 interface VisitMutationResponse {
@@ -37,17 +40,6 @@ type LineItem = {
   qty?: number
   unitPrice?: number
   totalPrice?: number
-}
-
-type PesticideMapping = {
-  id: string
-  match_text: string
-  match_type: 'exact' | 'contains'
-  chemical_name: string
-  epa_registration_number: string | null
-  active_ingredients: string | null
-  target_pests: string | null
-  application_rate: string | null
 }
 
 type StopRow = {
@@ -116,29 +108,6 @@ async function resolveStopOrError(stopId: string, userId: string) {
   return { admin, stop, entry, userId: user.id, companyId: profile.company_id }
 }
 
-// Returns the array of mapping rows that match any of the stop's line items.
-// Match is case-insensitive 'contains' (default) or 'exact'. Empty line items
-// or no mappings → empty array.
-function findMatchingMappings(lineItems: LineItem[], mappings: PesticideMapping[]) {
-  if (!Array.isArray(lineItems) || lineItems.length === 0 || mappings.length === 0) return []
-
-  const result: Array<{ mapping: PesticideMapping; lineItem: LineItem }> = []
-  for (const item of lineItems) {
-    const itemName = (item?.name ?? '').trim().toLowerCase()
-    if (!itemName) continue
-    for (const m of mappings) {
-      const needle = m.match_text.trim().toLowerCase()
-      const hit = m.match_type === 'exact'
-        ? itemName === needle
-        : itemName.includes(needle)
-      if (hit) {
-        result.push({ mapping: m, lineItem: item })
-      }
-    }
-  }
-  return result
-}
-
 // Create or update the pesticide_records row for this stop. Idempotent on
 // re-complete: if a record already exists (stop.pesticide_record_id set),
 // UPDATE it in place instead of creating a duplicate. Records are never
@@ -156,32 +125,14 @@ async function upsertPesticideRecord(args: {
 }): Promise<string | null> {
   const { admin, stop, entry, weather, applicationTimestamp, technicianName, techNotes } = args
 
-  // Pull active mappings for this company
-  const { data: mappingRows } = await admin
-    .from('pesticide_line_item_mappings')
-    .select('id, match_text, match_type, chemical_name, epa_registration_number, active_ingredients, target_pests, application_rate')
-    .eq('company_id', entry.company_id)
-    .eq('active', true)
-
-  const mappings: PesticideMapping[] = (mappingRows ?? []) as PesticideMapping[]
-  const matches = findMatchingMappings(stop.line_items, mappings)
+  // Session 9 — match against the unified service_products → products map
+  // (single source of truth, PRD §8.8), the same matcher the Jobber webhook uses.
+  const chemicalsApplied = await matchChemicalsForLineItems(admin, entry.company_id, stop.line_items)
 
   // No matches → no record. If a record already existed (e.g. line items
   // changed after the first completion to remove all chemical items) keep
   // the existing record; we don't delete compliance records here.
-  if (matches.length === 0) return stop.pesticide_record_id ?? null
-
-  const chemicalsApplied = matches.map(({ mapping, lineItem }) => ({
-    matched_line_item: lineItem.name ?? '',
-    matched_line_item_qty: typeof lineItem.qty === 'number' ? lineItem.qty : null,
-    matched_line_item_total: typeof lineItem.totalPrice === 'number' ? lineItem.totalPrice : null,
-    chemical_name: mapping.chemical_name,
-    epa_registration_number: mapping.epa_registration_number,
-    active_ingredients: mapping.active_ingredients,
-    target_pests: mapping.target_pests,
-    application_rate: mapping.application_rate,
-    mapping_id: mapping.id,
-  }))
+  if (chemicalsApplied.length === 0) return stop.pesticide_record_id ?? null
 
   const recordBody = {
     company_id: entry.company_id,
@@ -210,6 +161,22 @@ async function upsertPesticideRecord(args: {
       .eq('id', stop.pesticide_record_id)
     if (error) return null
     return stop.pesticide_record_id
+  }
+
+  // No record tracked on the stop yet. If this stop has a Jobber visit, the
+  // VISIT_COMPLETE webhook may have already created a record for it — upsert on
+  // the (company_id, jobber_visit_id) dedup key so DL V2 ADOPTS and enriches it
+  // (DL V2 is the primary path: real arrival-time weather + technician). Stops
+  // without a Jobber visit (jobber_visit_id null) are excluded from the partial
+  // unique index, so a plain insert is correct there.
+  if (stop.jobber_visit_id) {
+    const { data: upserted, error } = await admin
+      .from('pesticide_records')
+      .upsert(recordBody, { onConflict: 'company_id,jobber_visit_id' })
+      .select('id')
+      .single()
+    if (error || !upserted) return null
+    return upserted.id
   }
 
   const { data: inserted, error } = await admin
@@ -338,6 +305,23 @@ export async function POST(
         ? `Jobber push failed — ${e.message}`
         : 'Jobber push failed (unknown error)'
     }
+  }
+
+  // Session 10 — when the route's spraying is done (last stop complete), decrement
+  // inventory from the route's stored loadout. Best-effort, non-blocking, idempotent.
+  if (isLastStop) {
+    void (async () => {
+      const { data: entryRow } = await admin
+        .from('daily_log_entries')
+        .select('route_loadout')
+        .eq('id', stop.entry_id)
+        .maybeSingle<{ route_loadout: StoredRouteLoadout | null }>()
+      const res = await applyRouteSprayDecrements({
+        admin, companyId: entry.company_id, entryId: stop.entry_id,
+        loadout: entryRow?.route_loadout ?? null,
+      })
+      console.log(`[inventory] route ${stop.entry_id} decrement:`, res)
+    })().catch(err => console.error('[inventory] route decrement failed for', stop.entry_id, err))
   }
 
   // Fire any "daily log stop completed" automations (best-effort, non-blocking).

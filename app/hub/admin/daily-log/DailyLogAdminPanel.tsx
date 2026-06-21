@@ -286,7 +286,7 @@ function PesticideMappingsSection({ initialMappings }: { initialMappings: Pestic
       <div>
         <h2 className="font-semibold">Pesticide line-item mappings <span className="text-xs text-violet-200 bg-violet-500/20 px-1.5 py-0.5 rounded ml-1 align-middle">v2</span></h2>
         <p className="text-xs text-white/50 mt-0.5">
-          When a Daily Log v2 stop is marked complete, its Jobber line items are scanned against these mappings. Each match creates a <strong>pesticide application record</strong> for TDA compliance — visible in <a href="/hub/pesticide-records" className="text-sky-400 hover:underline">Pesticide Records</a>, exportable as CSV.
+          When a Daily Log v2 stop is marked complete, its Jobber line items are scanned against these mappings. Each match logs the product used — visible in <a href="/hub/pesticide-records" className="text-sky-400 hover:underline">Products Used</a>, with an EPA-only export for TDA compliance.
         </p>
       </div>
 

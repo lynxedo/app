@@ -47,6 +47,14 @@ develop-only import can break prod even when the cherry-pick applies cleanly.
 This matches the authoritative rule in the root `Lynxedo/CLAUDE.md`
 ("⚠ Never `git merge develop→main` — use cherry-picks only").
 
+### Help ships WITH the feature — always include `app/help/HelpContent.tsx`
+If the work changed anything a user sees, its `HelpContent.tsx` update is part of the
+same staging push AND the same prod cutover — never a separate later trip to prod.
+When you build the cutover file list, `HelpContent.tsx` is in it whenever the batch
+was user-visible. **Only exception:** a genuinely urgent hotfix may ship without Help,
+but backfill the Help in the very next push the same day. *(Ben's standing instruction,
+June 19, 2026 — also in the root `Lynxedo/CLAUDE.md` Safety Rules.)*
+
 ### Important: staging shares the prod database
 Both environments read/write the SAME Supabase project. Staging is for testing UI/code changes against real data — NOT for schema migrations or destructive testing. A bad migration on staging hits prod data.
 

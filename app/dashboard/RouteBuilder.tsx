@@ -498,14 +498,15 @@ export default function RouteBuilder() {
     }
   }
 
+  // Pushes the TECH ASSIGNMENT back to Jobber (official API). Jobber's public API
+  // can't reorder Anytime visits, so the optimized order stays in Lynxedo's Daily
+  // Log / route sheet — this button only writes who the route belongs to.
   async function sendOrderOnly() {
     if (!optimizedVisits || optimizedVisits.length === 0) return
 
-    // Multi-tech routes MUST be reassigned to a single tech first — Jobber's
-    // anytime stop order is per-tech, so chaining editAppointment mutations
-    // across multiple techs is meaningless.
-    if (selectedUserIds.length > 1 && reassignUserId === '__keep__') {
-      setSendError('Multiple techs were loaded. Pick a target tech in "Reassign to" before sending the order.')
+    // This button only reassigns, so a target tech is required.
+    if (reassignUserId === '__keep__') {
+      setSendError('Pick a target tech in "Reassign to" to send the team assignment to Jobber.')
       setSendMode('order')
       return
     }
@@ -1614,7 +1615,7 @@ export default function RouteBuilder() {
             </select>
             {selectedUserIds.length === 1 && (
               <p className="text-xs text-gray-500 mt-1">
-                Applies to Send Order Only, Send with Times, and Send to Daily Log.
+                Applies to Send Team to Jobber, Send with Times, and Send to Daily Log.
               </p>
             )}
           </div>
@@ -1644,14 +1645,14 @@ export default function RouteBuilder() {
             <button
               onClick={sendOrderOnly}
               disabled={sending}
-              title="Sets the stop order in Jobber without assigning appointment times — visits stay as anytime."
+              title="Reassigns the route's visits to the tech picked in 'Reassign to'. Jobber's API can't reorder anytime visits, so the optimized order lives in the Daily Log / route sheet."
               className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors text-left"
             >
               <div className="font-semibold">
-                {sending && sendMode === 'order' ? 'Sending Order…' : 'Send Order Only →'}
+                {sending && sendMode === 'order' ? 'Sending…' : 'Send Team to Jobber →'}
               </div>
               <div className="text-xs font-normal opacity-90 mt-0.5">
-                Keep visits as anytime, set the stop order
+                Reassign visits to the selected tech (order stays in the route sheet)
               </div>
             </button>
 

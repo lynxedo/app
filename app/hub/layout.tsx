@@ -157,7 +157,9 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   }
   const canAccessTracker = profileResult.data?.can_access_tracker ?? false
   const canAccessFiles = profileResult.data?.can_access_files ?? false
-  const canAccessPesticideRecords = profileResult.data?.can_access_pesticide_records ?? false
+  // Admins always have access (matches the page guard), so it shows in the nav
+  // for them instead of being reachable only by typing the URL.
+  const canAccessPesticideRecords = isAdmin || (profileResult.data?.can_access_pesticide_records ?? false)
   const canAccessHub = profileResult.data?.can_access_hub ?? false
   const canAccessCallLog = profileResult.data?.can_access_call_log ?? false
   const canAccessCallLog2 = profileResult.data?.can_access_call_log2 ?? false
@@ -184,6 +186,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAdminMarketing = profileResult.data?.can_admin_marketing ?? false
   const canAccessForms = profileResult.data?.can_access_forms ?? true
   const canAccessDailyLogV2 = profileResult.data?.can_access_daily_log_v2 ?? false
+  const canAccessPricer = isAdmin || (profileResult.data?.can_access_pricer ?? false)
   const rawCanAccessScoreboards = profileResult.data?.can_access_scoreboards ?? false
   const companyId = profileResult.data?.company_id ?? ''
   // A signed-in account with no company never auto-joined one (its email domain
@@ -230,6 +233,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     canAccessScoreboards: !!canAccessScoreboards,
     canAccessFiles: !!canAccessFiles,
     canAccessPesticideRecords: !!canAccessPesticideRecords,
+    canAccessPricer: !!canAccessPricer,
     canAccessHub: !!canAccessHub,
   }
   const resolvedLayout = resolveLayout(
@@ -340,6 +344,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessScoreboards={canAccessScoreboards}
         canAccessFiles={canAccessFiles}
         canAccessPesticideRecords={canAccessPesticideRecords}
+        canAccessPricer={canAccessPricer}
         canAccessHub={canAccessHub}
         scoreboardSlugs={scoreboardSlugs}
         companyId={companyId}

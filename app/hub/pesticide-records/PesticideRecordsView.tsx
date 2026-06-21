@@ -58,6 +58,7 @@ export default function PesticideRecordsView() {
   const [from, setFrom] = useState<string>(dateOffset(todayStr(), -30))
   const [to, setTo] = useState<string>(todayStr())
   const [q, setQ] = useState<string>('')
+  const [epaOnly, setEpaOnly] = useState<boolean>(false)
   const [records, setRecords] = useState<PesticideRecord[]>([])
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
@@ -86,29 +87,44 @@ export default function PesticideRecordsView() {
     load()
   }, [load])
 
-  const exportHref = (() => {
+  function buildExportHref(opts?: { epaOnly?: boolean }): string {
     const params = new URLSearchParams()
     if (from) params.set('from', from)
     if (to) params.set('to', to)
+    if (opts?.epaOnly) params.set('epa_only', '1')
     return `/api/hub/pesticide-records/export?${params}`
-  })()
+  }
+
+  // A record counts as "EPA-registered" if any of its products carries an EPA #.
+  const hasEpa = (r: PesticideRecord) =>
+    (r.chemicals_applied ?? []).some(c => (c.epa_registration_number ?? '').trim() !== '')
+  const visibleRecords = epaOnly ? records.filter(hasEpa) : records
 
   return (
     <div className="flex flex-col h-full">
       <header className="flex-none px-3 md:px-6 pt-4 pb-3 border-b border-gray-800 max-md:pl-14">
         <div className="max-w-6xl mx-auto">
-          <div className="flex items-center justify-between gap-3 mb-1">
-            <h1 className="text-xl md:text-2xl font-semibold text-white">Pesticide Records</h1>
-            <a
-              href={exportHref}
-              className="text-xs md:text-sm px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors"
-              title="Download visible records as CSV (TDA compliance format)"
-            >
-              ⬇ Export CSV
-            </a>
+          <div className="flex items-center justify-between gap-3 mb-1 flex-wrap">
+            <h1 className="text-xl md:text-2xl font-semibold text-white">Products Used</h1>
+            <div className="flex items-center gap-2">
+              <a
+                href={buildExportHref()}
+                className="text-xs md:text-sm px-3 py-1.5 rounded bg-gray-700 hover:bg-gray-600 text-white font-medium transition-colors"
+                title="Download every product used in this range as CSV (one row per product)"
+              >
+                ⬇ All products
+              </a>
+              <a
+                href={buildExportHref({ epaOnly: true })}
+                className="text-xs md:text-sm px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors"
+                title="Download only EPA-registered products as CSV (TDA pesticide-compliance format)"
+              >
+                ⬇ TDA pesticide export
+              </a>
+            </div>
           </div>
           <p className="text-xs md:text-sm text-gray-400 hidden md:block">
-            Auto-generated from Daily Log v2 when stops with chemical line items are marked complete. One row per application; the CSV expands to one row per chemical applied. Records are preserved across stop reopen.
+            Every product applied on a completed visit — fertilizers included — logged automatically from Daily Log v2 or a Jobber visit completion when its line items match a product in Service Mapping. EPA # and active ingredient are recorded when the product has them. The <strong className="text-gray-300">TDA pesticide export</strong> filters to EPA-registered products only; the <strong className="text-gray-300">All products</strong> export includes everything.
           </p>
 
           <div className="flex flex-wrap items-center gap-2 mt-3">
@@ -142,10 +158,27 @@ export default function PesticideRecordsView() {
                 setFrom(dateOffset(todayStr(), -30))
                 setTo(todayStr())
                 setQ('')
+                setEpaOnly(false)
               }}
               className="text-xs px-3 py-1.5 rounded bg-gray-800 hover:bg-gray-700 text-gray-300 transition-colors"
             >
               Reset
+            </button>
+          </div>
+
+          <div className="flex items-center gap-1 mt-2">
+            <span className="text-[10px] uppercase tracking-wide text-gray-500 mr-1">Show</span>
+            <button
+              onClick={() => setEpaOnly(false)}
+              className={`text-xs px-2.5 py-1 rounded transition-colors ${!epaOnly ? 'bg-sky-600 text-white' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'}`}
+            >
+              All products
+            </button>
+            <button
+              onClick={() => setEpaOnly(true)}
+              className={`text-xs px-2.5 py-1 rounded transition-colors ${epaOnly ? 'bg-emerald-600 text-white' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'}`}
+            >
+              EPA-registered only
             </button>
           </div>
         </div>
@@ -159,26 +192,35 @@ export default function PesticideRecordsView() {
               {error}
             </div>
           )}
-          {!loading && !error && records.length === 0 && (
+          {!loading && !error && visibleRecords.length === 0 && (
             <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6 md:p-8 text-center">
-              <p className="text-gray-400 mb-2">No pesticide records in this range.</p>
+              <p className="text-gray-400 mb-2">
+                {epaOnly ? 'No EPA-registered products used in this range.' : 'No products used in this range.'}
+              </p>
               <p className="text-sm text-gray-500">
-                Records are created automatically when a Daily Log v2 stop is marked complete and any of its line items match a mapping configured in <Link href="/hub/admin/daily-log" className="text-sky-400 hover:underline">Daily Log Admin</Link>.
+                {epaOnly
+                  ? 'Switch to “All products” to see fertilizers and other non-EPA products. '
+                  : 'Records are created automatically when a visit is completed — either by marking a stop complete in '}
+                {!epaOnly && <Link href="/hub/daily-log-v2" className="text-sky-400 hover:underline">Daily Log v2</Link>}
+                {!epaOnly && ' or when Jobber reports the visit complete — and any of its line items match a product in '}
+                {!epaOnly && <Link href="/hub/admin/service-mapping" className="text-sky-400 hover:underline">Admin → Service Mapping</Link>}
+                {!epaOnly && '.'}
               </p>
             </div>
           )}
 
-          {records.length > 0 && (
+          {visibleRecords.length > 0 && (
             <div className="space-y-2">
-              {records.map(r => (
+              {visibleRecords.map(r => (
                 <RecordCard key={r.id} record={r} />
               ))}
             </div>
           )}
 
-          {records.length > 0 && (
+          {visibleRecords.length > 0 && (
             <div className="text-xs text-gray-500 text-center mt-6">
-              Showing {records.length} record{records.length === 1 ? '' : 's'}
+              Showing {visibleRecords.length} record{visibleRecords.length === 1 ? '' : 's'}
+              {epaOnly && ' with EPA-registered products'}
             </div>
           )}
         </div>
@@ -220,16 +262,19 @@ function RecordCard({ record: r }: { record: PesticideRecord }) {
 
       {chemicals.length > 0 && (
         <div className="mt-2 flex flex-wrap gap-1.5">
-          {chemicals.map((c, i) => (
-            <span
-              key={i}
-              className="text-[11px] bg-emerald-500/15 text-emerald-200 px-2 py-0.5 rounded"
-              title={c.epa_registration_number ? `EPA ${c.epa_registration_number}` : undefined}
-            >
-              🧪 {c.chemical_name}
-              {c.epa_registration_number && ` · ${c.epa_registration_number}`}
-            </span>
-          ))}
+          {chemicals.map((c, i) => {
+            const isEpa = (c.epa_registration_number ?? '').trim() !== ''
+            return (
+              <span
+                key={i}
+                className={`text-[11px] px-2 py-0.5 rounded ${isEpa ? 'bg-emerald-500/15 text-emerald-200' : 'bg-gray-700/50 text-gray-300'}`}
+                title={isEpa ? `EPA ${c.epa_registration_number}` : 'Non-EPA product (e.g. fertilizer)'}
+              >
+                {isEpa ? '🧪' : '🌿'} {c.chemical_name}
+                {isEpa && ` · ${c.epa_registration_number}`}
+              </span>
+            )
+          })}
         </div>
       )}
     </Link>

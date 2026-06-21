@@ -2,7 +2,7 @@ import { redirect, notFound } from 'next/navigation'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/server'
 
-export const metadata = { title: 'Pesticide Record' }
+export const metadata = { title: 'Products Used' }
 export const dynamic = 'force-dynamic'
 
 type ChemicalApplied = {
@@ -123,16 +123,21 @@ export default async function PesticideRecordDetail({
             </div>
           </section>
 
-          {/* Chemicals applied */}
+          {/* Products used */}
           <section className="bg-gray-900 border border-gray-800 rounded-2xl p-4 space-y-3">
-            <h2 className="font-semibold text-white">Chemicals applied</h2>
+            <h2 className="font-semibold text-white">Products used</h2>
             {chemicals.length === 0 ? (
-              <div className="text-sm text-gray-500">No chemicals recorded.</div>
+              <div className="text-sm text-gray-500">No products recorded.</div>
             ) : (
               <div className="space-y-2">
-                {chemicals.map((c, i) => (
+                {chemicals.map((c, i) => {
+                  const isEpa = (c.epa_registration_number ?? '').trim() !== ''
+                  return (
                   <div key={i} className="border border-gray-800 rounded-lg p-3 bg-gray-950/50">
-                    <div className="font-semibold text-emerald-300">🧪 {c.chemical_name}</div>
+                    <div className={`font-semibold ${isEpa ? 'text-emerald-300' : 'text-gray-200'}`}>
+                      {isEpa ? '🧪' : '🌿'} {c.chemical_name}
+                      {!isEpa && <span className="ml-2 text-[10px] uppercase tracking-wide text-gray-500">non-EPA</span>}
+                    </div>
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-x-3 gap-y-1 mt-2 text-sm">
                       {c.epa_registration_number && (
                         <Field label="EPA reg #" value={c.epa_registration_number} mono />
@@ -151,7 +156,8 @@ export default async function PesticideRecordDetail({
                       )}
                     </div>
                   </div>
-                ))}
+                  )
+                })}
               </div>
             )}
           </section>
