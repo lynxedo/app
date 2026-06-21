@@ -117,20 +117,27 @@ export async function applyRouteSprayDecrements(args: {
     if (!isFinite(qty) || qty <= 0) { summary.skipped++; continue }
     const packages = qty / pkgSize
 
-    // Idempotent ledger insert — DO NOTHING if this route already decremented this product.
+    // Idempotent ledger insert. The route-spray unique index is PARTIAL
+    // (... WHERE reason='route_spray'), which Postgres won't match against a
+    // plain column ON CONFLICT — so a PostgREST upsert errors with 42P10 and
+    // every decrement silently fails. Instead do a plain insert and let the
+    // partial index reject a true duplicate (re-completing the last stop) with
+    // a 23505 unique violation, which we treat as "already counted".
     const { data: mv, error: mvErr } = await admin
       .from('inventory_movements')
-      .upsert(
-        {
-          company_id: companyId, product_id: line.product_id, location_id: locationId,
-          delta: -packages, reason: 'route_spray', ref_type: 'daily_log_entry', ref_id: entryId,
-          note: `Route spray: ${fmtQty(qty)} ${line.unit} ${prod.name}`,
-        },
-        { onConflict: 'company_id,ref_type,ref_id,product_id', ignoreDuplicates: true },
-      )
+      .insert({
+        company_id: companyId, product_id: line.product_id, location_id: locationId,
+        delta: -packages, reason: 'route_spray', ref_type: 'daily_log_entry', ref_id: entryId,
+        note: `Route spray: ${fmtQty(qty)} ${line.unit} ${prod.name}`,
+      })
       .select('id')
       .maybeSingle()
-    if (mvErr) { console.error('[inventory] movement insert failed:', mvErr.message); summary.skipped++; continue }
+    if (mvErr) {
+      // 23505 = unique_violation → this route already decremented this product. Idempotent no-op.
+      if (mvErr.code !== '23505') console.error('[inventory] movement insert failed:', mvErr.message)
+      summary.skipped++
+      continue
+    }
     if (!mv) { summary.skipped++; continue } // already counted for this route
 
     // Decrement the location's package count (create the row if missing).
