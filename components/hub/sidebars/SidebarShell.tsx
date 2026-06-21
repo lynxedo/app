@@ -63,7 +63,7 @@ export function SidebarHeader({
 export function SidebarGroupHeader({ children }: { children: React.ReactNode }) {
   return (
     <div className="px-2 mb-1">
-      <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider">
+      <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider">
         {children}
       </span>
     </div>

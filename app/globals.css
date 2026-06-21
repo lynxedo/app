@@ -109,6 +109,10 @@ html.theme-midnight {
   --t-accent:          #2e7eb8;
   --t-accent-hover:    #2470a8;
   --t-accent-contrast: #ffffff;
+  /* Sidebar section sub-headings (Favorites, Rooms, You, etc.). Gold reads well
+     on every dark theme; light themes override this to their accent below. */
+  --t-heading:         #fcd34d;
+  --t-heading-hover:   #fde68a;
 }
 
 /* ── Carbon — charcoal + violet ─────────────────────────────────────────────── */
@@ -331,6 +335,15 @@ html.theme-graphite {
   --t-accent:          #3b6ea5;
   --t-accent-hover:    #2f5a8c;
   --t-accent-contrast: #ffffff;
+}
+
+/* Light themes: the gold section-heading color from :root is too pale on light
+   backgrounds, so each light theme tints its sidebar sub-headings with its own
+   accent instead (readable + theme-coordinated). */
+html.theme-daylight, html.theme-linen, html.theme-sage,
+html.theme-arctic, html.theme-blossom, html.theme-graphite {
+  --t-heading:         var(--t-accent);
+  --t-heading-hover:   var(--t-accent-hover);
 }
 
 /* S/M/L text size — applied to <html> from server (hub_text_size).

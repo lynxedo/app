@@ -105,7 +105,7 @@ export default function ToolsSidebar({
         <div>
           <button onClick={() => toggle('operations')} className="w-full flex items-center gap-1 px-2 mb-1 group">
             <Chevron open={open.operations} />
-            <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider">Operations</span>
+            <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider">Operations</span>
           </button>
           {open.operations && (
             <>
@@ -124,7 +124,7 @@ export default function ToolsSidebar({
         <div>
           <button onClick={() => toggle('sales')} className="w-full flex items-center gap-1 px-2 mb-1 group">
             <Chevron open={open.sales} />
-            <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider">Sales</span>
+            <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider">Sales</span>
           </button>
           {open.sales && (
             <>
@@ -141,7 +141,7 @@ export default function ToolsSidebar({
         <div>
           <button onClick={() => toggle('communications')} className="w-full flex items-center gap-1 px-2 mb-1 group">
             <Chevron open={open.communications} />
-            <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider">Communications</span>
+            <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider">Communications</span>
           </button>
           {open.communications && (
             <>
@@ -158,7 +158,7 @@ export default function ToolsSidebar({
         <div>
           <button onClick={() => toggle('finance')} className="w-full flex items-center gap-1 px-2 mb-1 group">
             <Chevron open={open.finance} />
-            <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider">Finance</span>
+            <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider">Finance</span>
           </button>
           {open.finance && (
             <>
@@ -172,7 +172,7 @@ export default function ToolsSidebar({
         <div>
           <button onClick={() => toggle('marketing')} className="w-full flex items-center gap-1 px-2 mb-1 group">
             <Chevron open={open.marketing} />
-            <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider">Marketing</span>
+            <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider">Marketing</span>
           </button>
           {open.marketing && (
             <>
@@ -188,7 +188,7 @@ export default function ToolsSidebar({
       <div>
         <button onClick={() => toggle('pages')} className="w-full flex items-center gap-1 px-2 mb-1 group">
           <Chevron open={open.pages} />
-          <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider">Pages</span>
+          <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider">Pages</span>
         </button>
         {open.pages && (
           <>
