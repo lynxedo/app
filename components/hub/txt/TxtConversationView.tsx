@@ -1890,7 +1890,7 @@ export default function TxtConversationView({
               type="button"
               onClick={pickAttachments}
               disabled={sending || uploadingAttachment || !!conversation.contact?.do_not_text}
-              className="text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
+              className="text-white/70 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
               title="Attach an image (JPEG/PNG/GIF/WebP, up to 5 MB)"
               aria-label="Attach image"
             >
@@ -1900,7 +1900,7 @@ export default function TxtConversationView({
               type="button"
               onClick={openPickerManually}
               disabled={sending || !!conversation.contact?.do_not_text}
-              className="text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
+              className="text-white/70 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
               title="Insert template (or type / in the composer)"
               aria-label="Insert template"
             >
@@ -1915,7 +1915,7 @@ export default function TxtConversationView({
                   setScheduleOpen(false)
                 }}
                 disabled={sending || !!conversation.contact?.do_not_text}
-                className="text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
+                className="text-white/70 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
                 title="Insert emoji"
                 aria-label="Insert emoji"
               >
@@ -1940,7 +1940,7 @@ export default function TxtConversationView({
                 }}
                 disabled={sending || !!conversation.contact?.do_not_text}
                 className={`hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10 ${
-                  omwOpen ? 'text-emerald-300 bg-white/10' : 'text-white/50'
+                  omwOpen ? 'text-emerald-300 bg-white/10' : 'text-white/70'
                 }`}
                 title="On my way — pick an ETA"
                 aria-label="On my way"
@@ -1951,7 +1951,7 @@ export default function TxtConversationView({
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              className="text-white/50 hover:text-white transition-colors p-1.5 rounded-md hover:bg-white/10"
+              className="text-white/70 hover:text-white transition-colors p-1.5 rounded-md hover:bg-white/10"
               title={expanded ? 'Shrink composer' : 'Expand composer'}
               aria-label={expanded ? 'Shrink composer' : 'Expand composer'}
             >
