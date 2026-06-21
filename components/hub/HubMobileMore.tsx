@@ -179,7 +179,7 @@ export default function HubMobileMore({
   return (
     <div className="md:hidden fixed inset-0 z-[60] bg-black/70 flex flex-col" onClick={onClose}>
       <div
-        className="mt-auto text-white rounded-t-3xl overflow-hidden flex flex-col"
+        className="t-sidebar-surface mt-auto text-white rounded-t-3xl overflow-hidden flex flex-col"
         style={{ maxHeight: '90vh', paddingBottom: 'env(safe-area-inset-bottom, 0)', background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))', boxShadow: '0 -20px 50px -20px rgba(0,0,0,.7)' }}
         onClick={e => e.stopPropagation()}
       >

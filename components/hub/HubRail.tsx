@@ -593,7 +593,7 @@ export default function HubRail({
 
   return (
     <nav
-      className="hidden md:flex flex-col w-16 flex-none"
+      className="t-sidebar-surface hidden md:flex flex-col w-16 flex-none"
       style={{ paddingTop: 'env(safe-area-inset-top, 0)', background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))', borderRight: '1px solid rgba(255,255,255,.06)' }}
       aria-label="Hub navigation"
     >
