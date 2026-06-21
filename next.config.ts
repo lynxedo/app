@@ -8,8 +8,8 @@ const nextConfig: NextConfig = {
   // previous behavior. See .github/workflows/deploy*.yml.
   distDir: process.env.NEXT_DIST_DIR || '.next',
 
-  // Playwright drives a real Chromium binary for the Route Builder's
-  // "Send Order Only" flow (lib/jobber-playwright.ts). It must NOT be bundled
+  // Playwright drives a real Chromium binary to render the Daily Log v2 route
+  // sheet to a PDF server-side (lib/route-sheet-pdf.ts). It must NOT be bundled
   // by webpack — let Node resolve it from node_modules at runtime.
   serverExternalPackages: ['playwright'],
 

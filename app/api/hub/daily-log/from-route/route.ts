@@ -5,6 +5,7 @@ import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { getR2Client } from '@/lib/r2'
 import { loadCapacityData } from '@/lib/route-capacity-server'
 import { computeRouteLoadout, toStoredLoadout, type RouteStopInput } from '@/lib/route-capacity'
+import { renderRouteSheetPdf } from '@/lib/route-sheet-pdf'
 
 interface LineItemPayload {
   name: string
@@ -211,31 +212,55 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: `Failed to insert stops: ${stopsErr.message}` }, { status: 500 })
   }
 
-  // Attach the printable route sheet (same self-contained HTML Daily Log v1 stores),
-  // so DL v2 gets the identical "Print / Save as PDF" route sheet. Best-effort: a
-  // route-sheet failure must not lose the stops we just saved, so we don't fail the
-  // request on it. Skipped silently if no HTML was sent or R2 isn't configured.
+  // Attach the printable route sheet. We render the self-contained route-sheet
+  // HTML to a real PDF server-side (test-findings #7) and store THAT, so DL v2
+  // gets an actual downloadable PDF (opened in-app via pdf.js) rather than an
+  // HTML preview the tech has to print. Best-effort and last: a route-sheet
+  // failure must not lose the stops we already saved. If PDF rendering is
+  // unavailable we fall back to storing the HTML so a (printable) sheet still
+  // attaches. Skipped silently if no HTML was sent or R2 isn't configured.
   if (
     body.route_html && typeof body.route_html === 'string' &&
     process.env.CF_R2_ACCESS_KEY_ID && process.env.CF_R2_BUCKET_NAME
   ) {
-    const routeName = (body.route_name && typeof body.route_name === 'string')
-      ? body.route_name
-      : `${exactMatches[0].display_name} - ${body.log_date}.html`
-    const r2Key = `daily-log/${profile.company_id}/${entryId}/${Date.now()}.html`
+    const baseName = (body.route_name && typeof body.route_name === 'string')
+      ? body.route_name.replace(/\.html?$/i, '')
+      : `${exactMatches[0].display_name} - ${body.log_date}`
     try {
       const r2 = getR2Client()
-      await r2.send(new PutObjectCommand({
-        Bucket: process.env.CF_R2_BUCKET_NAME!,
-        Key: r2Key,
-        Body: Buffer.from(body.route_html, 'utf-8'),
-        ContentType: 'text/html; charset=utf-8',
-        ContentDisposition: `inline; filename="${encodeURIComponent(routeName)}"`,
-      }))
-      await admin
-        .from('daily_log_entries')
-        .update({ route_sheet_url: r2Key, route_sheet_name: routeName })
-        .eq('id', entryId)
+      const pdf = await renderRouteSheetPdf(body.route_html)
+      const ts = Date.now()
+      if (pdf) {
+        const routeName = `${baseName}.pdf`
+        const r2Key = `daily-log/${profile.company_id}/${entryId}/${ts}.pdf`
+        await r2.send(new PutObjectCommand({
+          Bucket: process.env.CF_R2_BUCKET_NAME!,
+          Key: r2Key,
+          Body: pdf,
+          ContentType: 'application/pdf',
+          ContentDisposition: `inline; filename="${encodeURIComponent(routeName)}"`,
+        }))
+        await admin
+          .from('daily_log_entries')
+          .update({ route_sheet_url: r2Key, route_sheet_name: routeName })
+          .eq('id', entryId)
+      } else {
+        // PDF render unavailable — fall back to the self-contained HTML sheet
+        // (DL v2 still surfaces it, with its built-in Print / Save as PDF button).
+        const routeName = `${baseName}.html`
+        const r2Key = `daily-log/${profile.company_id}/${entryId}/${ts}.html`
+        await r2.send(new PutObjectCommand({
+          Bucket: process.env.CF_R2_BUCKET_NAME!,
+          Key: r2Key,
+          Body: Buffer.from(body.route_html, 'utf-8'),
+          ContentType: 'text/html; charset=utf-8',
+          ContentDisposition: `inline; filename="${encodeURIComponent(routeName)}"`,
+        }))
+        await admin
+          .from('daily_log_entries')
+          .update({ route_sheet_url: r2Key, route_sheet_name: routeName })
+          .eq('id', entryId)
+      }
     } catch {
       // Route sheet attach failed — stops are already saved; leave route_sheet_url as-is.
     }
