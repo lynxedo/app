@@ -22,6 +22,10 @@ import {
   evictMissingRooms,
 } from '@/lib/hub-cache'
 
+// Room & conversation ids are UUIDs; used to keep single-segment tool pages
+// (/hub/pesticide-records, /hub/pricer, …) from being treated as a room id. (#11)
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+
 type Room = { id: string; name: string; is_private: boolean }
 
 type Conversation = {
@@ -507,11 +511,17 @@ export default function HubSidebar({
     })
   }, [currentUserId])
 
-  // Mark as read when the user navigates to a room or PM
+  // Mark as read when the user navigates to a room or PM.
+  // The /^\/hub\/([^/]+)$/ pattern also matches single-segment TOOL pages
+  // (/hub/pesticide-records, /hub/pricer, /hub/routing, …), so guard on the
+  // segment being a real UUID — room & conversation ids are UUIDs. Without this
+  // we POSTed e.g. { room_id: 'pesticide-records' } into a uuid column and
+  // Postgres logged "invalid input syntax for type uuid" on every tool page
+  // (the fetch .catch hid it client-side). (test-findings #11)
   useEffect(() => {
     const roomMatch = pathname.match(/^\/hub\/([^/]+)$/)
     const pmMatch = pathname.match(/^\/hub\/pm\/([^/]+)$/)
-    if (roomMatch) {
+    if (roomMatch && UUID_RE.test(roomMatch[1])) {
       const roomId = roomMatch[1]
       setUnreadRoomIds(prev => { const next = new Set(prev); next.delete(roomId); return next })
       fetch('/api/hub/read-receipts', {
@@ -519,7 +529,7 @@ export default function HubSidebar({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ room_id: roomId }),
       }).catch(() => {})
-    } else if (pmMatch) {
+    } else if (pmMatch && UUID_RE.test(pmMatch[1])) {
       const convId = pmMatch[1]
       setUnreadConvIds(prev => { const next = new Set(prev); next.delete(convId); return next })
       fetch('/api/hub/read-receipts', {

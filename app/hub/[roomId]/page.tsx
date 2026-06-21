@@ -12,6 +12,13 @@ export default async function RoomPage({
   params: Promise<{ roomId: string }>
 }) {
   const { roomId } = await params
+
+  // roomId is a UUID column; a non-UUID segment means a stale/typo'd link (or a
+  // tool slug that slipped past static routing) — 404 instead of throwing a
+  // "invalid input syntax for type uuid" on the rooms query below. (#11)
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  if (!UUID_RE.test(roomId)) notFound()
+
   const supabase = await createClient()
 
   const { data: { user } } = await supabase.auth.getUser()

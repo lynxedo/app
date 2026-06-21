@@ -187,6 +187,14 @@ export async function POST(request: Request) {
 
   if (!room_id && !conversation_id) return NextResponse.json({ error: 'room_id or conversation_id required' }, { status: 400 })
 
+  // Defense in depth (test-findings #11): room_id/conversation_id are UUID
+  // columns. Reject a non-UUID value with a clean 400 instead of letting the
+  // upsert throw a "invalid input syntax for type uuid" that only surfaces in
+  // the Postgres logs. (The HubSidebar caller already guards, this is a backstop.)
+  const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+  if (room_id && !UUID_RE.test(room_id)) return NextResponse.json({ error: 'invalid room_id' }, { status: 400 })
+  if (conversation_id && !UUID_RE.test(conversation_id)) return NextResponse.json({ error: 'invalid conversation_id' }, { status: 400 })
+
   const record: {
     company_id: string
     user_id: string
