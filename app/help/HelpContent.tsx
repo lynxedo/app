@@ -1670,7 +1670,7 @@ function SettingsTab() {
           <li><strong className="text-white">Dark</strong> — Midnight (default), Carbon</li>
           <li><strong className="text-white">Light</strong> — Daylight, Blossom</li>
           <li><strong className="text-white">Hybrid</strong> (dark sidebar, light workspace) — Eclipse, Pine</li>
-          <li><strong className="text-white">Liquid Glass</strong> (frosted panels over a color gradient) — Aurora, Nebula, Tide, Obsidian, Ember Glass, Heroes Glass</li>
+          <li><strong className="text-white">Glossy</strong> (frosted panels over a color gradient) — Aurora, Nebula, Tide, Obsidian, Ember Glass, Heroes Glass</li>
         </ul>
         <p>Everyone on your team can have their own theme — it&apos;s a personal preference and doesn&apos;t affect what other users see.</p>
       </Section>

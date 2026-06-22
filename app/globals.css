@@ -72,7 +72,7 @@ body {
 
 /* ─── Theme system ────────────────────────────────────────────────────────────
    12 curated themes: 2 dark (Midnight default, Carbon), 2 light (Daylight,
-   Blossom), 2 hybrid (Eclipse, Pine), 6 liquid glass (Aurora, Nebula, Tide,
+   Blossom), 2 hybrid (Eclipse, Pine), 6 glossy / liquid-glass (Aurora, Nebula, Tide,
    Obsidian, Ember Glass, Heroes Glass). The server stamps html.theme-{name} on
    first paint (same pattern as text-size-*). HubShell manages live class
    updates when the user switches themes in their profile sidebar.
@@ -243,7 +243,7 @@ html.theme-eclipse .t-sidebar-surface, html.theme-pine .t-sidebar-surface {
   --color-white:#fff; --color-gray-950:#030712; --color-gray-900:#111827; --color-gray-800:#1f2937; --color-gray-700:#374151; --color-gray-600:#4b5563; --color-gray-500:#6b7280; --color-gray-400:#9ca3af; --color-gray-300:#d1d5db; --color-gray-200:#e5e7eb; --color-gray-100:#f3f4f6; --color-gray-50:#f9fafb;
 }
 
-/* ══ LIQUID GLASS · dark (Aurora / Nebula / Tide / Obsidian / Ember) ═══════════
+/* ══ GLOSSY (liquid glass) · dark (Aurora / Nebula / Tide / Obsidian / Ember) ══
    Shared translucent surfaces + white text; each adds its own gradient + accent.
    (Heroes Glass keeps its own block above; same recipe.) */
 html.theme-aurora, html.theme-nebula, html.theme-tide, html.theme-obsidian, html.theme-emberglass {

@@ -6,7 +6,7 @@
 // Pure data (no React / no client-only APIs) so server components
 // (app/layout.tsx, app/api/profile/route.ts) can import it too.
 
-export type ThemeCat = 'Dark' | 'Light' | 'Hybrid' | 'Liquid Glass'
+export type ThemeCat = 'Dark' | 'Light' | 'Hybrid' | 'Glossy'
 
 export interface ThemeDef {
   id: string
@@ -26,16 +26,16 @@ export const THEMES: ThemeDef[] = [
   // Hybrid — dark nav + light workspace
   { id: 'eclipse',   label: 'Eclipse',   accent: '#4f46e5', dark: true,  cat: 'Hybrid' },
   { id: 'pine',      label: 'Pine',      accent: '#16a34a', dark: true,  cat: 'Hybrid' },
-  // Liquid Glass — frosted panels over a gradient base (all dark)
-  { id: 'aurora',      label: 'Aurora Glass',   accent: '#c4a6ff', dark: true, cat: 'Liquid Glass' },
-  { id: 'nebula',      label: 'Nebula Glass',   accent: '#ff9ad1', dark: true, cat: 'Liquid Glass' },
-  { id: 'tide',        label: 'Tide Glass',     accent: '#5eead4', dark: true, cat: 'Liquid Glass' },
-  { id: 'obsidian',    label: 'Obsidian Glass', accent: '#7dd3fc', dark: true, cat: 'Liquid Glass' },
-  { id: 'emberglass',  label: 'Ember Glass',    accent: '#ffae6b', dark: true, cat: 'Liquid Glass' },
-  { id: 'heroesglass', label: 'Heroes Glass',   accent: '#e6b252', dark: true, cat: 'Liquid Glass' },
+  // Glossy — frosted panels over a gradient base (all dark)
+  { id: 'aurora',      label: 'Aurora Glass',   accent: '#c4a6ff', dark: true, cat: 'Glossy' },
+  { id: 'nebula',      label: 'Nebula Glass',   accent: '#ff9ad1', dark: true, cat: 'Glossy' },
+  { id: 'tide',        label: 'Tide Glass',     accent: '#5eead4', dark: true, cat: 'Glossy' },
+  { id: 'obsidian',    label: 'Obsidian Glass', accent: '#7dd3fc', dark: true, cat: 'Glossy' },
+  { id: 'emberglass',  label: 'Ember Glass',    accent: '#ffae6b', dark: true, cat: 'Glossy' },
+  { id: 'heroesglass', label: 'Heroes Glass',   accent: '#e6b252', dark: true, cat: 'Glossy' },
 ]
 
 export const THEME_IDS = THEMES.map(t => t.id)
 
 // Display order for grouped pickers (settings page).
-export const THEME_CATEGORIES: ThemeCat[] = ['Dark', 'Light', 'Hybrid', 'Liquid Glass']
+export const THEME_CATEGORIES: ThemeCat[] = ['Dark', 'Light', 'Hybrid', 'Glossy']

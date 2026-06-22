@@ -1,0 +1,17 @@
+-- Drop the hub_theme CHECK constraint.
+--
+-- The original 2026-06-21_hub_theme.sql pinned hub_theme to the first theme
+-- lineup (midnight/carbon/evergreen/slate/ember/mocha/daylight/linen/sage/
+-- arctic/blossom/graphite). Themes added later — the hybrids (Eclipse/Pine)
+-- and every glossy / liquid-glass theme — were never added to the list, so
+-- saving them violated the constraint and silently failed (the client PUT
+-- swallows the error), and they never persisted across reloads.
+--
+-- Validation now lives solely in the app, with lib/themes.ts as the single
+-- source of truth: app/api/profile (PUT) rejects ids not in THEME_IDS, and
+-- app/layout falls back to Midnight when a stored id is no longer valid. That
+-- means adding or retiring a theme is a code-only change — no migration needed,
+-- and no drift between the DB list and the registry.
+--
+-- Applied to the shared prod+staging DB on 2026-06-22 (Ben approved).
+ALTER TABLE user_profiles DROP CONSTRAINT IF EXISTS user_profiles_hub_theme_check;
