@@ -77,6 +77,8 @@ export default function HubShell({
   canAccessUnifiedInbox,
   canAccessMarketing,
   canAdminMarketing,
+  canAccessEmail,
+  canAdminEmail,
   canAccessForms,
   canAccessDailyLogV2,
   canAccessScoreboards,
@@ -139,6 +141,8 @@ export default function HubShell({
   canAccessUnifiedInbox?: boolean
   canAccessMarketing?: boolean
   canAdminMarketing?: boolean
+  canAccessEmail?: boolean
+  canAdminEmail?: boolean
   canAccessForms?: boolean
   canAccessDailyLogV2?: boolean
   canAccessScoreboards?: boolean
@@ -725,6 +729,7 @@ export default function HubShell({
     canAccessDialer: !!canAccessDialer,
     canAccessTxt: !!canAccessTxt,
     canAccessMarketing: !!canAccessMarketing,
+    canAccessEmail: !!canAccessEmail,
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
     canAccessScoreboards: !!canAccessScoreboards,
@@ -778,6 +783,8 @@ export default function HubShell({
             canAccessDialer={!!canAccessDialer}
             canAccessMarketing={!!canAccessMarketing}
             canAdminMarketing={!!canAdminMarketing}
+            canAccessEmail={!!canAccessEmail}
+            canAdminEmail={!!canAdminEmail}
             canAccessForms={!!canAccessForms}
             canAccessScoreboards={!!canAccessScoreboards}
             canAccessPricer={!!canAccessPricer}

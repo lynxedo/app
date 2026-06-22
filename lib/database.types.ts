@@ -2366,6 +2366,56 @@ export type Database = {
           },
         ]
       }
+      email_settings: {
+        Row: {
+          company_id: string
+          created_at: string
+          domain_verified: boolean
+          from_email: string | null
+          from_name: string | null
+          physical_address: string | null
+          reply_to: string | null
+          resend_domain_id: string | null
+          sending_domain: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          domain_verified?: boolean
+          from_email?: string | null
+          from_name?: string | null
+          physical_address?: string | null
+          reply_to?: string | null
+          resend_domain_id?: string | null
+          sending_domain?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          domain_verified?: boolean
+          from_email?: string | null
+          from_name?: string | null
+          physical_address?: string | null
+          reply_to?: string | null
+          resend_domain_id?: string | null
+          sending_domain?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_settings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       external_links: {
         Row: {
           company_id: string
@@ -7371,6 +7421,7 @@ export type Database = {
           can_access_hub: boolean
           can_access_lawn: boolean
           can_access_marketing: boolean
+          can_access_email: boolean
           can_access_responder: boolean
           can_access_files: boolean
           can_access_pesticide_records: boolean
@@ -7392,6 +7443,7 @@ export type Database = {
           can_admin_guardian: boolean
           can_admin_hub: boolean
           can_admin_marketing: boolean
+          can_admin_email: boolean
           can_admin_people: boolean
           can_admin_products: boolean
           can_admin_routing: boolean
@@ -7440,6 +7492,7 @@ export type Database = {
           can_access_hub?: boolean
           can_access_lawn?: boolean
           can_access_marketing?: boolean
+          can_access_email?: boolean
           can_access_responder?: boolean
           can_access_files?: boolean
           can_access_pesticide_records?: boolean
@@ -7461,6 +7514,7 @@ export type Database = {
           can_admin_guardian?: boolean
           can_admin_hub?: boolean
           can_admin_marketing?: boolean
+          can_admin_email?: boolean
           can_admin_people?: boolean
           can_admin_products?: boolean
           can_admin_routing?: boolean
@@ -7509,6 +7563,7 @@ export type Database = {
           can_access_hub?: boolean
           can_access_lawn?: boolean
           can_access_marketing?: boolean
+          can_access_email?: boolean
           can_access_responder?: boolean
           can_access_files?: boolean
           can_access_pesticide_records?: boolean
@@ -7530,6 +7585,7 @@ export type Database = {
           can_admin_guardian?: boolean
           can_admin_hub?: boolean
           can_admin_marketing?: boolean
+          can_admin_email?: boolean
           can_admin_people?: boolean
           can_admin_products?: boolean
           can_admin_routing?: boolean
@@ -7951,6 +8007,7 @@ export type Database = {
           can_access_hub: boolean
           can_access_lawn: boolean
           can_access_marketing: boolean
+          can_access_email: boolean
           can_access_responder: boolean
           can_access_files: boolean
           can_access_pesticide_records: boolean
@@ -7972,6 +8029,7 @@ export type Database = {
           can_admin_guardian: boolean
           can_admin_hub: boolean
           can_admin_marketing: boolean
+          can_admin_email: boolean
           can_admin_people: boolean
           can_admin_products: boolean
           can_admin_routing: boolean
