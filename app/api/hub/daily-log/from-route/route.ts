@@ -36,7 +36,7 @@ interface FromRouteRequest {
   stops: StopPayload[]
   predicted_drive_minutes?: number | null   // route total — for the Daily Log loadout header (Part D)
   predicted_onsite_minutes?: number | null  // route total — falls back to Σ stop duration_minutes
-  tank_overrides?: Record<string, number> | null  // product_id → tank_number, from the optimizer (Part B)
+  tank_overrides?: Record<string, number> | null  // service_product_id → tank_number, from the optimizer (Part B)
   route_html?: string | null     // full self-contained route-sheet HTML (same as Daily Log v1) — optional
   route_name?: string | null     // filename label, e.g. "Ben Simpson - 2026-05-28.html"
 }
@@ -105,9 +105,9 @@ export async function POST(request: Request) {
 
   // Route Capacity Part D — compute the tank loadout snapshot for this route and
   // store it on the entry. Daily Log V2 only displays it (never recomputes).
-  // The optimizer's per-route tank overrides (product_id → tank_number) are
-  // passed through so the saved snapshot keeps the same tank choices the user
-  // saw on screen; absent that, each product falls back to service_products.tank_default.
+  // The optimizer's per-route tank overrides (service_product_id → tank_number)
+  // are passed through so the saved snapshot keeps the same tank choices the user
+  // saw on screen; absent that, each line item falls back to service_products.tank_default.
   const capacity = await loadCapacityData(admin, profile.company_id)
   const loadoutStops: RouteStopInput[] = body.stops.map(s => ({
     id: s.jobber_visit_id ?? s.client_name,
@@ -118,7 +118,7 @@ export async function POST(request: Request) {
   const tankOverrides = new Map<string, number>(
     body.tank_overrides && typeof body.tank_overrides === 'object'
       ? Object.entries(body.tank_overrides)
-          .map(([pid, tn]) => [pid, Number(tn)] as [string, number])
+          .map(([spId, tn]) => [spId, Number(tn)] as [string, number])
           .filter(([, tn]) => Number.isFinite(tn))
       : [],
   )
