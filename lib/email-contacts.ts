@@ -130,47 +130,58 @@ export async function importMailchimpCsv(
   }
   const emails = [...byEmail.keys()]
 
-  if (listType === 'subscribed') {
-    // Which emails already exist (from a prior import or the Jobber reconcile)?
-    const existing = new Set<string>()
-    for (const part of chunk(emails, 300)) {
-      const { data } = await admin.from('email_contacts').select('email').eq('company_id', companyId).in('email', part)
-      for (const row of data ?? []) existing.add((row.email as string).toLowerCase())
-    }
+  // Every list type populates the master audience with the right status, so the
+  // numbers reconcile (subscribed + unsubscribed + bounced). unsubscribed/cleaned
+  // ALSO go on the suppression list (the actual send-time gate).
+  const newStatus = listType === 'subscribed' ? 'subscribed' : listType === 'unsubscribed' ? 'unsubscribed' : 'bounced'
 
-    const toInsert = emails
-      .filter(e => !existing.has(e))
-      .map(e => ({
-        company_id: companyId, email: e,
-        first_name: byEmail.get(e)!.first, last_name: byEmail.get(e)!.last,
-        source: 'import', status: 'subscribed', imported_batch_id: importId,
-      }))
-    for (const part of chunk(toInsert, 500)) {
-      const { error } = await admin.from('email_contacts').insert(part)
-      if (!error) created += part.length
-    }
-    updated = emails.length - toInsert.length
+  // Which emails already exist (from a prior import or the Jobber reconcile)?
+  const existing = new Set<string>()
+  for (const part of chunk(emails, 300)) {
+    const { data } = await admin.from('email_contacts').select('email').eq('company_id', companyId).in('email', part)
+    for (const row of data ?? []) existing.add((row.email as string).toLowerCase())
+  }
 
-    // Map every email -> contact id, then merge in the Mailchimp tags.
-    const idByEmail = new Map<string, string>()
-    for (const part of chunk(emails, 300)) {
-      const { data } = await admin.from('email_contacts').select('id, email').eq('company_id', companyId).in('email', part)
-      for (const row of data ?? []) idByEmail.set((row.email as string).toLowerCase(), row.id as string)
-    }
-    const tagRows: { contact_id: string; tag: string; source: string }[] = []
-    for (const e of emails) {
-      const cid = idByEmail.get(e)
-      if (!cid) continue
-      for (const tag of byEmail.get(e)!.tags) tagRows.push({ contact_id: cid, tag, source: 'mailchimp' })
-    }
-    for (const part of chunk(tagRows, 500)) {
-      await admin.from('email_contact_tags').upsert(part, { onConflict: 'contact_id,tag', ignoreDuplicates: true })
-    }
-  } else {
-    // unsubscribed / cleaned -> suppression list + flip matching contact status.
+  const toInsert = emails
+    .filter(e => !existing.has(e))
+    .map(e => ({
+      company_id: companyId, email: e,
+      first_name: byEmail.get(e)!.first, last_name: byEmail.get(e)!.last,
+      source: 'import', status: newStatus, imported_batch_id: importId,
+    }))
+  for (const part of chunk(toInsert, 500)) {
+    const { error } = await admin.from('email_contacts').insert(part)
+    if (!error) created += part.length
+  }
+
+  // Existing rows: set this status (e.g. a subscribed contact who later appears
+  // in the unsubscribed export gets flipped). Counts as a merge/update.
+  const existingEmails = emails.filter(e => existing.has(e))
+  updated = existingEmails.length
+  for (const part of chunk(existingEmails, 300)) {
+    await admin.from('email_contacts').update({ status: newStatus, updated_at: new Date().toISOString() })
+      .eq('company_id', companyId).in('email', part)
+  }
+
+  // Map every email -> contact id, then merge in the Mailchimp tags (all lists carry TAGS).
+  const idByEmail = new Map<string, string>()
+  for (const part of chunk(emails, 300)) {
+    const { data } = await admin.from('email_contacts').select('id, email').eq('company_id', companyId).in('email', part)
+    for (const row of data ?? []) idByEmail.set((row.email as string).toLowerCase(), row.id as string)
+  }
+  const tagRows: { contact_id: string; tag: string; source: string }[] = []
+  for (const e of emails) {
+    const cid = idByEmail.get(e)
+    if (!cid) continue
+    for (const tag of byEmail.get(e)!.tags) tagRows.push({ contact_id: cid, tag, source: 'mailchimp' })
+  }
+  for (const part of chunk(tagRows, 500)) {
+    await admin.from('email_contact_tags').upsert(part, { onConflict: 'contact_id,tag', ignoreDuplicates: true })
+  }
+
+  // unsubscribed / cleaned -> suppression list (idempotent).
+  if (listType !== 'subscribed') {
     const reason = listType === 'unsubscribed' ? 'unsubscribe' : 'bounce'
-    const newStatus = listType === 'unsubscribed' ? 'unsubscribed' : 'bounced'
-
     const alreadySuppressed = new Set<string>()
     for (const part of chunk(emails, 300)) {
       const { data } = await admin.from('email_suppressions').select('email').eq('company_id', companyId).in('email', part)
@@ -180,11 +191,6 @@ export async function importMailchimpCsv(
     for (const part of chunk(toSuppress, 500)) {
       const { error } = await admin.from('email_suppressions').insert(part)
       if (!error) suppressed += part.length
-    }
-    // Reflect the opt-out on any existing audience rows.
-    for (const part of chunk(emails, 300)) {
-      await admin.from('email_contacts').update({ status: newStatus, updated_at: new Date().toISOString() })
-        .eq('company_id', companyId).in('email', part)
     }
   }
 
