@@ -18,6 +18,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { jobberGraphQLAdmin } from '@/lib/jobber'
 import { postGuardianToUserDm } from '@/lib/guardian-post'
 import { createPesticideRecordFromJobberVisit } from '@/lib/pesticide'
+import { syncClientsToDirectory, type DirectoryClientInput } from '@/lib/contacts-directory'
 
 const COMPANY_ID = '00000000-0000-0000-0000-000000000002' // Heroes Lawn Care
 
@@ -531,6 +532,34 @@ async function syncClients(
         const { error } = await admin.from('client_tags').upsert(clientTagRows, { ignoreDuplicates: true })
         if (error) throw new Error(`client_tags upsert: ${error.message}`)
       }
+    }
+
+    // 4) Feed the unified Contacts directory (txt_contacts) from this page of
+    //    clients + their tags. Best-effort: a directory hiccup must never fail
+    //    the core Jobber sync. (See lib/contacts-directory.ts for the consent
+    //    guard + tag mirroring.)
+    try {
+      const labelsByExternal = new Map<string, string[]>()
+      for (const p of tagPairs) {
+        const arr = labelsByExternal.get(p.clientExternalId) ?? []
+        arr.push(p.label)
+        labelsByExternal.set(p.clientExternalId, arr)
+      }
+      const dirItems: DirectoryClientInput[] = prepared.map(p => ({
+        external_id: p.raw.id,
+        name: p.row.name,
+        first_name: p.row.first_name,
+        last_name: p.row.last_name,
+        company_name: p.row.company_name,
+        is_company: p.row.is_company,
+        email: p.primaryEmail,
+        phone: p.primaryPhone,
+        tagLabels: labelsByExternal.get(p.raw.id) ?? [],
+      }))
+      const res = await syncClientsToDirectory(admin, companyId, dirItems)
+      console.log(`[jobber-sync] directory: +${res.inserted} new, ${res.enriched} enriched`)
+    } catch (e) {
+      console.error('[jobber-sync] directory feed failed (non-fatal)', e)
     }
 
     total += nodes.length
