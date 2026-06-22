@@ -81,7 +81,8 @@ async function handleScoreboards(request: Request) {
   }
   const company = profile.company_id
 
-  const board = new URL(request.url).searchParams.get('board') ?? '1'
+  const sp = new URL(request.url).searchParams
+  const board = sp.get('board') ?? '1'
   if (board !== '1' && board !== '2' && board !== '3' && board !== '4' && board !== '5') return NextResponse.json({ error: 'Unknown scoreboard' }, { status: 404 })
 
   // Per-board view grant (Admin -> Scoreboards). Admins bypass; non-admins must
@@ -91,12 +92,42 @@ async function handleScoreboards(request: Request) {
     if (!allowed.includes(board)) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  // Boards 2–5 have their own payloads; board 1 falls through below.
+  // ── Weekly snapshots (Friday-night capture) ──
+  // List the snapshots available for this board (drives the rollback dropdown).
+  if (sp.get('snapshots') === '1') {
+    const { data, error } = await supabase
+      .from('scoreboard_snapshots')
+      .select('id, captured_at, label')
+      .eq('company_id', company).eq('board_slug', board)
+      .order('captured_at', { ascending: false })
+      .limit(52)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ snapshots: data ?? [] })
+  }
+  // Render a stored snapshot instead of live — return the exact payload captured
+  // that week, so the board renders precisely as it looked then.
+  const snapshotId = sp.get('snapshot')
+  if (snapshotId) {
+    const { data, error } = await supabase
+      .from('scoreboard_snapshots')
+      .select('payload')
+      .eq('id', snapshotId).eq('company_id', company).eq('board_slug', board)
+      .maybeSingle()
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    if (!data) return NextResponse.json({ error: 'Snapshot not found' }, { status: 404 })
+    return NextResponse.json(data.payload)
+  }
+
+  // ── Live board ──
   if (board === '2') return buildWfBoard(supabase, company)
   if (board === '3') return buildIrBoard(supabase, company)
   if (board === '4') return buildPwBoard(supabase, company)
   if (board === '5') return buildOfficeBoard(supabase, company)
+  return buildMainBoard(supabase, company)
+}
 
+// ── Board 1: Main Scoreboard ─────────────────────────────────────────────────
+async function buildMainBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
   // ── Date windows ──
   const t = chicagoToday()
   const todayStr = ymd(utcNoon(t.y, t.m, t.d))
@@ -239,6 +270,29 @@ async function handleScoreboards(request: Request) {
     closeRate: weekLabels.map((wk, i) => ({ week: wk, won: closeWon[i], total: closeTotal[i] })),
     retention: { active, upgraded, downgraded, cancelled, total: recTotal, rate: Math.round(retentionRate * 10) / 10 },
   })
+}
+
+// Produce a board's payload as a plain object (not a NextResponse). Used by the
+// weekly snapshot cron, which runs with a service-role client (no auth.uid()), so
+// the gated scoreboard RPCs return data via their `auth.uid() IS NULL` bypass.
+// Reuses the exact same build path as the live GET, so a stored snapshot is
+// byte-for-byte what the board showed at capture time.
+export async function computeBoardPayload(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  company: string,
+  board: string,
+): Promise<Record<string, unknown>> {
+  const res =
+    board === '2' ? await buildWfBoard(supabase, company)
+    : board === '3' ? await buildIrBoard(supabase, company)
+    : board === '4' ? await buildPwBoard(supabase, company)
+    : board === '5' ? await buildOfficeBoard(supabase, company)
+    : await buildMainBoard(supabase, company)
+  if (!res.ok) {
+    const body = (await res.json().catch(() => ({}))) as { error?: string }
+    throw new Error(body.error || `scoreboard ${board} build failed`)
+  }
+  return res.json()
 }
 
 // ── Board 2: WF Weed & Fert ──────────────────────────────────────────────────

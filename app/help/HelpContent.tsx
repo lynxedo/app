@@ -1966,6 +1966,16 @@ function ScoreboardsTab() {
         <p className="mt-2">Admins always see every board regardless of both gates.</p>
       </Section>
 
+      <Section title="Going Back in Time — Weekly Snapshots">
+        <p>Each board normally shows <strong className="text-white">live</strong> numbers. To see how a board looked at a past point, use the <strong className="text-white">View</strong> dropdown in the bar just under the board&apos;s title.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li>Every <strong className="text-white">Friday night</strong> the system saves a snapshot of each board — a frozen copy of exactly what it showed that week.</li>
+          <li>Pick a week from the dropdown to roll the whole board back to that snapshot; the bar turns amber and reads <strong className="text-white">📸 Snapshot</strong> so you always know you&apos;re looking at history, not today.</li>
+          <li>Click <strong className="text-white">← Back to live</strong> (or pick <em>Live (current)</em>) to return to today&apos;s numbers.</li>
+        </ul>
+        <Note>Snapshots only exist going forward from when this was switched on — there&apos;s no way to recreate weeks before that, because the live data doesn&apos;t keep its own history. The dropdown won&apos;t appear on a board until its first Friday snapshot has been captured.</Note>
+      </Section>
+
       <AdminOnly>
         <Section title="Enabling Scoreboard Access (Admin)">
           <p>Two steps in sequence:</p>

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, type ReactNode } from 'react'
+import { useEffect, useRef, useState, type ReactNode } from 'react'
 import {
   Chart, BarController, BarElement, DoughnutController, ArcElement,
   CategoryScale, LinearScale, Tooltip, Legend,
@@ -8,6 +8,7 @@ import {
 import type { ScoreboardMeta } from '@/lib/scoreboards/registry'
 import { useScoreboardData } from '@/hooks/use-scoreboard-data'
 import ScoreboardError from '@/components/hub/ScoreboardError'
+import SnapshotControls from '@/components/hub/scoreboards/SnapshotControls'
 
 Chart.register(BarController, BarElement, DoughnutController, ArcElement, CategoryScale, LinearScale, Tooltip, Legend)
 Chart.defaults.color = '#64748b'
@@ -258,7 +259,8 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
 }
 
 export default function Scoreboard2View({ meta }: { meta: ScoreboardMeta }) {
-  const { data, error, reload } = useScoreboardData<Payload>(meta.slug)
+  const [snapshotId, setSnapshotId] = useState<string | null>(null)
+  const { data, error, reload } = useScoreboardData<Payload>(meta.slug, snapshotId)
 
   return (
     <div className="flex-1 min-h-0 overflow-y-auto bg-[var(--t-well)] text-slate-200">
@@ -272,6 +274,8 @@ export default function Scoreboard2View({ meta }: { meta: ScoreboardMeta }) {
           <div className="text-[13px] text-emerald-300">Heroes Lawn Care · Weed &amp; Fert KPIs</div>
         </div>
       </header>
+
+      <SnapshotControls slug={meta.slug} value={snapshotId} onChange={setSnapshotId} />
 
       {error
         ? <ScoreboardError error={error} onRetry={reload} />
