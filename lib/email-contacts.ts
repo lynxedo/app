@@ -1,9 +1,15 @@
-// Email Marketing — Session 2 contact-list helpers: CSV parsing, Mailchimp
-// import (dedupe-on-email + merge), and the Jobber -> email_contacts reconcile.
-// Kept decoupled from lib/jobber-sync.ts so the live nightly sync is untouched.
+// Email Marketing contact-list helpers: CSV parsing, Mailchimp import, and the
+// email-audience query. As of the Contacts Directory work (Hub/CRM_CONTACTS_PRD.md)
+// these read/write the ONE unified directory table (txt_contacts) — Email is just
+// the "has an email + subscribed" filtered view of it. The standalone
+// email_contacts / email_contact_tags tables are retired; email_suppressions +
+// email_imports stay (suppression ledger + import audit trail).
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 type Admin = SupabaseClient<any, any, any>
+
+// The directory (CRM core) lives in this table; "Contacts" is its user-facing name.
+const DIRECTORY = 'txt_contacts'
 
 const EMAIL_RE = /^[^@\s]+@[^@\s]+\.[^@\s]+$/
 
@@ -67,10 +73,68 @@ export async function suppressEmail(
   const { error } = await admin.from('email_suppressions').insert({ company_id: companyId, email: e, reason })
   if (error && error.code !== '23505') return false // 23505 = already suppressed
   const status = reason === 'unsubscribe' ? 'unsubscribed' : reason === 'complaint' ? 'complained' : reason === 'bounce' ? 'bounced' : 'unsubscribed'
-  await admin.from('email_contacts')
-    .update({ status, updated_at: new Date().toISOString() })
-    .eq('company_id', companyId).eq('email', e)
+  // Flip the directory contact's email status (case-insensitive on email).
+  await admin.from(DIRECTORY)
+    .update({ email_status: status, updated_at: new Date().toISOString() })
+    .eq('company_id', companyId).ilike('email', e)
   return true
+}
+
+/**
+ * Find-or-create unified tag definitions by label and assign them to directory
+ * contacts. Used by the Mailchimp import so Mailchimp TAGS land in the same tag
+ * system as every other tool (contact_tags + contact_tag_assignments).
+ */
+async function applyDirectoryTags(
+  admin: Admin,
+  companyId: string,
+  pairs: { contactId: string; label: string }[],
+): Promise<void> {
+  if (pairs.length === 0) return
+  const labels = [...new Set(pairs.map(p => p.label))]
+  const idByLabel = new Map<string, string>()
+  // Load existing defs.
+  const { data: existing } = await admin
+    .from('contact_tags').select('id, label').eq('company_id', companyId)
+  for (const t of existing ?? []) idByLabel.set((t.label as string).toLowerCase(), t.id as string)
+  // Create the missing ones.
+  const missing = labels.filter(l => !idByLabel.has(l.toLowerCase()))
+  for (const part of chunk(missing, 200)) {
+    const { data } = await admin
+      .from('contact_tags')
+      .upsert(part.map(label => ({ company_id: companyId, label })), { onConflict: 'company_id,label' })
+      .select('id, label')
+    for (const t of data ?? []) idByLabel.set((t.label as string).toLowerCase(), t.id as string)
+  }
+  const assignments = pairs
+    .map(p => ({ contact_id: p.contactId, tag_id: idByLabel.get(p.label.toLowerCase()) }))
+    .filter((a): a is { contact_id: string; tag_id: string } => !!a.tag_id)
+  for (const part of chunk(assignments, 500)) {
+    await admin.from('contact_tag_assignments').upsert(part, { onConflict: 'contact_id,tag_id', ignoreDuplicates: true })
+  }
+}
+
+export type EmailAudienceRow = { id: string; email: string; first_name: string | null; last_name: string | null; name: string }
+
+/**
+ * The send audience = directory contacts that have an email, are subscribed, and
+ * are not on the suppression ledger. This is the canonical "who gets an email"
+ * query for the Session 3+ campaign sender.
+ */
+export async function getEmailAudience(admin: Admin, companyId: string): Promise<EmailAudienceRow[]> {
+  const { data: contacts } = await admin
+    .from(DIRECTORY)
+    .select('id, email, first_name, last_name, name')
+    .eq('company_id', companyId)
+    .is('deleted_at', null)
+    .eq('email_status', 'subscribed')
+    .not('email', 'is', null)
+  const rows = (contacts ?? []) as EmailAudienceRow[]
+  if (rows.length === 0) return []
+  const { data: sup } = await admin
+    .from('email_suppressions').select('email').eq('company_id', companyId)
+  const suppressed = new Set((sup ?? []).map(s => (s.email as string).toLowerCase()))
+  return rows.filter(r => r.email && !suppressed.has(r.email.toLowerCase()))
 }
 
 export type ImportSummary = {
@@ -135,49 +199,56 @@ export async function importMailchimpCsv(
   // ALSO go on the suppression list (the actual send-time gate).
   const newStatus = listType === 'subscribed' ? 'subscribed' : listType === 'unsubscribed' ? 'unsubscribed' : 'bounced'
 
-  // Which emails already exist (from a prior import or the Jobber reconcile)?
-  const existing = new Set<string>()
-  for (const part of chunk(emails, 300)) {
-    const { data } = await admin.from('email_contacts').select('email').eq('company_id', companyId).in('email', part)
-    for (const row of data ?? []) existing.add((row.email as string).toLowerCase())
-  }
-
-  const toInsert = emails
-    .filter(e => !existing.has(e))
-    .map(e => ({
-      company_id: companyId, email: e,
-      first_name: byEmail.get(e)!.first, last_name: byEmail.get(e)!.last,
-      source: 'import', status: newStatus, imported_batch_id: importId,
-    }))
-  for (const part of chunk(toInsert, 500)) {
-    const { error } = await admin.from('email_contacts').insert(part)
-    if (!error) created += part.length
-  }
-
-  // Existing rows: set this status (e.g. a subscribed contact who later appears
-  // in the unsubscribed export gets flipped). Counts as a merge/update.
-  const existingEmails = emails.filter(e => existing.has(e))
-  updated = existingEmails.length
-  for (const part of chunk(existingEmails, 300)) {
-    await admin.from('email_contacts').update({ status: newStatus, updated_at: new Date().toISOString() })
-      .eq('company_id', companyId).in('email', part)
-  }
-
-  // Map every email -> contact id, then merge in the Mailchimp tags (all lists carry TAGS).
-  const idByEmail = new Map<string, string>()
-  for (const part of chunk(emails, 300)) {
-    const { data } = await admin.from('email_contacts').select('id, email').eq('company_id', companyId).in('email', part)
+  // Load the directory's existing emails once (case-insensitive: stored emails
+  // may be mixed-case; the unique key is on lower(email)).
+  const idByEmail = new Map<string, string>() // lower(email) -> directory contact id
+  {
+    const { data } = await admin.from(DIRECTORY)
+      .select('id, email').eq('company_id', companyId).not('email', 'is', null)
     for (const row of data ?? []) idByEmail.set((row.email as string).toLowerCase(), row.id as string)
   }
-  const tagRows: { contact_id: string; tag: string; source: string }[] = []
+  const preExisting = new Set(emails.filter(e => idByEmail.has(e)))
+
+  // Insert brand-new contacts as email-only directory rows. No texting consent
+  // came with a Mailchimp import, so do_not_text = true (keeps them out of every
+  // texting surface; they have no phone anyway).
+  const toInsert = emails.filter(e => !preExisting.has(e)).map(e => {
+    const v = byEmail.get(e)!
+    const nm = [v.first, v.last].filter(Boolean).join(' ').trim() || e
+    return {
+      company_id: companyId, name: nm, first_name: v.first, last_name: v.last,
+      email: e, email_status: newStatus, phone: null, do_not_text: true,
+      sources: ['import'], manually_edited: false,
+    }
+  })
+  for (const part of chunk(toInsert, 500)) {
+    const { data, error } = await admin.from(DIRECTORY).insert(part).select('id, email')
+    if (!error) {
+      created += part.length
+      for (const row of data ?? []) idByEmail.set((row.email as string).toLowerCase(), row.id as string)
+    }
+  }
+
+  // Existing rows: only an unsubscribed/cleaned import flips status — a subscribed
+  // import must NOT resurrect someone who opted out. (Suppression ledger is the
+  // hard send-time gate regardless.)
+  const existingEmails = [...preExisting]
+  updated = existingEmails.length
+  if (listType !== 'subscribed') {
+    const existingIds = existingEmails.map(e => idByEmail.get(e)!).filter(Boolean)
+    for (const part of chunk(existingIds, 300)) {
+      await admin.from(DIRECTORY).update({ email_status: newStatus, updated_at: new Date().toISOString() }).in('id', part)
+    }
+  }
+
+  // Merge Mailchimp TAGS into the unified tag system (contact_tags + assignments).
+  const tagPairs: { contactId: string; label: string }[] = []
   for (const e of emails) {
     const cid = idByEmail.get(e)
     if (!cid) continue
-    for (const tag of byEmail.get(e)!.tags) tagRows.push({ contact_id: cid, tag, source: 'mailchimp' })
+    for (const tag of byEmail.get(e)!.tags) tagPairs.push({ contactId: cid, label: tag })
   }
-  for (const part of chunk(tagRows, 500)) {
-    await admin.from('email_contact_tags').upsert(part, { onConflict: 'contact_id,tag', ignoreDuplicates: true })
-  }
+  await applyDirectoryTags(admin, companyId, tagPairs)
 
   // unsubscribed / cleaned -> suppression list (idempotent).
   if (listType !== 'subscribed') {
@@ -204,84 +275,57 @@ export async function importMailchimpCsv(
 export type JobberSyncSummary = { scanned: number; created: number; updated: number; tags_added: number }
 
 /**
- * Upsert Jobber clients + their contacts (any with an email) into email_contacts,
- * and mirror their client_tags into email_contact_tags (source 'jobber'). Safe to
- * run repeatedly; dedupes on email. Decoupled from the nightly Jobber sync.
+ * Reconcile Jobber clients-with-email into the directory (idempotent). The bulk
+ * backfill + (Phase 2) the nightly Jobber cron are the primary feed; this manual
+ * "Sync from Jobber" button just surfaces any new Jobber email contacts that
+ * aren't in the directory yet. New rows are email-only (phone null) + do_not_text
+ * = true so this can never collide on phone or make anyone textable; the cron
+ * attaches phones. Existing rows get their Jobber link backfilled.
  */
 export async function syncJobberContactsToEmailList(admin: Admin, companyId: string): Promise<JobberSyncSummary> {
-  // email -> {first,last,jobber_client_id}. Client's own email first, then contacts.
-  const byEmail = new Map<string, { first: string | null; last: string | null; jobberClientId: string }>()
+  // email -> {first,last, jobber external_id (GID, matches directory convention)}
+  const byEmail = new Map<string, { first: string | null; last: string | null; gid: string | null }>()
 
   const { data: clients } = await admin
-    .from('clients').select('id, email, first_name, last_name, name')
+    .from('clients').select('external_id, email, first_name, last_name, name')
     .eq('company_id', companyId).is('deleted_at', null).not('email', 'is', null)
   for (const c of clients ?? []) {
     const email = normalizeEmail(c.email as string)
     if (!email || byEmail.has(email)) continue
-    byEmail.set(email, { first: (c.first_name as string) || null, last: (c.last_name as string) || null, jobberClientId: c.id as string })
-  }
-
-  const { data: contacts } = await admin
-    .from('contacts').select('client_id, email, first_name, last_name, name')
-    .eq('company_id', companyId).is('deleted_at', null).not('email', 'is', null)
-  for (const ct of contacts ?? []) {
-    const email = normalizeEmail(ct.email as string)
-    if (!email || byEmail.has(email) || !ct.client_id) continue
-    byEmail.set(email, { first: (ct.first_name as string) || null, last: (ct.last_name as string) || null, jobberClientId: ct.client_id as string })
+    byEmail.set(email, { first: (c.first_name as string) || null, last: (c.last_name as string) || null, gid: (c.external_id as string) || null })
   }
 
   const emails = [...byEmail.keys()]
-  let created = 0, updated = 0, tagsAdded = 0
+  let created = 0, updated = 0
 
-  const existing = new Map<string, string>() // email -> contact id
-  for (const part of chunk(emails, 300)) {
-    const { data } = await admin.from('email_contacts').select('id, email').eq('company_id', companyId).in('email', part)
+  // Existing directory emails (case-insensitive).
+  const existing = new Map<string, string>() // lower(email) -> directory contact id
+  {
+    const { data } = await admin.from(DIRECTORY).select('id, email, jobber_client_id').eq('company_id', companyId).not('email', 'is', null)
     for (const row of data ?? []) existing.set((row.email as string).toLowerCase(), row.id as string)
   }
 
-  const toInsert = emails.filter(e => !existing.has(e)).map(e => ({
-    company_id: companyId, email: e,
-    first_name: byEmail.get(e)!.first, last_name: byEmail.get(e)!.last,
-    source: 'jobber', status: 'subscribed', jobber_client_id: byEmail.get(e)!.jobberClientId,
-  }))
+  const toInsert = emails.filter(e => !existing.has(e)).map(e => {
+    const v = byEmail.get(e)!
+    const nm = [v.first, v.last].filter(Boolean).join(' ').trim() || e
+    return {
+      company_id: companyId, name: nm, first_name: v.first, last_name: v.last,
+      email: e, email_status: 'subscribed', phone: null, do_not_text: true,
+      jobber_client_id: v.gid, sources: ['jobber'], manually_edited: false,
+    }
+  })
   for (const part of chunk(toInsert, 500)) {
-    const { error } = await admin.from('email_contacts').insert(part)
+    const { error } = await admin.from(DIRECTORY).insert(part)
     if (!error) created += part.length
   }
-  // Backfill jobber_client_id on rows that already existed (e.g. from a Mailchimp import).
+  // Backfill the Jobber link on rows that already existed without one.
   for (const e of emails) {
     const id = existing.get(e)
-    if (!id) continue
+    const gid = byEmail.get(e)!.gid
+    if (!id || !gid) continue
     updated++
-    await admin.from('email_contacts').update({ jobber_client_id: byEmail.get(e)!.jobberClientId }).eq('id', id).is('jobber_client_id', null)
+    await admin.from(DIRECTORY).update({ jobber_client_id: gid }).eq('id', id).is('jobber_client_id', null)
   }
 
-  // Mirror client_tags -> email_contact_tags for every Jobber-linked contact.
-  const idByEmail = new Map<string, string>()
-  for (const part of chunk(emails, 300)) {
-    const { data } = await admin.from('email_contacts').select('id, email, jobber_client_id').eq('company_id', companyId).in('email', part)
-    for (const row of data ?? []) if (row.jobber_client_id) idByEmail.set((row.email as string).toLowerCase(), row.id as string)
-  }
-  const clientIdToContactId = new Map<string, string>()
-  for (const e of emails) {
-    const cid = idByEmail.get(e)
-    if (cid) clientIdToContactId.set(byEmail.get(e)!.jobberClientId, cid)
-  }
-  const clientIds = [...clientIdToContactId.keys()]
-  const tagRows: { contact_id: string; tag: string; source: string }[] = []
-  for (const part of chunk(clientIds, 200)) {
-    const { data: cts } = await admin
-      .from('client_tags').select('client_id, tags(name)').in('client_id', part)
-    for (const ct of cts ?? []) {
-      const contactId = clientIdToContactId.get(ct.client_id as string)
-      const tagName = (ct as { tags?: { name?: string } | null }).tags?.name
-      if (contactId && tagName) tagRows.push({ contact_id: contactId, tag: tagName, source: 'jobber' })
-    }
-  }
-  for (const part of chunk(tagRows, 500)) {
-    const { error } = await admin.from('email_contact_tags').upsert(part, { onConflict: 'contact_id,tag', ignoreDuplicates: true })
-    if (!error) tagsAdded += part.length
-  }
-
-  return { scanned: emails.length, created, updated, tags_added: tagsAdded }
+  return { scanned: emails.length, created, updated, tags_added: 0 }
 }

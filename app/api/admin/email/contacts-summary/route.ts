@@ -11,9 +11,11 @@ export async function GET() {
   const admin = createAdminClient()
   const companyId = check.company_id
 
+  // The email audience is the "has an email" slice of the unified directory.
   const countWhere = async (status?: string) => {
-    let q = admin.from('email_contacts').select('id', { count: 'exact', head: true }).eq('company_id', companyId)
-    if (status) q = q.eq('status', status)
+    let q = admin.from('txt_contacts').select('id', { count: 'exact', head: true })
+      .eq('company_id', companyId).is('deleted_at', null).not('email', 'is', null)
+    if (status) q = q.eq('email_status', status)
     const { count } = await q
     return count ?? 0
   }
@@ -24,7 +26,7 @@ export async function GET() {
   const { count: suppressed } = await admin
     .from('email_suppressions').select('id', { count: 'exact', head: true }).eq('company_id', companyId)
   const { count: tagCount } = await admin
-    .from('email_contact_tags').select('id', { count: 'exact', head: true })
+    .from('contact_tags').select('id', { count: 'exact', head: true }).eq('company_id', companyId)
 
   const { data: imports } = await admin
     .from('email_imports')

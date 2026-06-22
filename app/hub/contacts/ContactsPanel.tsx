@@ -105,6 +105,9 @@ export default function ContactsPanel({
       if (channel) params.set('channel', channel)
       if (source) params.set('source', source)
       if (status) params.set('status', status)
+      // The directory shows everyone (do-not-text contacts included, with a
+      // badge) — it's an address book, not a send tool.
+      params.set('include_do_not_text', '1')
       params.set('limit', '500')
       const res = await fetch(`/api/contacts?${params.toString()}`)
       if (res.ok) {
