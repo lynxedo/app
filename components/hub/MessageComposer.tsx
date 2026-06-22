@@ -821,7 +821,7 @@ export default function MessageComposer({
           type="button"
           onClick={() => fileInputRef.current?.click()}
           disabled={uploading}
-          className="text-gray-500 hover:text-gray-300 disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-gray-800"
+          className="text-gray-400 hover:text-gray-200 disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-gray-800"
           title="Attach file"
           aria-label="Attach file"
         >
@@ -836,7 +836,7 @@ export default function MessageComposer({
           <button
             type="button"
             onClick={() => setShowFormatPicker(v => !v)}
-            className="text-gray-500 hover:text-gray-300 transition-colors p-1.5 rounded-md hover:bg-gray-800 font-semibold text-sm"
+            className="text-gray-400 hover:text-gray-200 transition-colors p-1.5 rounded-md hover:bg-gray-800 font-semibold text-sm"
             title="Format text"
             aria-label="Format text"
           >
@@ -912,7 +912,7 @@ export default function MessageComposer({
           <button
             type="button"
             onClick={() => setShowEmojiPicker(v => !v)}
-            className="text-gray-500 hover:text-gray-300 transition-colors p-1.5 rounded-md hover:bg-gray-800"
+            className="text-gray-400 hover:text-gray-200 transition-colors p-1.5 rounded-md hover:bg-gray-800"
             title="Insert emoji"
             aria-label="Insert emoji"
           >
@@ -945,7 +945,7 @@ export default function MessageComposer({
         <button
           type="button"
           onClick={insertMentionTrigger}
-          className="text-gray-500 hover:text-gray-300 transition-colors p-1.5 rounded-md hover:bg-gray-800 font-semibold text-base"
+          className="text-gray-400 hover:text-gray-200 transition-colors p-1.5 rounded-md hover:bg-gray-800 font-semibold text-base"
           title="Mention someone"
           aria-label="Mention someone"
         >
@@ -958,7 +958,7 @@ export default function MessageComposer({
             type="button"
             onClick={() => setShowScheduler(v => !v)}
             className={`transition-colors p-1.5 rounded-md hover:bg-gray-800 ${
-              scheduledAt ? 'text-brand' : 'text-gray-500 hover:text-gray-300'
+              scheduledAt ? 'text-brand' : 'text-gray-400 hover:text-gray-200'
             }`}
             title="Schedule send"
             aria-label="Schedule send"
@@ -981,7 +981,7 @@ export default function MessageComposer({
               {scheduledAt && (
                 <button
                   onClick={() => { setScheduledAt(''); setShowScheduler(false) }}
-                  className="mt-2 w-full text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                  className="mt-2 w-full text-xs text-gray-400 hover:text-gray-200 transition-colors"
                 >
                   Clear schedule
                 </button>
@@ -1003,7 +1003,7 @@ export default function MessageComposer({
         <button
           type="button"
           onClick={() => setExpanded(v => !v)}
-          className="text-gray-500 hover:text-gray-300 transition-colors p-1.5 rounded-md hover:bg-gray-800"
+          className="text-gray-400 hover:text-gray-200 transition-colors p-1.5 rounded-md hover:bg-gray-800"
           title={expanded ? 'Shrink composer' : 'Expand composer'}
           aria-label={expanded ? 'Shrink composer' : 'Expand composer'}
         >

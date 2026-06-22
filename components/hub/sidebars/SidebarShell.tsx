@@ -63,7 +63,7 @@ export function SidebarHeader({
 export function SidebarGroupHeader({ children }: { children: React.ReactNode }) {
   return (
     <div className="px-2 mb-1">
-      <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider">
+      <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider">
         {children}
       </span>
     </div>
@@ -122,8 +122,8 @@ export default function SidebarShell({
 }) {
   return (
     <aside
-      className="h-full w-72 text-white flex flex-col flex-none"
-      style={{ background: 'linear-gradient(180deg,#0f2236,#0b1726)', borderRight: '1px solid rgba(255,255,255,.06)' }}
+      className="t-sidebar-surface h-full w-72 text-white flex flex-col flex-none"
+      style={{ background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))', borderRight: '1px solid rgba(255,255,255,.06)' }}
       aria-label={`${title} sidebar`}
     >
       <SidebarHeader title={title} action={action} onClose={onClose} onDesktopCollapse={onDesktopCollapse} />

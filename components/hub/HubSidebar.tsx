@@ -947,7 +947,7 @@ export default function HubSidebar({
 
   return (
     <>
-      <aside className="w-screen md:w-72 flex-none flex flex-col h-full" style={{ background: 'linear-gradient(180deg,#0f2236,#0b1726)' }}>
+      <aside className="t-sidebar-surface w-screen md:w-72 flex-none flex flex-col h-full" style={{ background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))' }}>
         {/* Workspace header */}
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2" style={{ paddingTop: 'calc(env(safe-area-inset-top) + 12px)' }}>
           <div className="font-bold text-white text-lg md:text-sm tracking-wide min-w-0 truncate">Hub</div>
@@ -1042,7 +1042,7 @@ export default function HubSidebar({
           {hasFavorites && (
             <div>
               <button onClick={() => toggleSection('favorites')} className="w-full flex items-center justify-between px-2 mb-1 group">
-                <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Favorites</span>
+                <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider group-hover:text-[var(--t-heading-hover)]">Favorites</span>
                 <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.favorites ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
               </button>
               {!collapsed.favorites && (
@@ -1088,7 +1088,7 @@ export default function HubSidebar({
             <div className="flex items-center justify-between px-2 mb-1">
               <button onClick={() => toggleSection('rooms')} className="flex items-center gap-1 group">
                 <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.rooms ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Rooms</span>
+                <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider group-hover:text-[var(--t-heading-hover)]">Rooms</span>
               </button>
               <div className="flex items-center gap-1">
                 <button
@@ -1117,7 +1117,7 @@ export default function HubSidebar({
             <div className="flex items-center justify-between px-2 mb-1">
               <button onClick={() => toggleSection('dms')} className="flex items-center gap-1 group">
                 <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.dms ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Direct Messages</span>
+                <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider group-hover:text-[var(--t-heading-hover)]">Direct Messages</span>
               </button>
               <button
                 onClick={() => { setShowNewPM(true); setSelectedIds([]) }}
@@ -1150,7 +1150,7 @@ export default function HubSidebar({
             <div className="flex items-center justify-between px-2 mb-1">
               <button onClick={() => toggleSection('boards')} className="flex items-center gap-1 group">
                 <svg className={`w-3 h-3 text-white/30 transition-transform ${collapsed.boards ? '-rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M19 9l-7 7-7-7" /></svg>
-                <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider group-hover:text-amber-200">Boards</span>
+                <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider group-hover:text-[var(--t-heading-hover)]">Boards</span>
               </button>
               <button
                 onClick={() => { setShowNewBoard(true); setNewBoardName(''); setNewBoardType('public') }}

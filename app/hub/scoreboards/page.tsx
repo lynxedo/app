@@ -41,7 +41,7 @@ export default async function ScoreboardsIndexPage() {
         {boards.length === 0 ? (
           // Has the section flag but no boards assigned yet. Don't bounce them to
           // /hub (looks like a broken/blinking page) — explain what to do.
-          <div className="rounded-xl border border-sky-400/15 bg-[#0f2e47]/60 p-6 text-center">
+          <div className="rounded-xl border border-sky-400/15 bg-[var(--t-panel)]/60 p-6 text-center">
             <div className="text-3xl">📊</div>
             <p className="mt-3 text-base font-semibold text-sky-50">No scoreboards assigned yet</p>
             <p className="mt-1 text-sm text-slate-400">
@@ -55,7 +55,7 @@ export default async function ScoreboardsIndexPage() {
             <Link
               key={b.slug}
               href={`/hub/scoreboards/${b.slug}`}
-              className="group rounded-xl border border-sky-400/15 bg-gradient-to-br from-[#0f2e47] to-[#1a3d5c] p-5 transition hover:border-sky-400/40"
+              className="group rounded-xl border border-sky-400/15 bg-gradient-to-br from-[var(--t-panel)] to-[var(--t-sidebar)] p-5 transition hover:border-sky-400/40"
             >
               <div className="flex items-center gap-2">
                 <span className="text-lg">📊</span>

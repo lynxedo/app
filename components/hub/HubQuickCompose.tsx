@@ -188,7 +188,7 @@ export default function HubQuickCompose({
 
       {/* Group DM action bar — appears when 2+ people selected */}
       {selectedIds.length >= 2 && (
-        <div className="flex-none border-b border-gray-800 px-4 py-2 flex items-center justify-between bg-[#1A3D5C]/40">
+        <div className="flex-none border-b border-gray-800 px-4 py-2 flex items-center justify-between bg-[var(--t-sidebar)]/40">
           <span className="text-sm text-gray-300 truncate mr-3">
             {selectedIds.length} people: {selectedNames}
           </span>
@@ -217,7 +217,7 @@ export default function HubQuickCompose({
                 onClick={() => { router.push(`/hub/${room.id}`); onClose() }}
                 className="w-full text-left px-4 py-2.5 hover:bg-gray-800/60 transition-colors flex items-center gap-3"
               >
-                <div className="flex-none w-8 h-8 rounded-lg bg-[#1A3D5C] flex items-center justify-center text-sm text-white/60 font-medium">
+                <div className="flex-none w-8 h-8 rounded-lg bg-[var(--t-sidebar)] flex items-center justify-center text-sm text-white/60 font-medium">
                   {room.is_private ? <LockIcon className="w-4 h-4" /> : '#'}
                 </div>
                 <span className="text-sm text-white">{room.name}</span>
@@ -245,7 +245,7 @@ export default function HubQuickCompose({
                   className={`flex items-center gap-3 px-4 py-2.5 transition-colors group ${isSelected ? 'bg-brand/10' : 'hover:bg-gray-800/60'}`}
                 >
                   {/* Avatar */}
-                  <div className="flex-none w-8 h-8 rounded-full bg-[#1A3D5C] flex items-center justify-center text-sm font-bold text-white">
+                  <div className="flex-none w-8 h-8 rounded-full bg-[var(--t-sidebar)] flex items-center justify-center text-sm font-bold text-white">
                     {user.display_name.slice(0, 1).toUpperCase()}
                   </div>
 
@@ -299,7 +299,7 @@ export default function HubQuickCompose({
                     onClick={() => openMessageResult(r)}
                     className="w-full text-left px-4 py-3 hover:bg-gray-800/60 transition-colors flex items-start gap-3"
                   >
-                    <div className="flex-none w-8 h-8 rounded-full bg-[#1A3D5C] flex items-center justify-center text-xs font-bold text-white mt-0.5">
+                    <div className="flex-none w-8 h-8 rounded-full bg-[var(--t-sidebar)] flex items-center justify-center text-xs font-bold text-white mt-0.5">
                       {r.sender ? r.sender.display_name.slice(0, 1).toUpperCase() : '?'}
                     </div>
                     <div className="flex-1 min-w-0">

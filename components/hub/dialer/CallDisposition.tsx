@@ -42,7 +42,7 @@ export default function CallDisposition({
 
   return (
     <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-[65] w-[min(92vw,30rem)]">
-      <div className="rounded-xl bg-[#0b2236] text-white border border-white/15 shadow-2xl px-4 py-3">
+      <div className="rounded-xl bg-[var(--t-panel-deep)] text-white border border-white/15 shadow-2xl px-4 py-3">
         <div className="flex items-center justify-between mb-2">
           <div className="text-xs text-white/60">
             Call ended{contactName ? ` · ${contactName}` : ''} — how did it go?

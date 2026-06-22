@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import SidebarShell, { SidebarGroupHeader, SidebarLinkRow } from './SidebarShell'
+import { THEMES as THEME_DEFS } from '@/lib/themes'
 
 type Status = 'available' | 'busy' | 'dnd' | null
 
@@ -23,6 +24,8 @@ export default function ProfileSidebar({
   initialStatus,
   textSize,
   onTextSizeChange,
+  theme,
+  onThemeChange,
   onOpenNotifPrefs,
   onOpenActivity,
   unreadActivity,
@@ -43,6 +46,8 @@ export default function ProfileSidebar({
   initialStatus: string | null
   textSize?: string
   onTextSizeChange?: (size: string) => void
+  theme?: string
+  onThemeChange?: (theme: string) => void
   onOpenNotifPrefs?: () => void
   onOpenActivity?: () => void
   unreadActivity?: number
@@ -171,6 +176,54 @@ export default function ProfileSidebar({
                   {size === 'small' ? 'S' : size === 'default' ? 'M' : 'L'}
                 </button>
               ))}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {onThemeChange && (
+        <div>
+          <SidebarGroupHeader>Theme</SidebarGroupHeader>
+          <div className="px-2 space-y-2">
+            <div>
+              <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1.5">Dark</p>
+              <div className="flex flex-wrap gap-1.5">
+                {THEME_DEFS.filter(t => t.dark).map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    title={t.label}
+                    onClick={() => {
+                      onThemeChange(t.id)
+                      fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_theme: t.id }) })
+                    }}
+                    className={`w-6 h-6 rounded-full transition-all flex-none ${
+                      theme === t.id ? 'ring-2 ring-white ring-offset-1 ring-offset-transparent scale-110' : 'opacity-60 hover:opacity-100'
+                    }`}
+                    style={{ background: t.accent }}
+                  />
+                ))}
+              </div>
+            </div>
+            <div>
+              <p className="text-[10px] text-white/40 uppercase tracking-wider mb-1.5">Light</p>
+              <div className="flex flex-wrap gap-1.5">
+                {THEME_DEFS.filter(t => !t.dark).map(t => (
+                  <button
+                    key={t.id}
+                    type="button"
+                    title={t.label}
+                    onClick={() => {
+                      onThemeChange(t.id)
+                      fetch('/api/profile', { method: 'PUT', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ hub_theme: t.id }) })
+                    }}
+                    className={`w-6 h-6 rounded-full transition-all flex-none border border-white/20 ${
+                      theme === t.id ? 'ring-2 ring-white ring-offset-1 ring-offset-transparent scale-110' : 'opacity-70 hover:opacity-100'
+                    }`}
+                    style={{ background: t.accent }}
+                  />
+                ))}
+              </div>
             </div>
           </div>
         </div>

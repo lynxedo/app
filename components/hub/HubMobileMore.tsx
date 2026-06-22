@@ -169,7 +169,7 @@ export default function HubMobileMore({
       <button type="button" onClick={onClick} className="group w-full flex flex-col items-center justify-center gap-2 py-3 rounded-2xl hover:bg-white/[0.05] active:scale-95 transition-all">
         <span className="relative flex items-center justify-center w-12 h-12 rounded-2xl [&_svg]:w-5 [&_svg]:h-5" style={{ color: accent, background: accent + '1f', boxShadow: `inset 0 0 0 1px ${accent}44` }}>
           {icon}
-          {showDot && <span className="absolute top-0 right-0 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-[#0c1626]" />}
+          {showDot && <span className="absolute top-0 right-0 w-2.5 h-2.5 rounded-full bg-rose-500 ring-2 ring-[var(--t-rail)]" />}
         </span>
         <span className="text-[10px] font-medium text-center leading-tight px-1 text-white/70 truncate max-w-full">{displayLabel}</span>
       </button>
@@ -179,8 +179,8 @@ export default function HubMobileMore({
   return (
     <div className="md:hidden fixed inset-0 z-[60] bg-black/70 flex flex-col" onClick={onClose}>
       <div
-        className="mt-auto text-white rounded-t-3xl overflow-hidden flex flex-col"
-        style={{ maxHeight: '90vh', paddingBottom: 'env(safe-area-inset-bottom, 0)', background: 'linear-gradient(180deg,#11233a,#0c1626)', boxShadow: '0 -20px 50px -20px rgba(0,0,0,.7)' }}
+        className="t-sidebar-surface mt-auto text-white rounded-t-3xl overflow-hidden flex flex-col"
+        style={{ maxHeight: '90vh', paddingBottom: 'env(safe-area-inset-bottom, 0)', background: 'linear-gradient(180deg,var(--t-well),var(--t-rail))', boxShadow: '0 -20px 50px -20px rgba(0,0,0,.7)' }}
         onClick={e => e.stopPropagation()}
       >
         <div className="flex items-center justify-between px-4 py-3 border-b border-white/10 flex-none">

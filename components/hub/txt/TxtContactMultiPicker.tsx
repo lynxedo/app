@@ -141,7 +141,7 @@ export default function TxtContactMultiPicker({
                       </div>
                     </div>
                     {c.do_not_text && (
-                      <span className="text-[10px] text-orange-300 flex-none">
+                      <span className="text-[10px] text-[var(--t-tint-orange)] flex-none">
                         do-not-text
                       </span>
                     )}

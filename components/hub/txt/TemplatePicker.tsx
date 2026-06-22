@@ -77,7 +77,7 @@ export default function TemplatePicker({
     return (
       <div
         data-template-picker
-        className="absolute bottom-full left-0 right-0 mb-1 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 px-3 py-2 text-xs text-white/50"
+        className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 px-3 py-2 text-xs text-white/50"
       >
         {templates.length === 0
           ? 'No templates yet. Create one in Settings → Account → Communications, or admins can add org templates in /admin/txt.'
@@ -95,7 +95,7 @@ export default function TemplatePicker({
     <div
       data-template-picker
       ref={listRef}
-      className="absolute bottom-full left-0 right-0 mb-1 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 max-h-72 overflow-y-auto"
+      className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 max-h-72 overflow-y-auto"
     >
       <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-white/40 border-b border-white/5">
         Templates · ↑↓ navigate · Enter to insert · Esc to close
@@ -119,8 +119,8 @@ export default function TemplatePicker({
               <span
                 className={`text-[10px] px-1.5 py-0.5 rounded-full flex-none ${
                   t.scope === 'personal'
-                    ? 'bg-emerald-500/20 text-emerald-300'
-                    : 'bg-sky-500/20 text-sky-300'
+                    ? 'bg-emerald-500/20 text-[var(--t-tint-success)]'
+                    : 'bg-sky-500/20 text-[var(--t-tint-info)]'
                 }`}
               >
                 {t.scope === 'personal' ? 'Mine' : 'Org'}

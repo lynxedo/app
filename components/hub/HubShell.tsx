@@ -10,6 +10,7 @@ import HubMobileMore from './HubMobileMore'
 import AppLauncherPanel from './AppLauncherPanel'
 import LayoutEditor from './LayoutEditor'
 import HubActivityPanel from './HubActivityBell'
+import { THEME_IDS } from '@/lib/themes'
 import ToolsSidebar from './sidebars/ToolsSidebar'
 import LinksSidebar from './sidebars/LinksSidebar'
 import AdminSidebar from './sidebars/AdminSidebar'
@@ -57,6 +58,7 @@ export default function HubShell({
   adminGrants,
   initialActiveAnnouncements,
   initialTextSize,
+  initialTheme,
   initialPinnedIds,
   initialIsClockedIn,
   initialLayout,
@@ -118,6 +120,7 @@ export default function HubShell({
   }
   initialActiveAnnouncements?: Announcement[]
   initialTextSize?: string
+  initialTheme?: string
   initialPinnedIds?: string[]
   initialIsClockedIn?: boolean
   initialLayout?: HubLayout | null
@@ -231,6 +234,7 @@ export default function HubShell({
   const [showTimeClock, setShowTimeClock] = useState(false)
   const [showNotifPrefs, setShowNotifPrefs] = useState(false)
   const [textSize, setTextSize] = useState(initialTextSize ?? 'default')
+  const [theme, setTheme] = useState(initialTheme ?? 'midnight')
   const [liveStatus, setLiveStatus] = useState<string | null>(currentUserStatus ?? null)
   const [masterDndEnabled, setMasterDndEnabled] = useState<boolean>(initialMasterDndEnabled)
   const [hubDndEnabled, setHubDndEnabled] = useState<boolean>(initialHubDndEnabled)
@@ -299,6 +303,20 @@ export default function HubShell({
     html.classList.remove('text-size-small', 'text-size-default', 'text-size-large')
     html.classList.add(`text-size-${textSize}`)
   }, [textSize])
+
+  // Theme class sync — same pattern as textSize above.
+  // Server stamps the initial theme-* class; this effect only fires on live changes.
+  const THEME_NAMES = THEME_IDS
+  const didMountTheme = useRef(false)
+  useEffect(() => {
+    if (!didMountTheme.current) {
+      didMountTheme.current = true
+      return
+    }
+    const html = document.documentElement
+    html.classList.remove(...THEME_NAMES.map(t => `theme-${t}`))
+    html.classList.add(`theme-${theme}`)
+  }, [theme]) // eslint-disable-line react-hooks/exhaustive-deps
 
   // Mirror keyboardOpen onto the body so CSS can react. Headers tagged with
   // data-hide-on-keyboard collapse on mobile when the composer is focused.
@@ -789,6 +807,8 @@ export default function HubShell({
             initialStatus={liveStatus}
             textSize={textSize}
             onTextSizeChange={setTextSize}
+            theme={theme}
+            onThemeChange={setTheme}
             onOpenNotifPrefs={() => setShowNotifPrefs(true)}
             onOpenActivity={() => { closeMobileDrawer(); setShowActivity(true) }}
             unreadActivity={unreadActivity}
@@ -848,7 +868,7 @@ export default function HubShell({
 
   const shell = (
     <>
-    <div className="flex h-[100dvh] bg-gray-950 text-white overflow-hidden">
+    <div className="hub-root flex h-[100dvh] bg-gray-950 text-white overflow-hidden">
       {mobileDrawerOpen && (
         <div
           className="fixed left-0 right-0 top-0 z-40 bg-black/60 md:hidden"
@@ -940,7 +960,7 @@ export default function HubShell({
       {sidebarCollapsed && !pathname.startsWith('/hub/home') && (
         <button
           onClick={toggleSidebarCollapsed}
-          className="hidden md:flex fixed left-16 top-1/2 -translate-y-1/2 z-30 items-center justify-center w-5 h-12 bg-[#1A3D5C] hover:bg-[#22506F] border-y border-r border-white/10 rounded-r text-white/80 hover:text-white transition-colors"
+          className="hidden md:flex fixed left-16 top-1/2 -translate-y-1/2 z-30 items-center justify-center w-5 h-12 bg-[var(--t-sidebar)] hover:bg-[var(--t-sidebar-hover)] border-y border-r border-white/10 rounded-r text-white/80 hover:text-white transition-colors"
           aria-label="Show sidebar"
           title="Show sidebar"
         >
@@ -951,7 +971,7 @@ export default function HubShell({
       )}
 
       {/* Main content */}
-      <div className="flex-1 flex flex-col min-w-0 overflow-hidden relative">
+      <div className="hub-main flex-1 flex flex-col min-w-0 overflow-hidden relative">
         {/* Mobile safe-area-top spacer — there is no top chrome anymore, so
             content would otherwise bleed under the iOS notch / Dynamic Island. */}
         <div

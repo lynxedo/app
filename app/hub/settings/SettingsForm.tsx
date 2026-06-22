@@ -12,6 +12,7 @@ import DialerPersonalSettings from './DialerPersonalSettings'
 import DndScheduleEditor from '@/components/hub/DndScheduleEditor'
 import type { DndSchedule } from '@/lib/dnd-schedule'
 import { useToast, useConfirm } from '@/components/ui'
+import { THEMES, THEME_IDS, THEME_CATEGORIES } from '@/lib/themes'
 
 interface HubProfile {
   full_name: string | null
@@ -28,6 +29,7 @@ interface Props {
   email: string
   userId: string
   hubProfile: HubProfile
+  initialTheme: string
   jobberConnected: boolean
   landingPage: 'hub' | 'dashboard'
   notifPref: NotifPref
@@ -87,7 +89,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, jobberConnected, landingPage, notifPref, railPermissions, txtSignature, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, initialTheme, jobberConnected, landingPage, notifPref, railPermissions, txtSignature, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
   const router = useRouter()
   const toast = useToast()
   const confirmDialog = useConfirm()
@@ -107,6 +109,23 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
     else url.searchParams.set('tab', activeTab)
     router.replace(url.pathname + url.search, { scroll: false })
   }, [activeTab, router])
+
+  // ── Theme picker (My Hub tab) — mirrors the dot picker in the profile sidebar
+  // but with names/categories. Saves via /api/profile and live-applies by
+  // swapping the html.theme-* class (server re-stamps it from the profile on
+  // next load, so no flash). ───────────────────────────────────────────────
+  const [theme, setTheme] = useState(initialTheme)
+  const applyTheme = (id: string) => {
+    setTheme(id)
+    const html = document.documentElement
+    html.classList.remove(...THEME_IDS.map(t => `theme-${t}`))
+    html.classList.add(`theme-${id}`)
+    fetch('/api/profile', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ hub_theme: id }),
+    }).catch(() => {})
+  }
 
   // ── Hub profile state ─────────────────────────────────────────────────────
   const [fullName, setFullName] = useState(hubProfile.full_name ?? '')
@@ -663,6 +682,42 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
 
       {/* ── MY HUB TAB ──────────────────────────────────────────────────── */}
       {activeTab === 'my-hub' && (
+      <div className="space-y-6">
+
+      {/* ── Theme picker ─────────────────────────────────────────────────── */}
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <h2 className="font-semibold text-lg mb-1">Theme</h2>
+        <p className="text-gray-400 text-sm mb-5">Pick your look — changes apply instantly and follow your account to every device.</p>
+        {THEME_CATEGORIES.filter(cat => THEMES.some(t => t.cat === cat)).map(cat => (
+          <div key={cat} className="mb-5 last:mb-0">
+            <div className="text-xs font-semibold uppercase tracking-wider text-gray-500 mb-2">{cat}</div>
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              {THEMES.filter(t => t.cat === cat).map(t => {
+                const selected = theme === t.id
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    onClick={() => applyTheme(t.id)}
+                    aria-pressed={selected}
+                    className={`flex items-center gap-3 p-3 rounded-xl border text-left transition-colors ${selected ? 'border-blue-500/60 bg-blue-600/10' : 'border-gray-800 bg-gray-950 hover:border-gray-700'}`}
+                  >
+                    <span className="relative w-9 h-9 rounded-lg flex-none overflow-hidden border border-white/10" style={{ background: t.dark ? '#0f2030' : '#eef2f7' }}>
+                      <span className="absolute right-0 bottom-0 w-4 h-4 rounded-tl-lg rounded-br-md" style={{ background: t.accent }} />
+                    </span>
+                    <span className="min-w-0">
+                      <span className="block text-sm font-semibold text-white truncate">{t.label}</span>
+                      <span className="block text-xs text-gray-500">{t.dark ? 'Dark' : 'Light'}{selected ? ' · current' : ''}</span>
+                    </span>
+                  </button>
+                )
+              })}
+            </div>
+          </div>
+        ))}
+      </section>
+
+      {/* ── Rail / layout customizer ─────────────────────────────────────── */}
       <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
         <h2 className="font-semibold text-lg mb-1">My Hub</h2>
         <p className="text-gray-400 text-sm mb-6">
@@ -692,6 +747,8 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
           Tip: you can also open this any time from the <strong>Apps ▦</strong> button on the rail → <strong>Customize</strong>.
         </p>
       </section>
+
+      </div>
       )}
 
       {/* ── NOTIFICATIONS TAB ───────────────────────────────────────────── */}
@@ -750,7 +807,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
                 }}
                 className="sr-only peer"
               />
-              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-red-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
+              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-red-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-[#ffffff] after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
             </label>
           </div>
           <p className="text-gray-400 text-sm mb-5">
@@ -792,7 +849,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
                 }}
                 className="sr-only peer"
               />
-              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
+              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-[#ffffff] after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
             </label>
           </div>
           <p className="text-gray-400 text-sm mb-5">
@@ -835,7 +892,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
                 }}
                 className="sr-only peer"
               />
-              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-white after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
+              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-[#ffffff] after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
             </label>
           </div>
           <p className="text-gray-400 text-sm mb-5">

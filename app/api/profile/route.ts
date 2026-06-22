@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { isValidLayoutShape } from '@/lib/hub-layout'
+import { THEME_IDS } from '@/lib/themes'
 
 export async function GET() {
   const supabase = await createClient()
@@ -15,7 +16,7 @@ export async function GET() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('phone, hub_text_size, hub_pinned_ids, full_name, landing_page')
+    .select('phone, hub_text_size, hub_pinned_ids, full_name, landing_page, hub_theme')
     .eq('id', user.id)
     .single()
 
@@ -28,6 +29,7 @@ export async function GET() {
     hub_text_size: profile?.hub_text_size ?? 'default',
     hub_pinned_ids: profile?.hub_pinned_ids ?? [],
     landing_page: profile?.landing_page ?? 'hub',
+    hub_theme: profile?.hub_theme ?? 'midnight',
   })
 }
 
@@ -36,7 +38,7 @@ export async function PUT(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, hub_layout, txt_signature, dialer_global_ring, dialer_dnd_enabled, dialer_dnd_schedule, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule } = await request.json()
+  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, hub_layout, txt_signature, dialer_global_ring, dialer_dnd_enabled, dialer_dnd_schedule, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, hub_theme } = await request.json()
 
   if (landing_page !== undefined && landing_page !== 'hub' && landing_page !== 'dashboard') {
     return NextResponse.json({ error: 'landing_page must be "hub" or "dashboard"' }, { status: 400 })
@@ -69,6 +71,13 @@ export async function PUT(request: Request) {
   if (full_name !== undefined) profileUpdates.full_name = full_name || null
   if (phone !== undefined) profileUpdates.phone = phone || null
   if (hub_text_size !== undefined) profileUpdates.hub_text_size = hub_text_size
+  if (hub_theme !== undefined) {
+    const validThemes = THEME_IDS
+    if (!validThemes.includes(hub_theme)) {
+      return NextResponse.json({ error: 'invalid hub_theme' }, { status: 400 })
+    }
+    profileUpdates.hub_theme = hub_theme
+  }
   if (hub_pinned_ids !== undefined) profileUpdates.hub_pinned_ids = hub_pinned_ids
   if (landing_page !== undefined) profileUpdates.landing_page = landing_page
   if (rail_config !== undefined) profileUpdates.rail_config = rail_config

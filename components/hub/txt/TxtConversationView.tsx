@@ -131,9 +131,9 @@ function StatusIcon({ status }: { status: string }) {
     case 'sent':
       return <span className="text-white/60">✓</span>
     case 'delivered':
-      return <span className="text-emerald-300">✓✓</span>
+      return <span className="text-[var(--t-tint-success)]">✓✓</span>
     case 'failed':
-      return <span className="text-red-400">⚠</span>
+      return <span className="text-[var(--t-tint-danger)]">⚠</span>
     default:
       return null
   }
@@ -1136,7 +1136,7 @@ export default function TxtConversationView({
       {/* Header */}
       <div
         data-hide-on-keyboard
-        className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2 bg-[#0B2237]"
+        className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2 bg-[var(--t-panel-deep)]"
       >
         {isGroup ? (
           <div className="min-w-0 text-left">
@@ -1178,7 +1178,7 @@ export default function TxtConversationView({
               disabled={!canAssign && conversation.assigned_to !== currentUserId && conversation.status !== 'unassigned'}
               className={`text-xs px-2 py-1 rounded-md ${
                 conversation.status === 'unassigned'
-                  ? 'bg-orange-500/20 text-orange-300 hover:bg-orange-500/30'
+                  ? 'bg-orange-500/20 text-[var(--t-tint-orange)] hover:bg-orange-500/30'
                   : 'bg-white/10 text-white/80 hover:bg-white/20'
               } disabled:opacity-50`}
             >
@@ -1193,7 +1193,7 @@ export default function TxtConversationView({
                 : 'Unassigned'}
             </button>
             {assignOpen && (
-              <div className="absolute right-0 mt-1 w-56 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 max-h-80 overflow-y-auto">
+              <div className="absolute right-0 mt-1 w-56 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 max-h-80 overflow-y-auto">
                 {conversation.status === 'unassigned' && (
                   <button
                     onClick={() => assignTo(currentUserId)}
@@ -1216,7 +1216,7 @@ export default function TxtConversationView({
                     {conversation.assigned_to && (
                       <button
                         onClick={() => assignTo(null)}
-                        className="block w-full text-left px-3 py-2 text-sm text-orange-300 hover:bg-white/5 border-t border-white/10"
+                        className="block w-full text-left px-3 py-2 text-sm text-[var(--t-tint-orange)] hover:bg-white/5 border-t border-white/10"
                       >
                         Unassign
                       </button>
@@ -1244,7 +1244,7 @@ export default function TxtConversationView({
                 })()}
               </button>
               {numberPickerOpen && (
-                <div className="absolute right-0 mt-1 w-60 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 max-h-72 overflow-y-auto">
+                <div className="absolute right-0 mt-1 w-60 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 max-h-72 overflow-y-auto">
                   <button
                     type="button"
                     onClick={() => setFromNumber(null)}
@@ -1258,7 +1258,7 @@ export default function TxtConversationView({
                       type="button"
                       onClick={() => setFromNumber(n.id)}
                       className={`block w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${
-                        n.id === conversation.phone_number_id ? 'bg-white/5 text-emerald-300' : ''
+                        n.id === conversation.phone_number_id ? 'bg-white/5 text-[var(--t-tint-success)]' : ''
                       }`}
                     >
                       <div className="text-sm">{n.label || formatPhone(n.twilio_number)}</div>
@@ -1280,7 +1280,7 @@ export default function TxtConversationView({
             return (
               <span
                 key={m.user_id}
-                className="text-[11px] px-2 py-0.5 rounded-md bg-sky-500/15 text-sky-200 inline-flex items-center gap-1"
+                className="text-[11px] px-2 py-0.5 rounded-md bg-sky-500/15 text-[var(--t-tint-info)] inline-flex items-center gap-1"
                 title={u?.display_name || 'member'}
               >
                 {label}
@@ -1288,7 +1288,7 @@ export default function TxtConversationView({
                   <button
                     type="button"
                     onClick={() => removeMember(m.user_id)}
-                    className="text-sky-200 hover:text-white"
+                    className="text-[var(--t-tint-info)] hover:text-white"
                     aria-label={`Remove ${label}`}
                   >
                     ×
@@ -1325,7 +1325,7 @@ export default function TxtConversationView({
           {canAccessDialer && !isGroup && conversation.contact?.phone && (
             <button
               onClick={startCall}
-              className="text-xs px-2 py-1 rounded-md bg-emerald-500/15 text-emerald-300 hover:bg-emerald-500/25"
+              className="text-xs px-2 py-1 rounded-md bg-emerald-500/15 text-[var(--t-tint-success)] hover:bg-emerald-500/25"
               title="Call this contact in the Dialer"
               aria-label="Call"
             >
@@ -1340,16 +1340,16 @@ export default function TxtConversationView({
               type="button"
               onClick={runCatchMeUp}
               disabled={catchLoading}
-              className={`text-xs px-2 py-1 rounded-md inline-flex items-center gap-1 disabled:opacity-60 ${
+              className={`text-xs px-2 py-1 rounded-md inline-flex items-center gap-1 disabled:opacity-60 text-[var(--t-tint-info)] ${
                 catchOpen
-                  ? 'bg-sky-500/25 text-sky-100'
-                  : 'bg-sky-500/15 text-sky-200 hover:bg-sky-500/25'
+                  ? 'bg-sky-500/25'
+                  : 'bg-sky-500/15 hover:bg-sky-500/25'
               }`}
               title="Catch me up on this customer"
               aria-label="Catch me up"
             >
               {catchLoading ? (
-                <span className="inline-block w-3 h-3 border-2 border-sky-200 border-t-transparent rounded-full animate-spin" />
+                <span className="inline-block w-3 h-3 border-2 border-[var(--t-tint-info)] border-t-transparent rounded-full animate-spin" />
               ) : (
                 <span aria-hidden>🧭</span>
               )}
@@ -1383,7 +1383,7 @@ export default function TxtConversationView({
                   <span className="hidden sm:inline">Suggest</span>
                 </button>
                 {suggestOpen && !suggestLoading && (
-                  <div className="absolute right-0 mt-1 w-44 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30">
+                  <div className="absolute right-0 mt-1 w-44 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30">
                     <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-white/40 border-b border-white/10">
                       Tone
                     </div>
@@ -1405,9 +1405,9 @@ export default function TxtConversationView({
             onClick={() => setShowNotes((v) => !v)}
             className={`text-xs px-2 py-1 rounded-md flex items-center gap-1 ${
               showNotes
-                ? 'bg-amber-500/20 text-amber-300'
+                ? 'bg-amber-500/20 text-[var(--t-tint-warning)]'
                 : notes.length > 0
-                ? 'bg-amber-500/10 text-amber-200 hover:bg-amber-500/20'
+                ? 'bg-amber-500/10 text-[var(--t-tint-warning)] hover:bg-amber-500/20'
                 : 'bg-white/10 hover:bg-white/20'
             }`}
             title={notes.length > 0 ? `${notes.length} internal note${notes.length === 1 ? '' : 's'}` : 'Add internal note'}
@@ -1415,7 +1415,7 @@ export default function TxtConversationView({
           >
             <span>📝</span>
             {notes.length > 0 && (
-              <span className="inline-flex items-center justify-center min-w-[1.25rem] px-1 rounded-full bg-amber-400/30 text-amber-100 text-[10px] font-semibold leading-none py-0.5">
+              <span className="inline-flex items-center justify-center min-w-[1.25rem] px-1 rounded-full bg-amber-400/30 text-[var(--t-tint-warning)] text-[10px] font-semibold leading-none py-0.5">
                 {notes.length}
               </span>
             )}
@@ -1439,9 +1439,9 @@ export default function TxtConversationView({
           <span aria-hidden className="mt-0.5">🧭</span>
           <div className="flex-1 min-w-0">
             {catchLoading ? (
-              <span className="text-sky-200/70">Catching you up…</span>
+              <span className="text-[var(--t-tint-info)]">Catching you up…</span>
             ) : catchError ? (
-              <span className="text-orange-200">{catchError}</span>
+              <span className="text-[var(--t-tint-orange)]">{catchError}</span>
             ) : (
               <span className="text-sky-50/90 whitespace-pre-wrap">{catchSummary}</span>
             )}
@@ -1449,7 +1449,7 @@ export default function TxtConversationView({
           <button
             type="button"
             onClick={() => setCatchOpen(false)}
-            className="flex-none text-sky-200/60 hover:text-sky-100 text-xs px-1"
+            className="flex-none text-[var(--t-tint-info)] hover:text-[var(--t-tint-info)] text-xs px-1"
             title="Dismiss"
             aria-label="Dismiss catch me up"
           >
@@ -1463,7 +1463,7 @@ export default function TxtConversationView({
           composer's own do-not-text note only renders on active threads, but a
           STOP auto-archives the thread, which would otherwise hide all signal. */}
       {conversation.contact?.do_not_text && (
-        <div className="px-4 py-2 bg-orange-500/15 border-b border-orange-500/30 text-orange-200 text-sm flex items-center gap-2">
+        <div className="px-4 py-2 bg-orange-500/15 border-b border-orange-500/30 text-[var(--t-tint-orange)] text-sm flex items-center gap-2">
           <span aria-hidden>🚫</span>
           <span>
             This contact opted out — they&apos;re on the do-not-text list. Outbound texts are blocked.
@@ -1503,12 +1503,12 @@ export default function TxtConversationView({
                   <button
                     type="button"
                     onClick={() => setShowNotes(true)}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-amber-200/90 text-[10px] hover:bg-amber-500/20 max-w-[85%]"
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-amber-500/10 border border-amber-500/20 text-[var(--t-tint-warning)] text-[10px] hover:bg-amber-500/20 max-w-[85%]"
                     title="Internal note — tap to view"
                   >
                     <span aria-hidden>📝</span>
                     <span className="flex-none">Note · {formatTime(n.created_at)}</span>
-                    {n.body && <span className="text-amber-100/60 truncate">— {n.body}</span>}
+                    {n.body && <span className="text-[var(--t-tint-warning)] truncate">— {n.body}</span>}
                   </button>
                 </div>
               )
@@ -1654,7 +1654,7 @@ export default function TxtConversationView({
                     const fe = friendlyDeliveryError(m.error_message)
                     return (
                       <div
-                        className={`text-[10px] mt-0.5 ${fe.hard ? 'text-red-300' : 'text-amber-300/90'}`}
+                        className={`text-[10px] mt-0.5 ${fe.hard ? 'text-[var(--t-tint-danger)]' : 'text-[var(--t-tint-warning)]'}`}
                         title={`Twilio: ${m.error_message}`}
                       >
                         {fe.label}
@@ -1668,8 +1668,8 @@ export default function TxtConversationView({
         </div>
 
         {showNotes && (
-          <div className="hidden md:flex flex-col w-72 border-l border-white/10 bg-[#0B2237] min-h-0">
-            <div className="px-3 py-2 border-b border-white/10 text-xs text-amber-300">
+          <div className="hidden md:flex flex-col w-72 border-l border-white/10 bg-[var(--t-panel-deep)] min-h-0">
+            <div className="px-3 py-2 border-b border-white/10 text-xs text-[var(--t-tint-warning)]">
               Internal notes (not sent to customer)
             </div>
             {notesInner}
@@ -1680,12 +1680,12 @@ export default function TxtConversationView({
       {/* Composer — only when the user can actually send (owner / member, or an
           unclaimed Queue thread). Non-participants get the Join panel below. */}
       {!isArchived && canComposeHere && (
-        <div className="border-t border-white/10 px-3 py-2 bg-[#0B2237]">
+        <div className="border-t border-white/10 px-3 py-2 bg-[var(--t-panel-deep)]">
           {sendError && (
-            <div className="text-xs text-red-300 mb-1 px-1">{sendError}</div>
+            <div className="text-xs text-[var(--t-tint-danger)] mb-1 px-1">{sendError}</div>
           )}
           {conversation.contact?.do_not_text && (
-            <div className="text-xs text-orange-300 mb-1 px-1">
+            <div className="text-xs text-[var(--t-tint-orange)] mb-1 px-1">
               ⚠ This contact is marked do-not-text
             </div>
           )}
@@ -1789,7 +1789,7 @@ export default function TxtConversationView({
                 width (like the template picker) so they never run off-screen on
                 mobile. Triggered from the toolbar buttons below. */}
             {omwOpen && !isGroup && conversation.contact && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 p-2">
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 p-2">
                 <div className="text-[11px] text-white/50 px-1 pb-1.5">
                   On my way — pick an ETA
                 </div>
@@ -1830,7 +1830,7 @@ export default function TxtConversationView({
               </div>
             )}
             {scheduleOpen && (
-              <div className="absolute bottom-full left-0 right-0 mb-1 bg-[#0F2E47] border border-white/10 rounded-md shadow-lg z-30 p-3 max-h-[60vh] overflow-y-auto">
+              <div className="absolute bottom-full left-0 right-0 mb-1 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 p-3 max-h-[60vh] overflow-y-auto">
                 <div className="text-[11px] text-white/50 pb-1.5">Schedule for later</div>
                 <input
                   type="datetime-local"
@@ -1871,7 +1871,7 @@ export default function TxtConversationView({
                         <button
                           type="button"
                           onClick={() => cancelScheduled(s.id)}
-                          className="text-white/40 hover:text-red-300 flex-none text-sm leading-none"
+                          className="text-white/40 hover:text-[var(--t-tint-danger)] flex-none text-sm leading-none"
                           aria-label="Cancel scheduled message"
                         >
                           ×
@@ -1890,7 +1890,7 @@ export default function TxtConversationView({
               type="button"
               onClick={pickAttachments}
               disabled={sending || uploadingAttachment || !!conversation.contact?.do_not_text}
-              className="text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
+              className="text-white/70 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
               title="Attach an image (JPEG/PNG/GIF/WebP, up to 5 MB)"
               aria-label="Attach image"
             >
@@ -1900,7 +1900,7 @@ export default function TxtConversationView({
               type="button"
               onClick={openPickerManually}
               disabled={sending || !!conversation.contact?.do_not_text}
-              className="text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
+              className="text-white/70 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
               title="Insert template (or type / in the composer)"
               aria-label="Insert template"
             >
@@ -1915,7 +1915,7 @@ export default function TxtConversationView({
                   setScheduleOpen(false)
                 }}
                 disabled={sending || !!conversation.contact?.do_not_text}
-                className="text-white/50 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
+                className="text-white/70 hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10"
                 title="Insert emoji"
                 aria-label="Insert emoji"
               >
@@ -1940,7 +1940,7 @@ export default function TxtConversationView({
                 }}
                 disabled={sending || !!conversation.contact?.do_not_text}
                 className={`hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10 ${
-                  omwOpen ? 'text-emerald-300 bg-white/10' : 'text-white/50'
+                  omwOpen ? 'text-[var(--t-tint-success)] bg-white/10' : 'text-white/70'
                 }`}
                 title="On my way — pick an ETA"
                 aria-label="On my way"
@@ -1951,7 +1951,7 @@ export default function TxtConversationView({
             <button
               type="button"
               onClick={() => setExpanded((v) => !v)}
-              className="text-white/50 hover:text-white transition-colors p-1.5 rounded-md hover:bg-white/10"
+              className="text-white/70 hover:text-white transition-colors p-1.5 rounded-md hover:bg-white/10"
               title={expanded ? 'Shrink composer' : 'Expand composer'}
               aria-label={expanded ? 'Shrink composer' : 'Expand composer'}
             >
@@ -1976,7 +1976,7 @@ export default function TxtConversationView({
                 }}
                 disabled={sending || !!conversation.contact?.do_not_text}
                 className={`relative hover:text-white disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-white/10 ${
-                  scheduleOpen ? 'text-amber-300 bg-white/10' : 'text-white/50'
+                  scheduleOpen ? 'text-[var(--t-tint-warning)] bg-white/10' : 'text-white/50'
                 }`}
                 title="Schedule send"
                 aria-label="Schedule send"
@@ -2027,7 +2027,7 @@ export default function TxtConversationView({
 
             <span className="text-[10px] text-white/40 mr-1">
               {text.length > 0 && `${text.length}`}
-              {selectedTemplateId && <span className="ml-1 text-emerald-300">· tmpl</span>}
+              {selectedTemplateId && <span className="ml-1 text-[var(--t-tint-success)]">· tmpl</span>}
             </span>
 
             <button
@@ -2058,7 +2058,7 @@ export default function TxtConversationView({
           claim it (becomes owner), which reveals the composer. Claiming is
           explicit; replying no longer silently claims. */}
       {!isArchived && !canComposeHere && isUnassigned && (
-        <div className="border-t border-white/10 px-4 py-3 bg-[#0B2237] flex items-center justify-between gap-3">
+        <div className="border-t border-white/10 px-4 py-3 bg-[var(--t-panel-deep)] flex items-center justify-between gap-3">
           <span className="text-sm text-white/50">
             Unclaimed conversation. Claim it to reply.
           </span>
@@ -2076,7 +2076,7 @@ export default function TxtConversationView({
           else. Reading is open to everyone; sending isn't. One click adds them
           as a member and reveals the composer. */}
       {!isArchived && !canComposeHere && !isUnassigned && (
-        <div className="border-t border-white/10 px-4 py-3 bg-[#0B2237] flex items-center justify-between gap-3">
+        <div className="border-t border-white/10 px-4 py-3 bg-[var(--t-panel-deep)] flex items-center justify-between gap-3">
           <span className="text-sm text-white/50">
             {conversation.assignee && conversation.assignee.id !== currentUserId
               ? `You're viewing ${conversation.assignee.display_name.split(' ')[0]}'s conversation. Join it to send a reply.`
@@ -2094,7 +2094,7 @@ export default function TxtConversationView({
       )}
 
       {isArchived && (
-        <div className="border-t border-white/10 px-4 py-3 bg-amber-500/5 text-amber-200 text-sm text-center">
+        <div className="border-t border-white/10 px-4 py-3 bg-amber-500/5 text-[var(--t-tint-warning)] text-sm text-center">
           {canArchive
             ? 'This conversation is archived. Tap ↺ above to reopen.'
             : 'This conversation is archived.'}
@@ -2104,12 +2104,12 @@ export default function TxtConversationView({
       {/* Mobile notes overlay — the desktop rail is hidden on small screens, so
           on mobile the 📝 button opens this full-screen panel instead. */}
       {showNotes && (
-        <div className="md:hidden fixed inset-0 z-50 bg-[#0B2237] flex flex-col">
+        <div className="md:hidden fixed inset-0 z-50 bg-[var(--t-panel-deep)] flex flex-col">
           <div
             className="px-4 pb-3 border-b border-white/10 flex items-center justify-between"
             style={{ paddingTop: 'calc(env(safe-area-inset-top, 0px) + 0.75rem)' }}
           >
-            <span className="text-sm text-amber-300">Internal notes (not sent to customer)</span>
+            <span className="text-sm text-[var(--t-tint-warning)]">Internal notes (not sent to customer)</span>
             <button
               onClick={() => setShowNotes(false)}
               className="text-white/50 hover:text-white text-xl leading-none"
@@ -2130,7 +2130,7 @@ export default function TxtConversationView({
           onClick={() => setAddMemberOpen(false)}
         >
           <div
-            className="bg-[#0F2E47] border border-white/10 rounded-lg w-full max-w-xs max-h-[70vh] flex flex-col"
+            className="bg-[var(--t-panel)] border border-white/10 rounded-lg w-full max-w-xs max-h-[70vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">

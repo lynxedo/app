@@ -81,7 +81,7 @@ export default function ScoreboardsSidebar({
 
       <div>
         <div className="px-2 mb-1">
-          <span className="text-sm md:text-xs font-semibold text-amber-300 uppercase tracking-wider">Boards</span>
+          <span className="text-sm md:text-xs font-semibold text-[var(--t-heading)] uppercase tracking-wider">Boards</span>
         </div>
         <div className="space-y-1">
           {visibleBoards.map(b => {

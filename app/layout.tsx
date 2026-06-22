@@ -2,6 +2,7 @@ import type { Metadata, Viewport } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 import { getCurrentUser, getCurrentProfile } from "@/lib/supabase/current-user";
+import { THEME_IDS } from "@/lib/themes";
 
 const geistSans = Geist({
   variable: "--font-geist-sans",
@@ -41,6 +42,7 @@ export default async function RootLayout({
   // pages it served) are retired; everything lives in /hub now. We still read
   // the profile here for the global text-size class.
   let textSize: 'small' | 'default' | 'large' = 'default'
+  let theme = 'midnight'
 
   if (user) {
     // Shared, request-cached profile fetch — the Hub layout reuses the same row.
@@ -49,12 +51,16 @@ export default async function RootLayout({
     if (hub_text_size === 'small' || hub_text_size === 'large' || hub_text_size === 'default') {
       textSize = hub_text_size
     }
+    const validThemes = THEME_IDS
+    if (data?.hub_theme && validThemes.includes(data.hub_theme)) {
+      theme = data.hub_theme
+    }
   }
 
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased text-size-${textSize}`}
+      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased text-size-${textSize} theme-${theme}`}
     >
       <body className="min-h-full flex flex-col">
         {children}

@@ -45,8 +45,8 @@ function fmtDuration(sec: number | null): string | null {
 function sentimentTone(sentiment: string | null): { label: string; cls: string } | null {
   if (!sentiment) return null
   const s = sentiment.toLowerCase()
-  if (s.includes('pos')) return { label: sentiment, cls: 'bg-emerald-500/15 text-emerald-300' }
-  if (s.includes('neg')) return { label: sentiment, cls: 'bg-red-500/15 text-red-300' }
+  if (s.includes('pos')) return { label: sentiment, cls: 'bg-emerald-500/15 text-[var(--t-tint-success)]' }
+  if (s.includes('neg')) return { label: sentiment, cls: 'bg-red-500/15 text-[var(--t-tint-danger)]' }
   return { label: sentiment, cls: 'bg-white/10 text-white/60' }
 }
 
@@ -85,7 +85,7 @@ function MarkerDetails({
         <button
           type="button"
           onClick={() => onJumpToReply?.(aiReplySentAt)}
-          className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-purple-500/15 text-purple-200 text-[10px] hover:bg-purple-500/25"
+          className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-purple-500/15 text-[var(--t-tint-purple)] text-[10px] hover:bg-purple-500/25"
           title="Guardian auto-replied — tap to jump to that text"
         >
           <span aria-hidden>🛡</span>
@@ -113,7 +113,7 @@ function MarkerDetails({
           <button
             type="button"
             onClick={() => setShowTranscript((v) => !v)}
-            className="text-[11px] text-sky-300 hover:text-sky-200"
+            className="text-[11px] text-[var(--t-tint-info)] hover:opacity-80"
           >
             {showTranscript ? '▾ Hide transcript' : '▸ Show transcript'}
           </button>
@@ -187,7 +187,7 @@ export function CallMarker({
         onClick={() => hasDetail && setExpanded((v) => !v)}
         className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border text-[10px] max-w-[90%] ${
           tinted
-            ? 'bg-red-500/10 border-red-500/20 text-red-200/90 hover:bg-red-500/20'
+            ? 'bg-red-500/10 border-red-500/20 text-[var(--t-tint-danger)] hover:bg-red-500/20'
             : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10'
         } ${hasDetail ? 'cursor-pointer' : 'cursor-default'}`}
         title={hasDetail ? 'Tap to expand' : undefined}
@@ -200,7 +200,7 @@ export function CallMarker({
         <span className="opacity-50">· {fmtTime(event.ts)}</span>
         {actorName && <span className="opacity-50 truncate">· {actorName}</span>}
         {preview && (
-          <span className="text-red-100/60 truncate min-w-0">— &ldquo;{preview}&rdquo;</span>
+          <span className="text-[var(--t-tint-danger)] truncate min-w-0">— &ldquo;{preview}&rdquo;</span>
         )}
         {hasDetail && <span className="opacity-40">{expanded ? '▾' : '▸'}</span>}
       </button>
@@ -237,7 +237,7 @@ export function VoicemailMarker({
       <button
         type="button"
         onClick={() => setExpanded((v) => !v)}
-        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-red-500/20 bg-red-500/10 text-red-200/90 text-[10px] max-w-[90%] hover:bg-red-500/20"
+        className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full border border-red-500/20 bg-red-500/10 text-[var(--t-tint-danger)] text-[10px] max-w-[90%] hover:bg-red-500/20"
         title="Voicemail — tap to expand"
       >
         <span aria-hidden>🎙</span>
@@ -245,7 +245,7 @@ export function VoicemailMarker({
         {dur && <span className="opacity-70">{dur}</span>}
         <span className="opacity-50">· {fmtTime(event.ts)}</span>
         {preview && (
-          <span className="text-red-100/60 truncate min-w-0">— &ldquo;{preview}&rdquo;</span>
+          <span className="text-[var(--t-tint-danger)] truncate min-w-0">— &ldquo;{preview}&rdquo;</span>
         )}
         <span className="opacity-40">{expanded ? '▾' : '▸'}</span>
       </button>

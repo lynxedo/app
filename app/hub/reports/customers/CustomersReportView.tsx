@@ -191,7 +191,7 @@ export default function CustomersReportView() {
   }
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 text-white">
+    <div className="flex flex-col h-full bg-gray-950 text-white">
       {/* Header */}
       <div className="flex-none border-b border-white/10 px-4 py-3 flex items-center justify-between gap-3 max-md:pl-14">
         <div>
@@ -206,7 +206,7 @@ export default function CustomersReportView() {
             Columns ({visible.length})
           </button>
           <button onClick={exportCsv} disabled={!view.length}
-            className="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-sm disabled:opacity-40">
+            className="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-sm disabled:opacity-40">
             Export CSV
           </button>
         </div>
@@ -222,7 +222,7 @@ export default function CustomersReportView() {
         <div className="flex items-center gap-1">
           {STATUS_FILTERS.map((s) => (
             <button key={s} onClick={() => setStatusFilter(s)}
-              className={`px-2.5 py-1 rounded text-xs ${statusFilter === s ? 'bg-indigo-600 text-white' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>
+              className={`px-2.5 py-1 rounded text-xs ${statusFilter === s ? 'bg-indigo-600 text-[#fff]' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>
               {s}
             </button>
           ))}
@@ -233,17 +233,17 @@ export default function CustomersReportView() {
       {loading ? (
         <div className="flex items-center justify-center h-40 text-white/40">Loading…</div>
       ) : error ? (
-        <div className="m-4 p-3 rounded bg-red-900/40 text-red-300 text-sm">{error}</div>
+        <div className="m-4 p-3 rounded bg-red-500/15 text-[var(--t-tint-danger)] text-sm">{error}</div>
       ) : (
         <div className="flex-1 overflow-auto">
           <table className="w-full text-sm border-collapse">
             <thead className="sticky top-0 z-10">
-              <tr className="bg-slate-900">
+              <tr className="bg-gray-900">
                 {visibleCols.map((c) => (
                   <th key={c.key} onClick={() => clickHeader(c.key)}
                     className="text-left font-semibold text-white/60 px-3 py-2 whitespace-nowrap border-b border-white/10 cursor-pointer hover:text-white select-none">
                     {c.label}
-                    {sort.key === c.key && <span className="text-indigo-400 ml-1">{sort.dir === 'asc' ? '▲' : '▼'}</span>}
+                    {sort.key === c.key && <span className="text-[var(--t-tint-link)] ml-1">{sort.dir === 'asc' ? '▲' : '▼'}</span>}
                   </th>
                 ))}
                 {!visibleCols.length && <th className="px-3 py-2 text-white/40">Pick columns →</th>}
@@ -258,7 +258,7 @@ export default function CustomersReportView() {
                       const href = String(rawValue(r, c) || '')
                       return (
                         <td key={c.key} className="px-3 py-1.5 whitespace-nowrap border-b border-white/5">
-                          {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-indigo-400 hover:underline">Open ↗</a> : <span className="text-white/20">—</span>}
+                          {href ? <a href={href} target="_blank" rel="noopener noreferrer" className="text-[var(--t-tint-link)] hover:underline">Open ↗</a> : <span className="text-white/20">—</span>}
                         </td>
                       )
                     }
@@ -281,12 +281,12 @@ export default function CustomersReportView() {
       {/* Column picker */}
       {showPicker && (
         <div className="fixed inset-0 z-50 flex items-stretch md:items-center justify-center bg-black/60 p-0 md:p-4" onClick={() => setShowPicker(false)}>
-          <div className="bg-slate-900 w-full md:max-w-2xl md:rounded-xl border border-white/10 flex flex-col max-h-full md:max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
+          <div className="bg-gray-900 w-full md:max-w-2xl md:rounded-xl border border-white/10 flex flex-col max-h-full md:max-h-[80vh]" onClick={(e) => e.stopPropagation()}>
             <div className="flex-none flex items-center justify-between px-4 py-3 border-b border-white/10">
               <h2 className="font-semibold">Choose Columns</h2>
               <div className="flex items-center gap-2">
                 <button onClick={() => persistVisible(DEFAULT_VISIBLE)} className="text-xs text-white/50 hover:text-white">Reset</button>
-                <button onClick={() => setShowPicker(false)} className="px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-sm">Done</button>
+                <button onClick={() => setShowPicker(false)} className="px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-sm">Done</button>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">
@@ -295,7 +295,7 @@ export default function CustomersReportView() {
                 if (!cols.length) return null
                 return (
                   <div key={group}>
-                    <div className="text-xs font-semibold text-amber-300 uppercase tracking-wider mb-1.5">{group}</div>
+                    <div className="text-xs font-semibold text-[var(--t-tint-warning)] uppercase tracking-wider mb-1.5">{group}</div>
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-4 gap-y-1">
                       {cols.map((c) => (
                         <label key={c.key} className="flex items-center gap-2 py-0.5 cursor-pointer text-sm hover:text-white text-white/80">

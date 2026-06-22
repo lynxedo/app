@@ -100,7 +100,7 @@ export default function ContactModal(props: Props) {
 
   return (
     <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center px-4">
-      <div className="bg-[#0F2E47] border border-white/10 rounded-lg w-full max-w-md max-h-[85vh] flex flex-col">
+      <div className="bg-[var(--t-panel)] border border-white/10 rounded-lg w-full max-w-md max-h-[85vh] flex flex-col">
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
           <h2 className="font-medium">
             {isEdit ? 'Edit contact' : 'Add contact'}
@@ -117,7 +117,7 @@ export default function ContactModal(props: Props) {
         <div className="p-4 space-y-3 overflow-y-auto">
           <div>
             <label className="text-xs text-white/50 block mb-1">
-              Name <span className="text-red-400">*</span>
+              Name <span className="text-[var(--t-tint-danger)]">*</span>
             </label>
             <input
               type="text"
@@ -132,7 +132,7 @@ export default function ContactModal(props: Props) {
 
           <div>
             <label className="text-xs text-white/50 block mb-1">
-              Phone <span className="text-red-400">*</span>
+              Phone <span className="text-[var(--t-tint-danger)]">*</span>
             </label>
             <input
               type="tel"
@@ -185,7 +185,7 @@ export default function ContactModal(props: Props) {
             </label>
           )}
 
-          {error && <div className="text-xs text-red-400">{error}</div>}
+          {error && <div className="text-xs text-[var(--t-tint-danger)]">{error}</div>}
         </div>
 
         <div className="px-4 py-3 border-t border-white/10 flex justify-end gap-2">
