@@ -1,10 +1,10 @@
 'use client'
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreviewMap'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { Spinner, EmptyState } from '@/components/ui'
-import { fmtQty, type StoredRouteLoadout } from '@/lib/route-capacity'
+import { fmtQty, type StoredRouteLoadout, type StoredLoadoutProduct } from '@/lib/route-capacity'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -544,6 +544,18 @@ function fmtHrsMin(min: number | null | undefined): string | null {
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
+// Group loadout products by line item, so the same product applied for two line
+// items shows once per line item (matching the optimizer's tank loadout card).
+function groupByLineItem(products: StoredLoadoutProduct[]): [string, StoredLoadoutProduct[]][] {
+  const groups = new Map<string, StoredLoadoutProduct[]>()
+  for (const p of products) {
+    const key = p.line_item || '(unspecified)'
+    if (!groups.has(key)) groups.set(key, [])
+    groups.get(key)!.push(p)
+  }
+  return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+}
+
 function RouteLoadoutHeader({ loadout }: { loadout: StoredRouteLoadout | null }) {
   const [open, setOpen] = useState(true)
   if (!loadout) return null
@@ -603,12 +615,19 @@ function RouteLoadoutHeader({ loadout }: { loadout: StoredRouteLoadout | null })
                   </tr>
                 </thead>
                 <tbody>
-                  {loadout.products.map(p => (
-                    <tr key={p.product_id} className="border-b border-gray-800/50">
-                      <td className="py-1 pr-2 text-white">{p.name}</td>
-                      <td className="py-1 px-2 text-right text-gray-300 whitespace-nowrap">{fmtQty(p.quantity)} {p.unit}</td>
-                      <td className="py-1 pl-2 text-gray-400">{p.tank ? `Tank ${p.tank}` : '—'}</td>
-                    </tr>
+                  {groupByLineItem(loadout.products).map(([lineItem, lines]) => (
+                    <Fragment key={lineItem}>
+                      <tr className="bg-gray-800/30">
+                        <td colSpan={3} className="py-1 pr-2 text-[10px] font-semibold text-sky-300/90 uppercase tracking-wide">{lineItem}</td>
+                      </tr>
+                      {lines.map((p, i) => (
+                        <tr key={p.service_product_id || `${p.product_id}-${i}`} className="border-b border-gray-800/50">
+                          <td className="py-1 pr-2 pl-3 text-white">{p.name}</td>
+                          <td className="py-1 px-2 text-right text-gray-300 whitespace-nowrap">{fmtQty(p.quantity)} {p.unit}</td>
+                          <td className="py-1 pl-2 text-gray-400">{p.tank ? `Tank ${p.tank}` : '—'}</td>
+                        </tr>
+                      ))}
+                    </Fragment>
                   ))}
                 </tbody>
               </table>

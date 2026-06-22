@@ -60,8 +60,14 @@ export type RouteStopInput = {
   lineItemNames: string[]
 }
 
-// A product to mix, summed across the route.
+// A product to mix for ONE line item, summed across the route. The same product
+// on two different line items (e.g. 4600 Anchor on both Root Rot Recovery and
+// Lawn Health Complete) yields two ProductLines — each totalled on its own line
+// item and assignable to its own tank (Ben, 2026-06-22). The unit is the
+// service_products mapping (`service_product_id`), not the bare product.
 export type ProductLine = {
+  service_product_id: string // the (line item × product) mapping this line totals
+  line_item: string // display label — program ?? jobber_line_item_name
   product_id: string
   name: string
   quantity: number
@@ -113,9 +119,17 @@ function matchesLineItem(sp: ServiceProductMap, lineItem: string): boolean {
   return sp.match_type === 'exact' ? a === b : a.includes(b)
 }
 
+function lineItemLabel(sp: ServiceProductMap): string {
+  return (sp.program || sp.jobber_line_item_name || '').trim()
+}
+
 /**
- * The core Part C computation. Tank overrides (Part B) map product_id → tank_number
- * for this specific route/day and win over service_products.tank_default.
+ * The core Part C computation. Quantities and tanks are totalled per
+ * (line item × product) mapping — keyed by service_products.id — so a product
+ * applied for two line items on the same stop counts twice (once per line item)
+ * and each can go in its own tank. Tank overrides (Part B) map
+ * service_product_id → tank_number for this route/day and win over
+ * service_products.tank_default.
  */
 export function computeRouteLoadout(
   stops: RouteStopInput[],
@@ -127,10 +141,11 @@ export function computeRouteLoadout(
   const activeTanks = [...data.tanks].filter(t => t.is_active).sort((a, b) => a.tank_number - b.tank_number)
   const tankRate = activeTanks[0]?.application_rate || DEFAULT_TANK_RATE
 
-  // Per-product running totals.
-  type Agg = { name: string; unit: string; quantity: number; ratePerK: number; tank: number | null }
+  // Per-mapping running totals (one row per line item × product).
+  type Agg = { service_product_id: string; line_item: string; product_id: string; name: string; unit: string; quantity: number; ratePerK: number; tank: number | null }
   const agg = new Map<string, Agg>()
-  // sq ft routed through each tank number (a stop counts once per tank it uses).
+  // sq ft routed through each tank number (a stop counts once per tank it uses —
+  // two line items sharing a tank = one spray pass; split tanks = one pass each).
   const tankSqft = new Map<number, number>()
   const unmapped = new Set<string>()
 
@@ -138,8 +153,8 @@ export function computeRouteLoadout(
   let stopsWithSize = 0
   const stopsMissingSize: string[] = []
 
-  function resolveTank(sp: ServiceProductMap, productId: string): number | null {
-    if (tankOverrides.has(productId)) return tankOverrides.get(productId)!
+  function resolveTank(sp: ServiceProductMap): number | null {
+    if (tankOverrides.has(sp.id)) return tankOverrides.get(sp.id)!
     return sp.tank_default ?? null
   }
 
@@ -150,40 +165,39 @@ export function computeRouteLoadout(
     totalSqft += sqft
     stopsWithSize++
 
-    // Resolve this stop's product set once (dedupe per product), and which tanks it uses.
-    const stopProducts = new Map<string, { sp: ServiceProductMap; tank: number | null }>()
+    // Which mappings fire on this stop (dedupe per mapping — a mapping applies
+    // once per stop even if two of the stop's line items both match it).
+    const firedThisStop = new Map<string, ServiceProductMap>()
     for (const li of stop.lineItemNames) {
       const matches = activeMaps.filter(sp => matchesLineItem(sp, li))
       if (matches.length === 0) { if (li.trim()) unmapped.add(li.trim()); continue }
-      for (const sp of matches) {
-        const pid = sp.product_id!
-        if (!stopProducts.has(pid)) stopProducts.set(pid, { sp, tank: resolveTank(sp, pid) })
-      }
+      for (const sp of matches) if (!firedThisStop.has(sp.id)) firedThisStop.set(sp.id, sp)
     }
 
     const tanksUsedThisStop = new Set<number>()
-    for (const [pid, { sp, tank }] of stopProducts) {
-      const product = productById.get(pid)
+    for (const [spId, sp] of firedThisStop) {
+      const product = productById.get(sp.product_id!)
       if (!product) continue
+      const tank = resolveTank(sp)
       const baseRate = sp.application_rate ?? product.application_rate
       const ratePerK = baseRate == null ? 0
         : product.rate_basis === 'per_gallon' ? baseRate * tankRate
         : baseRate
       const unit = (sp.rate_unit || product.unit || '').trim()
-      const cur = agg.get(pid) ?? { name: product.name, unit, quantity: 0, ratePerK, tank }
+      const cur = agg.get(spId) ?? { service_product_id: spId, line_item: lineItemLabel(sp), product_id: sp.product_id!, name: product.name, unit, quantity: 0, ratePerK, tank }
       cur.quantity += sizeK * ratePerK
       cur.ratePerK = ratePerK
       cur.tank = tank
       if (unit && !cur.unit) cur.unit = unit
-      agg.set(pid, cur)
+      agg.set(spId, cur)
       if (tank != null) tanksUsedThisStop.add(tank)
     }
     for (const tn of tanksUsedThisStop) tankSqft.set(tn, (tankSqft.get(tn) ?? 0) + sqft)
   }
 
-  const products: ProductLine[] = [...agg.entries()]
-    .map(([product_id, a]) => ({ product_id, name: a.name, quantity: a.quantity, unit: a.unit, tank: a.tank, ratePerK: a.ratePerK }))
-    .sort((x, y) => (x.tank ?? 99) - (y.tank ?? 99) || x.name.localeCompare(y.name))
+  const products: ProductLine[] = [...agg.values()]
+    .map(a => ({ service_product_id: a.service_product_id, line_item: a.line_item, product_id: a.product_id, name: a.name, quantity: a.quantity, unit: a.unit, tank: a.tank, ratePerK: a.ratePerK }))
+    .sort((x, y) => (x.tank ?? 99) - (y.tank ?? 99) || x.line_item.localeCompare(y.line_item) || x.name.localeCompare(y.name))
 
   const tanks: TankLoad[] = activeTanks.map(t => {
     const sprayable = tankSprayableSqft(t)
@@ -224,7 +238,7 @@ export function fmtQty(n: number): string {
 // Daily Log (PRD §8.9). It's a self-contained snapshot — Daily Log V2 only reads
 // and displays it, never recomputes — so field names use snake_case to read
 // naturally as stored JSON.
-export type StoredLoadoutProduct = { product_id: string; name: string; quantity: number; unit: string; tank: number | null }
+export type StoredLoadoutProduct = { service_product_id: string; line_item: string; product_id: string; name: string; quantity: number; unit: string; tank: number | null }
 export type StoredLoadoutTank = { tank_number: number; label: string | null; gallon_capacity: number | null; sprayable_sqft: number | null; sqft_loaded: number; fill_pct: number | null; overflow: boolean }
 
 export type StoredRouteLoadout = {
@@ -249,7 +263,7 @@ export function toStoredLoadout(
     predicted_drive_minutes: opts.predictedDriveMinutes ?? null,
     total_sqft: loadout.totalSqft,
     has_mappings: loadout.hasMappings,
-    products: loadout.products.map(p => ({ product_id: p.product_id, name: p.name, quantity: p.quantity, unit: p.unit, tank: p.tank })),
+    products: loadout.products.map(p => ({ service_product_id: p.service_product_id, line_item: p.line_item, product_id: p.product_id, name: p.name, quantity: p.quantity, unit: p.unit, tank: p.tank })),
     tanks: loadout.tanks.map(t => ({
       tank_number: t.tank_number, label: t.label, gallon_capacity: t.gallon_capacity,
       sprayable_sqft: t.sprayableSqft, sqft_loaded: t.loadedSqft, fill_pct: t.fillPct, overflow: t.overflow,

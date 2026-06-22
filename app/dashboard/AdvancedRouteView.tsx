@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useRef, useState } from 'react'
+import { Fragment, useEffect, useMemo, useRef, useState } from 'react'
 import AdvancedRouteMap, { type AdvPin } from '@/components/AdvancedRouteMap'
 import { openUrlWithFallback } from '@/lib/open-url'
 import { buildAdvancedRouteSheetHtml, type RouteSheetStop } from '@/lib/advanced-route-sheet'
 import { resolvePinColors, DEFAULT_PIN_COLOR, MAX_HALO_ARCS, EMPTY_PIN_SETTINGS, type PinSettings } from '@/lib/pin-colors'
-import { computeRouteLoadout, fmtQty, type CapacityData, type RouteStopInput } from '@/lib/route-capacity'
+import { computeRouteLoadout, fmtQty, type CapacityData, type RouteStopInput, type ProductLine } from '@/lib/route-capacity'
 
 interface JobberUser { id: string; name: string }
 
@@ -320,20 +320,34 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     return computeRouteLoadout(stops, capacityData, tankOverrides)
   }, [optimized, capacityData, tankOverrides])
 
-  // Move a product to a different tank for this run/day (Part B).
-  const setProductTank = async (productId: string, tank: number | null) => {
+  // Move one line item's product to a different tank for this run/day (Part B).
+  // Keyed by the service_products mapping so the same product on two line items
+  // can be split across tanks.
+  const setLineTank = async (serviceProductId: string, tank: number | null) => {
     setTankOverrides(prev => {
       const m = new Map(prev)
-      if (tank == null) m.delete(productId); else m.set(productId, tank)
+      if (tank == null) m.delete(serviceProductId); else m.set(serviceProductId, tank)
       return m
     })
     try {
       await fetch('/api/hub/routing/tank-assignments', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ route_code: routeKey, run_date: startDate, product_id: productId, tank_number: tank }),
+        body: JSON.stringify({ route_code: routeKey, run_date: startDate, service_product_id: serviceProductId, tank_number: tank }),
       })
     } catch { /* override stays applied locally even if the save fails */ }
   }
+
+  // The loadout's product lines grouped by line item, for display.
+  const loadoutByLineItem = useMemo<[string, ProductLine[]][]>(() => {
+    if (!loadout) return []
+    const groups = new Map<string, ProductLine[]>()
+    for (const p of loadout.products) {
+      const key = p.line_item || '(unspecified)'
+      if (!groups.has(key)) groups.set(key, [])
+      groups.get(key)!.push(p)
+    }
+    return [...groups.entries()].sort((a, b) => a[0].localeCompare(b[0]))
+  }, [loadout])
 
   const initedTechRef = useRef(false)
 
@@ -1419,7 +1433,10 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                         </div>
                       )}
 
-                      {/* Per-product amounts + tank override */}
+                      {/* Per-line-item product amounts + tank override. The same
+                          product can appear under two line items (e.g. 4600 Anchor
+                          on Root Rot Recovery and Lawn Health Complete), each
+                          totalled separately and assignable to its own tank. */}
                       {loadout.products.length > 0 ? (
                         <div className="overflow-x-auto">
                           <table className="w-full text-xs">
@@ -1431,23 +1448,30 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                               </tr>
                             </thead>
                             <tbody>
-                              {loadout.products.map(p => (
-                                <tr key={p.product_id} className="border-b border-gray-800/50">
-                                  <td className="py-1.5 pr-2 text-white">{p.name}</td>
-                                  <td className="py-1.5 px-2 text-right text-gray-300 whitespace-nowrap">{fmtQty(p.quantity)} {p.unit}</td>
-                                  <td className="py-1.5 pl-2">
-                                    <select
-                                      value={tankOverrides.get(p.product_id) ?? p.tank ?? ''}
-                                      onChange={e => setProductTank(p.product_id, e.target.value === '' ? null : Number(e.target.value))}
-                                      className="bg-gray-950 border border-gray-800 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-orange-500"
-                                    >
-                                      <option value="">— none —</option>
-                                      {(capacityData?.tanks.filter(t => t.is_active).map(t => t.tank_number) ?? [1, 2, 3, 4]).map(n => (
-                                        <option key={n} value={n}>Tank {n}</option>
-                                      ))}
-                                    </select>
-                                  </td>
-                                </tr>
+                              {loadoutByLineItem.map(([lineItem, lines]) => (
+                                <Fragment key={lineItem}>
+                                  <tr className="bg-gray-900/40">
+                                    <td colSpan={3} className="py-1 pr-2 text-[11px] font-semibold text-orange-300/90 uppercase tracking-wide">{lineItem}</td>
+                                  </tr>
+                                  {lines.map(p => (
+                                    <tr key={p.service_product_id} className="border-b border-gray-800/50">
+                                      <td className="py-1.5 pr-2 pl-3 text-white">{p.name}</td>
+                                      <td className="py-1.5 px-2 text-right text-gray-300 whitespace-nowrap">{fmtQty(p.quantity)} {p.unit}</td>
+                                      <td className="py-1.5 pl-2">
+                                        <select
+                                          value={tankOverrides.get(p.service_product_id) ?? p.tank ?? ''}
+                                          onChange={e => setLineTank(p.service_product_id, e.target.value === '' ? null : Number(e.target.value))}
+                                          className="bg-gray-950 border border-gray-800 rounded px-1.5 py-0.5 text-xs focus:outline-none focus:border-orange-500"
+                                        >
+                                          <option value="">— none —</option>
+                                          {(capacityData?.tanks.filter(t => t.is_active).map(t => t.tank_number) ?? [1, 2, 3, 4]).map(n => (
+                                            <option key={n} value={n}>Tank {n}</option>
+                                          ))}
+                                        </select>
+                                      </td>
+                                    </tr>
+                                  ))}
+                                </Fragment>
                               ))}
                             </tbody>
                           </table>
