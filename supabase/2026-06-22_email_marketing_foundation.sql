@@ -40,16 +40,17 @@ create policy email_settings_select_company on public.email_settings
   );
 
 -- Seed Heroes (company 00000000-0000-0000-0000-000000000002) with the resolved
--- identity (PRD §3a). domain_verified stays false until the Resend domain + DNS
--- are confirmed in the admin panel.
+-- identity (PRD §3a): the shared platform sending domain send.lynxedo.com with
+-- the Heroes brand as the display name. domain_verified stays false until the
+-- Resend domain + DNS are confirmed in the admin panel.
 insert into public.email_settings
   (company_id, from_name, from_email, reply_to, sending_domain, physical_address)
 values (
   '00000000-0000-0000-0000-000000000002',
   'Heroes Lawn Care of The Woodlands',
-  'hlc105@heroeslawntx.com',
+  'heroes@send.lynxedo.com',
   'hlc105@heroeslawncare.com',
-  'heroeslawntx.com',
+  'send.lynxedo.com',
   null
 )
 on conflict (company_id) do nothing;

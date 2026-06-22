@@ -118,7 +118,7 @@ export default function EmailAdminPanel({ initialSettings }: { initialSettings: 
           </div>
           <div>
             <label className={labelCls}>From address (must be on the verified domain)</label>
-            <input className={inputCls} value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} placeholder="hlc105@heroeslawntx.com" />
+            <input className={inputCls} value={fromEmail} onChange={(e) => setFromEmail(e.target.value)} placeholder="heroes@send.lynxedo.com" />
           </div>
           <div>
             <label className={labelCls}>Reply-To (where replies land — no verification needed)</label>
@@ -126,7 +126,7 @@ export default function EmailAdminPanel({ initialSettings }: { initialSettings: 
           </div>
           <div>
             <label className={labelCls}>Sending domain</label>
-            <input className={inputCls} value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="heroeslawntx.com" />
+            <input className={inputCls} value={domain} onChange={(e) => setDomain(e.target.value)} placeholder="send.lynxedo.com" />
           </div>
           <div>
             <label className={labelCls}>Resend domain id</label>
