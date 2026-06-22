@@ -1353,8 +1353,15 @@ function ContactsTab() {
   return (
     <>
       <Section title="Contacts">
-        <p>The Contacts page is your company-wide address book. Anyone you call from the Dialer, anyone who texts in through Txt, plus customers we&apos;ve pulled from Jobber — they all live in one searchable list at <strong className="text-white">Tools → Communications → Contacts</strong>.</p>
-        <p>Search by name or phone number from the top bar. Tap any contact to see their details, call them (Dialer), or edit their info.</p>
+        <p>The Contacts page is your company-wide address book — and it&apos;s growing into the one central directory every tool reads from. Anyone you call from the Dialer, anyone who texts in through Txt, plus customers and their mailing/email info — they all live in one searchable list at <strong className="text-white">Tools → Communications → Contacts</strong>, with one record per person.</p>
+        <p>Search by name, phone, or email from the top bar. Tap any contact to see their details, call them (Dialer), text them, or edit their info. Each contact now also holds a <strong className="text-white">company name</strong>, a <strong className="text-white">mailing address</strong>, and an <strong className="text-white">email subscription status</strong>, and shows where it came from (Jobber, texted in, called in, manually added, or imported).</p>
+      </Section>
+
+      <Section title="Filtering the directory">
+        <p>Below the search box are three quick filters so you can slice the directory the way each tool sees it:</p>
+        <Step n={1}><strong className="text-white">Channel</strong> — show only contacts that have a phone (the Txt/Dialer view) or have an email (the Email Marketing view).</Step>
+        <Step n={2}><strong className="text-white">Source</strong> — where the contact came from: Jobber, Manual, Imported, Texted in, or Called in.</Step>
+        <Step n={3}><strong className="text-white">Email status</strong> — Subscribed, Unsubscribed, Bounced, or Complained. <strong className="text-white">Reset</strong> clears these three at once.</Step>
       </Section>
 
       <Section title="Right inside the Dialer & Txt sidebars">
@@ -1371,9 +1378,10 @@ function ContactsTab() {
       </Section>
 
       <Section title="Adding & editing contacts">
-        <p>The <strong className="text-white">+ Add</strong> button at the top creates a new contact (name + phone required). You can tag the contact on the same form.</p>
-        <p>Tap any existing contact to open its detail sheet. <strong className="text-white">Edit</strong> lets you change name, phone, email, notes, and tags. The <strong className="text-white">Do not text</strong> toggle blocks outbound SMS to this contact from Txt and broadcasts — useful when someone replies STOP or asks to be left alone (Twilio also auto-flips this when they text STOP).</p>
-        <Note>Inbound calls and texts auto-create contacts on first contact, so the list grows organically. The initial population came from Jobber (85 customers as of launch) plus anyone who&apos;s already texted in.</Note>
+        <p>The <strong className="text-white">+ Add</strong> button at the top creates a new contact (name + phone required; company, email, mailing address, and tags optional). Tick <strong className="text-white">This contact is a business</strong> for vendors or commercial accounts.</p>
+        <p>Tap any existing contact to open its detail sheet. <strong className="text-white">Edit</strong> lets you change name, company, phone, email, email status, mailing address, notes, and tags. The <strong className="text-white">Do not text</strong> toggle blocks outbound SMS to this contact from Txt and broadcasts — useful when someone replies STOP or asks to be left alone (Twilio also auto-flips this when they text STOP).</p>
+        <p><strong className="text-white">Delete</strong> now <strong className="text-white">removes the contact from the directory but keeps it recoverable</strong> — their text and call history stays intact, and it can be brought back. (Nothing is permanently erased.)</p>
+        <Note>Editing a contact by hand marks it as yours — the nightly Jobber sync won&apos;t overwrite fields you&apos;ve corrected. Inbound calls and texts still auto-create contacts on first contact, so the list keeps growing on its own.</Note>
       </Section>
 
       <Section title="Calling from Contacts">

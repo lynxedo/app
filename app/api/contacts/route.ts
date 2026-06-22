@@ -4,16 +4,20 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/phone'
 
 // GET /api/contacts
-//   ?search=...
+//   ?search=...            (matches name / phone / email)
 //   ?tag_ids=uuid,uuid     (AND semantics — contact must have ALL listed tags)
 //   ?untagged=1            (only contacts with zero tags)
+//   ?channel=phone|email   (has-phone / has-email — the per-tool directory views)
+//   ?source=jobber|manual|import|sms|voice
+//   ?status=subscribed|unsubscribed|bounced|complained   (email subscription status)
 //   ?include_do_not_text=1
 //   ?limit=200
 //
-// Backed by the txt_contacts table (kept its original name; the user-facing
-// surface is just "Contacts"). RLS scopes to caller's company; the tag-filter
-// join goes through contact_tag_assignments which is also company-scoped via
-// the contact relationship.
+// Backed by the txt_contacts table — the unified contacts directory (the CRM
+// core). Its user-facing name is just "Contacts". RLS scopes to the caller's
+// company; the tag-filter join goes through contact_tag_assignments which is
+// also company-scoped via the contact relationship. Soft-deleted rows
+// (deleted_at) are always excluded.
 export async function GET(request: Request) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
@@ -24,23 +28,33 @@ export async function GET(request: Request) {
   const tagIdsParam = url.searchParams.get('tag_ids') || ''
   const tagIds = tagIdsParam.split(',').map(s => s.trim()).filter(Boolean)
   const untagged = url.searchParams.get('untagged') === '1'
+  const channel = (url.searchParams.get('channel') || '').trim()
+  const source = (url.searchParams.get('source') || '').trim()
+  const status = (url.searchParams.get('status') || '').trim()
   const includeBlocked = url.searchParams.get('include_do_not_text') === '1'
   const limit = Math.min(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 1000)
 
   let query = supabase
     .from('txt_contacts')
     .select(`
-      id, name, phone, email, do_not_text, notes, jobber_client_id,
+      id, name, first_name, last_name, company_name, is_company,
+      phone, email, email_status, do_not_text, notes, jobber_client_id, sources,
+      address_line1, address_line2, city, state, postal_code, country,
       tags:contact_tag_assignments(tag_id, contact_tags(id, label, color))
     `)
+    .is('deleted_at', null)
     .order('name', { ascending: true })
     .limit(limit)
 
   if (!includeBlocked) query = query.eq('do_not_text', false)
+  if (channel === 'phone') query = query.not('phone', 'is', null)
+  if (channel === 'email') query = query.not('email', 'is', null)
+  if (source) query = query.contains('sources', [source])
+  if (status) query = query.eq('email_status', status)
 
   if (search) {
     const pattern = `%${search.replace(/[%_]/g, '\\$&')}%`
-    query = query.or(`name.ilike.${pattern},phone.ilike.${pattern}`)
+    query = query.or(`name.ilike.${pattern},phone.ilike.${pattern},email.ilike.${pattern}`)
   }
 
   const { data, error } = await query
@@ -48,8 +62,12 @@ export async function GET(request: Request) {
 
   // Flatten nested tag rows: contact_tag_assignments → contact_tags
   type RawContact = {
-    id: string; name: string; phone: string; email: string | null
-    do_not_text: boolean; notes: string | null; jobber_client_id: string | null
+    id: string; name: string; first_name: string | null; last_name: string | null
+    company_name: string | null; is_company: boolean
+    phone: string; email: string | null; email_status: string
+    do_not_text: boolean; notes: string | null; jobber_client_id: string | null; sources: string[]
+    address_line1: string | null; address_line2: string | null; city: string | null
+    state: string | null; postal_code: string | null; country: string | null
     tags: Array<{ tag_id: string; contact_tags: { id: string; label: string; color: string } | { id: string; label: string; color: string }[] | null }>
   }
   const shaped = (data as unknown as RawContact[] ?? []).map(c => {
@@ -98,6 +116,7 @@ export async function POST(request: Request) {
   const phoneRaw = String(body.phone || '').trim()
   const email = body.email ? String(body.email).trim() : null
   const notes = body.notes ? String(body.notes).trim() : null
+  const str = (k: string) => (body[k] ? String(body[k]).trim() : null)
   const tagIds: string[] = Array.isArray(body.tag_ids) ? body.tag_ids.filter((x: unknown) => typeof x === 'string') : []
 
   if (!name) return NextResponse.json({ error: 'Name is required' }, { status: 400 })
@@ -105,13 +124,27 @@ export async function POST(request: Request) {
   const phone = toE164(phoneRaw)
   if (!phone) return NextResponse.json({ error: 'Invalid phone' }, { status: 400 })
 
+  // Optional directory fields (the page can post these; all default-safe).
+  const directoryFields = {
+    first_name: str('first_name'),
+    last_name: str('last_name'),
+    company_name: str('company_name'),
+    is_company: body.is_company === true,
+    address_line1: str('address_line1'),
+    address_line2: str('address_line2'),
+    city: str('city'),
+    state: str('state'),
+    postal_code: str('postal_code'),
+    country: str('country'),
+  }
+
   const admin = createAdminClient()
 
   // Find-or-create by (company_id, phone) — same uniqueness as the existing
   // /api/txt/conversations/start path uses.
   const { data: existing } = await admin
     .from('txt_contacts')
-    .select('id')
+    .select('id, sources')
     .eq('company_id', profile.company_id)
     .eq('phone', phone)
     .maybeSingle()
@@ -119,14 +152,20 @@ export async function POST(request: Request) {
   let contactId: string
   if (existing) {
     contactId = existing.id
+    const sources = Array.from(new Set([...(existing.sources ?? []), 'manual']))
     await admin
       .from('txt_contacts')
-      .update({ name, email, notes })
+      .update({ name, email, notes, ...directoryFields, sources, manually_edited: true })
       .eq('id', contactId)
   } else {
     const { data: created, error } = await admin
       .from('txt_contacts')
-      .insert({ company_id: profile.company_id, name, phone, email, notes })
+      .insert({
+        company_id: profile.company_id, name, phone, email, notes,
+        phone_digits: phone.replace(/\D/g, ''),
+        sources: ['manual'], manually_edited: true,
+        ...directoryFields,
+      })
       .select('id')
       .single()
     if (error || !created) {

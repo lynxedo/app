@@ -26,17 +26,24 @@ export default async function ContactsIndexPage() {
     supabase
       .from('txt_contacts')
       .select(`
-        id, name, phone, email, do_not_text, notes, jobber_client_id,
+        id, name, first_name, last_name, company_name, is_company,
+        phone, email, email_status, do_not_text, notes, jobber_client_id, sources,
+        address_line1, address_line2, city, state, postal_code, country,
         tags:contact_tag_assignments(tag_id, contact_tags(id, label, color))
       `)
+      .is('deleted_at', null)
       .order('name', { ascending: true })
       .limit(200),
   ])
 
   type RawTag = { tag_id: string; contact_tags: { id: string; label: string; color: string } | { id: string; label: string; color: string }[] | null }
   type RawContact = {
-    id: string; name: string; phone: string; email: string | null
-    do_not_text: boolean; notes: string | null; jobber_client_id: string | null
+    id: string; name: string; first_name: string | null; last_name: string | null
+    company_name: string | null; is_company: boolean
+    phone: string; email: string | null; email_status: string
+    do_not_text: boolean; notes: string | null; jobber_client_id: string | null; sources: string[]
+    address_line1: string | null; address_line2: string | null; city: string | null
+    state: string | null; postal_code: string | null; country: string | null
     tags: RawTag[]
   }
 
