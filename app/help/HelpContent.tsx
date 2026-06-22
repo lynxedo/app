@@ -1560,7 +1560,7 @@ function SettingsTab() {
           <li><strong className="text-white">My Hub</strong> — customize your icon rail and mobile bottom bar (show only what you use, in your order)</li>
           <li><strong className="text-white">Notifications</strong> — your notification level, the three Do&nbsp;Not&nbsp;Disturb tiers (Master / Hub / Calls), and your push devices</li>
           <li><strong className="text-white">Integrations</strong> — your Jobber Connection</li>
-          <li><strong className="text-white">Account</strong> — default landing page, communications (signature, ring &amp; voicemail settings), change password</li>
+          <li><strong className="text-white">Account</strong> — default landing page, communications (signature, ring &amp; voicemail settings), change password, delete account</li>
         </ul>
       </Section>
 
@@ -1600,6 +1600,12 @@ function SettingsTab() {
           <li><strong className="text-white">Hub</strong> — opens Hub Home (announcements and your rooms)</li>
           <li><strong className="text-white">Dashboard</strong> — opens the tool tile launcher</li>
         </ul>
+      </Section>
+
+      <Section title="Account — Delete Account">
+        <p>At the bottom of <strong className="text-white">Settings → Account</strong> there&apos;s a <strong className="text-red-400">Delete account</strong> option. It permanently deletes your Lynxedo account — your login and personal profile are removed, you&apos;re signed out, and you can&apos;t sign back in.</p>
+        <p>You&apos;ll be asked to confirm before anything happens. <strong className="text-white">This cannot be undone.</strong></p>
+        <Note>⚠️ Lynxedo is a team tool — deleting your account is the same as an admin removing you in Admin → People. If you just want to step away from a shared device, use <strong className="text-white">Sign out</strong> instead (Settings → Profile).</Note>
       </Section>
 
       <Section title="Notifications — Default notification level">

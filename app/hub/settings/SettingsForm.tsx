@@ -328,6 +328,7 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
   const [pwConfirm, setPwConfirm] = useState('')
   const [pwSave, setPwSave] = useState<SaveState>('idle')
   const [pwErr, setPwErr] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState(false)
   const changePassword = async () => {
     setPwErr(null)
     if (pwNew.length < 8) {
@@ -437,6 +438,40 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
       if (res.ok) setConnected(false)
       else toast.error('Disconnect failed — try again.')
     } finally { setDisconnecting(false) }
+  }
+
+  const handleDeleteAccount = async () => {
+    const ok = await confirmDialog({
+      title: 'Delete your account?',
+      message: (
+        <>
+          This permanently deletes your Lynxedo account. Your login and personal
+          profile are removed, you&apos;ll be signed out, and you won&apos;t be able
+          to sign back in. <strong className="text-white">This cannot be undone.</strong>
+        </>
+      ),
+      confirmText: 'Delete my account',
+      cancelText: 'Keep my account',
+      danger: true,
+    })
+    if (!ok) return
+    setDeleting(true)
+    try {
+      const res = await fetch('/api/account/delete', { method: 'POST' })
+      if (!res.ok) {
+        const j = await res.json().catch(() => ({}))
+        toast.error(j.error || 'Could not delete your account. Please try again.')
+        setDeleting(false)
+        return
+      }
+      // Account is gone — clear the local session and return to login.
+      const supabase = createClient()
+      await supabase.auth.signOut()
+      router.push('/login')
+    } catch {
+      toast.error('Could not delete your account. Please try again.')
+      setDeleting(false)
+    }
   }
 
   // ── UI helpers ────────────────────────────────────────────────────────────
@@ -979,6 +1014,23 @@ export default function SettingsForm({ email, userId, hubProfile, jobberConnecte
           {pwSave === 'saved' && <p className="text-green-400 text-sm">Password updated.</p>}
           {saveBtn('Update password', pwSave, changePassword, !pwNew || !pwConfirm)}
         </div>
+      </section>
+
+      {/* Delete account (danger zone) */}
+      <section className="bg-gray-900 border border-red-900/60 rounded-2xl p-6">
+        <h2 className="font-semibold text-lg mb-1 text-red-400">Delete account</h2>
+        <p className="text-gray-400 text-sm mb-5">
+          Permanently delete your Lynxedo account. This removes your login and personal
+          profile, signs you out, and <strong className="text-gray-300">cannot be undone</strong>.
+          You&apos;ll be asked to confirm first.
+        </p>
+        <button
+          onClick={handleDeleteAccount}
+          disabled={deleting}
+          className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+        >
+          {deleting ? 'Deleting…' : 'Delete my account'}
+        </button>
       </section>
       </>
       )}
