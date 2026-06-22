@@ -7011,39 +7011,84 @@ export type Database = {
       }
       txt_contacts: {
         Row: {
+          address_line1: string | null
+          address_line2: string | null
+          city: string | null
           company_id: string
+          company_name: string | null
+          country: string | null
           created_at: string
+          deleted_at: string | null
           do_not_text: boolean
           email: string | null
+          email_status: string
+          first_name: string | null
           id: string
+          is_company: boolean
           jobber_client_id: string | null
+          last_name: string | null
+          manually_edited: boolean
           name: string
           notes: string | null
           phone: string
+          phone_digits: string | null
+          postal_code: string | null
+          sources: string[]
+          state: string | null
           updated_at: string
         }
         Insert: {
+          address_line1?: string | null
+          address_line2?: string | null
+          city?: string | null
           company_id: string
+          company_name?: string | null
+          country?: string | null
           created_at?: string
+          deleted_at?: string | null
           do_not_text?: boolean
           email?: string | null
+          email_status?: string
+          first_name?: string | null
           id?: string
+          is_company?: boolean
           jobber_client_id?: string | null
+          last_name?: string | null
+          manually_edited?: boolean
           name: string
           notes?: string | null
           phone: string
+          phone_digits?: string | null
+          postal_code?: string | null
+          sources?: string[]
+          state?: string | null
           updated_at?: string
         }
         Update: {
+          address_line1?: string | null
+          address_line2?: string | null
+          city?: string | null
           company_id?: string
+          company_name?: string | null
+          country?: string | null
           created_at?: string
+          deleted_at?: string | null
           do_not_text?: boolean
           email?: string | null
+          email_status?: string
+          first_name?: string | null
           id?: string
+          is_company?: boolean
           jobber_client_id?: string | null
+          last_name?: string | null
+          manually_edited?: boolean
           name?: string
           notes?: string | null
           phone?: string
+          phone_digits?: string | null
+          postal_code?: string | null
+          sources?: string[]
+          state?: string | null
           updated_at?: string
         }
         Relationships: [
