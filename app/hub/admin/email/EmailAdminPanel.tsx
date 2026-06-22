@@ -1,7 +1,13 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef, useCallback } from 'react'
 import { useToast } from '@/components/ui'
+
+type ContactCounts = { total: number; subscribed: number; unsubscribed: number; bounced: number; suppressed: number; tags: number }
+type ImportRow = {
+  id: string; filename: string | null; source: string; list_type: string | null
+  total_rows: number; created_count: number; updated_count: number; suppressed_count: number; skipped_count: number; created_at: string
+}
 
 type Settings = {
   from_name: string | null
@@ -30,6 +36,52 @@ export default function EmailAdminPanel({ initialSettings }: { initialSettings: 
   const [domain, setDomain] = useState(initialSettings?.sending_domain ?? '')
   const [resendDomainId, setResendDomainId] = useState(initialSettings?.resend_domain_id ?? '')
   const [physical, setPhysical] = useState(initialSettings?.physical_address ?? '')
+
+  // Contacts & import
+  const [counts, setCounts] = useState<ContactCounts | null>(null)
+  const [imports, setImports] = useState<ImportRow[]>([])
+  const [syncing, setSyncing] = useState(false)
+  const [importing, setImporting] = useState(false)
+  const fileRef = useRef<HTMLInputElement>(null)
+
+  const loadSummary = useCallback(async () => {
+    try {
+      const res = await fetch('/api/admin/email/contacts-summary')
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) { setCounts(data.counts); setImports(data.imports ?? []) }
+    } catch { /* ignore */ }
+  }, [])
+
+  useEffect(() => { loadSummary() }, [loadSummary])
+
+  async function syncJobber() {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/admin/email/sync-jobber', { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(data.error || 'Sync failed.'); return }
+      toast.success(`Jobber sync: ${data.created} added, ${data.updated} matched, ${data.tags_added} tags.`)
+      loadSummary()
+    } catch { toast.error('Network error during sync.') } finally { setSyncing(false) }
+  }
+
+  async function uploadCsv(file: File) {
+    setImporting(true)
+    try {
+      const fd = new FormData()
+      fd.append('file', file)
+      const res = await fetch('/api/admin/email/import', { method: 'POST', body: fd })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(data.error || 'Import failed.'); return }
+      toast.success(
+        `Imported ${data.list_type}: ${data.created} new, ${data.updated} merged, ${data.suppressed} suppressed, ${data.skipped} skipped.`,
+      )
+      loadSummary()
+    } catch { toast.error('Network error during import.') } finally {
+      setImporting(false)
+      if (fileRef.current) fileRef.current.value = ''
+    }
+  }
 
   const verified = !!s?.domain_verified
 
@@ -145,6 +197,68 @@ export default function EmailAdminPanel({ initialSettings }: { initialSettings: 
               {refreshing ? 'Checking…' : 'Refresh domain status'}
             </button>
           </div>
+        </div>
+
+        {/* Contacts & import */}
+        <div className="rounded-xl border border-gray-800 bg-gray-900 p-4 space-y-4">
+          <div>
+            <h2 className="text-sm font-semibold text-gray-200">Contacts &amp; import</h2>
+            <p className="text-xs text-gray-500 mt-0.5">Your master audience. Jobber clients sync in automatically; import your Mailchimp export for the rest.</p>
+          </div>
+
+          {counts && (
+            <div className="grid grid-cols-3 sm:grid-cols-6 gap-2 text-center">
+              {[
+                { label: 'Total', value: counts.total },
+                { label: 'Subscribed', value: counts.subscribed },
+                { label: 'Unsubscribed', value: counts.unsubscribed },
+                { label: 'Bounced', value: counts.bounced },
+                { label: 'Suppressed', value: counts.suppressed },
+                { label: 'Tags', value: counts.tags },
+              ].map((c) => (
+                <div key={c.label} className="rounded-lg bg-gray-800/60 border border-gray-700 py-2">
+                  <div className="text-lg font-bold text-white">{c.value.toLocaleString()}</div>
+                  <div className="text-[10px] uppercase tracking-wide text-gray-500">{c.label}</div>
+                </div>
+              ))}
+            </div>
+          )}
+
+          <div className="flex flex-wrap items-center gap-2">
+            <button onClick={syncJobber} disabled={syncing} className="rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm hover:bg-gray-700 disabled:opacity-50">
+              {syncing ? 'Syncing…' : '↻ Sync from Jobber'}
+            </button>
+            <button onClick={() => fileRef.current?.click()} disabled={importing} className="rounded-lg bg-blue-600 px-3 py-2 text-sm font-medium hover:bg-blue-500 disabled:opacity-50">
+              {importing ? 'Importing…' : '⬆ Import Mailchimp CSV'}
+            </button>
+            <input
+              ref={fileRef}
+              type="file"
+              accept=".csv,text/csv"
+              className="hidden"
+              onChange={(e) => { const f = e.target.files?.[0]; if (f) uploadCsv(f) }}
+            />
+            <span className="text-xs text-gray-500">Upload each export file (subscribed / unsubscribed / cleaned) — type is auto-detected.</span>
+          </div>
+
+          {imports.length > 0 && (
+            <div>
+              <h3 className="text-xs font-semibold text-gray-400 mb-1">Recent imports</h3>
+              <div className="space-y-1">
+                {imports.map((im) => (
+                  <div key={im.id} className="text-xs text-gray-400 flex flex-wrap gap-x-3 gap-y-0.5 border-b border-gray-800/60 pb-1">
+                    <span className="text-gray-300">{im.filename || '(file)'}</span>
+                    {im.list_type && <span className="text-gray-500">[{im.list_type}]</span>}
+                    <span>{im.total_rows} rows</span>
+                    <span className="text-green-400">+{im.created_count} new</span>
+                    <span className="text-blue-400">{im.updated_count} merged</span>
+                    <span className="text-amber-400">{im.suppressed_count} suppressed</span>
+                    {im.skipped_count > 0 && <span className="text-gray-500">{im.skipped_count} skipped</span>}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
     </div>
