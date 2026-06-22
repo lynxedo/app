@@ -64,11 +64,11 @@ export default async function TxtBroadcastsPage() {
           const creator = Array.isArray(b.creator) ? b.creator[0] : b.creator
           const statusColor =
             b.status === 'complete'
-              ? 'text-emerald-300 bg-emerald-500/10'
+              ? 'text-[var(--t-tint-success)] bg-emerald-500/10'
               : b.status === 'processing'
-              ? 'text-amber-300 bg-amber-500/10'
+              ? 'text-[var(--t-tint-warning)] bg-amber-500/10'
               : b.status === 'failed'
-              ? 'text-red-300 bg-red-500/10'
+              ? 'text-[var(--t-tint-danger)] bg-red-500/10'
               : 'text-white/60 bg-white/10'
           return (
             <li key={b.id}>
@@ -90,9 +90,9 @@ export default async function TxtBroadcastsPage() {
                 </div>
                 <div className="text-[11px] text-white/50 mt-1.5 flex gap-3">
                   <span>{b.recipient_count} recipients</span>
-                  <span className="text-emerald-300">{b.sent_count} sent</span>
+                  <span className="text-[var(--t-tint-success)]">{b.sent_count} sent</span>
                   {b.failed_count > 0 && (
-                    <span className="text-red-300">{b.failed_count} failed</span>
+                    <span className="text-[var(--t-tint-danger)]">{b.failed_count} failed</span>
                   )}
                   {b.skipped_count > 0 && (
                     <span className="text-white/40">{b.skipped_count} skipped</span>

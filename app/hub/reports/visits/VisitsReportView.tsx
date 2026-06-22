@@ -196,7 +196,7 @@ export default function VisitsReportView() {
   const totalOneVal = rows.reduce((s, r) => s + r.oneOffValue,  0)
 
   return (
-    <div className="flex flex-col h-full bg-slate-950 text-white">
+    <div className="flex flex-col h-full bg-gray-950 text-white">
       {/* Header */}
       <div className="flex-none border-b border-white/10 px-4 py-3 max-md:pl-14">
         <h1 className="text-lg font-semibold">Visit Report</h1>
@@ -212,7 +212,7 @@ export default function VisitsReportView() {
               onClick={() => { setShowCustom(false); setSelected(r) }}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 selected.label === r.label && !showCustom
-                  ? 'bg-indigo-600 text-white'
+                  ? 'bg-indigo-600 text-[#fff]'
                   : 'bg-white/5 text-white/70 hover:bg-white/10'
               }`}
             >
@@ -222,7 +222,7 @@ export default function VisitsReportView() {
           <button
             onClick={() => setShowCustom(v => !v)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              showCustom ? 'bg-indigo-600 text-white' : 'bg-white/5 text-white/70 hover:bg-white/10'
+              showCustom ? 'bg-indigo-600 text-[#fff]' : 'bg-white/5 text-white/70 hover:bg-white/10'
             }`}
           >
             Custom
@@ -245,7 +245,7 @@ export default function VisitsReportView() {
               <button
                 onClick={applyCustom}
                 disabled={!custom.start || !custom.end}
-                className="px-3 py-1 rounded bg-indigo-600 text-white text-sm disabled:opacity-40"
+                className="px-3 py-1 rounded bg-indigo-600 text-[#fff] text-sm disabled:opacity-40"
               >
                 Apply
               </button>
@@ -263,7 +263,7 @@ export default function VisitsReportView() {
           <div className="flex items-center justify-center h-40 text-white/40">Loading…</div>
         )}
         {error && (
-          <div className="m-4 p-3 rounded bg-red-900/40 text-red-300 text-sm">{error}</div>
+          <div className="m-4 p-3 rounded bg-red-500/15 text-[var(--t-tint-danger)] text-sm">{error}</div>
         )}
         {!loading && !error && rows.length === 0 && (
           <div className="flex items-center justify-center h-40 text-white/40">No completed visits in this range.</div>
@@ -295,7 +295,7 @@ export default function VisitsReportView() {
                 <div className="hidden md:grid grid-cols-[1fr_80px_100px_120px_120px] bg-white/10 px-4 py-2.5 text-sm font-semibold border-b border-white/10">
                   <div className="text-white/70">All Technicians</div>
                   <div className="text-right">{totalVisits}</div>
-                  <div className="text-right text-emerald-400">{totalValue === 0 ? '—' : '$' + totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
+                  <div className="text-right text-[var(--t-tint-success)]">{totalValue === 0 ? '—' : '$' + totalValue.toLocaleString('en-US', { maximumFractionDigits: 0 })}</div>
                   <div className="text-right text-white/60">{totalRec} · {pct(totalRec, totalVisits)}</div>
                   <div className="text-right text-white/60">{totalOne} · {pct(totalOne, totalVisits)}</div>
                 </div>
@@ -317,7 +317,7 @@ export default function VisitsReportView() {
                         <div className="md:hidden px-4 py-3">
                           <div className="flex justify-between items-start">
                             <span className="font-medium">{tech.name}</span>
-                            <span className="text-emerald-400 font-medium">
+                            <span className="text-[var(--t-tint-success)] font-medium">
                               {tech.totalValue > 0 ? usd(tech.totalValue) : `${tech.totalVisits} visits`}
                             </span>
                           </div>
@@ -338,7 +338,7 @@ export default function VisitsReportView() {
                             <span className="font-medium">{tech.name}</span>
                           </div>
                           <div className="text-right">{tech.totalVisits}</div>
-                          <div className="text-right text-emerald-400">{tech.totalValue > 0 ? usd(tech.totalValue) : '—'}</div>
+                          <div className="text-right text-[var(--t-tint-success)]">{tech.totalValue > 0 ? usd(tech.totalValue) : '—'}</div>
                           <div className="text-right text-white/60">
                             {tech.recurringVisits}
                             {tech.recurringValue > 0 && (
@@ -391,11 +391,11 @@ export default function VisitsReportView() {
                                       {v.dept_prefix ? <DeptChip dept={v.dept_prefix} /> : <span className="text-white/20 text-xs">—</span>}
                                     </div>
                                     <div>
-                                      <span className={`text-xs font-medium ${v.is_recurring ? 'text-sky-400' : 'text-amber-400'}`}>
+                                      <span className={`text-xs font-medium ${v.is_recurring ? 'text-[var(--t-tint-info)]' : 'text-[var(--t-tint-warning)]'}`}>
                                         {v.is_recurring ? 'Recurring' : 'One-off'}
                                       </span>
                                     </div>
-                                    <div className="text-right text-emerald-400 text-sm">
+                                    <div className="text-right text-[var(--t-tint-success)] text-sm">
                                       {Number(v.total_value) > 0 ? usd(Number(v.total_value)) : <span className="text-white/20">—</span>}
                                     </div>
                                   </div>
@@ -408,7 +408,7 @@ export default function VisitsReportView() {
                                         <div className="text-white/50 text-xs truncate mt-0.5">{v.job_title ?? '—'}</div>
                                       </div>
                                       <div className="flex-none text-right">
-                                        <div className="text-emerald-400 text-sm">
+                                        <div className="text-[var(--t-tint-success)] text-sm">
                                           {Number(v.total_value) > 0 ? usd(Number(v.total_value)) : <span className="text-white/20">—</span>}
                                         </div>
                                         <div className="text-white/40 text-xs mt-0.5">{fmtDate(v.scheduled_date)}</div>
@@ -416,7 +416,7 @@ export default function VisitsReportView() {
                                     </div>
                                     <div className="flex items-center gap-2 mt-1">
                                       {v.dept_prefix && <DeptChip dept={v.dept_prefix} />}
-                                      <span className={`text-xs ${v.is_recurring ? 'text-sky-400' : 'text-amber-400'}`}>
+                                      <span className={`text-xs ${v.is_recurring ? 'text-[var(--t-tint-info)]' : 'text-[var(--t-tint-warning)]'}`}>
                                         {v.is_recurring ? 'Recurring' : 'One-off'}
                                       </span>
                                     </div>
@@ -448,16 +448,16 @@ function SummaryCard({ label, value, sub }: { label: string; value: string; sub?
     <div className="bg-white/5 rounded-xl p-4 border border-white/10">
       <div className="text-xs text-white/50 font-medium uppercase tracking-wider mb-1">{label}</div>
       <div className="text-xl font-semibold">{value}</div>
-      {sub && <div className="text-sm text-emerald-400 mt-0.5">{sub}</div>}
+      {sub && <div className="text-sm text-[var(--t-tint-success)] mt-0.5">{sub}</div>}
     </div>
   )
 }
 
 const DEPT_COLORS: Record<string, string> = {
-  IR: 'bg-blue-500/20 text-blue-300',
-  WF: 'bg-green-500/20 text-green-300',
-  PW: 'bg-purple-500/20 text-purple-300',
-  MO: 'bg-amber-500/20 text-amber-300',
+  IR: 'bg-blue-500/20 text-[var(--t-tint-blue)]',
+  WF: 'bg-green-500/20 text-[var(--t-tint-green)]',
+  PW: 'bg-purple-500/20 text-[var(--t-tint-purple)]',
+  MO: 'bg-amber-500/20 text-[var(--t-tint-warning)]',
 }
 
 function DeptChip({ dept }: { dept: string }) {

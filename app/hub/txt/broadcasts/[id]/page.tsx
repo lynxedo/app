@@ -91,13 +91,13 @@ export default async function TxtBroadcastDetailPage({
         </div>
         <div className="text-[11px] text-white/50 flex flex-wrap gap-3">
           <span>{b.recipient_count} recipients</span>
-          <span className="text-emerald-300">{b.sent_count} sent</span>
-          {b.failed_count > 0 && <span className="text-red-300">{b.failed_count} failed</span>}
+          <span className="text-[var(--t-tint-success)]">{b.sent_count} sent</span>
+          {b.failed_count > 0 && <span className="text-[var(--t-tint-danger)]">{b.failed_count} failed</span>}
           {b.skipped_count > 0 && <span className="text-white/40">{b.skipped_count} skipped</span>}
           {b.apply_signature && <span>· signature appended</span>}
         </div>
         {b.last_error && (
-          <div className="text-xs text-red-300">Last error: {b.last_error}</div>
+          <div className="text-xs text-[var(--t-tint-danger)]">Last error: {b.last_error}</div>
         )}
       </div>
 
@@ -124,9 +124,9 @@ export default async function TxtBroadcastDetailPage({
               const contact = Array.isArray(r.contact) ? r.contact[0] : r.contact
               const statusColor =
                 r.status === 'sent'
-                  ? 'text-emerald-300'
+                  ? 'text-[var(--t-tint-success)]'
                   : r.status === 'failed'
-                  ? 'text-red-300'
+                  ? 'text-[var(--t-tint-danger)]'
                   : r.status === 'skipped'
                   ? 'text-white/40'
                   : 'text-white/60'
@@ -151,7 +151,7 @@ export default async function TxtBroadcastDetailPage({
                     {r.conversation_id ? (
                       <Link
                         href={`/hub/txt/${r.conversation_id}`}
-                        className="text-[11px] text-emerald-300 hover:text-emerald-200"
+                        className="text-[11px] text-[var(--t-tint-success)] hover:text-[var(--t-tint-success)]"
                       >
                         Open
                       </Link>

@@ -216,7 +216,7 @@ function UnknownActivityPanel() {
       </div>
 
       {error && (
-        <div className="px-4 py-2 text-xs text-red-300 border-b border-red-400/15 bg-red-500/10">
+        <div className="px-4 py-2 text-xs text-[var(--t-tint-danger)] border-b border-red-400/15 bg-red-500/10">
           {error}
         </div>
       )}

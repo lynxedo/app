@@ -88,7 +88,7 @@ export default function TxtBroadcastComposer({ onClose }: { onClose: () => void 
               emptyHint="No contacts. Add one from the sidebar first."
             />
           </div>
-          {error && <div className="text-xs text-red-400">{error}</div>}
+          {error && <div className="text-xs text-[var(--t-tint-danger)]">{error}</div>}
         </div>
         <div className="px-4 py-3 border-t border-white/10 flex items-center justify-between gap-2">
           <span className="text-[11px] text-white/40">

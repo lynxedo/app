@@ -119,8 +119,8 @@ export default function TemplatePicker({
               <span
                 className={`text-[10px] px-1.5 py-0.5 rounded-full flex-none ${
                   t.scope === 'personal'
-                    ? 'bg-emerald-500/20 text-emerald-300'
-                    : 'bg-sky-500/20 text-sky-300'
+                    ? 'bg-emerald-500/20 text-[var(--t-tint-success)]'
+                    : 'bg-sky-500/20 text-[var(--t-tint-info)]'
                 }`}
               >
                 {t.scope === 'personal' ? 'Mine' : 'Org'}

@@ -71,7 +71,9 @@ body {
 }
 
 /* ─── Theme system ────────────────────────────────────────────────────────────
-   12 curated themes (6 dark, 6 light). The server stamps html.theme-{name} on
+   12 curated themes: 2 dark (Midnight default, Carbon), 2 light (Daylight,
+   Blossom), 2 hybrid (Eclipse, Pine), 6 liquid glass (Aurora, Nebula, Tide,
+   Obsidian, Ember Glass, Heroes Glass). The server stamps html.theme-{name} on
    first paint (same pattern as text-size-*). HubShell manages live class
    updates when the user switches themes in their profile sidebar.
 
@@ -132,58 +134,6 @@ html.theme-carbon {
   --t-accent-contrast: #ffffff;
 }
 
-/* ── Evergreen — dark green + emerald ──────────────────────────────────────── */
-html.theme-evergreen {
-  --t-rail:            #020804;
-  --t-well:            #040c07;
-  --t-panel-deep:      #060f0a;
-  --t-panel:           #08110b;
-  --t-sidebar:         #0a1410;
-  --t-sidebar-hover:   #122018;
-  --t-accent:          #2faa5f;
-  --t-accent-hover:    #279051;
-  --t-accent-contrast: #ffffff;
-}
-
-/* ── Slate — blue-gray + teal ──────────────────────────────────────────────── */
-html.theme-slate {
-  --t-rail:            #050a0e;
-  --t-well:            #070e14;
-  --t-panel-deep:      #090f18;
-  --t-panel:           #0b121b;
-  --t-sidebar:         #0e151d;
-  --t-sidebar-hover:   #16202c;
-  --t-accent:          #14b8c4;
-  --t-accent-hover:    #10a0ab;
-  --t-accent-contrast: #ffffff;
-}
-
-/* ── Ember — warm dark + rose ──────────────────────────────────────────────── */
-html.theme-ember {
-  --t-rail:            #060404;
-  --t-well:            #090606;
-  --t-panel-deep:      #0c0807;
-  --t-panel:           #0f0a08;
-  --t-sidebar:         #100c0a;
-  --t-sidebar-hover:   #1e1614;
-  --t-accent:          #e84d6b;
-  --t-accent-hover:    #d4435f;
-  --t-accent-contrast: #ffffff;
-}
-
-/* ── Mocha — warm dark + gold ──────────────────────────────────────────────── */
-html.theme-mocha {
-  --t-rail:            #060504;
-  --t-well:            #090705;
-  --t-panel-deep:      #0c0906;
-  --t-panel:           #0f0b08;
-  --t-sidebar:         #120e0a;
-  --t-sidebar-hover:   #1e1810;
-  --t-accent:          #d4a24e;
-  --t-accent-hover:    #c09040;
-  --t-accent-contrast: #ffffff;
-}
-
 /* ══ Light themes ════════════════════════════════════════════════════════════
    Gray scale is inverted (Tailwind's --color-gray-* custom properties) and
    --color-white is remapped so text-white / bg-gray-950 etc. flip to light
@@ -216,81 +166,6 @@ html.theme-daylight {
   --t-accent-contrast: #ffffff;
 }
 
-/* ── Linen — cream + amber ─────────────────────────────────────────────────── */
-html.theme-linen {
-  --color-gray-950:    #fdf9f5;
-  --color-gray-900:    #f7f0e6;
-  --color-gray-800:    #ede2d0;
-  --color-gray-700:    #dfd2be;
-  --color-gray-600:    #b09a80;
-  --color-gray-500:    #7d6a52;
-  --color-gray-400:    #5c4e3a;
-  --color-gray-300:    #3d3226;
-  --color-gray-200:    #261e14;
-  --color-gray-100:    #160e08;
-  --color-gray-50:     #090400;
-  --color-white:       #261e14;
-  --t-rail:            #d9ccba;
-  --t-well:            #e8dece;
-  --t-panel-deep:      #f0e8da;
-  --t-panel:           #f0e7d9;
-  --t-sidebar:         #f0e7d9;
-  --t-sidebar-hover:   #e4d8c4;
-  --t-accent:          #d97706;
-  --t-accent-hover:    #c06900;
-  --t-accent-contrast: #ffffff;
-}
-
-/* ── Sage — soft green ─────────────────────────────────────────────────────── */
-html.theme-sage {
-  --color-gray-950:    #f4f9f4;
-  --color-gray-900:    #eaf3ea;
-  --color-gray-800:    #d8e9d8;
-  --color-gray-700:    #c3d9c3;
-  --color-gray-600:    #8aab8a;
-  --color-gray-500:    #567856;
-  --color-gray-400:    #3b5a3b;
-  --color-gray-300:    #273d27;
-  --color-gray-200:    #162516;
-  --color-gray-100:    #0a120a;
-  --color-gray-50:     #030603;
-  --color-white:       #162516;
-  --t-rail:            #cddccd;
-  --t-well:            #dde9dd;
-  --t-panel-deep:      #e5ede5;
-  --t-panel:           #e9f1e9;
-  --t-sidebar:         #e9f1e9;
-  --t-sidebar-hover:   #d8e8d8;
-  --t-accent:          #16a34a;
-  --t-accent-hover:    #15803d;
-  --t-accent-contrast: #ffffff;
-}
-
-/* ── Arctic — crisp white + teal ───────────────────────────────────────────── */
-html.theme-arctic {
-  --color-gray-950:    #f4f9fa;
-  --color-gray-900:    #e8f3f5;
-  --color-gray-800:    #d4e8ea;
-  --color-gray-700:    #bcd9dd;
-  --color-gray-600:    #7aadb3;
-  --color-gray-500:    #3d7b82;
-  --color-gray-400:    #2a5c62;
-  --color-gray-300:    #1a3d42;
-  --color-gray-200:    #0e262a;
-  --color-gray-100:    #061417;
-  --color-gray-50:     #020809;
-  --color-white:       #0e262a;
-  --t-rail:            #c4d9dc;
-  --t-well:            #d5e5e7;
-  --t-panel-deep:      #deebec;
-  --t-panel:           #e8f1f2;
-  --t-sidebar:         #e8f1f2;
-  --t-sidebar-hover:   #d5e7e9;
-  --t-accent:          #0d9488;
-  --t-accent-hover:    #0b8076;
-  --t-accent-contrast: #ffffff;
-}
-
 /* ── Blossom — light + violet ──────────────────────────────────────────────── */
 html.theme-blossom {
   --color-gray-950:    #faf6fe;
@@ -314,79 +189,6 @@ html.theme-blossom {
   --t-accent:          #7c3aed;
   --t-accent-hover:    #6d28d9;
   --t-accent-contrast: #ffffff;
-}
-
-/* ── Graphite — neutral gray + steel blue ──────────────────────────────────── */
-html.theme-graphite {
-  --color-gray-950:    #f7f8f9;
-  --color-gray-900:    #eceef1;
-  --color-gray-800:    #dde0e5;
-  --color-gray-700:    #cdd1d8;
-  --color-gray-600:    #9aa0ad;
-  --color-gray-500:    #636b78;
-  --color-gray-400:    #464d59;
-  --color-gray-300:    #2c323d;
-  --color-gray-200:    #1a1f28;
-  --color-gray-100:    #0c0e13;
-  --color-gray-50:     #040508;
-  --color-white:       #1a1f28;
-  --t-rail:            #cdd1d8;
-  --t-well:            #d9dce2;
-  --t-panel-deep:      #e3e6ea;
-  --t-panel:           #eceef1;
-  --t-sidebar:         #eceef1;
-  --t-sidebar-hover:   #dde0e5;
-  --t-accent:          #3b6ea5;
-  --t-accent-hover:    #2f5a8c;
-  --t-accent-contrast: #ffffff;
-}
-
-/* ══ Heroes Lawn Care (brand: green #007848, blue #005894, gold #e6b252) ═══════
-   A HYBRID: dark Heroes-blue sidebar over a light workspace. The page uses the
-   light gray-scale remap (light work area, dark text); the sidebar then re-asserts
-   dark-mode text values within .t-sidebar-surface so its text stays light on the
-   dark blue. Green is the work-area accent (buttons/links); gold tints the sidebar
-   sub-headings. This is the first hybrid — pattern reused by Eclipse/Cobalt/Pine. */
-html.theme-heroes {
-  --color-gray-950:   #f4f8f6;
-  --color-gray-900:   #e8f1ec;
-  --color-gray-800:   #d7e6dd;
-  --color-gray-700:   #bdd0c6;
-  --color-gray-600:   #8aa99a;
-  --color-gray-500:   #5a7565;
-  --color-gray-400:   #3f5749;
-  --color-gray-300:   #2a3d33;
-  --color-gray-200:   #18261f;
-  --color-gray-100:   #0d1712;
-  --color-gray-50:    #040806;
-  --color-white:      #16261d;
-  --t-rail:           #003a63;
-  --t-well:           #004f82;
-  --t-panel-deep:     #edf4f0;
-  --t-panel:          #f4f8f6;
-  --t-sidebar:        #005894;
-  --t-sidebar-hover:  #0a6aa8;
-  --t-accent:         #007848;
-  --t-accent-hover:   #00633b;
-  --t-accent-contrast:#ffffff;
-  --t-heading:        #e6b252;
-  --t-heading-hover:  #f0c97a;
-}
-/* Re-assert dark-mode text values on the dark sidebar surface (un-remaps the
-   light gray scale just inside the sidebar). Reused by every dark-nav hybrid. */
-html.theme-heroes .t-sidebar-surface {
-  --color-white:    #ffffff;
-  --color-gray-950: #030712;
-  --color-gray-900: #111827;
-  --color-gray-800: #1f2937;
-  --color-gray-700: #374151;
-  --color-gray-600: #4b5563;
-  --color-gray-500: #6b7280;
-  --color-gray-400: #9ca3af;
-  --color-gray-300: #d1d5db;
-  --color-gray-200: #e5e7eb;
-  --color-gray-100: #f3f4f6;
-  --color-gray-50:  #f9fafb;
 }
 
 /* ══ Heroes Glass — liquid-glass take on the brand (FIRST GLASS THEME) ═════════
@@ -425,10 +227,10 @@ html.theme-heroesglass .t-sidebar-surface {
   backdrop-filter: blur(18px) saturate(140%);
 }
 
-/* ══ HYBRID · dark nav + light workspace (Eclipse / Cobalt / Pine) ════════════
+/* ══ HYBRID · dark nav + light workspace (Eclipse / Pine) ═════════════════════
    Same shape as Heroes: light gray-scale remap for the workspace, dark sidebar,
    and the .t-sidebar-surface scope re-asserts dark-mode text on the dark nav. */
-html.theme-eclipse, html.theme-cobalt, html.theme-pine {
+html.theme-eclipse, html.theme-pine {
   --color-gray-950: #f6f8fb; --color-gray-900: #eef2f7; --color-gray-800: #e2e8f0;
   --color-gray-700: #cbd5e1; --color-gray-600: #94a3b8; --color-gray-500: #64748b;
   --color-gray-400: #475569; --color-gray-300: #334155; --color-gray-200: #1e293b;
@@ -436,20 +238,9 @@ html.theme-eclipse, html.theme-cobalt, html.theme-pine {
   --t-panel-deep: #edf2f7; --t-panel: #f1f5f9;
 }
 html.theme-eclipse { --t-rail:#0e1626; --t-well:#13203a; --t-sidebar:#16233b; --t-sidebar-hover:#1f3052; --t-accent:#4f46e5; --t-accent-hover:#4338ca; --t-accent-contrast:#fff; --t-heading:#c7d2fe; --t-heading-hover:#e0e7ff; }
-html.theme-cobalt  { --t-rail:#042a52; --t-well:#053a72; --t-sidebar:#0a4f8c; --t-sidebar-hover:#0e5ea8; --t-accent:#1277e0; --t-accent-hover:#0b5cb8; --t-accent-contrast:#fff; --t-heading:#bae0ff; --t-heading-hover:#dcefff; }
 html.theme-pine    { --t-rail:#0a1410; --t-well:#102218; --t-sidebar:#14241c; --t-sidebar-hover:#1d3528; --t-accent:#16a34a; --t-accent-hover:#15803d; --t-accent-contrast:#fff; --t-heading:#bbf7d0; --t-heading-hover:#dcfce7; }
-html.theme-eclipse .t-sidebar-surface, html.theme-cobalt .t-sidebar-surface, html.theme-pine .t-sidebar-surface {
+html.theme-eclipse .t-sidebar-surface, html.theme-pine .t-sidebar-surface {
   --color-white:#fff; --color-gray-950:#030712; --color-gray-900:#111827; --color-gray-800:#1f2937; --color-gray-700:#374151; --color-gray-600:#4b5563; --color-gray-500:#6b7280; --color-gray-400:#9ca3af; --color-gray-300:#d1d5db; --color-gray-200:#e5e7eb; --color-gray-100:#f3f4f6; --color-gray-50:#f9fafb;
-}
-
-/* ══ HYBRID · light nav + dark workspace (Twilight / Daybreak / Sandstone) ═════
-   Workspace stays dark (default grays / white text); only the sidebar surfaces
-   go light, and their .t-sidebar-surface scope flips text dark on the light nav. */
-html.theme-twilight  { --t-rail:#e3e8f0; --t-well:#eef1f6; --t-sidebar:#eef1f6; --t-sidebar-hover:#dfe5ee; --t-panel-deep:#171b22; --t-panel:#1c2029; --t-accent:#f59e0b; --t-accent-hover:#d97706; --t-accent-contrast:#2a1a02; --t-heading:#b45309; --t-heading-hover:#92400e; }
-html.theme-daybreak  { --t-rail:#e6ebf1; --t-well:#f1f5f9; --t-sidebar:#f1f5f9; --t-sidebar-hover:#e2e8f0; --t-panel-deep:#171c26; --t-panel:#1d2532; --t-accent:#22d3ee; --t-accent-hover:#0891b2; --t-accent-contrast:#04252b; --t-heading:#0e7490; --t-heading-hover:#155e75; }
-html.theme-sandstone { --t-rail:#e6dccb; --t-well:#f0e7d9; --t-sidebar:#f0e7d9; --t-sidebar-hover:#e4d8c4; --t-panel-deep:#1f1814; --t-panel:#241d18; --t-accent:#ff5277; --t-accent-hover:#e83a60; --t-accent-contrast:#fff; --t-heading:#be123c; --t-heading-hover:#9f1239; }
-html.theme-twilight .t-sidebar-surface, html.theme-daybreak .t-sidebar-surface, html.theme-sandstone .t-sidebar-surface {
-  --color-white:#1e293b; --color-gray-950:#f6f8fb; --color-gray-900:#eef2f7; --color-gray-800:#e2e8f0; --color-gray-700:#cbd5e1; --color-gray-600:#94a3b8; --color-gray-500:#64748b; --color-gray-400:#475569; --color-gray-300:#334155; --color-gray-200:#1e293b; --color-gray-100:#0f172a; --color-gray-50:#020617;
 }
 
 /* ══ LIQUID GLASS · dark (Aurora / Nebula / Tide / Obsidian / Ember) ═══════════
@@ -470,35 +261,12 @@ html.theme-tide       .hub-root { background:linear-gradient(135deg,#0f3443 0%,#
 html.theme-obsidian   .hub-root { background:linear-gradient(135deg,#23272e 0%,#1a1d24 50%,#0f1115 100%); }
 html.theme-emberglass .hub-root { background:linear-gradient(135deg,#4a1d2a 0%,#5e2417 50%,#2d1410 100%); }
 
-/* ══ LIQUID GLASS · light (Frost / Sherbet / Seafoam / Sky / Honey) ═══════════
-   Translucent light frost panels + dark text over a pastel gradient. */
-html.theme-frost, html.theme-sherbet, html.theme-seafoam, html.theme-sky, html.theme-honey {
-  --color-gray-950: rgba(255,255,255,.42); --color-gray-900: rgba(255,255,255,.62); --color-gray-800: rgba(255,255,255,.78);
-  --color-gray-700:#cbd5e1; --color-gray-600:#94a3b8; --color-gray-500:#64748b; --color-gray-400:#475569; --color-gray-300:#334155; --color-gray-200:#1e293b; --color-gray-100:#0f172a; --color-gray-50:#020617; --color-white:#1e293b;
-  --t-rail: rgba(255,255,255,.42); --t-well: rgba(255,255,255,.5); --t-panel-deep: rgba(255,255,255,.55); --t-panel: rgba(255,255,255,.6); --t-sidebar: rgba(255,255,255,.5); --t-sidebar-hover: rgba(255,255,255,.66);
-}
-html.theme-frost   { --t-accent:#6d28d9; --t-accent-hover:#5b21b6; --t-accent-contrast:#fff; --t-heading:#6d28d9; --t-heading-hover:#5b21b6; }
-html.theme-sherbet { --t-accent:#e8536f; --t-accent-hover:#d63d5b; --t-accent-contrast:#fff; --t-heading:#be123c; --t-heading-hover:#9f1239; }
-html.theme-seafoam { --t-accent:#0d9488; --t-accent-hover:#0b7d73; --t-accent-contrast:#fff; --t-heading:#0d9488; --t-heading-hover:#0b7d73; }
-html.theme-sky     { --t-accent:#2563eb; --t-accent-hover:#1d4ed8; --t-accent-contrast:#fff; --t-heading:#2563eb; --t-heading-hover:#1d4ed8; }
-html.theme-honey   { --t-accent:#d97706; --t-accent-hover:#b45309; --t-accent-contrast:#fff; --t-heading:#b45309; --t-heading-hover:#92400e; }
-html.theme-frost   .hub-root { background:linear-gradient(135deg,#dbe4ff 0%,#ecdcff 50%,#d6f0fb 100%); }
-html.theme-sherbet .hub-root { background:linear-gradient(135deg,#ffe4e6 0%,#ffe9d6 50%,#ffe0f0 100%); }
-html.theme-seafoam .hub-root { background:linear-gradient(135deg,#d8f3e8 0%,#d6f0fb 50%,#e4f7ec 100%); }
-html.theme-sky     .hub-root { background:linear-gradient(135deg,#dbeeff 0%,#e0e7ff 50%,#d6f0fb 100%); }
-html.theme-honey   .hub-root { background:linear-gradient(135deg,#fff4d6 0%,#fdebc8 50%,#fff0e0 100%); }
-
 /* Backdrop-blur for every glass theme (chrome + main content area). */
 html.theme-aurora .hub-main, html.theme-aurora .t-sidebar-surface,
 html.theme-nebula .hub-main, html.theme-nebula .t-sidebar-surface,
 html.theme-tide .hub-main, html.theme-tide .t-sidebar-surface,
 html.theme-obsidian .hub-main, html.theme-obsidian .t-sidebar-surface,
-html.theme-emberglass .hub-main, html.theme-emberglass .t-sidebar-surface,
-html.theme-frost .hub-main, html.theme-frost .t-sidebar-surface,
-html.theme-sherbet .hub-main, html.theme-sherbet .t-sidebar-surface,
-html.theme-seafoam .hub-main, html.theme-seafoam .t-sidebar-surface,
-html.theme-sky .hub-main, html.theme-sky .t-sidebar-surface,
-html.theme-honey .hub-main, html.theme-honey .t-sidebar-surface {
+html.theme-emberglass .hub-main, html.theme-emberglass .t-sidebar-surface {
   -webkit-backdrop-filter: blur(18px) saturate(140%);
   backdrop-filter: blur(18px) saturate(140%);
 }
@@ -507,20 +275,47 @@ html.theme-honey .hub-main, html.theme-honey .t-sidebar-surface {
    heading from :root, each tints its sidebar sub-headings with a light shade of
    its own accent — distinct per theme, still readable on dark (note #1). */
 html.theme-carbon    { --t-heading: #c4b5fd; --t-heading-hover: #ddd6fe; }
-html.theme-evergreen { --t-heading: #86efac; --t-heading-hover: #bbf7d0; }
-html.theme-slate     { --t-heading: #a5f3fc; --t-heading-hover: #cffafe; }
-html.theme-ember     { --t-heading: #fda4af; --t-heading-hover: #fecdd3; }
-html.theme-mocha     { --t-heading: #f3d29a; --t-heading-hover: #f9e3bf; }
 
 /* Light themes: the gold section-heading color from :root is too pale on light
    backgrounds, so each light theme tints its sidebar sub-headings with its own
    accent instead (readable + theme-coordinated). Shout-out ticker text also
    flips to a dark amber so it's not invisible on light backgrounds (note #2). */
-html.theme-daylight, html.theme-linen, html.theme-sage,
-html.theme-arctic, html.theme-blossom, html.theme-graphite {
+html.theme-daylight, html.theme-blossom {
   --t-heading:         var(--t-accent);
   --t-heading-hover:   var(--t-accent-hover);
   --t-shout-text:      #92400e;
+}
+
+/* Tinted status text (Txt2 call/voicemail markers, AI / Guardian chips,
+   sentiment pills, transcript toggles). Pale by default so it reads on the dark
+   surfaces of every dark + glass theme; light themes AND the light workspaces of
+   the dark-nav hybrids (Eclipse / Pine) flip it to a darker shade so it stays
+   legible — fixes the "Catch me up" button + missed-call bubbles being nearly
+   invisible on light backgrounds (Ben, Jun 22). The Tailwind -100/-200/-300
+   color scales aren't part of the gray/white remap, so these need their own
+   per-surface variable. */
+:root {
+  --t-tint-danger:  #fca5a5;
+  --t-tint-info:    #7dd3fc;
+  --t-tint-success: #6ee7b7;
+  --t-tint-purple:  #d8b4fe;
+  --t-tint-warning: #fcd34d;
+  --t-tint-link:    #a5b4fc;
+  --t-tint-blue:    #93c5fd;
+  --t-tint-green:   #86efac;
+  --t-tint-orange:  #fdba74;
+}
+html.theme-daylight, html.theme-blossom,
+html.theme-eclipse, html.theme-pine {
+  --t-tint-danger:  #b91c1c;
+  --t-tint-info:    #0369a1;
+  --t-tint-success: #047857;
+  --t-tint-purple:  #7e22ce;
+  --t-tint-warning: #b45309;
+  --t-tint-link:    #4338ca;
+  --t-tint-blue:    #1d4ed8;
+  --t-tint-green:   #15803d;
+  --t-tint-orange:  #c2410c;
 }
 
 /* S/M/L text size — applied to <html> from server (hub_text_size).
