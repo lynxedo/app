@@ -140,7 +140,7 @@ export default function ContactsPanel({
   }, [contacts.length, anyFilter])
 
   return (
-    <div className="h-full flex flex-col bg-[#0A1F35] text-white min-h-0">
+    <div className="h-full flex flex-col bg-[var(--t-panel-deep)] text-white min-h-0">
       <div className="flex-none px-4 py-3 border-b border-white/5 flex items-center justify-between gap-3 max-md:pl-14">
         <h1 className="text-lg font-semibold">Contacts</h1>
         <button

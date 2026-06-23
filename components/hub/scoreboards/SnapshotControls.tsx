@@ -41,16 +41,16 @@ export default function SnapshotControls({
         viewing ? 'border-amber-400/30 bg-amber-500/10' : 'border-sky-400/10 bg-[var(--t-panel)]/40'
       }`}
     >
-      <span className={`font-medium ${viewing ? 'text-amber-300' : 'text-slate-400'}`}>
+      <span className={`font-medium ${viewing ? 'text-amber-300' : 'text-gray-400'}`}>
         {viewing ? `📸 Snapshot — ${fmt(viewing)}` : '📍 Live (current)'}
       </span>
 
-      <label className="flex items-center gap-1.5 text-slate-500">
+      <label className="flex items-center gap-1.5 text-gray-500">
         <span className="hidden sm:inline">View:</span>
         <select
           value={value ?? ''}
           onChange={e => onChange(e.target.value || null)}
-          className="rounded-md border border-sky-400/20 bg-[var(--t-well)] px-2 py-1 text-slate-200 focus:border-sky-400/50 focus:outline-none"
+          className="rounded-md border border-sky-400/20 bg-[var(--t-well)] px-2 py-1 text-gray-200 focus:border-sky-400/50 focus:outline-none"
         >
           <option value="">Live (current)</option>
           {snaps.map(s => (

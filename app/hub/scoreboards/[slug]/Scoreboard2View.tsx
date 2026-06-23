@@ -89,17 +89,17 @@ function Card({ children, className = '' }: { children: ReactNode; className?: s
   )
 }
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <div className="mt-8 mb-3.5 text-[11px] font-semibold uppercase tracking-[1.2px] text-slate-500 first:mt-0">{children}</div>
+  return <div className="mt-8 mb-3.5 text-[11px] font-semibold uppercase tracking-[1.2px] text-gray-500 first:mt-0">{children}</div>
 }
 function ChartHead({ title, sub }: { title: string; sub: string }) {
-  return (<><div className="text-[13px] font-semibold text-sky-200">{title}</div><div className="mb-3.5 text-[11px] text-slate-500">{sub}</div></>)
+  return (<><div className="text-[13px] font-semibold text-sky-200">{title}</div><div className="mb-3.5 text-[11px] text-gray-500">{sub}</div></>)
 }
 function DeptLegends({ depts }: { depts: string[] }) {
   return (
     <div className="mt-2.5 flex flex-wrap gap-2.5">
       {depts.map(d => {
         const c = DEPT_COLORS[d] ?? DEPT_COLORS.Other
-        return <span key={d} className="flex items-center gap-1.5 text-[11px] text-slate-400"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: c.border }} />{c.label}</span>
+        return <span key={d} className="flex items-center gap-1.5 text-[11px] text-gray-400"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: c.border }} />{c.label}</span>
       })}
     </div>
   )
@@ -112,7 +112,7 @@ function Kpi({ label, value, sub, badge, badgeColor = 'sky' }: { label: string; 
     <Card>
       <div className="text-[11px] font-medium text-emerald-300">{label}</div>
       <div className="mt-1.5 text-[26px] font-bold leading-none tracking-tight text-sky-50">{value}</div>
-      {sub && <div className="mt-1.5 text-[11px] text-slate-500">{sub}</div>}
+      {sub && <div className="mt-1.5 text-[11px] text-gray-500">{sub}</div>}
       {badge && <span className={`mt-1.5 inline-block rounded-full px-2 py-0.5 text-[11px] font-semibold ${badgeCls}`}>{badge}</span>}
     </Card>
   )
@@ -175,7 +175,7 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
       <Card>
         <ChartHead title="Lawn Health Program Mix" sub={`${mixTotal} active WF base programs`} />
         {data.programMix.length === 0
-          ? <div className="flex h-[220px] items-center justify-center text-sm text-slate-500">No active WF programs</div>
+          ? <div className="flex h-[220px] items-center justify-center text-sm text-gray-500">No active WF programs</div>
           : <div className="flex flex-col items-center gap-6 sm:flex-row">
               <div className="w-[220px] flex-shrink-0">
                 <ChartCanvas make={c => new Chart(c, {
@@ -190,8 +190,8 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
               <div className="flex-1 space-y-2.5 self-stretch">
                 {data.programMix.map(p => (
                   <div key={p.label} className="flex items-center justify-between rounded-lg border border-white/5 bg-white/[0.03] px-3.5 py-2.5">
-                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: TIER_COLORS[p.label] ?? TIER_COLORS.Other }} /><span className="text-[13px] text-slate-300">{p.label}</span></div>
-                    <div className="text-right"><span className="text-lg font-bold" style={{ color: TIER_COLORS[p.label] ?? TIER_COLORS.Other }}>{p.n}</span><span className="ml-2 text-[11px] text-slate-500">{mixTotal ? Math.round(p.n / mixTotal * 100) : 0}%</span></div>
+                    <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: TIER_COLORS[p.label] ?? TIER_COLORS.Other }} /><span className="text-[13px] text-gray-300">{p.label}</span></div>
+                    <div className="text-right"><span className="text-lg font-bold" style={{ color: TIER_COLORS[p.label] ?? TIER_COLORS.Other }}>{p.n}</span><span className="ml-2 text-[11px] text-gray-500">{mixTotal ? Math.round(p.n / mixTotal * 100) : 0}%</span></div>
                   </div>
                 ))}
               </div>
@@ -201,7 +201,7 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
       {/* Technicians */}
       <SectionTitle>Technicians</SectionTitle>
       {data.techs.length === 0
-        ? <Card><div className="py-8 text-center text-sm text-slate-500">No WF technicians found. (Tag a teammate&apos;s job title with “WF” to track them here.)</div></Card>
+        ? <Card><div className="py-8 text-center text-sm text-gray-500">No WF technicians found. (Tag a teammate&apos;s job title with “WF” to track them here.)</div></Card>
         : data.techs.map(tech => (
             <div key={tech.name} className="mb-5">
               <div className="mb-3 flex items-center gap-2.5">
@@ -213,7 +213,7 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
                 <Card>
                   <ChartHead title="Weekly Revenue" sub="Trailing 6 weeks · all departments" />
                   {tech.depts.length === 0
-                    ? <div className="flex h-[220px] items-center justify-center text-sm text-slate-500">No completed visits</div>
+                    ? <div className="flex h-[220px] items-center justify-center text-sm text-gray-500">No completed visits</div>
                     : <><ChartCanvas make={c => new Chart(c, {
                         type: 'bar',
                         data: { labels: tech.weekly.labels, datasets: deptDatasets(tech.weekly.data, tech.depts) },
@@ -230,8 +230,8 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
                   <ChartHead title="Revenue per Hour" sub={`Last week · ${tech.perHour.weekLabel}`} />
                   <div className="flex h-[220px] flex-col items-center justify-center">
                     <div><span className="text-[52px] font-extrabold leading-none tracking-tight text-emerald-400">{usd(tech.perHour.rate)}</span><span className="text-xl font-bold text-emerald-400">/hr</span></div>
-                    <div className="mt-3 text-center text-xs text-slate-500">{usd(tech.perHour.revenue)} revenue ÷ {tech.perHour.hours} hrs</div>
-                    {tech.perHour.hours === 0 && <div className="mt-2 text-center text-[11px] text-slate-600">No hours logged last week</div>}
+                    <div className="mt-3 text-center text-xs text-gray-500">{usd(tech.perHour.revenue)} revenue ÷ {tech.perHour.hours} hrs</div>
+                    {tech.perHour.hours === 0 && <div className="mt-2 text-center text-[11px] text-gray-600">No hours logged last week</div>}
                   </div>
                 </Card>
                 {/* Sales $ per week */}
@@ -251,7 +251,7 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
             </div>
           ))}
 
-      <div className="mt-5 text-right text-[11px] text-slate-600">
+      <div className="mt-5 text-right text-[11px] text-gray-600">
         {meta.title} · Synced from Jobber + Recurring Services + Lead Tracker + Timesheets · updated {new Date(data.asOf).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
       </div>
     </div>
@@ -263,7 +263,7 @@ export default function Scoreboard2View({ meta }: { meta: ScoreboardMeta }) {
   const { data, error, reload } = useScoreboardData<Payload>(meta.slug, snapshotId)
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto bg-[var(--t-well)] text-slate-200">
+    <div className="flex-1 min-h-0 overflow-y-auto bg-[var(--t-well)] text-gray-200">
       <header className="flex items-center gap-3.5 border-b border-emerald-400/15 bg-gradient-to-br from-[var(--t-panel)] to-[var(--t-sidebar)] px-5 py-4 max-md:pl-14">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-emerald-500 to-emerald-400 text-lg">🌱</div>
         <div>
@@ -280,7 +280,7 @@ export default function Scoreboard2View({ meta }: { meta: ScoreboardMeta }) {
       {error
         ? <ScoreboardError error={error} onRetry={reload} />
         : !data
-          ? <div className="px-6 py-16 text-center text-sm text-slate-500">Loading scoreboard…</div>
+          ? <div className="px-6 py-16 text-center text-sm text-gray-500">Loading scoreboard…</div>
           : <Dashboard data={data} meta={meta} />}
     </div>
   )
