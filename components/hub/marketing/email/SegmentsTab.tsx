@@ -1,35 +1,51 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { Modal, Button, EmptyState, useToast, useConfirm } from '@/components/ui'
 
 type Tag = { id: string; label: string; color: string | null }
-type Filter = { has_tag?: string[]; missing_tag?: string[] }
+type Filter = {
+  has_tag?: string[]
+  missing_tag?: string[]
+  has_line_item?: string[]
+  missing_line_item?: string[]
+}
 type Segment = { id: string; name: string; filter: Filter; updated_at: string }
 type SampleRow = { id: string; name: string; email: string }
+type DeptOption = { value: string; label: string; uses: number }
+type NameOption = { value: string; uses: number }
+type LineItemOptions = { depts: DeptOption[]; names: NameOption[] }
 
 const BASE = '/api/hub/marketing/email/segments'
+
+// Tokens: "dept:WF" | "name:<exact line item name>".
+const deptToken = (v: string) => `dept:${v}`
+const nameToken = (v: string) => `name:${v}`
 
 export default function SegmentsTab() {
   const toast = useToast()
   const confirm = useConfirm()
   const [segments, setSegments] = useState<Segment[]>([])
   const [tags, setTags] = useState<Tag[]>([])
+  const [lineItems, setLineItems] = useState<LineItemOptions>({ depts: [], names: [] })
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Segment | 'new' | null>(null)
 
   async function load() {
     setLoading(true)
     try {
-      const [segRes, tagRes] = await Promise.all([
+      const [segRes, tagRes, liRes] = await Promise.all([
         fetch(BASE),
         fetch('/api/hub/marketing/email/tags'),
+        fetch('/api/hub/marketing/email/line-items'),
       ])
       const segData = await segRes.json().catch(() => ({}))
       const tagData = await tagRes.json().catch(() => ({}))
+      const liData = await liRes.json().catch(() => ({}))
       if (segRes.ok) setSegments(segData.segments || [])
       else toast.error(segData.error || 'Could not load segments.')
       if (tagRes.ok) setTags(tagData.tags || [])
+      if (liRes.ok) setLineItems({ depts: liData.depts || [], names: liData.names || [] })
     } finally {
       setLoading(false)
     }
@@ -37,14 +53,26 @@ export default function SegmentsTab() {
   useEffect(() => { load() }, []) // eslint-disable-line react-hooks/exhaustive-deps
 
   const tagLabel = (id: string) => tags.find((t) => t.id === id)?.label || '(deleted tag)'
+  const tokenLabel = (token: string) => {
+    if (token.startsWith('dept:')) {
+      const v = token.slice(5)
+      return lineItems.depts.find((d) => d.value === v)?.label || v
+    }
+    if (token.startsWith('name:')) return token.slice(5)
+    return token
+  }
 
   function describe(f: Filter): string {
+    const parts: string[] = []
     const has = (f.has_tag || []).map(tagLabel)
     const missing = (f.missing_tag || []).map(tagLabel)
-    if (!has.length && !missing.length) return 'Everyone (all subscribed contacts)'
-    const parts: string[] = []
+    const hasLi = (f.has_line_item || []).map(tokenLabel)
+    const missLi = (f.missing_line_item || []).map(tokenLabel)
     if (has.length) parts.push(`has ${has.join(' + ')}`)
+    if (hasLi.length) parts.push(`buys ${hasLi.join(' + ')}`)
     if (missing.length) parts.push(`not ${missing.join(', ')}`)
+    if (missLi.length) parts.push(`no ${missLi.join(', ')}`)
+    if (!parts.length) return 'Everyone (all subscribed contacts)'
     return parts.join(', ')
   }
 
@@ -87,6 +115,7 @@ export default function SegmentsTab() {
         <SegmentEditor
           segment={editing === 'new' ? null : editing}
           tags={tags}
+          lineItems={lineItems}
           onClose={() => setEditing(null)}
           onSaved={(saved) => {
             setSegments((prev) => {
@@ -103,12 +132,14 @@ export default function SegmentsTab() {
 }
 
 function SegmentEditor({
-  segment, tags, onClose, onSaved,
-}: { segment: Segment | null; tags: Tag[]; onClose: () => void; onSaved: (s: Segment) => void }) {
+  segment, tags, lineItems, onClose, onSaved,
+}: { segment: Segment | null; tags: Tag[]; lineItems: LineItemOptions; onClose: () => void; onSaved: (s: Segment) => void }) {
   const toast = useToast()
   const [name, setName] = useState(segment?.name || '')
   const [hasTags, setHasTags] = useState<string[]>(segment?.filter?.has_tag || [])
   const [missingTags, setMissingTags] = useState<string[]>(segment?.filter?.missing_tag || [])
+  const [hasLi, setHasLi] = useState<string[]>(segment?.filter?.has_line_item || [])
+  const [missingLi, setMissingLi] = useState<string[]>(segment?.filter?.missing_line_item || [])
   const [saving, setSaving] = useState(false)
   const [preview, setPreview] = useState<{ count: number; sample: SampleRow[] } | null>(null)
   const [previewing, setPreviewing] = useState(false)
@@ -117,6 +148,8 @@ function SegmentEditor({
   const filter: Filter = {}
   if (hasTags.length) filter.has_tag = hasTags
   if (missingTags.length) filter.missing_tag = missingTags
+  if (hasLi.length) filter.has_line_item = hasLi
+  if (missingLi.length) filter.missing_line_item = missingLi
 
   // Live recipient count, debounced as the filter changes.
   useEffect(() => {
@@ -135,7 +168,7 @@ function SegmentEditor({
       }
     }, 400)
     return () => { if (debounce.current) clearTimeout(debounce.current) }
-  }, [hasTags, missingTags]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hasTags, missingTags, hasLi, missingLi]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggle(list: string[], setList: (v: string[]) => void, id: string) {
     setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
@@ -158,7 +191,8 @@ function SegmentEditor({
     }
   }
 
-  const isEveryone = !hasTags.length && !missingTags.length
+  const hasAnyFilter = !!(hasTags.length || missingTags.length || hasLi.length || missingLi.length)
+  const hasLineItemOptions = lineItems.depts.length > 0 || lineItems.names.length > 0
 
   return (
     <Modal
@@ -188,10 +222,10 @@ function SegmentEditor({
           />
         </div>
 
+        {/* Tags */}
         {tags.length === 0 ? (
           <p className="text-sm text-gray-500 rounded-lg border border-gray-800 bg-gray-900 p-3">
-            No tags exist yet. This segment targets <strong className="text-gray-300">everyone subscribed</strong>. Tag filters
-            light up automatically once Jobber/Mailchimp tags are synced.
+            No tags exist yet. Tag filters light up automatically once Jobber/Mailchimp tags are synced.
           </p>
         ) : (
           <>
@@ -200,12 +234,24 @@ function SegmentEditor({
           </>
         )}
 
+        {/* Line items (Jobber services — job line items only) */}
+        {hasLineItemOptions && (
+          <div className="pt-1 border-t border-gray-800 space-y-3">
+            <p className="text-xs text-gray-500 pt-2">Filter by the Jobber <strong className="text-gray-400">services</strong> a customer&apos;s account has purchased (from their jobs). Pick a whole department or a specific line item.</p>
+            <LineItemPicker label="Account must have these services" emptyHint="Any service" accent="green" options={lineItems} selected={hasLi} onToggle={(tok) => toggle(hasLi, setHasLi, tok)} />
+            <LineItemPicker label="Account must NOT have these services" emptyHint="No exclusions" accent="red" options={lineItems} selected={missingLi} onToggle={(tok) => toggle(missingLi, setMissingLi, tok)} />
+          </div>
+        )}
+
         <div className="rounded-lg border border-gray-800 bg-gray-900 p-3 text-sm">
           <span className="text-gray-400">This segment targets </span>
           <span className="text-gray-200">
-            {isEveryone ? 'everyone subscribed' : 'subscribed contacts who match the tag rules above'}
+            {hasAnyFilter ? 'subscribed contacts who match the rules above' : 'everyone subscribed'}
           </span>
           <span className="text-gray-400">, excluding anyone unsubscribed or suppressed.</span>
+          {(hasLi.length > 0 || missingLi.length > 0) && (
+            <span className="text-gray-500"> Service rules only apply to contacts linked to a Jobber account.</span>
+          )}
           {preview && preview.sample.length > 0 && (
             <div className="mt-2 text-xs text-gray-500">
               e.g. {preview.sample.map((r) => r.name || r.email).slice(0, 3).join(', ')}
@@ -241,6 +287,87 @@ function TagPicker({
           )
         })}
       </div>
+    </div>
+  )
+}
+
+function LineItemPicker({
+  label, emptyHint, accent, options, selected, onToggle,
+}: {
+  label: string; emptyHint: string; accent: 'green' | 'red'
+  options: LineItemOptions; selected: string[]; onToggle: (token: string) => void
+}) {
+  const [query, setQuery] = useState('')
+  const onCls = accent === 'green'
+    ? 'bg-green-500/15 border-green-500/40 text-green-300'
+    : 'bg-red-500/15 border-red-500/40 text-red-300'
+
+  const matchingNames = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    const list = q ? options.names.filter((n) => n.value.toLowerCase().includes(q)) : options.names
+    return list.slice(0, 40)
+  }, [query, options.names])
+
+  // Selected name tokens not currently shown in the filtered list — keep them
+  // visible/removable as chips regardless of the search query.
+  const selectedNameChips = selected
+    .filter((t) => t.startsWith('name:'))
+    .filter((t) => !matchingNames.some((n) => nameToken(n.value) === t))
+
+  return (
+    <div>
+      <label className="block text-xs text-gray-400 mb-1.5">{label} <span className="text-gray-600">· {selected.length ? `${selected.length} selected` : emptyHint}</span></label>
+
+      {/* Departments — quick whole-program chips */}
+      {options.depts.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {options.depts.map((d) => {
+            const tok = deptToken(d.value)
+            const on = selected.includes(tok)
+            return (
+              <button
+                key={tok} onClick={() => onToggle(tok)} title={`All ${d.label} services`}
+                className={'text-xs rounded-full border px-2.5 py-1 ' + (on ? onCls : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200')}
+              >{d.label} <span className="opacity-60">(all)</span></button>
+            )
+          })}
+        </div>
+      )}
+
+      {/* Selected specific names that are filtered out — keep removable */}
+      {selectedNameChips.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mb-2">
+          {selectedNameChips.map((tok) => (
+            <button key={tok} onClick={() => onToggle(tok)} className={'text-xs rounded-full border px-2.5 py-1 ' + onCls}>
+              {tok.slice(5)} ✕
+            </button>
+          ))}
+        </div>
+      )}
+
+      {/* Specific line items — searchable */}
+      {options.names.length > 0 && (
+        <>
+          <input
+            value={query} onChange={(e) => setQuery(e.target.value)}
+            placeholder="Search a specific line item…"
+            className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-1.5 text-sm text-white mb-1.5"
+          />
+          <div className="flex flex-wrap gap-1.5 max-h-40 overflow-auto">
+            {matchingNames.map((n) => {
+              const tok = nameToken(n.value)
+              const on = selected.includes(tok)
+              return (
+                <button
+                  key={tok} onClick={() => onToggle(tok)} title={`${n.uses} job line item${n.uses === 1 ? '' : 's'}`}
+                  className={'text-xs rounded-full border px-2.5 py-1 text-left ' + (on ? onCls : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200')}
+                >{n.value}</button>
+              )
+            })}
+            {matchingNames.length === 0 && <span className="text-xs text-gray-600 py-1">No line items match “{query}”.</span>}
+          </div>
+        </>
+      )}
     </div>
   )
 }
