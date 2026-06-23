@@ -1,8 +1,55 @@
 // Campaign send helpers: CAN-SPAM compliance footer + RFC-8058 one-click
-// List-Unsubscribe headers. Shared by the campaign process cron (and reusable by
-// the future automation engine in Sessions 6–7). Dependency-free; the unsubscribe
-// token is the signed HMAC from lib/email-unsubscribe.
+// List-Unsubscribe headers, and the one shared "render merge + footer + send"
+// path used by BOTH the campaign drainer and the automation engine — so the
+// compliance wrapping can never drift between the two. The unsubscribe token is
+// the signed HMAC from lib/email-unsubscribe.
 import { signUnsubToken } from '@/lib/email-unsubscribe'
+import { sendEmail, formatFrom, type ResendSendResult } from '@/lib/resend'
+import { renderMergeFields } from '@/lib/email-markdown'
+
+export type EmailSendIdentity = {
+  from_name: string | null
+  from_email: string
+  reply_to: string | null
+  physical_address: string | null
+}
+
+/**
+ * Render a snapshot subject/HTML for one recipient (fill {{merge}} + append the
+ * CAN-SPAM footer with a campaign-attributed unsubscribe link) and send it via
+ * Resend with one-click List-Unsubscribe headers. Used by campaigns
+ * (tagValue 'campaign') and automation steps ('automation').
+ */
+export async function renderAndSendEmail(opts: {
+  identity: EmailSendIdentity
+  baseUrl: string
+  companyId: string
+  email: string
+  firstName: string | null
+  lastName: string | null
+  subject: string
+  bodyHtml: string
+  unsubCampaignId?: string | null
+  tagValue: 'campaign' | 'automation'
+}): Promise<ResendSendResult> {
+  const merge = { first_name: opts.firstName, last_name: opts.lastName, email: opts.email }
+  const subject = renderMergeFields(opts.subject || '', merge)
+  const unsub = unsubscribeUrls(opts.baseUrl, opts.companyId, opts.email, opts.unsubCampaignId)
+  const html = appendComplianceFooter(renderMergeFields(opts.bodyHtml || '', merge), {
+    brand: opts.identity.from_name || '',
+    physicalAddress: opts.identity.physical_address,
+    unsubscribeLink: unsub.link,
+  })
+  return sendEmail({
+    from: formatFrom(opts.identity.from_name, opts.identity.from_email),
+    to: opts.email,
+    replyTo: opts.identity.reply_to || undefined,
+    subject,
+    html,
+    headers: listUnsubscribeHeaders(unsub.oneClick),
+    tags: [{ name: 'type', value: opts.tagValue }],
+  })
+}
 
 function esc(s: string): string {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')

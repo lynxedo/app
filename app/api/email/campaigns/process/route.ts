@@ -1,8 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendEmail, formatFrom, resendConfigured } from '@/lib/resend'
-import { renderMergeFields } from '@/lib/email-markdown'
-import { appendComplianceFooter, unsubscribeUrls, listUnsubscribeHeaders } from '@/lib/email-campaigns'
+import { resendConfigured } from '@/lib/resend'
+import { renderAndSendEmail } from '@/lib/email-campaigns'
 
 // Called by VPS cron every minute:
 //   curl -s -X POST https://lynxedo.com/api/email/campaigns/process \
@@ -82,7 +81,6 @@ export async function POST(request: Request) {
       .from('email_suppressions').select('email').eq('company_id', c.company_id)
     const suppressed = new Set((sup ?? []).map((s) => (s.email as string).toLowerCase()))
 
-    const fromHeader = formatFrom(settings.from_name, settings.from_email)
     const interMessageDelayMs = Math.max(100, Math.floor(60_000 / Math.max(1, c.throttle_per_min || 60)))
 
     perCampaign[c.id] = perCampaign[c.id] || { sent: 0, failed: 0, skipped: 0 }
@@ -110,22 +108,17 @@ export async function POST(request: Request) {
           continue
         }
 
-        const merge = { first_name: r.first_name, last_name: r.last_name, email }
-        const subject = renderMergeFields(c.subject || '', merge)
-        const unsub = unsubscribeUrls(baseUrl, c.company_id, email, c.id)
-        const html = appendComplianceFooter(
-          renderMergeFields(c.body_html || '', merge),
-          { brand: settings.from_name || '', physicalAddress: settings.physical_address, unsubscribeLink: unsub.link },
-        )
-
-        const result = await sendEmail({
-          from: fromHeader,
-          to: email,
-          replyTo: settings.reply_to || undefined,
-          subject,
-          html,
-          headers: listUnsubscribeHeaders(unsub.oneClick),
-          tags: [{ name: 'type', value: 'campaign' }],
+        const result = await renderAndSendEmail({
+          identity: settings,
+          baseUrl,
+          companyId: c.company_id,
+          email,
+          firstName: r.first_name,
+          lastName: r.last_name,
+          subject: c.subject || '',
+          bodyHtml: c.body_html || '',
+          unsubCampaignId: c.id,
+          tagValue: 'campaign',
         })
 
         if (!result.ok) {

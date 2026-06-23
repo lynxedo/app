@@ -6,6 +6,7 @@ import { useToast } from '@/components/ui'
 import TemplatesTab from '@/components/hub/marketing/email/TemplatesTab'
 import SegmentsTab from '@/components/hub/marketing/email/SegmentsTab'
 import CampaignsTab from '@/components/hub/marketing/email/CampaignsTab'
+import AutomationsTab from '@/components/hub/marketing/email/AutomationsTab'
 
 type EmailSettings = {
   from_name: string | null
@@ -15,7 +16,7 @@ type EmailSettings = {
   domain_verified: boolean
 } | null
 
-type Tab = 'overview' | 'templates' | 'segments' | 'campaigns'
+type Tab = 'overview' | 'templates' | 'segments' | 'campaigns' | 'automations'
 
 export default function EmailView({ settings, canAdmin }: { settings: EmailSettings; canAdmin: boolean }) {
   const toast = useToast()
@@ -46,6 +47,7 @@ export default function EmailView({ settings, canAdmin }: { settings: EmailSetti
     { id: 'templates', label: 'Templates' },
     { id: 'segments', label: 'Segments' },
     { id: 'campaigns', label: 'Campaigns' },
+    { id: 'automations', label: 'Automations' },
   ]
 
   return (
@@ -135,7 +137,7 @@ export default function EmailView({ settings, canAdmin }: { settings: EmailSetti
                 <li>• <strong className="text-gray-300">Templates</strong> — reusable email content with <code className="text-gray-300">{'{{first_name}}'}</code> merge fields.</li>
                 <li>• <strong className="text-gray-300">Segments</strong> — saved filters over your contacts (by tag) that decide who gets an email.</li>
                 <li>• <strong className="text-gray-300">Campaigns</strong> — pair a template with a segment and send a one-off blast (throttled, with one-click unsubscribe).</li>
-              <li>• <strong className="text-gray-300">Automations</strong> (coming next) — drip sequences + tag-triggered sends.</li>
+              <li>• <strong className="text-gray-300">Automations</strong> — drip sequences + tag-triggered sends that run on autopilot.</li>
               </ul>
             </div>
           </div>
@@ -144,6 +146,7 @@ export default function EmailView({ settings, canAdmin }: { settings: EmailSetti
         {tab === 'templates' && <TemplatesTab />}
         {tab === 'segments' && <SegmentsTab />}
         {tab === 'campaigns' && <CampaignsTab />}
+        {tab === 'automations' && <AutomationsTab />}
       </div>
     </div>
   )

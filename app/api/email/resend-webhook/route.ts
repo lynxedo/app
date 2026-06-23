@@ -84,6 +84,9 @@ export async function POST(request: Request) {
   let campaignId: string | null = null
   let recipientId: string | null = null
   let companyId: string | null = null
+  let automationId: string | null = null
+  let enrollmentId: string | null = null
+  let matchedEmail: string | null = null
   if (messageId) {
     const { data: rec } = await admin
       .from('email_campaign_recipients')
@@ -99,6 +102,19 @@ export async function POST(request: Request) {
         .eq('id', rec.campaign_id)
         .maybeSingle()
       companyId = camp?.company_id ?? null
+    } else {
+      // Not a campaign send — try the automation send ledger.
+      const { data: as } = await admin
+        .from('email_automation_sends')
+        .select('automation_id, enrollment_id, company_id, email')
+        .eq('provider_message_id', messageId)
+        .maybeSingle()
+      if (as) {
+        automationId = as.automation_id
+        enrollmentId = as.enrollment_id
+        companyId = as.company_id
+        matchedEmail = as.email
+      }
     }
   }
 
@@ -111,7 +127,9 @@ export async function POST(request: Request) {
       company_id: companyId,
       campaign_id: campaignId,
       recipient_id: recipientId,
-      email,
+      automation_id: automationId,
+      enrollment_id: enrollmentId,
+      email: email || matchedEmail,
       provider_message_id: messageId,
       type,
       url,
@@ -123,9 +141,11 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: true, type, duplicate: true })
   }
 
-  // Reputation protection: hard bounce or spam complaint => suppress forever.
-  if ((type === 'bounced' || type === 'complained') && companyId && email) {
-    await suppressEmail(admin, companyId, email, type === 'bounced' ? 'bounce' : 'complaint')
+  // Reputation protection: hard bounce or spam complaint => suppress forever
+  // (works for both campaign and automation sends).
+  const suppressTarget = email || matchedEmail
+  if ((type === 'bounced' || type === 'complained') && companyId && suppressTarget) {
+    await suppressEmail(admin, companyId, suppressTarget, type === 'bounced' ? 'bounce' : 'complaint')
   }
 
   return NextResponse.json({ ok: true, type })
