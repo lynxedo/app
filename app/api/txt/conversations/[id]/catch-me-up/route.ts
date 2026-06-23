@@ -4,6 +4,7 @@ import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
+import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { writeAuditLog } from '@/lib/guardian-audit'
 
 // "Catch me up" — Unified Inbox Session 5. A 2–3 sentence roll-up of the whole
@@ -70,8 +71,10 @@ function buildDigest(events: TimelineEvent[]): string {
     .join('\n')
 }
 
-const SYSTEM_PROMPT = [
-  `You are summarizing a customer's full communication history for Heroes Lawn Care staff who are about to text or call them and need to get up to speed fast.`,
+// Task-specific layer. Shared identity + voice come from GUARDIAN_CORE via
+// buildGuardianSystem(); this only describes the summarize job.
+const CATCH_UP_TASK = [
+  `Your task: summarize a customer's full communication history for Heroes Lawn Care staff who are about to text or call them and need to get up to speed fast.`,
   ``,
   `Write 2–3 short sentences, plain and skimmable, covering:`,
   `- When and how they were last in contact, and roughly how long the relationship has run.`,
@@ -153,7 +156,10 @@ export async function POST(
   }
 
   const adminClient = createAdminClient()
-  const model = await getGuardianModel(adminClient, companyId).catch(() => CLAUDE_MODEL)
+  const [model, system] = await Promise.all([
+    getGuardianModel(adminClient, companyId).catch(() => CLAUDE_MODEL),
+    buildGuardianSystem({ companyId, knowledge: 'voice', task: CATCH_UP_TASK, admin: adminClient }),
+  ])
 
   const userMessage = `Communication history (oldest to newest):\n${digest}\n\n---\nCatch me up on this customer in 2–3 sentences.`
 
@@ -166,7 +172,7 @@ export async function POST(
     const response = await anthropic.messages.create({
       model,
       max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
+      system,
       messages: [{ role: 'user', content: userMessage }],
     })
     summary = response.content

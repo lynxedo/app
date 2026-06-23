@@ -5,6 +5,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
+import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { resolveGuardianTier, type GuardianTier } from '@/lib/guardian-permissions'
 import { writeAuditLog } from '@/lib/guardian-audit'
 
@@ -53,17 +54,22 @@ function formatHistory(rows: MessageRow[]): string {
     .join('\n')
 }
 
-const SYSTEM_PROMPT = [
-  `You are an editor helping Heroes Lawn Care staff polish a draft SMS reply to a customer before they send it.`,
+// Task-specific layer. Shared identity + voice + the Client Communications guide
+// come from buildGuardianSystem({ knowledge: 'customer' }); this only describes
+// the polish job. This draft is going to a CUSTOMER, so polish also steers the
+// message toward Heroes' policy (see "Steer toward policy" below).
+const POLISH_TASK = [
+  `Your task: act as an editor and polish Heroes Lawn Care staff's draft SMS reply to a customer before they send it.`,
   ``,
-  `Your job is to refine the staff member's OWN draft — fix grammar, spelling, punctuation, and capitalization; tighten clarity; smooth tone to be warm and professional — WITHOUT changing what they are trying to say.`,
+  `Refine the staff member's OWN draft — fix grammar, spelling, punctuation, and capitalization; tighten clarity; smooth tone to be warm and professional. Keep their intent and voice; refine, don't rewrite from scratch.`,
+  ``,
+  `Steer toward policy: this message is going to a customer, so it must follow the Client Communications guide above. If the draft promises or implies something that conflicts with policy — e.g. offering mowing or landscaping (we don't do those — refer out), quoting a price that should be measured/assessed first, or promising a specific date or time — do NOT polish it as written. Adjust it so it follows policy (refer mowing/landscaping out by name, say we'll measure/assess first, leave scheduling to the team). Staying faithful to the staff member's wording does NOT mean repeating a policy mistake.`,
   ``,
   `Rules:`,
-  `- Preserve the staff member's intent, meaning, and any specific facts, names, dates, prices, or times in their draft. Never invent details they didn't write.`,
-  `- Keep it the staff member's voice — refine, don't rewrite from scratch.`,
+  `- Preserve any correct, on-policy facts, names, dates, prices, or times in the draft. Never invent details that weren't written and aren't in the account info.`,
   `- Keep it SMS-appropriate and concise. Do not add greetings like "Dear..." or sign-offs unless the draft already had one.`,
-  `- Match the tone of the conversation history provided (for register only — do NOT answer the conversation, only polish the given draft).`,
-  `- If the draft is already clean, return it essentially unchanged.`,
+  `- Use the conversation history for tone/register only — do NOT answer the conversation, only polish the given draft.`,
+  `- If the draft is already clean and on-policy, return it essentially unchanged.`,
   `- Do NOT mention that you are an AI. Do NOT add commentary, quotes, or prefixes.`,
   `- Return ONLY the polished SMS body.`,
 ].join('\n')
@@ -137,6 +143,13 @@ export async function POST(
   const messages = ((messagesRes.data || []) as MessageRow[]).reverse() // chronological
   const historyText = formatHistory(messages)
 
+  const system = await buildGuardianSystem({
+    companyId,
+    knowledge: 'customer',
+    task: POLISH_TASK,
+    admin: adminClient,
+  })
+
   const userMessage = [
     historyText
       ? `Recent conversation (for tone/register only — do not answer it):\n${historyText}`
@@ -157,7 +170,7 @@ export async function POST(
     const response = await anthropic.messages.create({
       model,
       max_tokens: MAX_TOKENS,
-      system: SYSTEM_PROMPT,
+      system,
       messages: [{ role: 'user', content: userMessage }],
     })
     refined = response.content

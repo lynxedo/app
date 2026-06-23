@@ -4,10 +4,8 @@ import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
-import {
-  getGuardianModel,
-  getKnowledgeDoc,
-} from '@/lib/guardian-knowledge'
+import { getGuardianModel } from '@/lib/guardian-knowledge'
+import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { resolveGuardianTier, type GuardianTier } from '@/lib/guardian-permissions'
 import { writeAuditLog } from '@/lib/guardian-audit'
 import { callHeroesTool } from '@/lib/hub-claude'
@@ -77,42 +75,23 @@ async function fetchJobberSummary(jobberClientId: string): Promise<string | null
   }
 }
 
-function buildSystemPrompt(opts: {
-  tone: Tone
-  customerServiceBody: string | null
-  jobberSummary: string | null
-}): string {
-  const sections: string[] = [
-    `You are a helpful assistant for Heroes Lawn Care staff composing SMS replies to customers.`,
-  ]
-
-  if (opts.customerServiceBody) {
-    sections.push(
-      `COMPANY KNOWLEDGE — Customer Service Standards & Templates:\n${opts.customerServiceBody}`
-    )
-  }
-
-  sections.push(
-    `CUSTOMER ACCOUNT (from Jobber):\n${opts.jobberSummary || 'No Jobber record found for this contact.'}`
-  )
-
-  sections.push(
-    [
-      `Your task: suggest a single, natural SMS reply that staff can send as-is or lightly edit.`,
-      `Tone: ${opts.tone}`,
-      `Rules:`,
-      `- Write as a Heroes Lawn Care staff member, not as an AI`,
-      `- Match the tone of the conversation history`,
-      `- Keep it concise (SMS appropriate — aim for 1–3 sentences)`,
-      `- Do NOT include a subject line or greeting like "Dear..."`,
-      `- Do NOT mention that you are an AI`,
-      `- Use the templates in the customer service doc as style guides, not copy-paste templates`,
-      `- If you reference a specific date or price, only do so if it appears in the account info provided`,
-      `- Return ONLY the SMS body. No prefixes, no quotes, no commentary.`,
-    ].join('\n')
-  )
-
-  return sections.join('\n\n')
+// Task-specific layer. The shared identity + voice + customer-service playbook
+// come from buildGuardianSystem({ knowledge: 'customer' }); the live Jobber
+// account is passed in as jobberSummary. This only describes the suggest job.
+function buildSuggestTask(tone: Tone): string {
+  return [
+    `Your task: suggest a single, natural SMS reply that Heroes Lawn Care staff can send to the customer as-is or lightly edit.`,
+    `Tone: ${tone}`,
+    `Rules:`,
+    `- Write as a Heroes Lawn Care staff member, not as an AI`,
+    `- Match the tone of the conversation history`,
+    `- Keep it concise (SMS appropriate — aim for 1–3 sentences)`,
+    `- Do NOT include a subject line or greeting like "Dear..."`,
+    `- Do NOT mention that you are an AI`,
+    `- Use the templates in the customer service knowledge as style guides, not copy-paste templates`,
+    `- If you reference a specific date or price, only do so if it appears in the account info provided`,
+    `- Return ONLY the SMS body. No prefixes, no quotes, no commentary.`,
+  ].join('\n')
 }
 
 export async function POST(
@@ -169,7 +148,7 @@ export async function POST(
   // ---- Smart context: conversation history + contact + customer_service doc + Jobber ----
   const adminClient = createAdminClient()
 
-  const [messagesRes, convRes, customerServiceDoc, model, tier] = await Promise.all([
+  const [messagesRes, convRes, model, tier] = await Promise.all([
     supabase
       .from('txt_messages')
       .select(
@@ -185,7 +164,6 @@ export async function POST(
       )
       .eq('id', conversationId)
       .maybeSingle(),
-    getKnowledgeDoc(adminClient, companyId, 'customer_service').catch(() => null),
     getGuardianModel(adminClient, companyId).catch(() => CLAUDE_MODEL),
     resolveGuardianTier(supabase, user.id, { conversationId }).catch<GuardianTier>(
       () => 'basic'
@@ -213,10 +191,12 @@ export async function POST(
     ? await fetchJobberSummary(jobberClientId)
     : null
 
-  const systemPrompt = buildSystemPrompt({
-    tone,
-    customerServiceBody: customerServiceDoc?.body || null,
-    jobberSummary,
+  const systemPrompt = await buildGuardianSystem({
+    companyId,
+    knowledge: 'customer',
+    task: buildSuggestTask(tone),
+    jobberSummary: jobberSummary ?? 'No Jobber record found for this contact.',
+    admin: adminClient,
   })
 
   const historyText = formatHistory(messages)
