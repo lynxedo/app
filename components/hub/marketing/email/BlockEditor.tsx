@@ -81,7 +81,7 @@ export default function BlockEditor({
           Empty email. Use <strong className="text-gray-300">+ Add block</strong> to start — try a Header (your logo), Text, then a Button.
         </div>
       ) : (
-        <div className="space-y-2 max-h-[55vh] overflow-y-auto pr-1">
+        <div className="space-y-2 sm:max-h-[55vh] sm:overflow-y-auto sm:pr-1">
           {blocks.map((b, i) => (
             <BlockCard
               key={b.id} block={b} index={i} total={blocks.length}
@@ -141,7 +141,7 @@ function BlockFields({ block, onChange }: { block: EmailBlock; onChange: (patch:
       return (
         <div className="space-y-3">
           <ImageField label="Logo" url={block.logoUrl} onChange={(url) => onChange({ logoUrl: url })} />
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <NumField label="Logo width" value={block.logoWidth} onChange={(v) => onChange({ logoWidth: v })} />
             <ColorField label="Background" value={block.bg} onChange={(v) => onChange({ bg: v })} />
             <AlignField value={block.align} onChange={(v) => onChange({ align: v })} />
@@ -165,7 +165,7 @@ function BlockFields({ block, onChange }: { block: EmailBlock; onChange: (patch:
         <div className="space-y-3">
           <ImageField label="Image" url={block.url} onChange={(url) => onChange({ url })} />
           <TextField label="Link URL (optional)" value={block.linkUrl} onChange={(v) => onChange({ linkUrl: v })} placeholder="https://" />
-          <div className="grid grid-cols-3 gap-3">
+          <div className="grid grid-cols-2 sm:grid-cols-3 gap-3">
             <NumField label="Width %" value={block.width} onChange={(v) => onChange({ width: Math.max(10, Math.min(100, v)) })} />
             <TextField label="Alt text" value={block.alt} onChange={(v) => onChange({ alt: v })} />
             <AlignField value={block.align} onChange={(v) => onChange({ align: v })} />
@@ -175,7 +175,7 @@ function BlockFields({ block, onChange }: { block: EmailBlock; onChange: (patch:
     case 'button':
       return (
         <div className="space-y-3">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <TextField label="Label" value={block.label} onChange={(v) => onChange({ label: v })} />
             <TextField label="Link URL" value={block.linkUrl} onChange={(v) => onChange({ linkUrl: v })} placeholder="https://" />
           </div>

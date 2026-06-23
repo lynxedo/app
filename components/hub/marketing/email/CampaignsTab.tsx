@@ -188,7 +188,7 @@ function CampaignReport({ campaign, onClose }: { campaign: Campaign; onClose: ()
       <div className="space-y-4">
         <div className="text-sm text-gray-400">{campaign.subject}</div>
 
-        <div className="grid grid-cols-3 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
           <Stat label="Recipients" value={campaign.recipient_count} />
           <Stat label="Sent" value={campaign.sent_count} />
           <Stat label="Delivered" value={loading ? '…' : stats?.delivered ?? 0} />

@@ -353,7 +353,7 @@ function EnrollmentMonitor({ automation, onClose }: { automation: Automation; on
   return (
     <Modal open onClose={onClose} title={`Enrollments — ${automation.name}`} maxWidth="max-w-2xl">
       <div className="space-y-4">
-        <div className="grid grid-cols-4 gap-2">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
           {(['active', 'completed', 'paused', 'exited'] as const).map((k) => (
             <div key={k} className="rounded-lg border border-gray-800 bg-gray-900 p-3">
               <div className="text-xs text-gray-500 capitalize">{k}</div>
