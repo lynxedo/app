@@ -44,7 +44,7 @@ export default async function ScoreboardsIndexPage() {
           <div className="rounded-xl border border-sky-400/15 bg-[var(--t-panel)]/60 p-6 text-center">
             <div className="text-3xl">📊</div>
             <p className="mt-3 text-base font-semibold text-sky-50">No scoreboards assigned yet</p>
-            <p className="mt-1 text-sm text-slate-400">
+            <p className="mt-1 text-sm text-gray-400">
               You have access to the Scoreboards section, but no specific boards have been shared with you.
               Ask an admin to grant you a board in <span className="text-sky-300">Admin → Scoreboards → “Who can see each board.”</span>
             </p>
@@ -61,7 +61,7 @@ export default async function ScoreboardsIndexPage() {
                 <span className="text-lg">📊</span>
                 <span className="text-base font-semibold text-sky-50">{b.title}</span>
               </div>
-              <p className="mt-2 text-sm text-slate-400">{b.subtitle}</p>
+              <p className="mt-2 text-sm text-gray-400">{b.subtitle}</p>
               <span className="mt-4 inline-block text-xs font-medium text-sky-300 group-hover:translate-x-0.5 transition-transform">
                 Open →
               </span>

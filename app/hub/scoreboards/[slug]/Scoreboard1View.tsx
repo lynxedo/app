@@ -83,17 +83,17 @@ function Card({ children, className = '' }: { children: ReactNode; className?: s
   )
 }
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <div className="mt-8 mb-3.5 text-[11px] font-semibold uppercase tracking-[1.2px] text-slate-500 first:mt-0">{children}</div>
+  return <div className="mt-8 mb-3.5 text-[11px] font-semibold uppercase tracking-[1.2px] text-gray-500 first:mt-0">{children}</div>
 }
 function ChartHead({ title, sub }: { title: string; sub: string }) {
-  return (<><div className="text-[13px] font-semibold text-sky-200">{title}</div><div className="mb-3.5 text-[11px] text-slate-500">{sub}</div></>)
+  return (<><div className="text-[13px] font-semibold text-sky-200">{title}</div><div className="mb-3.5 text-[11px] text-gray-500">{sub}</div></>)
 }
 function Legends({ depts }: { depts: string[] }) {
   return (
     <div className="mt-2.5 flex flex-wrap gap-2.5">
       {depts.map(d => {
         const c = DEPT_COLORS[d] ?? DEPT_COLORS.Other
-        return <span key={d} className="flex items-center gap-1.5 text-[11px] text-slate-400"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: c.border }} />{c.label}</span>
+        return <span key={d} className="flex items-center gap-1.5 text-[11px] text-gray-400"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: c.border }} />{c.label}</span>
       })}
     </div>
   )
@@ -120,12 +120,12 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
         <Card>
           <div className="text-[11px] font-medium text-sky-300">YTD Visit Revenue</div>
           <div className="mt-1.5 text-[26px] font-bold leading-none tracking-tight text-sky-50">{usd(kpis.ytdRevenue)}</div>
-          <div className="mt-1.5 text-[11px] text-slate-500">Jan – {year}</div>
+          <div className="mt-1.5 text-[11px] text-gray-500">Jan – {year}</div>
         </Card>
         <Card>
           <div className="text-[11px] font-medium text-sky-300">Last Month Revenue</div>
           <div className="mt-1.5 text-[26px] font-bold leading-none tracking-tight text-sky-50">{usd(kpis.lastMonthRevenue)}</div>
-          <div className="mt-1.5 text-[11px] text-slate-500">{kpis.lastMonthLabel || '—'}</div>
+          <div className="mt-1.5 text-[11px] text-gray-500">{kpis.lastMonthLabel || '—'}</div>
         </Card>
         <Card>
           <div className="text-[11px] font-medium text-sky-300">Recurring Retention</div>
@@ -135,7 +135,7 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
         <Card>
           <div className="text-[11px] font-medium text-sky-300">YTD New Sales</div>
           <div className="mt-1.5 text-[26px] font-bold leading-none tracking-tight text-sky-50">{kpis.ytdNewSalesCount}</div>
-          <div className="mt-1.5 text-[11px] text-slate-500">Closed Won + Upsells</div>
+          <div className="mt-1.5 text-[11px] text-gray-500">Closed Won + Upsells</div>
           <span className="mt-1.5 inline-block rounded-full bg-sky-500/15 px-2 py-0.5 text-[11px] font-semibold text-sky-400">{usd(kpis.ytdNewSalesValue)} value</span>
         </Card>
       </div>
@@ -212,14 +212,14 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
             },
           })} />
           <div className="mt-2.5 flex flex-wrap gap-2.5">
-            <span className="flex items-center gap-1.5 text-[11px] text-slate-400"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: '#38bdf8' }} />New Sales</span>
-            <span className="flex items-center gap-1.5 text-[11px] text-slate-400"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: '#8b5cf6' }} />Upsells</span>
+            <span className="flex items-center gap-1.5 text-[11px] text-gray-400"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: '#38bdf8' }} />New Sales</span>
+            <span className="flex items-center gap-1.5 text-[11px] text-gray-400"><span className="h-2.5 w-2.5 rounded-sm" style={{ background: '#8b5cf6' }} />Upsells</span>
           </div>
         </Card>
         <Card>
           <ChartHead title="Top Lead Sources" sub={`This month · ${data.leadSources.reduce((s, x) => s + x.n, 0)} leads`} />
           {data.leadSources.length === 0
-            ? <div className="flex h-[220px] items-center justify-center text-sm text-slate-500">No leads yet this month</div>
+            ? <div className="flex h-[220px] items-center justify-center text-sm text-gray-500">No leads yet this month</div>
             : <ChartCanvas make={c => new Chart(c, {
                 type: 'doughnut',
                 data: { labels: data.leadSources.map(d => d.src), datasets: [{ data: data.leadSources.map(d => d.n), backgroundColor: PIE_COLORS, borderColor: '#0b1929', borderWidth: 2, hoverOffset: 6 }] },
@@ -285,9 +285,9 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
           <ChartHead title="Recurring Retention Rate" sub="Recurring Services · all time" />
           <div className="flex flex-col items-center justify-center py-2.5">
             <div><span className="text-[52px] font-extrabold leading-none tracking-tight text-green-400">{data.retention.rate}</span><span className="text-2xl font-bold text-green-400">%</span></div>
-            <div className="mt-2 text-center text-xs text-slate-500">{data.retention.total - data.retention.cancelled} retained of {data.retention.total} total recurring customers</div>
+            <div className="mt-2 text-center text-xs text-gray-500">{data.retention.total - data.retention.cancelled} retained of {data.retention.total} total recurring customers</div>
             <div className="my-3.5 h-2 w-full rounded-full bg-white/[0.07]"><div className="h-2 rounded-full bg-gradient-to-r from-green-500 to-green-400" style={{ width: `${data.retention.rate}%` }} /></div>
-            <div className="mt-2 flex flex-wrap justify-center gap-3 text-[11px] text-slate-400">
+            <div className="mt-2 flex flex-wrap justify-center gap-3 text-[11px] text-gray-400">
               <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-green-400" />Active: {data.retention.active}</span>
               <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-sky-400" />Upgraded: {data.retention.upgraded}</span>
               <span className="flex items-center gap-1.5"><span className="h-2 w-2 rounded-full bg-violet-400" />Downgraded: {data.retention.downgraded}</span>
@@ -316,8 +316,8 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
                 ['Cancelled', data.retention.cancelled, 'rgba(248,113,113,0.08)', 'rgba(248,113,113,0.2)', '#f87171'],
               ] as const).map(([label, n, bg, bd, dot]) => (
                 <div key={label} className="flex items-center justify-between rounded-lg border px-3.5 py-2.5" style={{ background: bg, borderColor: bd }}>
-                  <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: dot }} /><span className="text-[13px] text-slate-400">{label}</span></div>
-                  <div className="text-right"><div className="text-xl font-bold" style={{ color: dot }}>{n}</div><div className="text-[11px] text-slate-500">{data.retention.total ? Math.round(n / data.retention.total * 100) : 0}%</div></div>
+                  <div className="flex items-center gap-2"><span className="h-2.5 w-2.5 rounded-full" style={{ background: dot }} /><span className="text-[13px] text-gray-400">{label}</span></div>
+                  <div className="text-right"><div className="text-xl font-bold" style={{ color: dot }}>{n}</div><div className="text-[11px] text-gray-500">{data.retention.total ? Math.round(n / data.retention.total * 100) : 0}%</div></div>
                 </div>
               ))}
             </div>
@@ -325,7 +325,7 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
         </Card>
       </div>
 
-      <div className="mt-5 text-right text-[11px] text-slate-600">
+      <div className="mt-5 text-right text-[11px] text-gray-600">
         {meta.title} · Synced from Jobber + Lead Tracker · updated {new Date(data.asOf).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
       </div>
     </div>
@@ -337,7 +337,7 @@ export default function Scoreboard1View({ meta }: { meta: ScoreboardMeta }) {
   const { data, error, reload } = useScoreboardData<Payload>(meta.slug, snapshotId)
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto bg-[var(--t-well)] text-slate-200">
+    <div className="flex-1 min-h-0 overflow-y-auto bg-[var(--t-well)] text-gray-200">
       <header className="flex items-center gap-3.5 border-b border-sky-400/15 bg-gradient-to-br from-[var(--t-panel)] to-[var(--t-sidebar)] px-5 py-4 max-md:pl-14">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-400 text-lg">📊</div>
         <div>
@@ -354,7 +354,7 @@ export default function Scoreboard1View({ meta }: { meta: ScoreboardMeta }) {
       {error
         ? <ScoreboardError error={error} onRetry={reload} />
         : !data
-          ? <div className="px-6 py-16 text-center text-sm text-slate-500">Loading scoreboard…</div>
+          ? <div className="px-6 py-16 text-center text-sm text-gray-500">Loading scoreboard…</div>
           : <Dashboard data={data} meta={meta} />}
     </div>
   )

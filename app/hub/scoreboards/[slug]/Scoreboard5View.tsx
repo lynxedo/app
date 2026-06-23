@@ -79,16 +79,16 @@ function Card({ children, className = '' }: { children: ReactNode; className?: s
   )
 }
 function SectionTitle({ children }: { children: ReactNode }) {
-  return <div className="mt-8 mb-3.5 text-[11px] font-semibold uppercase tracking-[1.2px] text-slate-500 first:mt-0">{children}</div>
+  return <div className="mt-8 mb-3.5 text-[11px] font-semibold uppercase tracking-[1.2px] text-gray-500 first:mt-0">{children}</div>
 }
 function ChartHead({ title, sub }: { title: string; sub: string }) {
-  return (<><div className="text-[13px] font-semibold text-sky-200">{title}</div><div className="mb-3.5 text-[11px] text-slate-500">{sub}</div></>)
+  return (<><div className="text-[13px] font-semibold text-sky-200">{title}</div><div className="mb-3.5 text-[11px] text-gray-500">{sub}</div></>)
 }
 function ChartLegend({ items }: { items: { label: string; color: string }[] }) {
   return (
     <div className="mt-2.5 flex flex-wrap gap-2.5">
       {items.map(i => (
-        <span key={i.label} className="flex items-center gap-1.5 text-[11px] text-slate-400">
+        <span key={i.label} className="flex items-center gap-1.5 text-[11px] text-gray-400">
           <span className="h-2.5 w-2.5 rounded-sm" style={{ background: i.color }} />{i.label}
         </span>
       ))}
@@ -101,7 +101,7 @@ function Kpi({ label, value, sub, color }: { label: string; value: string; sub?:
     <Card>
       <div className="text-[11px] font-medium text-sky-300">{label}</div>
       <div className="mt-1.5 text-[26px] font-bold leading-none tracking-tight" style={{ color: color ?? '#f0f9ff' }}>{value}</div>
-      {sub != null && <div className="mt-1.5 text-[11px] text-slate-500">{sub}</div>}
+      {sub != null && <div className="mt-1.5 text-[11px] text-gray-500">{sub}</div>}
     </Card>
   )
 }
@@ -131,7 +131,7 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
         <Card>
           <ChartHead title="Top Lead Sources" sub="This month · Closed Won vs Closed Lost" />
           {data.leadSources.length === 0
-            ? <div className="flex h-[240px] items-center justify-center text-sm text-slate-500">No decided leads yet this month</div>
+            ? <div className="flex h-[240px] items-center justify-center text-sm text-gray-500">No decided leads yet this month</div>
             : <>
                 <ChartCanvas make={c => new Chart(c, {
                   type: 'bar',
@@ -195,7 +195,7 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
         </Card>
       </div>
 
-      <div className="mt-5 text-right text-[11px] text-slate-600">
+      <div className="mt-5 text-right text-[11px] text-gray-600">
         {meta.title} · Synced from the Lead Tracker · updated {new Date(data.asOf).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
       </div>
     </div>
@@ -207,7 +207,7 @@ export default function Scoreboard5View({ meta }: { meta: ScoreboardMeta }) {
   const { data, error, reload } = useScoreboardData<Payload>(meta.slug, snapshotId)
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto bg-[var(--t-well)] text-slate-200">
+    <div className="flex-1 min-h-0 overflow-y-auto bg-[var(--t-well)] text-gray-200">
       <header className="flex items-center gap-3.5 border-b border-sky-400/15 bg-gradient-to-br from-[var(--t-panel)] to-[var(--t-sidebar)] px-5 py-4 max-md:pl-14">
         <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-400 text-lg">🏢</div>
         <div>
@@ -224,7 +224,7 @@ export default function Scoreboard5View({ meta }: { meta: ScoreboardMeta }) {
       {error
         ? <ScoreboardError error={error} onRetry={reload} />
         : !data
-          ? <div className="px-6 py-16 text-center text-sm text-slate-500">Loading scoreboard…</div>
+          ? <div className="px-6 py-16 text-center text-sm text-gray-500">Loading scoreboard…</div>
           : <Dashboard data={data} meta={meta} />}
     </div>
   )
