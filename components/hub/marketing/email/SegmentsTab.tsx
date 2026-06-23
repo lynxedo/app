@@ -200,6 +200,7 @@ function SegmentEditor({
       onClose={onClose}
       title={segment ? 'Edit segment' : 'New segment'}
       maxWidth="max-w-2xl"
+      fullScreenOnMobile
       footer={
         <div className="flex items-center justify-between w-full gap-2">
           <span className="text-sm text-gray-400">

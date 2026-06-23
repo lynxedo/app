@@ -395,6 +395,7 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
       onClose={onClose}
       title="New campaign"
       maxWidth="max-w-4xl"
+      fullScreenOnMobile
       footer={
         <div className="flex items-center justify-between w-full gap-2">
           <span className="text-sm text-gray-400">

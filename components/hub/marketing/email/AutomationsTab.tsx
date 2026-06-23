@@ -226,6 +226,7 @@ function AutomationEditor({
       open onClose={onClose}
       title={automation ? 'Edit automation' : 'New automation'}
       maxWidth="max-w-2xl"
+      fullScreenOnMobile
       footer={
         <div className="flex items-center justify-end w-full gap-2">
           <Button variant="ghost" onClick={onClose}>Cancel</Button>

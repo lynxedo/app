@@ -62,6 +62,7 @@ export default function BlockComposer({
       open onClose={onClose}
       title={template ? 'Edit template' : 'New template'}
       maxWidth="max-w-4xl"
+      fullScreenOnMobile
       footer={
         <div className="flex items-center justify-between w-full gap-2">
           <Button variant="ghost" onClick={sendTest} disabled={testing}>{testing ? 'Sending…' : 'Send test to myself'}</Button>
