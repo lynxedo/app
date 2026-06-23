@@ -2,7 +2,8 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendEmail, formatFrom, resendConfigured } from '@/lib/resend'
-import { markdownToHtml, renderMergeFields } from '@/lib/email-markdown'
+import { renderMergeFields } from '@/lib/email-markdown'
+import { normalizeDesign, isEmptyDesign, renderDesignToHtml } from '@/lib/email-blocks'
 
 // Send a verified test email to the signed-in user. Gated on can_access_email
 // (admins always). Uses the company's configured sending identity from
@@ -48,8 +49,8 @@ export async function POST(request: Request) {
 
   const body = await request.json().catch(() => ({} as Record<string, unknown>))
   const tplSubject = typeof body?.subject === 'string' ? body.subject.trim() : ''
-  const tplMarkdown = typeof body?.body_markdown === 'string' ? body.body_markdown : ''
-  const isTemplateTest = tplSubject !== '' || tplMarkdown.trim() !== ''
+  const design = normalizeDesign(body?.design)
+  const isTemplateTest = !isEmptyDesign(design) || tplSubject !== ''
 
   // Merge context = the caller's own name, so {{first_name}} renders realistically.
   const [first, ...rest] = (profile?.full_name || '').trim().split(/\s+/)
@@ -61,13 +62,10 @@ export async function POST(request: Request) {
 
   if (isTemplateTest) {
     subject = `[TEST] ${renderMergeFields(tplSubject || '(no subject)', mergeCtx)}`
-    const inner = markdownToHtml(renderMergeFields(tplMarkdown, mergeCtx))
-    html = `<div style="font-family:system-ui,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#111;max-width:600px;margin:0 auto">
-      ${inner}
-      <hr style="border:none;border-top:1px solid #eee;margin:20px 0"/>
-      <p style="color:#888;font-size:12px">This is a test send of a draft template, delivered only to you. Merge fields were filled with your own name.</p>
-    </div>`
-    text = renderMergeFields(tplMarkdown, mergeCtx) || '(empty body)'
+    // Render the block design to email-safe HTML with this request's origin so
+    // uploaded images/logos resolve, and merge fields filled with the caller's name.
+    html = renderDesignToHtml(design, { baseUrl: new URL(request.url).origin, merge: mergeCtx })
+    text = 'This is a test send of a draft email template, delivered only to you.'
   } else {
     subject = 'Lynxedo Email — test message'
     html = `<div style="font-family:system-ui,Segoe UI,Helvetica,Arial,sans-serif;font-size:15px;line-height:1.5;color:#111">

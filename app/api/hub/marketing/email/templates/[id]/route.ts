@@ -1,15 +1,14 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireEmailAccess } from '@/lib/email-auth'
-import { markdownToHtml } from '@/lib/email-markdown'
+import { normalizeDesign, renderDesignToHtml } from '@/lib/email-blocks'
 
 const MAX_NAME = 120
 const MAX_SUBJECT = 200
-const MAX_BODY = 50000
 
-const SELECT = 'id, name, subject, body_markdown, body_html, created_by, created_at, updated_at'
+const SELECT = 'id, name, subject, design, body_html, created_by, created_at, updated_at'
 
-// PATCH /api/hub/marketing/email/templates/[id] — update name/subject/body.
+// PATCH /api/hub/marketing/email/templates/[id] — update name/subject/design.
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
   const access = await requireEmailAccess()
   if (!access.ok) return NextResponse.json({ error: 'Forbidden' }, { status: access.status })
@@ -29,11 +28,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     if (subject.length > MAX_SUBJECT) return NextResponse.json({ error: `Subject max ${MAX_SUBJECT} chars` }, { status: 400 })
     patch.subject = subject
   }
-  if (body.body_markdown !== undefined) {
-    const markdown = String(body.body_markdown || '')
-    if (markdown.length > MAX_BODY) return NextResponse.json({ error: 'Body too long' }, { status: 400 })
-    patch.body_markdown = markdown
-    patch.body_html = markdownToHtml(markdown)
+  if (body.design !== undefined) {
+    const design = normalizeDesign(body.design)
+    patch.design = design
+    patch.body_html = renderDesignToHtml(design, { baseUrl: new URL(request.url).origin })
   }
 
   const admin = createAdminClient()

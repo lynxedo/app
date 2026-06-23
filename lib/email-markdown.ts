@@ -12,6 +12,8 @@ function escapeHtml(s: string): string {
 }
 
 // Inline: escape first, then re-introduce a small, fixed set of tags.
+// Exported as renderInline for reuse by the block composer's text blocks.
+export function renderInline(s: string): string { return inline(s) }
 function inline(s: string): string {
   let out = escapeHtml(s)
   // links [text](url) — only http(s)/mailto, rendered as a plain anchor.
