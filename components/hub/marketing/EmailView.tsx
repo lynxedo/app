@@ -71,14 +71,15 @@ export default function EmailView({ settings, canAdmin }: { settings: EmailSetti
           )}
         </div>
 
-        {/* Tabs */}
-        <div className="flex gap-1 border-b border-gray-800">
+        {/* Tabs — scroll horizontally on narrow screens instead of overflowing
+            the page (the 5 tabs don't fit on a phone). */}
+        <div className="flex gap-1 border-b border-gray-800 overflow-x-auto -mx-4 px-4 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
           {TABS.map((t) => (
             <button
               key={t.id}
               onClick={() => setTab(t.id)}
               className={
-                'px-3 py-2 text-sm font-medium border-b-2 -mb-px ' +
+                'flex-none whitespace-nowrap px-3 py-2 text-sm font-medium border-b-2 -mb-px ' +
                 (tab === t.id
                   ? 'border-blue-500 text-white'
                   : 'border-transparent text-gray-400 hover:text-gray-200')
