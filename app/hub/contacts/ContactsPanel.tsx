@@ -67,6 +67,7 @@ export default function ContactsPanel({
   const [channel, setChannel] = useState('')   // '' | 'phone' | 'email'
   const [source, setSource] = useState('')      // '' | jobber | manual | import | sms | voice
   const [status, setStatus] = useState('')      // '' | subscribed | unsubscribed | bounced | complained
+  const [showTags, setShowTags] = useState(false) // tag filter collapsed by default (lots of tags)
   const [openContact, setOpenContact] = useState<Contact | null>(null)
   const [adding, setAdding] = useState(false)
   const [textingId, setTextingId] = useState<string | null>(null)
@@ -194,44 +195,64 @@ export default function ContactsPanel({
         </div>
 
         {(tags.length > 0) && (
-          <div className="flex flex-wrap gap-1.5">
-            <button
-              type="button"
-              onClick={toggleUntagged}
-              className={`text-xs px-2 py-1 rounded-full border ${
-                untaggedOnly
-                  ? 'bg-white/20 border-white/30 text-white'
-                  : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
-              }`}
-            >
-              Untagged
-            </button>
-            {tags.map(tag => {
-              const on = selectedTagIds.has(tag.id)
-              return (
-                <button
-                  key={tag.id}
-                  type="button"
-                  onClick={() => toggleTag(tag.id)}
-                  className={`text-xs px-2 py-1 rounded-full border transition ${
-                    on
-                      ? 'border-white/40 text-white'
-                      : 'border-white/10 text-white/70 hover:border-white/30'
-                  }`}
-                  style={on ? { backgroundColor: tag.color + 'CC' } : { backgroundColor: tag.color + '33' }}
-                >
-                  {tag.label}
-                </button>
-              )
-            })}
-            {(selectedTagIds.size > 0 || untaggedOnly) && (
+          <div>
+            <div className="flex items-center gap-2">
               <button
                 type="button"
-                onClick={() => { setSelectedTagIds(new Set()); setUntaggedOnly(false) }}
-                className="text-xs px-2 py-1 rounded-full text-white/40 hover:text-white"
+                onClick={() => setShowTags(v => !v)}
+                className="text-xs px-2 py-1 rounded-md bg-white/5 border border-white/10 text-white/70 hover:bg-white/10 flex items-center gap-1.5"
               >
-                Clear
+                <span className={`transition-transform ${showTags ? 'rotate-90' : ''}`}>▸</span>
+                Filter by tag
+                <span className="text-white/40">({tags.length})</span>
               </button>
+              {(selectedTagIds.size > 0 || untaggedOnly) && (
+                <>
+                  <span className="text-[11px] text-emerald-300">
+                    {untaggedOnly ? 'Untagged' : `${selectedTagIds.size} selected`}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => { setSelectedTagIds(new Set()); setUntaggedOnly(false) }}
+                    className="text-[11px] px-1.5 py-0.5 rounded text-white/40 hover:text-white"
+                  >
+                    Clear
+                  </button>
+                </>
+              )}
+            </div>
+            {showTags && (
+              <div className="mt-2 flex flex-wrap gap-1.5 max-h-44 overflow-y-auto rounded-md bg-black/10 p-2 border border-white/5">
+                <button
+                  type="button"
+                  onClick={toggleUntagged}
+                  className={`text-xs px-2 py-1 rounded-full border ${
+                    untaggedOnly
+                      ? 'bg-white/20 border-white/30 text-white'
+                      : 'bg-white/5 border-white/10 text-white/60 hover:bg-white/10'
+                  }`}
+                >
+                  Untagged
+                </button>
+                {tags.map(tag => {
+                  const on = selectedTagIds.has(tag.id)
+                  return (
+                    <button
+                      key={tag.id}
+                      type="button"
+                      onClick={() => toggleTag(tag.id)}
+                      className={`text-xs px-2 py-1 rounded-full border transition ${
+                        on
+                          ? 'border-white/40 text-white'
+                          : 'border-white/10 text-white/70 hover:border-white/30'
+                      }`}
+                      style={on ? { backgroundColor: tag.color + 'CC' } : { backgroundColor: tag.color + '33' }}
+                    >
+                      {tag.label}
+                    </button>
+                  )
+                })}
+              </div>
             )}
           </div>
         )}
