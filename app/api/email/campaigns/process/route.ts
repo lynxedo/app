@@ -112,7 +112,7 @@ export async function POST(request: Request) {
 
         const merge = { first_name: r.first_name, last_name: r.last_name, email }
         const subject = renderMergeFields(c.subject || '', merge)
-        const unsub = unsubscribeUrls(baseUrl, c.company_id, email)
+        const unsub = unsubscribeUrls(baseUrl, c.company_id, email, c.id)
         const html = appendComplianceFooter(
           renderMergeFields(c.body_html || '', merge),
           { brand: settings.from_name || '', physicalAddress: settings.physical_address, unsubscribeLink: unsub.link },

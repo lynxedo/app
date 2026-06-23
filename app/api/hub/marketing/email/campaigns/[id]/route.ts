@@ -29,7 +29,21 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
     .order('processed_at', { ascending: false, nullsFirst: false })
     .limit(12)
 
-  return NextResponse.json({ campaign, sample: sample ?? [] })
+  // Engagement funnel from email_events (Session 5). service_role-only RPC; the
+  // company check above is the access gate. Returns zeros until webhook events
+  // start landing (after the Resend webhook is wired at prod cutover).
+  const { data: statRows } = await admin.rpc('email_campaign_stats', { p_campaign_id: id })
+  const s = Array.isArray(statRows) ? statRows[0] : statRows
+  const stats = {
+    delivered: Number(s?.delivered ?? 0),
+    opened: Number(s?.opened ?? 0),
+    clicked: Number(s?.clicked ?? 0),
+    bounced: Number(s?.bounced ?? 0),
+    complained: Number(s?.complained ?? 0),
+    unsubscribed: Number(s?.unsubscribed ?? 0),
+  }
+
+  return NextResponse.json({ campaign, sample: sample ?? [], stats })
 }
 
 // DELETE — cancel an in-flight campaign (stop the drainer) or remove a finished one.

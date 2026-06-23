@@ -12,13 +12,19 @@ function secret(): string {
   )
 }
 
-export function signUnsubToken(companyId: string, email: string): string {
-  const p = Buffer.from(`${companyId}|${email.toLowerCase()}`).toString('base64url')
+// The optional campaignId is appended as a 3rd payload field so campaign
+// unsubscribe links can be attributed in analytics (Session 5). Old 2-field
+// tokens still verify (campaignId comes back null).
+export function signUnsubToken(companyId: string, email: string, campaignId?: string | null): string {
+  const payload = `${companyId}|${email.toLowerCase()}|${campaignId || ''}`
+  const p = Buffer.from(payload).toString('base64url')
   const sig = crypto.createHmac('sha256', secret()).update(p).digest('base64url')
   return `${p}.${sig}`
 }
 
-export function verifyUnsubToken(token: string | null | undefined): { companyId: string; email: string } | null {
+export function verifyUnsubToken(
+  token: string | null | undefined,
+): { companyId: string; email: string; campaignId: string | null } | null {
   if (!token) return null
   const [p, sig] = token.split('.')
   if (!p || !sig) return null
@@ -26,7 +32,7 @@ export function verifyUnsubToken(token: string | null | undefined): { companyId:
   const a = Buffer.from(sig)
   const b = Buffer.from(expected)
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null
-  const [companyId, email] = Buffer.from(p, 'base64url').toString('utf8').split('|')
+  const [companyId, email, campaignId] = Buffer.from(p, 'base64url').toString('utf8').split('|')
   if (!companyId || !email) return null
-  return { companyId, email }
+  return { companyId, email, campaignId: campaignId || null }
 }

@@ -12,9 +12,14 @@ function esc(s: string): string {
  * The human-facing unsubscribe URL (lands on the friendly /unsubscribe page) and
  * the one-click POST target (RFC-8058). Both carry the same signed token.
  */
-export function unsubscribeUrls(baseUrl: string, companyId: string, email: string): { link: string; oneClick: string } {
+export function unsubscribeUrls(
+  baseUrl: string,
+  companyId: string,
+  email: string,
+  campaignId?: string | null,
+): { link: string; oneClick: string } {
   const origin = (baseUrl || '').replace(/\/$/, '')
-  const token = encodeURIComponent(signUnsubToken(companyId, email))
+  const token = encodeURIComponent(signUnsubToken(companyId, email, campaignId))
   return {
     link: `${origin}/unsubscribe?token=${token}`,
     oneClick: `${origin}/api/email/unsubscribe?token=${token}`,

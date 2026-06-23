@@ -1,6 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { verifyUnsubToken } from '@/lib/email-unsubscribe'
 import { suppressEmail } from '@/lib/email-contacts'
+import { recordUnsubscribeEvent } from '@/lib/email-events'
 
 export const dynamic = 'force-dynamic'
 export const metadata = { title: 'Unsubscribe', robots: { index: false } }
@@ -18,6 +19,7 @@ export default async function UnsubscribePage({
   if (claim) {
     const admin = createAdminClient()
     ok = await suppressEmail(admin, claim.companyId, claim.email, 'unsubscribe')
+    if (ok) await recordUnsubscribeEvent(admin, claim.companyId, claim.campaignId, claim.email)
     const { data: settings } = await admin
       .from('email_settings').select('from_name').eq('company_id', claim.companyId).maybeSingle()
     brand = settings?.from_name || ''

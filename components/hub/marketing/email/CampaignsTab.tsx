@@ -44,6 +44,7 @@ export default function CampaignsTab() {
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
   const [composing, setComposing] = useState(false)
+  const [reportFor, setReportFor] = useState<Campaign | null>(null)
 
   const load = useCallback(async () => {
     try {
@@ -120,12 +121,20 @@ export default function CampaignsTab() {
                     )}
                     {c.last_error && <div className="text-xs text-red-400/80 mt-1">{c.last_error}</div>}
                   </div>
-                  <button
-                    onClick={() => cancelOrDelete(c)}
-                    className="flex-none text-sm text-red-400/80 hover:text-red-400"
-                  >
-                    {c.status === 'queued' || c.status === 'processing' ? 'Stop' : 'Remove'}
-                  </button>
+                  <div className="flex-none flex flex-col items-end gap-1.5">
+                    <button
+                      onClick={() => setReportFor(c)}
+                      className="text-sm text-gray-400 hover:text-white"
+                    >
+                      Report
+                    </button>
+                    <button
+                      onClick={() => cancelOrDelete(c)}
+                      className="text-sm text-red-400/80 hover:text-red-400"
+                    >
+                      {c.status === 'queued' || c.status === 'processing' ? 'Stop' : 'Remove'}
+                    </button>
+                  </div>
                 </div>
               </li>
             )
@@ -139,6 +148,93 @@ export default function CampaignsTab() {
           onSent={() => { setComposing(false); setLoading(true); load() }}
         />
       )}
+
+      {reportFor && (
+        <CampaignReport campaign={reportFor} onClose={() => setReportFor(null)} />
+      )}
+    </div>
+  )
+}
+
+type Stats = { delivered: number; opened: number; clicked: number; bounced: number; complained: number; unsubscribed: number }
+type SampleRow = { email: string; status: string; error_message: string | null; processed_at: string | null }
+
+function CampaignReport({ campaign, onClose }: { campaign: Campaign; onClose: () => void }) {
+  const [stats, setStats] = useState<Stats | null>(null)
+  const [sample, setSample] = useState<SampleRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await fetch(`${BASE}/${campaign.id}`)
+        const data = await res.json().catch(() => ({}))
+        if (res.ok) { setStats(data.stats || null); setSample(data.sample || []) }
+      } finally {
+        setLoading(false)
+      }
+    })()
+  }, [campaign.id])
+
+  // Rates are against delivered (the standard denominator); fall back to sent_count
+  // before any delivered events have landed.
+  const denom = stats && stats.delivered > 0 ? stats.delivered : campaign.sent_count
+  const pct = (n: number) => (denom > 0 ? `${Math.round((n / denom) * 100)}%` : '—')
+
+  return (
+    <Modal open onClose={onClose} title={campaign.name} maxWidth="max-w-2xl">
+      <div className="space-y-4">
+        <div className="text-sm text-gray-400">{campaign.subject}</div>
+
+        <div className="grid grid-cols-3 gap-2">
+          <Stat label="Recipients" value={campaign.recipient_count} />
+          <Stat label="Sent" value={campaign.sent_count} />
+          <Stat label="Delivered" value={loading ? '…' : stats?.delivered ?? 0} />
+          <Stat label="Opened" value={loading ? '…' : stats?.opened ?? 0} sub={loading ? '' : pct(stats?.opened ?? 0)} />
+          <Stat label="Clicked" value={loading ? '…' : stats?.clicked ?? 0} sub={loading ? '' : pct(stats?.clicked ?? 0)} />
+          <Stat label="Bounced" value={loading ? '…' : stats?.bounced ?? 0} tone={(stats?.bounced ?? 0) > 0 ? 'warn' : undefined} />
+          <Stat label="Complaints" value={loading ? '…' : stats?.complained ?? 0} tone={(stats?.complained ?? 0) > 0 ? 'bad' : undefined} />
+          <Stat label="Unsubscribed" value={loading ? '…' : stats?.unsubscribed ?? 0} />
+          <Stat label="Failed / skipped" value={`${campaign.failed_count} / ${campaign.skipped_count}`} />
+        </div>
+
+        {!loading && (stats?.delivered ?? 0) === 0 && (
+          <p className="text-xs text-gray-500 rounded-lg border border-gray-800 bg-gray-900 p-3">
+            No engagement events yet. Opens, clicks, bounces, and complaints populate once the Resend
+            webhook is connected (set up at prod cutover) and recipients start interacting.
+          </p>
+        )}
+
+        {sample.length > 0 && (
+          <div>
+            <div className="text-xs text-gray-400 mb-1.5">Recent recipients</div>
+            <ul className="rounded-lg border border-gray-800 divide-y divide-gray-800 text-sm">
+              {sample.map((r, i) => (
+                <li key={i} className="flex items-center justify-between gap-2 px-3 py-1.5">
+                  <span className="text-gray-300 truncate">{r.email}</span>
+                  <span className={
+                    'flex-none text-xs px-2 py-0.5 rounded-full border ' +
+                    (r.status === 'sent' ? 'bg-green-500/15 border-green-500/40 text-green-300'
+                      : r.status === 'failed' ? 'bg-red-500/15 border-red-500/40 text-red-300'
+                      : r.status === 'skipped' ? 'bg-gray-700/40 border-gray-600 text-gray-400'
+                      : 'bg-blue-500/15 border-blue-500/40 text-blue-300')
+                  }>{r.status}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
+function Stat({ label, value, sub, tone }: { label: string; value: number | string; sub?: string; tone?: 'warn' | 'bad' }) {
+  const valueCls = tone === 'bad' ? 'text-red-300' : tone === 'warn' ? 'text-amber-300' : 'text-white'
+  return (
+    <div className="rounded-lg border border-gray-800 bg-gray-900 p-3">
+      <div className="text-xs text-gray-500">{label}</div>
+      <div className={'text-lg font-semibold ' + valueCls}>{value}{sub ? <span className="text-xs text-gray-500 font-normal ml-1">{sub}</span> : null}</div>
     </div>
   )
 }
