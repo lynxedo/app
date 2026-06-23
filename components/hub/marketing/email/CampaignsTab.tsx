@@ -2,9 +2,11 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react'
 import { Modal, Button, EmptyState, useToast, useConfirm } from '@/components/ui'
+import { type EmailDesign, emptyDesign, normalizeDesign } from '@/lib/email-blocks'
+import BlockEditor from '@/components/hub/marketing/email/BlockEditor'
 
-type Filter = { has_tag?: string[]; missing_tag?: string[] }
-type Template = { id: string; name: string; subject: string }
+type Filter = { has_tag?: string[]; missing_tag?: string[]; has_line_item?: string[]; missing_line_item?: string[] }
+type Template = { id: string; name: string; subject: string; design: EmailDesign }
 type Segment = { id: string; name: string; filter: Filter }
 type Campaign = {
   id: string
@@ -85,14 +87,14 @@ export default function CampaignsTab() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-400">Send a template to a segment as a one-off blast.</p>
+        <p className="text-sm text-gray-400">Build an email and send it to a segment or a hand-picked list.</p>
         <Button onClick={() => setComposing(true)}>+ New campaign</Button>
       </div>
 
       {loading ? (
         <p className="text-sm text-gray-500 py-6 text-center">Loading…</p>
       ) : campaigns.length === 0 ? (
-        <EmptyState title="No campaigns yet — pick a template and a segment to send your first blast." />
+        <EmptyState title="No campaigns yet — start one from a template, customize it, and send." />
       ) : (
         <ul className="space-y-2">
           {campaigns.map((c) => {
@@ -245,18 +247,27 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
   const toast = useToast()
   const [templates, setTemplates] = useState<Template[]>([])
   const [segments, setSegments] = useState<Segment[]>([])
+
+  // Content (the campaign's own editable copy). template_id is provenance only.
   const [templateId, setTemplateId] = useState('')
+  const [subject, setSubject] = useState('')
+  const [design, setDesign] = useState<EmailDesign>(emptyDesign())
+  const [name, setName] = useState('')
+
+  // Audience
   const [audMode, setAudMode] = useState<'segment' | 'contacts'>('segment')
   const [segmentId, setSegmentId] = useState('') // '' = everyone
   const [contacts, setContacts] = useState<Contact[] | null>(null)
   const [picked, setPicked] = useState<string[]>([])
   const [contactQuery, setContactQuery] = useState('')
-  const [name, setName] = useState('')
+
   const [when, setWhen] = useState<'now' | 'later'>('now')
   const [scheduledAt, setScheduledAt] = useState('')
+
   const [count, setCount] = useState<number | null>(null)
   const [counting, setCounting] = useState(false)
   const [sending, setSending] = useState(false)
+  const [testing, setTesting] = useState(false)
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
   useEffect(() => {
@@ -305,6 +316,18 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
     return () => { if (debounce.current) clearTimeout(debounce.current) }
   }, [audMode, segmentId, segments, picked])
 
+  // Pick a template as the starting point — loads its design + subject into the
+  // editor. Editing here never changes the source template.
+  function startFromTemplate(id: string) {
+    setTemplateId(id)
+    if (!id) return // "Blank email" — keep whatever's there
+    const tpl = templates.find((t) => t.id === id)
+    if (tpl) {
+      setDesign(normalizeDesign(tpl.design))
+      setSubject(tpl.subject || '')
+    }
+  }
+
   const filteredContacts = (contacts ?? []).filter((c) => {
     const q = contactQuery.trim().toLowerCase()
     if (!q) return true
@@ -315,14 +338,31 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
     setPicked((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id])
   }
 
+  async function sendTest() {
+    if (!design.blocks.length) { toast.error('Add some content first.'); return }
+    setTesting(true)
+    try {
+      const res = await fetch('/api/hub/marketing/email/test', {
+        method: 'POST', headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subject, design }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) toast.error(data.error || 'Could not send the test.')
+      else toast.success(`Test sent to ${data.sent_to}.`)
+    } finally { setTesting(false) }
+  }
+
   async function send() {
-    if (!templateId) { toast.error('Pick a template.'); return }
+    if (!subject.trim()) { toast.error('Add a subject line.'); return }
+    if (!design.blocks.length) { toast.error('Add some content to the email.'); return }
     if (audMode === 'contacts' && picked.length === 0) { toast.error('Pick at least one contact.'); return }
     if (when === 'later' && !scheduledAt) { toast.error('Pick a date and time, or choose Send now.'); return }
     setSending(true)
     try {
       const payload: Record<string, unknown> = {
-        template_id: templateId,
+        template_id: templateId || null,
+        subject: subject.trim(),
+        design,
         name: name.trim(),
       }
       if (audMode === 'contacts') payload.contact_ids = picked
@@ -354,7 +394,7 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
       open
       onClose={onClose}
       title="New campaign"
-      maxWidth="max-w-2xl"
+      maxWidth="max-w-4xl"
       footer={
         <div className="flex items-center justify-between w-full gap-2">
           <span className="text-sm text-gray-400">
@@ -362,7 +402,7 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
           </span>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button onClick={send} disabled={sending || !templateId || count === 0}>
+            <Button onClick={send} disabled={sending || !subject.trim() || !design.blocks.length || count === 0}>
               {sending ? 'Starting…' : when === 'later' ? 'Schedule' : 'Send now'}
             </Button>
           </div>
@@ -370,25 +410,40 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
       }
     >
       <div className="space-y-4">
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">Template</label>
-          {templates.length === 0 ? (
-            <p className="text-sm text-gray-500 rounded-lg border border-gray-800 bg-gray-900 p-3">
-              No templates yet — create one in the Templates tab first.
-            </p>
-          ) : (
+        {/* Start from a template (optional) + test */}
+        <div className="flex flex-wrap items-end justify-between gap-2">
+          <div className="flex-1 min-w-[200px]">
+            <label className="block text-xs text-gray-400 mb-1">Start from a template <span className="text-gray-600">· optional</span></label>
             <select
-              value={templateId} onChange={(e) => setTemplateId(e.target.value)}
+              value={templateId} onChange={(e) => startFromTemplate(e.target.value)}
               className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white"
             >
-              <option value="">Choose a template…</option>
-              {templates.map((t) => <option key={t.id} value={t.id}>{t.name}{t.subject ? ` — ${t.subject}` : ''}</option>)}
+              <option value="">Blank email</option>
+              {templates.map((t) => <option key={t.id} value={t.id}>{t.name}</option>)}
             </select>
-          )}
+          </div>
+          <Button variant="ghost" onClick={sendTest} disabled={testing}>{testing ? 'Sending…' : 'Send test to myself'}</Button>
         </div>
 
-        <div>
-          <label className="block text-xs text-gray-400 mb-1.5">Send to</label>
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Subject line</label>
+            <input value={subject} onChange={(e) => setSubject(e.target.value)} placeholder="Hi {{first_name}}, …"
+              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white" />
+          </div>
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Campaign name <span className="text-gray-600">· optional, for your records</span></label>
+            <input value={name} onChange={(e) => setName(e.target.value)} placeholder="Auto-named if left blank"
+              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white" />
+          </div>
+        </div>
+
+        {/* The email composer (same editor as templates) */}
+        <BlockEditor design={design} onChange={setDesign} />
+
+        {/* Audience */}
+        <div className="pt-3 border-t border-gray-800">
+          <label className="block text-xs text-gray-400 mb-1.5">Who gets it</label>
           <div className="flex gap-2 mb-2">
             <button
               onClick={() => setAudMode('segment')}
@@ -452,15 +507,7 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
           )}
         </div>
 
-        <div>
-          <label className="block text-xs text-gray-400 mb-1">Campaign name <span className="text-gray-600">· optional, for your records</span></label>
-          <input
-            value={name} onChange={(e) => setName(e.target.value)}
-            placeholder="Auto-named from template + segment if left blank"
-            className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white"
-          />
-        </div>
-
+        {/* When */}
         <div>
           <label className="block text-xs text-gray-400 mb-1.5">When</label>
           <div className="flex gap-2 items-center flex-wrap">

@@ -68,26 +68,35 @@ export async function POST(request: Request) {
     if (Number.isFinite(t) && t > Date.now() + 30_000) scheduledAt = new Date(t).toISOString()
   }
 
-  if (!templateId) return NextResponse.json({ error: 'Pick a template' }, { status: 400 })
-
   const admin = createAdminClient()
 
-  // Load template (must belong to this company).
-  const { data: tpl } = await admin
-    .from('email_templates')
-    .select('id, name, subject, design')
-    .eq('company_id', access.companyId)
-    .eq('id', templateId)
-    .maybeSingle()
-  if (!tpl) return NextResponse.json({ error: 'Template not found' }, { status: 404 })
+  // Resolve the email content. The compose flow sends the edited design + subject
+  // directly (the campaign carries its own content, snapshotted here so later
+  // template edits never change a sent campaign). template_id, if present, is just
+  // provenance ("started from this template"); when no design is sent we fall back
+  // to the template's own design (back-compat / "send as-is").
+  const baseUrl = new URL(request.url).origin
+  let design = normalizeDesign(body.design)
+  let subject = String(body.subject || '').trim()
+  let sourceName = 'Campaign'
 
-  const subject = String(tpl.subject || '').trim()
-  if (!subject) return NextResponse.json({ error: 'This template has no subject line — add one before sending.' }, { status: 400 })
+  if (templateId) {
+    const { data: tpl } = await admin
+      .from('email_templates')
+      .select('id, name, subject, design')
+      .eq('company_id', access.companyId)
+      .eq('id', templateId)
+      .maybeSingle()
+    if (!tpl) return NextResponse.json({ error: 'Template not found' }, { status: 404 })
+    sourceName = tpl.name
+    if (!design.blocks.length) design = normalizeDesign(tpl.design)
+    if (!subject) subject = String(tpl.subject || '').trim()
+  }
 
-  // Render the email-safe HTML from the block design, absolutizing images against
-  // this origin. Merge tokens ({{first_name}}) are left in place.
-  const design = normalizeDesign(tpl.design)
-  const bodyHtml = renderDesignToHtml(design, { baseUrl: new URL(request.url).origin })
+  if (!design.blocks.length) return NextResponse.json({ error: 'Add some content to the email before sending.' }, { status: 400 })
+  if (!subject) return NextResponse.json({ error: 'Add a subject line before sending.' }, { status: 400 })
+
+  const bodyHtml = renderDesignToHtml(design, { baseUrl })
 
   // Resolve the audience. Precedence: explicit contact picks → segment → everyone.
   let segmentName = 'Everyone'
@@ -137,10 +146,11 @@ export async function POST(request: Request) {
     .insert({
       company_id: access.companyId,
       created_by: access.userId,
-      template_id: tpl.id,
+      template_id: templateId || null,
       segment_id: usedSegmentId,
-      name: name || `${tpl.name} → ${segmentName}`,
+      name: name || `${sourceName} → ${segmentName}`,
       subject,
+      design,
       body_html: bodyHtml,
       status: 'queued',
       recipient_count: audience.length,
