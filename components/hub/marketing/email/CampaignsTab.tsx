@@ -239,12 +239,18 @@ function Stat({ label, value, sub, tone }: { label: string; value: number | stri
   )
 }
 
+type Contact = { id: string; name: string; email: string }
+
 function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () => void }) {
   const toast = useToast()
   const [templates, setTemplates] = useState<Template[]>([])
   const [segments, setSegments] = useState<Segment[]>([])
   const [templateId, setTemplateId] = useState('')
+  const [audMode, setAudMode] = useState<'segment' | 'contacts'>('segment')
   const [segmentId, setSegmentId] = useState('') // '' = everyone
+  const [contacts, setContacts] = useState<Contact[] | null>(null)
+  const [picked, setPicked] = useState<string[]>([])
+  const [contactQuery, setContactQuery] = useState('')
   const [name, setName] = useState('')
   const [when, setWhen] = useState<'now' | 'later'>('now')
   const [scheduledAt, setScheduledAt] = useState('')
@@ -266,8 +272,20 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
     })()
   }, [])
 
-  // Live recipient count for the chosen segment (or everyone when none picked).
+  // Lazy-load the contact list the first time the user switches to manual picking.
   useEffect(() => {
+    if (audMode !== 'contacts' || contacts !== null) return
+    (async () => {
+      const res = await fetch('/api/hub/marketing/email/contacts')
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) setContacts(data.contacts || [])
+      else { toast.error(data.error || 'Could not load contacts.'); setContacts([]) }
+    })()
+  }, [audMode, contacts, toast])
+
+  // Recipient count. Manual mode = number picked; segment mode = live preview.
+  useEffect(() => {
+    if (audMode === 'contacts') { setCounting(false); setCount(picked.length); return }
     if (debounce.current) clearTimeout(debounce.current)
     setCounting(true)
     const seg = segments.find((s) => s.id === segmentId)
@@ -285,18 +303,30 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
       }
     }, 250)
     return () => { if (debounce.current) clearTimeout(debounce.current) }
-  }, [segmentId, segments])
+  }, [audMode, segmentId, segments, picked])
+
+  const filteredContacts = (contacts ?? []).filter((c) => {
+    const q = contactQuery.trim().toLowerCase()
+    if (!q) return true
+    return c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q)
+  }).slice(0, 100)
+
+  function togglePicked(id: string) {
+    setPicked((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id])
+  }
 
   async function send() {
     if (!templateId) { toast.error('Pick a template.'); return }
+    if (audMode === 'contacts' && picked.length === 0) { toast.error('Pick at least one contact.'); return }
     if (when === 'later' && !scheduledAt) { toast.error('Pick a date and time, or choose Send now.'); return }
     setSending(true)
     try {
       const payload: Record<string, unknown> = {
         template_id: templateId,
-        segment_id: segmentId || null,
         name: name.trim(),
       }
+      if (audMode === 'contacts') payload.contact_ids = picked
+      else payload.segment_id = segmentId || null
       if (when === 'later' && scheduledAt) payload.scheduled_at = new Date(scheduledAt).toISOString()
       const res = await fetch(BASE, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -358,14 +388,68 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
         </div>
 
         <div>
-          <label className="block text-xs text-gray-400 mb-1">Send to</label>
-          <select
-            value={segmentId} onChange={(e) => setSegmentId(e.target.value)}
-            className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white"
-          >
-            <option value="">Everyone (all subscribed contacts)</option>
-            {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-          </select>
+          <label className="block text-xs text-gray-400 mb-1.5">Send to</label>
+          <div className="flex gap-2 mb-2">
+            <button
+              onClick={() => setAudMode('segment')}
+              className={'text-sm rounded-lg border px-3 py-1.5 ' + (audMode === 'segment' ? 'bg-blue-500/15 border-blue-500/40 text-blue-300' : 'bg-gray-800 border-gray-700 text-gray-400')}
+            >A segment</button>
+            <button
+              onClick={() => setAudMode('contacts')}
+              className={'text-sm rounded-lg border px-3 py-1.5 ' + (audMode === 'contacts' ? 'bg-blue-500/15 border-blue-500/40 text-blue-300' : 'bg-gray-800 border-gray-700 text-gray-400')}
+            >Pick contacts</button>
+          </div>
+
+          {audMode === 'segment' ? (
+            <select
+              value={segmentId} onChange={(e) => setSegmentId(e.target.value)}
+              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white"
+            >
+              <option value="">Everyone (all subscribed contacts)</option>
+              {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+            </select>
+          ) : contacts === null ? (
+            <p className="text-sm text-gray-500 rounded-lg border border-gray-800 bg-gray-900 p-3">Loading contacts…</p>
+          ) : contacts.length === 0 ? (
+            <p className="text-sm text-gray-500 rounded-lg border border-gray-800 bg-gray-900 p-3">No subscribed contacts with an email yet.</p>
+          ) : (
+            <div className="rounded-lg border border-gray-800 bg-gray-900 p-2">
+              <div className="flex items-center justify-between gap-2 mb-1.5">
+                <input
+                  value={contactQuery} onChange={(e) => setContactQuery(e.target.value)}
+                  placeholder="Search name or email…"
+                  className="flex-1 rounded-lg bg-gray-800 border border-gray-700 px-3 py-1.5 text-sm text-white"
+                />
+                <span className="text-xs text-gray-500 flex-none">{picked.length} selected</span>
+                {picked.length > 0 && (
+                  <button onClick={() => setPicked([])} className="text-xs text-gray-400 hover:text-white flex-none">Clear</button>
+                )}
+              </div>
+              <ul className="max-h-56 overflow-auto divide-y divide-gray-800">
+                {filteredContacts.map((c) => {
+                  const on = picked.includes(c.id)
+                  return (
+                    <li key={c.id}>
+                      <button
+                        onClick={() => togglePicked(c.id)}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-white/[0.04] rounded"
+                      >
+                        <span className={'flex-none w-4 h-4 rounded border flex items-center justify-center text-[10px] ' + (on ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-600')}>{on ? '✓' : ''}</span>
+                        <span className="min-w-0 flex-1">
+                          <span className="block text-sm text-gray-200 truncate">{c.name}</span>
+                          <span className="block text-xs text-gray-500 truncate">{c.email}</span>
+                        </span>
+                      </button>
+                    </li>
+                  )
+                })}
+                {filteredContacts.length === 0 && <li className="text-xs text-gray-600 px-2 py-2">No contacts match “{contactQuery}”.</li>}
+              </ul>
+              {(contacts.length > filteredContacts.length) && (
+                <p className="text-[11px] text-gray-600 mt-1 px-1">Showing first {filteredContacts.length} — search to narrow.</p>
+              )}
+            </div>
+          )}
         </div>
 
         <div>

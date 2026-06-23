@@ -51,6 +51,12 @@ export async function POST(request: Request) {
   const body = await request.json().catch(() => ({} as Record<string, unknown>))
   const templateId = typeof body.template_id === 'string' ? body.template_id : ''
   const segmentId = typeof body.segment_id === 'string' && body.segment_id ? body.segment_id : null
+  // Manual recipient picking — an explicit list of directory contact ids. Takes
+  // precedence over a segment when present. We still intersect with the emailable
+  // audience below so suppressed/unsubscribed picks can never sneak through.
+  const contactIds = Array.isArray(body.contact_ids)
+    ? [...new Set((body.contact_ids as unknown[]).filter((x): x is string => typeof x === 'string' && x.length > 0))]
+    : []
   const name = String(body.name || '').trim()
   let throttle = Number(body.throttle_per_min)
   throttle = Number.isFinite(throttle) ? Math.min(THROTTLE_MAX, Math.max(THROTTLE_MIN, Math.round(throttle))) : 60
@@ -83,10 +89,17 @@ export async function POST(request: Request) {
   const design = normalizeDesign(tpl.design)
   const bodyHtml = renderDesignToHtml(design, { baseUrl: new URL(request.url).origin })
 
-  // Resolve the audience.
+  // Resolve the audience. Precedence: explicit contact picks → segment → everyone.
   let segmentName = 'Everyone'
   let audience
-  if (segmentId) {
+  let usedSegmentId = segmentId
+  if (contactIds.length) {
+    const all = await getEmailAudience(admin, access.companyId)
+    const picked = new Set(contactIds)
+    audience = all.filter((r) => picked.has(r.id))
+    segmentName = 'Selected contacts'
+    usedSegmentId = null // a hand-picked list isn't a saved segment
+  } else if (segmentId) {
     const { data: seg } = await admin
       .from('email_segments')
       .select('id, name, filter')
@@ -101,7 +114,11 @@ export async function POST(request: Request) {
   }
 
   if (!audience.length) {
-    return NextResponse.json({ error: 'That segment has no subscribed recipients right now.' }, { status: 400 })
+    return NextResponse.json({
+      error: contactIds.length
+        ? 'None of the selected contacts are subscribed/emailable right now.'
+        : 'That segment has no subscribed recipients right now.',
+    }, { status: 400 })
   }
 
   // Compliance / deliverability warnings (non-blocking — surfaced to the user).
@@ -121,7 +138,7 @@ export async function POST(request: Request) {
       company_id: access.companyId,
       created_by: access.userId,
       template_id: tpl.id,
-      segment_id: segmentId,
+      segment_id: usedSegmentId,
       name: name || `${tpl.name} → ${segmentName}`,
       subject,
       body_html: bodyHtml,

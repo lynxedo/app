@@ -33,6 +33,23 @@ export default function TemplatesTab() {
     else toast.error('Could not delete the template.')
   }
 
+  async function duplicate(t: Template) {
+    const copyName = `Copy of ${t.name}`.slice(0, 120)
+    const res = await fetch(BASE, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name: copyName, subject: t.subject, design: t.design }),
+    })
+    const data = await res.json().catch(() => ({}))
+    if (res.ok && data.template) {
+      toast.success('Template duplicated.')
+      setTemplates((p) => [data.template, ...p])
+      setEditing(data.template) // open the copy so they can tweak it
+    } else {
+      toast.error(data.error || 'Could not duplicate the template.')
+    }
+  }
+
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
@@ -54,6 +71,7 @@ export default function TemplatesTab() {
               </button>
               <div className="flex-none flex gap-2">
                 <button onClick={() => setEditing(t)} className="text-sm text-gray-400 hover:text-white">Edit</button>
+                <button onClick={() => duplicate(t)} className="text-sm text-gray-400 hover:text-white">Duplicate</button>
                 <button onClick={() => remove(t)} className="text-sm text-red-400/80 hover:text-red-400">Delete</button>
               </div>
             </li>
