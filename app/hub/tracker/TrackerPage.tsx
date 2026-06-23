@@ -181,7 +181,7 @@ function StatusCell({ value, options, statusColors, lightMode, onSave }: {
   if (color) {
     return (
       <span onClick={() => setEditing(true)}
-        style={{ backgroundColor: color + '25', color, borderColor: color + '60' }}
+        style={{ backgroundColor: color + (lightMode ? '45' : '25'), color: lightMode ? '#374151' : color, borderColor: color + '60' }}
         className="inline-block px-2 py-0.5 rounded text-xs font-medium border cursor-pointer hover:opacity-80 transition-opacity truncate max-w-full"
         title={value ?? ''}>
         {value || <span className="opacity-50">—</span>}
@@ -201,26 +201,55 @@ function MultiSelectCell({ values, options, onSave, lightMode = false }: {
   values: string[] | null; options: string[]; onSave: (v: string[]) => void; lightMode?: boolean
 }) {
   const [open, setOpen] = useState(false)
-  const ref = useRef<HTMLDivElement>(null)
+  const [dropdownPos, setDropdownPos] = useState<{ top: number; left: number; minWidth: number } | null>(null)
+  const triggerRef = useRef<HTMLButtonElement>(null)
+  const dropdownRef = useRef<HTMLDivElement>(null)
   const selected = values ?? []
+
   useEffect(() => {
-    function handleClick(e: MouseEvent) { if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false) }
-    if (open) document.addEventListener('mousedown', handleClick)
-    return () => document.removeEventListener('mousedown', handleClick)
+    if (!open) return
+    function handleClickOutside(e: MouseEvent) {
+      if (dropdownRef.current?.contains(e.target as Node)) return
+      if (triggerRef.current?.contains(e.target as Node)) return
+      setOpen(false)
+    }
+    function handleScroll() { setOpen(false) }
+    document.addEventListener('mousedown', handleClickOutside)
+    window.addEventListener('scroll', handleScroll, { capture: true, passive: true })
+    return () => {
+      document.removeEventListener('mousedown', handleClickOutside)
+      window.removeEventListener('scroll', handleScroll, { capture: true })
+    }
   }, [open])
+
+  function handleOpen() {
+    const rect = triggerRef.current?.getBoundingClientRect()
+    if (!rect) return
+    const estDropH = Math.min(256, options.length * 34 + 8)
+    const spaceBelow = window.innerHeight - rect.bottom
+    const top = spaceBelow >= estDropH ? rect.bottom + 2 : rect.top - estDropH - 2
+    setDropdownPos({ top, left: rect.left, minWidth: Math.max(208, rect.width) })
+    setOpen(o => !o)
+  }
+
   function toggle(opt: string) {
     const next = selected.includes(opt) ? selected.filter(s => s !== opt) : [...selected, opt]
     onSave(next)
   }
+
   return (
-    <div ref={ref} className="relative">
-      <button onClick={() => setOpen(o => !o)}
+    <div>
+      <button ref={triggerRef} onClick={handleOpen}
         className={`text-left text-sm w-full truncate transition-colors ${lightMode ? 'text-gray-700 hover:text-indigo-600' : 'hover:text-indigo-300'}`}
         title={selected.join(', ')}>
         {selected.length === 0 ? <span className={lightMode ? 'text-gray-400' : 'text-gray-600'}>—</span> : selected.join(', ')}
       </button>
-      {open && (
-        <div className={`absolute z-50 top-full left-0 mt-1 border rounded-lg shadow-xl min-w-52 max-h-64 overflow-y-auto ${lightMode ? 'bg-white border-gray-200' : 'bg-gray-800 border-gray-700'}`}>
+      {open && dropdownPos && (
+        <div
+          ref={dropdownRef}
+          style={{ position: 'fixed', top: dropdownPos.top, left: dropdownPos.left, minWidth: dropdownPos.minWidth, zIndex: 9999 }}
+          className={`border rounded-lg shadow-xl max-h-64 overflow-y-auto ${lightMode ? 'bg-white border-gray-200' : 'bg-gray-800 border-gray-700'}`}
+        >
           {options.map(opt => (
             <label key={opt} className={`flex items-center gap-2 px-3 py-1.5 cursor-pointer ${lightMode ? 'hover:bg-gray-50' : 'hover:bg-gray-700'}`}>
               <input type="checkbox" checked={selected.includes(opt)} onChange={() => toggle(opt)} className="rounded accent-indigo-500" />
@@ -422,8 +451,8 @@ function resolveColumns(
 }
 
 // ── Attempts sub-rows ─────────────────────────────
-function AttemptsRows({ leadId, lightMode, totalColSpan }: {
-  leadId: string; lightMode: boolean; totalColSpan: number
+function AttemptsRows({ leadId, lightMode, totalColSpan, onAttemptNoteSaved }: {
+  leadId: string; lightMode: boolean; totalColSpan: number; onAttemptNoteSaved?: (note: string) => void
 }) {
   const [attempts, setAttempts] = useState<LeadAttempt[]>([])
   const [loading, setLoading] = useState(true)
@@ -487,6 +516,7 @@ function AttemptsRows({ leadId, lightMode, totalColSpan }: {
         const next = prev.filter(a => a.attempt_number !== n)
         return [...next, saved].sort((a, b) => a.attempt_number - b.attempt_number)
       })
+      if ('notes' in patch && saved.notes) onAttemptNoteSaved?.(saved.notes)
     }
   }
 
@@ -607,7 +637,7 @@ type AnyColWithMeta = (ColumnDef | { id: string; label: string; defaultWidth: nu
 
 function LeadRow({
   lead, opts, checked, onToggle, onUpdate, onCustomUpdate, onOpenNotes, onEdit,
-  lightMode, statusColors, columns, freezeCount, colLeft, totalColSpan,
+  lightMode, statusColors, columns, freezeCount, colLeft, totalColSpan, onAttemptNoteSaved,
 }: {
   lead: Lead; opts: TrackerSettings; checked: boolean; onToggle: () => void
   onUpdate: (id: string, field: string, value: unknown) => void
@@ -615,7 +645,7 @@ function LeadRow({
   onOpenNotes: (id: string) => void; onEdit: (id: string) => void
   lightMode: boolean; statusColors: Record<string, string>
   columns: AnyColWithMeta[]; freezeCount: number; colLeft: number[]
-  totalColSpan: number
+  totalColSpan: number; onAttemptNoteSaved?: (leadId: string, note: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
 
@@ -675,7 +705,8 @@ function LeadRow({
         </td>
       </tr>
       {expanded && (
-        <AttemptsRows leadId={lead.id} lightMode={lightMode} totalColSpan={totalColSpan} />
+        <AttemptsRows leadId={lead.id} lightMode={lightMode} totalColSpan={totalColSpan}
+          onAttemptNoteSaved={(note) => onAttemptNoteSaved?.(lead.id, note)} />
       )}
     </>
   )
@@ -755,7 +786,7 @@ function GroupCheckbox({ leads, selectedIds, onToggleGroupAll }: {
 function GroupSection({
   group, collapsed, onToggle, opts, selectedIds, onToggleSelect, onToggleGroupAll,
   onUpdate, onCustomUpdate, onOpenNotes, onEdit, stageColor, lightMode, columns,
-  onColumnResize, onColumnReorder, sort, onToggleSort, onSetSort,
+  onColumnResize, onColumnReorder, sort, onToggleSort, onSetSort, onAttemptNoteSaved,
 }: {
   group: { key: string; label: string; leads: Lead[] }
   collapsed: boolean; onToggle: () => void; opts: TrackerSettings
@@ -769,6 +800,7 @@ function GroupSection({
   onColumnReorder: (fromId: string, toId: string) => void
   sort: SortState; onToggleSort: (id: string) => void
   onSetSort: (id: string, dir: 'asc' | 'desc' | null) => void
+  onAttemptNoteSaved?: (leadId: string, note: string) => void
 }) {
   const EXPAND_CHECKBOX_W = 56 // expand(20) + gap(4) + checkbox(20) + px-2 on each side
   const freezeCount = Math.min(1, columns.length)
@@ -822,7 +854,7 @@ function GroupSection({
                   onOpenNotes={onOpenNotes} onEdit={onEdit}
                   lightMode={lightMode} statusColors={opts.status_colors ?? {}}
                   columns={columns} freezeCount={freezeCount} colLeft={colLeft}
-                  totalColSpan={totalColSpan} />
+                  totalColSpan={totalColSpan} onAttemptNoteSaved={onAttemptNoteSaved} />
               ))}
               {group.leads.length === 0 && (
                 <tr>
@@ -1245,6 +1277,13 @@ export default function TrackerPage({
     setColumnsMenuOpen(false)
   }, [])
 
+  const handleAttemptNoteSaved = useCallback((leadId: string, note: string) => {
+    setLeads(prev => prev.map(l => l.id === leadId ? {
+      ...l,
+      latest_note: { note, created_by: currentUser.name, created_at: new Date().toISOString() },
+    } : l))
+  }, [currentUser.name])
+
   // Shared horizontal scroll
   const hScrollRef = useRef<HTMLDivElement>(null)
   const trackRef = useRef<HTMLDivElement>(null)
@@ -1527,7 +1566,8 @@ export default function TrackerPage({
                   onColumnResize={handleColumnResize} onColumnReorder={handleColumnReorder}
                   sort={sort}
                   onToggleSort={id => setSort(s => cycleSort(s, id))}
-                  onSetSort={(id, dir) => setSort(dir ? { key: id, dir } : null)} />
+                  onSetSort={(id, dir) => setSort(dir ? { key: id, dir } : null)}
+                  onAttemptNoteSaved={handleAttemptNoteSaved} />
               ))}
             </div>
           </div>
