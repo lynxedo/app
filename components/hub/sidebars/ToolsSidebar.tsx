@@ -180,6 +180,7 @@ export default function ToolsSidebar({
           </button>
           {open.marketing && (
             <>
+              <ToolRow href="/hub/marketing" iconId="marketing" label="Marketing home" onClose={onClose} />
               {canAccessMarketing && <ToolRow href="/hub/marketing/social" iconId="marketing" label="Social" onClose={onClose} />}
               {(isAdmin || canAdminMarketing) && (
                 <ToolRow href="/hub/admin/marketing" iconId="marketing" label="Admin: Marketing" onClose={onClose} />

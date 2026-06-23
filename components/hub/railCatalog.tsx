@@ -250,7 +250,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'files',        label: 'Files',         href: '/hub/files', pickable: true, requires: 'canAccessFiles' },
   { id: 'company-news', label: 'Company News',  href: '/hub/pages/company-news', pickable: true },
   { id: 'contacts',     label: 'Contacts',      href: '/hub/contacts', prefixMatch: true, pickable: true, requires: 'canAccessHub' },
-  { id: 'marketing', label: 'Marketing', href: '/hub/marketing/social', prefixMatch: true, pickable: true, requires: 'canAccessMarketing' },
+  { id: 'marketing', label: 'Marketing', href: '/hub/marketing', prefixMatch: true, pickable: true, requires: 'canAccessMarketing' },
   { id: 'email',     label: 'Email',     href: '/hub/marketing/email', prefixMatch: true, pickable: true, requires: 'canAccessEmail' },
   { id: 'pesticide-records', label: 'Products Used', href: '/hub/pesticide-records', prefixMatch: true, pickable: true, requires: 'canAccessPesticideRecords' },
   { id: 'forms',     label: 'Forms',     href: '/hub/forms', prefixMatch: true, pickable: true, requires: 'canAccessForms' },

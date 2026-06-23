@@ -1436,6 +1436,9 @@ function CallLogTab() {
 function MarketingTab() {
   return (
     <>
+      <Section title="The Marketing section">
+        <p>All marketing channels live under one roof. Open <strong className="text-white">Marketing</strong> (the megaphone icon, or Tools → Marketing → Marketing home) to reach the overview, then pick a channel from the cards or the Marketing sidebar: <strong className="text-white">Email</strong>, <strong className="text-white">Social</strong>, and — soon — <strong className="text-white">Txt</strong>. The Marketing sidebar stays with you as you move between channels, with admin shortcuts at the bottom for anyone with admin access.</p>
+      </Section>
       <Section title="Social Posting">
         <p>Schedule Facebook and Instagram posts directly from Hub Files photos — without leaving Lynxedo.</p>
         <p className="mt-2">Navigate to <strong className="text-white">Marketing → Social</strong> from the Tools sidebar to access the queue.</p>
