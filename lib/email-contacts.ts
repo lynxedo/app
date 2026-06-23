@@ -52,10 +52,12 @@ export function parseCsv(text: string): string[][] {
   return rows
 }
 
-// Mailchimp's TAGS cell is comma-separated within a single (quoted) field.
+// Mailchimp's TAGS cell is comma-separated within a single (quoted) field, and
+// each tag is often itself wrapped in double quotes — strip those so labels
+// don't end up like "12V" (with literal quote chars).
 function splitTags(cell: string | undefined): string[] {
   if (!cell) return []
-  return cell.split(',').map(t => t.trim()).filter(Boolean)
+  return cell.split(',').map(t => t.trim().replace(/^"+|"+$/g, '').trim()).filter(Boolean)
 }
 
 /**
