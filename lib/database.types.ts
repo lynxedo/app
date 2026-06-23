@@ -1190,18 +1190,21 @@ export type Database = {
           assigned_at: string
           assigned_by: string | null
           contact_id: string
+          source: string
           tag_id: string
         }
         Insert: {
           assigned_at?: string
           assigned_by?: string | null
           contact_id: string
+          source?: string
           tag_id: string
         }
         Update: {
           assigned_at?: string
           assigned_by?: string | null
           contact_id?: string
+          source?: string
           tag_id?: string
         }
         Relationships: [
