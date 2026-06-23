@@ -3,7 +3,7 @@
 // table-based, inline-styled HTML that survives Gmail/Outlook/Apple Mail (no
 // <style>, no flexbox, no modern CSS). Dependency-free + importable on both the
 // client (live preview) and server (send-time render), like lib/email-markdown.
-import { renderInline, renderMergeFields, type MergeContext } from '@/lib/email-markdown'
+import { renderMergeFields, type MergeContext } from '@/lib/email-markdown'
 
 export type Align = 'left' | 'center' | 'right'
 
@@ -43,7 +43,7 @@ export function emptyDesign(): EmailDesign {
 export function makeBlock(type: BlockType, id: string): EmailBlock {
   switch (type) {
     case 'header': return { id, type, logoUrl: '', logoWidth: 180, bg: '#ffffff', align: 'center', padding: 24 }
-    case 'text': return { id, type, content: 'Hi {{first_name}},\n\nWrite your message here. **Bold**, *italic*, and [links](https://example.com) work.', color: '#222222', bg: '#ffffff', fontSize: 15, align: 'left', padding: 20 }
+    case 'text': return { id, type, content: '<div>Hi {{first_name}},</div><div><br></div><div>Write your message here — use the toolbar to make text <b>bold</b>, add bullets, or drop in an emoji.</div>', color: '#222222', bg: '#ffffff', fontSize: 15, align: 'left', padding: 20 }
     case 'image': return { id, type, url: '', alt: '', width: 100, align: 'center', linkUrl: '', bg: '#ffffff', padding: 0 }
     case 'button': return { id, type, label: 'Book now', linkUrl: 'https://', bg: '#2563eb', color: '#ffffff', radius: 6, align: 'center', padding: 16 }
     case 'divider': return { id, type, color: '#e5e7eb', thickness: 1, padding: 12 }
@@ -74,6 +74,36 @@ function esc(s: string): string {
   return (s || '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;')
 }
 
+// Sanitize + inline-style the WYSIWYG HTML from a Text block for email. Allowlist
+// of formatting tags only; drops every other tag (keeping its text), strips all
+// attributes except a safe href on <a>, and inlines list/link styles (email
+// clients ignore <style>). Tolerant of the trusted-staff authoring model — the
+// point is clean, client-safe email markup, not defending against hostile input.
+const ALLOWED_TAGS = new Set(['b', 'strong', 'i', 'em', 'u', 'a', 'ul', 'ol', 'li', 'br', 'div', 'p', 'span'])
+export function sanitizeRichHtml(html: string): string {
+  if (!html) return ''
+  // Drop script/style blocks entirely (content included).
+  let s = html.replace(/<(script|style)[\s\S]*?<\/\1>/gi, '')
+  s = s.replace(/<(\/?)([a-zA-Z0-9]+)([^>]*)>/g, (_m, slash: string, tag: string, attrs: string) => {
+    const t = tag.toLowerCase()
+    if (!ALLOWED_TAGS.has(t)) return ''
+    if (slash) return `</${t}>`
+    if (t === 'br') return '<br/>'
+    if (t === 'a') {
+      const m = attrs.match(/\bhref\s*=\s*("([^"]*)"|'([^']*)'|([^\s>]+))/i)
+      let url = (m ? (m[2] ?? m[3] ?? m[4] ?? '') : '').trim()
+      if (!/^(https?:|mailto:)/i.test(url)) url = ''
+      const href = url ? ` href="${url.replace(/"/g, '%22')}"` : ''
+      return `<a${href} target="_blank" rel="noopener noreferrer" style="color:#2563eb">`
+    }
+    if (t === 'ul') return '<ul style="margin:0 0 12px;padding-left:22px">'
+    if (t === 'ol') return '<ol style="margin:0 0 12px;padding-left:22px">'
+    if (t === 'li') return '<li style="margin:0 0 4px">'
+    return `<${t}>` // b/strong/i/em/u/span/div/p — strip all attributes
+  })
+  return s
+}
+
 // Make a possibly-relative media path absolute for email clients. Block image
 // URLs are stored as app-relative paths (/api/hub/marketing/email/media/...);
 // at send time we prefix the site origin so inboxes can fetch them.
@@ -96,7 +126,7 @@ function renderBlock(b: EmailBlock, baseUrl: string): string {
       return `<tr><td align="${b.align}" style="background:${esc(b.bg)};padding:${pad(b.padding)}">${inner}</td></tr>`
     }
     case 'text': {
-      const html = renderInline(b.content).replace(/\n/g, '<br/>')
+      const html = sanitizeRichHtml(b.content)
       return `<tr><td align="${b.align}" style="background:${esc(b.bg)};padding:${pad(b.padding)};color:${esc(b.color)};font-family:Arial,Helvetica,sans-serif;font-size:${b.fontSize}px;line-height:1.55;text-align:${b.align}">${html}</td></tr>`
     }
     case 'image': {

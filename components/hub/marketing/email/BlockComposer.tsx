@@ -6,7 +6,7 @@ import {
   type EmailDesign, type EmailBlock, type BlockType, type Align,
   BLOCK_LABELS, emptyDesign, makeBlock, normalizeDesign, renderDesignToHtml,
 } from '@/lib/email-blocks'
-import { MERGE_FIELDS } from '@/lib/email-markdown'
+import RichTextEditor from '@/components/hub/marketing/email/RichTextEditor'
 
 export type Template = {
   id: string
@@ -223,7 +223,7 @@ function BlockFields({ block, onChange }: { block: EmailBlock; onChange: (patch:
     case 'text':
       return (
         <div className="space-y-3">
-          <MergeTextarea value={block.content} onChange={(v) => onChange({ content: v })} />
+          <RichTextEditor value={block.content} onChange={(v) => onChange({ content: v })} />
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             <ColorField label="Text" value={block.color} onChange={(v) => onChange({ color: v })} />
             <ColorField label="Background" value={block.bg} onChange={(v) => onChange({ bg: v })} />
@@ -321,34 +321,6 @@ function AlignField({ value, onChange }: { value: Align; onChange: (v: Align) =>
           </button>
         ))}
       </div>
-    </div>
-  )
-}
-
-function MergeTextarea({ value, onChange }: { value: string; onChange: (v: string) => void }) {
-  const ref = useRef<HTMLTextAreaElement>(null)
-  function insert(field: string) {
-    const token = `{{${field}}}`
-    const el = ref.current
-    if (!el) { onChange(value + token); return }
-    const start = el.selectionStart ?? value.length
-    const end = el.selectionEnd ?? value.length
-    onChange(value.slice(0, start) + token + value.slice(end))
-    requestAnimationFrame(() => { el.focus(); el.selectionStart = el.selectionEnd = start + token.length })
-  }
-  return (
-    <div>
-      <div className="flex items-center justify-between mb-1">
-        <label className="text-[11px] text-gray-400">Content (Markdown: **bold**, *italic*, [link](url))</label>
-        <div className="flex items-center gap-1">
-          <span className="text-[11px] text-gray-500">Insert:</span>
-          {MERGE_FIELDS.map((f) => (
-            <button key={f} onClick={() => insert(f)} className="text-[11px] rounded bg-gray-800 border border-gray-700 px-1.5 py-0.5 text-gray-300 hover:bg-gray-700">{`{{${f}}}`}</button>
-          ))}
-        </div>
-      </div>
-      <textarea ref={ref} value={value} onChange={(e) => onChange(e.target.value)} rows={5}
-        className="w-full rounded bg-gray-800 border border-gray-700 px-2 py-1.5 text-sm text-white font-mono leading-relaxed" />
     </div>
   )
 }
