@@ -261,6 +261,12 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
   const [picked, setPicked] = useState<string[]>([])
   const [contactQuery, setContactQuery] = useState('')
 
+  // Per-recipient review for segment/everyone mode: the resolved list (captured
+  // when the user opens "Review recipients") + the ids they've unchecked to drop.
+  const [reviewing, setReviewing] = useState(false)
+  const [resolved, setResolved] = useState<Contact[] | null>(null)
+  const [excluded, setExcluded] = useState<Set<string>>(new Set())
+
   const [when, setWhen] = useState<'now' | 'later'>('now')
   const [scheduledAt, setScheduledAt] = useState('')
 
@@ -294,7 +300,11 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
     })()
   }, [audMode, contacts, toast])
 
-  // Recipient count. Manual mode = number picked; segment mode = live preview.
+  // Changing the audience invalidates any prior recipient review.
+  useEffect(() => { setResolved(null); setExcluded(new Set()) }, [audMode, segmentId])
+
+  // Recipient count. Manual mode = number picked; segment mode = live preview
+  // (minus anyone the user unchecked in the review list).
   useEffect(() => {
     if (audMode === 'contacts') { setCounting(false); setCount(picked.length); return }
     if (debounce.current) clearTimeout(debounce.current)
@@ -308,13 +318,13 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
           body: JSON.stringify({ filter }),
         })
         const data = await res.json().catch(() => ({}))
-        if (res.ok) setCount(data.count ?? 0)
+        if (res.ok) setCount(Math.max(0, (data.count ?? 0) - excluded.size))
       } finally {
         setCounting(false)
       }
     }, 250)
     return () => { if (debounce.current) clearTimeout(debounce.current) }
-  }, [audMode, segmentId, segments, picked])
+  }, [audMode, segmentId, segments, picked, excluded])
 
   // Pick a template as the starting point — loads its design + subject into the
   // editor. Editing here never changes the source template.
@@ -366,7 +376,11 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
         name: name.trim(),
       }
       if (audMode === 'contacts') payload.contact_ids = picked
-      else payload.segment_id = segmentId || null
+      else if (excluded.size > 0 && resolved) {
+        // Segment/everyone with some recipients unchecked → send the trimmed list
+        // explicitly. Still intersected with the emailable audience server-side.
+        payload.contact_ids = resolved.filter((c) => !excluded.has(c.id)).map((c) => c.id)
+      } else payload.segment_id = segmentId || null
       if (when === 'later' && scheduledAt) payload.scheduled_at = new Date(scheduledAt).toISOString()
       const res = await fetch(BASE, {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -457,13 +471,26 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
           </div>
 
           {audMode === 'segment' ? (
-            <select
-              value={segmentId} onChange={(e) => setSegmentId(e.target.value)}
-              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white"
-            >
-              <option value="">Everyone (all subscribed contacts)</option>
-              {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-            </select>
+            <div className="space-y-2">
+              <select
+                value={segmentId} onChange={(e) => setSegmentId(e.target.value)}
+                className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white"
+              >
+                <option value="">Everyone (all subscribed contacts)</option>
+                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => setReviewing(true)}
+                  className="text-sm rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-gray-300 hover:text-white"
+                >Review recipients</button>
+                {excluded.size > 0 && (
+                  <span className="text-xs text-amber-300">{excluded.size} excluded
+                    <button onClick={() => setExcluded(new Set())} className="ml-1.5 text-gray-400 hover:text-white underline">undo</button>
+                  </span>
+                )}
+              </div>
+            </div>
           ) : contacts === null ? (
             <p className="text-sm text-gray-500 rounded-lg border border-gray-800 bg-gray-900 p-3">Loading contacts…</p>
           ) : contacts.length === 0 ? (
@@ -533,6 +560,114 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
           Each email includes a one-click unsubscribe and your mailing address (CAN-SPAM). Anyone unsubscribed
           or suppressed is automatically skipped — even if they unsubscribe after this is queued.
         </p>
+      </div>
+
+      {reviewing && (
+        <ReviewRecipients
+          filter={segments.find((s) => s.id === segmentId)?.filter || {}}
+          excluded={excluded}
+          onClose={() => setReviewing(false)}
+          onApply={(nextExcluded, list) => { setExcluded(nextExcluded); setResolved(list); setReviewing(false) }}
+        />
+      )}
+    </Modal>
+  )
+}
+
+// Review the people a segment/everyone resolves to, with a checkbox per row
+// (all checked by default). Unchecking drops that person from this one send.
+function ReviewRecipients({
+  filter, excluded, onClose, onApply,
+}: { filter: Filter; excluded: Set<string>; onClose: () => void; onApply: (excluded: Set<string>, list: Contact[]) => void }) {
+  const toast = useToast()
+  const [loading, setLoading] = useState(true)
+  const [list, setList] = useState<Contact[]>([])
+  const [local, setLocal] = useState<Set<string>>(new Set(excluded))
+  const [query, setQuery] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      try {
+        const res = await fetch('/api/hub/marketing/email/segments/preview', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filter, full: true }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (res.ok) setList(data.contacts || [])
+        else toast.error(data.error || 'Could not load recipients.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filtered = list.filter((c) => {
+    const q = query.trim().toLowerCase()
+    if (!q) return true
+    return (c.name || '').toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q)
+  })
+  const keptCount = list.length - local.size
+
+  function toggle(id: string) {
+    setLocal((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }
+
+  return (
+    <Modal open onClose={onClose} title="Review recipients" maxWidth="max-w-lg" fullScreenOnMobile
+      footer={
+        <div className="flex items-center justify-between w-full gap-2">
+          <span className="text-sm text-gray-400"><strong className="text-white">{keptCount}</strong> will receive it{local.size > 0 ? ` · ${local.size} excluded` : ''}</span>
+          <div className="flex gap-2">
+            <Button variant="ghost" onClick={onClose}>Cancel</Button>
+            <Button onClick={() => onApply(local, list)}>Apply</Button>
+          </div>
+        </div>
+      }
+    >
+      <div className="space-y-3">
+        {loading ? (
+          <p className="text-sm text-gray-500 py-6 text-center">Loading recipients…</p>
+        ) : list.length === 0 ? (
+          <EmptyState title="No subscribed recipients match this audience right now." />
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-2">
+              <input
+                value={query} onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search name or email…"
+                className="flex-1 rounded-lg bg-gray-800 border border-gray-700 px-3 py-1.5 text-sm text-white"
+              />
+              <div className="flex-none flex gap-2 text-xs">
+                <button onClick={() => setLocal(new Set())} className="text-gray-400 hover:text-white">All</button>
+                <button onClick={() => setLocal(new Set(list.map((c) => c.id)))} className="text-gray-400 hover:text-white">None</button>
+              </div>
+            </div>
+            <ul className="max-h-[55vh] overflow-auto divide-y divide-gray-800 rounded-lg border border-gray-800">
+              {filtered.map((c) => {
+                const on = !local.has(c.id)
+                return (
+                  <li key={c.id}>
+                    <button onClick={() => toggle(c.id)} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.04]">
+                      <span className={'flex-none w-4 h-4 rounded border flex items-center justify-center text-[10px] ' + (on ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-600')}>{on ? '✓' : ''}</span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block text-sm text-gray-200 truncate">{c.name || c.email}</span>
+                        <span className="block text-xs text-gray-500 truncate">{c.email}</span>
+                      </span>
+                    </button>
+                  </li>
+                )
+              })}
+              {filtered.length === 0 && <li className="px-3 py-3 text-xs text-gray-600">No matches for “{query}”.</li>}
+            </ul>
+          </>
+        )}
       </div>
     </Modal>
   )
