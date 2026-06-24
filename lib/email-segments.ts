@@ -20,7 +20,7 @@
 // and its invoice. The contact→account link is the directory's jobber_client_id
 // (a Jobber GID = clients.external_id).
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { getEmailAudience, type EmailAudienceRow } from '@/lib/email-contacts'
+import { getEmailAudience, fetchAllRows, type EmailAudienceRow } from '@/lib/email-contacts'
 
 type Admin = SupabaseClient<any, any, any>
 
@@ -29,6 +29,10 @@ export type SegmentFilter = {
   missing_tag?: string[]
   has_line_item?: string[]
   missing_line_item?: string[]
+  // Jobber account status. Absent = both. 'active' excludes archived/cancelled
+  // customers; 'archived' targets only them (win-back). Contacts with no Jobber
+  // link (e.g. Mailchimp imports) count as active.
+  account_status?: 'active' | 'archived'
 }
 
 export function normalizeFilter(raw: unknown): SegmentFilter {
@@ -44,12 +48,26 @@ export function normalizeFilter(raw: unknown): SegmentFilter {
   if (missing.length) out.missing_tag = missing
   if (hasLi.length) out.has_line_item = hasLi
   if (missingLi.length) out.missing_line_item = missingLi
+  if (f.account_status === 'active' || f.account_status === 'archived') out.account_status = f.account_status
   return out
 }
 
 export function isEveryone(filter: SegmentFilter): boolean {
   return !(filter.has_tag?.length) && !(filter.missing_tag?.length)
     && !(filter.has_line_item?.length) && !(filter.missing_line_item?.length)
+    && !filter.account_status
+}
+
+// All Jobber client GIDs (clients.external_id) currently archived for the company.
+async function archivedClientGids(admin: Admin, companyId: string): Promise<Set<string>> {
+  const rows = await fetchAllRows<{ external_id: string }>(() => admin
+    .from('clients')
+    .select('external_id')
+    .eq('company_id', companyId)
+    .eq('is_archived', true)
+    .not('external_id', 'is', null)
+    .order('external_id', { ascending: true }))
+  return new Set(rows.map(r => r.external_id).filter(Boolean))
 }
 
 // Resolve a single line-item token ("dept:WF" | "name:<exact>") to the set of
@@ -135,10 +153,11 @@ export async function resolveSegment(
     })
   }
 
-  // ── Line-item filtering (JOB line items only) ───────────────────────────────
+  // ── Account-status + line-item filtering (both keyed on the Jobber GID) ──────
   const hasLi = filter.has_line_item ?? []
   const missLi = filter.missing_line_item ?? []
-  if ((hasLi.length || missLi.length) && rows.length) {
+  const needGid = (filter.account_status || hasLi.length || missLi.length) && rows.length
+  if (needGid) {
     // Map each surviving contact → its Jobber GID (account link), if any.
     const gidByContact = new Map<string, string | null>()
     const ids = rows.map(r => r.id)
@@ -151,19 +170,33 @@ export async function resolveSegment(
         .in('id', part)
       for (const row of data ?? []) gidByContact.set(row.id as string, (row.jobber_client_id as string) || null)
     }
-    const hasSets = await Promise.all(hasLi.map(t => lineItemClientGids(admin, companyId, t)))
-    const missSets = await Promise.all(missLi.map(t => lineItemClientGids(admin, companyId, t)))
-    rows = rows.filter(r => {
-      const gid = gidByContact.get(r.id) ?? null
-      // "has" requires a linked account whose jobs carry every selected line item.
-      if (hasLi.length) {
-        if (!gid) return false
-        if (!hasSets.every(s => s.has(gid))) return false
-      }
-      // "missing" excludes anyone whose account carries any selected line item.
-      if (missLi.length && gid && missSets.some(s => s.has(gid))) return false
-      return true
-    })
+
+    // Account status: a contact with no Jobber link counts as active (e.g. a
+    // Mailchimp-only marketing contact is not a cancelled customer).
+    if (filter.account_status) {
+      const archived = await archivedClientGids(admin, companyId)
+      rows = rows.filter(r => {
+        const gid = gidByContact.get(r.id) ?? null
+        const isArchived = gid ? archived.has(gid) : false
+        return filter.account_status === 'archived' ? isArchived : !isArchived
+      })
+    }
+
+    if (hasLi.length || missLi.length) {
+      const hasSets = await Promise.all(hasLi.map(t => lineItemClientGids(admin, companyId, t)))
+      const missSets = await Promise.all(missLi.map(t => lineItemClientGids(admin, companyId, t)))
+      rows = rows.filter(r => {
+        const gid = gidByContact.get(r.id) ?? null
+        // "has" requires a linked account whose jobs carry every selected line item.
+        if (hasLi.length) {
+          if (!gid) return false
+          if (!hasSets.every(s => s.has(gid))) return false
+        }
+        // "missing" excludes anyone whose account carries any selected line item.
+        if (missLi.length && gid && missSets.some(s => s.has(gid))) return false
+        return true
+      })
+    }
   }
 
   return rows

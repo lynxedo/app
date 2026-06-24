@@ -9,6 +9,7 @@ type Filter = {
   missing_tag?: string[]
   has_line_item?: string[]
   missing_line_item?: string[]
+  account_status?: 'active' | 'archived'
 }
 type Segment = { id: string; name: string; filter: Filter; updated_at: string }
 type SampleRow = { id: string; name: string; email: string }
@@ -30,6 +31,7 @@ export default function SegmentsTab() {
   const [lineItems, setLineItems] = useState<LineItemOptions>({ depts: [], names: [] })
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Segment | 'new' | null>(null)
+  const [viewing, setViewing] = useState<{ name: string; filter: Filter } | null>(null)
 
   async function load() {
     setLoading(true)
@@ -68,6 +70,8 @@ export default function SegmentsTab() {
     const missing = (f.missing_tag || []).map(tagLabel)
     const hasLi = (f.has_line_item || []).map(tokenLabel)
     const missLi = (f.missing_line_item || []).map(tokenLabel)
+    if (f.account_status === 'active') parts.push('active customers only')
+    if (f.account_status === 'archived') parts.push('archived customers only')
     if (has.length) parts.push(`has ${has.join(' + ')}`)
     if (hasLi.length) parts.push(`buys ${hasLi.join(' + ')}`)
     if (missing.length) parts.push(`not ${missing.join(', ')}`)
@@ -103,6 +107,7 @@ export default function SegmentsTab() {
                 <div className="text-sm text-gray-400 truncate">{describe(s.filter)}</div>
               </button>
               <div className="flex-none flex gap-2">
+                <button onClick={() => setViewing({ name: s.name, filter: s.filter })} className="text-sm text-gray-400 hover:text-white">View</button>
                 <button onClick={() => setEditing(s)} className="text-sm text-gray-400 hover:text-white">Edit</button>
                 <button onClick={() => remove(s)} className="text-sm text-red-400/80 hover:text-red-400">Delete</button>
               </div>
@@ -125,21 +130,95 @@ export default function SegmentsTab() {
             })
             setEditing(null)
           }}
+          onView={(name, filter) => setViewing({ name, filter })}
         />
+      )}
+
+      {viewing && (
+        <ContactsModal name={viewing.name} filter={viewing.filter} onClose={() => setViewing(null)} />
       )}
     </div>
   )
 }
 
+// Shows the actual people a segment resolves to (not just the count).
+function ContactsModal({ name, filter, onClose }: { name: string; filter: Filter; onClose: () => void }) {
+  const toast = useToast()
+  const [loading, setLoading] = useState(true)
+  const [contacts, setContacts] = useState<SampleRow[]>([])
+  const [query, setQuery] = useState('')
+
+  useEffect(() => {
+    let cancelled = false
+    ;(async () => {
+      setLoading(true)
+      try {
+        const res = await fetch('/api/hub/marketing/email/segments/preview', {
+          method: 'POST', headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ filter, full: true }),
+        })
+        const data = await res.json().catch(() => ({}))
+        if (cancelled) return
+        if (res.ok) setContacts(data.contacts || [])
+        else toast.error(data.error || 'Could not load contacts.')
+      } finally {
+        if (!cancelled) setLoading(false)
+      }
+    })()
+    return () => { cancelled = true }
+  }, []) // eslint-disable-line react-hooks/exhaustive-deps
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase()
+    if (!q) return contacts
+    return contacts.filter((c) => (c.name || '').toLowerCase().includes(q) || (c.email || '').toLowerCase().includes(q))
+  }, [query, contacts])
+
+  return (
+    <Modal open onClose={onClose} title={`Contacts in “${name}”`} maxWidth="max-w-lg" fullScreenOnMobile
+      footer={<div className="flex justify-end w-full"><Button variant="ghost" onClick={onClose}>Close</Button></div>}
+    >
+      <div className="space-y-3">
+        {loading ? (
+          <p className="text-sm text-gray-500 py-6 text-center">Loading contacts…</p>
+        ) : contacts.length === 0 ? (
+          <EmptyState title="No subscribed contacts match this segment right now." />
+        ) : (
+          <>
+            <div className="flex items-center justify-between gap-2">
+              <span className="text-sm text-gray-400"><strong className="text-white">{contacts.length}</strong> recipient{contacts.length === 1 ? '' : 's'}</span>
+              <input
+                value={query} onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search name or email…"
+                className="rounded-lg bg-gray-800 border border-gray-700 px-3 py-1.5 text-sm text-white w-48"
+              />
+            </div>
+            <ul className="max-h-[55vh] overflow-auto divide-y divide-gray-800 rounded-lg border border-gray-800">
+              {filtered.map((c) => (
+                <li key={c.id} className="px-3 py-2">
+                  <div className="text-sm text-gray-100 truncate">{c.name || c.email}</div>
+                  <div className="text-xs text-gray-500 truncate">{c.email}</div>
+                </li>
+              ))}
+              {filtered.length === 0 && <li className="px-3 py-3 text-xs text-gray-600">No matches for “{query}”.</li>}
+            </ul>
+          </>
+        )}
+      </div>
+    </Modal>
+  )
+}
+
 function SegmentEditor({
-  segment, tags, lineItems, onClose, onSaved,
-}: { segment: Segment | null; tags: Tag[]; lineItems: LineItemOptions; onClose: () => void; onSaved: (s: Segment) => void }) {
+  segment, tags, lineItems, onClose, onSaved, onView,
+}: { segment: Segment | null; tags: Tag[]; lineItems: LineItemOptions; onClose: () => void; onSaved: (s: Segment) => void; onView: (name: string, filter: Filter) => void }) {
   const toast = useToast()
   const [name, setName] = useState(segment?.name || '')
   const [hasTags, setHasTags] = useState<string[]>(segment?.filter?.has_tag || [])
   const [missingTags, setMissingTags] = useState<string[]>(segment?.filter?.missing_tag || [])
   const [hasLi, setHasLi] = useState<string[]>(segment?.filter?.has_line_item || [])
   const [missingLi, setMissingLi] = useState<string[]>(segment?.filter?.missing_line_item || [])
+  const [accountStatus, setAccountStatus] = useState<'any' | 'active' | 'archived'>(segment?.filter?.account_status || 'any')
   const [saving, setSaving] = useState(false)
   const [preview, setPreview] = useState<{ count: number; sample: SampleRow[] } | null>(null)
   const [previewing, setPreviewing] = useState(false)
@@ -150,6 +229,7 @@ function SegmentEditor({
   if (missingTags.length) filter.missing_tag = missingTags
   if (hasLi.length) filter.has_line_item = hasLi
   if (missingLi.length) filter.missing_line_item = missingLi
+  if (accountStatus !== 'any') filter.account_status = accountStatus
 
   // Live recipient count, debounced as the filter changes.
   useEffect(() => {
@@ -168,7 +248,7 @@ function SegmentEditor({
       }
     }, 400)
     return () => { if (debounce.current) clearTimeout(debounce.current) }
-  }, [hasTags, missingTags, hasLi, missingLi]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hasTags, missingTags, hasLi, missingLi, accountStatus]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggle(list: string[], setList: (v: string[]) => void, id: string) {
     setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
@@ -191,7 +271,7 @@ function SegmentEditor({
     }
   }
 
-  const hasAnyFilter = !!(hasTags.length || missingTags.length || hasLi.length || missingLi.length)
+  const hasAnyFilter = !!(hasTags.length || missingTags.length || hasLi.length || missingLi.length || accountStatus !== 'any')
   const hasLineItemOptions = lineItems.depts.length > 0 || lineItems.names.length > 0
 
   return (
@@ -207,6 +287,7 @@ function SegmentEditor({
             {previewing ? 'Counting…' : preview ? <><strong className="text-white">≈ {preview.count}</strong> recipient{preview.count === 1 ? '' : 's'}</> : ''}
           </span>
           <div className="flex gap-2">
+            <Button variant="ghost" onClick={() => onView(name.trim() || 'this segment', filter)} disabled={!preview || preview.count === 0}>View contacts</Button>
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
             <Button onClick={save} disabled={saving}>{saving ? 'Saving…' : 'Save'}</Button>
           </div>
@@ -221,6 +302,26 @@ function SegmentEditor({
             placeholder="e.g. Weed & Fert, no PHC"
             className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white"
           />
+        </div>
+
+        {/* Account status (Jobber active vs archived/cancelled) */}
+        <div>
+          <label className="block text-xs text-gray-400 mb-1.5">Customer status</label>
+          <div className="flex gap-1.5">
+            {([
+              { v: 'any', label: 'All customers' },
+              { v: 'active', label: 'Active only' },
+              { v: 'archived', label: 'Archived only' },
+            ] as const).map((o) => (
+              <button
+                key={o.v} onClick={() => setAccountStatus(o.v)}
+                className={'text-xs rounded-full border px-3 py-1 ' + (accountStatus === o.v
+                  ? 'bg-blue-500/15 border-blue-500/40 text-blue-300'
+                  : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200')}
+              >{o.label}</button>
+            ))}
+          </div>
+          <p className="text-xs text-gray-600 mt-1">“Active only” excludes cancelled (archived) Jobber customers. Imported contacts with no Jobber account count as active.</p>
         </div>
 
         {/* Tags */}

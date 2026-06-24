@@ -118,24 +118,43 @@ async function applyDirectoryTags(
 
 export type EmailAudienceRow = { id: string; email: string; first_name: string | null; last_name: string | null; name: string }
 
+// PostgREST caps a single response at ~1000 rows, so a plain .select() silently
+// truncates large result sets (Heroes' audience is ~1,400). Page through with
+// .range() until a short page comes back. `build` must return a FRESH query each
+// call (a PostgREST builder is single-use) and impose a stable .order() so pages
+// don't overlap or skip.
+export async function fetchAllRows<T>(build: () => any, pageSize = 1000): Promise<T[]> {
+  const out: T[] = []
+  let from = 0
+  for (;;) {
+    const { data, error } = await build().range(from, from + pageSize - 1)
+    if (error || !data || data.length === 0) break
+    out.push(...(data as T[]))
+    if (data.length < pageSize) break
+    from += pageSize
+  }
+  return out
+}
+
 /**
  * The send audience = directory contacts that have an email, are subscribed, and
  * are not on the suppression ledger. This is the canonical "who gets an email"
- * query for the Session 3+ campaign sender.
+ * query for the Session 3+ campaign sender. Paginated — never truncates the list.
  */
 export async function getEmailAudience(admin: Admin, companyId: string): Promise<EmailAudienceRow[]> {
-  const { data: contacts } = await admin
+  const rows = await fetchAllRows<EmailAudienceRow>(() => admin
     .from(DIRECTORY)
     .select('id, email, first_name, last_name, name')
     .eq('company_id', companyId)
     .is('deleted_at', null)
     .eq('email_status', 'subscribed')
     .not('email', 'is', null)
-  const rows = (contacts ?? []) as EmailAudienceRow[]
+    .order('id', { ascending: true }))
   if (rows.length === 0) return []
-  const { data: sup } = await admin
+  const sup = await fetchAllRows<{ email: string }>(() => admin
     .from('email_suppressions').select('email').eq('company_id', companyId)
-  const suppressed = new Set((sup ?? []).map(s => (s.email as string).toLowerCase()))
+    .order('email', { ascending: true }))
+  const suppressed = new Set(sup.map(s => (s.email as string).toLowerCase()))
   return rows.filter(r => r.email && !suppressed.has(r.email.toLowerCase()))
 }
 
