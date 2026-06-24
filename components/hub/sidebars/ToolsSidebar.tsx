@@ -59,6 +59,8 @@ export default function ToolsSidebar({
   canAccessDialer,
   canAccessMarketing,
   canAdminMarketing,
+  canAccessEmail,
+  canAdminEmail,
   canAccessForms,
   canAccessScoreboards,
   canAccessPricer,
@@ -78,6 +80,8 @@ export default function ToolsSidebar({
   canAccessDialer: boolean
   canAccessMarketing: boolean
   canAdminMarketing: boolean
+  canAccessEmail?: boolean
+  canAdminEmail?: boolean
   canAccessForms?: boolean
   canAccessScoreboards?: boolean
   canAccessPricer?: boolean
@@ -168,7 +172,7 @@ export default function ToolsSidebar({
         </div>
       )}
 
-      {canAccessMarketing && (
+      {(canAccessMarketing || canAccessEmail) && (
         <div>
           <button onClick={() => toggle('marketing')} className="w-full flex items-center gap-1 px-2 mb-1 group">
             <Chevron open={open.marketing} />
@@ -176,9 +180,14 @@ export default function ToolsSidebar({
           </button>
           {open.marketing && (
             <>
-              <ToolRow href="/hub/marketing/social" iconId="marketing" label="Social" onClose={onClose} />
+              <ToolRow href="/hub/marketing" iconId="marketing" label="Marketing home" onClose={onClose} />
+              {canAccessMarketing && <ToolRow href="/hub/marketing/social" iconId="marketing" label="Social" onClose={onClose} />}
               {(isAdmin || canAdminMarketing) && (
                 <ToolRow href="/hub/admin/marketing" iconId="marketing" label="Admin: Marketing" onClose={onClose} />
+              )}
+              {canAccessEmail && <ToolRow href="/hub/marketing/email" iconId="email" label="Email" onClose={onClose} />}
+              {(isAdmin || canAdminEmail) && (
+                <ToolRow href="/hub/admin/email" iconId="email" label="Admin: Email Marketing" onClose={onClose} />
               )}
             </>
           )}

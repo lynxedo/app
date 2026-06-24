@@ -2369,6 +2369,223 @@ export type Database = {
           },
         ]
       }
+      email_contact_tags: {
+        Row: {
+          contact_id: string
+          created_at: string
+          id: string
+          source: string
+          tag: string
+        }
+        Insert: {
+          contact_id: string
+          created_at?: string
+          id?: string
+          source?: string
+          tag: string
+        }
+        Update: {
+          contact_id?: string
+          created_at?: string
+          id?: string
+          source?: string
+          tag?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_contact_tags_contact_id_fkey"
+            columns: ["contact_id"]
+            isOneToOne: false
+            referencedRelation: "email_contacts"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_contacts: {
+        Row: {
+          company_id: string
+          created_at: string
+          email: string
+          first_name: string | null
+          id: string
+          imported_batch_id: string | null
+          jobber_client_id: string | null
+          last_name: string | null
+          source: string
+          status: string
+          updated_at: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          email: string
+          first_name?: string | null
+          id?: string
+          imported_batch_id?: string | null
+          jobber_client_id?: string | null
+          last_name?: string | null
+          source?: string
+          status?: string
+          updated_at?: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          email?: string
+          first_name?: string | null
+          id?: string
+          imported_batch_id?: string | null
+          jobber_client_id?: string | null
+          last_name?: string | null
+          source?: string
+          status?: string
+          updated_at?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_contacts_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_imports: {
+        Row: {
+          company_id: string
+          created_at: string
+          created_by: string | null
+          created_count: number
+          filename: string | null
+          id: string
+          list_type: string | null
+          skipped_count: number
+          source: string
+          suppressed_count: number
+          total_rows: number
+          updated_count: number
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          created_by?: string | null
+          created_count?: number
+          filename?: string | null
+          id?: string
+          list_type?: string | null
+          skipped_count?: number
+          source?: string
+          suppressed_count?: number
+          total_rows?: number
+          updated_count?: number
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          created_by?: string | null
+          created_count?: number
+          filename?: string | null
+          id?: string
+          list_type?: string | null
+          skipped_count?: number
+          source?: string
+          suppressed_count?: number
+          total_rows?: number
+          updated_count?: number
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_imports_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_suppressions: {
+        Row: {
+          company_id: string
+          created_at: string
+          email: string
+          id: string
+          reason: string
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          email: string
+          id?: string
+          reason: string
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          email?: string
+          id?: string
+          reason?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_suppressions_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: false
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
+      email_settings: {
+        Row: {
+          company_id: string
+          created_at: string
+          domain_verified: boolean
+          from_email: string | null
+          from_name: string | null
+          physical_address: string | null
+          reply_to: string | null
+          resend_domain_id: string | null
+          sending_domain: string | null
+          updated_at: string
+          updated_by: string | null
+        }
+        Insert: {
+          company_id: string
+          created_at?: string
+          domain_verified?: boolean
+          from_email?: string | null
+          from_name?: string | null
+          physical_address?: string | null
+          reply_to?: string | null
+          resend_domain_id?: string | null
+          sending_domain?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Update: {
+          company_id?: string
+          created_at?: string
+          domain_verified?: boolean
+          from_email?: string | null
+          from_name?: string | null
+          physical_address?: string | null
+          reply_to?: string | null
+          resend_domain_id?: string | null
+          sending_domain?: string | null
+          updated_at?: string
+          updated_by?: string | null
+        }
+        Relationships: [
+          {
+            foreignKeyName: "email_settings_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       external_links: {
         Row: {
           company_id: string
@@ -6816,7 +7033,7 @@ export type Database = {
           manually_edited: boolean
           name: string
           notes: string | null
-          phone: string | null
+          phone: string
           phone_digits: string | null
           postal_code: string | null
           sources: string[]
@@ -6843,7 +7060,7 @@ export type Database = {
           manually_edited?: boolean
           name: string
           notes?: string | null
-          phone?: string | null
+          phone: string
           phone_digits?: string | null
           postal_code?: string | null
           sources?: string[]
@@ -6870,7 +7087,7 @@ export type Database = {
           manually_edited?: boolean
           name?: string
           notes?: string | null
-          phone?: string | null
+          phone?: string
           phone_digits?: string | null
           postal_code?: string | null
           sources?: string[]
@@ -7419,6 +7636,7 @@ export type Database = {
           can_access_hub: boolean
           can_access_lawn: boolean
           can_access_marketing: boolean
+          can_access_email: boolean
           can_access_responder: boolean
           can_access_files: boolean
           can_access_pesticide_records: boolean
@@ -7440,6 +7658,7 @@ export type Database = {
           can_admin_guardian: boolean
           can_admin_hub: boolean
           can_admin_marketing: boolean
+          can_admin_email: boolean
           can_admin_people: boolean
           can_admin_products: boolean
           can_admin_routing: boolean
@@ -7488,6 +7707,7 @@ export type Database = {
           can_access_hub?: boolean
           can_access_lawn?: boolean
           can_access_marketing?: boolean
+          can_access_email?: boolean
           can_access_responder?: boolean
           can_access_files?: boolean
           can_access_pesticide_records?: boolean
@@ -7509,6 +7729,7 @@ export type Database = {
           can_admin_guardian?: boolean
           can_admin_hub?: boolean
           can_admin_marketing?: boolean
+          can_admin_email?: boolean
           can_admin_people?: boolean
           can_admin_products?: boolean
           can_admin_routing?: boolean
@@ -7557,6 +7778,7 @@ export type Database = {
           can_access_hub?: boolean
           can_access_lawn?: boolean
           can_access_marketing?: boolean
+          can_access_email?: boolean
           can_access_responder?: boolean
           can_access_files?: boolean
           can_access_pesticide_records?: boolean
@@ -7578,6 +7800,7 @@ export type Database = {
           can_admin_guardian?: boolean
           can_admin_hub?: boolean
           can_admin_marketing?: boolean
+          can_admin_email?: boolean
           can_admin_people?: boolean
           can_admin_products?: boolean
           can_admin_routing?: boolean
@@ -7999,6 +8222,7 @@ export type Database = {
           can_access_hub: boolean
           can_access_lawn: boolean
           can_access_marketing: boolean
+          can_access_email: boolean
           can_access_responder: boolean
           can_access_files: boolean
           can_access_pesticide_records: boolean
@@ -8020,6 +8244,7 @@ export type Database = {
           can_admin_guardian: boolean
           can_admin_hub: boolean
           can_admin_marketing: boolean
+          can_admin_email: boolean
           can_admin_people: boolean
           can_admin_products: boolean
           can_admin_routing: boolean

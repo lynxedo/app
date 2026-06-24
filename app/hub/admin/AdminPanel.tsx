@@ -36,6 +36,8 @@ type UserProfile = {
   can_admin_contacts: boolean
   can_access_marketing: boolean
   can_admin_marketing: boolean
+  can_access_email: boolean
+  can_admin_email: boolean
   can_access_forms: boolean
   can_admin_forms: boolean
   can_admin_products: boolean
@@ -86,7 +88,8 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_access_txt', label: 'Txt2 (new texting)' },
   { key: 'can_access_unified_inbox', label: 'Unified Inbox' },
   { key: 'can_post_shout_outs', label: 'Post Shout Outs' },
-  { key: 'can_access_marketing', label: 'Marketing' },
+  { key: 'can_access_marketing', label: 'Marketing (Social)' },
+  { key: 'can_access_email', label: 'Email Marketing' },
   { key: 'can_access_forms', label: 'Forms' },
   { key: 'can_access_daily_log_v2', label: 'Daily Log v2' },
   { key: 'can_access_call_log2', label: 'Call Log 2' },
@@ -112,7 +115,8 @@ const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_admin_zone_sizer', label: 'Zone Sizer' },
   { key: 'can_admin_dialer', label: 'Dialer' },
   { key: 'can_admin_forms', label: 'Form Builder' },
-  { key: 'can_admin_marketing', label: 'Marketing' },
+  { key: 'can_admin_marketing', label: 'Marketing (Social)' },
+  { key: 'can_admin_email', label: 'Email Marketing' },
 ]
 
 function getInitials(name: string | null, email: string): string {
@@ -228,6 +232,8 @@ export default function AdminPanel({
             can_admin_contacts: false,
             can_access_marketing: false,
             can_admin_marketing: false,
+            can_access_email: false,
+            can_admin_email: false,
             can_access_forms: true,
             can_admin_forms: false,
             can_admin_products: false,
@@ -365,6 +371,8 @@ export default function AdminPanel({
             can_admin_contacts: false,
             can_access_marketing: false,
             can_admin_marketing: false,
+            can_access_email: false,
+            can_admin_email: false,
             can_access_forms: true,
             can_admin_forms: false,
             can_admin_products: false,

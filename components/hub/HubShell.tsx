@@ -22,6 +22,7 @@ import TxtV2Sidebar from './sidebars/TxtV2Sidebar'
 import DialerSidebar from './sidebars/DialerSidebar'
 import ScoreboardsSidebar from './sidebars/ScoreboardsSidebar'
 import TrackerSidebar from './sidebars/TrackerSidebar'
+import MarketingSidebar from './sidebars/MarketingSidebar'
 import AnnouncementTicker, { type Announcement } from './AnnouncementTicker'
 import HubQuickCompose from './HubQuickCompose'
 import TimesheetClockModal from './TimesheetClockModal'
@@ -77,6 +78,8 @@ export default function HubShell({
   canAccessUnifiedInbox,
   canAccessMarketing,
   canAdminMarketing,
+  canAccessEmail,
+  canAdminEmail,
   canAccessForms,
   canAccessDailyLogV2,
   canAccessScoreboards,
@@ -139,6 +142,8 @@ export default function HubShell({
   canAccessUnifiedInbox?: boolean
   canAccessMarketing?: boolean
   canAdminMarketing?: boolean
+  canAccessEmail?: boolean
+  canAdminEmail?: boolean
   canAccessForms?: boolean
   canAccessDailyLogV2?: boolean
   canAccessScoreboards?: boolean
@@ -725,6 +730,7 @@ export default function HubShell({
     canAccessDialer: !!canAccessDialer,
     canAccessTxt: !!canAccessTxt,
     canAccessMarketing: !!canAccessMarketing,
+    canAccessEmail: !!canAccessEmail,
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
     canAccessScoreboards: !!canAccessScoreboards,
@@ -778,6 +784,8 @@ export default function HubShell({
             canAccessDialer={!!canAccessDialer}
             canAccessMarketing={!!canAccessMarketing}
             canAdminMarketing={!!canAdminMarketing}
+            canAccessEmail={!!canAccessEmail}
+            canAdminEmail={!!canAdminEmail}
             canAccessForms={!!canAccessForms}
             canAccessScoreboards={!!canAccessScoreboards}
             canAccessPricer={!!canAccessPricer}
@@ -789,6 +797,18 @@ export default function HubShell({
         return <ScoreboardsSidebar isAdmin={!!isAdmin} allowedSlugs={scoreboardSlugs} onClose={closeMobileDrawer} {...collapseProps} />
       case 'tracker':
         return <TrackerSidebar isAdmin={!!isAdmin} onClose={closeMobileDrawer} {...collapseProps} />
+      case 'marketing':
+        return (
+          <MarketingSidebar
+            isAdmin={!!isAdmin}
+            canAccessMarketing={!!canAccessMarketing}
+            canAccessEmail={!!canAccessEmail}
+            canAdminMarketing={!!canAdminMarketing}
+            canAdminEmail={!!canAdminEmail}
+            onClose={closeMobileDrawer}
+            {...collapseProps}
+          />
+        )
       case 'links':
         return <LinksSidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'activity':
