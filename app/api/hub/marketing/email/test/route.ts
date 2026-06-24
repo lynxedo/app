@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendEmail, formatFrom, resendConfigured } from '@/lib/resend'
 import { renderMergeFields } from '@/lib/email-markdown'
 import { normalizeDesign, isEmptyDesign, renderDesignToHtml } from '@/lib/email-blocks'
+import { appendComplianceFooter, unsubscribeUrls } from '@/lib/email-campaigns'
 
 // Send a verified test email to the signed-in user. Gated on can_access_email
 // (admins always). Uses the company's configured sending identity from
@@ -39,7 +40,7 @@ export async function POST(request: Request) {
   const admin = createAdminClient()
   const { data: settings } = await admin
     .from('email_settings')
-    .select('from_name, from_email, reply_to, domain_verified')
+    .select('from_name, from_email, reply_to, domain_verified, physical_address')
     .eq('company_id', profile.company_id)
     .maybeSingle()
 
@@ -62,9 +63,19 @@ export async function POST(request: Request) {
 
   if (isTemplateTest) {
     subject = `[TEST] ${renderMergeFields(tplSubject || '(no subject)', mergeCtx)}`
-    // Render the block design to email-safe HTML with this request's origin so
-    // uploaded images/logos resolve, and merge fields filled with the caller's name.
-    html = renderDesignToHtml(design, { baseUrl: new URL(request.url).origin, merge: mergeCtx })
+    // Use the public domain (NEXT_PUBLIC_APP_URL), NOT request.url's origin —
+    // behind the Cloudflare tunnel the latter is an internal address (localhost),
+    // so uploaded images/logos would render broken in the inbox.
+    const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin).replace(/\/$/, '')
+    const rendered = renderDesignToHtml(design, { baseUrl, merge: mergeCtx })
+    // Append the same CAN-SPAM footer (brand + mailing address + working
+    // unsubscribe) real campaigns get, so the test is a faithful preview.
+    const unsub = unsubscribeUrls(baseUrl, profile.company_id, user.email)
+    html = appendComplianceFooter(rendered, {
+      brand: settings.from_name || '',
+      physicalAddress: settings.physical_address,
+      unsubscribeLink: unsub.link,
+    })
     text = 'This is a test send of a draft email template, delivered only to you.'
   } else {
     subject = 'Lynxedo Email — test message'

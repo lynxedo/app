@@ -39,7 +39,8 @@ export async function POST(request: Request) {
   if (name.length > MAX_NAME) return NextResponse.json({ error: `Name max ${MAX_NAME} chars` }, { status: 400 })
   if (subject.length > MAX_SUBJECT) return NextResponse.json({ error: `Subject max ${MAX_SUBJECT} chars` }, { status: 400 })
 
-  const baseUrl = new URL(request.url).origin
+  // Public domain (not the proxy-internal request origin) so image URLs resolve in inboxes.
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin).replace(/\/$/, '')
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('email_templates')
