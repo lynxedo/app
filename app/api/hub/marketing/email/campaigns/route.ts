@@ -75,7 +75,10 @@ export async function POST(request: Request) {
   // template edits never change a sent campaign). template_id, if present, is just
   // provenance ("started from this template"); when no design is sent we fall back
   // to the template's own design (back-compat / "send as-is").
-  const baseUrl = new URL(request.url).origin
+  // Absolute origin for image URLs. NEXT_PUBLIC_APP_URL is the public domain;
+  // request.url's origin is the proxy-internal address behind the Cloudflare
+  // tunnel (e.g. localhost:3000), which Gmail's image proxy can't fetch.
+  const baseUrl = (process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin).replace(/\/$/, '')
   let design = normalizeDesign(body.design)
   let subject = String(body.subject || '').trim()
   let sourceName = 'Campaign'

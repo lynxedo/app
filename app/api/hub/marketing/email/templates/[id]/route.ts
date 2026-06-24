@@ -31,7 +31,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   if (body.design !== undefined) {
     const design = normalizeDesign(body.design)
     patch.design = design
-    patch.body_html = renderDesignToHtml(design, { baseUrl: new URL(request.url).origin })
+    patch.body_html = renderDesignToHtml(design, { baseUrl: (process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin).replace(/\/$/, '') })
   }
 
   const admin = createAdminClient()
