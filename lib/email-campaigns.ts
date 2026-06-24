@@ -3,9 +3,185 @@
 // path used by BOTH the campaign drainer and the automation engine — so the
 // compliance wrapping can never drift between the two. The unsubscribe token is
 // the signed HMAC from lib/email-unsubscribe.
+import type { SupabaseClient } from '@supabase/supabase-js'
 import { signUnsubToken } from '@/lib/email-unsubscribe'
 import { sendEmail, formatFrom, type ResendSendResult } from '@/lib/resend'
 import { renderMergeFields } from '@/lib/email-markdown'
+import { getEmailAudience, normalizeEmail, type EmailAudienceRow } from '@/lib/email-contacts'
+import { resolveSegment, normalizeFilter } from '@/lib/email-segments'
+import { normalizeDesign, renderDesignToHtml, type EmailDesign } from '@/lib/email-blocks'
+
+type Admin = SupabaseClient<any, any, any>
+
+/**
+ * The audience picks for a campaign, persisted on email_campaigns.audience so a
+ * draft round-trips and a sent campaign records what it targeted. A campaign can
+ * combine ANY of these — segments, hand-picked contacts, and typed-in addresses —
+ * and the resolver below merges them, de-duplicated by email, so nobody gets the
+ * same campaign twice.
+ *   everyone       — all subscribed, non-suppressed directory contacts (supersedes segment_ids)
+ *   segment_ids    — saved segments; their audiences are UNIONed
+ *   contact_ids    — directory contact ids hand-picked from the emailable audience
+ *   extra_emails   — addresses typed in by hand that are NOT directory contacts (one-off sends)
+ *   excluded_ids   — directory contact ids to drop from the resolved list (per-send review)
+ */
+export type AudienceSpec = {
+  everyone?: boolean
+  segment_ids?: string[]
+  contact_ids?: string[]
+  extra_emails?: string[]
+  excluded_ids?: string[]
+}
+
+export type CampaignRecipient = {
+  contact_id: string | null
+  email: string
+  first_name: string | null
+  last_name: string | null
+}
+
+const strArr = (v: unknown): string[] =>
+  Array.isArray(v) ? [...new Set(v.filter((x): x is string => typeof x === 'string' && x.length > 0))] : []
+
+/** Coerce arbitrary request JSON into a clean AudienceSpec (back-compat: a single
+ *  `segment_id` string folds into segment_ids). */
+export function normalizeAudienceSpec(body: Record<string, unknown>): AudienceSpec {
+  const segmentIds = strArr(body.segment_ids)
+  const legacy = typeof body.segment_id === 'string' && body.segment_id ? [body.segment_id] : []
+  return {
+    everyone: body.everyone === true,
+    segment_ids: [...new Set([...segmentIds, ...legacy])],
+    contact_ids: strArr(body.contact_ids),
+    extra_emails: strArr(body.extra_emails).map((e) => e.trim()).filter(Boolean),
+    excluded_ids: strArr(body.excluded_ids),
+  }
+}
+
+/**
+ * Resolve an AudienceSpec to the final, de-duplicated recipient list. Directory
+ * contacts (everyone / segments / picks) are matched against getEmailAudience, so
+ * they're already subscribed + non-suppressed; typed-in addresses bypass the
+ * directory but are still suppression-checked at SEND time by the drainer. Dedup
+ * key is the lowercased email — a contact present in two segments, or typed in by
+ * hand AND in a segment, appears once (the contact row wins so we keep the name).
+ */
+export async function resolveCampaignAudience(
+  admin: Admin,
+  companyId: string,
+  spec: AudienceSpec,
+): Promise<CampaignRecipient[]> {
+  const byEmail = new Map<string, CampaignRecipient>()
+  const excluded = new Set(spec.excluded_ids ?? [])
+
+  const addContact = (r: EmailAudienceRow) => {
+    if (!r.email || excluded.has(r.id)) return
+    const key = r.email.toLowerCase()
+    if (!byEmail.has(key)) {
+      byEmail.set(key, { contact_id: r.id, email: r.email, first_name: r.first_name, last_name: r.last_name })
+    }
+  }
+
+  // Directory contacts from "everyone" or the union of selected segments.
+  if (spec.everyone) {
+    ;(await getEmailAudience(admin, companyId)).forEach(addContact)
+  } else if (spec.segment_ids?.length) {
+    const { data: segs } = await admin
+      .from('email_segments')
+      .select('id, filter')
+      .eq('company_id', companyId)
+      .in('id', spec.segment_ids)
+    for (const seg of segs ?? []) {
+      ;(await resolveSegment(admin, companyId, normalizeFilter(seg.filter))).forEach(addContact)
+    }
+  }
+
+  // Hand-picked contacts (intersected with the emailable audience so suppressed /
+  // unsubscribed picks can never slip through).
+  if (spec.contact_ids?.length) {
+    const picked = new Set(spec.contact_ids)
+    ;(await getEmailAudience(admin, companyId)).filter((r) => picked.has(r.id)).forEach(addContact)
+  }
+
+  // Typed-in addresses that aren't directory contacts → one-off recipients. Only
+  // added if a contact with that same email isn't already in the list.
+  for (const raw of spec.extra_emails ?? []) {
+    const e = normalizeEmail(raw)
+    if (e && !byEmail.has(e)) byEmail.set(e, { contact_id: null, email: e, first_name: null, last_name: null })
+  }
+
+  return [...byEmail.values()]
+}
+
+/**
+ * Resolve a campaign's email content (subject + email-safe HTML snapshot). The
+ * compose flow sends the edited design + subject directly; template_id, when
+ * present, is provenance ("started from this template") and also a fallback
+ * source when no design/subject was sent (back-compat "send as-is"). The HTML is
+ * snapshotted so later template edits never change a sent/queued campaign.
+ */
+export async function buildCampaignContent(
+  admin: Admin,
+  companyId: string,
+  body: Record<string, unknown>,
+  baseUrl: string,
+): Promise<
+  | { ok: true; templateId: string | null; design: EmailDesign; subject: string; bodyHtml: string; sourceName: string }
+  | { ok: false; status: number; error: string }
+> {
+  const templateId = typeof body.template_id === 'string' && body.template_id ? body.template_id : null
+  let design = normalizeDesign(body.design)
+  let subject = String(body.subject || '').trim()
+  let sourceName = 'Campaign'
+
+  if (templateId) {
+    const { data: tpl } = await admin
+      .from('email_templates')
+      .select('id, name, subject, design')
+      .eq('company_id', companyId)
+      .eq('id', templateId)
+      .maybeSingle()
+    if (!tpl) return { ok: false, status: 404, error: 'Template not found' }
+    sourceName = tpl.name
+    if (!design.blocks.length) design = normalizeDesign(tpl.design)
+    if (!subject) subject = String(tpl.subject || '').trim()
+  }
+
+  const bodyHtml = design.blocks.length ? renderDesignToHtml(design, { baseUrl }) : ''
+  return { ok: true, templateId, design, subject, bodyHtml, sourceName }
+}
+
+/** Insert one queued recipient row per resolved recipient, chunked. Returns the
+ *  first error (the caller deletes the half-built campaign on failure). */
+export async function enqueueCampaignRecipients(
+  admin: Admin,
+  campaignId: string,
+  recipients: CampaignRecipient[],
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const rows = recipients.map((r) => ({
+    campaign_id: campaignId,
+    contact_id: r.contact_id,
+    email: r.email,
+    first_name: r.first_name,
+    last_name: r.last_name,
+    status: 'queued' as const,
+  }))
+  for (let i = 0; i < rows.length; i += 500) {
+    const { error } = await admin.from('email_campaign_recipients').insert(rows.slice(i, i + 500))
+    if (error) return { ok: false, error: error.message }
+  }
+  return { ok: true }
+}
+
+/** A short, human label for a campaign's audience, used when auto-naming. */
+export function describeAudience(spec: AudienceSpec, segmentNames: string[]): string {
+  if (spec.everyone) return 'Everyone'
+  const parts: string[] = []
+  if (segmentNames.length === 1) parts.push(segmentNames[0])
+  else if (segmentNames.length > 1) parts.push(`${segmentNames.length} segments`)
+  if (spec.contact_ids?.length) parts.push(`${spec.contact_ids.length} picked`)
+  if (spec.extra_emails?.length) parts.push(`${spec.extra_emails.length} typed`)
+  return parts.length ? parts.join(' + ') : 'Selected recipients'
+}
 
 export type EmailSendIdentity = {
   from_name: string | null
