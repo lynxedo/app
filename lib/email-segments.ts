@@ -33,6 +33,11 @@ export type SegmentFilter = {
   // customers; 'archived' targets only them (win-back). Contacts with no Jobber
   // link (e.g. Mailchimp imports) count as active.
   account_status?: 'active' | 'archived'
+  // When true, a line-item rule ("buys X") counts only CURRENT services — line
+  // items on a non-archived job — so a customer who cancelled that service no
+  // longer matches. When false/absent, it matches any job they've ever had
+  // (historical). Only affects has_line_item / missing_line_item.
+  line_item_active_only?: boolean
 }
 
 export function normalizeFilter(raw: unknown): SegmentFilter {
@@ -49,6 +54,7 @@ export function normalizeFilter(raw: unknown): SegmentFilter {
   if (hasLi.length) out.has_line_item = hasLi
   if (missingLi.length) out.missing_line_item = missingLi
   if (f.account_status === 'active' || f.account_status === 'archived') out.account_status = f.account_status
+  if (f.line_item_active_only === true) out.line_item_active_only = true
   return out
 }
 
@@ -74,7 +80,7 @@ async function archivedClientGids(admin: Admin, companyId: string): Promise<Set<
 // Jobber client GIDs (clients.external_id) whose JOB line items match it. Two
 // hops in JS (no SQL joins via PostgREST): line_items(parent_type='job') →
 // parent_id (job id) → jobs.clients(external_id).
-async function lineItemClientGids(admin: Admin, companyId: string, token: string): Promise<Set<string>> {
+async function lineItemClientGids(admin: Admin, companyId: string, token: string, activeOnly: boolean): Promise<Set<string>> {
   const sep = token.indexOf(':')
   const kind = sep === -1 ? '' : token.slice(0, sep)
   const value = sep === -1 ? '' : token.slice(sep + 1)
@@ -98,9 +104,12 @@ async function lineItemClientGids(admin: Admin, companyId: string, token: string
     const part = jobIds.slice(i, i + CHUNK)
     const { data: jobRows } = await admin
       .from('jobs')
-      .select('clients(external_id)')
+      .select('job_status, clients(external_id)')
       .in('id', part)
     for (const j of jobRows ?? []) {
+      // "active services only" = ignore line items on archived (ended) jobs, so a
+      // cancelled service stops matching. A null status counts as not-archived.
+      if (activeOnly && (j as any).job_status === 'archived') continue
       const ext = (j as any).clients?.external_id as string | undefined
       if (ext) gids.add(ext)
     }
@@ -183,8 +192,9 @@ export async function resolveSegment(
     }
 
     if (hasLi.length || missLi.length) {
-      const hasSets = await Promise.all(hasLi.map(t => lineItemClientGids(admin, companyId, t)))
-      const missSets = await Promise.all(missLi.map(t => lineItemClientGids(admin, companyId, t)))
+      const activeOnly = !!filter.line_item_active_only
+      const hasSets = await Promise.all(hasLi.map(t => lineItemClientGids(admin, companyId, t, activeOnly)))
+      const missSets = await Promise.all(missLi.map(t => lineItemClientGids(admin, companyId, t, activeOnly)))
       rows = rows.filter(r => {
         const gid = gidByContact.get(r.id) ?? null
         // "has" requires a linked account whose jobs carry every selected line item.

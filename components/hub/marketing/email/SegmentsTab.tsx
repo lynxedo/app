@@ -10,6 +10,7 @@ type Filter = {
   has_line_item?: string[]
   missing_line_item?: string[]
   account_status?: 'active' | 'archived'
+  line_item_active_only?: boolean
 }
 type Segment = { id: string; name: string; filter: Filter; updated_at: string }
 type SampleRow = { id: string; name: string; email: string }
@@ -219,6 +220,10 @@ function SegmentEditor({
   const [hasLi, setHasLi] = useState<string[]>(segment?.filter?.has_line_item || [])
   const [missingLi, setMissingLi] = useState<string[]>(segment?.filter?.missing_line_item || [])
   const [accountStatus, setAccountStatus] = useState<'any' | 'active' | 'archived'>(segment?.filter?.account_status || 'any')
+  // Default ON: "buys X" should mean currently has X. Existing segments saved
+  // without the flag open with it ON so the corrected (current-service) count
+  // shows immediately; saving persists it.
+  const [lineItemActiveOnly, setLineItemActiveOnly] = useState<boolean>(segment?.filter?.line_item_active_only ?? true)
   const [saving, setSaving] = useState(false)
   const [preview, setPreview] = useState<{ count: number; sample: SampleRow[] } | null>(null)
   const [previewing, setPreviewing] = useState(false)
@@ -230,6 +235,7 @@ function SegmentEditor({
   if (hasLi.length) filter.has_line_item = hasLi
   if (missingLi.length) filter.missing_line_item = missingLi
   if (accountStatus !== 'any') filter.account_status = accountStatus
+  if ((hasLi.length || missingLi.length) && lineItemActiveOnly) filter.line_item_active_only = true
 
   // Live recipient count, debounced as the filter changes.
   useEffect(() => {
@@ -248,7 +254,7 @@ function SegmentEditor({
       }
     }, 400)
     return () => { if (debounce.current) clearTimeout(debounce.current) }
-  }, [hasTags, missingTags, hasLi, missingLi, accountStatus]) // eslint-disable-line react-hooks/exhaustive-deps
+  }, [hasTags, missingTags, hasLi, missingLi, accountStatus, lineItemActiveOnly]) // eslint-disable-line react-hooks/exhaustive-deps
 
   function toggle(list: string[], setList: (v: string[]) => void, id: string) {
     setList(list.includes(id) ? list.filter((x) => x !== id) : [...list, id])
@@ -342,6 +348,14 @@ function SegmentEditor({
             <p className="text-xs text-gray-500 pt-2">Filter by the Jobber <strong className="text-gray-400">services</strong> a customer&apos;s account has purchased (from their jobs). Pick a whole department or a specific line item.</p>
             <LineItemPicker label="Account must have these services" emptyHint="Any service" accent="green" options={lineItems} selected={hasLi} onToggle={(tok) => toggle(hasLi, setHasLi, tok)} />
             <LineItemPicker label="Account must NOT have these services" emptyHint="No exclusions" accent="red" options={lineItems} selected={missingLi} onToggle={(tok) => toggle(missingLi, setMissingLi, tok)} />
+            {(hasLi.length > 0 || missingLi.length > 0) && (
+              <label className="flex items-start gap-2 text-xs text-gray-300 cursor-pointer pt-1">
+                <input type="checkbox" checked={lineItemActiveOnly} onChange={(e) => setLineItemActiveOnly(e.target.checked)} className="mt-0.5" />
+                <span>
+                  <strong className="text-gray-200">Only customers who currently have the service</strong> — counts the service only if it&apos;s on an active (non-archived) job. Uncheck to match anyone who&apos;s <em>ever</em> had it, including customers who cancelled it.
+                </span>
+              </label>
+            )}
           </div>
         )}
 
