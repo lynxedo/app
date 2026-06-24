@@ -488,6 +488,7 @@ function renderTerminalAction(
     extensionResolver?: (ext: string) => { identity: string; ownerUserId: string } | null
     ringGroupUrlFor?: (groupId: string, index: number) => string
     perUserVoicemailUrlFor?: (ownerUserId: string) => string
+    dialExtensionUrlFor?: (retry: number) => string
   }
 ): string {
   switch (action.kind) {
@@ -560,6 +561,28 @@ function renderTerminalAction(
       return `<Redirect method="POST">${safeUrl(url)}</Redirect>`
     }
 
+    // Dial-by-extension — prompt the caller for an extension, then POST what they
+    // enter to the dial-extension handler (which resolves it → conference connect,
+    // or re-prompts once → general voicemail). numDigits=3 matches the assigned
+    // extension length; finishOnKey lets a shorter/longer one submit early.
+    case 'dial_by_extension': {
+      if (!opts.dialExtensionUrlFor) {
+        return `<Redirect method="POST">${safeUrl(opts.voicemailRouteUrl)}</Redirect>`
+      }
+      const promptXml = renderPrompt(action.prompt) || '<Say voice="alice">Please enter the extension.</Say>'
+      const gatherUrl = opts.dialExtensionUrlFor(0)
+      const attrs = [
+        'input="dtmf"',
+        'numDigits="3"',
+        'finishOnKey="#"',
+        'timeout="6"',
+        `action="${safeUrl(gatherUrl)}"`,
+        'method="POST"',
+        'actionOnEmptyResult="true"',
+      ].join(' ')
+      return `<Gather ${attrs}>${promptXml}</Gather><Redirect method="POST">${safeUrl(opts.voicemailRouteUrl)}</Redirect>`
+    }
+
     // Submenu and repeat are not terminal — caller should handle them upstream.
     case 'submenu':
     case 'repeat':
@@ -594,6 +617,7 @@ export function twimlRenderIvrNode(opts: {
   extensionResolver?: (ext: string) => { identity: string; ownerUserId: string } | null
   ringGroupUrlFor?: (groupId: string, index: number) => string
   perUserVoicemailUrlFor?: (ownerUserId: string) => string
+  dialExtensionUrlFor?: (retry: number) => string
 }): string {
   const tree = opts.config.trees?.[opts.treeName]
   if (!tree) {
@@ -644,6 +668,7 @@ export function twimlRenderIvrAction(opts: {
   extensionResolver?: (ext: string) => { identity: string; ownerUserId: string } | null
   ringGroupUrlFor?: (groupId: string, index: number) => string
   perUserVoicemailUrlFor?: (ownerUserId: string) => string
+  dialExtensionUrlFor?: (retry: number) => string
 }): string {
   // Submenu → render the target node (with a fresh Gather).
   if (opts.action.kind === 'submenu') {
@@ -660,6 +685,7 @@ export function twimlRenderIvrAction(opts: {
       extensionResolver: opts.extensionResolver,
       ringGroupUrlFor: opts.ringGroupUrlFor,
       perUserVoicemailUrlFor: opts.perUserVoicemailUrlFor,
+      dialExtensionUrlFor: opts.dialExtensionUrlFor,
     })
   }
 
@@ -672,6 +698,7 @@ export function twimlRenderIvrAction(opts: {
     extensionResolver: opts.extensionResolver,
     ringGroupUrlFor: opts.ringGroupUrlFor,
     perUserVoicemailUrlFor: opts.perUserVoicemailUrlFor,
+    dialExtensionUrlFor: opts.dialExtensionUrlFor,
   })
   return `<?xml version="1.0" encoding="UTF-8"?><Response>${inner}</Response>`
 }
@@ -693,6 +720,7 @@ export function twimlRenderIvrRepeat(opts: {
   extensionResolver?: (ext: string) => { identity: string; ownerUserId: string } | null
   ringGroupUrlFor?: (groupId: string, index: number) => string
   perUserVoicemailUrlFor?: (ownerUserId: string) => string
+  dialExtensionUrlFor?: (retry: number) => string
 }): string {
   if (opts.repeatCount >= opts.maxRepeats) {
     const fallback = opts.fallback ?? { kind: 'voicemail' as const }
@@ -708,6 +736,7 @@ export function twimlRenderIvrRepeat(opts: {
       extensionResolver: opts.extensionResolver,
       ringGroupUrlFor: opts.ringGroupUrlFor,
       perUserVoicemailUrlFor: opts.perUserVoicemailUrlFor,
+      dialExtensionUrlFor: opts.dialExtensionUrlFor,
     })
   }
   return twimlRenderIvrNode({
@@ -723,6 +752,7 @@ export function twimlRenderIvrRepeat(opts: {
     extensionResolver: opts.extensionResolver,
     ringGroupUrlFor: opts.ringGroupUrlFor,
     perUserVoicemailUrlFor: opts.perUserVoicemailUrlFor,
+    dialExtensionUrlFor: opts.dialExtensionUrlFor,
   })
 }
 

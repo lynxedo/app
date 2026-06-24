@@ -119,6 +119,7 @@ export async function POST(request: NextRequest) {
         extensionResolver: ctx.extensionResolver,
         ringGroupUrlFor: ctx.ringGroupUrlFor,
         perUserVoicemailUrlFor: ctx.perUserVoicemailUrlFor,
+        dialExtensionUrlFor: ctx.dialExtensionUrlFor,
       })
     )
   }
@@ -138,6 +139,7 @@ export async function POST(request: NextRequest) {
         extensionResolver: ctx.extensionResolver,
         ringGroupUrlFor: ctx.ringGroupUrlFor,
         perUserVoicemailUrlFor: ctx.perUserVoicemailUrlFor,
+        dialExtensionUrlFor: ctx.dialExtensionUrlFor,
       })
     )
   }
@@ -201,6 +203,7 @@ export async function POST(request: NextRequest) {
       extensionResolver: ctx.extensionResolver,
       ringGroupUrlFor: ctx.ringGroupUrlFor,
       perUserVoicemailUrlFor: ctx.perUserVoicemailUrlFor,
+      dialExtensionUrlFor: ctx.dialExtensionUrlFor,
     })
   )
 }

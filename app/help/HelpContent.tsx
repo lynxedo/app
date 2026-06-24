@@ -1270,6 +1270,7 @@ function DialerTab() {
           <li><strong className="text-white">Send to voicemail</strong> — caller leaves a message in the company voicemail box</li>
           <li><strong className="text-white">Ring a person</strong> — rings that user&apos;s Dialer until they answer; falls through to their voicemail if they don&apos;t</li>
           <li><strong className="text-white">Ring an extension</strong> — same as &quot;ring a person&quot; but referenced by 3-digit extension (handy when you want the menu to read &quot;Press 1 for Ben, extension 101&quot;)</li>
+          <li><strong className="text-white">Prompt for an extension (dial by extension)</strong> — asks the caller to enter an extension, then rings whoever owns it. Lets people who know a specific extension reach that person directly without listing names on the menu (e.g. &quot;If you know your party&apos;s extension, press 1&quot;). An unrecognized or empty entry re-prompts once, then drops to the general voicemail. Only reaches users who have an extension assigned.</li>
           <li><strong className="text-white">Ring a group</strong> — rings a named group of people (simultaneous or sequential)</li>
           <li><strong className="text-white">Forward to a phone number</strong> — bridges to an external number (e.g. forwarding to a cell)</li>
           <li><strong className="text-white">Say a message, then hang up</strong> — speaks a closing message and ends the call (useful for &quot;we&apos;re closed&quot; trees)</li>

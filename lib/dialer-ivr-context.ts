@@ -14,6 +14,9 @@ export type IvrContext = {
   ringGroupUrlFor: (groupId: string, index: number) => string
   perUserVoicemailUrlFor: (ownerUserId: string) => string
   extensionResolver: (ext: string) => { identity: string; ownerUserId: string } | null
+  // URL the dial-by-extension <Gather> POSTs the entered extension to. `retry`
+  // counts re-prompts so the handler can give up after one bad entry.
+  dialExtensionUrlFor: (retry: number) => string
 }
 
 // Loads the extension → user_id map for the company. Returns an IvrContext
@@ -43,6 +46,8 @@ export async function buildIvrContext(
     voicemailRouteUrl,
     ringGroupUrlFor: (groupId, index) =>
       `${baseUrl}/api/dialer/voice/twiml/ring-group?group=${encodeURIComponent(groupId)}&i=${index}`,
+    dialExtensionUrlFor: (retry) =>
+      `${baseUrl}/api/dialer/voice/twiml/dial-extension?r=${retry}`,
     perUserVoicemailUrlFor: (ownerUserId) =>
       `${baseUrl}/api/dialer/voice/twiml/voicemail?owner=${encodeURIComponent(ownerUserId)}`,
     extensionResolver: (ext) => {

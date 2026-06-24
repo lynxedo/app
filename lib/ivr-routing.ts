@@ -26,6 +26,11 @@ export type IvrAction =
   // Session 60:
   | { kind: 'extension'; extension: string }
   | { kind: 'ring_group'; ring_group_id: string }
+  // Dial-by-extension: prompt the caller to enter ANY assigned extension, then
+  // ring whoever owns it. `prompt` overrides the default "enter the extension"
+  // message. Unrecognized/empty input re-prompts once, then drops to the
+  // company general voicemail.
+  | { kind: 'dial_by_extension'; prompt?: IvrPrompt }
 
 export type IvrNode = {
   id: string

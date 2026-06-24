@@ -600,6 +600,7 @@ const ACTION_KINDS: { value: IvrAction['kind']; label: string; disabled?: boolea
   { value: 'voicemail', label: 'Send to voicemail' },
   { value: 'transfer_user', label: 'Ring a person' },
   { value: 'extension', label: 'Ring an extension' },
+  { value: 'dial_by_extension', label: 'Prompt for an extension (dial by extension)' },
   { value: 'ring_group', label: 'Ring a group' },
   { value: 'transfer_pstn', label: 'Forward to a phone number' },
   { value: 'say', label: 'Say a message, then hang up' },
@@ -788,6 +789,9 @@ function ActionEditor({
       case 'extension':
         onChange({ kind: 'extension', extension: extensions[0]?.extension ?? '' })
         break
+      case 'dial_by_extension':
+        onChange({ kind: 'dial_by_extension' })
+        break
       case 'ring_group':
         onChange({ kind: 'ring_group', ring_group_id: ringGroups[0]?.id ?? '' })
         break
@@ -878,6 +882,33 @@ function ActionEditor({
             ))}
           </select>
         )
+      )}
+
+      {action.kind === 'dial_by_extension' && (
+        <div className="space-y-2">
+          {extensions.length === 0 ? (
+            <p className="text-[11px] text-amber-300">
+              No extensions assigned yet — callers won't reach anyone. Assign extensions in the Extensions section below.
+            </p>
+          ) : (
+            <p className="text-[11px] text-white/40">
+              Caller is asked to enter an extension, then rung directly to whoever owns it.
+              Unrecognized or no entry re-prompts once, then drops to the general voicemail.
+            </p>
+          )}
+          <textarea
+            value={action.prompt?.kind === 'tts' ? action.prompt.text : ''}
+            onChange={(e) =>
+              onChange({
+                kind: 'dial_by_extension',
+                prompt: e.target.value ? { kind: 'tts', text: e.target.value } : undefined,
+              })
+            }
+            placeholder='Prompt (optional) — e.g. "Please enter your party&apos;s extension."'
+            rows={2}
+            className="w-full bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm"
+          />
+        </div>
       )}
 
       {action.kind === 'ring_group' && (
