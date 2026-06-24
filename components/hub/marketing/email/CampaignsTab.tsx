@@ -8,6 +8,16 @@ import BlockEditor from '@/components/hub/marketing/email/BlockEditor'
 type Filter = { has_tag?: string[]; missing_tag?: string[]; has_line_item?: string[]; missing_line_item?: string[] }
 type Template = { id: string; name: string; subject: string; design: EmailDesign }
 type Segment = { id: string; name: string; filter: Filter }
+
+// Audience spec persisted on the campaign (mirrors lib/email-campaigns AudienceSpec).
+type AudienceSpec = {
+  everyone?: boolean
+  segment_ids?: string[]
+  contact_ids?: string[]
+  extra_emails?: string[]
+  excluded_ids?: string[]
+}
+
 type Campaign = {
   id: string
   name: string
@@ -22,6 +32,14 @@ type Campaign = {
   completed_at: string | null
   last_error: string | null
   created_at: string
+}
+
+// Full draft detail (from GET /campaigns/[id]) used to reopen the composer.
+type CampaignDetail = Campaign & {
+  design: EmailDesign | null
+  audience: AudienceSpec | null
+  template_id: string | null
+  throttle_per_min: number
 }
 
 const BASE = '/api/hub/marketing/email/campaigns'
@@ -40,12 +58,25 @@ function fmtWhen(iso: string | null): string {
   return d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })
 }
 
+// Split a free-text box of addresses (newlines / commas / semicolons / spaces).
+function parseEmails(text: string): string[] {
+  return [...new Set(text.split(/[\s,;]+/).map((s) => s.trim()).filter(Boolean))]
+}
+
+// ISO timestamp → the value a <input type="datetime-local"> expects (local zone).
+function toLocalInput(iso: string): string {
+  const d = new Date(iso)
+  const local = new Date(d.getTime() - d.getTimezoneOffset() * 60_000)
+  return local.toISOString().slice(0, 16)
+}
+
 export default function CampaignsTab() {
   const toast = useToast()
   const confirm = useConfirm()
   const [campaigns, setCampaigns] = useState<Campaign[]>([])
   const [loading, setLoading] = useState(true)
   const [composing, setComposing] = useState(false)
+  const [editDraft, setEditDraft] = useState<CampaignDetail | null>(null)
   const [reportFor, setReportFor] = useState<Campaign | null>(null)
 
   const load = useCallback(async () => {
@@ -69,15 +100,24 @@ export default function CampaignsTab() {
     return () => clearInterval(t)
   }, [inFlight, load])
 
+  async function openDraft(c: Campaign) {
+    const res = await fetch(`${BASE}/${c.id}`)
+    const data = await res.json().catch(() => ({}))
+    if (!res.ok || !data.campaign) { toast.error(data.error || 'Could not open the draft.'); return }
+    setEditDraft(data.campaign as CampaignDetail)
+  }
+
   async function cancelOrDelete(c: Campaign) {
     const active = c.status === 'queued' || c.status === 'processing'
     const msg = active
       ? `Stop “${c.name}”? Recipients not yet sent will be skipped.`
-      : `Remove “${c.name}” from the list?`
-    if (!(await confirm({ message: msg, confirmText: active ? 'Stop sending' : 'Remove', danger: true }))) return
+      : c.status === 'draft'
+        ? `Delete the draft “${c.name}”?`
+        : `Remove “${c.name}” from the list?`
+    if (!(await confirm({ message: msg, confirmText: active ? 'Stop sending' : c.status === 'draft' ? 'Delete' : 'Remove', danger: true }))) return
     const res = await fetch(`${BASE}/${c.id}`, { method: 'DELETE' })
     if (res.ok) {
-      toast.success(active ? 'Campaign stopped.' : 'Campaign removed.')
+      toast.success(active ? 'Campaign stopped.' : c.status === 'draft' ? 'Draft deleted.' : 'Campaign removed.')
       load()
     } else {
       toast.error('Could not update the campaign.')
@@ -87,18 +127,19 @@ export default function CampaignsTab() {
   return (
     <div className="space-y-3">
       <div className="flex items-center justify-between">
-        <p className="text-sm text-gray-400">Build an email and send it to a segment or a hand-picked list.</p>
+        <p className="text-sm text-gray-400">Build an email and send it to segments, picked contacts, or typed-in addresses.</p>
         <Button onClick={() => setComposing(true)}>+ New campaign</Button>
       </div>
 
       {loading ? (
         <p className="text-sm text-gray-500 py-6 text-center">Loading…</p>
       ) : campaigns.length === 0 ? (
-        <EmptyState title="No campaigns yet — start one from a template, customize it, and send." />
+        <EmptyState title="No campaigns yet — start one, pick who gets it, and send (or save it as a draft)." />
       ) : (
         <ul className="space-y-2">
           {campaigns.map((c) => {
             const pct = c.recipient_count ? Math.round(((c.sent_count + c.failed_count + c.skipped_count) / c.recipient_count) * 100) : 0
+            const isDraft = c.status === 'draft'
             return (
               <li key={c.id} className="rounded-lg border border-gray-800 bg-gray-900 p-3">
                 <div className="flex items-start justify-between gap-3">
@@ -107,14 +148,20 @@ export default function CampaignsTab() {
                       <span className={'text-xs px-2 py-0.5 rounded-full border ' + STATUS_STYLE[c.status]}>{c.status}</span>
                       <span className="font-medium text-gray-100 truncate">{c.name}</span>
                     </div>
-                    <div className="text-sm text-gray-400 truncate mt-0.5">{c.subject}</div>
+                    <div className="text-sm text-gray-400 truncate mt-0.5">{c.subject || <span className="text-gray-600 italic">No subject yet</span>}</div>
                     <div className="text-xs text-gray-500 mt-1">
-                      {c.recipient_count} recipient{c.recipient_count === 1 ? '' : 's'}
-                      {' · '}{c.sent_count} sent
-                      {c.failed_count ? ` · ${c.failed_count} failed` : ''}
-                      {c.skipped_count ? ` · ${c.skipped_count} skipped` : ''}
-                      {c.scheduled_at && c.status === 'queued' ? ` · scheduled ${fmtWhen(c.scheduled_at)}` : ''}
-                      {c.status === 'complete' && c.completed_at ? ` · done ${fmtWhen(c.completed_at)}` : ''}
+                      {isDraft ? (
+                        'Draft — not sent'
+                      ) : (
+                        <>
+                          {c.recipient_count} recipient{c.recipient_count === 1 ? '' : 's'}
+                          {' · '}{c.sent_count} sent
+                          {c.failed_count ? ` · ${c.failed_count} failed` : ''}
+                          {c.skipped_count ? ` · ${c.skipped_count} skipped` : ''}
+                          {c.scheduled_at && c.status === 'queued' ? ` · scheduled ${fmtWhen(c.scheduled_at)}` : ''}
+                          {c.status === 'complete' && c.completed_at ? ` · done ${fmtWhen(c.completed_at)}` : ''}
+                        </>
+                      )}
                     </div>
                     {(c.status === 'queued' || c.status === 'processing') && (
                       <div className="mt-2 h-1.5 rounded-full bg-gray-800 overflow-hidden">
@@ -124,17 +171,16 @@ export default function CampaignsTab() {
                     {c.last_error && <div className="text-xs text-red-400/80 mt-1">{c.last_error}</div>}
                   </div>
                   <div className="flex-none flex flex-col items-end gap-1.5">
-                    <button
-                      onClick={() => setReportFor(c)}
-                      className="text-sm text-gray-400 hover:text-white"
-                    >
-                      Report
-                    </button>
+                    {isDraft ? (
+                      <button onClick={() => openDraft(c)} className="text-sm text-blue-400 hover:text-blue-300">Edit</button>
+                    ) : (
+                      <button onClick={() => setReportFor(c)} className="text-sm text-gray-400 hover:text-white">Report</button>
+                    )}
                     <button
                       onClick={() => cancelOrDelete(c)}
                       className="text-sm text-red-400/80 hover:text-red-400"
                     >
-                      {c.status === 'queued' || c.status === 'processing' ? 'Stop' : 'Remove'}
+                      {c.status === 'queued' || c.status === 'processing' ? 'Stop' : isDraft ? 'Delete' : 'Remove'}
                     </button>
                   </div>
                 </div>
@@ -144,10 +190,11 @@ export default function CampaignsTab() {
         </ul>
       )}
 
-      {composing && (
+      {(composing || editDraft) && (
         <ComposeCampaign
-          onClose={() => setComposing(false)}
-          onSent={() => { setComposing(false); setLoading(true); load() }}
+          draft={editDraft}
+          onClose={() => { setComposing(false); setEditDraft(null) }}
+          onDone={() => { setComposing(false); setEditDraft(null); setLoading(true); load() }}
         />
       )}
 
@@ -243,36 +290,37 @@ function Stat({ label, value, sub, tone }: { label: string; value: number | stri
 
 type Contact = { id: string; name: string; email: string }
 
-function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () => void }) {
+function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | null; onClose: () => void; onDone: () => void }) {
   const toast = useToast()
+  const editing = !!draft
   const [templates, setTemplates] = useState<Template[]>([])
   const [segments, setSegments] = useState<Segment[]>([])
 
   // Content (the campaign's own editable copy). template_id is provenance only.
-  const [templateId, setTemplateId] = useState('')
-  const [subject, setSubject] = useState('')
-  const [design, setDesign] = useState<EmailDesign>(emptyDesign())
-  const [name, setName] = useState('')
+  const [templateId, setTemplateId] = useState(draft?.template_id || '')
+  const [subject, setSubject] = useState(draft?.subject || '')
+  const [design, setDesign] = useState<EmailDesign>(draft?.design ? normalizeDesign(draft.design) : emptyDesign())
+  const [name, setName] = useState(draft && draft.name ? draft.name : '')
 
-  // Audience
-  const [audMode, setAudMode] = useState<'segment' | 'contacts'>('segment')
-  const [segmentId, setSegmentId] = useState('') // '' = everyone
+  // Audience (composable — segments + picked contacts + typed addresses can combine).
+  const a = draft?.audience || {}
+  const [everyone, setEveryone] = useState(!!a.everyone)
+  const [selectedSegments, setSelectedSegments] = useState<string[]>(a.segment_ids || [])
+  const [picked, setPicked] = useState<string[]>(a.contact_ids || [])
+  const [extraText, setExtraText] = useState((a.extra_emails || []).join('\n'))
+  const [excluded, setExcluded] = useState<Set<string>>(new Set(a.excluded_ids || []))
+  const [showContacts, setShowContacts] = useState((a.contact_ids || []).length > 0)
+
   const [contacts, setContacts] = useState<Contact[] | null>(null)
-  const [picked, setPicked] = useState<string[]>([])
   const [contactQuery, setContactQuery] = useState('')
-
-  // Per-recipient review for segment/everyone mode: the resolved list (captured
-  // when the user opens "Review recipients") + the ids they've unchecked to drop.
   const [reviewing, setReviewing] = useState(false)
-  const [resolved, setResolved] = useState<Contact[] | null>(null)
-  const [excluded, setExcluded] = useState<Set<string>>(new Set())
 
-  const [when, setWhen] = useState<'now' | 'later'>('now')
-  const [scheduledAt, setScheduledAt] = useState('')
+  const [when, setWhen] = useState<'now' | 'later'>(draft?.scheduled_at ? 'later' : 'now')
+  const [scheduledAt, setScheduledAt] = useState(draft?.scheduled_at ? toLocalInput(draft.scheduled_at) : '')
 
   const [count, setCount] = useState<number | null>(null)
   const [counting, setCounting] = useState(false)
-  const [sending, setSending] = useState(false)
+  const [busy, setBusy] = useState(false)
   const [testing, setTesting] = useState(false)
   const debounce = useRef<ReturnType<typeof setTimeout> | null>(null)
 
@@ -289,42 +337,51 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
     })()
   }, [])
 
-  // Lazy-load the contact list the first time the user switches to manual picking.
+  // Lazy-load the contact list the first time the user expands manual picking.
   useEffect(() => {
-    if (audMode !== 'contacts' || contacts !== null) return
+    if (!showContacts || contacts !== null) return
     (async () => {
       const res = await fetch('/api/hub/marketing/email/contacts')
       const data = await res.json().catch(() => ({}))
       if (res.ok) setContacts(data.contacts || [])
       else { toast.error(data.error || 'Could not load contacts.'); setContacts([]) }
     })()
-  }, [audMode, contacts, toast])
+  }, [showContacts, contacts, toast])
 
-  // Changing the audience invalidates any prior recipient review.
-  useEffect(() => { setResolved(null); setExcluded(new Set()) }, [audMode, segmentId])
+  // Build the audience spec from the current selections.
+  const buildSpec = useCallback((): AudienceSpec => ({
+    everyone,
+    segment_ids: everyone ? [] : selectedSegments,
+    contact_ids: picked,
+    extra_emails: parseEmails(extraText),
+    excluded_ids: [...excluded],
+  }), [everyone, selectedSegments, picked, extraText, excluded])
 
-  // Recipient count. Manual mode = number picked; segment mode = live preview
-  // (minus anyone the user unchecked in the review list).
+  const hasAudience = everyone || selectedSegments.length > 0 || picked.length > 0 || parseEmails(extraText).length > 0
+
+  // Live combined recipient count (server resolves + de-duplicates).
   useEffect(() => {
-    if (audMode === 'contacts') { setCounting(false); setCount(picked.length); return }
+    if (!hasAudience) { setCount(0); setCounting(false); return }
     if (debounce.current) clearTimeout(debounce.current)
     setCounting(true)
-    const seg = segments.find((s) => s.id === segmentId)
-    const filter = seg ? seg.filter : {}
+    const spec = buildSpec()
     debounce.current = setTimeout(async () => {
       try {
-        const res = await fetch('/api/hub/marketing/email/segments/preview', {
+        const res = await fetch(`${BASE}/preview`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filter }),
+          body: JSON.stringify(spec),
         })
         const data = await res.json().catch(() => ({}))
-        if (res.ok) setCount(Math.max(0, (data.count ?? 0) - excluded.size))
+        if (res.ok) setCount(data.count ?? 0)
       } finally {
         setCounting(false)
       }
-    }, 250)
+    }, 300)
     return () => { if (debounce.current) clearTimeout(debounce.current) }
-  }, [audMode, segmentId, segments, picked, excluded])
+  }, [hasAudience, buildSpec])
+
+  // Changing the audience composition invalidates any prior recipient review.
+  useEffect(() => { setExcluded(new Set()) }, [everyone, selectedSegments, picked])
 
   // Pick a template as the starting point — loads its design + subject into the
   // editor. Editing here never changes the source template.
@@ -338,15 +395,18 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
     }
   }
 
+  function toggleSegment(id: string) {
+    setSelectedSegments((s) => s.includes(id) ? s.filter((x) => x !== id) : [...s, id])
+  }
+  function togglePicked(id: string) {
+    setPicked((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id])
+  }
+
   const filteredContacts = (contacts ?? []).filter((c) => {
     const q = contactQuery.trim().toLowerCase()
     if (!q) return true
     return c.name.toLowerCase().includes(q) || c.email.toLowerCase().includes(q)
   }).slice(0, 100)
-
-  function togglePicked(id: string) {
-    setPicked((p) => p.includes(id) ? p.filter((x) => x !== id) : [...p, id])
-  }
 
   async function sendTest() {
     if (!design.blocks.length) { toast.error('Add some content first.'); return }
@@ -362,30 +422,42 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
     } finally { setTesting(false) }
   }
 
+  // Save (or update) as a draft — no recipients enqueued; reopen/edit/send later.
+  async function saveDraft() {
+    if (!subject.trim() && !design.blocks.length) { toast.error('Add a subject or some content before saving a draft.'); return }
+    setBusy(true)
+    try {
+      const payload: Record<string, unknown> = {
+        template_id: templateId || null, subject: subject.trim(), design, name: name.trim(),
+        ...buildSpec(),
+      }
+      if (when === 'later' && scheduledAt) payload.scheduled_at = new Date(scheduledAt).toISOString()
+      const res = editing
+        ? await fetch(`${BASE}/${draft!.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, send: false }) })
+        : await fetch(BASE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, save_as_draft: true }) })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { toast.error(data.error || 'Could not save the draft.'); return }
+      toast.success('Saved as a draft.')
+      onDone()
+    } finally { setBusy(false) }
+  }
+
+  // Send now / schedule.
   async function send() {
     if (!subject.trim()) { toast.error('Add a subject line.'); return }
     if (!design.blocks.length) { toast.error('Add some content to the email.'); return }
-    if (audMode === 'contacts' && picked.length === 0) { toast.error('Pick at least one contact.'); return }
+    if (!hasAudience) { toast.error('Choose who gets it — a segment, picked contacts, or typed-in addresses.'); return }
     if (when === 'later' && !scheduledAt) { toast.error('Pick a date and time, or choose Send now.'); return }
-    setSending(true)
+    setBusy(true)
     try {
       const payload: Record<string, unknown> = {
-        template_id: templateId || null,
-        subject: subject.trim(),
-        design,
-        name: name.trim(),
+        template_id: templateId || null, subject: subject.trim(), design, name: name.trim(),
+        ...buildSpec(),
       }
-      if (audMode === 'contacts') payload.contact_ids = picked
-      else if (excluded.size > 0 && resolved) {
-        // Segment/everyone with some recipients unchecked → send the trimmed list
-        // explicitly. Still intersected with the emailable audience server-side.
-        payload.contact_ids = resolved.filter((c) => !excluded.has(c.id)).map((c) => c.id)
-      } else payload.segment_id = segmentId || null
       if (when === 'later' && scheduledAt) payload.scheduled_at = new Date(scheduledAt).toISOString()
-      const res = await fetch(BASE, {
-        method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      })
+      const res = editing
+        ? await fetch(`${BASE}/${draft!.id}`, { method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ ...payload, send: true }) })
+        : await fetch(BASE, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) { toast.error(data.error || 'Could not start the campaign.'); return }
       if (Array.isArray(data.warnings) && data.warnings.length) {
@@ -397,9 +469,9 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
             : `Queued to ${data.recipient_count} recipients — sending now.`,
         )
       }
-      onSent()
+      onDone()
     } finally {
-      setSending(false)
+      setBusy(false)
     }
   }
 
@@ -407,7 +479,7 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
     <Modal
       open
       onClose={onClose}
-      title="New campaign"
+      title={editing ? 'Edit draft' : 'New campaign'}
       maxWidth="max-w-4xl"
       fullScreenOnMobile
       footer={
@@ -417,8 +489,9 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
           </span>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button onClick={send} disabled={sending || !subject.trim() || !design.blocks.length || count === 0}>
-              {sending ? 'Starting…' : when === 'later' ? 'Schedule' : 'Send now'}
+            <Button variant="ghost" onClick={saveDraft} disabled={busy}>{busy ? '…' : 'Save draft'}</Button>
+            <Button onClick={send} disabled={busy || !subject.trim() || !design.blocks.length || !hasAudience || count === 0}>
+              {busy ? 'Working…' : when === 'later' ? 'Schedule' : 'Send now'}
             </Button>
           </div>
         </div>
@@ -456,80 +529,114 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
         {/* The email composer (same editor as templates) */}
         <BlockEditor design={design} onChange={setDesign} />
 
-        {/* Audience */}
-        <div className="pt-3 border-t border-gray-800">
-          <label className="block text-xs text-gray-400 mb-1.5">Who gets it</label>
-          <div className="flex gap-2 mb-2">
-            <button
-              onClick={() => setAudMode('segment')}
-              className={'text-sm rounded-lg border px-3 py-1.5 ' + (audMode === 'segment' ? 'bg-blue-500/15 border-blue-500/40 text-blue-300' : 'bg-gray-800 border-gray-700 text-gray-400')}
-            >A segment</button>
-            <button
-              onClick={() => setAudMode('contacts')}
-              className={'text-sm rounded-lg border px-3 py-1.5 ' + (audMode === 'contacts' ? 'bg-blue-500/15 border-blue-500/40 text-blue-300' : 'bg-gray-800 border-gray-700 text-gray-400')}
-            >Pick contacts</button>
-          </div>
+        {/* Audience — segments + picked contacts + typed addresses all combine,
+            de-duplicated by email so nobody gets it twice. */}
+        <div className="pt-3 border-t border-gray-800 space-y-3">
+          <label className="block text-xs text-gray-400">Who gets it <span className="text-gray-600">· combine any of these — duplicates are removed automatically</span></label>
 
-          {audMode === 'segment' ? (
-            <div className="space-y-2">
-              <select
-                value={segmentId} onChange={(e) => setSegmentId(e.target.value)}
-                className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white"
-              >
-                <option value="">Everyone (all subscribed contacts)</option>
-                {segments.map((s) => <option key={s.id} value={s.id}>{s.name}</option>)}
-              </select>
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={() => setReviewing(true)}
-                  className="text-sm rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-gray-300 hover:text-white"
-                >Review recipients</button>
-                {excluded.size > 0 && (
-                  <span className="text-xs text-amber-300">{excluded.size} excluded
-                    <button onClick={() => setExcluded(new Set())} className="ml-1.5 text-gray-400 hover:text-white underline">undo</button>
-                  </span>
-                )}
-              </div>
+          {/* Everyone */}
+          <label className="flex items-center gap-2 text-sm text-gray-200 cursor-pointer">
+            <input type="checkbox" checked={everyone} onChange={(e) => setEveryone(e.target.checked)} className="accent-blue-500" />
+            Everyone <span className="text-gray-500">(all subscribed contacts)</span>
+          </label>
+
+          {/* Segments */}
+          {!everyone && (
+            <div>
+              <div className="text-xs text-gray-500 mb-1">Segments {selectedSegments.length > 0 && <span className="text-blue-300">· {selectedSegments.length} selected</span>}</div>
+              {segments.length === 0 ? (
+                <p className="text-xs text-gray-600">No saved segments yet — create some in the Segments tab.</p>
+              ) : (
+                <div className="rounded-lg border border-gray-800 bg-gray-900 p-1.5 max-h-40 overflow-auto space-y-0.5">
+                  {segments.map((s) => {
+                    const on = selectedSegments.includes(s.id)
+                    return (
+                      <button key={s.id} onClick={() => toggleSegment(s.id)}
+                        className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-white/[0.04] rounded">
+                        <span className={'flex-none w-4 h-4 rounded border flex items-center justify-center text-[10px] ' + (on ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-600')}>{on ? '✓' : ''}</span>
+                        <span className="text-sm text-gray-200 truncate">{s.name}</span>
+                      </button>
+                    )
+                  })}
+                </div>
+              )}
             </div>
-          ) : contacts === null ? (
-            <p className="text-sm text-gray-500 rounded-lg border border-gray-800 bg-gray-900 p-3">Loading contacts…</p>
-          ) : contacts.length === 0 ? (
-            <p className="text-sm text-gray-500 rounded-lg border border-gray-800 bg-gray-900 p-3">No subscribed contacts with an email yet.</p>
-          ) : (
-            <div className="rounded-lg border border-gray-800 bg-gray-900 p-2">
-              <div className="flex items-center justify-between gap-2 mb-1.5">
+          )}
+
+          {/* Specific contacts (additive) */}
+          <div>
+            {!showContacts ? (
+              <button onClick={() => setShowContacts(true)} className="text-sm text-blue-400 hover:text-blue-300">
+                + Add specific contacts{picked.length > 0 ? ` (${picked.length})` : ''}
+              </button>
+            ) : contacts === null ? (
+              <p className="text-sm text-gray-500 rounded-lg border border-gray-800 bg-gray-900 p-3">Loading contacts…</p>
+            ) : contacts.length === 0 ? (
+              <p className="text-sm text-gray-500 rounded-lg border border-gray-800 bg-gray-900 p-3">No subscribed contacts with an email yet.</p>
+            ) : (
+              <div className="rounded-lg border border-gray-800 bg-gray-900 p-2">
+                <div className="flex items-center justify-between gap-2 mb-1.5">
+                  <span className="text-xs text-gray-500">Specific contacts</span>
+                  <div className="flex items-center gap-2">
+                    <span className="text-xs text-gray-500">{picked.length} selected</span>
+                    {picked.length > 0 && <button onClick={() => setPicked([])} className="text-xs text-gray-400 hover:text-white">Clear</button>}
+                    <button onClick={() => setShowContacts(false)} className="text-xs text-gray-400 hover:text-white">Hide</button>
+                  </div>
+                </div>
                 <input
                   value={contactQuery} onChange={(e) => setContactQuery(e.target.value)}
                   placeholder="Search name or email…"
-                  className="flex-1 rounded-lg bg-gray-800 border border-gray-700 px-3 py-1.5 text-sm text-white"
+                  className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-1.5 text-sm text-white mb-1.5"
                 />
-                <span className="text-xs text-gray-500 flex-none">{picked.length} selected</span>
-                {picked.length > 0 && (
-                  <button onClick={() => setPicked([])} className="text-xs text-gray-400 hover:text-white flex-none">Clear</button>
+                <ul className="max-h-48 overflow-auto divide-y divide-gray-800">
+                  {filteredContacts.map((c) => {
+                    const on = picked.includes(c.id)
+                    return (
+                      <li key={c.id}>
+                        <button
+                          onClick={() => togglePicked(c.id)}
+                          className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-white/[0.04] rounded"
+                        >
+                          <span className={'flex-none w-4 h-4 rounded border flex items-center justify-center text-[10px] ' + (on ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-600')}>{on ? '✓' : ''}</span>
+                          <span className="min-w-0 flex-1">
+                            <span className="block text-sm text-gray-200 truncate">{c.name}</span>
+                            <span className="block text-xs text-gray-500 truncate">{c.email}</span>
+                          </span>
+                        </button>
+                      </li>
+                    )
+                  })}
+                  {filteredContacts.length === 0 && <li className="text-xs text-gray-600 px-2 py-2">No contacts match “{contactQuery}”.</li>}
+                </ul>
+                {(contacts.length > filteredContacts.length) && (
+                  <p className="text-[11px] text-gray-600 mt-1 px-1">Showing first {filteredContacts.length} — search to narrow.</p>
                 )}
               </div>
-              <ul className="max-h-56 overflow-auto divide-y divide-gray-800">
-                {filteredContacts.map((c) => {
-                  const on = picked.includes(c.id)
-                  return (
-                    <li key={c.id}>
-                      <button
-                        onClick={() => togglePicked(c.id)}
-                        className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-white/[0.04] rounded"
-                      >
-                        <span className={'flex-none w-4 h-4 rounded border flex items-center justify-center text-[10px] ' + (on ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-600')}>{on ? '✓' : ''}</span>
-                        <span className="min-w-0 flex-1">
-                          <span className="block text-sm text-gray-200 truncate">{c.name}</span>
-                          <span className="block text-xs text-gray-500 truncate">{c.email}</span>
-                        </span>
-                      </button>
-                    </li>
-                  )
-                })}
-                {filteredContacts.length === 0 && <li className="text-xs text-gray-600 px-2 py-2">No contacts match “{contactQuery}”.</li>}
-              </ul>
-              {(contacts.length > filteredContacts.length) && (
-                <p className="text-[11px] text-gray-600 mt-1 px-1">Showing first {filteredContacts.length} — search to narrow.</p>
+            )}
+          </div>
+
+          {/* Typed-in addresses (not contacts) */}
+          <div>
+            <label className="block text-xs text-gray-500 mb-1">Other email addresses <span className="text-gray-600">· one per line or comma-separated; these aren’t saved as contacts</span></label>
+            <textarea
+              value={extraText} onChange={(e) => setExtraText(e.target.value)} rows={2}
+              placeholder="someone@example.com, another@example.com"
+              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white font-mono"
+            />
+            {parseEmails(extraText).length > 0 && <p className="text-[11px] text-gray-500 mt-1">{parseEmails(extraText).length} address{parseEmails(extraText).length === 1 ? '' : 'es'} typed.</p>}
+          </div>
+
+          {/* Review the resolved contact recipients */}
+          {(everyone || selectedSegments.length > 0 || picked.length > 0) && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setReviewing(true)}
+                className="text-sm rounded-lg border border-gray-700 bg-gray-800 px-3 py-1.5 text-gray-300 hover:text-white"
+              >Review recipients</button>
+              {excluded.size > 0 && (
+                <span className="text-xs text-amber-300">{excluded.size} excluded
+                  <button onClick={() => setExcluded(new Set())} className="ml-1.5 text-gray-400 hover:text-white underline">undo</button>
+                </span>
               )}
             </div>
           )}
@@ -558,27 +665,28 @@ function ComposeCampaign({ onClose, onSent }: { onClose: () => void; onSent: () 
 
         <p className="text-xs text-gray-500 rounded-lg border border-gray-800 bg-gray-900 p-3">
           Each email includes a one-click unsubscribe and your mailing address (CAN-SPAM). Anyone unsubscribed
-          or suppressed is automatically skipped — even if they unsubscribe after this is queued.
+          or suppressed is automatically skipped — even typed-in addresses, and even if they unsubscribe after this is queued.
         </p>
       </div>
 
       {reviewing && (
         <ReviewRecipients
-          filter={segments.find((s) => s.id === segmentId)?.filter || {}}
+          spec={buildSpec()}
           excluded={excluded}
           onClose={() => setReviewing(false)}
-          onApply={(nextExcluded, list) => { setExcluded(nextExcluded); setResolved(list); setReviewing(false) }}
+          onApply={(nextExcluded) => { setExcluded(nextExcluded); setReviewing(false) }}
         />
       )}
     </Modal>
   )
 }
 
-// Review the people a segment/everyone resolves to, with a checkbox per row
-// (all checked by default). Unchecking drops that person from this one send.
+// Review the directory contacts a campaign's segments/everyone/picks resolve to,
+// with a checkbox per row (all checked by default). Unchecking drops that person
+// from this one send. (Typed-in addresses are managed in their own box.)
 function ReviewRecipients({
-  filter, excluded, onClose, onApply,
-}: { filter: Filter; excluded: Set<string>; onClose: () => void; onApply: (excluded: Set<string>, list: Contact[]) => void }) {
+  spec, excluded, onClose, onApply,
+}: { spec: AudienceSpec; excluded: Set<string>; onClose: () => void; onApply: (excluded: Set<string>) => void }) {
   const toast = useToast()
   const [loading, setLoading] = useState(true)
   const [list, setList] = useState<Contact[]>([])
@@ -589,9 +697,9 @@ function ReviewRecipients({
     let cancelled = false
     ;(async () => {
       try {
-        const res = await fetch('/api/hub/marketing/email/segments/preview', {
+        const res = await fetch(`${BASE}/preview`, {
           method: 'POST', headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ filter, full: true }),
+          body: JSON.stringify({ ...spec, full: true }),
         })
         const data = await res.json().catch(() => ({}))
         if (cancelled) return
@@ -623,10 +731,10 @@ function ReviewRecipients({
     <Modal open onClose={onClose} title="Review recipients" maxWidth="max-w-lg" fullScreenOnMobile
       footer={
         <div className="flex items-center justify-between w-full gap-2">
-          <span className="text-sm text-gray-400"><strong className="text-white">{keptCount}</strong> will receive it{local.size > 0 ? ` · ${local.size} excluded` : ''}</span>
+          <span className="text-sm text-gray-400"><strong className="text-white">{keptCount}</strong> contact{keptCount === 1 ? '' : 's'} will receive it{local.size > 0 ? ` · ${local.size} excluded` : ''}</span>
           <div className="flex gap-2">
             <Button variant="ghost" onClick={onClose}>Cancel</Button>
-            <Button onClick={() => onApply(local, list)}>Apply</Button>
+            <Button onClick={() => onApply(local)}>Apply</Button>
           </div>
         </div>
       }
@@ -635,7 +743,7 @@ function ReviewRecipients({
         {loading ? (
           <p className="text-sm text-gray-500 py-6 text-center">Loading recipients…</p>
         ) : list.length === 0 ? (
-          <EmptyState title="No subscribed recipients match this audience right now." />
+          <EmptyState title="No subscribed contacts match this audience right now." />
         ) : (
           <>
             <div className="flex items-center justify-between gap-2">
