@@ -22,6 +22,7 @@
 // (one-time import; re-syncing would duplicate them).
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { syncLeadToDirectory } from '@/lib/contacts-directory'
 
 const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
 const MONDAY_API = 'https://api.monday.com/v2'
@@ -383,6 +384,13 @@ async function syncLeads(admin: SupabaseClient, dryRun: boolean, report: BoardRe
     // 3. guarded hard-delete of keyed leads no longer in Monday
     const pulledIds = new Set(mondayLeads.map(l => l.monday_item_id))
     await guardedDelete(admin, 'leads', pulledIds, (q: any) => q, report)
+    // 4. Auto-add genuinely-new Monday leads to the unified contacts directory
+    //    (source 'leads'). Best-effort — never fail the mirror.
+    for (const l of newLeads) {
+      await syncLeadToDirectory(admin, l.company_id, {
+        first_name: l.first_name, last_name: l.last_name, phone: l.phone, email: l.email,
+      }).catch(() => {})
+    }
   } else {
     report.upserted = 0
   }

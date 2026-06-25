@@ -14,7 +14,7 @@ export default async function TxtAdminPage() {
   const [{ data: templates }, { data: numbers }, { data: settings }, { data: users }, { data: profiles }] = await Promise.all([
     admin
       .from('txt_templates')
-      .select('id, scope, title, body, sort_order, owner_user_id, updated_at')
+      .select('id, scope, title, body, media, sort_order, owner_user_id, updated_at')
       .eq('company_id', auth.company_id)
       .eq('scope', 'org')
       .order('sort_order', { ascending: true })

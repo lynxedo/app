@@ -9,6 +9,7 @@ type Template = {
   scope: 'org' | 'personal'
   title: string
   body: string
+  media: string[]
   sort_order: number
   owner_user_id: string | null
   updated_at: string
@@ -25,10 +26,28 @@ export default function TxtAdminPanel({
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [sortOrder, setSortOrder] = useState(0)
+  const [media, setMedia] = useState<string[]>([])
+  const [uploadingMedia, setUploadingMedia] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const toast = useToast()
   const confirmDialog = useConfirm()
+
+  async function uploadMedia(file: File | undefined) {
+    if (!file) return
+    setError('')
+    setUploadingMedia(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/txt/upload', { method: 'POST', body: form })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.error || 'Upload failed'); return }
+      setMedia([data.storage_path]) // single image
+    } finally {
+      setUploadingMedia(false)
+    }
+  }
 
   function openCreate() {
     setEditing(null)
@@ -36,6 +55,7 @@ export default function TxtAdminPanel({
     setTitle('')
     setBody('')
     setSortOrder(0)
+    setMedia([])
     setError('')
   }
 
@@ -45,6 +65,7 @@ export default function TxtAdminPanel({
     setTitle(t.title)
     setBody(t.body)
     setSortOrder(t.sort_order)
+    setMedia(t.media || [])
     setError('')
   }
 
@@ -57,7 +78,7 @@ export default function TxtAdminPanel({
   async function save() {
     setError('')
     setSaving(true)
-    const payload = { title: title.trim(), body: body.trim(), sort_order: sortOrder }
+    const payload = { title: title.trim(), body: body.trim(), media, sort_order: sortOrder }
     const url = editing
       ? `/api/admin/txt/templates/${editing.id}`
       : '/api/admin/txt/templates'
@@ -170,11 +191,45 @@ export default function TxtAdminPanel({
               Lower numbers appear first in the picker.
             </div>
           </div>
+          {/* Attachment — single image, auto-sent (as MMS) with the template. */}
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Attachment</label>
+            {media.length === 0 ? (
+              <label className="inline-block text-sm px-3 py-2 rounded-md bg-gray-800 hover:bg-gray-700 cursor-pointer">
+                {uploadingMedia ? 'Uploading…' : '📎 Attach image'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  className="hidden"
+                  disabled={uploadingMedia}
+                  onChange={(e) => uploadMedia(e.target.files?.[0])}
+                />
+              </label>
+            ) : (
+              <div className="flex items-center gap-3">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`/api/txt/media/${media[0]}`}
+                  alt="attachment"
+                  className="h-16 w-16 object-cover rounded-md border border-gray-700"
+                />
+                <button
+                  onClick={() => setMedia([])}
+                  className="text-xs px-2 py-1 rounded hover:bg-gray-800 text-red-300"
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+            <div className="text-[10px] text-gray-500 mt-1">
+              Optional. Sends automatically with the message (JPEG/PNG/GIF/WebP, up to 5 MB).
+            </div>
+          </div>
           {error && <div className="text-xs text-red-400">{error}</div>}
           <div className="flex gap-2">
             <button
               onClick={save}
-              disabled={saving || !title.trim() || !body.trim()}
+              disabled={saving || uploadingMedia || !title.trim() || (!body.trim() && media.length === 0)}
               className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm disabled:opacity-50"
             >
               {saving ? 'Saving…' : editing ? 'Save changes' : 'Create template'}
@@ -208,7 +263,10 @@ export default function TxtAdminPanel({
               {templates.map((t) => (
                 <tr key={t.id} className="border-t border-gray-800">
                   <td className="px-3 py-2 text-gray-500">{t.sort_order}</td>
-                  <td className="px-3 py-2 font-medium">{t.title}</td>
+                  <td className="px-3 py-2 font-medium">
+                    {t.title}
+                    {t.media?.length > 0 && <span className="ml-1 text-xs text-gray-400" title="Has attachment">📎</span>}
+                  </td>
                   <td className="px-3 py-2 text-gray-300 whitespace-pre-wrap line-clamp-3">
                     {t.body}
                   </td>

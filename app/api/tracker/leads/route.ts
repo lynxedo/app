@@ -1,6 +1,8 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { fetchLeadsWithNotes } from '@/lib/tracker/leads'
+import { syncLeadToDirectory } from '@/lib/contacts-directory'
 
 export async function GET(request: Request) {
   const supabase = await createClient()
@@ -53,6 +55,16 @@ export async function POST(request: Request) {
       created_by: user.email?.split('@')[0] ?? 'unknown',
     })
   }
+
+  // Auto-add the lead to the unified contacts directory (source 'leads',
+  // do_not_text — a lead form isn't texting consent). Best-effort; never blocks
+  // the lead create. Mirrors the Jobber feed's consent guard.
+  void syncLeadToDirectory(createAdminClient(), profile.company_id, {
+    first_name: lead.first_name ?? null,
+    last_name: lead.last_name ?? null,
+    phone: lead.phone ?? null,
+    email: lead.email ?? null,
+  }).catch(() => {})
 
   return NextResponse.json(lead)
 }

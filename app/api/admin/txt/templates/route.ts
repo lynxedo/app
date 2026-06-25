@@ -15,7 +15,7 @@ export async function GET() {
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('txt_templates')
-    .select('id, scope, title, body, sort_order, owner_user_id, updated_at')
+    .select('id, scope, title, body, media, sort_order, owner_user_id, updated_at')
     .eq('company_id', auth.company_id)
     .eq('scope', 'org')
     .order('sort_order', { ascending: true })
@@ -37,9 +37,13 @@ export async function POST(request: Request) {
   const title = String(body.title || '').trim()
   const text = String(body.body || '').trim()
   const sortOrder = Number.isFinite(body.sort_order) ? Number(body.sort_order) : 0
+  const media = Array.isArray(body.media)
+    ? body.media.filter((m: unknown) => typeof m === 'string').slice(0, 1)
+    : []
 
   if (!title) return NextResponse.json({ error: 'Title required' }, { status: 400 })
-  if (!text) return NextResponse.json({ error: 'Body required' }, { status: 400 })
+  if (!text && media.length === 0)
+    return NextResponse.json({ error: 'Add a message or an attachment' }, { status: 400 })
   if (title.length > MAX_TITLE)
     return NextResponse.json({ error: `Title max ${MAX_TITLE} chars` }, { status: 400 })
   if (text.length > MAX_BODY)
@@ -54,9 +58,10 @@ export async function POST(request: Request) {
       owner_user_id: null,
       title,
       body: text,
+      media,
       sort_order: sortOrder,
     })
-    .select('id, scope, title, body, sort_order, owner_user_id, updated_at')
+    .select('id, scope, title, body, media, sort_order, owner_user_id, updated_at')
     .single()
 
   if (error || !inserted) {

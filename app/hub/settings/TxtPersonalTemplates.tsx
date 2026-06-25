@@ -9,6 +9,7 @@ type Template = {
   scope: 'org' | 'personal'
   title: string
   body: string
+  media: string[]
   sort_order: number
   owner_user_id: string | null
   updated_at: string
@@ -22,10 +23,28 @@ export default function TxtPersonalTemplates() {
   const [title, setTitle] = useState('')
   const [body, setBody] = useState('')
   const [sortOrder, setSortOrder] = useState(0)
+  const [media, setMedia] = useState<string[]>([])
+  const [uploadingMedia, setUploadingMedia] = useState(false)
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const toast = useToast()
   const confirmDialog = useConfirm()
+
+  async function uploadMedia(file: File | undefined) {
+    if (!file) return
+    setError('')
+    setUploadingMedia(true)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/txt/upload', { method: 'POST', body: form })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) { setError(data.error || 'Upload failed'); return }
+      setMedia([data.storage_path]) // single image
+    } finally {
+      setUploadingMedia(false)
+    }
+  }
 
   useEffect(() => {
     fetch('/api/txt/templates')
@@ -44,6 +63,7 @@ export default function TxtPersonalTemplates() {
     setTitle('')
     setBody('')
     setSortOrder(0)
+    setMedia([])
     setError('')
   }
 
@@ -53,6 +73,7 @@ export default function TxtPersonalTemplates() {
     setTitle(t.title)
     setBody(t.body)
     setSortOrder(t.sort_order)
+    setMedia(t.media || [])
     setError('')
   }
 
@@ -65,7 +86,7 @@ export default function TxtPersonalTemplates() {
   async function save() {
     setError('')
     setSaving(true)
-    const payload = { title: title.trim(), body: body.trim(), sort_order: sortOrder }
+    const payload = { title: title.trim(), body: body.trim(), media, sort_order: sortOrder }
     const url = editing ? `/api/txt/templates/${editing.id}` : '/api/txt/templates'
     const method = editing ? 'PATCH' : 'POST'
     const res = await fetch(url, {
@@ -151,6 +172,36 @@ export default function TxtPersonalTemplates() {
             maxLength={1500}
             className="w-full px-3 py-2 rounded-md bg-gray-900 border border-gray-700 text-sm font-mono resize-none"
           />
+          {/* Attachment — single image, auto-sent (as MMS) with the template. */}
+          <div className="flex items-center gap-2 flex-wrap">
+            {media.length === 0 ? (
+              <label className="text-xs px-2 py-1 rounded-md bg-gray-800 hover:bg-gray-700 cursor-pointer">
+                {uploadingMedia ? 'Uploading…' : '📎 Attach image'}
+                <input
+                  type="file"
+                  accept="image/jpeg,image/png,image/gif,image/webp"
+                  className="hidden"
+                  disabled={uploadingMedia}
+                  onChange={(e) => uploadMedia(e.target.files?.[0])}
+                />
+              </label>
+            ) : (
+              <div className="flex items-center gap-2">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  src={`/api/txt/media/${media[0]}`}
+                  alt="attachment"
+                  className="h-12 w-12 object-cover rounded-md border border-gray-700"
+                />
+                <button
+                  onClick={() => setMedia([])}
+                  className="text-xs px-2 py-1 rounded hover:bg-gray-800 text-red-300"
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+          </div>
           <div className="flex items-center gap-2">
             <label className="text-xs text-gray-400">Sort</label>
             <input
@@ -165,7 +216,7 @@ export default function TxtPersonalTemplates() {
           <div className="flex gap-2">
             <button
               onClick={save}
-              disabled={saving || !title.trim() || !body.trim()}
+              disabled={saving || uploadingMedia || !title.trim() || (!body.trim() && media.length === 0)}
               className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-xs disabled:opacity-50"
             >
               {saving ? 'Saving…' : editing ? 'Save' : 'Create'}
@@ -192,7 +243,10 @@ export default function TxtPersonalTemplates() {
               className="rounded-md border border-gray-800 bg-gray-950/40 p-3"
             >
               <div className="flex items-baseline justify-between gap-2">
-                <div className="font-medium text-sm">{t.title}</div>
+                <div className="font-medium text-sm">
+                  {t.title}
+                  {t.media?.length > 0 && <span className="ml-1 text-xs text-gray-400" title="Has attachment">📎</span>}
+                </div>
                 <div className="flex gap-1 flex-none">
                   <button
                     onClick={() => openEdit(t)}

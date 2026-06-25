@@ -8,6 +8,7 @@ export type PickerTemplate = {
   scope: 'org' | 'personal'
   title: string
   body: string
+  media?: string[] // R2 storage paths — auto-attached to the composer on pick
 }
 
 // Live preview that mirrors what /api/txt/conversations/[id]/send will render
