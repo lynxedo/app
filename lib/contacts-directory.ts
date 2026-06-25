@@ -2,12 +2,12 @@
 // current from the nightly Jobber sync. See Hub/CRM_CONTACTS_PRD.md §8–9.
 //
 // Match precedence per client: existing Jobber link → phone (last 10 digits) →
-// email; else insert. CONSENT GUARD: a row that is newly created, or that gains
-// a phone from this (non-texting) source, is set do_not_text = true; rows that
-// already had a phone (i.e. consented texted-in contacts) keep their consent.
-// Hand-edited rows (manually_edited) keep their core fields — we only ever fill
-// blanks and refresh the Jobber link + tags. Tags mirror Jobber EXACTLY for
-// source='jobber' assignments (adds + removals) and never touch manual tags.
+// email; else insert. CONSENT: new contacts default textable (do_not_text=false)
+// per Heroes' policy — the only do-not-text contacts are genuine opt-outs synced
+// from Captivated. We never flip an existing row's do_not_text here (so a synced
+// opt-out is preserved). Hand-edited rows (manually_edited) keep their core
+// fields — we only ever fill blanks and refresh the Jobber link + tags. Tags
+// mirror Jobber EXACTLY for source='jobber' assignments and never touch manual tags.
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 type Admin = SupabaseClient<any, any, any>
@@ -109,7 +109,7 @@ export async function syncClientsToDirectory(
           const { count } = await admin.from('txt_contacts')
             .select('id', { count: 'exact', head: true })
             .eq('company_id', companyId).in('phone_digits', [ten!, '1' + ten!]).neq('id', existingId)
-          if (!count) { update.phone = e164; update.phone_digits = ten; update.do_not_text = true }
+          if (!count) { update.phone = e164; update.phone_digits = ten }
         }
         // adopt email if the row has none and it's free
         if (!cur?.email && c.email) {
@@ -127,7 +127,7 @@ export async function syncClientsToDirectory(
           company_id: companyId, name: nm, first_name: c.first_name, last_name: c.last_name,
           company_name: c.company_name, is_company: c.is_company,
           phone: e164, phone_digits: ten, email: c.email, email_status: 'subscribed',
-          jobber_client_id: c.external_id, do_not_text: true, sources: ['jobber'], manually_edited: false,
+          jobber_client_id: c.external_id, do_not_text: false, sources: ['jobber'], manually_edited: false,
         }).select('id').single()
         if (error || !data) continue
         existingId = data.id as string
@@ -171,9 +171,10 @@ export type DirectoryLeadInput = {
  * Upsert ONE lead-tracker lead into the unified directory (txt_contacts) with
  * source 'leads'. Match precedence: phone (last 10) → email; else insert.
  *
- * CONSENT GUARD: a lead form is not texting consent, so any row created — or
- * any phone adopted — from this source is set do_not_text = true (mirrors the
- * Jobber feed). Hand-edited rows keep their core fields; we only fill blanks.
+ * CONSENT: leads come from 3rd-party sources where they agree to be texted, so
+ * lead contacts ARE textable — do_not_text = false on create, and a lead match
+ * clears do_not_text on an existing row (the lead represents fresh consent).
+ * Hand-edited rows keep their core fields; we only fill blanks.
  *
  * LIMITATION: txt_contacts.phone is still NOT NULL (the email-only fold-in is
  * deferred — see 2026-06-22_contacts_directory_foundation.sql). So an email-only
@@ -209,18 +210,20 @@ export async function syncLeadToDirectory(
         .select('sources, manually_edited, first_name, last_name, email, phone').eq('id', existingId).single()
       const update: Record<string, unknown> = {
         sources: Array.from(new Set([...((cur?.sources as string[]) ?? []), 'leads'])),
+        // A lead represents fresh texting consent → make this person textable.
+        do_not_text: false,
         updated_at: new Date().toISOString(),
       }
       if (!cur?.manually_edited) {
         if (!cur?.first_name && lead.first_name) update.first_name = lead.first_name
         if (!cur?.last_name && lead.last_name) update.last_name = lead.last_name
       }
-      // adopt phone if the row has none and it's free → no texting consent
+      // adopt phone if the row has none and it's free (lead = consented → textable)
       if (!cur?.phone && e164) {
         const { count } = await admin.from('txt_contacts')
           .select('id', { count: 'exact', head: true })
           .eq('company_id', companyId).in('phone_digits', [ten!, '1' + ten!]).neq('id', existingId)
-        if (!count) { update.phone = e164; update.phone_digits = ten; update.do_not_text = true }
+        if (!count) { update.phone = e164; update.phone_digits = ten }
       }
       // adopt email if the row has none and it's free
       if (!cur?.email && email) {
@@ -239,7 +242,7 @@ export async function syncLeadToDirectory(
     const { error } = await admin.from('txt_contacts').insert({
       company_id: companyId, name: nm, first_name: lead.first_name, last_name: lead.last_name,
       phone: e164, phone_digits: ten, email, email_status: 'subscribed',
-      do_not_text: true, sources: ['leads'], manually_edited: false,
+      do_not_text: false, sources: ['leads'], manually_edited: false,
     })
     if (error) {
       console.error('[contacts-directory] lead insert failed', error.message)
