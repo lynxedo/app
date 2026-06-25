@@ -25,6 +25,7 @@
 // its Monday item. Lead Comments are NOT re-synced as notes (one-time import).
 
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { syncLeadToDirectory } from '@/lib/contacts-directory'
 
 const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
 const MONDAY_API = 'https://api.monday.com/v2'
@@ -390,6 +391,13 @@ async function syncLeads(admin: SupabaseClient, dryRun: boolean, report: BoardRe
       const { data: inserted, error: insErr } = await admin
         .from('leads').insert(newLeads).select('id, monday_item_id, updated_at')
       if (insErr) throw new Error(`leads insert: ${insErr.message}`)
+      // Auto-add each freshly-pulled lead to the unified contacts directory
+      // (source 'leads', do_not_text). Best-effort — never fail the mirror.
+      for (const l of newLeads) {
+        await syncLeadToDirectory(admin, l.company_id, {
+          first_name: l.first_name, last_name: l.last_name, phone: l.phone, email: l.email,
+        }).catch(() => {})
+      }
       // Seed push state for each freshly-pulled lead so the Lynxedo->Monday push
       // treats it as already in sync (no redundant write-back of what we pulled).
       const seed = (inserted ?? [])

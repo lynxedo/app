@@ -159,3 +159,95 @@ export async function syncClientsToDirectory(
 
   return { inserted, enriched }
 }
+
+export type DirectoryLeadInput = {
+  first_name: string | null
+  last_name: string | null
+  phone: string | null
+  email: string | null
+}
+
+/**
+ * Upsert ONE lead-tracker lead into the unified directory (txt_contacts) with
+ * source 'leads'. Match precedence: phone (last 10) → email; else insert.
+ *
+ * CONSENT GUARD: a lead form is not texting consent, so any row created — or
+ * any phone adopted — from this source is set do_not_text = true (mirrors the
+ * Jobber feed). Hand-edited rows keep their core fields; we only fill blanks.
+ *
+ * LIMITATION: txt_contacts.phone is still NOT NULL (the email-only fold-in is
+ * deferred — see 2026-06-22_contacts_directory_foundation.sql). So an email-only
+ * lead can only ENRICH an existing match; it can't create a new phone-less row.
+ * Returns 'inserted' | 'enriched' | 'skipped' for logging. Never throws.
+ */
+export async function syncLeadToDirectory(
+  admin: Admin,
+  companyId: string,
+  lead: DirectoryLeadInput,
+): Promise<'inserted' | 'enriched' | 'skipped'> {
+  try {
+    const ten = tenDigits(lead.phone)
+    const e164 = ten ? '+1' + ten : null
+    const email = lead.email?.trim() || null
+    if (!ten && !email) return 'skipped' // nothing to match or store on
+
+    // 1) locate the directory row: phone → email
+    let existingId: string | null = null
+    if (ten) {
+      const { data } = await admin.from('txt_contacts')
+        .select('id').eq('company_id', companyId).in('phone_digits', [ten, '1' + ten]).limit(1).maybeSingle()
+      if (data) existingId = data.id as string
+    }
+    if (!existingId && email) {
+      const { data } = await admin.from('txt_contacts')
+        .select('id').eq('company_id', companyId).ilike('email', email).limit(1).maybeSingle()
+      if (data) existingId = data.id as string
+    }
+
+    if (existingId) {
+      const { data: cur } = await admin.from('txt_contacts')
+        .select('sources, manually_edited, first_name, last_name, email, phone').eq('id', existingId).single()
+      const update: Record<string, unknown> = {
+        sources: Array.from(new Set([...((cur?.sources as string[]) ?? []), 'leads'])),
+        updated_at: new Date().toISOString(),
+      }
+      if (!cur?.manually_edited) {
+        if (!cur?.first_name && lead.first_name) update.first_name = lead.first_name
+        if (!cur?.last_name && lead.last_name) update.last_name = lead.last_name
+      }
+      // adopt phone if the row has none and it's free → no texting consent
+      if (!cur?.phone && e164) {
+        const { count } = await admin.from('txt_contacts')
+          .select('id', { count: 'exact', head: true })
+          .eq('company_id', companyId).in('phone_digits', [ten!, '1' + ten!]).neq('id', existingId)
+        if (!count) { update.phone = e164; update.phone_digits = ten; update.do_not_text = true }
+      }
+      // adopt email if the row has none and it's free
+      if (!cur?.email && email) {
+        const { count } = await admin.from('txt_contacts')
+          .select('id', { count: 'exact', head: true })
+          .eq('company_id', companyId).ilike('email', email).neq('id', existingId)
+        if (!count) update.email = email
+      }
+      await admin.from('txt_contacts').update(update).eq('id', existingId)
+      return 'enriched'
+    }
+
+    // 2) insert — requires a phone (NOT NULL); email-only can't create a row yet.
+    if (!e164) return 'skipped'
+    const nm = [lead.first_name, lead.last_name].filter(Boolean).join(' ').trim() || email || e164
+    const { error } = await admin.from('txt_contacts').insert({
+      company_id: companyId, name: nm, first_name: lead.first_name, last_name: lead.last_name,
+      phone: e164, phone_digits: ten, email, email_status: 'subscribed',
+      do_not_text: true, sources: ['leads'], manually_edited: false,
+    })
+    if (error) {
+      console.error('[contacts-directory] lead insert failed', error.message)
+      return 'skipped'
+    }
+    return 'inserted'
+  } catch (e) {
+    console.error('[contacts-directory] syncLeadToDirectory failed', e)
+    return 'skipped'
+  }
+}

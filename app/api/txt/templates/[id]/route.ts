@@ -41,10 +41,12 @@ export async function PATCH(
   }
   if (typeof body.body === 'string') {
     const text = body.body.trim()
-    if (!text) return NextResponse.json({ error: 'Body cannot be empty' }, { status: 400 })
     if (text.length > MAX_BODY)
       return NextResponse.json({ error: `Body max ${MAX_BODY} chars` }, { status: 400 })
     patch.body = text
+  }
+  if (Array.isArray(body.media)) {
+    patch.media = body.media.filter((m: unknown) => typeof m === 'string').slice(0, 1)
   }
   if (Number.isFinite(body.sort_order)) patch.sort_order = Number(body.sort_order)
 
@@ -52,7 +54,7 @@ export async function PATCH(
     .from('txt_templates')
     .update(patch)
     .eq('id', id)
-    .select('id, scope, title, body, sort_order, owner_user_id, updated_at')
+    .select('id, scope, title, body, media, sort_order, owner_user_id, updated_at')
     .single()
 
   if (error || !updated) {

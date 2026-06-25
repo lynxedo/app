@@ -223,6 +223,14 @@ export default function TxtConversationView({
     { storage_path: string; filename: string; preview: string }[]
   >([])
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
+  // "Add to Board" — turn a customer text into a task card on a Hub board.
+  // boardPickerFor holds the text body being forwarded (null = closed); we list
+  // the user's boards on open and POST content-only (no forwarded_from_message_id
+  // — that FK points at the Hub `messages` table, not txt_messages).
+  const [boardPickerFor, setBoardPickerFor] = useState<string | null>(null)
+  const [boardPickerBoards, setBoardPickerBoards] = useState<{ id: string; name: string }[]>([])
+  const [addingToBoard, setAddingToBoard] = useState(false)
+  const [boardAddedFor, setBoardAddedFor] = useState<string | null>(null)
   // In-app media viewer (#3) — images + PDFs open here instead of a new browser
   // tab (which returns null in the iOS Capacitor webview, so taps did nothing).
   // Videos play inline in the bubble, mirroring Hub DMs/Rooms.
@@ -891,17 +899,18 @@ export default function TxtConversationView({
     fileInputRef.current?.click()
   }
 
-  async function handleFilesSelected(files: FileList | null) {
-    if (!files || files.length === 0) return
+  // Shared uploader for both the 📎 picker and clipboard paste.
+  async function uploadAttachmentFiles(files: File[]) {
+    if (files.length === 0) return
     setSendError('')
     setUploadingAttachment(true)
-    for (const file of Array.from(files)) {
+    for (const file of files) {
       const form = new FormData()
       form.append('file', file)
       const res = await fetch('/api/txt/upload', { method: 'POST', body: form })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) {
-        setSendError(data.error || `Upload failed for ${file.name}`)
+        setSendError(data.error || `Upload failed for ${file.name || 'image'}`)
         continue
       }
       // Local object URL for the chip preview — never persisted, freed on send.
@@ -912,8 +921,32 @@ export default function TxtConversationView({
       ])
     }
     setUploadingAttachment(false)
+  }
+
+  async function handleFilesSelected(files: FileList | null) {
+    if (!files || files.length === 0) return
+    await uploadAttachmentFiles(Array.from(files))
     // Reset input so re-selecting the same file fires onChange.
     if (fileInputRef.current) fileInputRef.current.value = ''
+  }
+
+  // Paste an image straight into the composer (e.g. a screenshot) — uploads it
+  // as an MMS attachment, mirroring the 📎 button. Only intercepts when the
+  // clipboard actually carries image files, so normal text paste is untouched.
+  async function handleComposerPaste(e: React.ClipboardEvent<HTMLTextAreaElement>) {
+    if (sending || conversation.contact?.do_not_text) return
+    const items = e.clipboardData?.items
+    if (!items) return
+    const imageFiles: File[] = []
+    for (const item of Array.from(items)) {
+      if (item.kind === 'file' && item.type.startsWith('image/')) {
+        const file = item.getAsFile()
+        if (file) imageFiles.push(file)
+      }
+    }
+    if (imageFiles.length === 0) return // let text paste through normally
+    e.preventDefault()
+    await uploadAttachmentFiles(imageFiles)
   }
 
   function removeAttachment(storage_path: string) {
@@ -922,6 +955,42 @@ export default function TxtConversationView({
       if (target) URL.revokeObjectURL(target.preview)
       return prev.filter((p) => p.storage_path !== storage_path)
     })
+  }
+
+  // Open the board picker for a given message body, fetching the user's boards.
+  function openBoardPicker(body: string) {
+    setBoardPickerFor(body)
+    setBoardPickerBoards([])
+    fetch('/api/hub/boards')
+      .then((r) => r.json())
+      .then((d) => setBoardPickerBoards(d.boards ?? []))
+      .catch(() => {})
+  }
+
+  // Create a board item from the open text. Prefix with the contact's name so
+  // the card carries context once it leaves the conversation.
+  async function addTextToBoard(boardId: string) {
+    if (boardPickerFor == null) return
+    const who = conversation.contact?.name?.trim() || 'a customer'
+    const content = `Text from ${who}: ${boardPickerFor}`
+    setAddingToBoard(true)
+    try {
+      const res = await fetch(`/api/hub/boards/${boardId}/items`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        setSendError(data.error || 'Couldn’t add to board')
+      } else {
+        setBoardAddedFor(boardPickerFor)
+        setTimeout(() => setBoardAddedFor(null), 2500)
+      }
+    } finally {
+      setAddingToBoard(false)
+      setBoardPickerFor(null)
+    }
   }
 
   async function setFromNumber(phoneNumberId: string | null) {
@@ -1008,6 +1077,22 @@ export default function TxtConversationView({
     setText(t.body)
     setSelectedTemplateId(t.id)
     closePicker()
+    // If the template carries an attachment, stage it so it sends with the body.
+    // We already have the storage_path; preview straight off the durable media
+    // route (no File needed). Skip any already-staged copy of the same path.
+    if (t.media && t.media.length) {
+      setPendingAttachments((prev) => {
+        const have = new Set(prev.map((p) => p.storage_path))
+        const additions = t.media!
+          .filter((sp) => !have.has(sp))
+          .map((sp) => ({
+            storage_path: sp,
+            filename: sp.split('/').pop() || 'attachment',
+            preview: `/api/txt/media/${sp}`,
+          }))
+        return [...prev, ...additions]
+      })
+    }
     // Defer focus to next tick so the textarea has the new value.
     setTimeout(() => textareaRef.current?.focus(), 0)
   }
@@ -1537,8 +1622,19 @@ export default function TxtConversationView({
             return (
               <div
                 key={item.id}
-                className={`flex ${isOutbound ? 'justify-end' : 'justify-start'}`}
+                className={`group flex items-center gap-1 ${isOutbound ? 'justify-end' : 'justify-start'}`}
               >
+                {isOutbound && m.body && (
+                  <button
+                    type="button"
+                    onClick={() => openBoardPicker(m.body!)}
+                    title="Add to a board"
+                    aria-label="Add to a board"
+                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-white/50 hover:text-white text-sm shrink-0 px-1"
+                  >
+                    ☑
+                  </button>
+                )}
                 <div
                   data-msg-id={m.id}
                   className={`max-w-[75%] rounded-2xl px-3 py-2 transition-shadow ${
@@ -1662,6 +1758,17 @@ export default function TxtConversationView({
                     )
                   })()}
                 </div>
+                {!isOutbound && m.body && (
+                  <button
+                    type="button"
+                    onClick={() => openBoardPicker(m.body!)}
+                    title="Add to a board"
+                    aria-label="Add to a board"
+                    className="opacity-0 group-hover:opacity-100 focus:opacity-100 transition-opacity text-white/50 hover:text-white text-sm shrink-0 px-1"
+                  >
+                    ☑
+                  </button>
+                )}
               </div>
             )
           })}
@@ -1764,6 +1871,7 @@ export default function TxtConversationView({
                   sendMessage()
                 }
               }}
+              onPaste={handleComposerPaste}
               placeholder="Type a text… (/ for templates)"
               rows={1}
               className={`w-full px-3 py-2 rounded-lg bg-white/5 border border-white/10 text-sm resize-none ${
@@ -2179,6 +2287,60 @@ export default function TxtConversationView({
           startIndex={lightbox.index}
           onClose={() => setLightbox(null)}
         />
+      )}
+
+      {boardPickerFor != null && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4"
+          onClick={() => !addingToBoard && setBoardPickerFor(null)}
+        >
+          <div
+            className="w-full max-w-sm rounded-xl bg-[var(--t-panel-deep)] border border-white/15 shadow-xl overflow-hidden"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="px-4 py-3 border-b border-white/10 text-sm font-medium">
+              Add to a board
+            </div>
+            <div className="px-4 py-2 text-xs text-white/60 border-b border-white/10 line-clamp-2">
+              “{boardPickerFor}”
+            </div>
+            <div className="max-h-72 overflow-y-auto py-1">
+              {boardPickerBoards.length === 0 ? (
+                <div className="px-4 py-6 text-center text-xs text-white/50">
+                  No boards yet. Create one in Hub → Boards first.
+                </div>
+              ) : (
+                boardPickerBoards.map((b) => (
+                  <button
+                    key={b.id}
+                    type="button"
+                    disabled={addingToBoard}
+                    onClick={() => addTextToBoard(b.id)}
+                    className="w-full text-left px-4 py-2 text-sm hover:bg-white/5 disabled:opacity-50"
+                  >
+                    {b.name}
+                  </button>
+                ))
+              )}
+            </div>
+            <div className="px-4 py-2 border-t border-white/10 text-right">
+              <button
+                type="button"
+                disabled={addingToBoard}
+                onClick={() => setBoardPickerFor(null)}
+                className="text-xs text-white/60 hover:text-white px-2 py-1"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {boardAddedFor != null && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-full bg-emerald-600 text-white text-xs px-4 py-2 shadow-lg">
+          ✓ Added to board
+        </div>
       )}
     </div>
   )
