@@ -9,7 +9,8 @@ export type PickerContact = {
   do_not_text: boolean
 }
 
-function formatPhone(phone: string) {
+function formatPhone(phone: string | null | undefined) {
+  if (!phone) return ''
   const digits = phone.replace(/\D/g, '')
   if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
   if (digits.length === 11 && digits[0] === '1') return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
@@ -52,8 +53,8 @@ export default function TxtContactMultiPicker({
     const needle = query.toLowerCase()
     return contacts.filter(
       (c) =>
-        c.name.toLowerCase().includes(needle) ||
-        c.phone.toLowerCase().includes(needle)
+        (c.name || '').toLowerCase().includes(needle) ||
+        (c.phone || '').toLowerCase().includes(needle)
     )
   }, [contacts, query])
 

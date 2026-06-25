@@ -1232,7 +1232,7 @@ export default function TxtConversationView({
                   ? 'Group'
                   : groupContacts
                       .slice(0, 3)
-                      .map((c) => c.name.split(' ')[0])
+                      .map((c) => (c.name || 'Unknown').split(' ')[0])
                       .join(', ') +
                     (groupContacts.length > 3 ? ` +${groupContacts.length - 3}` : '')}
               </span>
