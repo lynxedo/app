@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildMessagePreview } from '@/lib/txt-preview'
+import { getAccessibleNumberIds } from '@/lib/phone-number-access'
 
 // ── Unified Inbox (Session 3): cross-channel last-activity enrichment ───────
 // When the caller can_access_unified_inbox, each conversation row is decorated
@@ -182,6 +183,18 @@ export async function GET(request: Request) {
     profile?.role === 'admin' || profile?.can_access_unified_inbox === true
   const companyId = profile?.company_id || ''
 
+  // Per-user number scope (declutters a tech's view to the line(s) they work).
+  // Managers/admins always see all numbers; plain Txt2 users are limited to the
+  // numbers granted in user_phone_number_access (null = unrestricted). Untagged
+  // conversations (phone_number_id IS NULL) stay visible to everyone.
+  const numberScope = isManager
+    ? null
+    : await getAccessibleNumberIds(createAdminClient(), user.id)
+  // PostgREST `.or()` fragment restricting to the granted numbers OR untagged.
+  const numberScopeOr = numberScope
+    ? `phone_number_id.in.(${numberScope.join(',')}),phone_number_id.is.null`
+    : null
+
   // The shared "All" inbox is visible to every Txt2 user. The unassigned
   // Queue and the Responder tab stay manager-only.
   if ((scope === 'unassigned' || scope === 'responder') && !isManager) {
@@ -232,10 +245,10 @@ export async function GET(request: Request) {
     )
     if (allIds.length === 0) return NextResponse.json({ conversations: [] })
 
-    const { data: found, error: foundErr } = await supabase
+    let foundQuery = supabase
       .from('txt_conversations')
       .select(
-        `id, kind, status, source, assigned_to, archived_by, last_message_at, last_inbound_at, last_message_preview, last_message_direction, created_at,
+        `id, kind, status, source, assigned_to, archived_by, phone_number_id, last_message_at, last_inbound_at, last_message_preview, last_message_direction, created_at,
          contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, do_not_text ),
          assignee:hub_users!assigned_to ( id, display_name ),
          members:txt_conversation_members ( user_id, role, member:hub_users!user_id ( id, display_name ) ),
@@ -244,6 +257,8 @@ export async function GET(request: Request) {
       .in('id', allIds)
       .order('last_message_at', { ascending: false, nullsFirst: false })
       .limit(50)
+    if (numberScopeOr) foundQuery = foundQuery.or(numberScopeOr)
+    const { data: found, error: foundErr } = await foundQuery
     if (foundErr) return NextResponse.json({ error: foundErr.message }, { status: 500 })
     const foundRows = (found ?? []) as unknown as ConvRow[]
     const out = canAccessUnifiedInbox
@@ -255,7 +270,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from('txt_conversations')
     .select(
-      `id, kind, status, source, assigned_to, archived_by, last_message_at, last_inbound_at, last_message_preview, last_message_direction, created_at,
+      `id, kind, status, source, assigned_to, archived_by, phone_number_id, last_message_at, last_inbound_at, last_message_preview, last_message_direction, created_at,
        contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, do_not_text ),
        assignee:hub_users!assigned_to ( id, display_name ),
        members:txt_conversation_members ( user_id, role, member:hub_users!user_id ( id, display_name ) ),
@@ -287,8 +302,10 @@ export async function GET(request: Request) {
     if (!isTxtUser) {
       query = query.eq('archived_by', user.id)
     }
+    if (numberScopeOr) query = query.or(numberScopeOr)
   } else if (scope === 'all') {
     query = query.neq('status', 'archived')
+    if (numberScopeOr) query = query.or(numberScopeOr)
   } else {
     return NextResponse.json({ error: 'Invalid scope' }, { status: 400 })
   }
