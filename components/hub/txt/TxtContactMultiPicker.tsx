@@ -17,10 +17,12 @@ function formatPhone(phone: string | null | undefined) {
   return phone
 }
 
-// Multi-select for txt_contacts. Used by both the group composer
-// and the broadcast composer. Loads /api/txt/contacts once; client-side
-// filter on top (covers Heroes' ~100-contact scale fine; if it grows
-// we'd push search into the API).
+// Multi-select for txt_contacts. Used by both the group composer and the
+// broadcast composer. The unified contacts directory now holds 1,300+ textable
+// contacts, well past what a single client-side slice can hold — so the search
+// box hits the API (same `?search=` path as the New-conversation search) rather
+// than filtering a truncated first-page. With no query we show a browse list
+// (first page by name) just to give something to scroll.
 export default function TxtContactMultiPicker({
   selectedIds,
   onChange,
@@ -32,31 +34,59 @@ export default function TxtContactMultiPicker({
   includeBlocked?: boolean
   emptyHint?: string
 }) {
+  // Browse list (no query) and server search results (query >= 2 chars).
   const [contacts, setContacts] = useState<PickerContact[]>([])
+  const [results, setResults] = useState<PickerContact[] | null>(null)
   const [loading, setLoading] = useState(true)
+  const [searching, setSearching] = useState(false)
   const [query, setQuery] = useState('')
 
+  const blockedParam = includeBlocked ? '&include_do_not_text=1' : ''
+
+  // Initial browse list — first page of textable contacts by name.
   useEffect(() => {
     setLoading(true)
-    fetch(
-      '/api/txt/contacts?limit=500' +
-        (includeBlocked ? '&include_do_not_text=1' : '')
-    )
+    fetch('/api/txt/contacts?limit=500' + blockedParam)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
       .then((data) => setContacts(data.contacts || []))
       .catch(() => setContacts([]))
       .finally(() => setLoading(false))
-  }, [includeBlocked])
+  }, [blockedParam])
 
-  const filtered = useMemo(() => {
-    if (!query.trim()) return contacts
-    const needle = query.toLowerCase()
-    return contacts.filter(
-      (c) =>
-        (c.name || '').toLowerCase().includes(needle) ||
-        (c.phone || '').toLowerCase().includes(needle)
-    )
-  }, [contacts, query])
+  // Server-side search (debounced) so ANY of the 1,300+ contacts is findable —
+  // not just the first page. Clears back to the browse list when emptied.
+  useEffect(() => {
+    const term = query.trim()
+    if (term.length < 2) {
+      setResults(null)
+      setSearching(false)
+      return
+    }
+    let cancelled = false
+    setSearching(true)
+    const t = setTimeout(async () => {
+      try {
+        const res = await fetch(
+          `/api/txt/contacts?search=${encodeURIComponent(term)}&limit=200` +
+            blockedParam
+        )
+        if (cancelled) return
+        const data = res.ok ? await res.json() : { contacts: [] }
+        setResults(data.contacts || [])
+      } catch {
+        if (!cancelled) setResults([])
+      } finally {
+        if (!cancelled) setSearching(false)
+      }
+    }, 250)
+    return () => {
+      cancelled = true
+      clearTimeout(t)
+    }
+  }, [query, blockedParam])
+
+  // What's on screen: server results when searching, else the browse list.
+  const filtered = results !== null ? results : contacts
 
   const selectedSet = useMemo(() => new Set(selectedIds), [selectedIds])
 
@@ -107,13 +137,22 @@ export default function TxtContactMultiPicker({
         </button>
       </div>
       <div className="text-[11px] text-white/40 mb-1">
-        {selectedIds.length} selected · {filtered.length} shown
+        {selectedIds.length} selected · {filtered.length}{' '}
+        {results !== null
+          ? `match${filtered.length === 1 ? '' : 'es'}`
+          : 'shown'}
+        {/* Browse list is the first page only — tell the user to search rather
+            than letting them assume everyone is listed. */}
+        {results === null && contacts.length >= 500 && ' · search to find more'}
       </div>
       <div className="flex-1 overflow-y-auto rounded-md border border-white/10 bg-white/5 min-h-0">
         {loading && <div className="p-3 text-sm text-white/40">Loading contacts…</div>}
-        {!loading && filtered.length === 0 && (
+        {!loading && searching && filtered.length === 0 && (
+          <div className="p-3 text-sm text-white/40">Searching…</div>
+        )}
+        {!loading && !searching && filtered.length === 0 && (
           <div className="p-3 text-sm text-white/40">
-            {emptyHint || 'No contacts.'}
+            {query.trim().length >= 2 ? 'No matching contacts.' : emptyHint || 'No contacts.'}
           </div>
         )}
         {!loading && filtered.length > 0 && (
