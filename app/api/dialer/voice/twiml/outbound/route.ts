@@ -16,6 +16,42 @@ import {
   sanitizeRoomName,
   twimlAgentJoinConference,
 } from '@/lib/twilio-conference'
+import { getAccessibleNumberIds } from '@/lib/phone-number-access'
+
+// Resolve the outbound caller ID. The dialer client may pass `caller_id` (an
+// E.164 the user picked from their granted numbers). We honour it only when it's
+// a real company number the user is allowed to use; otherwise fall back to the
+// company default (voiceCallerId / TWILIO_PHONE_NUMBER). Managers bypass the
+// access check; restricted users can only spoof a line they actually work.
+async function resolveOutboundCallerId(
+  admin: ReturnType<typeof createAdminClient>,
+  companyId: string,
+  actorUserId: string | null,
+  requested: string
+): Promise<string> {
+  const fallback = voiceCallerId()
+  const e164 = toE164(requested)
+  if (!e164) return fallback
+  const { data: num } = await admin
+    .from('txt_phone_numbers')
+    .select('id, company_id')
+    .eq('twilio_number', e164)
+    .maybeSingle()
+  if (!num || num.company_id !== companyId) return fallback
+  if (actorUserId) {
+    const { data: prof } = await admin
+      .from('user_profiles')
+      .select('role, can_admin_dialer')
+      .eq('id', actorUserId)
+      .maybeSingle()
+    const isManager = prof?.role === 'admin' || prof?.can_admin_dialer === true
+    if (!isManager) {
+      const scope = await getAccessibleNumberIds(admin, actorUserId)
+      if (scope && !scope.includes(num.id)) return fallback
+    }
+  }
+  return e164
+}
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -60,6 +96,7 @@ export async function POST(request: NextRequest) {
   const txtConversationId = params.get('txt_conversation_id') || null
   const txtContactId = params.get('txt_contact_id') || null
   const room = sanitizeRoomName(params.get('room'))
+  const callerIdReq = (params.get('caller_id') || '').trim()
 
   // For SDK-originated outbound calls Twilio sends `From` as "client:<hub_users.id>".
   // The calls-row FK columns (initiated_by / handled_by → hub_users.id) need a BARE
@@ -92,6 +129,13 @@ export async function POST(request: NextRequest) {
     // swallow — default to not recording
   }
 
+  // The caller ID shown to the dialed party: the user's chosen line (validated
+  // against their access) or the company default. Used for PSTN dials + the
+  // stored calls row.
+  const chosenCallerId = callerIdReq
+    ? await resolveOutboundCallerId(admin, HEROES_COMPANY_ID, actorUserId, callerIdReq)
+    : voiceCallerId()
+
   // Resolve the dialed party. Two kinds:
   //   3-digit extension → an internal Hub user (Client identity)
   //   phone number      → PSTN
@@ -118,7 +162,7 @@ export async function POST(request: NextRequest) {
       return twimlResponse(twimlSayAndHangup('Invalid number. Goodbye.'), 200)
     }
     customerTo = e164
-    customerFrom = voiceCallerId() // PSTN: must be our owned caller ID
+    customerFrom = chosenCallerId // PSTN: the user's chosen (validated) caller ID
     toNumberStored = e164
   }
 
@@ -128,7 +172,7 @@ export async function POST(request: NextRequest) {
       company_id: HEROES_COMPANY_ID,
       twilio_call_sid: callSid || null,
       direction: 'outbound',
-      from_number: voiceCallerId() || 'app',
+      from_number: chosenCallerId || 'app',
       to_number: toNumberStored,
       status: 'initiated',
       initiated_by: actorUserId,
@@ -214,7 +258,7 @@ export async function POST(request: NextRequest) {
   return twimlResponse(
     twimlDialPstn({
       to: customerTo,
-      callerId: voiceCallerId(),
+      callerId: chosenCallerId,
       timeoutSeconds: 30,
       recordCalls,
       recordingStatusCallback: recordingCb,

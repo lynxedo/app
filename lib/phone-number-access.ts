@@ -26,6 +26,24 @@ export async function getAccessibleNumberIds(
 }
 
 /**
+ * Like getAccessibleNumberIds but returns the granted numbers as E.164 strings
+ * (calls/voicemails store numbers as text, not as a phone_number_id FK). Returns
+ * `null` for unrestricted users.
+ */
+export async function getAccessibleNumberE164s(
+  admin: SupabaseClient,
+  userId: string
+): Promise<string[] | null> {
+  const ids = await getAccessibleNumberIds(admin, userId)
+  if (ids === null) return null
+  const { data } = await admin
+    .from('txt_phone_numbers')
+    .select('twilio_number')
+    .in('id', ids)
+  return (data || []).map((r) => r.twilio_number as string)
+}
+
+/**
  * Convenience: does this user have access to a specific phone number?
  * Unrestricted users (null scope) always return true.
  */

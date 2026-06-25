@@ -47,6 +47,26 @@ export default function DialerPanel({
 
   const [recordingPaused, setRecordingPaused] = useState(false)
 
+  // From-number picker. /api/txt/numbers returns this user's access-allowed
+  // numbers (the shared registry, filtered by user_phone_number_access). We only
+  // surface the picker when there's a real choice (>1 number); with one number
+  // the dialer just uses it / the company default, no clutter.
+  const [numbers, setNumbers] = useState<
+    { id: string; twilio_number: string; label: string | null; is_default: boolean }[]
+  >([])
+  const [fromNumber, setFromNumber] = useState<string>('')
+  useEffect(() => {
+    fetch('/api/txt/numbers')
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => {
+        const nums = (d?.numbers || []) as typeof numbers
+        setNumbers(nums)
+        const def = nums.find((n) => n.is_default) || nums[0]
+        if (def) setFromNumber(def.twilio_number)
+      })
+      .catch(() => {})
+  }, [])
+
   // Reset pause state when the call ends.
   useEffect(() => {
     if (device.state !== 'in-call') setRecordingPaused(false)
@@ -131,21 +151,40 @@ export default function DialerPanel({
             contact={device.contactMatch}
           />
         ) : (
-          <Dialpad
-            // key forces a remount when the user arrives via click-to-call
-            // with a different number (e.g. swaps Txt threads then re-clicks
-            // 📞). Keeps the rest of DialerPanel — and the Twilio Device —
-            // alive across that nav.
-            key={initialNumber ?? 'manual'}
-            initialValue={initialNumber ?? undefined}
-            onCall={(num) =>
-              device.placeCall(num, {
-                conversationId: txtConversationId,
-                contactId: txtContactId,
-              })
-            }
-            disabled={device.state === 'not-configured' || device.state === 'connecting'}
-          />
+          <div className="flex flex-col items-center gap-3">
+            {numbers.length > 1 && (
+              <label className="flex items-center gap-2 text-xs text-white/60">
+                <span>Call from</span>
+                <select
+                  value={fromNumber}
+                  onChange={(e) => setFromNumber(e.target.value)}
+                  className="px-2 py-1 rounded-md bg-white/5 border border-white/10 text-white/80 text-xs"
+                >
+                  {numbers.map((n) => (
+                    <option key={n.id} value={n.twilio_number}>
+                      {n.label ? `${n.label} · ${formatPhone(n.twilio_number)}` : formatPhone(n.twilio_number)}
+                    </option>
+                  ))}
+                </select>
+              </label>
+            )}
+            <Dialpad
+              // key forces a remount when the user arrives via click-to-call
+              // with a different number (e.g. swaps Txt threads then re-clicks
+              // 📞). Keeps the rest of DialerPanel — and the Twilio Device —
+              // alive across that nav.
+              key={initialNumber ?? 'manual'}
+              initialValue={initialNumber ?? undefined}
+              onCall={(num) =>
+                device.placeCall(num, {
+                  conversationId: txtConversationId,
+                  contactId: txtContactId,
+                  callerId: fromNumber || null,
+                })
+              }
+              disabled={device.state === 'not-configured' || device.state === 'connecting'}
+            />
+          </div>
         )}
 
         {device.state === 'not-configured' && (
@@ -168,6 +207,12 @@ export default function DialerPanel({
       )}
     </div>
   )
+}
+
+function formatPhone(e164: string) {
+  const d = e164.replace(/\D/g, '')
+  if (d.length === 11 && d[0] === '1') return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`
+  return e164
 }
 
 function StatusPill({ state }: { state: ReturnType<typeof useTwilioDevice>['state'] }) {

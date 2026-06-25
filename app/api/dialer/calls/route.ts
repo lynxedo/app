@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { getAccessibleNumberE164s } from '@/lib/phone-number-access'
 
 // List calls for the dialer's Recent / Missed tabs.
 // Scopes:
@@ -51,6 +52,12 @@ export async function GET(request: NextRequest) {
     q = q
       .in('status', ['no-answer', 'busy', 'failed', 'canceled'])
       .eq('direction', 'inbound')
+    // Number scope: a restricted (non-manager) user only sees missed calls that
+    // came in on a line they work. `mine` is already personal, so it's left as-is.
+    if (!isManager) {
+      const allowed = await getAccessibleNumberE164s(admin, user.id)
+      if (allowed) q = q.in('to_number', allowed)
+    }
   }
 
   const { data, error } = await q
