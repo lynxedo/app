@@ -151,7 +151,11 @@ export async function POST(
     .single()
 
   if (insertErr || !inserted) {
-    return NextResponse.json({ error: 'Insert failed' }, { status: 500 })
+    console.error('[txt/send] message insert failed', insertErr)
+    return NextResponse.json(
+      { error: insertErr?.message || 'Insert failed' },
+      { status: 500 }
+    )
   }
 
   await admin

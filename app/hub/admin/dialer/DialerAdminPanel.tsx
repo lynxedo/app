@@ -277,6 +277,14 @@ export default function DialerAdminPanel({
         </p>
       </header>
 
+      <div className="rounded-lg border border-white/10 bg-white/5 px-4 py-3 text-xs text-white/60">
+        <span className="text-white/80 font-medium">Phone numbers &amp; access</span> are
+        managed in one place — <a href="/hub/admin/txt" className="text-brand hover:underline">Txt → Phone Numbers</a>.
+        The per-user access set there controls which numbers a person sees in
+        both the Dialer and Txt2, and which numbers their &ldquo;Call from&rdquo;
+        picker offers. Admins always see every number.
+      </div>
+
       {/* Sub-section tabs */}
       <div className="flex gap-1 border-b border-gray-800 flex-wrap">
         {([

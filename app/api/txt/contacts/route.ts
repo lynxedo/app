@@ -28,6 +28,11 @@ export async function GET(request: Request) {
     .from('txt_contacts')
     .select('id, name, phone, email, do_not_text, notes, jobber_client_id')
     .eq('company_id', HEROES_COMPANY_ID)
+    // This is the texting view (broadcast/group composers + new-conversation
+    // search). The unified contacts directory now holds email-only contacts with
+    // a null phone — they can't be texted, so exclude them. Leaving them in
+    // crashed the composer's phone formatter (null.replace) → white screen.
+    .not('phone', 'is', null)
     .order('name', { ascending: true })
     .limit(limit)
 

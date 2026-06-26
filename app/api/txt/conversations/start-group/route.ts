@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import {
   twilioConvCreate,
   twilioConvAddSmsParticipant,
+  twilioConvAddWebhook,
   twilioConfigured,
 } from '@/lib/twilio'
 import { resolveFromNumber } from '@/lib/txt-numbers'
@@ -96,6 +97,18 @@ export async function POST(request: Request) {
       )
     }
     twilioConversationSid = created.sid
+
+    // Attach a conversation-scoped inbound webhook so participant replies land
+    // back in THIS thread (and this environment). Best-effort — a failure only
+    // means replies won't show in-app; outbound still works.
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
+    const hook = await twilioConvAddWebhook({
+      conversationSid: twilioConversationSid,
+      url: `${baseUrl}/api/txt/twilio/conversations`,
+    })
+    if (!hook.ok) {
+      console.warn('[start-group] webhook attach failed', hook.error)
+    }
 
     // Add each contact as an SMS participant. Bail on the first failure
     // so we don't leave a half-built group lying around.

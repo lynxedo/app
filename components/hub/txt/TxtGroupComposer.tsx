@@ -34,8 +34,8 @@ export default function TxtGroupComposer({ onClose }: { onClose: () => void }) {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/60 z-50 flex items-center justify-center px-4">
-      <div className="bg-[var(--t-panel)] border border-white/10 rounded-lg w-full max-w-md max-h-[85vh] flex flex-col">
+    <div className="fixed inset-0 bg-black/60 z-50 flex items-stretch sm:items-center justify-center sm:px-4">
+      <div className="bg-[var(--t-panel)] border border-white/10 sm:rounded-lg w-full h-full sm:h-auto sm:max-w-md sm:max-h-[85vh] flex flex-col">
         <div className="px-4 py-3 border-b border-white/10 flex items-center justify-between">
           <h2 className="font-medium">New group conversation</h2>
           <button onClick={onClose} className="text-white/50 hover:text-white" aria-label="Close">

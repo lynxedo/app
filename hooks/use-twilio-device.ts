@@ -94,7 +94,7 @@ export type UseTwilioDevice = {
   // calls row with the originating txt_conversation + txt_contact ids.
   placeCall: (
     number: string,
-    extras?: { conversationId?: string | null; contactId?: string | null }
+    extras?: { conversationId?: string | null; contactId?: string | null; callerId?: string | null }
   ) => Promise<void>
   // Active call surface
   inCallWith: string | null
@@ -525,7 +525,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
 
   const placeCall = useCallback(async (
     number: string,
-    extras?: { conversationId?: string | null; contactId?: string | null }
+    extras?: { conversationId?: string | null; contactId?: string | null; callerId?: string | null }
   ) => {
     // Native path: drive the call through the native Twilio Voice SDK. Token fetch
     // and the To/extras params are identical to the web path, so the outbound TwiML
@@ -555,6 +555,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         const params: Record<string, string> = { To: number, room }
         if (extras?.conversationId) params.txt_conversation_id = extras.conversationId
         if (extras?.contactId) params.txt_contact_id = extras.contactId
+        if (extras?.callerId) params.caller_id = extras.callerId
 
         // The persistent callConnected / callDisconnected listeners bound in
         // ensureRegistered drive the rest of the lifecycle.
@@ -586,6 +587,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       const params: Record<string, string> = { To: number, room }
       if (extras?.conversationId) params.txt_conversation_id = extras.conversationId
       if (extras?.contactId) params.txt_contact_id = extras.contactId
+      if (extras?.callerId) params.caller_id = extras.callerId
       const call = await device.connect({ params })
       activeCallRef.current = call
       setInCallWith(number)

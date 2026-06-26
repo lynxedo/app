@@ -182,6 +182,35 @@ export async function twilioConvAddSmsParticipant(opts: {
   return { ok: true }
 }
 
+// Attach a CONVERSATION-SCOPED inbound webhook so participant replies POST to
+// this environment's handler. We deliberately use a per-conversation webhook
+// (not the account-global Conversations webhook) because staging + prod share
+// ONE Twilio account — a global URL would send every env's group events to
+// whichever env was configured last. Scoping to the conversation created here
+// means staging groups call staging, prod groups call prod. Filter to
+// onMessageAdded (participant inbound). Best-effort: a failure here just means
+// replies won't appear in-app; the outbound group still works.
+export async function twilioConvAddWebhook(opts: {
+  conversationSid: string
+  url: string
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!twilioConfigured()) return { ok: false, error: 'twilio_not_configured' }
+  const form = new URLSearchParams()
+  form.set('Target', 'webhook')
+  form.set('Configuration.Url', opts.url)
+  form.set('Configuration.Method', 'POST')
+  form.set('Configuration.Filters', 'onMessageAdded')
+  const res = await twilioConvFetch(
+    `/Conversations/${opts.conversationSid}/Webhooks`,
+    { method: 'POST', body: form.toString() }
+  )
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => null)) as { message?: string } | null
+    return { ok: false, error: payload?.message || `twilio_http_${res.status}` }
+  }
+  return { ok: true }
+}
+
 export async function twilioConvSendMessage(opts: {
   conversationSid: string
   body: string

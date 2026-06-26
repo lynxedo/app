@@ -16,6 +16,8 @@ type UserNumberAssignment = {
   display_name: string | null
   is_bot: boolean
   txt_default_number_id: string | null
+  // [] = unrestricted (sees all numbers); non-empty = limited to these ids.
+  access_number_ids: string[]
 }
 
 function formatPhone(e164: string) {
@@ -128,10 +130,38 @@ export default function TxtNumbersPanel({
     }
     setNumbers((prev) => prev.filter((x) => x.id !== n.id))
     setAssignments((prev) =>
-      prev.map((a) =>
-        a.txt_default_number_id === n.id ? { ...a, txt_default_number_id: null } : a
-      )
+      prev.map((a) => ({
+        ...a,
+        txt_default_number_id: a.txt_default_number_id === n.id ? null : a.txt_default_number_id,
+        // The DB row cascades on delete; mirror that locally.
+        access_number_ids: a.access_number_ids.filter((id) => id !== n.id),
+      }))
     )
+  }
+
+  async function setAccessForUser(userId: string, nextIds: string[]) {
+    const prevState = assignments
+    setAssignments((prev) =>
+      prev.map((a) => (a.user_id === userId ? { ...a, access_number_ids: nextIds } : a))
+    )
+    const res = await fetch('/api/admin/txt/number-access', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ user_id: userId, phone_number_ids: nextIds }),
+    })
+    if (!res.ok) {
+      const data = await res.json().catch(() => ({}))
+      toast.error(data.error || 'Access update failed')
+      setAssignments(prevState) // revert optimistic change
+    }
+  }
+
+  function toggleAccess(u: UserNumberAssignment, numberId: string) {
+    const has = u.access_number_ids.includes(numberId)
+    const next = has
+      ? u.access_number_ids.filter((id) => id !== numberId)
+      : [...u.access_number_ids, numberId]
+    setAccessForUser(u.user_id, next)
   }
 
   async function assignNumberToUser(userId: string, phoneNumberId: string | null) {
@@ -293,10 +323,19 @@ export default function TxtNumbersPanel({
       </div>
 
       <div>
-        <h2 className="text-sm font-medium text-gray-200 mb-2">Per-user default number</h2>
-        <p className="text-xs text-gray-500 mb-2">
-          Empty = falls through to the company default.
-        </p>
+        <h2 className="text-sm font-medium text-gray-200 mb-2">Per-user numbers</h2>
+        <div className="text-xs text-gray-500 mb-2 space-y-0.5">
+          <div>
+            <span className="text-gray-300">Default number</span> — the number this
+            person sends from when a conversation has no override. Empty = company default.
+          </div>
+          <div>
+            <span className="text-gray-300">Access</span> — which numbers they see in
+            Txt2 &amp; the Dialer. <span className="text-emerald-300">No boxes checked = all numbers</span>;
+            check specific ones to declutter (e.g. limit a field tech to one line).
+            Admins always see everything.
+          </div>
+        </div>
         <div className="rounded-lg border border-gray-800 overflow-hidden">
           {assignmentsLoading ? (
             <div className="px-4 py-8 text-center text-sm text-gray-500">Loading…</div>
@@ -308,11 +347,12 @@ export default function TxtNumbersPanel({
                 <tr>
                   <th className="text-left px-3 py-2">User</th>
                   <th className="text-left px-3 py-2 w-64">Default number</th>
+                  <th className="text-left px-3 py-2">Access</th>
                 </tr>
               </thead>
               <tbody>
                 {assignments.map((u) => (
-                  <tr key={u.user_id} className="border-t border-gray-800">
+                  <tr key={u.user_id} className="border-t border-gray-800 align-top">
                     <td className="px-3 py-2">{u.display_name || u.user_id}</td>
                     <td className="px-3 py-2">
                       <select
@@ -330,6 +370,43 @@ export default function TxtNumbersPanel({
                           </option>
                         ))}
                       </select>
+                    </td>
+                    <td className="px-3 py-2">
+                      {numbers.length === 0 ? (
+                        <span className="text-xs text-gray-600">—</span>
+                      ) : (
+                        <div className="flex flex-wrap items-center gap-x-4 gap-y-1">
+                          {numbers.map((n) => (
+                            <label
+                              key={n.id}
+                              className="flex items-center gap-1.5 text-xs text-gray-300 cursor-pointer"
+                            >
+                              <input
+                                type="checkbox"
+                                className="w-3.5 h-3.5"
+                                checked={u.access_number_ids.includes(n.id)}
+                                onChange={() => toggleAccess(u, n.id)}
+                              />
+                              <span>
+                                {n.label
+                                  ? `${n.label} · ${formatPhone(n.twilio_number)}`
+                                  : formatPhone(n.twilio_number)}
+                              </span>
+                            </label>
+                          ))}
+                          <span
+                            className={
+                              u.access_number_ids.length === 0
+                                ? 'text-[11px] text-emerald-300'
+                                : 'text-[11px] text-amber-300'
+                            }
+                          >
+                            {u.access_number_ids.length === 0
+                              ? 'All numbers'
+                              : `Limited to ${u.access_number_ids.length}`}
+                          </span>
+                        </div>
+                      )}
                     </td>
                   </tr>
                 ))}
