@@ -150,27 +150,34 @@ export async function POST(request: NextRequest) {
   if (action.kind === 'transfer_user' || action.kind === 'extension') {
     const callSid = params.get('CallSid') || ''
     let agentIdentity: string | null = null
-    let voicemailOwner: string | null = null
+    let ringUserId: string | null = null      // the user being rung (DND check + handled_by)
+    let voicemailOwner: string | null = null  // whose voicemail box on no-answer (null = company)
     let ringTimeout = settings.ring_timeout_sec ?? 20
     if (action.kind === 'transfer_user') {
+      // A menu route to a specific person ("press 2 for Ben") is still a BUSINESS
+      // call → COMPANY voicemail on no-answer. Personal greetings are reserved for
+      // direct extension dials. (Ben, June 26 2026.)
       agentIdentity = action.identity
-      voicemailOwner = action.user_id
+      ringUserId = action.user_id
+      voicemailOwner = null
       ringTimeout = action.timeout_sec ?? ringTimeout
     } else {
+      // An extension dialed at the IVR → that user's PERSONAL voicemail.
       const resolved = ctx.extensionResolver(action.extension)
       if (resolved) {
         agentIdentity = resolved.identity
+        ringUserId = resolved.ownerUserId
         voicemailOwner = resolved.ownerUserId
       }
     }
-    const agentDnd = voicemailOwner ? await isAgentDndNow(admin, voicemailOwner) : false
+    const agentDnd = ringUserId ? await isAgentDndNow(admin, ringUserId) : false
     if (agentIdentity && callSid && !agentDnd) {
       const room = conferenceRoomName()
       // Stamp the room + the answering agent on the calls row so the web/native
       // dialer can discover its conference (enables in-call hold + transfer).
       await admin
         .from('calls')
-        .update({ conference_name: room, handled_by: voicemailOwner || agentIdentity })
+        .update({ conference_name: room, handled_by: ringUserId || agentIdentity })
         .eq('company_id', HEROES_COMPANY_ID)
         .eq('twilio_call_sid', callSid)
       const twiml = await connectInboundToAgentViaConference({

@@ -43,6 +43,7 @@ export default function RingGroupsPanel({
   async function createGroup(input: {
     name: string
     ring_mode: 'simultaneous' | 'sequential'
+    ring_seconds: number
     member_user_ids: string[]
   }) {
     setBusy(true)
@@ -54,7 +55,8 @@ export default function RingGroupsPanel({
         body: JSON.stringify({
           name: input.name,
           ring_mode: input.ring_mode,
-          ring_timeout_sec: 25,
+          ring_timeout_sec: input.ring_seconds,
+          member_timeout_sec: input.ring_seconds,
           member_user_ids: input.member_user_ids,
         }),
       })
@@ -67,11 +69,11 @@ export default function RingGroupsPanel({
         id: data.id,
         name: input.name,
         ring_mode: input.ring_mode,
-        ring_timeout_sec: 25,
+        ring_timeout_sec: input.ring_seconds,
         members: input.member_user_ids.map((u, idx) => ({
           user_id: u,
           position: idx,
-          member_timeout_sec: 20,
+          member_timeout_sec: input.ring_seconds,
         })),
       }
       replaceLocal([...groups, newGroup].sort((a, b) => a.name.localeCompare(b.name)))
@@ -83,7 +85,7 @@ export default function RingGroupsPanel({
     }
   }
 
-  async function patchGroup(id: string, patch: Partial<RingGroup>) {
+  async function patchGroup(id: string, patch: Partial<RingGroup> & { member_timeout_sec?: number }) {
     setBusy(true)
     setError(null)
     try {
@@ -91,6 +93,7 @@ export default function RingGroupsPanel({
       if (patch.name !== undefined) body.name = patch.name
       if (patch.ring_mode !== undefined) body.ring_mode = patch.ring_mode
       if (patch.ring_timeout_sec !== undefined) body.ring_timeout_sec = patch.ring_timeout_sec
+      if (patch.member_timeout_sec !== undefined) body.member_timeout_sec = patch.member_timeout_sec
       if (patch.members !== undefined) {
         body.member_user_ids = patch.members.map((m) => m.user_id)
       }
@@ -103,7 +106,15 @@ export default function RingGroupsPanel({
         const b = await res.json().catch(() => null)
         throw new Error(b?.error ?? `Save failed (${res.status})`)
       }
-      replaceLocal(groups.map((g) => (g.id === id ? { ...g, ...patch } : g)))
+      const { member_timeout_sec, ...rest } = patch
+      replaceLocal(groups.map((g) => {
+        if (g.id !== id) return g
+        const next: RingGroup = { ...g, ...rest }
+        if (member_timeout_sec !== undefined) {
+          next.members = (rest.members ?? g.members).map((m) => ({ ...m, member_timeout_sec }))
+        }
+        return next
+      }))
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     } finally {
@@ -197,12 +208,19 @@ function GroupRow({
   isEditing: boolean
   busy: boolean
   onEdit: () => void
-  onSave: (patch: Partial<RingGroup>) => void
+  onSave: (patch: Partial<RingGroup> & { member_timeout_sec?: number }) => void
   onDelete: () => void
 }) {
   const [name, setName] = useState(group.name)
   const [mode, setMode] = useState<RingGroup['ring_mode']>(group.ring_mode)
   const [members, setMembers] = useState<RingGroupMember[]>(group.members)
+  // One "ring seconds" value drives both modes: simultaneous → whole-group ring
+  // duration; sequential → seconds each person rings before the next.
+  const [ringSeconds, setRingSeconds] = useState<number>(
+    group.ring_mode === 'sequential'
+      ? group.members[0]?.member_timeout_sec ?? 20
+      : group.ring_timeout_sec
+  )
   const userById = new Map(hubUsers.map((u) => [u.id, u.display_name]))
 
   function moveMember(idx: number, delta: number) {
@@ -247,6 +265,16 @@ function GroupRow({
           {(isEditing ? members.length : group.members.length)} member
           {(isEditing ? members.length : group.members.length) === 1 ? '' : 's'}
         </span>
+        {!isEditing && (
+          <>
+            <span className="text-xs text-white/40">·</span>
+            <span className="text-xs text-white/40">
+              {group.ring_mode === 'sequential'
+                ? `${group.members[0]?.member_timeout_sec ?? 20}s each`
+                : `${group.ring_timeout_sec}s ring`}
+            </span>
+          </>
+        )}
         <div className="ml-auto flex items-center gap-2">
           <button
             type="button"
@@ -291,6 +319,25 @@ function GroupRow({
                 Sequential
               </button>
             </div>
+          </div>
+
+          <div className="flex items-center gap-2 text-xs">
+            <span className="text-white/50">
+              {mode === 'sequential' ? 'Ring each person for' : 'Ring everyone for'}
+            </span>
+            <input
+              type="number"
+              min={5}
+              max={120}
+              value={ringSeconds}
+              onChange={(e) => setRingSeconds(Math.max(5, Math.min(120, parseInt(e.target.value, 10) || 20)))}
+              className="bg-gray-900 border border-white/15 rounded px-2 py-1 w-16 text-sm"
+            />
+            <span className="text-white/50">
+              {mode === 'sequential'
+                ? 'seconds before moving to the next person'
+                : 'seconds before voicemail'}
+            </span>
           </div>
 
           <div>
@@ -368,7 +415,13 @@ function GroupRow({
             <button
               type="button"
               onClick={() => {
-                onSave({ name: name.trim(), ring_mode: mode, members })
+                onSave({
+                  name: name.trim(),
+                  ring_mode: mode,
+                  members,
+                  ring_timeout_sec: ringSeconds,
+                  member_timeout_sec: ringSeconds,
+                })
               }}
               disabled={busy || !name.trim()}
               className="text-xs px-3 py-1.5 rounded bg-brand hover:bg-brand-light disabled:opacity-50"
@@ -402,11 +455,13 @@ function NewGroupForm({
   onCreate: (input: {
     name: string
     ring_mode: 'simultaneous' | 'sequential'
+    ring_seconds: number
     member_user_ids: string[]
   }) => void
 }) {
   const [name, setName] = useState('')
   const [mode, setMode] = useState<'simultaneous' | 'sequential'>('simultaneous')
+  const [ringSeconds, setRingSeconds] = useState<number>(20)
   const [members, setMembers] = useState<string[]>([])
 
   function toggle(id: string) {
@@ -447,6 +502,24 @@ function NewGroupForm({
           </button>
         </div>
       </div>
+      <div className="flex items-center gap-2 text-xs">
+        <span className="text-white/50">
+          {mode === 'sequential' ? 'Ring each person for' : 'Ring everyone for'}
+        </span>
+        <input
+          type="number"
+          min={5}
+          max={120}
+          value={ringSeconds}
+          onChange={(e) => setRingSeconds(Math.max(5, Math.min(120, parseInt(e.target.value, 10) || 20)))}
+          className="bg-gray-900 border border-white/15 rounded px-2 py-1 w-16 text-sm"
+        />
+        <span className="text-white/50">
+          {mode === 'sequential'
+            ? 'seconds before moving to the next person'
+            : 'seconds before voicemail'}
+        </span>
+      </div>
       <div>
         <div className="text-xs text-white/50 mb-1">Members</div>
         <div className="flex flex-wrap gap-1">
@@ -474,7 +547,7 @@ function NewGroupForm({
           type="button"
           disabled={!name.trim() || busy}
           onClick={() =>
-            onCreate({ name: name.trim(), ring_mode: mode, member_user_ids: members })
+            onCreate({ name: name.trim(), ring_mode: mode, ring_seconds: ringSeconds, member_user_ids: members })
           }
           className="text-xs px-3 py-1.5 rounded bg-brand hover:bg-brand-light disabled:opacity-50"
         >

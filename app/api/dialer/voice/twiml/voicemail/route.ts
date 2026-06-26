@@ -17,18 +17,30 @@ function twimlResponse(body: string, status = 200) {
   })
 }
 
-// Hit by Twilio as the action target on <Dial> in /voice/twiml/inbound and
-// on the per-user / IVR transfer Dials. Twilio populates DialCallStatus
-// telling us what happened on the inner dial:
-//   completed      — call was answered and finished normally → just hang up
-//   answered       — same idea, Twilio uses both depending on flow
-//   no-answer      — rang out → record voicemail
-//   busy/failed/canceled — caller didn't reach an agent → record voicemail
+// Renders the voicemail prompt + <Record>. Reached two ways:
+//   1. As the <Dial action> on a conference caller leg (URL carries ?via=conf).
+//   2. Via <Redirect> from the IVR / ring-group / explicit "send to voicemail"
+//      paths (no DialCallStatus).
 //
-// Session 60: optional `owner` query param identifies which Hub user the
-// voicemail should land with (their custom greeting plays, the resulting
-// voicemails row gets `owner_user_id` stamped). When unset, falls through
-// to the general company greeting + null owner.
+// Answered vs. not — when do we hang up instead of recording?
+//   A <Dial><Conference> action ALWAYS reports DialCallStatus=completed when the
+//   caller's conference leg ends, regardless of whether anyone actually answered
+//   (the conference simply "completed"). So for conference legs (?via=conf) the
+//   DialCallStatus is meaningless — we instead read the calls row's answered_at,
+//   which the conference status callback stamps only on a real participant join.
+//   For a direct <Dial><Number>/<Client> action (transfer_pstn, legacy
+//   point-to-point) DialCallStatus IS reliable, so we use it there.
+//   This is what fixes "the call never reaches voicemail when nobody answers":
+//   the conference collapses when the last rung leg ends → the caller's Dial
+//   action fires here with DialCallStatus=completed → we now correctly detect
+//   answered_at IS NULL and record a voicemail instead of hanging up.
+//
+// Greeting policy (Ben, June 26 2026):
+//   - Business calls (inbound routing, IVR menus, ring groups) → the COMPANY
+//     voicemail greeting (dialer_settings.fallback_voicemail_url / _tts). These
+//     paths pass NO `owner` param.
+//   - An extension dialed (internally, or by a caller entering it at the IVR) →
+//     that user's PERSONAL greeting. Those paths pass ?owner=<userId>.
 export async function POST(request: NextRequest) {
   const raw = await request.text()
   const params = new URLSearchParams(raw)
@@ -37,6 +49,7 @@ export async function POST(request: NextRequest) {
 
   const reqUrl = new URL(request.url)
   const ownerUserId = reqUrl.searchParams.get('owner') || ''
+  const via = reqUrl.searchParams.get('via') || ''
 
   const signature = request.headers.get('x-twilio-signature')
   const url = `${process.env.NEXT_PUBLIC_APP_URL}${reqUrl.pathname}${reqUrl.search}`
@@ -46,17 +59,34 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const dialStatus = (params.get('DialCallStatus') || '').toLowerCase()
-  const dialed = dialStatus === 'completed' || dialStatus === 'answered'
+  const admin = createAdminClient()
 
-  if (dialed) {
-    // Call connected and ended normally — no voicemail needed.
+  // Did a human actually answer? If so, hang up cleanly — no voicemail.
+  const dialStatus = (params.get('DialCallStatus') || '').toLowerCase()
+  const callerSid = params.get('CallSid') || ''
+  let answered = false
+  if (via === 'conf') {
+    if (callerSid) {
+      const { data: row } = await admin
+        .from('calls')
+        .select('answered_at')
+        .eq('twilio_call_sid', callerSid)
+        .maybeSingle()
+      answered = !!row?.answered_at
+    }
+  } else {
+    answered = dialStatus === 'completed' || dialStatus === 'answered'
+  }
+
+  if (answered) {
     return twimlResponse(EMPTY_VOICE_TWIML)
   }
 
-  // Falling through to voicemail. Resolve greeting per owner if set, else company.
-  const admin = createAdminClient()
+  // Resolve the greeting. Per-user only when an extension was dialed (owner set);
+  // otherwise the company greeting — uploaded audio first, then typed TTS, then a
+  // spoken default.
   let greetingUrl: string | null = null
+  let greetingTts: string | null = null
   let spokenFallback =
     "Thanks for calling. Please leave a message after the beep and we'll get back to you. Press pound when finished."
 
@@ -77,18 +107,15 @@ export async function POST(request: NextRequest) {
     if (!greetingUrl && hu?.display_name) {
       spokenFallback = `You've reached ${hu.display_name}. Please leave a message after the beep. Press pound when finished.`
     }
-  }
-  if (!greetingUrl) {
+    // Per-user voicemail stays personal — never fall back to the company audio/TTS.
+  } else {
     const { data: settings } = await admin
       .from('dialer_settings')
-      .select('fallback_voicemail_url')
+      .select('fallback_voicemail_url, fallback_voicemail_tts')
       .eq('company_id', HEROES_COMPANY_ID)
       .single()
-    if (!ownerUserId) {
-      greetingUrl = settings?.fallback_voicemail_url || null
-    }
-    // If owner has no per-user greeting we still keep the spoken fallback over
-    // the company audio — per-user voicemail should sound personal.
+    greetingUrl = settings?.fallback_voicemail_url || null
+    greetingTts = settings?.fallback_voicemail_tts || null
   }
 
   // Carry the owner through to /voicemail/complete so the row stamps it.
@@ -100,6 +127,7 @@ export async function POST(request: NextRequest) {
     twimlRecordVoicemail({
       action: completeUrl,
       greetingUrl,
+      greetingTts,
       spokenFallback,
     })
   )

@@ -265,7 +265,9 @@ export async function POST(request: NextRequest) {
       callerCallSid: callSid,
       callerNumber: fromNumber || undefined,
       agentIdentity: routeToUserId,
-      voicemailOwnerUserId: routeToUserId,
+      // No voicemailOwnerUserId: an unanswered business call lands in the COMPANY
+      // voicemail box, not the routed person's personal greeting. Personal
+      // greetings are reserved for direct extension dials. (Ben, June 26 2026.)
       ringTimeoutSec: ringTimeout,
       recordingEnabled,
       recordingConsentNotice: consentNotice,

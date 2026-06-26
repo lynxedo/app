@@ -1275,8 +1275,8 @@ function DialerTab() {
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Go to another menu</strong> — branch into a submenu (nested menus are fully supported)</li>
           <li><strong className="text-white">Send to voicemail</strong> — caller leaves a message in the company voicemail box</li>
-          <li><strong className="text-white">Ring a person</strong> — rings that user&apos;s Dialer until they answer; falls through to their voicemail if they don&apos;t</li>
-          <li><strong className="text-white">Ring an extension</strong> — same as &quot;ring a person&quot; but referenced by 3-digit extension (handy when you want the menu to read &quot;Press 1 for Ben, extension 101&quot;)</li>
+          <li><strong className="text-white">Ring a person</strong> — rings that user&apos;s Dialer until they answer; if they don&apos;t, the caller goes to the <strong className="text-white">company voicemail</strong>. (A menu choice like this is a business call, so it uses the company greeting — not the person&apos;s personal one.)</li>
+          <li><strong className="text-white">Ring an extension</strong> — rings whoever owns that 3-digit extension. Because this is a direct <em>extension</em> dial, an unanswered call goes to <strong className="text-white">that person&apos;s personal voicemail</strong> (handy when you want the menu to read &quot;Press 1 for Ben, extension 101&quot;)</li>
           <li><strong className="text-white">Prompt for an extension (dial by extension)</strong> — asks the caller to enter an extension, then rings whoever owns it. Lets people who know a specific extension reach that person directly without listing names on the menu (e.g. &quot;If you know your party&apos;s extension, press 1&quot;). An unrecognized or empty entry re-prompts once, then drops to the general voicemail. Only reaches users who have an extension assigned.</li>
           <li><strong className="text-white">Ring a group</strong> — rings a named group of people (simultaneous or sequential)</li>
           <li><strong className="text-white">Forward to a phone number</strong> — bridges to an external number (e.g. forwarding to a cell)</li>
@@ -1302,7 +1302,8 @@ function DialerTab() {
           <li><strong className="text-white">Simultaneous</strong> — everyone&apos;s phone rings at once. Whoever picks up first connects; the others stop ringing. Good for &quot;ring the whole sales team&quot;.</li>
           <li><strong className="text-white">Sequential</strong> — rings one member at a time in the order shown, falling through to the next on no-answer. Good for &quot;try Ben first, then Zac, then Kathryn&quot;.</li>
         </ul>
-        <p>Members with Do Not Disturb on are skipped automatically. If a sequential group runs out of available members (or a simultaneous group is empty after DND filtering), the call falls through to the company general voicemail.</p>
+        <p><strong className="text-white">Ring time</strong> is set per group in its settings: for <em>simultaneous</em>, how many seconds everyone rings before voicemail; for <em>sequential</em>, how many seconds <em>each</em> person rings before moving to the next (5–120 seconds, default 20). So a sequential group of two people at 20 seconds each rings for up to ~40 seconds before voicemail.</p>
+        <p>Members with Do Not Disturb on are skipped automatically. When a group goes unanswered (a sequential group runs out of members, or a simultaneous group rings out / is empty after DND filtering), the call falls through to the <strong className="text-white">company</strong> voicemail.</p>
       </Section>
 
       <Section title="Do Not Disturb (DND)">
@@ -1311,8 +1312,9 @@ function DialerTab() {
         <p>Setting your Hub status to &quot;DND&quot; (in the <strong className="text-white">You menu</strong>) turns on <strong className="text-red-400">Master DND</strong>, which silences <em>everything</em> — including calls. The separate <strong className="text-white">Calls DND</strong> toggle is narrower: it quiets only the phone while your messages still notify. Use Calls DND when you want the phone silent but Hub messages coming through.</p>
       </Section>
 
-      <Section title="Voicemail (per-user boxes + greetings)">
-        <p>Inbound calls that ring a specific person (via direct routing, extension dial, IVR transfer, or ring group fall-through) land in <strong className="text-white">that person&apos;s</strong> voicemail box instead of the company general inbox. Push notifications go only to them; the unheard count on the rail badge reflects what they can see.</p>
+      <Section title="Voicemail (company box + personal boxes)">
+        <p><strong className="text-white">Business calls use the company voicemail.</strong> Anything that comes in on the main line and isn&apos;t answered — the inbound &quot;ring this person&quot; route (auto-attendant off), or an IVR menu&apos;s &quot;ring a person&quot; / &quot;ring a group&quot; that no one picks up — lands in the <strong className="text-white">company voicemail box</strong> and plays the <strong className="text-white">company greeting</strong>.</p>
+        <p><strong className="text-white">Personal voicemail boxes are only for direct extension dials.</strong> When someone dials a person&apos;s <strong className="text-white">extension</strong> — internally from the dialpad, or a caller who enters it at the auto-attendant&apos;s &quot;dial by extension&quot; prompt — and they don&apos;t answer, it lands in <em>that person&apos;s</em> box with their personal greeting. Push notifications for a personal voicemail go only to them; the unheard count on the rail badge reflects what they can see.</p>
         <p>The Voicemail tab has a <strong className="text-white">Mine / All</strong> sub-toggle for managers. <em>Mine</em> shows the general inbox plus voicemails directed at you; <em>All</em> shows every voicemail in the company (manager-only).</p>
         <p>Upload your personal greeting in <strong className="text-white">Settings → Account → Communications</strong>. MP3 or WAV, 2 MB max. Without one, callers hear a spoken default that names you (&quot;You&apos;ve reached Ben…&quot;). Remove the greeting at any time to revert to the spoken default.</p>
         <p>The company-wide general greeting (heard when calls aren&apos;t routed to a specific person) is configured separately in <strong className="text-white">Admin → Dialer → Voicemail greeting</strong>.</p>
