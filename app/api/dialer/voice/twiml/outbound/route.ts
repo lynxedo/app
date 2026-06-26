@@ -142,6 +142,7 @@ export async function POST(request: NextRequest) {
   let customerTo: string        // what Twilio dials for the 'customer' participant
   let customerFrom: string      // From on that dial
   let toNumberStored: string    // what we store on the calls row
+  let internalOwnerUserId: string | null = null  // set when dialing a 3-digit extension
 
   if (/^[1-9][0-9]{2}$/.test(toRaw)) {
     const { data: owner } = await admin
@@ -156,6 +157,7 @@ export async function POST(request: NextRequest) {
     customerTo = `client:${owner.id}`
     customerFrom = identity || voiceCallerId() // internal: show the caller
     toNumberStored = toRaw
+    internalOwnerUserId = owner.id
   } else {
     const e164 = toE164(toRaw)
     if (!e164) {
@@ -201,6 +203,13 @@ export async function POST(request: NextRequest) {
     // joins on answer; the agent joins via the TwiML we return below. This REST
     // add CREATES the conference, so it must register the conference status
     // callback (answered_at / ended_at lifecycle) — TwiML attrs can't.
+    // Internal extension-to-extension call: if the dialed user doesn't answer,
+    // send the CALLER to that user's PERSONAL voicemail. The status callback on
+    // the customer leg fires on no-answer; a dedicated route does the redirect
+    // (NOT agent-status, which would also fire an inbound "missed call" push).
+    const internalStatusCb = internalOwnerUserId
+      ? `${baseUrl}/api/dialer/voice/conference/internal-status?caller_sid=${encodeURIComponent(callSid)}&owner=${encodeURIComponent(internalOwnerUserId)}`
+      : undefined
     const add = await addConferenceParticipant({
       room,
       to: customerTo,
@@ -209,6 +218,7 @@ export async function POST(request: NextRequest) {
       startConferenceOnEnter: true,
       endConferenceOnExit: true, // customer hangup ends the call cleanly
       timeoutSec: 30,
+      statusCallback: internalStatusCb,
       conferenceStatusCallback: confStatusCb,
     })
     if (!add.ok) {
@@ -246,12 +256,17 @@ export async function POST(request: NextRequest) {
 
   // ---- Legacy point-to-point fallback (no room — older client) ----
   if (customerTo.startsWith('client:')) {
+    // On no-answer the <Dial action> lands the caller in the dialed user's
+    // personal voicemail (DialCallStatus is reliable for a direct Client dial).
+    const legacyAction = internalOwnerUserId
+      ? `${baseUrl}/api/dialer/voice/twiml/voicemail?owner=${encodeURIComponent(internalOwnerUserId)}`
+      : statusCb
     return twimlResponse(
       twimlDialClient({
         identity: customerTo.slice('client:'.length),
         callerId: identity || undefined,
         timeoutSeconds: 25,
-        statusCallback: statusCb,
+        statusCallback: legacyAction,
       })
     )
   }
