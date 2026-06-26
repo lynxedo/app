@@ -11,7 +11,7 @@
  *
  * A token is one of:
  *   - a CatalogId  ('routing', 'fleet', 'daily-log', 'tools', 'links', and the
- *     system items 'hub' | 'txt' | 'time-clock' | 'txt2' | 'dialer')
+ *     system items 'hub' | 'time-clock' | 'txt2' | 'dialer')
  *   - 'sys:dnd'        — Master DND quick-toggle (silences everything)
  *   - 'sys:hub-dnd'    — Hub notifications DND quick-toggle
  *   - 'sys:dialer-dnd' — Dialer calls DND quick-toggle
@@ -35,7 +35,7 @@ export const MOBILE_VISIBLE = 5
 
 // Brand-new user default (no legacy config, no pins). Permission filtering drops
 // anything they can't access (e.g. dialer).
-export const DEFAULT_ITEMS: string[] = ['hub', 'txt', 'dialer', 'time-clock', 'daily-log', 'tools']
+export const DEFAULT_ITEMS: string[] = ['hub', 'txt2', 'dialer', 'time-clock', 'daily-log', 'tools']
 
 // Catalog ids that are real navigable PAGES (have an href). These are the only
 // tokens auto-seeded into a user's drawer (see reconcileSeededApps). Container
@@ -49,7 +49,7 @@ export const PAGE_CATALOG_IDS: CatalogId[] = CATALOG.filter(e => !!e.href).map(e
 // user can't access one (e.g. no Dialer access), it's simply skipped and their
 // own customized items slide up to fill the space. Everything after these is
 // fully customizable.
-export const LOCKED_PREFIX: string[] = ['hub', 'txt', 'dialer', 'time-clock']
+export const LOCKED_PREFIX: string[] = ['hub', 'txt2', 'dialer', 'time-clock']
 
 // Force the allowed locked items to the front (canonical order), with the user's
 // remaining custom items after. Removes any locked ids from the tail so they
@@ -71,8 +71,8 @@ export function lockedCount(items: string[]): number {
   return n
 }
 
-const SYSTEM_CATALOG_IDS = new Set<CatalogId>(['hub', 'txt', 'time-clock'])
-const ALWAYS_ALLOWED = new Set<CatalogId>(['hub', 'txt', 'time-clock', 'tools', 'links'])
+const SYSTEM_CATALOG_IDS = new Set<CatalogId>(['hub', 'time-clock'])
+const ALWAYS_ALLOWED = new Set<CatalogId>(['hub', 'time-clock', 'tools', 'links'])
 
 export type Classified =
   | { kind: 'master-dnd' }
@@ -196,7 +196,7 @@ export function migrateLegacyLayout(
 ): HubLayout {
   const rc = railConfig ?? {}
 
-  const items: string[] = ['time-clock', 'hub', 'txt']
+  const items: string[] = ['time-clock', 'hub']
   if (perms.canAccessTxt) items.push('txt2')
   if (perms.canAccessDialer) items.push('dialer')
   for (const v of rc.desktop ?? []) if (v && v !== 'activity') items.push(v)

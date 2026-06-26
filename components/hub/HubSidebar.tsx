@@ -8,7 +8,6 @@ import { useHubMessageInsert } from './HubMessagesProvider'
 import type { HubUser } from './MessageFeed'
 import StatusPicker, { StatusDot } from './StatusPicker'
 import { useOnCallUsers } from './OnCallPresenceProvider'
-import ClientsSidebar from './ClientsSidebar'
 import { CatalogIcon, LockIcon } from './railCatalog'
 import { useConfirm, Spinner, EmptyState } from '@/components/ui'
 import {

@@ -132,7 +132,6 @@ export default function AppLauncherPanel({
     } else {
       const id = c.id
       if (id === 'hub') { label = 'Hub'; icon = <CatalogIcon id="hub" />; onClick = openHub }
-      else if (id === 'txt') { label = 'Txt'; icon = <CatalogIcon id="txt" />; onClick = () => navigate('/hub/clients') }
       else if (id === 'time-clock') { label = 'Clock'; icon = <CatalogIcon id="time-clock" />; onClick = () => { onClose(); onTimeClock() } }
       else if (id === 'tools') { label = 'Tools'; icon = <CatalogIcon id="tools" />; onClick = () => { onClose(); onTools() } }
       else if (id === 'links') { label = 'Links'; icon = <CatalogIcon id="links" />; onClick = () => { onClose(); onLinks() } }

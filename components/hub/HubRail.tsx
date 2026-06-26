@@ -27,7 +27,6 @@ type RailConversation = { id: string; participants: { id: string; display_name: 
 export type RailId =
   | 'time-clock'
   | 'hub'
-  | 'txt'
   | 'tools'
   | 'links'
   | 'admin'
@@ -39,8 +38,7 @@ export type RailId =
 // active accent bar regardless of which slot it occupies.
 const RAIL_BY_PREFIX: Array<[string, RailId]> = [
   ['/hub/home', 'hub'],          // landing page treated as hub-adjacent
-  ['/hub/clients', 'txt'],       // old Captivated inbox — the everyone-visible "Txt"
-  ['/hub/txt', 'txt2'],          // new Twilio-backed Txt2 — gated by canAccessTxt
+  ['/hub/txt', 'txt2'],          // Twilio-backed texting ("Txt") — gated by canAccessTxt
   ['/hub/contacts', 'contacts'], // shared Contacts tool (linked from Txt + Dialer)
   ['/hub/activity', 'activity'],
   ['/hub/admin', 'admin'],
@@ -196,7 +194,7 @@ export default function HubRail({
           router.push(last || '/hub')
           break
         }
-        case '3': e.preventDefault(); router.push('/hub/clients'); break
+        case '3': e.preventDefault(); router.push('/hub/txt'); break
         case '4': e.preventDefault(); onActivityClick(); break
         case '5': e.preventDefault(); onToolsClick(); break
       }
@@ -476,25 +474,7 @@ export default function HubRail({
       )
     }
 
-    // Txt (old Captivated /hub/clients) — everyone.
-    if (id === 'txt') {
-      return (
-        <Link
-          key={`txt-${idx}`}
-          href="/hub/clients"
-          onClick={handleNavLinkClick('txt')}
-          className={railBtnClass(active === 'txt')}
-          aria-current={active === 'txt' ? 'page' : undefined}
-          title="Client texts"
-        >
-          <ActiveBar show={active === 'txt'} />
-          <span className={active === 'txt' ? 'text-sky-300' : ''}><CatalogIcon id="txt" /></span>
-          <span>Txt</span>
-        </Link>
-      )
-    }
-
-    // Txt2 (new Twilio /hub/txt) — gated; token only present if allowed.
+    // Txt (Twilio /hub/txt) — gated; token only present if allowed.
     if (id === 'txt2') {
       return (
         <Link
@@ -503,7 +483,7 @@ export default function HubRail({
           onClick={handleNavLinkClick('txt2')}
           className={railBtnClass(active === 'txt2')}
           aria-current={active === 'txt2' ? 'page' : undefined}
-          title="Txt2 — new texting"
+          title="Txt — customer texting"
         >
           <ActiveBar show={active === 'txt2'} />
           <span className={`relative ${active === 'txt2' ? 'text-sky-300' : ''}`}>
@@ -512,7 +492,7 @@ export default function HubRail({
               <span className="absolute -top-0.5 -right-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[var(--t-rail)]" aria-label="Unread texts" />
             )}
           </span>
-          <span>Txt2</span>
+          <span>Txt</span>
         </Link>
       )
     }

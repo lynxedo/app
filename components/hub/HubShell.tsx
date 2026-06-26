@@ -17,7 +17,6 @@ import AdminSidebar from './sidebars/AdminSidebar'
 import SettingsSidebar from './sidebars/SettingsSidebar'
 import ProfileSidebar from './sidebars/ProfileSidebar'
 import ActivitySidebar from './sidebars/ActivitySidebar'
-import TxtSidebar from './sidebars/TxtSidebar'
 import TxtV2Sidebar from './sidebars/TxtV2Sidebar'
 import DialerSidebar from './sidebars/DialerSidebar'
 import ScoreboardsSidebar from './sidebars/ScoreboardsSidebar'
@@ -752,10 +751,6 @@ export default function HubShell({
             {...collapseProps}
           />
         )
-      case 'txt':
-        // 'txt' rail = old Captivated /hub/clients (everyone). New Twilio
-        // /hub/txt maps to the gated 'txt2' rail below.
-        return <TxtSidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'txt2':
         return (
           <TxtV2Sidebar
@@ -1033,7 +1028,6 @@ export default function HubShell({
       <HubMobileBar
         onMoreClick={() => setShowMobileMore(true)}
         onHubClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
-        onTxtClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
         onPhoneClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
         onUserSlotNav={() => { setManualRail(null); setMobileDrawerOpen(true) }}
         onTimeClockClick={() => setShowTimeClock(true)}
