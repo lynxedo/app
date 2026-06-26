@@ -2,16 +2,18 @@
 
 import { useEffect, useState, useRef, type ReactNode } from 'react'
 import { formatPhone } from '@/lib/format'
-import type { NativeAudioRoute } from '@/lib/native-voice'
+import { nativePlatform, type NativeAudioRoute } from '@/lib/native-voice'
 import type { DialerLookupMatch } from '@/lib/dialer-lookup'
 import CallContactCard from './CallContactCard'
 
 const DTMF_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#']
 
-const AUDIO_ROUTE_LABELS: Record<NativeAudioRoute, string> = {
-  earpiece: 'iPhone',
-  speaker: 'Speaker',
-  bluetooth: 'Bluetooth',
+// The earpiece/handset route is named after the device it represents: "iPhone"
+// on iOS, "Phone" on Android (and as a sane default elsewhere).
+function audioRouteLabel(route: NativeAudioRoute): string {
+  if (route === 'speaker') return 'Speaker'
+  if (route === 'bluetooth') return 'Bluetooth'
+  return nativePlatform() === 'ios' ? 'iPhone' : 'Phone'
 }
 
 // Stroked-outline glyphs (24×24, stroke-width 1.8) for each output route.
@@ -238,7 +240,7 @@ export default function ActiveCall({
         aria-label="Audio output"
       >
         <AudioRouteIcon route={audioRoute} />
-        <span>{AUDIO_ROUTE_LABELS[audioRoute]}</span>
+        <span>{audioRouteLabel(audioRoute)}</span>
       </button>
     )
   }
@@ -411,7 +413,7 @@ export default function ActiveCall({
               <span className="[&>svg]:w-5 [&>svg]:h-5 [&>svg]:mb-0 flex">
                 <AudioRouteIcon route={r} />
               </span>
-              <span>{AUDIO_ROUTE_LABELS[r]}</span>
+              <span>{audioRouteLabel(r)}</span>
               {audioRoute === r && <span className="ml-auto text-sky-300">✓</span>}
             </button>
           ))}
