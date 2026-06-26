@@ -89,33 +89,50 @@ export async function POST(
 
   const admin = createAdminClient()
 
-  // Template render. For groups, use the first participant's name for {first_name}
-  // (good enough for v1; group templates usually skip per-contact fields).
-  if (templateId && text) {
-    const [{ data: sender }, { data: company }] = await Promise.all([
-      admin.from('hub_users').select('display_name').eq('id', user.id).maybeSingle(),
-      admin.from('companies').select('name').eq('id', HEROES_COMPANY_ID).maybeSingle(),
-    ])
+  // Resolve the merge-field render context once — used for the template body AND
+  // the signature (so a company default like "{first_name}, - Heroes" fills in).
+  let finalText = text
+  if (text) {
+    const [{ data: sender }, { data: company }, { data: profile }, { data: txtSettings }] =
+      await Promise.all([
+        admin.from('hub_users').select('display_name').eq('id', user.id).maybeSingle(),
+        admin.from('companies').select('name').eq('id', HEROES_COMPANY_ID).maybeSingle(),
+        supabase.from('user_profiles').select('txt_signature').eq('id', user.id).maybeSingle(),
+        admin
+          .from('txt_settings')
+          .select('company_default_signature, allow_user_signatures')
+          .eq('company_id', HEROES_COMPANY_ID)
+          .maybeSingle(),
+      ])
+
+    // For groups, use the first participant's name for {first_name}
+    // (good enough for v1; group templates usually skip per-contact fields).
     const contactName = isGroup
       ? groupContacts[0]?.name || null
       : (Array.isArray(conv.contact) ? conv.contact[0] : conv.contact)?.name || null
-    text = renderTemplate(text, {
+    const renderCtx = {
       contactName,
       senderName: sender?.display_name || null,
       companyName: company?.name || null,
-    })
-  }
+    }
 
-  // Signature auto-append (same logic as before — applies in groups too).
-  let finalText = text
-  if (text) {
-    const { data: profile } = await supabase
-      .from('user_profiles')
-      .select('txt_signature')
-      .eq('id', user.id)
-      .maybeSingle()
-    const signature = (profile?.txt_signature || '').trim()
+    // Render template body fields (only when a template was used).
+    if (templateId) {
+      text = renderTemplate(text, renderCtx)
+      finalText = text
+    }
+
+    // Signature: personal wins when allowed; otherwise the company default.
+    const settings = txtSettings as
+      | { company_default_signature?: string | null; allow_user_signatures?: boolean | null }
+      | null
+    const allowUserSig = settings?.allow_user_signatures !== false // default true
+    const personalSig = (profile?.txt_signature || '').trim()
+    const companySig = (settings?.company_default_signature || '').trim()
+    let signature = allowUserSig && personalSig ? personalSig : companySig
+
     if (signature) {
+      // Don't repeat the signature back-to-back from the same sender.
       const { data: lastOut } = await admin
         .from('txt_messages')
         .select('sent_by')
@@ -126,6 +143,7 @@ export async function POST(
         .limit(1)
         .maybeSingle()
       if (!lastOut || lastOut.sent_by !== user.id) {
+        signature = renderTemplate(signature, renderCtx)
         finalText = `${text}\n\n${signature}`
       }
     }

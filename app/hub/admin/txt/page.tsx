@@ -14,7 +14,7 @@ export default async function TxtAdminPage() {
   const [{ data: templates }, { data: numbers }, { data: settings }, { data: users }, { data: profiles }] = await Promise.all([
     admin
       .from('txt_templates')
-      .select('id, scope, title, body, media, sort_order, owner_user_id, updated_at')
+      .select('id, scope, title, body, media, sort_order, owner_user_id, assigned_user_ids, updated_at')
       .eq('company_id', auth.company_id)
       .eq('scope', 'org')
       .order('sort_order', { ascending: true })
@@ -27,7 +27,7 @@ export default async function TxtAdminPage() {
       .order('label', { ascending: true }),
     admin
       .from('txt_settings')
-      .select('on_my_way_template, responder_notify_user_ids')
+      .select('on_my_way_template, responder_notify_user_ids, company_default_signature, allow_user_signatures')
       .eq('company_id', auth.company_id)
       .maybeSingle(),
     admin
@@ -42,7 +42,12 @@ export default async function TxtAdminPage() {
       .order('full_name', { ascending: true }),
   ])
 
-  const settingsTyped = settings as { on_my_way_template?: string | null; responder_notify_user_ids?: string[] } | null
+  const settingsTyped = settings as {
+    on_my_way_template?: string | null
+    responder_notify_user_ids?: string[]
+    company_default_signature?: string | null
+    allow_user_signatures?: boolean | null
+  } | null
 
   // Texting Managers picker: list everyone with Txt2 access (or admin / Txt-admin,
   // who are managers regardless). Admins + Txt-admins are "always" managers.
@@ -76,6 +81,8 @@ export default async function TxtAdminPage() {
       initialManagerIds={initialManagerIds}
       managerUsers={managerUsers}
       users={users || []}
+      initialCompanyDefaultSignature={settingsTyped?.company_default_signature ?? null}
+      initialAllowUserSignatures={settingsTyped?.allow_user_signatures ?? true}
     />
   )
 }

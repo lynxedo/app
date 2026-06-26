@@ -14,12 +14,19 @@ export async function GET() {
   const admin = createAdminClient()
   const { data } = await admin
     .from('txt_settings')
-    .select('on_my_way_template, responder_notify_user_ids')
+    .select('on_my_way_template, responder_notify_user_ids, company_default_signature, allow_user_signatures')
     .eq('company_id', auth.company_id)
     .maybeSingle()
+  const row = data as {
+    responder_notify_user_ids?: string[]
+    company_default_signature?: string | null
+    allow_user_signatures?: boolean | null
+  } | null
   return NextResponse.json({
     on_my_way_template: data?.on_my_way_template ?? null,
-    responder_notify_user_ids: (data as { responder_notify_user_ids?: string[] } | null)?.responder_notify_user_ids ?? [],
+    responder_notify_user_ids: row?.responder_notify_user_ids ?? [],
+    company_default_signature: row?.company_default_signature ?? null,
+    allow_user_signatures: row?.allow_user_signatures ?? true,
   })
 }
 
@@ -53,6 +60,24 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'responder_notify_user_ids must be an array' }, { status: 400 })
     }
     upsertRow.responder_notify_user_ids = ids
+  }
+
+  // company_default_signature — appended to outgoing texts when a user has no
+  // personal signature (or when personal signatures are disabled).
+  if ('company_default_signature' in body) {
+    const raw = typeof body.company_default_signature === 'string' ? body.company_default_signature.trim() : ''
+    if (raw.length > 500) {
+      return NextResponse.json({ error: 'Signature too long (max 500 characters)' }, { status: 400 })
+    }
+    upsertRow.company_default_signature = raw || null
+  }
+
+  // allow_user_signatures — whether users may set their own signature.
+  if ('allow_user_signatures' in body) {
+    if (typeof body.allow_user_signatures !== 'boolean') {
+      return NextResponse.json({ error: 'allow_user_signatures must be a boolean' }, { status: 400 })
+    }
+    upsertRow.allow_user_signatures = body.allow_user_signatures
   }
 
   const { error } = await admin

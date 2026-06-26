@@ -24,7 +24,7 @@ export async function GET() {
   const [orgRes, personalRes] = await Promise.all([
     supabase
       .from('txt_templates')
-      .select('id, scope, title, body, media, sort_order, owner_user_id, updated_at')
+      .select('id, scope, title, body, media, sort_order, owner_user_id, assigned_user_ids, updated_at')
       .eq('scope', 'org')
       .order('sort_order', { ascending: true })
       .order('title', { ascending: true }),
@@ -44,8 +44,16 @@ export async function GET() {
     )
   }
 
+  // Org templates can be scoped to specific users (Admin → Txt → Templates).
+  // An empty/absent assigned_user_ids = visible to everyone (the default).
+  type OrgRow = { assigned_user_ids?: string[] | null }
+  const orgVisible = (orgRes.data || []).filter((t) => {
+    const ids = (t as OrgRow).assigned_user_ids
+    return !ids || ids.length === 0 || ids.includes(user.id)
+  })
+
   return NextResponse.json({
-    templates: [...(personalRes.data || []), ...(orgRes.data || [])],
+    templates: [...(personalRes.data || []), ...orgVisible],
   })
 }
 

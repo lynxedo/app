@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { sendSms, twilioConfigured } from '@/lib/twilio'
 import { resolveFromNumber } from '@/lib/txt-numbers'
 import { buildMessagePreview } from '@/lib/txt-preview'
+import { renderTemplate } from '@/lib/txt-templates'
 
 // Called by VPS cron every minute:
 //   curl -s -X POST https://staging.lynxedo.com/api/txt/broadcasts/process \
@@ -55,18 +56,34 @@ export async function POST(request: Request) {
       .eq('id', bc.id)
       .eq('status', 'queued')
 
-    // Cached sender signature (only fetched if apply_signature is on).
-    let signature = ''
+    // Signature (only when apply_signature is on): personal wins when allowed,
+    // else the company default. Rendered per-recipient below so {first_name}
+    // etc. resolve to each contact. senderName/companyName are constant here.
+    let signatureTemplate = ''
+    let senderName: string | null = null
+    let companyName: string | null = null
     if (bc.apply_signature) {
-      const { data: profile } = await admin
-        .from('user_profiles')
-        .select('txt_signature')
-        .eq('id', bc.created_by)
-        .maybeSingle()
-      signature = (profile?.txt_signature || '').trim()
+      const [{ data: profile }, { data: txtSettings }, { data: senderUser }, { data: company }] =
+        await Promise.all([
+          admin.from('user_profiles').select('txt_signature').eq('id', bc.created_by).maybeSingle(),
+          admin
+            .from('txt_settings')
+            .select('company_default_signature, allow_user_signatures')
+            .eq('company_id', bc.company_id)
+            .maybeSingle(),
+          admin.from('hub_users').select('display_name').eq('id', bc.created_by).maybeSingle(),
+          admin.from('companies').select('name').eq('id', bc.company_id).maybeSingle(),
+        ])
+      const settings = txtSettings as
+        | { company_default_signature?: string | null; allow_user_signatures?: boolean | null }
+        | null
+      const allowUserSig = settings?.allow_user_signatures !== false
+      const personalSig = (profile?.txt_signature || '').trim()
+      const companySig = (settings?.company_default_signature || '').trim()
+      signatureTemplate = allowUserSig && personalSig ? personalSig : companySig
+      senderName = senderUser?.display_name || null
+      companyName = company?.name || null
     }
-
-    const finalBody = bc.apply_signature && signature ? `${bc.body}\n\n${signature}` : bc.body
 
     // Resolve the from-number once per broadcast (sender is constant).
     // No per-conversation override for broadcast sends — each recipient gets
@@ -97,7 +114,10 @@ export async function POST(request: Request) {
           recipientId: recipient.id,
           contactId: recipient.contact_id,
           senderId: bc.created_by,
-          body: finalBody,
+          body: bc.body,
+          signatureTemplate,
+          senderName,
+          companyName,
           fromNumber,
         })
         perBroadcast[bc.id] = perBroadcast[bc.id] || { sent: 0, failed: 0 }
@@ -155,13 +175,16 @@ async function sendOneRecipient(opts: {
   contactId: string
   senderId: string
   body: string
+  signatureTemplate: string
+  senderName: string | null
+  companyName: string | null
   fromNumber: string | null
 }): Promise<SendOutcome> {
-  const { admin, companyId, broadcastId, recipientId, contactId, senderId, body, fromNumber } = opts
+  const { admin, companyId, broadcastId, recipientId, contactId, senderId, body, signatureTemplate, senderName, companyName, fromNumber } = opts
 
   const { data: contact } = await admin
     .from('txt_contacts')
-    .select('id, phone, do_not_text')
+    .select('id, name, phone, do_not_text')
     .eq('id', contactId)
     .maybeSingle()
   if (!contact || !contact.phone) {
@@ -186,6 +209,15 @@ async function sendOneRecipient(opts: {
       .eq('id', recipientId)
     return 'skipped'
   }
+
+  // Append the signature, rendering merge fields against THIS recipient.
+  const finalBody = signatureTemplate
+    ? `${body}\n\n${renderTemplate(signatureTemplate, {
+        contactName: contact.name || null,
+        senderName,
+        companyName,
+      })}`
+    : body
 
   // Find or create the direct conversation for this contact. Reuse it
   // if present (including archived — reopen so reply lands somewhere
@@ -246,7 +278,7 @@ async function sendOneRecipient(opts: {
       conversation_id: conversationId,
       contact_id: contact.id,
       direction: 'outbound',
-      body,
+      body: finalBody,
       media_urls: [],
       sent_by: senderId,
       status: 'sending',
@@ -292,7 +324,7 @@ async function sendOneRecipient(opts: {
 
   const result = await sendSms({
     to: contact.phone,
-    body,
+    body: finalBody,
     statusCallback,
     fromNumber: fromNumber || undefined,
   })

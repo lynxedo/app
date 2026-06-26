@@ -15,7 +15,7 @@ export async function GET() {
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('txt_templates')
-    .select('id, scope, title, body, media, sort_order, owner_user_id, updated_at')
+    .select('id, scope, title, body, media, sort_order, owner_user_id, assigned_user_ids, updated_at')
     .eq('company_id', auth.company_id)
     .eq('scope', 'org')
     .order('sort_order', { ascending: true })
@@ -40,6 +40,10 @@ export async function POST(request: Request) {
   const media = Array.isArray(body.media)
     ? body.media.filter((m: unknown) => typeof m === 'string').slice(0, 1)
     : []
+  // Empty = visible to everyone (default). Non-empty = only these users.
+  const assignedUserIds = Array.isArray(body.assigned_user_ids)
+    ? Array.from(new Set(body.assigned_user_ids.filter((u: unknown) => typeof u === 'string')))
+    : []
 
   if (!title) return NextResponse.json({ error: 'Title required' }, { status: 400 })
   if (!text && media.length === 0)
@@ -59,9 +63,10 @@ export async function POST(request: Request) {
       title,
       body: text,
       media,
+      assigned_user_ids: assignedUserIds,
       sort_order: sortOrder,
     })
-    .select('id, scope, title, body, media, sort_order, owner_user_id, updated_at')
+    .select('id, scope, title, body, media, sort_order, owner_user_id, assigned_user_ids, updated_at')
     .single()
 
   if (error || !inserted) {

@@ -1161,6 +1161,7 @@ function TxtTab() {
         <p>Save messages you send over and over — appointment confirmations, &quot;running late&quot;, payment reminders. Tap <strong className="text-white">📋</strong> in the composer, or just type <strong className="text-white">/</strong> at the start of the box to pop the picker.</p>
         <p>Templates support <code>{'{first_name}'}</code>, which fills in the customer&apos;s first name automatically. There are <strong className="text-white">company templates</strong> (shared with the team, managed in Admin → Txt) and your own <strong className="text-white">personal templates</strong> (managed in Settings → Account → Communications).</p>
         <Note><strong className="text-white">Attach an image to a template.</strong> When you create or edit a template you can <strong className="text-white">📎 Attach image</strong> — that picture is saved with the template and sends automatically (as an MMS) whenever you pick it, so you don&apos;t have to attach it by hand each time. Templates with an attachment show a 📎 next to their name. A template can be image-only (no text) if you just want to fire off a flyer or photo.</Note>
+        <Note><strong className="text-white">Assign a template to specific people.</strong> In <strong className="text-white">Admin → Txt → Templates</strong>, each template has a <strong className="text-white">Who can use this</strong> setting: <em>Everyone</em> (the default) or <em>Specific people</em>. Keep one shared library, but pick who sees each one — so a tech only sees the templates relevant to their role instead of scrolling past everyone else&apos;s. The list shows &quot;Everyone&quot; or how many people are assigned.</Note>
       </Section>
 
       <Section title="On My Way">
@@ -1197,8 +1198,10 @@ function TxtTab() {
         <p>An opt-out banner shows at the top of any conversation with a customer who&apos;s opted out, including archived ones, so it&apos;s always clear.</p>
       </Section>
 
-      <Section title="Your text signature">
-        <p>Set a signature in <strong className="text-white">Settings → Account → Communications</strong> (e.g. &quot;— Ben, Heroes Lawn Care&quot;). It&apos;s auto-appended when you&apos;re the first to text a client, or when you jump into a conversation a different teammate was handling — so customers always know who they&apos;re talking to. It won&apos;t repeat back-to-back from the same sender. Leave it blank to turn it off.</p>
+      <Section title="Signatures">
+        <p>A signature is auto-appended when you&apos;re the first to text a client, or when you jump into a conversation a different teammate was handling — so customers always know who they&apos;re talking to. It won&apos;t repeat back-to-back from the same sender, and it supports the same dynamic fields as templates (e.g. <code>{'{first_name}'}</code>, <code>{'{my_name}'}</code>).</p>
+        <p><strong className="text-white">Company default.</strong> Admins set a company-wide signature in <strong className="text-white">Admin → Txt → Signature</strong> (e.g. <code>{'{first_name}'}, - Heroes Lawn Care</code>). It&apos;s used for anyone who hasn&apos;t set their own.</p>
+        <p><strong className="text-white">Personal signature.</strong> If the admin allows it, you can set your own in <strong className="text-white">Settings → Account → Communications</strong>, which overrides the company default. When the admin turns off personal signatures, everyone uses the company default and that field is hidden.</p>
       </Section>
 
       <Section title="Suggest Reply (Guardian)">
