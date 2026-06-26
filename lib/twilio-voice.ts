@@ -632,8 +632,34 @@ export function twimlRenderIvrNode(opts: {
   const keypresses = Object.entries(node.keypresses || {})
   const repeatCount = opts.repeatCount ?? 0
 
-  // No keypresses defined → terminal node, just play the prompt and stop.
+  // No keypresses defined. If the node has a no_input fallback action, the
+  // intent is "play the prompt, then do X" (e.g. greeting → ring the office) —
+  // there's nothing to gather, so play the prompt and run that fallback inline.
+  // Without this, a keyless node silently dropped its no_input action and hung
+  // up right after the greeting (the no_input/invalid_input fallbacks only ever
+  // fired from a <Gather>, which we only emit when keypresses exist). `repeat`
+  // is degenerate on a keyless node (it would re-render this same node forever),
+  // so it falls through to a clean hangup.
   if (keypresses.length === 0) {
+    const fallback = node.no_input
+    if (fallback && fallback.kind !== 'repeat') {
+      const actionTwiml = twimlRenderIvrAction({
+        action: fallback,
+        config: opts.config,
+        treeName: opts.treeName,
+        baseUrl: opts.baseUrl,
+        gatherActionUrlFor: opts.gatherActionUrlFor,
+        voicemailRouteUrl: opts.voicemailRouteUrl,
+        statusCallback: opts.statusCallback,
+        callerId: opts.callerId,
+        extensionResolver: opts.extensionResolver,
+        ringGroupUrlFor: opts.ringGroupUrlFor,
+        perUserVoicemailUrlFor: opts.perUserVoicemailUrlFor,
+        dialExtensionUrlFor: opts.dialExtensionUrlFor,
+      })
+      // Inject the greeting prompt so it plays before the fallback action runs.
+      return actionTwiml.replace('<Response>', `<Response>${renderPrompt(node.prompt)}`)
+    }
     return `<?xml version="1.0" encoding="UTF-8"?><Response>${renderPrompt(node.prompt)}<Hangup/></Response>`
   }
 
