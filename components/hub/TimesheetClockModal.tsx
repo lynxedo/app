@@ -27,14 +27,10 @@ export default function TimesheetClockModal({ onClose }: { onClose: () => void }
     since,
     elapsed,
     clocking,
-    gpsStatus,
     note,
     setNote,
     lastOut,
     handleClock,
-    clockWithoutLocation,
-    retry,
-    dismissWarning,
   } = useClockPunch({ tickMs: 1000 })
   const [showNote, setShowNote] = useState(false)
 
@@ -101,7 +97,7 @@ export default function TimesheetClockModal({ onClose }: { onClose: () => void }
               </div>
 
               {/* Note field */}
-              {showNote && gpsStatus !== 'warning' && (
+              {showNote && (
                 <textarea
                   value={note}
                   onChange={e => setNote(e.target.value)}
@@ -111,43 +107,23 @@ export default function TimesheetClockModal({ onClose }: { onClose: () => void }
                 />
               )}
 
-              {/* GPS warning */}
-              {gpsStatus === 'warning' ? (
-                <div className="w-full rounded-2xl border-2 border-red-500/60 bg-red-500/10 p-5 space-y-3 text-center">
-                  <div className="text-2xl">📵</div>
-                  <div className="font-bold text-red-400">Location Access Denied</div>
-                  <p className="text-sm text-red-300/80">Your clock-in will have no GPS record. Your manager will see this.</p>
-                  <button onClick={retry} className="w-full py-2.5 rounded-xl bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium transition-colors">
-                    🔄 Try Again
-                  </button>
-                  <button onClick={clockWithoutLocation} disabled={clocking} className="w-full py-2.5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors">
-                    {clocking ? '…' : 'Clock In Without Location'}
-                  </button>
-                  <button onClick={dismissWarning} className="text-xs text-gray-600 hover:text-gray-400 transition-colors">
-                    Cancel
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <button
-                    onClick={handleClock}
-                    disabled={clocking || gpsStatus === 'requesting'}
-                    className={`w-full py-4 rounded-2xl text-base font-bold transition-all disabled:opacity-70 ${
-                      clockedIn
-                        ? 'bg-red-500 hover:bg-red-400 active:bg-red-600 text-white shadow-lg shadow-red-500/25'
-                        : 'bg-green-500 hover:bg-green-400 active:bg-green-600 text-white shadow-lg shadow-green-500/25'
-                    }`}
-                  >
-                    {clocking ? '…' : gpsStatus === 'requesting' ? '📍 Getting location…' : clockedIn ? 'Clock Out' : 'Clock In'}
-                  </button>
-                  <button
-                    onClick={() => setShowNote(v => !v)}
-                    className="text-xs text-gray-600 hover:text-gray-400 transition-colors -mt-2"
-                  >
-                    {showNote ? 'Hide note' : '+ Add note'}
-                  </button>
-                </>
-              )}
+              <button
+                onClick={handleClock}
+                disabled={clocking}
+                className={`w-full py-4 rounded-2xl text-base font-bold transition-all disabled:opacity-70 ${
+                  clockedIn
+                    ? 'bg-red-500 hover:bg-red-400 active:bg-red-600 text-white shadow-lg shadow-red-500/25'
+                    : 'bg-green-500 hover:bg-green-400 active:bg-green-600 text-white shadow-lg shadow-green-500/25'
+                }`}
+              >
+                {clocking ? '…' : clockedIn ? 'Clock Out' : 'Clock In'}
+              </button>
+              <button
+                onClick={() => setShowNote(v => !v)}
+                className="text-xs text-gray-600 hover:text-gray-400 transition-colors -mt-2"
+              >
+                {showNote ? 'Hide note' : '+ Add note'}
+              </button>
             </>
           )}
         </div>

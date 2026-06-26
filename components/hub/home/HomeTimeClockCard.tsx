@@ -28,12 +28,8 @@ export default function HomeTimeClockCard({ initial }: { initial: HomeTimeClockI
     since,
     elapsed,
     clocking,
-    gpsStatus,
     lastOut,
     handleClock,
-    clockWithoutLocation,
-    retry,
-    dismissWarning,
   } = useClockPunch({ initial, tickMs: 60000 })
 
   // Tell the Home announcement gate the moment the worker clocks in, so unread
@@ -45,40 +41,6 @@ export default function HomeTimeClockCard({ initial }: { initial: HomeTimeClockI
     }
     prevClockedIn.current = clockedIn
   }, [clockedIn])
-
-  // GPS denied — replace the card with a focused warning + recovery actions
-  if (gpsStatus === 'warning') {
-    return (
-      <section className="mb-8">
-        <div className="rounded-2xl border-2 border-red-500/60 bg-red-500/10 p-5 space-y-3 text-center">
-          <div className="text-2xl">📵</div>
-          <div className="font-bold text-red-400">Location Access Denied</div>
-          <p className="text-sm text-red-300/80">Your clock-in will have no GPS record. Your manager will see this.</p>
-          <div className="flex flex-col sm:flex-row gap-2 pt-1">
-            <button
-              onClick={retry}
-              className="flex-1 py-2.5 rounded-xl bg-gray-700 hover:bg-gray-600 text-white text-sm font-medium transition-colors"
-            >
-              🔄 Try Again
-            </button>
-            <button
-              onClick={clockWithoutLocation}
-              disabled={clocking}
-              className="flex-1 py-2.5 rounded-xl bg-red-600 hover:bg-red-500 disabled:opacity-50 text-white text-sm font-semibold transition-colors"
-            >
-              {clocking ? '…' : 'Clock In Without Location'}
-            </button>
-          </div>
-          <button
-            onClick={dismissWarning}
-            className="text-xs text-gray-500 hover:text-gray-300 transition-colors pt-1"
-          >
-            Cancel
-          </button>
-        </div>
-      </section>
-    )
-  }
 
   return (
     <section className="mb-8">
@@ -123,14 +85,14 @@ export default function HomeTimeClockCard({ initial }: { initial: HomeTimeClockI
         </div>
         <button
           onClick={handleClock}
-          disabled={clocking || gpsStatus === 'requesting'}
+          disabled={clocking}
           className={`w-full sm:w-auto px-8 py-4 rounded-2xl text-base font-bold transition-all disabled:opacity-70 ${
             clockedIn
               ? 'bg-red-500 hover:bg-red-400 active:bg-red-600 text-white shadow-lg shadow-red-500/25'
               : 'bg-green-500 hover:bg-green-400 active:bg-green-600 text-white shadow-lg shadow-green-500/25'
           }`}
         >
-          {clocking ? '…' : gpsStatus === 'requesting' ? '📍 Getting location…' : clockedIn ? 'Clock Out' : 'Clock In'}
+          {clocking ? '…' : clockedIn ? 'Clock Out' : 'Clock In'}
         </button>
       </div>
     </section>

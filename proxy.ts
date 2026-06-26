@@ -118,6 +118,7 @@ export async function proxy(request: NextRequest) {
         '/timesheet': 'can_access_timesheet',
         '/tracker': 'can_access_tracker',
         '/hub': 'can_access_hub',
+        '/hub/timesheet': 'can_access_timesheet',
         '/hub/call-log': 'can_access_call_log',
         '/hub/lawn': 'can_access_lawn',
         '/hub/tracker': 'can_access_tracker',
@@ -134,13 +135,6 @@ export async function proxy(request: NextRequest) {
           url.pathname = route.startsWith('/hub/') ? '/hub' : '/dashboard'
           return NextResponse.redirect(url)
         }
-      }
-
-      // /hub/timesheet (personal admin timesheet view) is admin or timesheet-manager only
-      if ((pathname === '/hub/timesheet' || pathname.startsWith('/hub/timesheet/')) && profile.role !== 'admin' && !profile.can_admin_timesheet) {
-        const url = request.nextUrl.clone()
-        url.pathname = '/hub'
-        return NextResponse.redirect(url)
       }
 
       // Admin gate: super-admins (role=admin) get everything. Managers (role=manager) need
