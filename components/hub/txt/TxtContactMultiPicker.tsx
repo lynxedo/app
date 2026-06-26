@@ -109,7 +109,7 @@ export default function TxtContactMultiPicker({
   }
 
   return (
-    <div className="flex flex-col min-h-0">
+    <div className="flex flex-col min-h-0 h-full">
       <div className="flex items-center gap-2 mb-2">
         <input
           type="text"
