@@ -299,7 +299,13 @@ export async function connectInboundToRingGroupViaConference(opts: {
         // legs can't all be 'agent'.
         label: `agent_${n}`,
         startConferenceOnEnter: true,
-        endConferenceOnExit: true,
+        // endConferenceOnExit=false so a member who does NOT answer (a failed /
+        // no-answer participant) leaving never collapses the conference and drops
+        // the caller. earlyMedia=false so the caller hears hold music, not the
+        // member's ringback. The member who ANSWERS is flipped to
+        // endConferenceOnExit=true on join (see /conference/status).
+        endConferenceOnExit: false,
+        earlyMedia: false,
         timeoutSec: timeout,
         statusCallback: groupAgentStatusCb({ baseUrl, callerCallSid, room, groupId, mode: 'sim', nextIndex: 0 }),
         // Registered by whichever add CREATES the conference (the first).
@@ -323,7 +329,11 @@ export async function connectInboundToRingGroupViaConference(opts: {
         from,
         label: 'agent',
         startConferenceOnEnter: true,
-        endConferenceOnExit: true,
+        // See the simultaneous branch: false so a no-answer member never collapses
+        // the conference; the answerer is flipped to true on join. Hold music, not
+        // ringback, via earlyMedia=false.
+        endConferenceOnExit: false,
+        earlyMedia: false,
         timeoutSec: member.member_timeout_sec ?? 20,
         statusCallback: groupAgentStatusCb({ baseUrl, callerCallSid, room, groupId, mode: 'seq', nextIndex: i + 1 }),
         conferenceStatusCallback: confStatusCb,
@@ -427,7 +437,10 @@ export async function advanceRingGroup(opts: {
         from: row?.from_number || voiceCallerId() || '',
         label: 'agent',
         startConferenceOnEnter: true,
-        endConferenceOnExit: true,
+        // false so this next member not answering doesn't collapse the conference;
+        // the answerer is flipped to true on join. Hold music via earlyMedia=false.
+        endConferenceOnExit: false,
+        earlyMedia: false,
         timeoutSec: member.member_timeout_sec ?? 20,
         statusCallback: groupAgentStatusCb({
           baseUrl: opts.baseUrl,

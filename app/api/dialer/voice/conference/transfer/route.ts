@@ -91,6 +91,12 @@ export async function POST(request: Request) {
         timeoutSec: 30,
       })
       if (!add.ok) return NextResponse.json({ error: add.error }, { status: 502 })
+      // Persist the target's leg SID. Besides record-keeping, this marks the call
+      // as transferred so the ring-group stranded-caller backstop
+      // (/conference/agent-status) never ends the caller when the agent leg drops
+      // during the transfer (the target may still be ringing, so a participant
+      // count alone could miss it).
+      await admin.from('calls').update({ conference_transfer_sid: add.callSid }).eq('id', active.callId)
       // Flip the agent's flag so the conference survives the agent leaving, then
       // let the CLIENT hang up its own leg (so the native CallKit call ends
       // cleanly). We deliberately do NOT remove the agent server-side — a remote

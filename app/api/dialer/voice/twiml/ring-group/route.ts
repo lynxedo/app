@@ -2,12 +2,11 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   EMPTY_VOICE_TWIML,
-  twimlRingGroupSequentialStep,
-  twimlRingGroupSimultaneous,
   validateTwilioVoiceSignature,
   voiceConfigured,
 } from '@/lib/twilio-voice'
-import { resolveRingGroupAvailableMembers } from '@/lib/dialer-conference-connect'
+import { conferenceRoomName } from '@/lib/twilio-conference'
+import { connectInboundToRingGroupViaConference } from '@/lib/dialer-conference-connect'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -19,31 +18,19 @@ function twimlResponse(body: string, status = 200) {
   })
 }
 
-function redirectToVoicemail(baseUrl: string): string {
-  // Company voicemail box (no owner param). Reached as a <Redirect>, so the
-  // voicemail route sees no DialCallStatus and records straight away.
-  return `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${baseUrl}/api/dialer/voice/twiml/voicemail</Redirect></Response>`
-}
-
-// Ring-group handler — classic <Dial> pattern (NOT a conference). Every
-// ring_group IVR action redirects here (?group=X&i=0).
+// Ring-group TwiML handler — every ring_group IVR action redirects here
+// (?group=X&i=0), so this single route is the funnel for all group calls.
 //
-// Why not a conference: the conference model raced the caller's leg against the
-// no-answer→voicemail redirect — when a member didn't answer, the conference
-// collapsed and the caller dropped into dead air before the redirect landed
-// (confirmed in prod: "group exhausted → voicemail" fired but the caller was
-// already gone). A plain <Dial> with an action URL is the canonical, race-free
-// Twilio ring-group pattern:
-//   sequential  — ring available[i]; the <Dial action> re-enters here at i+1 on
-//                 no-answer. When i runs past the last member → company voicemail.
-//   simultaneous— ring everyone at once; the <Dial action> → company voicemail
-//                 if nobody picks up.
-// A member answering ends the chain (the action re-enters with
-// DialCallStatus=completed → we hang up cleanly).
-//
-// Trade-off vs. the old conference: a group-answered call has no in-call hold /
-// transfer. The single-agent inbound route + IVR transfer_user / extension dials
-// keep the conference, so hold/transfer still work there.
+// Conference model (replaced the legacy sequential/simultaneous <Dial> chains
+// so group-answered calls get in-call hold + transfer, same as the single-user
+// route): the caller joins a per-call conference on hold music and members are
+// REST-added as participants —
+//   - sequential: one member at a time; each unanswered leg's agent-status
+//     callback rings the next (advanceRingGroup in dialer-conference-connect);
+//   - simultaneous: every available member at once; first to answer wins and
+//     the sibling legs are canceled by the conference status callback.
+// Group missing / empty / all-DND / exhausted → general voicemail, exactly
+// like the legacy behavior. DND-now members are skipped at every step.
 export async function POST(request: NextRequest) {
   const raw = await request.text()
   const params = new URLSearchParams(raw)
@@ -52,7 +39,6 @@ export async function POST(request: NextRequest) {
 
   const url = new URL(request.url)
   const groupId = url.searchParams.get('group') || ''
-  const i = parseInt(url.searchParams.get('i') || '0', 10) || 0
 
   const signature = request.headers.get('x-twilio-signature')
   const validateUrl = `${process.env.NEXT_PUBLIC_APP_URL}${url.pathname}${url.search}`
@@ -62,79 +48,40 @@ export async function POST(request: NextRequest) {
     }
   }
 
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
-  const dialStatus = (params.get('DialCallStatus') || '').toLowerCase()
   const fromNumber = params.get('From') || undefined
   const callSid = params.get('CallSid') || ''
+  const dialStatus = (params.get('DialCallStatus') || '').toLowerCase()
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+  const voicemailRouteUrl = `${baseUrl}/api/dialer/voice/twiml/voicemail`
 
-  // Re-entered via the <Dial action> after a member ANSWERED and the call ended
-  // → nothing left to do.
+  // Legacy-chain straggler guard: a pre-conversion in-flight call re-entering
+  // via its old <Dial action> after an answered leg just ends cleanly.
   if (dialStatus === 'answered' || dialStatus === 'completed') {
     return twimlResponse(EMPTY_VOICE_TWIML)
   }
 
-  if (!groupId) {
-    return twimlResponse(redirectToVoicemail(baseUrl))
+  if (!groupId || !callSid) {
+    return twimlResponse(
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${voicemailRouteUrl}</Redirect></Response>`
+    )
   }
 
-  const admin = createAdminClient()
-  const { data: settings } = await admin
+  const { data: dialerSettings } = await createAdminClient()
     .from('dialer_settings')
     .select('recording_enabled')
     .eq('company_id', HEROES_COMPANY_ID)
     .maybeSingle()
-  const recordingEnabled = settings?.recording_enabled === true
-  const recordingCb = `${baseUrl}/api/dialer/voice/recording`
 
-  // Record from answer (dual channel) when enabled — inject into the <Dial>.
-  const injectRecording = (twiml: string): string =>
-    recordingEnabled
-      ? twiml.replace(
-          /<Dial(\s)/,
-          `<Dial record="record-from-answer-dual" recordingStatusCallback="${recordingCb}" recordingStatusCallbackMethod="POST"$1`
-        )
-      : twiml
-
-  const { group, available } = await resolveRingGroupAvailableMembers(admin, groupId)
-  if (!group || available.length === 0) {
-    // No group / no members / everyone DND → company voicemail.
-    console.log('[dialer.ring-group] no available members → voicemail', { groupId, callSid })
-    return twimlResponse(redirectToVoicemail(baseUrl))
-  }
-
-  if (group.ring_mode === 'simultaneous') {
-    console.log('[dialer.ring-group] simultaneous ring', { groupId, count: available.length, callSid })
-    return twimlResponse(
-      injectRecording(
-        twimlRingGroupSimultaneous({
-          identities: available.map((m) => m.user_id),
-          callerId: fromNumber,
-          timeoutSec: group.ring_timeout_sec ?? 25,
-          // None answer → record a company voicemail.
-          actionUrl: `${baseUrl}/api/dialer/voice/twiml/voicemail`,
-        })
-      )
-    )
-  }
-
-  // Sequential. Ring member i; the action re-enters at i+1 on no-answer.
-  if (i >= available.length) {
-    console.log('[dialer.ring-group] sequential exhausted → voicemail', { groupId, i, callSid })
-    return twimlResponse(redirectToVoicemail(baseUrl))
-  }
-  const member = available[i]
-  console.log('[dialer.ring-group] sequential ring', { groupId, i, user: member.user_id, callSid })
-  const nextStepUrl = `${baseUrl}/api/dialer/voice/twiml/ring-group?group=${encodeURIComponent(groupId)}&i=${i + 1}`
-  return twimlResponse(
-    injectRecording(
-      twimlRingGroupSequentialStep({
-        identity: member.user_id,
-        callerId: fromNumber,
-        timeoutSec: member.member_timeout_sec ?? 20,
-        nextStepUrl,
-      })
-    )
-  )
+  const room = conferenceRoomName()
+  const twiml = await connectInboundToRingGroupViaConference({
+    baseUrl,
+    room,
+    callerCallSid: callSid,
+    callerNumber: fromNumber,
+    groupId,
+    recordingEnabled: dialerSettings?.recording_enabled === true,
+  })
+  return twimlResponse(twiml)
 }
 
 export async function GET() {
