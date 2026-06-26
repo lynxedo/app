@@ -321,34 +321,34 @@ export default function TxtAdminPanel({
         </div>
       )}
 
-      <div className="rounded-lg border border-gray-800 overflow-hidden">
+      <div className="rounded-lg border border-gray-800 overflow-x-auto">
         {templates.length === 0 ? (
           <div className="px-4 py-8 text-center text-sm text-gray-500">
             No org templates yet. Click <span className="text-emerald-300">+ New template</span> to add one.
           </div>
         ) : (
-          <table className="w-full text-sm">
+          <table className="w-full text-sm table-fixed">
             <thead className="bg-gray-900/60 text-xs text-gray-400">
               <tr>
-                <th className="text-left px-3 py-2 w-14">Order</th>
-                <th className="text-left px-3 py-2 w-48">Title</th>
+                <th className="text-left px-3 py-2 w-12">Order</th>
+                <th className="text-left px-3 py-2 w-40">Title</th>
                 <th className="text-left px-3 py-2">Body</th>
-                <th className="text-left px-3 py-2 w-40">Who</th>
-                <th className="text-right px-3 py-2 w-32">Actions</th>
+                <th className="text-left px-3 py-2 w-28">Who</th>
+                <th className="text-right px-3 py-2 w-28">Actions</th>
               </tr>
             </thead>
             <tbody>
               {templates.map((t) => (
                 <tr key={t.id} className="border-t border-gray-800">
-                  <td className="px-3 py-2 text-gray-500">{t.sort_order}</td>
-                  <td className="px-3 py-2 font-medium">
+                  <td className="px-3 py-2 text-gray-500 align-top">{t.sort_order}</td>
+                  <td className="px-3 py-2 font-medium break-words align-top">
                     {t.title}
                     {t.media?.length > 0 && <span className="ml-1 text-xs text-gray-400" title="Has attachment">📎</span>}
                   </td>
-                  <td className="px-3 py-2 text-gray-300 whitespace-pre-wrap line-clamp-3">
-                    {t.body}
+                  <td className="px-3 py-2 text-gray-300 align-top">
+                    <div className="whitespace-pre-wrap break-words line-clamp-3">{t.body}</div>
                   </td>
-                  <td className="px-3 py-2 text-gray-400 text-xs">
+                  <td className="px-3 py-2 text-gray-400 text-xs align-top break-words">
                     {!t.assigned_user_ids || t.assigned_user_ids.length === 0 ? (
                       <span className="text-gray-500">Everyone</span>
                     ) : t.assigned_user_ids.length === 1 ? (
@@ -359,7 +359,7 @@ export default function TxtAdminPanel({
                       </span>
                     )}
                   </td>
-                  <td className="px-3 py-2 text-right">
+                  <td className="px-3 py-2 text-right align-top whitespace-nowrap">
                     <button
                       onClick={() => openEdit(t)}
                       className="text-xs px-2 py-1 rounded hover:bg-gray-800"
