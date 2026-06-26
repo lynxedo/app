@@ -1,19 +1,15 @@
 'use client'
 
-// Shared clock-punch logic (Phase 5, TS6). The clock-in/out flow (status, the live
-// elapsed tick, the GPS request + hard-timeout race + denied/unavailable warning, and
-// the failed-payroll-entry warning) was copy-pasted across three surfaces and drifted:
-// the two Hub surfaces requested GPS even on desktop (pointless — no GPS chip) and
-// lacked the typed denied/unavailable distinction. This hook is the single source of
-// truth, capturing the best-of-all behavior:
-//   • GPS is requested ONLY on clock-in, and ONLY on mobile.
-//   • A hard deadline races the OS prompt (which can hang in iOS PWA / Capacitor).
-//   • A failed payroll entry surfaces the server's warning.
+// Shared clock-punch logic (Phase 5, TS6). Owns the clock-in/out flow: status,
+// the live elapsed tick, and the failed-payroll-entry warning.
 //
-// (The legacy /timesheet page predates this hook and already implements the same
-// behavior inline; it can be migrated onto this hook in a later pass.)
+// LOCATION REMOVED (June 26, 2026): clocking in/out no longer requests GPS. The
+// location ping caused too many issues in the field (hung iOS permission prompts,
+// denied-permission dead-ends) for little operational value, so punches now always
+// submit without a lat/lng, and the GPS request/warning flow + the gpsStatus/
+// gpsErrorType/retry/clockWithoutLocation/dismissWarning surface were removed.
 
-import { useState, useEffect, useCallback, useRef } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 
 export type ClockEmployee = {
   id: string
@@ -38,11 +34,6 @@ type UseClockPunchOptions = {
   onWarning?: (message: string) => void
 }
 
-// GPS request bounds. The browser `timeout` only starts after the OS permission
-// prompt resolves, so we race a hard deadline just above it to always recover.
-const GPS_INNER_TIMEOUT = 20000
-const GPS_HARD_DEADLINE = 24000
-
 export function useClockPunch(opts: UseClockPunchOptions = {}) {
   const { initial, tickMs = 1000, onWarning } = opts
 
@@ -53,24 +44,8 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
   const [since, setSince] = useState<string | null>(initial?.since ?? null)
   const [now, setNow] = useState(() => Date.now())
   const [clocking, setClocking] = useState(false)
-  const [gpsStatus, setGpsStatus] = useState<'idle' | 'requesting' | 'warning'>('idle')
-  const [gpsErrorType, setGpsErrorType] = useState<'denied' | 'unavailable'>('unavailable')
   const [note, setNote] = useState('')
   const [lastOut, setLastOut] = useState<{ time: string; hours: number } | null>(null)
-
-  // TS7 — company timesheet policy: whether to capture GPS on mobile clock-in.
-  // Fetched once (RLS-scoped to the user's company). Defaults to true (capture)
-  // so a failed/empty fetch never silently drops location for companies that
-  // expect it — matches the pre-TS7 always-on behavior.
-  const gpsEnabledRef = useRef(true)
-  useEffect(() => {
-    let cancelled = false
-    fetch('/api/timesheet/settings')
-      .then(r => (r.ok ? r.json() : null))
-      .then(d => { if (!cancelled && typeof d?.settings?.gps_enabled === 'boolean') gpsEnabledRef.current = d.settings.gps_enabled })
-      .catch(() => {})
-    return () => { cancelled = true }
-  }, [])
 
   // Live tick for the elapsed display.
   useEffect(() => {
@@ -107,7 +82,6 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
     const outTime = action === 'out' ? new Date().toISOString() : null
     const outHours = action === 'out' ? elapsed / 3600000 : 0
     setClocking(true)
-    setGpsStatus('idle')
     let data: { warning?: string } | null = null
     try {
       const res = await fetch('/api/timesheet/punch', {
@@ -133,52 +107,11 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
     }
   }, [employee, clockedIn, elapsed, note, onWarning])
 
+  // Clock in/out. No GPS request — punches always submit without a location.
   const handleClock = useCallback(async () => {
     if (!employee) return
-    const action = clockedIn ? 'out' : 'in'
-
-    // Clock-out never needs GPS.
-    if (action === 'out') {
-      await submitPunch(null, null)
-      return
-    }
-
-    // TS7 — company can disable GPS capture entirely (per timesheet_settings).
-    if (!gpsEnabledRef.current) {
-      await submitPunch(null, null)
-      return
-    }
-
-    // GPS is only useful on mobile — desktop browsers have no GPS chip and rely on
-    // a WiFi-triangulation API that's usually blocked. Skip the flow entirely there.
-    const isMobile = typeof navigator !== 'undefined' && /Android|iPhone|iPad|iPod/i.test(navigator.userAgent)
-    if (!isMobile) {
-      await submitPunch(null, null)
-      return
-    }
-
-    setGpsStatus('requesting')
-    try {
-      const pos = await Promise.race<GeolocationPosition>([
-        new Promise<GeolocationPosition>((res, rej) =>
-          navigator.geolocation.getCurrentPosition(res, rej, {
-            timeout: GPS_INNER_TIMEOUT,
-            maximumAge: 60000,
-            enableHighAccuracy: false,
-          }),
-        ),
-        new Promise<GeolocationPosition>((_, rej) =>
-          setTimeout(() => rej(new Error('hard-timeout')), GPS_HARD_DEADLINE),
-        ),
-      ])
-      await submitPunch(pos.coords.latitude, pos.coords.longitude)
-    } catch (err) {
-      const geoErr = err as GeolocationPositionError
-      // Code 1 = PERMISSION_DENIED; anything else (incl. the hard-timeout) = unavailable.
-      setGpsErrorType(geoErr?.code === 1 ? 'denied' : 'unavailable')
-      setGpsStatus('warning')
-    }
-  }, [employee, clockedIn, submitPunch])
+    await submitPunch(null, null)
+  }, [employee, submitPunch])
 
   return {
     employee,
@@ -188,18 +121,10 @@ export function useClockPunch(opts: UseClockPunchOptions = {}) {
     since,
     elapsed,
     clocking,
-    gpsStatus,
-    gpsErrorType,
     note,
     setNote,
     lastOut,
     handleClock,
-    /** Clock in/out without a GPS reading (warning-panel fallback). */
-    clockWithoutLocation: () => submitPunch(null, null),
-    /** Retry the GPS flow after a warning. */
-    retry: handleClock,
-    /** Dismiss the GPS warning panel. */
-    dismissWarning: () => setGpsStatus('idle'),
   }
 }
 
