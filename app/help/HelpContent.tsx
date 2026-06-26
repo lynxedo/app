@@ -1290,7 +1290,7 @@ function DialerTab() {
       </Section>
 
       <Section title="Extensions (3-digit dialing)">
-        <p>Every Hub user can be assigned a 3-digit extension (100–999) in <strong className="text-white">Admin → Dialer → Extensions</strong>. Once assigned, anyone on the Dialer can punch the 3 digits into the dialpad, tap Call, and it rings that person directly — no phone number needed.</p>
+        <p>Every Hub user can be assigned a 3-digit extension (100–999) in <strong className="text-white">Admin → Dialer → Extensions</strong>. Once assigned, anyone on the Dialer can punch the 3 digits into the dialpad, tap Call, and it rings that person directly — no phone number needed. If they don&apos;t answer, the caller is dropped into <strong className="text-white">that person&apos;s personal voicemail</strong>.</p>
         <p>Extensions also show up in the IVR action picker, so you can build a menu like &quot;Press 1 for sales (ext 101), press 2 for billing (ext 102)&quot; without re-picking the person each time.</p>
         <p>Extensions are unique within a company. Use the <em>Suggest</em> button to grab the next free number (101, 102, ...).</p>
       </Section>
