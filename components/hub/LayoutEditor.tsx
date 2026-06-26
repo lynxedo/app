@@ -117,7 +117,7 @@ export default function LayoutEditor({
   }
 
   const addableApps: { token: string; label: string }[] = useMemo(() => {
-    const sys = ['hub', 'txt', 'time-clock']
+    const sys = ['hub', 'time-clock']
     const cat = CATALOG.filter(e => e.pickable && e.id !== ('activity' as CatalogId)).map(e => e.id as string)
     return [...sys, ...cat]
       .filter(t => tokenAllowed(t, permissions))

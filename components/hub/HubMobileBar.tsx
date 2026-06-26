@@ -25,7 +25,6 @@ const MAX_MOBILE_ITEMS = 5
 export default function HubMobileBar({
   onMoreClick,
   onHubClick,
-  onTxtClick,
   onPhoneClick,
   onUserSlotNav,
   onTimeClockClick,
@@ -56,9 +55,8 @@ export default function HubMobileBar({
 }: {
   onMoreClick: () => void
   onHubClick: () => void
-  onTxtClick: () => void
   onPhoneClick: () => void
-  /** Open the mobile drawer for a sidebar-backed item (Txt2 / Dialer). */
+  /** Open the mobile drawer for a sidebar-backed item (Txt / Dialer). */
   onUserSlotNav?: () => void
   onTimeClockClick: () => void
   onToolsClick: () => void
@@ -109,13 +107,6 @@ export default function HubMobileBar({
     } else {
       router.push('/hub?source=push')
     }
-  }
-
-  function handleTxtClick(e: React.MouseEvent) {
-    e.preventDefault()
-    if (drawerOpen && active === 'txt' && !activeManualRail) { onCloseDrawer?.(); return }
-    onTxtClick()
-    if (active !== 'txt') router.push('/hub/clients')
   }
 
   function handlePhoneClick(e: React.MouseEvent) {
@@ -230,14 +221,6 @@ export default function HubMobileBar({
         </button>
       )
     }
-    if (id === 'txt') {
-      return (
-        <button key={`txt-${idx}`} type="button" onClick={handleTxtClick} className={btn(active === 'txt')}>
-          <CatalogIcon id="txt" />
-          <span>Txt</span>
-        </button>
-      )
-    }
     if (id === 'dialer') {
       return (
         <button key={`dialer-${idx}`} type="button" onClick={handlePhoneClick} className={btn(active === 'dialer')} aria-label="Phone">
@@ -279,7 +262,7 @@ export default function HubMobileBar({
       return (
         <button key={`txt2-${idx}`} type="button" onClick={onClick} className={btn(active === 'txt2')}>
           <span className="relative"><CatalogIcon id="txt2" />{dot(!!txtUnread && active !== 'txt2')}</span>
-          <span>Txt2</span>
+          <span>Txt</span>
         </button>
       )
     }

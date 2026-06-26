@@ -38,7 +38,7 @@ export default async function TxtBroadcastDetailPage({
     .select('can_access_txt')
     .eq('id', user.id)
     .single()
-  if (!gate?.can_access_txt) redirect('/hub/clients')
+  if (!gate?.can_access_txt) redirect('/hub')
 
   const { id } = await params
 

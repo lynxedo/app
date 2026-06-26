@@ -15,7 +15,7 @@ export default async function TxtIndexPage() {
 
   // Txt2 (new Twilio texting) is gated per-user. Non-enabled users land on the
   // old Captivated inbox they still have.
-  if (!profile?.can_access_txt) redirect('/hub/clients')
+  if (!profile?.can_access_txt) redirect('/hub')
 
   const isAdmin = profile?.role === 'admin' || profile?.can_admin_txt === true
   const canAccessUnifiedInbox =

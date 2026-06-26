@@ -7,8 +7,7 @@ import type { ReactNode } from 'react'
 export type CatalogId =
   | 'time-clock'    // fixed (always shown)
   | 'hub'           // fixed
-  | 'txt'           // fixed — old Captivated /hub/clients
-  | 'txt2'          // new Twilio /hub/txt, gated by canAccessTxt
+  | 'txt2'          // Twilio /hub/txt texting (labeled "Txt"), gated by canAccessTxt
   | 'activity'      // can be in rail OR as a floating bell
   | 'tools'
   | 'links'
@@ -96,9 +95,8 @@ function I({ d, fill = false }: { d: string; fill?: boolean }) {
 const PATHS = {
   timeClock: 'M12 8v4l3 2M21 12a9 9 0 11-18 0 9 9 0 0118 0z',
   hub: 'M21 12c0 4.418-4.03 8-9 8a9.9 9.9 0 01-4-.85L3 21l1.93-4.13A7.94 7.94 0 013 12c0-4.418 4.03-8 9-8s9 3.582 9 8z',
-  txt: 'M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8l-6-6zM14 2v6h6M9 14h6M9 18h4',
-  // Txt2 (new Twilio texting) — chat bubble with text lines, distinct from the
-  // document-style 'txt' glyph and the single-bubble 'hub' glyph.
+  // Txt (Twilio texting) — chat bubble with text lines, distinct from the
+  // single-bubble 'hub' glyph.
   txt2: 'M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z',
   activity: 'M15 17h5l-1.4-1.4A2 2 0 0118 14.16V11a6 6 0 10-12 0v3.16a2 2 0 01-.6 1.44L4 17h5m6 0a3 3 0 11-6 0',
   tools: 'M11.42 15.17L17.25 21A2.65 2.65 0 0021 17.25l-5.83-5.83m-3.75 3.75L4.5 7.5A2.65 2.65 0 014.5 3.75L9.34 8.59m1.83 6.58l-6.71 6.71',
@@ -156,7 +154,6 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
   switch (id) {
     case 'time-clock':  return <I d={PATHS.timeClock} />
     case 'hub':         return <I d={PATHS.hub} />
-    case 'txt':         return <I d={PATHS.txt} />
     case 'txt2':        return <I d={PATHS.txt2} />
     case 'activity':    return <I d={PATHS.activity} />
     case 'tools':       return <I d={PATHS.tools} />
@@ -243,7 +240,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'lawn',         label: 'Lawn Sizer',    href: '/hub/lawn', pickable: true, requires: 'canAccessLawn' },
   { id: 'zone-sizer',   label: 'Zone Sizer',    href: '/hub/zone-sizer', pickable: true, requires: 'canAccessZoneSizer' },
   { id: 'dialer',       label: 'Dialer',        href: '/hub/dialer', prefixMatch: true, pickable: true, requires: 'canAccessDialer' },
-  { id: 'txt2',         label: 'Txt2',          href: '/hub/txt', prefixMatch: true, pickable: true, requires: 'canAccessTxt' },
+  { id: 'txt2',         label: 'Txt',           href: '/hub/txt', prefixMatch: true, pickable: true, requires: 'canAccessTxt' },
   { id: 'call-log',     label: 'Call Log',      href: '/hub/call-log', prefixMatch: true, pickable: true, requires: 'canAccessCallLog' },
   { id: 'call-log2',   label: 'Call Log 2',    href: '/hub/call-log2', prefixMatch: true, pickable: true, requires: 'canAccessCallLog2' },
   { id: 'time-records', label: 'Time Records',  href: '/hub/admin/timesheet', prefixMatch: true, pickable: true, requires: 'isAdmin' },

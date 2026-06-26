@@ -141,7 +141,6 @@ export default function HubMobileMore({
     } else {
       const id = c.id
       if (id === 'hub') { label = 'Hub'; icon = <CatalogIcon id="hub" />; onClick = openHub }
-      else if (id === 'txt') { label = 'Txt'; icon = <CatalogIcon id="txt" />; onClick = () => navigate('/hub/clients') }
       else if (id === 'time-clock') { label = 'Clock'; icon = <CatalogIcon id="time-clock" />; onClick = () => { onClose(); onTimeClockClick() } }
       else if (id === 'tools') { label = 'Tools'; icon = <CatalogIcon id="tools" />; onClick = () => onToolsClick() }
       else if (id === 'links') { label = 'Links'; icon = <CatalogIcon id="links" />; onClick = () => onLinksClick() }
@@ -164,7 +163,7 @@ export default function HubMobileMore({
     const displayLabel = resolveMenuLabel(token, menuCtx) ?? label
     // NAV-MobileInconsistent: mirror the bottom bar's unread dots on hub / txt tiles.
     const showDot =
-      'id' in c && ((c.id === 'hub' && unreadHub) || (c.id === 'txt' && txtUnread))
+      'id' in c && ((c.id === 'hub' && unreadHub) || (c.id === 'txt2' && txtUnread))
     return (
       <button type="button" onClick={onClick} className="group w-full flex flex-col items-center justify-center gap-2 py-3 rounded-2xl hover:bg-white/[0.05] active:scale-95 transition-all">
         <span className="relative flex items-center justify-center w-12 h-12 rounded-2xl [&_svg]:w-5 [&_svg]:h-5" style={{ color: accent, background: accent + '1f', boxShadow: `inset 0 0 0 1px ${accent}44` }}>

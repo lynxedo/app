@@ -74,7 +74,6 @@ export function resolveMenuLabel(token: string, ctx: MenuContext): string | null
   }
   const id = c.id
   if (id === 'hub') return 'Hub'
-  if (id === 'txt') return 'Txt'
   if (id === 'time-clock') return 'Clock'
   if (id === 'tools') return 'Tools'
   if (id === 'links') return 'Links'

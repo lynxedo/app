@@ -20,7 +20,7 @@ export default async function TxtConversationPage({
     .single()
 
   // Txt2 (new Twilio texting) is gated per-user.
-  if (!profile?.can_access_txt) redirect('/hub/clients')
+  if (!profile?.can_access_txt) redirect('/hub')
 
   const canAssign =
     profile?.role === 'admin' ||

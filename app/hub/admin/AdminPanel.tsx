@@ -85,7 +85,7 @@ const TOOLS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_access_fleet', label: 'Fleet Tracker' },
   { key: 'can_access_zone_sizer', label: 'Zone Sizer' },
   { key: 'can_access_dialer', label: 'Dialer' },
-  { key: 'can_access_txt', label: 'Txt2 (new texting)' },
+  { key: 'can_access_txt', label: 'Txt (customer texting)' },
   { key: 'can_access_unified_inbox', label: 'Unified Inbox' },
   { key: 'can_post_shout_outs', label: 'Post Shout Outs' },
   { key: 'can_access_marketing', label: 'Marketing (Social)' },
