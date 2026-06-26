@@ -50,6 +50,9 @@ export async function POST(request: NextRequest) {
   const name = typeof body?.name === 'string' ? body.name.trim() : ''
   const mode = body?.ring_mode === 'sequential' ? 'sequential' : 'simultaneous'
   const timeout = Math.max(5, Math.min(120, parseInt(body?.ring_timeout_sec, 10) || 25))
+  // Per-member ring seconds (sequential: how long each person rings before the
+  // next). Defaults to 20 to match prior behavior.
+  const memberTimeout = Math.max(5, Math.min(120, parseInt(body?.member_timeout_sec, 10) || 20))
   const memberIds = Array.isArray(body?.member_user_ids)
     ? body.member_user_ids.filter((x: unknown): x is string => typeof x === 'string')
     : []
@@ -88,7 +91,7 @@ export async function POST(request: NextRequest) {
         group_id: created.id,
         user_id: id,
         position: idx,
-        member_timeout_sec: 20,
+        member_timeout_sec: memberTimeout,
       }))
     if (members.length > 0) {
       const { error: memErr } = await admin

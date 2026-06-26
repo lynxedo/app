@@ -55,6 +55,8 @@ export async function PATCH(
 
   // Members rewrite if provided.
   if (Array.isArray(body?.member_user_ids)) {
+    // Per-member ring seconds (sequential: how long each rings before the next).
+    const memberTimeout = Math.max(5, Math.min(120, parseInt(body?.member_timeout_sec, 10) || 20))
     const memberIds: string[] = body.member_user_ids.filter(
       (x: unknown): x is string => typeof x === 'string'
     )
@@ -70,7 +72,7 @@ export async function PATCH(
         group_id: id,
         user_id: mid,
         position: idx,
-        member_timeout_sec: 20,
+        member_timeout_sec: memberTimeout,
       }))
 
     await admin.from('dialer_ring_group_members').delete().eq('group_id', id)

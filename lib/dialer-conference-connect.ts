@@ -47,7 +47,10 @@ export async function connectInboundToAgentViaConference(opts: {
   const recordingCb = `${baseUrl}/api/dialer/voice/recording`
   const confStatusCb = `${baseUrl}/api/dialer/voice/conference/status`
   const ownerQs = voicemailOwnerUserId ? `&owner=${encodeURIComponent(voicemailOwnerUserId)}` : ''
-  const voicemailRender = `${baseUrl}/api/dialer/voice/twiml/voicemail${voicemailOwnerUserId ? `?owner=${encodeURIComponent(voicemailOwnerUserId)}` : ''}`
+  // via=conf tells the voicemail route to decide answered/not-answered by the
+  // calls row's answered_at instead of DialCallStatus (a conference Dial action
+  // always reports 'completed', even when nobody answered).
+  const voicemailRender = `${baseUrl}/api/dialer/voice/twiml/voicemail?via=conf${voicemailOwnerUserId ? `&owner=${encodeURIComponent(voicemailOwnerUserId)}` : ''}`
   const agentStatusCb =
     `${baseUrl}/api/dialer/voice/conference/agent-status?caller_sid=${encodeURIComponent(callerCallSid)}&room=${encodeURIComponent(room)}${ownerQs}`
 
@@ -357,10 +360,12 @@ export async function connectInboundToRingGroupViaConference(opts: {
   }
 
   // Caller waits on hold music; consent (if any) already played at IVR entry.
+  // via=conf → voicemail route decides answered/not by answered_at (a conference
+  // Dial action always reports 'completed'). No owner → company voicemail box.
   return twimlCustomerJoinConference({
     room,
     waitUrl: holdMusic,
-    action: `${baseUrl}/api/dialer/voice/twiml/voicemail`,
+    action: `${baseUrl}/api/dialer/voice/twiml/voicemail?via=conf`,
     record: recordingEnabled,
     recordingStatusCallback: recordingCb,
     statusCallback: confStatusCb,

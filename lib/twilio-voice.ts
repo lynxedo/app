@@ -499,12 +499,10 @@ function renderTerminalAction(
 
     case 'transfer_user': {
       // <Dial action="..."> handles fall-through on no-answer/busy/failed by
-      // POSTing to the action URL with DialCallStatus. We point that at the
-      // per-user voicemail render route so unanswered calls land in that
-      // user's box (falls back to general if no per-user route fn).
-      const fallback = opts.perUserVoicemailUrlFor
-        ? opts.perUserVoicemailUrlFor(action.user_id)
-        : opts.voicemailRouteUrl
+      // POSTing to the action URL with DialCallStatus. A menu route to a specific
+      // person is a BUSINESS call → COMPANY voicemail on no-answer. Personal
+      // greetings are reserved for direct extension dials. (Ben, June 26 2026.)
+      const fallback = opts.voicemailRouteUrl
       const attrs: string[] = []
       if (opts.callerId) attrs.push(`callerId="${safeUrl(opts.callerId)}"`)
       attrs.push(`timeout="${action.timeout_sec ?? 20}"`)
