@@ -12,13 +12,18 @@ type Template = {
   media: string[]
   sort_order: number
   owner_user_id: string | null
+  assigned_user_ids: string[]
   updated_at: string
 }
 
+type HubUser = { id: string; display_name: string }
+
 export default function TxtAdminPanel({
   initialTemplates,
+  users,
 }: {
   initialTemplates: Template[]
+  users: HubUser[]
 }) {
   const [templates, setTemplates] = useState<Template[]>(initialTemplates)
   const [editing, setEditing] = useState<Template | null>(null)
@@ -28,10 +33,21 @@ export default function TxtAdminPanel({
   const [sortOrder, setSortOrder] = useState(0)
   const [media, setMedia] = useState<string[]>([])
   const [uploadingMedia, setUploadingMedia] = useState(false)
+  // Assignment: 'all' = everyone (empty array), 'specific' = only assignedIds.
+  const [assignMode, setAssignMode] = useState<'all' | 'specific'>('all')
+  const [assignedIds, setAssignedIds] = useState<string[]>([])
   const [error, setError] = useState('')
   const [saving, setSaving] = useState(false)
   const toast = useToast()
   const confirmDialog = useConfirm()
+
+  const userName = (id: string) => users.find((u) => u.id === id)?.display_name || 'Unknown'
+
+  function toggleAssigned(id: string) {
+    setAssignedIds((prev) =>
+      prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]
+    )
+  }
 
   async function uploadMedia(file: File | undefined) {
     if (!file) return
@@ -56,6 +72,8 @@ export default function TxtAdminPanel({
     setBody('')
     setSortOrder(0)
     setMedia([])
+    setAssignMode('all')
+    setAssignedIds([])
     setError('')
   }
 
@@ -66,6 +84,9 @@ export default function TxtAdminPanel({
     setBody(t.body)
     setSortOrder(t.sort_order)
     setMedia(t.media || [])
+    const ids = t.assigned_user_ids || []
+    setAssignMode(ids.length > 0 ? 'specific' : 'all')
+    setAssignedIds(ids)
     setError('')
   }
 
@@ -78,7 +99,13 @@ export default function TxtAdminPanel({
   async function save() {
     setError('')
     setSaving(true)
-    const payload = { title: title.trim(), body: body.trim(), media, sort_order: sortOrder }
+    const payload = {
+      title: title.trim(),
+      body: body.trim(),
+      media,
+      sort_order: sortOrder,
+      assigned_user_ids: assignMode === 'specific' ? assignedIds : [],
+    }
     const url = editing
       ? `/api/admin/txt/templates/${editing.id}`
       : '/api/admin/txt/templates'
@@ -191,6 +218,56 @@ export default function TxtAdminPanel({
               Lower numbers appear first in the picker.
             </div>
           </div>
+          {/* Who can use this template — empty = everyone (default). */}
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Who can use this</label>
+            <div className="flex gap-4 text-sm mb-2">
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="assignMode"
+                  checked={assignMode === 'all'}
+                  onChange={() => setAssignMode('all')}
+                />
+                Everyone
+              </label>
+              <label className="flex items-center gap-1.5 cursor-pointer">
+                <input
+                  type="radio"
+                  name="assignMode"
+                  checked={assignMode === 'specific'}
+                  onChange={() => setAssignMode('specific')}
+                />
+                Specific people
+              </label>
+            </div>
+            {assignMode === 'specific' && (
+              <div className="rounded-md border border-gray-700 bg-gray-950 max-h-48 overflow-y-auto divide-y divide-gray-800">
+                {users.length === 0 ? (
+                  <div className="px-3 py-2 text-xs text-gray-500">No users found.</div>
+                ) : (
+                  users.map((u) => (
+                    <label
+                      key={u.id}
+                      className="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer hover:bg-gray-900"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={assignedIds.includes(u.id)}
+                        onChange={() => toggleAssigned(u.id)}
+                      />
+                      {u.display_name}
+                    </label>
+                  ))
+                )}
+              </div>
+            )}
+            <div className="text-[10px] text-gray-500 mt-1">
+              {assignMode === 'all'
+                ? 'Everyone with Txt access sees this template in the composer.'
+                : `Only the people you check will see it. ${assignedIds.length} selected.`}
+            </div>
+          </div>
           {/* Attachment — single image, auto-sent (as MMS) with the template. */}
           <div>
             <label className="block text-xs text-gray-400 mb-1">Attachment</label>
@@ -229,7 +306,7 @@ export default function TxtAdminPanel({
           <div className="flex gap-2">
             <button
               onClick={save}
-              disabled={saving || uploadingMedia || !title.trim() || (!body.trim() && media.length === 0)}
+              disabled={saving || uploadingMedia || !title.trim() || (!body.trim() && media.length === 0) || (assignMode === 'specific' && assignedIds.length === 0)}
               className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm disabled:opacity-50"
             >
               {saving ? 'Saving…' : editing ? 'Save changes' : 'Create template'}
@@ -256,6 +333,7 @@ export default function TxtAdminPanel({
                 <th className="text-left px-3 py-2 w-14">Order</th>
                 <th className="text-left px-3 py-2 w-48">Title</th>
                 <th className="text-left px-3 py-2">Body</th>
+                <th className="text-left px-3 py-2 w-40">Who</th>
                 <th className="text-right px-3 py-2 w-32">Actions</th>
               </tr>
             </thead>
@@ -269,6 +347,17 @@ export default function TxtAdminPanel({
                   </td>
                   <td className="px-3 py-2 text-gray-300 whitespace-pre-wrap line-clamp-3">
                     {t.body}
+                  </td>
+                  <td className="px-3 py-2 text-gray-400 text-xs">
+                    {!t.assigned_user_ids || t.assigned_user_ids.length === 0 ? (
+                      <span className="text-gray-500">Everyone</span>
+                    ) : t.assigned_user_ids.length === 1 ? (
+                      userName(t.assigned_user_ids[0])
+                    ) : (
+                      <span title={t.assigned_user_ids.map(userName).join(', ')}>
+                        {t.assigned_user_ids.length} people
+                      </span>
+                    )}
                   </td>
                   <td className="px-3 py-2 text-right">
                     <button

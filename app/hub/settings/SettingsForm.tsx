@@ -35,6 +35,8 @@ interface Props {
   notifPref: NotifPref
   railPermissions: RailPermissions
   txtSignature: string
+  allowUserSignatures?: boolean
+  companyDefaultSignature?: string | null
   dialerGlobalRing: boolean
   initialMasterDndEnabled?: boolean
   initialMasterDndSchedule?: Record<string, unknown> | null
@@ -89,7 +91,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, initialTheme, jobberConnected, landingPage, notifPref, railPermissions, txtSignature, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, initialTheme, jobberConnected, landingPage, notifPref, railPermissions, txtSignature, allowUserSignatures = true, companyDefaultSignature = null, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
   const router = useRouter()
   const toast = useToast()
   const confirmDialog = useConfirm()
@@ -997,24 +999,36 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
         <h2 className="font-semibold text-lg mb-1">Communications</h2>
         <p className="text-gray-400 text-sm mb-5">Per-user settings for customer texting (Txt).</p>
 
-        <div>
-          <label className="block text-xs text-gray-400 mb-1.5">Text signature</label>
-          <textarea
-            value={signature}
-            onChange={e => setSignature(e.target.value)}
-            placeholder="— Ben, Heroes Lawn Care"
-            rows={3}
-            maxLength={500}
-            className={inputCls + ' resize-none'}
-          />
-          <p className="text-xs text-gray-500 mt-1.5">
-            Auto-appended (with a blank line above it) when you're the first to text a client, or when a different teammate jumps into a conversation. Won't repeat back-to-back from the same sender. Leave blank to disable.
-          </p>
-          {sigErr && <p className="text-red-400 text-sm mt-2">{sigErr}</p>}
-          <div className="mt-3">
-            {saveBtn('Save signature', sigSave, saveSignature, false, sigDirty)}
+        {allowUserSignatures ? (
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Text signature</label>
+            <textarea
+              value={signature}
+              onChange={e => setSignature(e.target.value)}
+              placeholder="— Ben, Heroes Lawn Care"
+              rows={3}
+              maxLength={500}
+              className={inputCls + ' resize-none'}
+            />
+            <p className="text-xs text-gray-500 mt-1.5">
+              Auto-appended (with a blank line above it) when you're the first to text a client, or when a different teammate jumps into a conversation. Won't repeat back-to-back from the same sender. Leave blank to use the company default{companyDefaultSignature ? '' : ' (none set)'}.
+            </p>
+            {sigErr && <p className="text-red-400 text-sm mt-2">{sigErr}</p>}
+            <div className="mt-3">
+              {saveBtn('Save signature', sigSave, saveSignature, false, sigDirty)}
+            </div>
           </div>
-        </div>
+        ) : (
+          <div>
+            <label className="block text-xs text-gray-400 mb-1.5">Text signature</label>
+            <div className="rounded-lg border border-gray-800 bg-gray-950 px-3 py-2.5 text-sm text-gray-300 whitespace-pre-wrap">
+              {companyDefaultSignature || <span className="text-gray-500">No signature</span>}
+            </div>
+            <p className="text-xs text-gray-500 mt-1.5">
+              Your company uses a standard signature on outgoing texts. Personal signatures are turned off.
+            </p>
+          </div>
+        )}
 
         <TxtPersonalTemplates />
 

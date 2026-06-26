@@ -47,13 +47,18 @@ export async function PATCH(
   if (Array.isArray(body.media)) {
     patch.media = body.media.filter((m: unknown) => typeof m === 'string').slice(0, 1)
   }
+  if (Array.isArray(body.assigned_user_ids)) {
+    patch.assigned_user_ids = Array.from(
+      new Set(body.assigned_user_ids.filter((u: unknown) => typeof u === 'string'))
+    )
+  }
   if (Number.isFinite(body.sort_order)) patch.sort_order = Number(body.sort_order)
 
   const { data: updated, error } = await admin
     .from('txt_templates')
     .update(patch)
     .eq('id', id)
-    .select('id, scope, title, body, media, sort_order, owner_user_id, updated_at')
+    .select('id, scope, title, body, media, sort_order, owner_user_id, assigned_user_ids, updated_at')
     .single()
 
   if (error || !updated) {

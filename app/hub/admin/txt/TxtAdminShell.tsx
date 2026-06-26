@@ -6,6 +6,7 @@ import TxtNumbersPanel, { type TxtNumber } from './TxtNumbersPanel'
 import OnMyWayPanel from './OnMyWayPanel'
 import ResponderNotifyPanel from './ResponderNotifyPanel'
 import TxtManagersPanel, { type ManagerUser } from './TxtManagersPanel'
+import SignaturePanel from './SignaturePanel'
 
 type Template = {
   id: string
@@ -15,12 +16,13 @@ type Template = {
   media: string[]
   sort_order: number
   owner_user_id: string | null
+  assigned_user_ids: string[]
   updated_at: string
 }
 
 type HubUser = { id: string; display_name: string }
 
-type SubTab = 'templates' | 'numbers' | 'onmyway' | 'responder' | 'managers'
+type SubTab = 'templates' | 'numbers' | 'onmyway' | 'responder' | 'managers' | 'signature'
 
 export default function TxtAdminShell({
   initialTemplates,
@@ -30,6 +32,8 @@ export default function TxtAdminShell({
   initialManagerIds,
   managerUsers,
   users,
+  initialCompanyDefaultSignature,
+  initialAllowUserSignatures,
 }: {
   initialTemplates: Template[]
   initialNumbers: TxtNumber[]
@@ -38,6 +42,8 @@ export default function TxtAdminShell({
   initialManagerIds: string[]
   managerUsers: ManagerUser[]
   users: HubUser[]
+  initialCompanyDefaultSignature: string | null
+  initialAllowUserSignatures: boolean
 }) {
   const [tab, setTab] = useState<SubTab>('templates')
 
@@ -50,6 +56,9 @@ export default function TxtAdminShell({
         <SubTabButton active={tab === 'numbers'} onClick={() => setTab('numbers')}>
           Numbers
         </SubTabButton>
+        <SubTabButton active={tab === 'signature'} onClick={() => setTab('signature')}>
+          Signature
+        </SubTabButton>
         <SubTabButton active={tab === 'onmyway'} onClick={() => setTab('onmyway')}>
           On My Way
         </SubTabButton>
@@ -61,7 +70,13 @@ export default function TxtAdminShell({
         </SubTabButton>
       </div>
 
-      {tab === 'templates' && <TxtAdminPanel initialTemplates={initialTemplates} />}
+      {tab === 'templates' && <TxtAdminPanel initialTemplates={initialTemplates} users={users} />}
+      {tab === 'signature' && (
+        <SignaturePanel
+          initialCompanyDefaultSignature={initialCompanyDefaultSignature}
+          initialAllowUserSignatures={initialAllowUserSignatures}
+        />
+      )}
       {tab === 'numbers' && <TxtNumbersPanel initialNumbers={initialNumbers} />}
       {tab === 'onmyway' && <OnMyWayPanel initialTemplate={initialOnMyWayTemplate} />}
       {tab === 'responder' && (
