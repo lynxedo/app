@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { EMPTY_VOICE_TWIML, validateTwilioVoiceSignature, voiceConfigured } from '@/lib/twilio-voice'
-import { redirectCall } from '@/lib/twilio-conference'
+import { cancelCall, listConferenceParticipants, redirectCall } from '@/lib/twilio-conference'
 import { advanceRingGroup } from '@/lib/dialer-conference-connect'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
@@ -151,6 +151,42 @@ export async function POST(request: NextRequest) {
       } catch (e) {
         console.warn('[dialer.conference.agent-status] no-answer stamp/push failed', e)
       }
+    }
+  }
+
+  // Stranded-caller backstop. A ring-group member who ANSWERED and then hung up
+  // ends as 'completed'. Their leg is normally flipped to endConferenceOnExit=true
+  // on join (see /conference/status), which tears the conference down on their
+  // hangup — but if that flip ever failed, the caller would be left alone in a
+  // live conference hearing silence. So when a group member's leg completes, end
+  // the caller's leg IFF the caller is now the only one left. If a transfer target
+  // is still connected, the caller is NOT alone → we leave the call untouched
+  // (this is what keeps cold/warm transfers working). Fail-safe: any doubt (can't
+  // read the conference) → do nothing.
+  if (callStatus === 'completed' && groupId && callerSid) {
+    try {
+      const admin = createAdminClient()
+      const { data: row } = await admin
+        .from('calls')
+        .select('conference_sid, conference_transfer_sid')
+        .eq('twilio_call_sid', callerSid)
+        .maybeSingle()
+      const confSid = (row?.conference_sid as string | null) || ''
+      // A transfer in flight/completed means the caller is meant to stay
+      // connected to the target — never end them, even if the target hasn't
+      // appeared in the participant list yet.
+      const transferring = !!(row?.conference_transfer_sid as string | null)
+      if (confSid && !transferring) {
+        const parts = await listConferenceParticipants(confSid)
+        const others = (parts ?? []).filter((p) => p.callSid && p.callSid !== callerSid)
+        // Only act on a definite read showing the caller alone.
+        if (parts !== null && others.length === 0) {
+          console.log('[dialer.conference.agent-status] caller stranded after group member hangup → ending caller', callerSid)
+          await cancelCall(callerSid).catch(() => {})
+        }
+      }
+    } catch (e) {
+      console.warn('[dialer.conference.agent-status] stranded-caller backstop failed', e)
     }
   }
 

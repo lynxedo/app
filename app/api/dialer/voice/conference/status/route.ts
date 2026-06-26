@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { EMPTY_VOICE_TWIML, validateTwilioVoiceSignature, voiceConfigured } from '@/lib/twilio-voice'
-import { cancelCall } from '@/lib/twilio-conference'
+import { cancelCall, updateParticipant } from '@/lib/twilio-conference'
 import type { RingPendingEntry } from '@/lib/dialer-conference-connect'
 
 const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -32,6 +32,7 @@ export async function POST(request: NextRequest) {
   const event = params.get('StatusCallbackEvent') || ''
   const room = params.get('FriendlyName') || ''
   const eventCallSid = params.get('CallSid') || ''
+  const eventConferenceSid = params.get('ConferenceSid') || ''
   if (!room) return xml(EMPTY_VOICE_TWIML)
 
   const admin = createAdminClient()
@@ -61,7 +62,7 @@ export async function POST(request: NextRequest) {
       if (eventCallSid) {
         const { data: row } = await admin
           .from('calls')
-          .select('id, ring_pending')
+          .select('id, ring_pending, conference_sid')
           .eq('company_id', HEROES_COMPANY_ID)
           .eq('conference_name', room)
           .not('ring_pending', 'is', null)
@@ -80,6 +81,29 @@ export async function POST(request: NextRequest) {
             .not('ring_pending', 'is', null)
             .select('id')
           if ((claimRows?.length ?? 0) > 0) {
+            // The member who ANSWERED was added with endConferenceOnExit=false (so
+            // a member who didn't answer couldn't collapse the conference and drop
+            // the caller mid-ring). Now that they've joined, flip THEIR leg to
+            // endConferenceOnExit=true so the call ends cleanly when they hang up.
+            // (The /conference/agent-status route is a second, independent backstop
+            // that ends the caller's leg if this update ever fails.)
+            const confSid = eventConferenceSid || (row.conference_sid as string | null) || ''
+            if (confSid) {
+              // Retry once on failure; /conference/agent-status is a second,
+              // independent backstop that ends a stranded caller if both miss.
+              const flip = await updateParticipant({
+                conferenceSid: confSid,
+                callSid: eventCallSid,
+                endConferenceOnExit: true,
+              }).catch(() => ({ ok: false as const, error: 'threw' }))
+              if (!flip.ok) {
+                await updateParticipant({
+                  conferenceSid: confSid,
+                  callSid: eventCallSid,
+                  endConferenceOnExit: true,
+                }).catch(() => {})
+              }
+            }
             for (const p of pending) {
               if (p.call_sid === eventCallSid) continue
               try { await cancelCall(p.call_sid) } catch { /* best-effort */ }

@@ -365,6 +365,27 @@ export async function fetchCallStatus(callSid: string): Promise<string | null> {
   }
 }
 
+// List the live participants currently in a conference (by real ConferenceSid).
+// Returns [{ callSid, label }] or null on any error. Used by the ring-group
+// no-answer backstop to tell "the caller is alone" (→ safe to end them) from
+// "a transfer target is still connected" (→ leave the call alone).
+export async function listConferenceParticipants(
+  conferenceSid: string
+): Promise<Array<{ callSid: string; label: string | null }> | null> {
+  if (!conferenceConfigured() || !conferenceSid) return null
+  try {
+    const res = await fetch(
+      `${accountBase()}/Conferences/${encodeURIComponent(conferenceSid)}/Participants.json`,
+      { headers: { Authorization: authHeader() } }
+    )
+    if (!res.ok) return null
+    const json = (await res.json()) as { participants?: Array<{ call_sid?: string; label?: string }> }
+    return (json.participants ?? []).map((p) => ({ callSid: p.call_sid || '', label: p.label ?? null }))
+  } catch {
+    return null
+  }
+}
+
 // End a call leg (cancels it if still ringing). Used by simultaneous ring
 // groups to stop the other members' phones the moment someone answers, and to
 // stop ringing members whose caller already hung up. Best-effort.
