@@ -258,14 +258,39 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     }
   }, [])
 
-  // iOS interim: also recover on app foreground. Answering on CallKit brings the
+  // Recover the in-call screen on app FOREGROUND. Answering on CallKit brings the
   // app forward WITHOUT remounting the dialer, so the mount-time recovery won't
-  // re-run — this catches that case. Gated to native builds lacking getActiveCall.
+  // re-run — this catches that case for both build types:
+  //   - native getActiveCall present (Android, and iOS once rebuilt) → ask the
+  //     plugin directly and re-adopt the live call;
+  //   - absent (current iOS build) → fall back to the server recovery (interim).
   useEffect(() => {
-    const nv = getNativeVoice()
-    if (!nv || typeof nv.getActiveCall === 'function') return
-    const onForeground = () => {
+    if (!nativeVoiceAvailable()) return
+    const onForeground = async () => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      const nv = getNativeVoice()
+      if (!nv) return
+      if (typeof nv.getActiveCall === 'function') {
+        const cur = stateRef.current
+        if (cur === 'in-call' || cur === 'incoming' || cur === 'placing') return
+        try {
+          const active = await nv.getActiveCall()
+          if (active?.active) {
+            const from = typeof active.from === 'string' && active.from ? active.from : null
+            nativeActiveFromRef.current = from
+            if (from) setInCallWith(from)
+            setCallStartedAt(
+              typeof active.startedAtMs === 'number' && active.startedAtMs > 0 ? active.startedAtMs : Date.now()
+            )
+            setMuted(!!active.muted)
+            setHeld(!!active.onHold)
+            setIncomingFrom(null)
+            setState('in-call')
+            fetchActiveConferenceRoomResilient().then((r) => { if (r) setConferenceRoom(r) })
+          }
+        } catch { /* ignore */ }
+        return
+      }
       void recoverActiveCallFromServer()
     }
     document.addEventListener('visibilitychange', onForeground)
