@@ -165,6 +165,12 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   const nativeActiveFromRef = useRef<string | null>(null)
   const nativeHandlesRef = useRef<Array<{ remove: () => void }>>([])
   const nativeBoundRef = useRef(false)
+  // iOS-interim recovery (see recoverActiveCallFromServer): stateRef avoids a
+  // stale closure when deciding whether to adopt; adoptedRef marks a call WE
+  // adopted from the server (so reconcile only resets those, never a real
+  // web/native-event-tracked call).
+  const stateRef = useRef<DialerState>('idle')
+  const adoptedRef = useRef(false)
 
   const fetchAndApplyToken = useCallback(async (): Promise<string | null> => {
     // Native clients send their platform so the token carries the matching push
@@ -187,6 +193,88 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     setIdentity(body.identity)
     return body.token
   }, [])
+
+  // Keep a ref copy of `state` for async callbacks that must read the current
+  // value without re-subscribing (recoverActiveCallFromServer).
+  useEffect(() => { stateRef.current = state }, [state])
+
+  // iOS-only interim: the iOS native plugin lacks getActiveCall, so when a call
+  // is answered on CallKit the webview can miss the live `callConnected` event
+  // and never show the in-call screen (End/Hold/Transfer). Until a native build
+  // ships getActiveCall, recover from the SERVER instead: ask whether this user
+  // has a live, ANSWERED conference and adopt it into the in-call UI. Returns
+  // true if it adopted (or is already in a call), false otherwise.
+  //
+  // Strictly scoped so it can never disturb working paths:
+  //   - native only, and only on builds WITHOUT native getActiveCall (i.e. iOS;
+  //     Android's native path already handles this);
+  //   - only ADOPTS when the web isn't already tracking a call (idle/ready/…);
+  //   - only adopts ANSWERED calls (never one still ringing through a group);
+  //   - only RESETS calls it adopted itself (adoptedRef), never a real one.
+  const recoverActiveCallFromServer = useCallback(async (): Promise<boolean> => {
+    const nv = getNativeVoice()
+    if (!nv || typeof nv.getActiveCall === 'function') return false
+    const cur = stateRef.current
+    const busy = cur === 'incoming' || cur === 'placing' || cur === 'in-call'
+    try {
+      const res = await fetch('/api/dialer/voice/conference/active')
+      if (!res.ok) return cur === 'in-call'
+      const body = (await res.json().catch(() => null)) as
+        | { room?: string | null; answered?: boolean; from?: string | null }
+        | null
+      const room = typeof body?.room === 'string' ? body.room : null
+      const answered = !!body?.answered
+      if (room && answered) {
+        if (busy) return true // already handling this (or another) call
+        adoptedRef.current = true
+        const from = typeof body?.from === 'string' && body.from ? body.from : null
+        nativeActiveFromRef.current = from
+        if (from) setInCallWith(from)
+        setIncomingFrom(null)
+        setCallStartedAt(Date.now())
+        setConferenceRoom(room)
+        setState('in-call')
+        getNativeVoice()?.getAudioRoutes()
+          .then((s) => {
+            if (s?.current) setAudioRouteState(s.current)
+            if (Array.isArray(s?.routes)) setAudioRoutesAvailable(s.routes)
+          })
+          .catch(() => { /* non-route-capable build — picker stays hidden */ })
+        return true
+      }
+      // No live answered call. If WE adopted one and it's since ended (the native
+      // callDisconnected was missed too), reconcile back to ready.
+      if (adoptedRef.current && cur === 'in-call') {
+        adoptedRef.current = false
+        setInCallWith(null)
+        setCallStartedAt(null)
+        setConferenceRoom(null)
+        setHeld(false)
+        setState('ready')
+      }
+      return false
+    } catch {
+      return cur === 'in-call'
+    }
+  }, [])
+
+  // iOS interim: also recover on app foreground. Answering on CallKit brings the
+  // app forward WITHOUT remounting the dialer, so the mount-time recovery won't
+  // re-run — this catches that case. Gated to native builds lacking getActiveCall.
+  useEffect(() => {
+    const nv = getNativeVoice()
+    if (!nv || typeof nv.getActiveCall === 'function') return
+    const onForeground = () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return
+      void recoverActiveCallFromServer()
+    }
+    document.addEventListener('visibilitychange', onForeground)
+    window.addEventListener('focus', onForeground)
+    return () => {
+      document.removeEventListener('visibilitychange', onForeground)
+      window.removeEventListener('focus', onForeground)
+    }
+  }, [recoverActiveCallFromServer])
 
   const ensureRegistered = useCallback(async () => {
     // Native app: outbound calls go through the native Twilio Voice SDK, and we
@@ -257,6 +345,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
             setAudioRoutesAvailable(['earpiece', 'speaker'])
             setConferenceRoom(null)
             setConsulting(false)
+            adoptedRef.current = false
             if (err) {
               setErrorMessage(err)
               setState('error')
@@ -342,6 +431,12 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
             return
           }
         } catch { /* no getActiveCall on this build — fall through to ready */ }
+        // iOS interim: no native getActiveCall here, so recover a live answered
+        // call from the server instead. If it adopts one, don't fall to 'ready'.
+        if (typeof nv?.getActiveCall !== 'function') {
+          const adopted = await recoverActiveCallFromServer()
+          if (adopted) return
+        }
         setState('ready')
       } catch (err) {
         setErrorMessage(err instanceof Error ? err.message : 'device_init_failed')
