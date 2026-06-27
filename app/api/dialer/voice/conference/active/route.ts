@@ -26,5 +26,12 @@ export async function GET() {
     userId: user.id,
     companyId: profile.company_id,
   })
-  return NextResponse.json({ room: active?.room ?? null })
+  // `answered` + `from` let the native iOS dialer (which lacks the native
+  // getActiveCall hook) re-adopt a live, ANSWERED call into its in-call UI after
+  // answering on CallKit. `room` alone is kept for the existing inbound-connect caller.
+  return NextResponse.json({
+    room: active?.room ?? null,
+    answered: active?.answered ?? false,
+    from: active?.callerNumber ?? null,
+  })
 }

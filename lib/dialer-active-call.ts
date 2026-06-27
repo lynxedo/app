@@ -17,6 +17,9 @@ export type ActiveConference = {
   agentSid: string | null
   customerSid: string | null
   transferSid: string | null
+  // True once a participant has actually joined (answered) — lets callers tell a
+  // live conversation from a call that's still ringing through a group.
+  answered: boolean
 }
 
 export async function resolveActiveConferenceRoom(opts: {
@@ -30,7 +33,7 @@ export async function resolveActiveConferenceRoom(opts: {
 
   let query = admin
     .from('calls')
-    .select('id, conference_name, from_number, to_number, direction, conference_sid, conference_agent_sid, conference_customer_sid, conference_transfer_sid')
+    .select('id, conference_name, from_number, to_number, direction, conference_sid, conference_agent_sid, conference_customer_sid, conference_transfer_sid, answered_at')
     .eq('company_id', companyId)
     .is('ended_at', null)
     .not('conference_name', 'is', null)
@@ -53,6 +56,7 @@ export async function resolveActiveConferenceRoom(opts: {
     agentSid: (data.conference_agent_sid as string) || null,
     customerSid: (data.conference_customer_sid as string) || null,
     transferSid: (data.conference_transfer_sid as string) || null,
+    answered: !!data.answered_at,
   }
 }
 
