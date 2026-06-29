@@ -35,7 +35,7 @@ export async function GET(
   let msgQuery = supabase
     .from('txt_messages')
     .select(
-      'id, direction, body, media_urls, status, error_message, twilio_sid, created_at, sent_by, sender:hub_users!sent_by ( id, display_name )'
+      'id, direction, body, media_urls, status, error_message, twilio_sid, created_at, sent_by, phone_number_id, rerouted, sender:hub_users!sent_by ( id, display_name )'
     )
     .eq('conversation_id', id)
     .order('created_at', { ascending: false })
