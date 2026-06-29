@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend,
 } from 'chart.js'
@@ -8,6 +8,7 @@ import type { ScoreboardMeta } from '@/lib/scoreboards/registry'
 import { useScoreboardData } from '@/hooks/use-scoreboard-data'
 import ScoreboardError from '@/components/hub/ScoreboardError'
 import SnapshotControls from '@/components/hub/scoreboards/SnapshotControls'
+import { ChartCanvas } from '@/components/hub/scoreboards/ChartCanvas'
 
 Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend)
 Chart.defaults.color = '#64748b'
@@ -19,7 +20,7 @@ type ByTech = { labels: string[]; techs: { name: string; data: number[] }[]; oth
 type Tech = { name: string; perHour: { revenue: number; hours: number; rate: number; weekLabel: string } }
 type Payload = {
   asOf: string
-  kpis: { activeGold: number; goldAnnualValue: number; repairAvg: number; repairMedian: number; repairCount: number }
+  kpis: { activeGold: number; goldAnnualValue: number; repairAvg: number; repairMedian: number; repairCount: number; ytdRevenue: number }
   weeklyByTech: ByTech
   monthlyByTech: ByTech
   rachioSold: { labels: string[]; data: number[] }
@@ -51,18 +52,6 @@ const stackedScales = {
 const countScales = {
   x: { grid: { color: GRID }, ticks: { color: '#64748b' } },
   y: { grid: { color: GRID }, ticks: { color: '#64748b', precision: 0, stepSize: 1 }, beginAtZero: true },
-}
-
-// Mount-once canvas (parent renders only after data loads).
-function ChartCanvas({ make, height = 220 }: { make: (canvas: HTMLCanvasElement) => Chart; height?: number }) {
-  const ref = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    if (!ref.current) return
-    const chart = make(ref.current)
-    return () => chart.destroy()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  return <div className="relative w-full" style={{ height }}><canvas ref={ref} /></div>
 }
 
 // ── Layout primitives (match the other Scoreboards) ──
@@ -130,6 +119,9 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
 
       {/* IR visit revenue, stacked by technician */}
       <SectionTitle>IR Visit Revenue · by Technician</SectionTitle>
+      <div className="mb-4">
+        <Kpi label="IR Revenue · Year to Date" value={usd(kpis.ytdRevenue)} sub="Completed IR visits since Jan 1 · actual revenue (not book value)" />
+      </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <ChartHead title="Weekly Revenue" sub="Trailing 6 weeks · completed IR visits" />

@@ -349,6 +349,7 @@ async function fetchJobberRecurringBook(
 async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
   const t = chicagoToday()
   const todayStr = ymd(utcNoon(t.y, t.m, t.d))
+  const yearStart = `${t.y}-01-01`
   const currentMonday = mondayOf(utcNoon(t.y, t.m, t.d))
   const sixWeekStart = addDays(currentMonday, -35)
   const sixWeekStartStr = ymd(sixWeekStart)
@@ -376,14 +377,16 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
 
   // ── Fetch everything in parallel ──
   const bookPromise = fetchJobberRecurringBook(supabase, company)
-  const [wfWeekRes, wfMonthRes, techRes, leadsRes] = await Promise.all([
+  const [wfWeekRes, wfMonthRes, wfYtdRes, techRes, leadsRes] = await Promise.all([
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
+    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: yearStart, p_end: todayStr, p_bucket: 'month' }),
     supabase.rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '2' }),
     supabase.from('leads').select('salesperson, stage, annual_value, sold_date').eq('company_id', company),
   ])
   if (wfWeekRes.error) return NextResponse.json({ error: wfWeekRes.error.message }, { status: 500 })
   if (wfMonthRes.error) return NextResponse.json({ error: wfMonthRes.error.message }, { status: 500 })
+  if (wfYtdRes.error) return NextResponse.json({ error: wfYtdRes.error.message }, { status: 500 })
   if (techRes.error) return NextResponse.json({ error: techRes.error.message }, { status: 500 })
   if (leadsRes.error) return NextResponse.json({ error: leadsRes.error.message }, { status: 500 })
   const bookOrErr = await bookPromise
@@ -398,6 +401,12 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const monthlyRevenue = monthBuckets.map(() => 0)
   for (const r of (wfMonthRes.data ?? []) as RevRow[]) {
     if (r.dept === 'WF') { const mi = monthIndex.get(r.bucket.slice(0, 7)); if (mi !== undefined) monthlyRevenue[mi] += Number(r.total) || 0 }
+  }
+  // YTD WF revenue (completed visits, Jan 1 → today) — actual revenue, distinct
+  // from the active-book run-rate in "Total Annual Value".
+  let ytdRevenue = 0
+  for (const r of (wfYtdRes.data ?? []) as RevRow[]) {
+    if (r.dept === 'WF') ytdRevenue += Number(r.total) || 0
   }
 
   // ── WF recurring KPIs + program mix (Jobber active book) ──
@@ -478,6 +487,7 @@ async function buildWfBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
       phcCount, phcPct: totalJobs ? round1((phcCount / totalJobs) * 100) : 0,
       bwpCount, bwpPct: totalJobs ? round1((bwpCount / totalJobs) * 100) : 0,
       addonCount, addonPct: totalJobs ? round1((addonCount / totalJobs) * 100) : 0,
+      ytdRevenue: Math.round(ytdRevenue),
     },
     weeklyRevenue: { labels: weekLabels, data: weeklyRevenue.map(v => Math.round(v)) },
     monthlyRevenue: { labels: monthBuckets.map(b => b.label), data: monthlyRevenue.map(v => Math.round(v)) },
@@ -500,6 +510,7 @@ type LeadIr = { service: string[] | null; base_program_sold: string | null; stag
 async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
   const t = chicagoToday()
   const todayStr = ymd(utcNoon(t.y, t.m, t.d))
+  const yearStart = `${t.y}-01-01`
   const currentMonday = mondayOf(utcNoon(t.y, t.m, t.d))
   const sixWeekStart = addDays(currentMonday, -35)
   const sixWeekStartStr = ymd(sixWeekStart)
@@ -529,18 +540,20 @@ async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const yearAgoStr = ymd(addDays(utcNoon(t.y, t.m, t.d), -365))
 
   const bookPromise = fetchJobberRecurringBook(supabase, company)
-  const [techRes, leadsRes, repairRes, irWeekRes, irMonthRes] = await Promise.all([
+  const [techRes, leadsRes, repairRes, irWeekRes, irMonthRes, irYtdRes] = await Promise.all([
     supabase.rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '3' }),
     supabase.from('leads').select('service, base_program_sold, stage, sold_date').eq('company_id', company),
     supabase.rpc('scoreboard_ir_repair_ticket', { p_company_id: company, p_start: yearAgoStr, p_end: todayStr }),
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
+    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: yearStart, p_end: todayStr, p_bucket: 'month' }),
   ])
   if (techRes.error) return NextResponse.json({ error: techRes.error.message }, { status: 500 })
   if (leadsRes.error) return NextResponse.json({ error: leadsRes.error.message }, { status: 500 })
   if (repairRes.error) return NextResponse.json({ error: repairRes.error.message }, { status: 500 })
   if (irWeekRes.error) return NextResponse.json({ error: irWeekRes.error.message }, { status: 500 })
   if (irMonthRes.error) return NextResponse.json({ error: irMonthRes.error.message }, { status: 500 })
+  if (irYtdRes.error) return NextResponse.json({ error: irYtdRes.error.message }, { status: 500 })
   const bookOrErr = await bookPromise
   if ('error' in bookOrErr) return NextResponse.json({ error: bookOrErr.error }, { status: 500 })
   const book = bookOrErr
@@ -565,6 +578,11 @@ async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const totalMonthIr = monthBuckets.map(() => 0)
   for (const r of (irMonthRes.data ?? []) as RevRow[]) {
     if (r.dept === 'IR') { const mi = monthIndex.get(r.bucket.slice(0, 7)); if (mi !== undefined) totalMonthIr[mi] += Number(r.total) || 0 }
+  }
+  // YTD IR revenue (completed visits, Jan 1 → today).
+  let ytdRevenue = 0
+  for (const r of (irYtdRes.data ?? []) as RevRow[]) {
+    if (r.dept === 'IR') ytdRevenue += Number(r.total) || 0
   }
 
   // ── Per-technician IR revenue (weekly + monthly) + $/hour last complete week ──
@@ -635,7 +653,7 @@ async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
 
   return NextResponse.json({
     asOf: new Date().toISOString(),
-    kpis: { activeGold, goldAnnualValue: Math.round(goldAnnualValue), repairAvg, repairMedian, repairCount },
+    kpis: { activeGold, goldAnnualValue: Math.round(goldAnnualValue), repairAvg, repairMedian, repairCount, ytdRevenue: Math.round(ytdRevenue) },
     weeklyByTech: {
       labels: weekLabels,
       techs: techs.map(tk => ({ name: tk.name, data: tk.weekly })),
@@ -663,6 +681,7 @@ async function buildIrBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
 async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
   const t = chicagoToday()
   const todayStr = ymd(utcNoon(t.y, t.m, t.d))
+  const yearStart = `${t.y}-01-01`
   const currentMonday = mondayOf(utcNoon(t.y, t.m, t.d))
   const sixWeekStart = addDays(currentMonday, -35)
   const sixWeekStartStr = ymd(sixWeekStart)
@@ -687,14 +706,16 @@ async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const monthIndex = new Map(monthBuckets.map((b, i) => [b.key, i]))
 
   const bookPromise = fetchJobberRecurringBook(supabase, company)
-  const [techRes, pwWeekRes, pwMonthRes] = await Promise.all([
+  const [techRes, pwWeekRes, pwMonthRes, pwYtdRes] = await Promise.all([
     supabase.rpc('scoreboard_board_technicians', { p_company_id: company, p_board_slug: '4' }),
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: sixWeekStartStr, p_end: todayStr, p_bucket: 'week' }),
     supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: fourMonthStart, p_end: todayStr, p_bucket: 'month' }),
+    supabase.rpc('scoreboard_visit_revenue', { p_company_id: company, p_start: yearStart, p_end: todayStr, p_bucket: 'month' }),
   ])
   if (techRes.error) return NextResponse.json({ error: techRes.error.message }, { status: 500 })
   if (pwWeekRes.error) return NextResponse.json({ error: pwWeekRes.error.message }, { status: 500 })
   if (pwMonthRes.error) return NextResponse.json({ error: pwMonthRes.error.message }, { status: 500 })
+  if (pwYtdRes.error) return NextResponse.json({ error: pwYtdRes.error.message }, { status: 500 })
   const bookOrErr = await bookPromise
   if ('error' in bookOrErr) return NextResponse.json({ error: bookOrErr.error }, { status: 500 })
   const book = bookOrErr
@@ -725,6 +746,11 @@ async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
   const totalMonthPw = monthBuckets.map(() => 0)
   for (const r of (pwMonthRes.data ?? []) as RevRow[]) {
     if (r.dept === 'PW') { const mi = monthIndex.get(r.bucket.slice(0, 7)); if (mi !== undefined) totalMonthPw[mi] += Number(r.total) || 0 }
+  }
+  // YTD PW revenue (completed visits, Jan 1 → today).
+  let ytdRevenue = 0
+  for (const r of (pwYtdRes.data ?? []) as RevRow[]) {
+    if (r.dept === 'PW') ytdRevenue += Number(r.total) || 0
   }
 
   // ── Per-technician: PW-slice (stacked chart) + all-dept (performance section) + $/hr ──
@@ -794,7 +820,7 @@ async function buildPwBoard(supabase: Awaited<ReturnType<typeof createClient>>, 
 
   return NextResponse.json({
     asOf: new Date().toISOString(),
-    kpis: { activeCustomers, annualValue: Math.round(annualValue) },
+    kpis: { activeCustomers, annualValue: Math.round(annualValue), ytdRevenue: Math.round(ytdRevenue) },
     weeklyByTech: {
       labels: weekLabels,
       techs: techs.map(tk => ({ name: tk.name, data: tk.weeklyPw })),
