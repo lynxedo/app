@@ -100,6 +100,19 @@ export async function POST(request: Request) {
       companyId: bc.company_id,
     })
 
+    // Opt-out notice config — applies on the first outbound to a contact,
+    // independent of apply_signature (defaults: enabled, "Reply STOP to opt out.").
+    const { data: optOutSettings } = await admin
+      .from('txt_settings')
+      .select('opt_out_message, opt_out_on_first_message')
+      .eq('company_id', bc.company_id)
+      .maybeSingle()
+    const optOutRow = optOutSettings as
+      | { opt_out_message?: string | null; opt_out_on_first_message?: boolean | null }
+      | null
+    const optOutEnabled = optOutRow?.opt_out_on_first_message !== false
+    const optOutMsg = (optOutRow?.opt_out_message ?? 'Reply STOP to opt out.').trim()
+
     const interMessageDelayMs = Math.max(50, Math.floor(1000 / Math.max(1, bc.throttle_mps || 8)))
 
     while (Date.now() - startedAt <= BATCH_MAX_MS && totalProcessed < PROCESS_MAX_PER_TICK) {
@@ -126,6 +139,8 @@ export async function POST(request: Request) {
           senderName,
           companyName,
           fromNumber,
+          optOutEnabled,
+          optOutMsg,
         })
         perBroadcast[bc.id] = perBroadcast[bc.id] || { sent: 0, failed: 0 }
         if (sendOutcome === 'sent') perBroadcast[bc.id].sent++
@@ -186,8 +201,10 @@ async function sendOneRecipient(opts: {
   senderName: string | null
   companyName: string | null
   fromNumber: string | null
+  optOutEnabled: boolean
+  optOutMsg: string
 }): Promise<SendOutcome> {
-  const { admin, companyId, broadcastId, recipientId, contactId, senderId, body, signatureTemplate, senderName, companyName, fromNumber } = opts
+  const { admin, companyId, broadcastId, recipientId, contactId, senderId, body, signatureTemplate, senderName, companyName, fromNumber, optOutEnabled, optOutMsg } = opts
 
   const { data: contact } = await admin
     .from('txt_contacts')
@@ -225,6 +242,23 @@ async function sendOneRecipient(opts: {
         companyName,
       })}`
     : body
+
+  // Compliance — append the opt-out notice on the FIRST outbound to this contact.
+  let outBody = finalBody
+  if (optOutEnabled && optOutMsg) {
+    const { data: priorOutbound } = await admin
+      .from('txt_messages')
+      .select('id')
+      .eq('contact_id', contact.id)
+      .eq('direction', 'outbound')
+      .neq('status', 'failed')
+      .limit(1)
+      .maybeSingle()
+    if (!priorOutbound) {
+      const sep = signatureTemplate ? '\n' : '\n\n'
+      outBody = `${finalBody}${sep}${optOutMsg}`
+    }
+  }
 
   // Find or create the direct conversation for this contact. Reuse it
   // if present (including archived — reopen so reply lands somewhere
@@ -285,7 +319,7 @@ async function sendOneRecipient(opts: {
       conversation_id: conversationId,
       contact_id: contact.id,
       direction: 'outbound',
-      body: finalBody,
+      body: outBody,
       media_urls: [],
       sent_by: senderId,
       status: 'sending',
@@ -331,7 +365,7 @@ async function sendOneRecipient(opts: {
 
   const result = await sendSms({
     to: contact.phone,
-    body: finalBody,
+    body: outBody,
     statusCallback,
     fromNumber: fromNumber || undefined,
   })

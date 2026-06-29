@@ -89,6 +89,10 @@ export async function POST(
 
   const admin = createAdminClient()
 
+  const directContact = isGroup
+    ? null
+    : (Array.isArray(conv.contact) ? conv.contact[0] : conv.contact)
+
   // Resolve the merge-field render context once — used for the template body AND
   // the signature (so a company default like "{first_name}, - Heroes" fills in).
   let finalText = text
@@ -100,7 +104,9 @@ export async function POST(
         supabase.from('user_profiles').select('txt_signature').eq('id', user.id).maybeSingle(),
         admin
           .from('txt_settings')
-          .select('company_default_signature, allow_user_signatures')
+          .select(
+            'company_default_signature, allow_user_signatures, opt_out_message, opt_out_on_first_message'
+          )
           .eq('company_id', HEROES_COMPANY_ID)
           .maybeSingle(),
       ])
@@ -124,7 +130,12 @@ export async function POST(
 
     // Signature: personal wins when allowed; otherwise the company default.
     const settings = txtSettings as
-      | { company_default_signature?: string | null; allow_user_signatures?: boolean | null }
+      | {
+          company_default_signature?: string | null
+          allow_user_signatures?: boolean | null
+          opt_out_message?: string | null
+          opt_out_on_first_message?: boolean | null
+        }
       | null
     const allowUserSig = settings?.allow_user_signatures !== false // default true
     const personalSig = (profile?.txt_signature || '').trim()
@@ -147,11 +158,30 @@ export async function POST(
         finalText = `${text}\n\n${signature}`
       }
     }
-  }
 
-  const directContact = isGroup
-    ? null
-    : (Array.isArray(conv.contact) ? conv.contact[0] : conv.contact)
+    // Compliance — on the FIRST outbound text to a contact, append the opt-out
+    // notice (carrier/CTIA require opt-out language on the initial message).
+    // Direct 1-to-1 only. Configurable + toggleable in txt_settings
+    // (defaults: enabled, "Reply STOP to opt out.").
+    const optOutEnabled = settings?.opt_out_on_first_message !== false
+    const optOutMsg = (settings?.opt_out_message ?? 'Reply STOP to opt out.').trim()
+    if (!isGroup && directContact?.id && optOutEnabled && optOutMsg) {
+      const { data: priorOutbound } = await admin
+        .from('txt_messages')
+        .select('id')
+        .eq('contact_id', directContact.id)
+        .eq('direction', 'outbound')
+        .neq('status', 'failed')
+        .limit(1)
+        .maybeSingle()
+      if (!priorOutbound) {
+        // First time texting this contact — hug the signature with a single
+        // newline when one was appended, otherwise leave a blank line.
+        const sep = finalText === text ? '\n\n' : '\n'
+        finalText = `${finalText}${sep}${optOutMsg}`
+      }
+    }
+  }
 
   const { data: inserted, error: insertErr } = await admin
     .from('txt_messages')
