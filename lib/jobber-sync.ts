@@ -15,7 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { jobberGraphQLAdmin } from '@/lib/jobber'
+import { jobberGraphQLAdmin, getJobberTokenAdmin } from '@/lib/jobber'
 import { postGuardianToUserDm } from '@/lib/guardian-post'
 import { createPesticideRecordFromJobberVisit } from '@/lib/pesticide'
 import { syncClientsToDirectory, type DirectoryClientInput } from '@/lib/contacts-directory'
@@ -80,15 +80,28 @@ async function getJobberUserId(companyId: string): Promise<string> {
   if (!profiles?.length) throw new Error('No admin users found for company')
 
   const userIds = profiles.map(p => p.id)
-  const { data: token } = await admin
+  // Don't trust the first token row blindly. If multiple admins have connected
+  // Jobber and one's token can't be refreshed, picking it makes the whole sync
+  // (nightly cron AND every webhook) fail with "needs to reconnect" — silently,
+  // with no retry. Return the first user whose token actually resolves (refreshing
+  // if needed), so one broken connection can't poison sync. Newest token first.
+  const { data: tokenRows } = await admin
     .from('jobber_tokens')
-    .select('user_id')
+    .select('user_id, updated_at')
     .in('user_id', userIds)
-    .limit(1)
-    .maybeSingle()
+    .order('updated_at', { ascending: false })
 
-  if (!token) throw new Error('No Jobber token found — an admin must connect Jobber first')
-  return token.user_id
+  if (!tokenRows?.length) throw new Error('No Jobber token found — an admin must connect Jobber first')
+
+  for (const row of tokenRows) {
+    try {
+      const tok = await getJobberTokenAdmin(row.user_id)
+      if (tok) return row.user_id
+    } catch {
+      // Try the next candidate — a single unrefreshable token shouldn't abort sync.
+    }
+  }
+  throw new Error('No usable Jobber token — an admin must reconnect Jobber')
 }
 
 // ── Custom field parser ───────────────────────────────────────────────────────
@@ -864,6 +877,14 @@ async function syncJobs(
 
 // ── Visits ────────────────────────────────────────────────────────────────────
 
+// How far back the nightly delta re-pulls visits by startAt. Jobber's visit
+// filter has no `updatedAt`, so a visit completed (or whose line items were
+// edited) days after it started won't be caught by a "since last sync" window —
+// and a completion done via the job (archive/edit) fires JOB_UPDATE, not a visit
+// event. Re-pulling a trailing window every night self-heals both within a day.
+// 45 days comfortably covers multi-day installs and post-visit invoice edits.
+const VISIT_BACKFILL_DAYS = 45
+
 const VISITS_SYNC_QUERY = `
   query SyncVisits($cursor: String, $filter: VisitFilterAttributes) {
     visits(first: 40, after: $cursor, filter: $filter) {
@@ -1244,7 +1265,11 @@ export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary
     summary.clients    = await syncClients(userId, companyId, updatedSince)
     summary.properties = await syncProperties(userId, companyId, updatedSince)
     summary.jobs       = await syncJobs(userId, companyId, updatedSince)
-    summary.visits     = await syncVisits(userId, companyId, updatedSince)
+    // Visits use a fixed trailing window (not "since last sync"): the visit
+    // filter is startAt-based, so a late completion of an older-start visit
+    // would otherwise be missed every night. See VISIT_BACKFILL_DAYS.
+    const visitsSince = new Date(Date.now() - VISIT_BACKFILL_DAYS * 24 * 60 * 60 * 1000)
+    summary.visits     = await syncVisits(userId, companyId, visitsSince)
     summary.invoices   = await syncInvoices(userId, companyId, updatedSince)
 
     console.log('[jobber-sync] Delta pull complete:', summary)
@@ -1258,6 +1283,34 @@ export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary
   }
 
   return summary
+}
+
+/**
+ * Re-sync the visits belonging to a single job — used by the JOB_UPDATE webhook
+ * so a job completed/archived/edited at the job level also refreshes its visits
+ * (status + line items). Scoped to ONE-OFF jobs: recurring jobs have many visits
+ * that each fire their own visit events on the route, so fanning out there would
+ * re-pull dozens of visits per job edit for no benefit. New one-off visits not yet
+ * mirrored are covered by VISIT_CREATE + the nightly trailing-window re-pull.
+ */
+async function syncVisitsForJob(userId: string, companyId: string, jobExternalId: string): Promise<void> {
+  const admin = createAdminClient()
+  const { data: job } = await admin
+    .from('jobs')
+    .select('is_recurring')
+    .eq('external_id', jobExternalId)
+    .eq('source', 'jobber')
+    .maybeSingle()
+  if (job?.is_recurring) return
+
+  const { data: visits } = await admin
+    .from('visits')
+    .select('external_id')
+    .eq('job_external_id', jobExternalId)
+    .eq('source', 'jobber')
+    .is('deleted_at', null)
+  const ids = (visits ?? []).map(v => v.external_id as string).filter(Boolean)
+  if (ids.length) await syncVisits(userId, companyId, undefined, ids)
 }
 
 /**
@@ -1319,7 +1372,13 @@ export async function processJobberWebhookEvent(
         await syncInvoices(userId, companyId, since); break
       case 'JOB_CREATE':
       case 'JOB_UPDATE':
-        await syncJobs(userId, companyId, undefined, [itemId]); break
+        await syncJobs(userId, companyId, undefined, [itemId])
+        // A job completed/archived/edited via the JOB (not the visit) only fires
+        // JOB_UPDATE, which refreshes the job but NOT its visits — so a completed
+        // install's visit stays ACTIVE and its line-item edits stay stale, dropping
+        // its revenue from completed-visit scoreboards. Re-sync the job's visits too.
+        await syncVisitsForJob(userId, companyId, itemId)
+        break
       case 'VISIT_CREATE':
       case 'VISIT_UPDATE':
         await syncVisits(userId, companyId, undefined, [itemId]); break
