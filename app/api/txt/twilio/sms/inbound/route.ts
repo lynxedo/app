@@ -241,6 +241,7 @@ export async function POST(req: NextRequest) {
       media_urls: [],
       twilio_sid: sid,
       status: 'received',
+      phone_number_id: toNumberId,
     })
     .select('id')
     .single()

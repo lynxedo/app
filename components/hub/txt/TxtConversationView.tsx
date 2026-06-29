@@ -20,6 +20,8 @@ type Message = {
   twilio_sid: string | null
   created_at: string
   sent_by: string | null
+  phone_number_id?: string | null
+  rerouted?: boolean
   sender?: { id: string; display_name: string } | null
 }
 
@@ -1619,6 +1621,13 @@ export default function TxtConversationView({
             const senderLabel = isOutbound
               ? m.sender?.display_name?.trim().split(/\s+/)[0] || (!m.sent_by ? 'Guardian' : null)
               : null
+            // Which of our numbers this specific message used — shown only when
+            // the company has 2+ numbers, so single-number setups stay clean.
+            const msgNum =
+              numbers.length >= 2 && m.phone_number_id
+                ? numbers.find((n) => n.id === m.phone_number_id)
+                : null
+            const msgNumberLabel = msgNum ? msgNum.label || msgNum.twilio_number : null
             return (
               <div
                 key={item.id}
@@ -1745,6 +1754,14 @@ export default function TxtConversationView({
                         <StatusIcon status={m.status} />
                       </>
                     )}
+                    {msgNumberLabel && (
+                      <>
+                        <span>·</span>
+                        <span className={m.rerouted ? 'text-[var(--t-tint-warning)]' : ''}>
+                          {isOutbound ? 'via ' : 'on '}{msgNumberLabel}
+                        </span>
+                      </>
+                    )}
                   </div>
                   {m.error_message && isOutbound && (() => {
                     const fe = friendlyDeliveryError(m.error_message)
@@ -1757,6 +1774,14 @@ export default function TxtConversationView({
                       </div>
                     )
                   })()}
+                  {m.rerouted && isOutbound && (
+                    <div
+                      className="text-[10px] mt-0.5 text-[var(--t-tint-warning)]"
+                      title="Your main line was blocked for this customer, so this was sent from the toll-free line instead."
+                    >
+                      Rerouted to {msgNumberLabel || 'toll-free'} — main line blocked
+                    </div>
+                  )}
                 </div>
                 {!isOutbound && m.body && (
                   <button

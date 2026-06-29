@@ -296,6 +296,18 @@ export async function POST(
     userId: user.id,
     companyId: HEROES_COMPANY_ID,
   })
+  // Stamp which of our numbers this send used (powers per-message line labels +
+  // the reroute check in the status webhook). Look up the resolved From's id.
+  let fromNumberId: string | null = null
+  if (fromNumber) {
+    const { data: pn } = await admin
+      .from('txt_phone_numbers')
+      .select('id')
+      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('twilio_number', fromNumber)
+      .maybeSingle()
+    fromNumberId = pn?.id ?? null
+  }
   // Session 54.5: convert R2 storage keys to public /api/txt/media URLs so
   // Twilio can fetch them. mediaUrls coming from the client are storage_path
   // values returned by /api/txt/upload (e.g. "txt/{company}/12345-abc.jpg").
@@ -316,7 +328,7 @@ export async function POST(
   if (!result.ok) {
     await admin
       .from('txt_messages')
-      .update({ status: 'failed', error_message: result.error })
+      .update({ status: 'failed', error_message: result.error, phone_number_id: fromNumberId })
       .eq('id', inserted.id)
     return NextResponse.json({
       ok: false,
@@ -328,7 +340,7 @@ export async function POST(
 
   await admin
     .from('txt_messages')
-    .update({ twilio_sid: result.sid, status: 'sent' })
+    .update({ twilio_sid: result.sid, status: 'sent', phone_number_id: fromNumberId })
     .eq('id', inserted.id)
 
   return NextResponse.json({
