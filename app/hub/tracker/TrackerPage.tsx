@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode, type MouseEvent as ReactMouseEvent } from 'react'
 import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
 import { useToast } from '@/components/ui'
+import { useUnsavedGuard } from '@/hooks/use-unsaved-guard'
 
 // ── Types ────────────────────────────────────────
 type Stage = { id: string; key: string; label: string; color: string; sort_order: number }
@@ -1098,6 +1099,14 @@ function NewLeadForm({ opts, stages, currentUser, onClose, onCreated }: {
   })
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState('')
+
+  // Warn before a refresh/close throws away an in-progress new lead.
+  useUnsavedGuard(
+    !!(form.first_name || form.last_name || form.phone || form.email ||
+       form.service_address || form.initial_note || form.annual_value ||
+       form.lead_source || form.base_program_sold ||
+       form.service.length || form.auxiliary_services.length)
+  )
 
   function set(field: string, value: unknown) { setForm(prev => ({ ...prev, [field]: value })) }
 

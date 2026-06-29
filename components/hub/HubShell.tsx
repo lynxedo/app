@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback, useRef } from 'react'
-import { usePathname, useRouter } from 'next/navigation'
+import { usePathname } from 'next/navigation'
 import HubSidebar from './HubSidebar'
 import { useHubMessageInsert } from './HubMessagesProvider'
 import HubRail, { railFromPath } from './HubRail'
@@ -200,28 +200,14 @@ export default function HubShell({
   // remembers the last server value so we only re-sync on a real change.
   const layoutSavingRef = useRef(false)
   const lastSyncedLayoutRef = useRef(initialLayout ? JSON.stringify(initialLayout) : '')
-  // NAV-PermGrant: SPA navigation never re-runs the server layout, so a freshly
-  // granted app icon wouldn't appear until a hard reload (rare in the installed
-  // app/PWA). Refresh the server tree when the user returns to the app (tab
-  // visible / window focus), throttled to once a minute so we don't refetch on
-  // every blur. The initialLayout→liveLayout effect below then surfaces the icon.
-  const router = useRouter()
-  const lastLayoutRefreshRef = useRef(0)
-  useEffect(() => {
-    const maybeRefresh = () => {
-      if (document.visibilityState !== 'visible') return
-      const now = Date.now()
-      if (now - lastLayoutRefreshRef.current < 60_000) return
-      lastLayoutRefreshRef.current = now
-      router.refresh()
-    }
-    document.addEventListener('visibilitychange', maybeRefresh)
-    window.addEventListener('focus', maybeRefresh)
-    return () => {
-      document.removeEventListener('visibilitychange', maybeRefresh)
-      window.removeEventListener('focus', maybeRefresh)
-    }
-  }, [router])
+  // NOTE: We intentionally do NOT auto-refresh the server tree on tab focus /
+  // visibility. A router.refresh() there yanked the page out from under people —
+  // it wiped in-progress input (e.g. a half-typed new lead) and silently
+  // swallowed the "Refresh to update" banner after a deploy (the refresh re-read
+  // the new build id, so <UpdateNotifier> never had a mismatch to show). Updates
+  // are now surfaced ONLY by <UpdateNotifier> (a user-initiated reload), and a
+  // freshly-granted app icon surfaces on the user's next navigation instead.
+  // Do not re-add a focus/visibility router.refresh() here.
   // Lightweight conversation list so DM tokens on the rail/dock/drawer can show
   // a label + avatar. (The sidebar fetches its own richer copy.)
   const [railConversations, setRailConversations] = useState<RailConversation[]>([])
