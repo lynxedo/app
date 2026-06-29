@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend,
 } from 'chart.js'
@@ -8,6 +8,7 @@ import type { ScoreboardMeta } from '@/lib/scoreboards/registry'
 import { useScoreboardData } from '@/hooks/use-scoreboard-data'
 import ScoreboardError from '@/components/hub/ScoreboardError'
 import SnapshotControls from '@/components/hub/scoreboards/SnapshotControls'
+import { ChartCanvas } from '@/components/hub/scoreboards/ChartCanvas'
 
 Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend)
 Chart.defaults.color = '#64748b'
@@ -55,18 +56,6 @@ const countScales = {
 const usdScales = {
   x: { stacked: true, grid: { color: GRID }, ticks: { color: '#64748b' } },
   y: { stacked: true, beginAtZero: true, grid: { color: GRID }, ticks: { color: '#64748b', callback: usdTick } },
-}
-
-// Mount-once canvas (same pattern as the other boards).
-function ChartCanvas({ make, height = 240 }: { make: (canvas: HTMLCanvasElement) => Chart; height?: number }) {
-  const ref = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    if (!ref.current) return
-    const chart = make(ref.current)
-    return () => chart.destroy()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  return <div className="relative w-full" style={{ height }}><canvas ref={ref} /></div>
 }
 
 // ── Layout primitives ──

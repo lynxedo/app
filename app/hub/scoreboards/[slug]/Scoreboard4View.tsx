@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend,
 } from 'chart.js'
@@ -8,6 +8,7 @@ import type { ScoreboardMeta } from '@/lib/scoreboards/registry'
 import { useScoreboardData } from '@/hooks/use-scoreboard-data'
 import ScoreboardError from '@/components/hub/ScoreboardError'
 import SnapshotControls from '@/components/hub/scoreboards/SnapshotControls'
+import { ChartCanvas } from '@/components/hub/scoreboards/ChartCanvas'
 
 Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend)
 Chart.defaults.color = '#64748b'
@@ -27,7 +28,7 @@ type TechPerf = {
 }
 type Payload = {
   asOf: string
-  kpis: { activeCustomers: number; annualValue: number }
+  kpis: { activeCustomers: number; annualValue: number; ytdRevenue: number }
   weeklyByTech: ByTech
   monthlyByTech: ByTech
   techs: TechPerf[]
@@ -61,18 +62,6 @@ const tooltipStyle = {
 const stackedScales = {
   x: { stacked: true, grid: { color: GRID }, ticks: { color: '#64748b' } },
   y: { stacked: true, grid: { color: GRID }, ticks: { color: '#64748b', callback: usdTick } },
-}
-
-// Mount-once canvas (parent renders only after data loads).
-function ChartCanvas({ make, height = 220 }: { make: (canvas: HTMLCanvasElement) => Chart; height?: number }) {
-  const ref = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    if (!ref.current) return
-    const chart = make(ref.current)
-    return () => chart.destroy()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  return <div className="relative w-full" style={{ height }}><canvas ref={ref} /></div>
 }
 
 // ── Layout primitives (match the other Scoreboards) ──
@@ -160,6 +149,9 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
 
       {/* PW visit revenue, stacked by technician */}
       <SectionTitle>PW Visit Revenue · by Technician</SectionTitle>
+      <div className="mb-4">
+        <Kpi label="PW Revenue · Year to Date" value={usd(data.kpis.ytdRevenue)} sub="Completed PW visits since Jan 1 · actual revenue (not book value)" />
+      </div>
       <div className="grid gap-4 lg:grid-cols-2">
         <Card>
           <ChartHead title="Weekly Revenue" sub="Trailing 6 weeks · completed PW visits" />

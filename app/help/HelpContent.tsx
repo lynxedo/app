@@ -2013,6 +2013,20 @@ function ScoreboardsTab() {
         <Note>Snapshots only exist going forward from when this was switched on — there&apos;s no way to recreate weeks before that, because the live data doesn&apos;t keep its own history. The dropdown won&apos;t appear on a board until its first Friday snapshot has been captured.</Note>
       </Section>
 
+      <Section title="Seeing the Numbers Behind a Chart">
+        <p>Every chart has a small <strong className="text-white">⊞ Data</strong> button in its top-right corner. Tap it to open a spreadsheet-style table of the exact numbers that chart is drawn from — each period (week or month) down the side, every series across the top, with row and column totals.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Copy</strong> — copies the table to your clipboard so you can paste it straight into Excel or Google Sheets.</li>
+          <li><strong className="text-white">Download CSV</strong> — saves the table as a .csv file.</li>
+        </ul>
+        <p className="mt-2">This works on the snapshot (history) view too, so you can pull the underlying numbers for any past week.</p>
+      </Section>
+
+      <Section title="Department Revenue · Year to Date">
+        <p>The <strong className="text-white">WF</strong>, <strong className="text-white">IR</strong>, and <strong className="text-white">PW</strong> boards each show a <strong className="text-white">Revenue · Year to Date</strong> card — the department&apos;s <em>actual completed-visit revenue</em> from January 1 through today.</p>
+        <Note>This is real revenue from work that&apos;s been done — different from <strong className="text-white">Total Annual Value</strong>, which is the run-rate of the active recurring book (what the current customers are worth over a full year). One is money earned so far; the other is the annualized value of who&apos;s on the books now.</Note>
+      </Section>
+
       <AdminOnly>
         <Section title="Enabling Scoreboard Access (Admin)">
           <p>Two steps in sequence:</p>

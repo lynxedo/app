@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import {
   Chart, BarController, BarElement, LineController, LineElement, PointElement,
   DoughnutController, ArcElement, CategoryScale, LinearScale, Tooltip, Legend, Filler,
@@ -9,6 +9,7 @@ import type { ScoreboardMeta } from '@/lib/scoreboards/registry'
 import { useScoreboardData } from '@/hooks/use-scoreboard-data'
 import ScoreboardError from '@/components/hub/ScoreboardError'
 import SnapshotControls from '@/components/hub/scoreboards/SnapshotControls'
+import { ChartCanvas } from '@/components/hub/scoreboards/ChartCanvas'
 
 Chart.register(
   BarController, BarElement, LineController, LineElement, PointElement,
@@ -58,20 +59,6 @@ const tooltipStyle = {
   titleColor: '#bae6fd', bodyColor: '#94a3b8', padding: 10,
 }
 
-// Mount-once canvas: builds the chart on mount and destroys on unmount. Parent
-// only renders this once data has loaded, so a mount-once lifecycle is correct.
-function ChartCanvas({ make, height = 220 }: { make: (canvas: HTMLCanvasElement) => Chart; height?: number }) {
-  const ref = useRef<HTMLCanvasElement>(null)
-  useEffect(() => {
-    if (!ref.current) return
-    const chart = make(ref.current)
-    return () => chart.destroy()
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [])
-  // maintainAspectRatio:false requires a fixed-height parent, else the canvas
-  // balloons. Bound the height here (same pattern as OverheadChart).
-  return <div className="relative w-full" style={{ height }}><canvas ref={ref} /></div>
-}
 
 // ── Layout primitives ──
 function Card({ children, className = '' }: { children: ReactNode; className?: string }) {
