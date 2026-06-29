@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { TXT_BROADCASTS_ENABLED } from '@/lib/txt-features'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -36,6 +37,14 @@ export async function GET() {
 // up front so the broadcast totals stay honest). The actual sending is drained
 // by the /api/txt/broadcasts/process cron endpoint.
 export async function POST(request: Request) {
+  // Broadcasts are currently disabled (see lib/txt-features.ts).
+  if (!TXT_BROADCASTS_ENABLED) {
+    return NextResponse.json(
+      { error: 'Broadcasts are currently turned off.' },
+      { status: 403 }
+    )
+  }
+
   const supabase = await createClient()
   const {
     data: { user },

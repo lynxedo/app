@@ -4,6 +4,7 @@ import { sendSms, twilioConfigured } from '@/lib/twilio'
 import { resolveFromNumber } from '@/lib/txt-numbers'
 import { buildMessagePreview } from '@/lib/txt-preview'
 import { renderTemplate } from '@/lib/txt-templates'
+import { TXT_BROADCASTS_ENABLED } from '@/lib/txt-features'
 
 // Called by VPS cron every minute:
 //   curl -s -X POST https://staging.lynxedo.com/api/txt/broadcasts/process \
@@ -25,6 +26,12 @@ export async function POST(request: Request) {
   const secret = request.headers.get('x-cron-secret')
   if (!secret || secret !== process.env.CRON_SECRET) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  }
+
+  // Broadcasts are currently disabled (see lib/txt-features.ts) — don't drain
+  // any queue while off. Re-enabling the flag resumes normal draining.
+  if (!TXT_BROADCASTS_ENABLED) {
+    return NextResponse.json({ processed: 0, message: 'broadcasts disabled' })
   }
 
   const admin = createAdminClient()

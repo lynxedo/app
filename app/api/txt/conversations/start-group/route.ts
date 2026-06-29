@@ -8,6 +8,7 @@ import {
   twilioConfigured,
 } from '@/lib/twilio'
 import { resolveFromNumber } from '@/lib/txt-numbers'
+import { TXT_GROUPS_ENABLED } from '@/lib/txt-features'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -25,6 +26,14 @@ const HEROES_COMPANY_ID =
 // fail with `group_not_provisioned` until creds + a real Conversations
 // resource exist. Mirrors the same not-configured pattern as 1:1 sends.
 export async function POST(request: Request) {
+  // Group messaging is currently disabled (see lib/txt-features.ts).
+  if (!TXT_GROUPS_ENABLED) {
+    return NextResponse.json(
+      { error: 'Group messaging is currently turned off.' },
+      { status: 403 }
+    )
+  }
+
   const supabase = await createClient()
   const {
     data: { user },
