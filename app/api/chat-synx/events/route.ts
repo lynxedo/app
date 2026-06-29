@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import crypto from 'crypto'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { getR2Client } from '@/lib/r2'
@@ -285,7 +285,7 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
   // silently doesn't deliver — see Session 43.5 notes on hub_users for the
   // same pattern). The clients refetch the row by id, so we only need to
   // send the id + routing info. Safe to fire-and-forget.
-  void (async () => {
+  after(async () => {
     try {
       const feedChannel = admin.channel(`feed:${bridge.hub_room_id}`)
       await feedChannel.subscribe()
@@ -316,7 +316,7 @@ async function handleEvent(event: SlackMessageEvent, eventId: string | null) {
     } catch (err) {
       console.warn(`[chat-synx:events] sidebar broadcast failed: ${(err as Error).message}`)
     }
-  })()
+  })
 
   // Skip push for thread replies (matches Hub /api/hub/messages behavior —
   // top-level messages only fan out notifications).
