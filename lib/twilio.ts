@@ -3,6 +3,17 @@ import crypto from 'node:crypto'
 const ACCOUNT_SID = process.env.TWILIO_ACCOUNT_SID || ''
 const AUTH_TOKEN = process.env.TWILIO_AUTH_TOKEN || ''
 const FROM_NUMBER = process.env.TWILIO_PHONE_NUMBER || ''
+// A2P 10DLC: when we send from our registered long code, route through the
+// Messaging Service that holds the verified campaign. Carriers (especially
+// AT&T) deliver registered-campaign traffic far more reliably, and the service
+// paces throughput automatically. Other numbers (e.g. the toll-free) keep
+// sending by raw From. Empty MESSAGING_SERVICE_SID = behave exactly as before.
+const MESSAGING_SERVICE_SID = process.env.TWILIO_MESSAGING_SERVICE_SID || ''
+// The specific number the Messaging Service / A2P campaign is registered for.
+// We only route a send through the service when it's going out on THIS number.
+// Set explicitly (not just the env From) because the default From can differ
+// per environment — e.g. staging's default From is the toll-free line.
+const A2P_NUMBER = process.env.TWILIO_A2P_NUMBER || FROM_NUMBER
 
 export function twilioConfigured(): boolean {
   return Boolean(ACCOUNT_SID && AUTH_TOKEN && FROM_NUMBER)
@@ -22,6 +33,7 @@ export async function sendSms(opts: {
   mediaUrls?: string[]
   statusCallback?: string
   fromNumber?: string
+  messagingServiceSid?: string
 }): Promise<TwilioSendResult> {
   if (!twilioConfigured()) {
     return { ok: false, error: 'twilio_not_configured' }
@@ -29,7 +41,18 @@ export async function sendSms(opts: {
 
   const from = opts.fromNumber || FROM_NUMBER
   const form = new URLSearchParams()
-  form.set('From', from)
+  // Prefer the Messaging Service for our A2P long code (registered campaign →
+  // better AT&T/10DLC delivery + automatic throughput). An explicit
+  // opts.messagingServiceSid wins; otherwise auto-route when sending from our
+  // default A2P number. Anything else (toll-free, etc.) still sends by From.
+  const serviceSid =
+    opts.messagingServiceSid ||
+    (MESSAGING_SERVICE_SID && from === A2P_NUMBER ? MESSAGING_SERVICE_SID : '')
+  if (serviceSid) {
+    form.set('MessagingServiceSid', serviceSid)
+  } else {
+    form.set('From', from)
+  }
   form.set('To', opts.to)
   if (opts.body) form.set('Body', opts.body)
   if (opts.mediaUrls?.length) {
