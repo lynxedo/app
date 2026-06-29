@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
@@ -281,10 +281,13 @@ export async function POST(req: NextRequest) {
   }
 
   // #32 — acknowledge Twilio fast, then do the slow work (media ingest, automations,
-  // push, realtime broadcast) in the background. This runs on a persistent PM2 Node
-  // process, so post-response async work completes normally — and we no longer risk
+  // push, realtime broadcast) AFTER the response via next/server `after()`. A bare
+  // detached promise (`void (async()=>{})()`) is NOT guaranteed to run once the
+  // handler returns its Response — Next tears down the request context, which
+  // silently dropped EVERY inbound-text notification (push + chime + rail dot).
+  // `after()` makes Next run + await this post-response, and still keeps us clear of
   // the ~15s Twilio timeout (→ retries → duplicate texts) on a large MMS.
-  void (async () => {
+  after(async () => {
     try {
       // Pull MMS media (slow) and attach it to the already-inserted message.
       if (numMedia > 0) {
@@ -306,7 +309,7 @@ export async function POST(req: NextRequest) {
     } catch (err) {
       console.warn('[txt:inbound] background processing failed', err)
     }
-  })()
+  })
 
   console.log('[txt:inbound] received', { sid, conversationId, media: numMedia, compliance })
   return twimlResponse()
@@ -438,18 +441,23 @@ async function processInboundSideEffects(args: {
         ? `📎 ${mediaCount} attachment${mediaCount === 1 ? '' : 's'}`
         : '(empty message)'
       const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
-      // Fire-and-forget; don't block the Twilio response on push delivery.
-      sendHubPush(
-        recipients,
-        {
-          title: `📱 Txt — ${displayName}`,
-          body: preview,
-          url: `${baseUrl}/hub/txt/${conversationId}?source=push`,
-          type: 'txt',
-          groupKey: conversationId,
-        },
-        { isDm: true }
-      ).catch((err) => console.warn('[txt:inbound] push fan-out failed', err))
+      // Awaited inside after() so the push fully sends within the post-response
+      // window (mirrors the group-MMS webhook, which awaits sendHubPush).
+      try {
+        await sendHubPush(
+          recipients,
+          {
+            title: `📱 Txt — ${displayName}`,
+            body: preview,
+            url: `${baseUrl}/hub/txt/${conversationId}?source=push`,
+            type: 'txt',
+            groupKey: conversationId,
+          },
+          { isDm: true }
+        )
+      } catch (err) {
+        console.warn('[txt:inbound] push fan-out failed', err)
+      }
     }
   } catch (err) {
     console.warn('[txt:inbound] push lookup failed', err)

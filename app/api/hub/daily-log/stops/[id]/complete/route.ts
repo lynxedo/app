@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
@@ -330,32 +330,38 @@ export async function POST(
   // Session 10 — when the route's spraying is done (last stop complete), decrement
   // inventory from the route's stored loadout. Best-effort, non-blocking, idempotent.
   if (isLastStop) {
-    void (async () => {
-      const { data: entryRow } = await admin
-        .from('daily_log_entries')
-        .select('route_loadout')
-        .eq('id', stop.entry_id)
-        .maybeSingle<{ route_loadout: StoredRouteLoadout | null }>()
-      const res = await applyRouteSprayDecrements({
-        admin, companyId: entry.company_id, entryId: stop.entry_id,
-        loadout: entryRow?.route_loadout ?? null,
-      })
-      console.log(`[inventory] route ${stop.entry_id} decrement:`, res)
-    })().catch(err => console.error('[inventory] route decrement failed for', stop.entry_id, err))
+    after(async () => {
+      try {
+        const { data: entryRow } = await admin
+          .from('daily_log_entries')
+          .select('route_loadout')
+          .eq('id', stop.entry_id)
+          .maybeSingle<{ route_loadout: StoredRouteLoadout | null }>()
+        const res = await applyRouteSprayDecrements({
+          admin, companyId: entry.company_id, entryId: stop.entry_id,
+          loadout: entryRow?.route_loadout ?? null,
+        })
+        console.log(`[inventory] route ${stop.entry_id} decrement:`, res)
+      } catch (err) {
+        console.error('[inventory] route decrement failed for', stop.entry_id, err)
+      }
+    })
   }
 
   // Fire any "daily log stop completed" automations (best-effort, non-blocking).
-  void evaluateEventAutomations({
-    companyId: entry.company_id,
-    source: 'daily_log_stop_complete',
-    actorUserId: entry.tech_user_id,
-    vars: {
-      tech_name: technicianName ?? '',
-      customer: stop.client_name ?? '',
-      address: stop.address ?? '',
-      time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }),
-      date: nowIso.slice(0, 10),
-    },
+  after(async () => {
+    await evaluateEventAutomations({
+      companyId: entry.company_id,
+      source: 'daily_log_stop_complete',
+      actorUserId: entry.tech_user_id,
+      vars: {
+        tech_name: technicianName ?? '',
+        customer: stop.client_name ?? '',
+        address: stop.address ?? '',
+        time: new Date().toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', timeZone: 'America/Chicago' }),
+        date: nowIso.slice(0, 10),
+      },
+    })
   })
 
   return NextResponse.json({

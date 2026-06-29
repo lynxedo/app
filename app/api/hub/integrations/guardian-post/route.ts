@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { GUARDIAN_HUB_USER_ID } from '@/lib/guardian-post'
 import { sendHubPush } from '@/lib/hub-push'
@@ -245,7 +245,7 @@ function fireBroadcasts(
     senderId: string
   },
 ) {
-  void (async () => {
+  after(async () => {
     const feedKey = args.roomId ? `feed:${args.roomId}` : `feed:${args.conversationId}`
     try {
       const feed = admin.channel(feedKey)
@@ -277,7 +277,7 @@ function fireBroadcasts(
     } catch (err) {
       console.warn(`[guardian-post] sidebar broadcast failed: ${(err as Error).message}`)
     }
-  })()
+  })
 }
 
 // Room push fan-out — mirrors the room block in /api/hub/messages.
