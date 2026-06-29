@@ -8,6 +8,7 @@ import type { HubMessage, HubUser } from './MessageFeed'
 import ScheduledMessagesModal from './ScheduledMessagesModal'
 import { matchMentionedUsers, isAmbiguousFirstName } from '@/lib/hub-mentions'
 import { createClient } from '@/lib/supabase/client'
+import { useUnsavedGuard } from '@/hooks/use-unsaved-guard'
 
 // Lazy emoji data — keeps the ~250kb dataset out of the initial bundle. Loaded
 // once on first need; init() then registers it so SearchIndex.search() works.
@@ -86,6 +87,9 @@ export default function MessageComposer({
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [uploading, setUploading] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null) // #5 — surfaced on send failure
+
+  // Warn before a refresh/close throws away a half-typed message or staged files.
+  useUnsavedGuard(content.trim().length > 0 || pendingFiles.length > 0)
   // Mention autocomplete
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionStart, setMentionStart] = useState(-1)
