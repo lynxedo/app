@@ -224,6 +224,26 @@ async function twilioDelete(path: string): Promise<RestResult> {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Caller-ID display-name probe (June 2026)
+// ---------------------------------------------------------------------------
+// The native call screens (iOS CallKit + Android full-screen notification) show
+// `callInvite.from` — the From we set when REST-adding the agent's Client leg,
+// which today is the caller's raw number (so the crew sees a number, not a name).
+//
+// Twilio's From is *documented* as a number / `client:` id / SIP id, but for a
+// CLIENT `to` it has historically forwarded an arbitrary string straight to the
+// device. So we TRY the resolved contact name as From; if Twilio rejects it the
+// participant-add fails and we immediately retry with the real numeric From — the
+// caller is never dropped. The accept/reject answer is static per Twilio account,
+// so after the first rejection we stop trying for the life of the process: a
+// failed probe costs exactly one extra round-trip, one time.
+let displayNameAsFromSupported = true
+let displayNameProbeLogged = false
+export function callerIdNameProbeActive(): boolean {
+  return displayNameAsFromSupported
+}
+
 // Add a participant to a conference. Twilio DIALS `to` (a PSTN number like
 // '+1...' or a Client like 'client:<identity>') and joins them into `room` on
 // answer — creating the conference (by FriendlyName) if it doesn't yet exist.
@@ -234,6 +254,9 @@ export async function addConferenceParticipant(opts: {
   room: string
   to: string
   from: string
+  // Optional caller-ID display name to TRY as From (Client legs only). Falls
+  // back to `from` if Twilio rejects it. See the probe note above.
+  fromDisplayName?: string
   label: string
   startConferenceOnEnter?: boolean
   endConferenceOnExit?: boolean
@@ -272,7 +295,30 @@ export async function addConferenceParticipant(opts: {
     form.ConferenceStatusCallbackEvent = 'start end join leave'
     form.ConferenceStatusCallbackMethod = 'POST'
   }
-  const res = await twilioPost(`/Conferences/${encodeURIComponent(opts.room)}/Participants.json`, form)
+  const path = `/Conferences/${encodeURIComponent(opts.room)}/Participants.json`
+
+  // Probe: try the contact name as From first (Client legs only). On rejection,
+  // disable the probe and fall through to the guaranteed numeric From below.
+  if (displayNameAsFromSupported && opts.fromDisplayName && opts.to.startsWith('client:')) {
+    const named = await twilioPost(path, { ...form, From: opts.fromDisplayName })
+    if (named.ok) {
+      if (!displayNameProbeLogged) {
+        console.log('[dialer.conference] caller-ID display name accepted as From — probe working')
+        displayNameProbeLogged = true
+      }
+      return {
+        ok: true,
+        callSid: (named.data.call_sid as string) || null,
+        conferenceSid: (named.data.conference_sid as string) || null,
+      }
+    }
+    displayNameAsFromSupported = false
+    console.warn(
+      `[dialer.conference] caller-ID name rejected as From (${named.code ?? named.status}: ${named.message ?? 'unknown'}) — probe disabled, using numeric From`
+    )
+  }
+
+  const res = await twilioPost(path, form)
   if (res.ok) {
     return {
       ok: true,

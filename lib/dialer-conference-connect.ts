@@ -8,11 +8,13 @@
 
 import {
   addConferenceParticipant,
+  callerIdNameProbeActive,
   cancelCall,
   fetchCallStatus,
   redirectCall,
   twimlCustomerJoinConference,
 } from '@/lib/twilio-conference'
+import { lookupByPhone } from '@/lib/dialer-lookup'
 import {
   injectConsentNotice,
   isInDndSchedule,
@@ -23,6 +25,21 @@ import {
 import { createAdminClient } from '@/lib/supabase/admin'
 
 const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
+
+// Resolve the caller's saved contact name for the native call screen (the
+// caller-ID display-name probe). Returns undefined when the probe is disabled
+// (Twilio rejected a name-as-From earlier this process), the number is unknown,
+// or no contact name is found — in which case the agent leg keeps the numeric
+// From and the crew sees the number, exactly as before. Never throws.
+async function resolveCallerDisplayName(callerNumber?: string): Promise<string | undefined> {
+  if (!callerNumber || !callerIdNameProbeActive()) return undefined
+  try {
+    const match = await lookupByPhone(callerNumber, HEROES_COMPANY_ID)
+    return match?.name || undefined
+  } catch {
+    return undefined
+  }
+}
 
 export async function connectInboundToAgentViaConference(opts: {
   baseUrl: string
@@ -59,10 +76,12 @@ export async function connectInboundToAgentViaConference(opts: {
   // This REST add CREATES the conference (it runs before the caller's TwiML leg
   // joins), so it must register the conference status callback — the TwiML
   // statusCallback attr on the caller's <Conference> is ignored by Twilio.
+  const fromDisplayName = await resolveCallerDisplayName(callerNumber)
   const add = await addConferenceParticipant({
     room,
     to: `client:${agentIdentity}`,
     from: callerNumber || voiceCallerId() || '',
+    fromDisplayName,
     label: 'agent',
     startConferenceOnEnter: true,
     endConferenceOnExit: true, // agent hangup ends the call; flipped false on transfer
@@ -281,6 +300,7 @@ export async function connectInboundToRingGroupViaConference(opts: {
   const recordingCb = `${baseUrl}/api/dialer/voice/recording`
   const confStatusCb = `${baseUrl}/api/dialer/voice/conference/status`
   const from = callerNumber || voiceCallerId() || ''
+  const fromDisplayName = await resolveCallerDisplayName(callerNumber)
   const simultaneous = group.ring_mode === 'simultaneous'
 
   const pending: RingPendingEntry[] = []
@@ -295,6 +315,7 @@ export async function connectInboundToRingGroupViaConference(opts: {
         room,
         to: `client:${member.user_id}`,
         from,
+        fromDisplayName,
         // Participant labels must be unique within a conference — concurrent
         // legs can't all be 'agent'.
         label: `agent_${n}`,
@@ -327,6 +348,7 @@ export async function connectInboundToRingGroupViaConference(opts: {
         room,
         to: `client:${member.user_id}`,
         from,
+        fromDisplayName,
         label: 'agent',
         startConferenceOnEnter: true,
         // See the simultaneous branch: false so a no-answer member never collapses
@@ -427,6 +449,7 @@ export async function advanceRingGroup(opts: {
 
   if (opts.mode === 'seq') {
     const { available } = await resolveRingGroupAvailableMembers(admin, opts.groupId)
+    const fromDisplayName = await resolveCallerDisplayName(row?.from_number || undefined)
     // Ring the next available member (skipping past failed adds like the entry
     // loop does).
     for (let i = opts.nextIndex; i < available.length; i++) {
@@ -435,6 +458,7 @@ export async function advanceRingGroup(opts: {
         room: opts.room,
         to: `client:${member.user_id}`,
         from: row?.from_number || voiceCallerId() || '',
+        fromDisplayName,
         label: 'agent',
         startConferenceOnEnter: true,
         // false so this next member not answering doesn't collapse the conference;
