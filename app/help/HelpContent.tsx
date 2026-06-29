@@ -1196,6 +1196,7 @@ function TxtTab() {
       <Section title="Opt-outs (STOP / HELP)">
         <p>If a customer replies <strong className="text-white">STOP</strong>, they&apos;re automatically marked <em>do not text</em> and the conversation archives — outbound texts to them are then blocked everywhere (regular sends and broadcasts). <strong className="text-white">START</strong> re-enables them. The carrier sends the customer the official STOP/HELP confirmation, so you don&apos;t need to reply to those yourself.</p>
         <p>An opt-out banner shows at the top of any conversation with a customer who&apos;s opted out, including archived ones, so it&apos;s always clear.</p>
+        <p><strong className="text-white">First-text opt-out notice.</strong> The very first text a customer ever receives from us automatically gets a short opt-out line added to the end (<em>&ldquo;Reply STOP to opt out.&rdquo;</em>) — so every new contact is told how to stop. Follow-up texts to that same person don&apos;t repeat it.</p>
       </Section>
 
       <Section title="Signatures">
