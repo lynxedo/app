@@ -27,7 +27,7 @@ export default async function TxtAdminPage() {
       .order('label', { ascending: true }),
     admin
       .from('txt_settings')
-      .select('on_my_way_template, responder_notify_user_ids, company_default_signature, allow_user_signatures')
+      .select('on_my_way_template, responder_notify_user_ids, company_default_signature, allow_user_signatures, opt_out_message, opt_out_on_first_message')
       .eq('company_id', auth.company_id)
       .maybeSingle(),
     admin
@@ -47,6 +47,8 @@ export default async function TxtAdminPage() {
     responder_notify_user_ids?: string[]
     company_default_signature?: string | null
     allow_user_signatures?: boolean | null
+    opt_out_message?: string | null
+    opt_out_on_first_message?: boolean | null
   } | null
 
   // Texting Managers picker: list everyone with Txt2 access (or admin / Txt-admin,
@@ -83,6 +85,8 @@ export default async function TxtAdminPage() {
       users={users || []}
       initialCompanyDefaultSignature={settingsTyped?.company_default_signature ?? null}
       initialAllowUserSignatures={settingsTyped?.allow_user_signatures ?? true}
+      initialOptOutMessage={settingsTyped?.opt_out_message ?? 'Reply STOP to opt out.'}
+      initialOptOutOnFirstMessage={settingsTyped?.opt_out_on_first_message ?? true}
     />
   )
 }

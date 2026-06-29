@@ -252,7 +252,8 @@ export async function GET(request: Request) {
          contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, do_not_text ),
          assignee:hub_users!assigned_to ( id, display_name ),
          members:txt_conversation_members ( user_id, role, member:hub_users!user_id ( id, display_name ) ),
-         group_contacts:txt_conversation_contacts ( contact:txt_contacts!txt_conversation_contacts_contact_id_fkey ( id, name, phone ) )`
+         group_contacts:txt_conversation_contacts ( contact:txt_contacts!txt_conversation_contacts_contact_id_fkey ( id, name, phone ) ),
+         number:txt_phone_numbers!txt_conversations_phone_number_id_fkey ( label, twilio_number )`
       )
       .in('id', allIds)
       .order('last_message_at', { ascending: false, nullsFirst: false })
@@ -274,7 +275,8 @@ export async function GET(request: Request) {
        contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, do_not_text ),
        assignee:hub_users!assigned_to ( id, display_name ),
        members:txt_conversation_members ( user_id, role, member:hub_users!user_id ( id, display_name ) ),
-       group_contacts:txt_conversation_contacts ( contact:txt_contacts!txt_conversation_contacts_contact_id_fkey ( id, name, phone ) )`
+       group_contacts:txt_conversation_contacts ( contact:txt_contacts!txt_conversation_contacts_contact_id_fkey ( id, name, phone ) ),
+       number:txt_phone_numbers!txt_conversations_phone_number_id_fkey ( label, twilio_number )`
     )
     .order('last_message_at', { ascending: false, nullsFirst: false })
     .order('created_at', { ascending: false })

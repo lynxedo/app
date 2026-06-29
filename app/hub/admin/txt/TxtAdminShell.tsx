@@ -34,6 +34,8 @@ export default function TxtAdminShell({
   users,
   initialCompanyDefaultSignature,
   initialAllowUserSignatures,
+  initialOptOutMessage,
+  initialOptOutOnFirstMessage,
 }: {
   initialTemplates: Template[]
   initialNumbers: TxtNumber[]
@@ -44,6 +46,8 @@ export default function TxtAdminShell({
   users: HubUser[]
   initialCompanyDefaultSignature: string | null
   initialAllowUserSignatures: boolean
+  initialOptOutMessage: string
+  initialOptOutOnFirstMessage: boolean
 }) {
   const [tab, setTab] = useState<SubTab>('templates')
 
@@ -75,6 +79,8 @@ export default function TxtAdminShell({
         <SignaturePanel
           initialCompanyDefaultSignature={initialCompanyDefaultSignature}
           initialAllowUserSignatures={initialAllowUserSignatures}
+          initialOptOutMessage={initialOptOutMessage}
+          initialOptOutOnFirstMessage={initialOptOutOnFirstMessage}
         />
       )}
       {tab === 'numbers' && <TxtNumbersPanel initialNumbers={initialNumbers} />}

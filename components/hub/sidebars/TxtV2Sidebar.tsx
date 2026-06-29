@@ -26,6 +26,8 @@ type Conversation = {
   contact: { id: string; name: string; phone: string; do_not_text: boolean } | null
   assignee: { id: string; display_name: string } | null
   group_contacts?: Array<{ contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null }>
+  phone_number_id?: string | null
+  number?: { label: string | null; twilio_number: string } | { label: string | null; twilio_number: string }[] | null
   // Unified Inbox (Session 3) — present only when can_access_unified_inbox.
   last_call_at?: string | null
   last_voicemail_at?: string | null
@@ -399,6 +401,25 @@ export default function TxtV2Sidebar({
     { id: 'contacts', label: 'Contacts', show: true },
   ]
 
+  // Which of our numbers is this conversation on? Label (e.g. "Main" /
+  // "Toll Free") or a last-4 fallback. Returns null when unknown.
+  const numberLabelFor = (c: Conversation): string | null => {
+    const n = Array.isArray(c.number) ? c.number[0] : c.number
+    if (!n) return null
+    return (n.label && n.label.trim()) || (n.twilio_number ? n.twilio_number.slice(-4) : null)
+  }
+  // Only show the per-line badge when this company actually uses 2+ numbers, so
+  // single-number setups stay clean (mirrors the conversation-header rule).
+  const showNumberBadges =
+    new Set(
+      [...conversations, ...queue]
+        .map((c) => {
+          const n = Array.isArray(c.number) ? c.number[0] : c.number
+          return n?.twilio_number || null
+        })
+        .filter(Boolean)
+    ).size > 1
+
   return (
     <aside
       className="t-sidebar-surface h-full w-72 text-white flex flex-col flex-none min-h-0"
@@ -607,8 +628,15 @@ export default function TxtV2Sidebar({
                             {displayNameFor(c)}
                           </span>
                         </span>
-                        <span className="text-[10px] text-white/40 flex-none">
-                          {formatRelative(c.last_activity_at || c.last_message_at || c.created_at)}
+                        <span className="flex items-center gap-1.5 flex-none">
+                          {showNumberBadges && numberLabelFor(c) && (
+                            <span className="px-1 py-0.5 rounded bg-white/10 text-white/55 uppercase tracking-wide text-[9px]">
+                              {numberLabelFor(c)}
+                            </span>
+                          )}
+                          <span className="text-[10px] text-white/40">
+                            {formatRelative(c.last_activity_at || c.last_message_at || c.created_at)}
+                          </span>
                         </span>
                       </div>
                       <div className="text-[11px] text-white/40 truncate mt-0.5">
@@ -726,6 +754,11 @@ export default function TxtV2Sidebar({
                       {previewFor(c)}
                     </span>
                     <span className="flex items-center gap-1 text-[10px] flex-none">
+                      {showNumberBadges && numberLabelFor(c) && (
+                        <span className="px-1 py-0.5 rounded bg-white/10 text-white/55 uppercase tracking-wide text-[9px]">
+                          {numberLabelFor(c)}
+                        </span>
+                      )}
                       {c.source === 'responder' && !c.assigned_to && (
                         <span className="text-purple-300">Guardian</span>
                       )}

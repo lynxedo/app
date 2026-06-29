@@ -14,19 +14,23 @@ export async function GET() {
   const admin = createAdminClient()
   const { data } = await admin
     .from('txt_settings')
-    .select('on_my_way_template, responder_notify_user_ids, company_default_signature, allow_user_signatures')
+    .select('on_my_way_template, responder_notify_user_ids, company_default_signature, allow_user_signatures, opt_out_message, opt_out_on_first_message')
     .eq('company_id', auth.company_id)
     .maybeSingle()
   const row = data as {
     responder_notify_user_ids?: string[]
     company_default_signature?: string | null
     allow_user_signatures?: boolean | null
+    opt_out_message?: string | null
+    opt_out_on_first_message?: boolean | null
   } | null
   return NextResponse.json({
     on_my_way_template: data?.on_my_way_template ?? null,
     responder_notify_user_ids: row?.responder_notify_user_ids ?? [],
     company_default_signature: row?.company_default_signature ?? null,
     allow_user_signatures: row?.allow_user_signatures ?? true,
+    opt_out_message: row?.opt_out_message ?? 'Reply STOP to opt out.',
+    opt_out_on_first_message: row?.opt_out_on_first_message ?? true,
   })
 }
 
@@ -78,6 +82,23 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'allow_user_signatures must be a boolean' }, { status: 400 })
     }
     upsertRow.allow_user_signatures = body.allow_user_signatures
+  }
+
+  // opt_out_message — the line appended to the FIRST text to a new contact.
+  if ('opt_out_message' in body) {
+    const raw = typeof body.opt_out_message === 'string' ? body.opt_out_message.trim() : ''
+    if (raw.length > 200) {
+      return NextResponse.json({ error: 'Opt-out message too long (max 200 characters)' }, { status: 400 })
+    }
+    upsertRow.opt_out_message = raw || 'Reply STOP to opt out.'
+  }
+
+  // opt_out_on_first_message — master on/off for the auto opt-out notice.
+  if ('opt_out_on_first_message' in body) {
+    if (typeof body.opt_out_on_first_message !== 'boolean') {
+      return NextResponse.json({ error: 'opt_out_on_first_message must be a boolean' }, { status: 400 })
+    }
+    upsertRow.opt_out_on_first_message = body.opt_out_on_first_message
   }
 
   const { error } = await admin

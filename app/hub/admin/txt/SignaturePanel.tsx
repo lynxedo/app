@@ -16,9 +16,13 @@ const PREVIEW_CTX = {
 export default function SignaturePanel({
   initialCompanyDefaultSignature,
   initialAllowUserSignatures,
+  initialOptOutMessage,
+  initialOptOutOnFirstMessage,
 }: {
   initialCompanyDefaultSignature: string | null
   initialAllowUserSignatures: boolean
+  initialOptOutMessage: string
+  initialOptOutOnFirstMessage: boolean
 }) {
   const [signature, setSignature] = useState(initialCompanyDefaultSignature ?? '')
   const [baseline, setBaseline] = useState(initialCompanyDefaultSignature ?? '')
@@ -26,6 +30,11 @@ export default function SignaturePanel({
   const [savingSig, setSavingSig] = useState(false)
   const [savingToggle, setSavingToggle] = useState(false)
   const [error, setError] = useState('')
+  const [optOut, setOptOut] = useState(initialOptOutMessage ?? 'Reply STOP to opt out.')
+  const [optOutBaseline, setOptOutBaseline] = useState(initialOptOutMessage ?? 'Reply STOP to opt out.')
+  const [optOutEnabled, setOptOutEnabled] = useState(initialOptOutOnFirstMessage)
+  const [savingOptOut, setSavingOptOut] = useState(false)
+  const [savingOptOutToggle, setSavingOptOutToggle] = useState(false)
   const toast = useToast()
 
   const dirty = signature !== baseline
@@ -63,6 +72,27 @@ export default function SignaturePanel({
     const ok = await post({ allow_user_signatures: next })
     setSavingToggle(false)
     if (!ok) setAllowUser(prev)
+  }
+
+  const optOutDirty = optOut !== optOutBaseline
+
+  async function saveOptOut() {
+    setSavingOptOut(true)
+    const ok = await post({ opt_out_message: optOut.trim() })
+    setSavingOptOut(false)
+    if (ok) {
+      setOptOutBaseline(optOut)
+      toast.success('Opt-out notice saved')
+    }
+  }
+
+  async function toggleOptOut(next: boolean) {
+    const prev = optOutEnabled
+    setOptOutEnabled(next)
+    setSavingOptOutToggle(true)
+    const ok = await post({ opt_out_on_first_message: next })
+    setSavingOptOutToggle(false)
+    if (!ok) setOptOutEnabled(prev)
   }
 
   return (
@@ -146,6 +176,59 @@ export default function SignaturePanel({
             </span>
           </span>
         </label>
+      </div>
+
+      {/* Opt-out notice (compliance) */}
+      <div className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold">Opt-out notice</h2>
+          <p className="text-sm text-gray-400 mt-1">
+            Carriers require customers to be told how to opt out. This short line is added
+            automatically to the <strong className="text-gray-200">first text</strong> a contact
+            ever receives from you (right after the signature). Follow-up texts don&apos;t repeat it.
+          </p>
+        </div>
+
+        <div className="rounded-lg border border-gray-800 bg-gray-900 p-4">
+          <label className="flex items-start gap-3 cursor-pointer mb-3">
+            <input
+              type="checkbox"
+              checked={optOutEnabled}
+              disabled={savingOptOutToggle}
+              onChange={(e) => toggleOptOut(e.target.checked)}
+              className="mt-0.5"
+            />
+            <span>
+              <span className="text-sm font-medium">Add the opt-out notice to first texts</span>
+              <span className="block text-xs text-gray-400 mt-0.5">
+                Recommended on. Turning this off means new contacts aren&apos;t told how to opt
+                out — only do this if you have another compliant process.
+              </span>
+            </span>
+          </label>
+
+          <label className="block text-xs text-gray-400 mb-1">Opt-out wording</label>
+          <input
+            type="text"
+            value={optOut}
+            onChange={(e) => setOptOut(e.target.value)}
+            placeholder="Reply STOP to opt out."
+            maxLength={200}
+            disabled={!optOutEnabled}
+            className="w-full px-3 py-2 rounded-md bg-gray-950 border border-gray-700 text-sm disabled:opacity-50"
+          />
+          <div className="text-[10px] text-gray-500 mt-1">
+            {optOut.length} / 200. Keep it short — it&apos;s tacked onto the end of the first message.
+          </div>
+
+          <button
+            onClick={saveOptOut}
+            disabled={savingOptOut || !optOutDirty || !optOutEnabled}
+            className="mt-3 px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm disabled:opacity-50"
+          >
+            {savingOptOut ? 'Saving…' : 'Save opt-out notice'}
+          </button>
+        </div>
       </div>
     </div>
   )
