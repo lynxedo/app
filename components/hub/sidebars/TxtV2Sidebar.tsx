@@ -10,6 +10,7 @@ import { Spinner, EmptyState, useToast } from '@/components/ui'
 import ContactModal from '@/components/hub/txt/ContactModal'
 import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
 import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
+import { TXT_GROUPS_ENABLED, TXT_BROADCASTS_ENABLED } from '@/lib/txt-features'
 
 type Conversation = {
   id: string
@@ -421,26 +422,39 @@ export default function TxtV2Sidebar({
         >
           + Add contact
         </button>
-        <div className={`grid ${canManage ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
-          <button
-            type="button"
-            onClick={() => setGroupOpen(true)}
-            className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
-            title="New group conversation"
+        {/* Group + Broadcast are kill-switched off (see lib/txt-features.ts).
+            Both flags currently false → this whole block renders nothing.
+            Layout still adapts to 1 or 2 buttons when re-enabled. */}
+        {(TXT_GROUPS_ENABLED || (canManage && TXT_BROADCASTS_ENABLED)) && (
+          <div
+            className={`grid ${
+              TXT_GROUPS_ENABLED && canManage && TXT_BROADCASTS_ENABLED
+                ? 'grid-cols-2'
+                : 'grid-cols-1'
+            } gap-2`}
           >
-            + Group
-          </button>
-          {canManage && (
-            <button
-              type="button"
-              onClick={() => setBroadcastOpen(true)}
-              className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
-              title="Send 1-to-many broadcast"
-            >
-              📣 Broadcast
-            </button>
-          )}
-        </div>
+            {TXT_GROUPS_ENABLED && (
+              <button
+                type="button"
+                onClick={() => setGroupOpen(true)}
+                className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
+                title="New group conversation"
+              >
+                + Group
+              </button>
+            )}
+            {canManage && TXT_BROADCASTS_ENABLED && (
+              <button
+                type="button"
+                onClick={() => setBroadcastOpen(true)}
+                className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
+                title="Send 1-to-many broadcast"
+              >
+                📣 Broadcast
+              </button>
+            )}
+          </div>
+        )}
         <input
           type="text"
           value={search}
@@ -736,7 +750,7 @@ export default function TxtV2Sidebar({
       )}
 
       <div className="px-3 py-2 border-t border-white/5 flex items-center justify-between">
-        {canManage ? (
+        {canManage && TXT_BROADCASTS_ENABLED ? (
           <Link
             href="/hub/txt/broadcasts"
             onClick={onClose}
