@@ -124,7 +124,7 @@ export async function POST(request: Request) {
   )
   const computed = computeRouteLoadout(loadoutStops, {
     tanks: capacity.tanks, serviceProducts: capacity.serviceProducts, products: capacity.products,
-  }, tankOverrides)
+  }, tankOverrides, body.log_date)
   const onsiteFromStops = body.stops.reduce((sum, s) => sum + (s.duration_minutes ?? 0), 0)
   const routeLoadout = toStoredLoadout(computed, {
     predictedDriveMinutes: typeof body.predicted_drive_minutes === 'number' ? body.predicted_drive_minutes : null,

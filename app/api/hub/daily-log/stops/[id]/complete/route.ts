@@ -127,7 +127,7 @@ async function upsertPesticideRecord(args: {
 
   // Session 9 — match against the unified service_products → products map
   // (single source of truth, PRD §8.8), the same matcher the Jobber webhook uses.
-  const chemicalsApplied = await matchChemicalsForLineItems(admin, entry.company_id, stop.line_items)
+  const chemicalsApplied = await matchChemicalsForLineItems(admin, entry.company_id, stop.line_items, applicationTimestamp.slice(0, 10))
 
   // No matches → no record. If a record already existed (e.g. line items
   // changed after the first completion to remove all chemical items) keep

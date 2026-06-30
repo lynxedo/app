@@ -317,8 +317,8 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
     const stops: RouteStopInput[] = optimized.map(v => ({
       id: v.id, clientName: v.clientName, jobTitle: v.jobTitle, lineItemNames: v.lineItemNames ?? [],
     }))
-    return computeRouteLoadout(stops, capacityData, tankOverrides)
-  }, [optimized, capacityData, tankOverrides])
+    return computeRouteLoadout(stops, capacityData, tankOverrides, startDate)
+  }, [optimized, capacityData, tankOverrides, startDate])
 
   // Move a whole line item's products to a different tank for this run/day
   // (Part B). A line item (program) loads as a unit, so the choice is made once

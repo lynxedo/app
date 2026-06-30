@@ -1904,20 +1904,22 @@ function ServiceMappingTab() {
   return (
     <>
       <Section title="What is Service Mapping?">
-        <p>Service Mapping connects the work you sell to the products you actually apply. It lives at <strong className="text-white">Admin → Service Mapping</strong> and has two tabs: the <strong className="text-white">Line-Item Map</strong> (which products a Jobber line item uses) and <strong className="text-white">Current Rounds</strong> (which round is active for each program). This is the layer the Route Capacity tool and the Products Used log read from — so every job knows its products and rates.</p>
+        <p>Service Mapping connects the work you sell to the products you actually apply. It lives at <strong className="text-white">Admin → Service Mapping</strong> and has two tabs: the <strong className="text-white">Line-Item Map</strong> (which products a Jobber line item uses, and <em>when</em>) and <strong className="text-white">Current Rounds</strong>. This is the layer the <strong className="text-white">Technician Mix Sheet</strong>, the Route Capacity tool, and the Pesticide / Products-Used log all read from — so every job knows its products and rates for its date.</p>
       </Section>
 
       <Section title="Line-Item Map">
-        <p>Map each Jobber line item to the product(s) it applies — <strong className="text-white">a line item can use several products</strong>, so add each one. To add a mapping, start typing the line item (the field suggests your real Jobber names with how often each is used) and pick a product, then <strong className="text-white">+ Add</strong>.</p>
-        <p className="mt-2">Each mapping row lets you set:</p>
+        <p>Map each Jobber line item to the product(s) it applies — <strong className="text-white">a line item can use several products</strong>. To add a line item, start typing it (the field suggests your real Jobber names with how often each is used), optionally pick a first product, then <strong className="text-white">+ Add</strong>.</p>
+        <p className="mt-2"><strong className="text-white">Dated mixes.</strong> Your products change through the year, so each line item can hold several <strong className="text-white">mixes</strong> — each with its own <strong className="text-white">start and end date</strong>. Inside a line item, click <strong className="text-white">+ Add mix</strong>, set the dates and a label (e.g. “July 2026”), and add its products. The system automatically uses the mix whose dates cover each service date, so you can <strong className="text-white">build a whole year ahead</strong>. Use <strong className="text-white">Duplicate →</strong> to clone a mix into the next period (it starts the day after the current one ends) and just tweak it. If two mixes ever overlap, you&apos;ll see an amber warning — adjust the dates so each day maps to one mix. A mix left with <em>no</em> dates is <strong className="text-white">always-on</strong>, used only when no dated mix covers a date.</p>
+        <p className="mt-2">Each product row lets you set:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
           <li><strong className="text-white">Rate + Unit</strong> — overrides the product&apos;s default rate for this line item (leave blank to use the product default).</li>
-          <li><strong className="text-white">Program</strong> — which program this belongs to.</li>
+          <li><strong className="text-white">OR group</strong> — give two products the same OR-group name to mark them as alternatives (use one <em>or</em> the other), e.g. a liquid and its granular swap. They share one spot on the Mix Sheet.</li>
+          <li><strong className="text-white">Program</strong> — which program this belongs to (e.g. LHB, LHP, LHC, RRR).</li>
           <li><strong className="text-white">Tank</strong> — the default tank (1–4); routes can override it.</li>
           <li><strong className="text-white">Match</strong> — <em>contains</em> (the line item includes this text) or <em>exact</em>.</li>
           <li><strong className="text-white">Notes</strong> and an <strong className="text-white">Active</strong> toggle.</li>
         </ul>
-        <p className="mt-2">Changes save as you go. <strong className="text-white">Remove</strong> takes a product off a line item (soft delete — kept in the database).</p>
+        <p className="mt-2">Changes save as you go. <strong className="text-white">Remove</strong> takes a product off a mix; <strong className="text-white">Delete mix</strong> removes the whole batch (soft delete — kept in the database).</p>
       </Section>
 
       <Section title="Current Rounds">

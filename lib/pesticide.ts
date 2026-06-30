@@ -15,6 +15,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { geocodeAddress } from '@/lib/geocode'
 import { fetchWeatherForLocation } from '@/lib/nws-weather'
+import { selectMappingsForDate, todayInTz } from '@/lib/service-mapping'
 
 // A line item as it appears on a stop or a synced Jobber visit.
 export type RecordLineItem = {
@@ -65,6 +66,9 @@ type ServiceProductRow = {
   rate_unit: string | null
   program: string | null
   tank_default: number | null
+  effective_start: string | null
+  effective_end: string | null
+  batch_label: string | null
   products: ProductJoin | null
 }
 
@@ -91,6 +95,10 @@ function formatRate(
  * item can map to several products; the same (line item, product) pair is only
  * recorded once. Mappings with no linked product are skipped (not a chemical).
  *
+ * `asOf` (YYYY-MM-DD) is the service date — the mix can change through the year,
+ * so per line item only the batch in effect that day is used (see
+ * selectMappingsForDate). Defaults to today (Central) when omitted.
+ *
  * Empty line items, no mappings, or no matches all return [].
  * Uses the admin/service-role client (RLS bypassed) — callers already scope by company.
  */
@@ -98,6 +106,7 @@ export async function matchChemicalsForLineItems(
   admin: SupabaseClient,
   companyId: string,
   lineItems: RecordLineItem[],
+  asOf?: string,
 ): Promise<ChemicalApplied[]> {
   if (!Array.isArray(lineItems) || lineItems.length === 0) return []
 
@@ -105,6 +114,7 @@ export async function matchChemicalsForLineItems(
     .from('service_products')
     .select(
       'id, jobber_line_item_name, match_type, application_rate, rate_unit, program, tank_default,' +
+      ' effective_start, effective_end, batch_label,' +
       ' products:product_id(id, name, epa_reg_number, active_ingredient, application_rate, rate_basis, unit, batch_number, batch_date)',
     )
     .eq('company_id', companyId)
@@ -112,10 +122,12 @@ export async function matchChemicalsForLineItems(
     .is('deleted_at', null)
 
   // PostgREST types the embedded relation as an array; it's a to-one FK here.
-  const mappings = ((rows ?? []) as unknown as ServiceProductRow[]).map(m => ({
+  const allRows = ((rows ?? []) as unknown as ServiceProductRow[]).map(m => ({
     ...m,
     products: Array.isArray(m.products) ? (m.products[0] ?? null) : m.products,
   }))
+  // Keep only the mix batch in effect on the service date, per line item.
+  const mappings = selectMappingsForDate(allRows, asOf ?? todayInTz())
   if (mappings.length === 0) return []
 
   const result: ChemicalApplied[] = []
@@ -224,7 +236,10 @@ export async function createPesticideRecordFromJobberVisit(args: {
     totalPrice: typeof r.total === 'number' ? r.total : undefined,
   }))
 
-  const chemicals = await matchChemicalsForLineItems(admin, companyId, lineItems)
+  // The mix in effect on the day this visit was completed (mixes change through
+  // the year). Falls back to today when the visit carries no completion time.
+  const asOf = (visit.completed_at ?? occurredAt ?? new Date().toISOString()).slice(0, 10)
+  const chemicals = await matchChemicalsForLineItems(admin, companyId, lineItems, asOf)
   if (chemicals.length === 0) return 'no_chemicals'
 
   // Customer + property/address for the record. Best-effort lookups.

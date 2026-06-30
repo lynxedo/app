@@ -14,6 +14,8 @@
 // the product amount: a full tank sprays `gallon_capacity ÷ gal-per-K × 1,000`
 // sq ft (e.g. 180 ÷ 2 × 1,000 = 90,000 sq ft).
 
+import { selectMappingsForDate, todayInTz } from './service-mapping'
+
 export const DEFAULT_TANK_RATE = 2 // gallons of mix applied per 1,000 sq ft
 
 export type MatchType = 'contains' | 'exact'
@@ -36,6 +38,9 @@ export type ServiceProductMap = {
   rate_unit: string | null
   program: string | null
   tank_default: number | null
+  effective_start: string | null
+  effective_end: string | null
+  batch_label: string | null
   is_active: boolean
 }
 
@@ -135,8 +140,13 @@ export function computeRouteLoadout(
   stops: RouteStopInput[],
   data: CapacityData,
   tankOverrides: Map<string, number> = new Map(),
+  asOf?: string,
 ): RouteLoadout {
-  const activeMaps = data.serviceProducts.filter(sp => sp.is_active && sp.product_id)
+  // Per line item, only the mix batch in effect on the route's date applies.
+  const activeMaps = selectMappingsForDate(
+    data.serviceProducts.filter(sp => sp.is_active),
+    asOf ?? todayInTz(),
+  ).filter(sp => sp.product_id)
   const productById = new Map(data.products.map(p => [p.id, p]))
   const activeTanks = [...data.tanks].filter(t => t.is_active).sort((a, b) => a.tank_number - b.tank_number)
   const tankRate = activeTanks[0]?.application_rate || DEFAULT_TANK_RATE
