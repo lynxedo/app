@@ -22,6 +22,7 @@ type Message = {
   sent_by: string | null
   phone_number_id?: string | null
   rerouted?: boolean
+  number?: { label: string | null; twilio_number: string } | { label: string | null; twilio_number: string }[] | null
   sender?: { id: string; display_name: string } | null
 }
 
@@ -1621,13 +1622,11 @@ export default function TxtConversationView({
             const senderLabel = isOutbound
               ? m.sender?.display_name?.trim().split(/\s+/)[0] || (!m.sent_by ? 'Guardian' : null)
               : null
-            // Which of our numbers this specific message used — shown only when
-            // the company has 2+ numbers, so single-number setups stay clean.
-            const msgNum =
-              numbers.length >= 2 && m.phone_number_id
-                ? numbers.find((n) => n.id === m.phone_number_id)
-                : null
-            const msgNumberLabel = msgNum ? msgNum.label || msgNum.twilio_number : null
+            // The line this message used, joined on the message itself so it's
+            // stable across refetches and independent of the viewer's number
+            // access. Null only on pre-launch messages (never stamped).
+            const msgNumRow = Array.isArray(m.number) ? m.number[0] : m.number
+            const msgNumberLabel = msgNumRow ? msgNumRow.label || msgNumRow.twilio_number : null
             return (
               <div
                 key={item.id}

@@ -52,7 +52,7 @@ export default async function TxtConversationPage({
       .single(),
     supabase
       .from('txt_messages')
-      .select('id, direction, body, media_urls, status, error_message, twilio_sid, created_at, sent_by, sender:hub_users!sent_by ( id, display_name )')
+      .select('id, direction, body, media_urls, status, error_message, twilio_sid, created_at, sent_by, phone_number_id, rerouted, sender:hub_users!sent_by ( id, display_name ), number:txt_phone_numbers!txt_messages_phone_number_id_fkey ( label, twilio_number )')
       .eq('conversation_id', conversationId)
       .order('created_at', { ascending: true })
       .limit(500),
