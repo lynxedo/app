@@ -1240,6 +1240,7 @@ function DialerTab() {
         <Step n={3}>Tap the green <strong className="text-white">Call</strong> button. The browser asks for microphone access the first time — say yes.</Step>
         <Step n={4}>While the call is connecting, the screen switches to the active-call view with caller info, a mute button, a keypad for tone entry (e.g. menu choices), and a red hang-up button.</Step>
         <Note>If your company has more than one number and you&apos;re allowed to use more than one, a <strong className="text-white">Call from</strong> picker appears above the keypad so you can choose which number the customer sees. With a single number it&apos;s hidden — calls just use it. Which numbers you can pick is set per-user in <strong className="text-white">Admin → Txt → Phone Numbers</strong>.</Note>
+        <Note><strong className="text-white">Holds are private.</strong> Putting a caller on hold plays them hold music <em>and</em> pauses the recording for as long as they&apos;re on hold — so anything said while a caller is on hold (to a coworker, or on another phone) is never recorded. Recording resumes automatically the moment you take them off hold.</Note>
       </Section>
 
       <Section title="Receiving a Call">

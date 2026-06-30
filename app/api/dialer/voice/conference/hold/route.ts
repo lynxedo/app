@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { holdParticipant } from '@/lib/twilio-conference'
 import { resolveActiveConferenceRoom } from '@/lib/dialer-active-call'
+import { setRecordingsPaused } from '@/lib/dialer-recording-pause'
 
 // POST /api/dialer/voice/conference/hold
 // Body: { room?: string, hold: boolean }
@@ -52,5 +53,25 @@ export async function POST(request: Request) {
   if (!res.ok) {
     return NextResponse.json({ error: res.error }, { status: 502 })
   }
+
+  // Suppress recording for the duration of the hold. Holding only silences the
+  // CUSTOMER — the agent's mic stays live in the conference, so without this
+  // anything the agent says during a hold (to a coworker, or on another phone)
+  // gets recorded. Pause on hold, resume on unhold. Best-effort: a recording
+  // hiccup must never break the hold itself, and 'no_active_recording' is normal
+  // (e.g. recording disabled), so we only log genuine toggle failures.
+  try {
+    const rec = await setRecordingsPaused({
+      conferenceSid: active.conferenceSid,
+      callSid: active.customerSid,
+      paused: hold,
+    })
+    if (!rec.ok && rec.error !== 'no_active_recording') {
+      console.warn('[dialer.hold] recording', hold ? 'pause' : 'resume', 'failed:', rec.error)
+    }
+  } catch (e) {
+    console.warn('[dialer.hold] auto recording toggle threw', e)
+  }
+
   return NextResponse.json({ ok: true, held: hold })
 }
