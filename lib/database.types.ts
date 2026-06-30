@@ -146,6 +146,49 @@ export type Database = {
         }
         Relationships: []
       }
+      board_item_assignees: {
+        Row: {
+          board_item_id: string
+          created_at: string
+          id: string
+          user_id: string
+        }
+        Insert: {
+          board_item_id: string
+          created_at?: string
+          id?: string
+          user_id: string
+        }
+        Update: {
+          board_item_id?: string
+          created_at?: string
+          id?: string
+          user_id?: string
+        }
+        Relationships: [
+          {
+            foreignKeyName: "board_item_assignees_board_item_id_fkey"
+            columns: ["board_item_id"]
+            isOneToOne: false
+            referencedRelation: "board_items"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "board_item_assignees_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "hub_users"
+            referencedColumns: ["id"]
+          },
+          {
+            foreignKeyName: "board_item_assignees_user_id_fkey"
+            columns: ["user_id"]
+            isOneToOne: false
+            referencedRelation: "hub_users_with_presence"
+            referencedColumns: ["id"]
+          },
+        ]
+      }
       board_item_attachments: {
         Row: {
           board_item_id: string
@@ -284,9 +327,12 @@ export type Database = {
           done: boolean
           done_at: string | null
           due_date: string | null
+          due_time: string | null
           forwarded_from_message_id: string | null
           id: string
+          overdue_notified_at: string | null
           priority: string
+          recurrence: string
         }
         Insert: {
           assignee_id?: string | null
@@ -298,9 +344,12 @@ export type Database = {
           done?: boolean
           done_at?: string | null
           due_date?: string | null
+          due_time?: string | null
           forwarded_from_message_id?: string | null
           id?: string
+          overdue_notified_at?: string | null
           priority?: string
+          recurrence?: string
         }
         Update: {
           assignee_id?: string | null
@@ -312,9 +361,12 @@ export type Database = {
           done?: boolean
           done_at?: string | null
           due_date?: string | null
+          due_time?: string | null
           forwarded_from_message_id?: string | null
           id?: string
+          overdue_notified_at?: string | null
           priority?: string
+          recurrence?: string
         }
         Relationships: [
           {

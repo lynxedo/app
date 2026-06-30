@@ -16,7 +16,7 @@ export default async function BoardPage({ params }: { params: Promise<{ boardId:
       .single(),
     supabase
       .from('hub_users')
-      .select('id, display_name, avatar_url')
+      .select('id, display_name, avatar_url, is_bot')
       .order('display_name'),
   ])
 
