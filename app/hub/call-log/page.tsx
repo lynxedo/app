@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
+import { CoachingPanel, coachingGradeColor, type CoachingData } from '@/components/hub/CoachingPanel'
 
 interface CallLog {
   id: string
@@ -26,6 +27,9 @@ interface CallLog {
     segments?: { text: string; sentiment: string; sentiment_score: number }[]
   } | null
   transcript_speakers: { speaker: string; text: string }[] | null
+  coaching_grade?: string | null
+  coaching_must_listen?: boolean | null
+  coaching_json?: CoachingData | null
 }
 
 function formatDuration(seconds: number | null) {
@@ -111,7 +115,7 @@ function SettingsIcon() {
   )
 }
 
-function CallRow({ call, selected, onClick }: { call: CallLog; selected: boolean; onClick: () => void }) {
+function CallRow({ call, selected, onClick, canViewCoaching }: { call: CallLog; selected: boolean; onClick: () => void; canViewCoaching: boolean }) {
   const dir = directionLabel(call.direction)
   return (
     <button
@@ -133,6 +137,9 @@ function CallRow({ call, selected, onClick }: { call: CallLog; selected: boolean
             {sentimentChip(call.sentiment)!.label}
           </span>
         )}
+        {canViewCoaching && call.coaching_grade && (
+          <span className={`px-1.5 py-0.5 rounded text-xs font-bold border ${coachingGradeColor(call.coaching_grade)}`}>{call.coaching_grade}</span>
+        )}
       </div>
       <div className="text-xs text-gray-600 mt-0.5">
         {formatDateTime(call.call_datetime)}
@@ -141,7 +148,7 @@ function CallRow({ call, selected, onClick }: { call: CallLog; selected: boolean
   )
 }
 
-function CallDetail({ call }: { call: CallLog }) {
+function CallDetail({ call, canViewCoaching }: { call: CallLog; canViewCoaching: boolean }) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const [showTranscript, setShowTranscript] = useState(false)
   const dir = directionLabel(call.direction)
@@ -222,6 +229,11 @@ function CallDetail({ call }: { call: CallLog }) {
       )}
 
 
+      {/* Coaching */}
+      {canViewCoaching && call.coaching_json && (
+        <CoachingPanel coaching={call.coaching_json} />
+      )}
+
       {/* Transcript — speaker-sectioned when diarization is available,
           otherwise the raw single block (older calls / no speaker data). */}
       {((call.transcript_speakers && call.transcript_speakers.length > 0) || call.transcript_text) && (
@@ -291,6 +303,7 @@ export default function CallLogPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<CallLog | null>(null)
+  const [canViewCoaching, setCanViewCoaching] = useState(false)
 
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -315,7 +328,8 @@ export default function CallLogPage() {
       const res = await fetch(`/api/calls/list?${qs}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to load')
-      setCalls(data)
+      setCalls(data.calls ?? [])
+      setCanViewCoaching(!!data.can_view_coaching)
       setSelected(null)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Unknown error')
@@ -446,6 +460,7 @@ export default function CallLogPage() {
                 call={call}
                 selected={selected?.id === call.id}
                 onClick={() => setSelected(call)}
+                canViewCoaching={canViewCoaching}
               />
             ))}
           </div>
@@ -454,7 +469,7 @@ export default function CallLogPage() {
         {/* Detail panel */}
         <div className="flex-1 overflow-y-auto">
           {selected ? (
-            <CallDetail call={selected} />
+            <CallDetail call={selected} canViewCoaching={canViewCoaching} />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-600 text-sm">
               Select a call to view details
