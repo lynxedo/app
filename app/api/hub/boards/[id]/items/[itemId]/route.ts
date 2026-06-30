@@ -18,6 +18,25 @@ async function fetchAssignees(supabase: SB, itemId: string) {
     .filter(Boolean)
 }
 
+// Advance a 'YYYY-MM-DD' due date to its next occurrence. Anchored to the
+// scheduled date (not "today") so the task keeps its cadence even when
+// completed late. UTC math keeps the date from drifting across timezones.
+function advanceDueDate(dueDate: string, recurrence: string): string {
+  const d = new Date(dueDate + 'T00:00:00Z')
+  switch (recurrence) {
+    case 'daily': d.setUTCDate(d.getUTCDate() + 1); break
+    case 'weekly': d.setUTCDate(d.getUTCDate() + 7); break
+    case 'biweekly': d.setUTCDate(d.getUTCDate() + 14); break
+    case 'monthly': d.setUTCMonth(d.getUTCMonth() + 1); break
+    default: return dueDate
+  }
+  return d.toISOString().slice(0, 10)
+}
+
+function occurrenceLabel(dueDate: string): string {
+  return new Date(dueDate + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
+}
+
 export async function PUT(
   request: Request,
   { params }: { params: Promise<{ id: string; itemId: string }> }
@@ -28,6 +47,37 @@ export async function PUT(
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json()
+
+  // Recurring completion (hybrid): rather than marking the task done, log a
+  // completion note onto it and roll it forward to its next occurrence. The
+  // task's Notes thread becomes its completion history.
+  if (body.done === true) {
+    const { data: ctx } = await supabase
+      .from('board_items')
+      .select('recurrence, due_date, company_id')
+      .eq('id', itemId)
+      .single()
+    if (ctx && ctx.recurrence && ctx.recurrence !== 'none' && ctx.due_date) {
+      const { data: me } = await supabase.from('hub_users').select('display_name').eq('id', user.id).single()
+      await supabase.from('board_item_comments').insert({
+        board_item_id: itemId,
+        company_id: ctx.company_id,
+        content: `✅ Completed ${occurrenceLabel(ctx.due_date)} by ${me?.display_name ?? 'someone'}`,
+        created_by: user.id,
+      })
+      const nextDue = advanceDueDate(ctx.due_date, ctx.recurrence)
+      const { data: advanced, error: advErr } = await supabase
+        .from('board_items')
+        .update({ done: false, done_at: null, due_date: nextDue, overdue_notified_at: null })
+        .eq('id', itemId)
+        .select(ITEM_COLS)
+        .single()
+      if (advErr) return NextResponse.json({ error: advErr.message }, { status: 500 })
+      const assignees = await fetchAssignees(supabase, itemId)
+      return NextResponse.json({ ...advanced, assignees, recurred: true, next_due: nextDue })
+    }
+  }
+
   const update: Record<string, unknown> = {}
 
   if ('done' in body) {

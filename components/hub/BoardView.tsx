@@ -63,6 +63,17 @@ function priorityDot(priority: string) {
   return <span className={`inline-block w-2.5 h-2.5 rounded-full flex-none ${cfg.dot}`} title={cfg.label} />
 }
 
+const RECURRENCE_OPTIONS: { value: BoardItem['recurrence']; label: string }[] = [
+  { value: 'none', label: 'No repeat' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'biweekly', label: 'Every 2 weeks' },
+  { value: 'monthly', label: 'Monthly' },
+]
+const RECURRENCE_LABEL: Record<string, string> = {
+  daily: 'Daily', weekly: 'Weekly', biweekly: 'Every 2 wks', monthly: 'Monthly',
+}
+
 function formatDue(dateStr: string) {
   const d = new Date(dateStr + 'T00:00:00')
   const today = new Date(); today.setHours(0, 0, 0, 0)
@@ -369,10 +380,12 @@ export default function BoardView({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [showDatePicker, setShowDatePicker] = useState<string | null>(null)
   const [showAssignPicker, setShowAssignPicker] = useState<string | null>(null)
+  const [showRepeatPicker, setShowRepeatPicker] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
   const [threadItem, setThreadItem] = useState<BoardItem | null>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
+  const toast = useToast()
 
   const loadItems = useCallback(() => {
     setLoading(true)
@@ -388,6 +401,7 @@ export default function BoardView({
     setOpenMenuId(null)
     setShowDatePicker(null)
     setShowAssignPicker(null)
+    setShowRepeatPicker(null)
   }
 
   async function addItem() {
@@ -406,6 +420,19 @@ export default function BoardView({
 
   async function toggleDone(item: BoardItem) {
     const next = !item.done
+    // Recurring task: completing it logs a note + rolls to the next occurrence
+    // (server-side), so skip the optimistic check and just reload after.
+    if (next && item.recurrence !== 'none' && item.due_date) {
+      const res = await fetch(`/api/hub/boards/${board.id}/items/${item.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ done: true }),
+      })
+      const data = await res.json().catch(() => null)
+      if (data?.next_due) toast.success(`Logged · next due ${formatDue(data.next_due).label}`)
+      loadItems()
+      return
+    }
     setItems(prev => prev.map(i => i.id === item.id ? { ...i, done: next, done_at: next ? new Date().toISOString() : null } : i))
     await fetch(`/api/hub/boards/${board.id}/items/${item.id}`, {
       method: 'PUT',
@@ -468,6 +495,16 @@ export default function BoardView({
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ assignee_ids: nextIds }),
+    })
+  }
+
+  async function setRecurrence(item: BoardItem, recurrence: BoardItem['recurrence']) {
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, recurrence } : i))
+    closePopups()
+    await fetch(`/api/hub/boards/${board.id}/items/${item.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recurrence }),
     })
   }
 
@@ -640,6 +677,37 @@ export default function BoardView({
                             {(item.due_date || item.due_time) && (
                               <button onClick={() => { setDueDate(item, null); setDueTime(item, null) }} className="block text-xs text-white/40 hover:text-white/70 w-full text-left">Clear</button>
                             )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Repeat */}
+                      <div className="relative">
+                        <button
+                          onClick={e => { e.stopPropagation(); setShowRepeatPicker(showRepeatPicker === item.id ? null : item.id) }}
+                          className="flex items-center gap-1 text-xs text-white/40 hover:text-white/70 transition-colors"
+                        >
+                          <svg className="w-3.5 h-3.5 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          {item.recurrence !== 'none' ? (
+                            <span className="text-white/60">{RECURRENCE_LABEL[item.recurrence]}</span>
+                          ) : (
+                            <span className="text-white/30">Repeat</span>
+                          )}
+                        </button>
+                        {showRepeatPicker === item.id && (
+                          <div className="absolute left-0 top-6 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl py-1 min-w-[150px]" onClick={e => e.stopPropagation()}>
+                            {RECURRENCE_OPTIONS.map(o => (
+                              <button
+                                key={o.value}
+                                onClick={() => setRecurrence(item, o.value)}
+                                className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-gray-800 ${item.recurrence === o.value ? 'text-white' : 'text-gray-300'}`}
+                              >
+                                {o.label}
+                                {item.recurrence === o.value && <span className="ml-auto text-brand">✓</span>}
+                              </button>
+                            ))}
                           </div>
                         )}
                       </div>
