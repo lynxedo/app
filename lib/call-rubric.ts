@@ -204,3 +204,16 @@ Selling behaviors: Bundling (cross-sell ONE) — surfaced ONE relevant additiona
 - Quotes must be real and traceable to the transcript. Trim long quotes to the relevant phrase.
 - Never identify a speaker by name unless the transcript clearly establishes it.
 `
+
+// A non-conversation (automated attendant, voicemail system, cross-connection,
+// dead air, no live rep) must never carry a letter grade. The model usually
+// marks every category N/A in these cases but sometimes still stamps a grade —
+// so treat "no category actually scored" as N/A, deterministically.
+export function coachingHasRealScore(coaching: unknown): boolean {
+  const cats = (coaching as { categories?: unknown } | null)?.categories
+  if (!cats || typeof cats !== 'object') return false
+  return Object.values(cats as Record<string, { score?: string }>).some((c) => {
+    const s = (c?.score || '').toString().toLowerCase()
+    return s === 'strong' || s === 'adequate' || s === 'needs work'
+  })
+}

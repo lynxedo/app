@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { claudeAnalyze } from '@/lib/call-transcribe'
+import { coachingHasRealScore } from '@/lib/call-rubric'
 
 // Re-score historical dialer calls through the CURRENT coaching rubric, reusing
 // each call's already-saved transcript (no re-recording / re-transcription —
@@ -104,6 +105,12 @@ async function recoachOne(admin: Admin, call: CallRow) {
       createdAt: call.created_at,
     })
     coaching = (analysis?.coaching as (Coaching & Record<string, unknown>)) ?? NA_COACHING
+  }
+
+  // Even with a transcript, a non-conversation often returns all-N/A categories
+  // with a stray letter grade. If nothing was actually scored, force N/A.
+  if (coaching.overall_grade && coaching.overall_grade !== 'N/A' && !coachingHasRealScore(coaching)) {
+    coaching = { ...coaching, overall_grade: 'N/A' }
   }
 
   // Refresh the customer-facing fields too, so re-scored summaries reflect the

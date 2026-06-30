@@ -28,7 +28,7 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { CALL_COACHING_RUBRIC } from '@/lib/call-rubric'
+import { CALL_COACHING_RUBRIC, coachingHasRealScore } from '@/lib/call-rubric'
 
 
 // The engine whose results are mirrored onto the calls row + used by the
@@ -704,7 +704,7 @@ export async function processPendingCall(
   // Lift the coaching object (computed by Engine A / deepgram_claude) onto the
   // calls row as queryable columns for the coaching panel + scoreboard. Null
   // when the winning engine produced no coaching (e.g. the Twilio VI fallback).
-  const coaching =
+  let coaching =
     (winner.transcript_json as unknown as {
       analysis?: {
         coaching?: {
@@ -719,6 +719,11 @@ export async function processPendingCall(
         }
       }
     } | null)?.analysis?.coaching ?? null
+
+  // No real conversation scored -> never a letter grade (see coachingHasRealScore).
+  if (coaching && coaching.overall_grade && coaching.overall_grade !== 'N/A' && !coachingHasRealScore(coaching)) {
+    coaching = { ...coaching, overall_grade: 'N/A' }
+  }
 
   await admin
     .from('calls')
