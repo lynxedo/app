@@ -93,7 +93,7 @@ export function parseServiceProductBody(
     else { const n = typeof v === 'number' ? v : Number(v); if (!Number.isInteger(n) || n < 1 || n > 4) return { error: 'tank_default must be 1–4' }; out.tank_default = n }
   }
 
-  for (const key of ['rate_unit', 'program', 'notes'] as const) {
+  for (const key of ['rate_unit', 'program', 'notes', 'alt_group', 'batch_label'] as const) {
     if (key in body) {
       const v = body[key]
       if (v === null || v === undefined || v === '') out[key] = null
@@ -102,7 +102,18 @@ export function parseServiceProductBody(
     }
   }
 
+  // Mix-batch date window — YYYY-MM-DD, or null = open-ended / always-on.
+  for (const key of ['effective_start', 'effective_end'] as const) {
+    if (key in body) {
+      const v = body[key]
+      if (v === null || v === undefined || v === '') out[key] = null
+      else if (typeof v === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(v.trim())) out[key] = v.trim()
+      else return { error: `${key} must be a YYYY-MM-DD date` }
+    }
+  }
+
   if ('is_active' in body) out.is_active = !!body.is_active
+  if ('show_on_mix_sheet' in body) out.show_on_mix_sheet = !!body.show_on_mix_sheet
 
   if (!partial && Object.keys(out).length === 0) return { error: 'Nothing to create' }
   return out

@@ -1904,25 +1904,40 @@ function ServiceMappingTab() {
   return (
     <>
       <Section title="What is Service Mapping?">
-        <p>Service Mapping connects the work you sell to the products you actually apply. It lives at <strong className="text-white">Admin → Service Mapping</strong> and has two tabs: the <strong className="text-white">Line-Item Map</strong> (which products a Jobber line item uses) and <strong className="text-white">Current Rounds</strong> (which round is active for each program). This is the layer the Route Capacity tool and the Products Used log read from — so every job knows its products and rates.</p>
+        <p>Service Mapping connects the work you sell to the products you actually apply. It lives at <strong className="text-white">Admin → Service Mapping</strong> and has two tabs: the <strong className="text-white">Line-Item Map</strong> (which products a Jobber line item uses, and <em>when</em>) and <strong className="text-white">Current Rounds</strong>. This is the layer the <strong className="text-white">Technician Mix Sheet</strong>, the Route Capacity tool, and the Pesticide / Products-Used log all read from — so every job knows its products and rates for its date.</p>
       </Section>
 
       <Section title="Line-Item Map">
-        <p>Map each Jobber line item to the product(s) it applies — <strong className="text-white">a line item can use several products</strong>, so add each one. To add a mapping, start typing the line item (the field suggests your real Jobber names with how often each is used) and pick a product, then <strong className="text-white">+ Add</strong>.</p>
-        <p className="mt-2">Each mapping row lets you set:</p>
+        <p>Map each Jobber line item to the product(s) it applies — <strong className="text-white">a line item can use several products</strong>. To add a line item, start typing it (the field suggests your real Jobber names with how often each is used), optionally pick a first product, then <strong className="text-white">+ Add</strong>.</p>
+        <p className="mt-2"><strong className="text-white">Dated mixes.</strong> Your products change through the year, so each line item can hold several <strong className="text-white">mixes</strong> — each with its own <strong className="text-white">start and end date</strong>. Inside a line item, click <strong className="text-white">+ Add mix</strong>, set the dates and a label (e.g. “July 2026”), and add its products. The system automatically uses the mix whose dates cover each service date, so you can <strong className="text-white">build a whole year ahead</strong>. Use <strong className="text-white">Duplicate →</strong> to clone a mix into the next period (it starts the day after the current one ends) and just tweak it. If two mixes ever overlap, you&apos;ll see an amber warning — adjust the dates so each day maps to one mix. A mix left with <em>no</em> dates is <strong className="text-white">always-on</strong>, used only when no dated mix covers a date.</p>
+        <p className="mt-2">Each product row lets you set:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
           <li><strong className="text-white">Rate + Unit</strong> — overrides the product&apos;s default rate for this line item (leave blank to use the product default).</li>
-          <li><strong className="text-white">Program</strong> — which program this belongs to.</li>
+          <li><strong className="text-white">OR group</strong> — give two products the same OR-group name to mark them as alternatives (use one <em>or</em> the other), e.g. a liquid and its granular swap. They share one spot on the Mix Sheet.</li>
+          <li><strong className="text-white">Program</strong> — which program this belongs to (e.g. LHB, LHP, LHC, RRR).</li>
           <li><strong className="text-white">Tank</strong> — the default tank (1–4); routes can override it.</li>
           <li><strong className="text-white">Match</strong> — <em>contains</em> (the line item includes this text) or <em>exact</em>.</li>
           <li><strong className="text-white">Notes</strong> and an <strong className="text-white">Active</strong> toggle.</li>
         </ul>
-        <p className="mt-2">Changes save as you go. <strong className="text-white">Remove</strong> takes a product off a line item (soft delete — kept in the database).</p>
+        <p className="mt-2">Changes save as you go. <strong className="text-white">Remove</strong> takes a product off a mix; <strong className="text-white">Delete mix</strong> removes the whole batch (soft delete — kept in the database).</p>
       </Section>
 
       <Section title="Current Rounds">
         <p>Each program has a set of rounds, and one of them is the <strong className="text-white">active round</strong> — the products being applied right now. Click <strong className="text-white">Make current</strong> on a round to activate it; only one round per program can be active, so switching automatically clears the previous one. Click the active badge again to clear it.</p>
         <p className="mt-2">Within a round you can edit the <strong className="text-white">products</strong> (add from the dropdown, remove with the × on each chip), rename the round, set an <strong className="text-white">effective date</strong>, add a new round, or delete one. Most programs were pre-loaded with their rounds — you mainly need to mark which one is current and adjust the products.</p>
+      </Section>
+
+      <Section title="Technician Mix Sheet">
+        <p>The <strong className="text-white">Mix Sheet</strong> is its own tool in the Hub (and there&apos;s a <strong className="text-white">Mix Sheet →</strong> button at the top of this screen). It turns your dated mixes into a tech-facing tank chart — how much of each product to add for any water amount or lawn size — and <strong className="text-white">fills itself in</strong> from the mix in effect on the date you pick. Everyone on the team can open it; only admins edit it. Use the <strong className="text-white">On sheet</strong> checkbox on each product (above) to keep a product off the sheet while still recording + loading it.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Mix for [date]</strong> — pick any date and the sheet shows that day&apos;s mix.</li>
+          <li><strong className="text-white">Program chips</strong> — show or hide programs (LHB / LHP / LHC / RRR) to keep it to one page.</li>
+          <li><strong className="text-white">Reorder columns</strong> — admins use the <strong className="text-white">‹ ›</strong> arrows on each product column to set the order; it&apos;s saved for everyone.</li>
+          <li><strong className="text-white">Landscape PDF</strong> — prints black-and-white on a single page.</li>
+          <li><strong className="text-white">Override a rate</strong> — admins can type a different rate in a column header just for that month; the column recalculates. It does <em>not</em> change the mapping.</li>
+          <li><strong className="text-white">Notes</strong>, <strong className="text-white">Granular options</strong>, and the <strong className="text-white">Inspect / Treat</strong> checklist (PHC / BWP by BP / RC routes) are editable and saved per month.</li>
+        </ul>
+        <p className="mt-2">The same product at the same rate across several programs shows as <strong className="text-white">one column</strong>, tagged with each program. Give two products the same <strong className="text-white">OR group</strong> in the Line-Item Map and they show as either/or on the sheet.</p>
       </Section>
 
       <AdminOnly>

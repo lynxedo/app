@@ -84,7 +84,7 @@ export function parseTankBody(
 export async function loadCapacityData(supabase: SupabaseClient, companyId: string) {
   const [tanks, serviceProducts, products] = await Promise.all([
     supabase.from('tank_configs').select('id, tank_number, label, gallon_capacity, application_rate, is_active').eq('company_id', companyId).order('tank_number', { ascending: true }),
-    supabase.from('service_products').select('id, jobber_line_item_name, match_type, product_id, application_rate, rate_unit, program, tank_default, is_active').eq('company_id', companyId).is('deleted_at', null),
+    supabase.from('service_products').select('id, jobber_line_item_name, match_type, product_id, application_rate, rate_unit, program, tank_default, effective_start, effective_end, batch_label, is_active').eq('company_id', companyId).is('deleted_at', null),
     supabase.from('products').select('id, name, unit, application_rate, rate_basis').eq('company_id', companyId).is('deleted_at', null),
   ])
   return {
