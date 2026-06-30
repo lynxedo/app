@@ -243,7 +243,7 @@ function flattenDeepgramIntents(dg: DgResponse): string[] {
 // Claude narrative summary + coaching, reusing the Heroes rubric. Returns the
 // parsed JSON object, or null on failure (the engine still succeeds with the
 // Deepgram transcript + sentiment).
-async function claudeAnalyze(
+export async function claudeAnalyze(
   transcript: string,
   meta: { direction: string; phone: string; durationSec: number; createdAt: string | null }
 ): Promise<Record<string, unknown> | null> {
