@@ -33,9 +33,10 @@ const CSS = `
 .msroot .btn:disabled{opacity:.5}
 .msroot .saved{font-size:11.5px;color:var(--faint);font-weight:600}
 .msroot button:focus-visible,.msroot .chip:focus-visible,.msroot input:focus-visible{outline:2px solid #111;outline-offset:2px}
-.msroot .layout{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;align-items:start}
-@media (max-width:1080px){.msroot .layout{grid-template-columns:1fr}}
-.msroot.phone .layout{grid-template-columns:1fr}
+.msroot .layout{display:block}
+.msroot .extras{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
+@media (max-width:760px){.msroot .extras{grid-template-columns:1fr}}
+.msroot.phone .extras{grid-template-columns:1fr}
 .msroot .panel{background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
 .msroot .shead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line-soft)}
 .msroot .shead h2{margin:0;font-size:15px;font-weight:800}
@@ -50,6 +51,8 @@ const CSS = `
 .msroot thead th .prate{font-weight:700;color:#f0f0f0;font-size:11px;margin-top:2px}
 .msroot thead th .tags{display:grid;grid-template-columns:repeat(2,auto);gap:3px 4px;justify-content:end;margin-top:5px}
 .msroot thead th .tag{font-size:9px;font-weight:800;letter-spacing:.03em;padding:2px 5px;border-radius:5px;background:rgba(255,255,255,.18);color:#fff}
+.msroot thead th.prod{white-space:normal;width:84px;min-width:84px}
+.msroot thead th.prod .pname{display:block;white-space:normal;overflow-wrap:anywhere}
 .msroot th.size,.msroot td.size{position:sticky;left:0;z-index:2;text-align:left;min-width:74px}
 .msroot th.water,.msroot td.water{position:sticky;z-index:2;text-align:left;min-width:80px}
 .msroot thead th.size,.msroot thead th.water{z-index:4;text-align:left}
@@ -70,13 +73,15 @@ const CSS = `
 .msroot .elabel{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:700;margin-bottom:7px}
 .msroot .ro{white-space:pre-wrap;font-size:13px;line-height:1.5;color:var(--ink)}
 .msroot .ro.muted{color:var(--faint);font-style:italic}
+.msroot .print-only{display:none}
 .msroot textarea{width:100%;border:1px dashed var(--line);border-radius:9px;padding:10px;font-family:var(--ui);font-size:13px;color:var(--ink);line-height:1.5;resize:vertical;background:#fff}
 .msroot textarea.notes{min-height:140px}
 .msroot textarea.gran{min-height:96px}
 .msroot textarea:focus{outline:0;border-color:#111;box-shadow:0 0 0 3px #e7e7e7}
 .msroot .empty{padding:28px;text-align:center;color:var(--muted);font-size:13.5px}
 @media print{
-  @page{size:landscape;margin:.4in}
+  /* "letter landscape" (not the bare "landscape" keyword, which Chrome ignores). */
+  @page{size:letter landscape;margin:.35in}
   /* Print ONLY the mix sheet — hide the entire Hub shell (icon rail, sidebars,
      headers) regardless of its markup, then lift the sheet to the page origin. */
   html,body{background:#fff!important}
@@ -85,10 +90,18 @@ const CSS = `
   #ms-print{position:fixed!important;left:0!important;top:0!important;right:0!important;width:100%!important;background:#fff!important;overflow:visible!important}
   .msroot .pad{max-width:none;padding:0}
   .msroot .ms-noprint{display:none!important}
-  .msroot .layout{grid-template-columns:minmax(0,1fr) 260px;gap:12px}
+  .msroot .scroll{overflow:visible!important}
+  .msroot table{width:100%!important;table-layout:auto}
+  .msroot th,.msroot td{min-width:0!important}
+  /* Drop sticky + the JS-set left offset so columns align on paper. */
+  .msroot th.size,.msroot td.size,.msroot th.water,.msroot td.water{position:static!important;left:auto!important}
+  .msroot thead th.prod{width:auto;min-width:0}
   .msroot .panel{box-shadow:none;border-color:#bbb;break-inside:avoid}
-  .msroot thead th{font-size:10.5px;padding:6px 8px}
-  .msroot td{font-size:11px;padding:4px 8px}
+  .msroot .extras{break-inside:avoid;margin-top:12px}
+  .msroot thead th{font-size:9.5px;padding:4px 5px}
+  .msroot td{font-size:10px;padding:3px 5px}
+  .screen-only{display:none!important}
+  .print-only{display:block!important}
 }
 `
 
@@ -163,7 +176,7 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
     () => data.columns.filter(c => c.programKeys.some(k => selected.has(k))),
     [data.columns, selected],
   )
-  const fitsOnePage = cols.length <= 7
+  const fitsOnePage = cols.length <= 9 // ~9 narrow columns fit a landscape page
 
   return (
     <div id="ms-print" className={`msroot${phone ? ' phone' : ''}`}>
@@ -231,9 +244,9 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
                         const orStart = !!c.altGroup && (!prev || prev.altGroup !== c.altGroup)
                         const orEnd = !!c.altGroup && (!nextC || nextC.altGroup !== c.altGroup)
                         const orPair = !!c.altGroup && !!prev && prev.altGroup === c.altGroup
-                        const cls = `${orStart ? ' or-start' : ''}${orEnd ? ' or-end' : ''}`
+                        const cls = `prod${orStart ? ' or-start' : ''}${orEnd ? ' or-end' : ''}`
                         return (
-                          <th key={c.key} className={cls.trim()}>
+                          <th key={c.key} className={cls}>
                             {orPair && <span className="orbadge">OR</span>}
                             {orPair && <br />}
                             <span className="pname">{c.name}</span>
@@ -261,28 +274,36 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
               </div>
             )}
           </section>
+        </div>
 
-          <aside>
+        {cols.length > 0 && (
+          <div className="extras">
             <div className="panel">
               <div className="bhead">🌾 Granular options</div>
               <div className="bbody">
-                {canEdit ? (<>
-                  <div className="elabel">✎ Editable · saved for {monthLabel(asOf)}</div>
-                  <textarea className="gran" value={granular} placeholder={'e.g.\nRRR — ProPeat 5# per K, spot-spray weeds\nLHB — 28-3-10, 3.5# per K\nGranular preferred; liquid if weedy.'} onChange={e => { setGranular(e.target.value); saveConfig({ granular: e.target.value }) }} />
-                </>) : (granular ? <div className="ro">{granular}</div> : <div className="ro muted">No granular options noted.</div>)}
+                <div className="screen-only">
+                  {canEdit ? (<>
+                    <div className="elabel">✎ Editable · saved for {monthLabel(asOf)}</div>
+                    <textarea className="gran" value={granular} placeholder={'e.g.\nRRR — ProPeat 5# per K, spot-spray weeds\nLHB — 28-3-10, 3.5# per K\nGranular preferred; liquid if weedy.'} onChange={e => { setGranular(e.target.value); saveConfig({ granular: e.target.value }) }} />
+                  </>) : (granular ? <div className="ro">{granular}</div> : <div className="ro muted">No granular options noted.</div>)}
+                </div>
+                <div className="print-only ro">{granular}</div>
               </div>
             </div>
             <div className="panel">
               <div className="bhead">📝 Notes</div>
               <div className="bbody">
-                {canEdit ? (<>
-                  <div className="elabel">✎ Editable · saved for {monthLabel(asOf)}</div>
-                  <textarea className="notes" value={notes} placeholder={'Round notes for the crew — e.g. “Water in the next morning. RRR is granular this round. PHC + Bed Weed = inspection, treat new sales.”'} onChange={e => { setNotes(e.target.value); saveConfig({ notes: e.target.value }) }} />
-                </>) : (notes ? <div className="ro">{notes}</div> : <div className="ro muted">No notes for this month.</div>)}
+                <div className="screen-only">
+                  {canEdit ? (<>
+                    <div className="elabel">✎ Editable · saved for {monthLabel(asOf)}</div>
+                    <textarea className="notes" value={notes} placeholder={'Round notes for the crew — e.g. “Water in the next morning. RRR is granular this round. PHC + Bed Weed = inspection, treat new sales.”'} onChange={e => { setNotes(e.target.value); saveConfig({ notes: e.target.value }) }} />
+                  </>) : (notes ? <div className="ro">{notes}</div> : <div className="ro muted">No notes for this month.</div>)}
+                </div>
+                <div className="print-only ro">{notes}</div>
               </div>
             </div>
-          </aside>
-        </div>
+          </div>
+        )}
       </div>
     </div>
   )
