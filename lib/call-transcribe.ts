@@ -701,6 +701,25 @@ export async function processPendingCall(
     return { callId, status: 'error', engines, error: firstErr }
   }
 
+  // Lift the coaching object (computed by Engine A / deepgram_claude) onto the
+  // calls row as queryable columns for the coaching panel + scoreboard. Null
+  // when the winning engine produced no coaching (e.g. the Twilio VI fallback).
+  const coaching =
+    (winner.transcript_json as unknown as {
+      analysis?: {
+        coaching?: {
+          overall_grade?: string
+          headline?: string
+          must_listen?: boolean
+          must_listen_reason?: string
+          red_flags?: unknown
+          never_dos_triggered?: unknown
+          wins?: unknown
+          improvements?: unknown
+        }
+      }
+    } | null)?.analysis?.coaching ?? null
+
   await admin
     .from('calls')
     .update({
@@ -712,6 +731,16 @@ export async function processPendingCall(
       topics: winner.topics,
       intents: winner.intents,
       action_items: winner.action_items,
+      coaching_json: coaching,
+      coaching_grade: coaching?.overall_grade ?? null,
+      coaching_headline: coaching?.headline ?? null,
+      coaching_must_listen:
+        coaching && typeof coaching.must_listen === 'boolean' ? coaching.must_listen : null,
+      coaching_must_listen_reason: coaching?.must_listen_reason ?? null,
+      coaching_red_flags: coaching?.red_flags ?? null,
+      coaching_never_dos: coaching?.never_dos_triggered ?? null,
+      coaching_wins: coaching?.wins ?? null,
+      coaching_improvements: coaching?.improvements ?? null,
       transcription_status: 'complete',
       error_message: null,
     })
