@@ -19,12 +19,13 @@ export default async function MixSheetPage() {
     .eq('id', user.id)
     .single()
 
-  const isSuperAdmin = profile?.role === 'admin'
-  if (!isSuperAdmin && !profile?.can_admin_products) redirect('/hub/home')
+  // Any Hub user with a company may VIEW the sheet. Editing (notes, granular,
+  // saved program selection) is gated to admins / the Products grant.
   if (!profile?.company_id) redirect('/hub/home')
+  const canEdit = profile.role === 'admin' || !!profile.can_admin_products
 
   const admin = createAdminClient()
   const payload = await loadMixSheet(admin, profile.company_id, todayInTz())
 
-  return <MixSheetView initial={payload} />
+  return <MixSheetView initial={payload} canEdit={canEdit} />
 }

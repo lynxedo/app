@@ -21,6 +21,7 @@ export type MixMappingInput = {
   rate_unit: string | null
   program: string | null
   alt_group: string | null
+  show_on_mix_sheet?: boolean
 }
 
 export type MixProductInput = {
@@ -64,6 +65,7 @@ export function buildMixColumns(
   const cols = new Map<string, ColAccum>()
   for (const m of mappings) {
     if (!m.product_id) continue
+    if (m.show_on_mix_sheet === false) continue // excluded from the sheet only
     const p = productsById.get(m.product_id)
     if (!p) continue
     if (p.rate_basis !== 'per_1000sqft' && p.rate_basis !== 'per_gallon') continue

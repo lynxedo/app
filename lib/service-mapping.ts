@@ -29,6 +29,7 @@ export type ServiceProduct = {
   effective_end: string | null
   alt_group: string | null
   batch_label: string | null
+  show_on_mix_sheet: boolean // false = hide from the Technician Mix Sheet only
   is_active: boolean
   deleted_at: string | null
   created_at: string

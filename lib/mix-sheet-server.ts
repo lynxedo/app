@@ -7,19 +7,35 @@
 
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { requireAdminArea } from '@/lib/admin-auth'
+import { createClient } from '@/lib/supabase/server'
 import { selectMappingsForDate } from '@/lib/service-mapping'
 import {
   buildMixColumns, programsPresent, periodKeyFor, DEFAULT_TANK_RATE,
   type MixMappingInput, type MixProductInput, type MixColumn, type MixSheetConfig,
 } from '@/lib/mix-sheet'
 
-export async function gateMixSheet(): Promise<{ companyId: string } | { error: NextResponse }> {
-  const check = await requireAdminArea('products')
-  if (!check.ok || !check.company_id) {
-    return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
-  }
-  return { companyId: check.company_id }
+// Read gate: any signed-in Hub user with a company may VIEW the sheet. canEdit
+// (full admins or the Products grant) governs saving + the editable affordances.
+export async function gateMixSheetRead(): Promise<{ companyId: string; canEdit: boolean } | { error: NextResponse }> {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
+  const { data: profile } = await supabase
+    .from('user_profiles')
+    .select('role, company_id, can_admin_products')
+    .eq('id', user.id)
+    .single()
+  if (!profile?.company_id) return { error: NextResponse.json({ error: 'No company' }, { status: 403 }) }
+  const canEdit = profile.role === 'admin' || !!profile.can_admin_products
+  return { companyId: profile.company_id, canEdit }
+}
+
+// Write gate: only editors may save the per-month config.
+export async function gateMixSheetWrite(): Promise<{ companyId: string } | { error: NextResponse }> {
+  const r = await gateMixSheetRead()
+  if ('error' in r) return r
+  if (!r.canEdit) return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
+  return { companyId: r.companyId }
 }
 
 export type MixSheetPayload = {
@@ -42,7 +58,7 @@ type DatedSpRow = MixMappingInput & {
 export async function loadMixSheet(admin: SupabaseClient, companyId: string, asOf: string): Promise<MixSheetPayload> {
   const [sp, prod, tanks, cfg] = await Promise.all([
     admin.from('service_products')
-      .select('id, jobber_line_item_name, product_id, application_rate, rate_unit, program, alt_group, effective_start, effective_end, batch_label')
+      .select('id, jobber_line_item_name, product_id, application_rate, rate_unit, program, alt_group, show_on_mix_sheet, effective_start, effective_end, batch_label')
       .eq('company_id', companyId).eq('is_active', true).is('deleted_at', null),
     admin.from('products')
       .select('id, name, unit, application_rate, rate_basis')

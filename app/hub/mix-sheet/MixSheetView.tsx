@@ -68,6 +68,8 @@ const CSS = `
 .msroot .bhead{display:flex;align-items:center;gap:8px;padding:11px 14px;border-bottom:1px solid var(--line-soft);font-size:12px;font-weight:800;text-transform:uppercase;letter-spacing:.06em;color:#111}
 .msroot .bbody{padding:12px 14px}
 .msroot .elabel{font-size:10.5px;text-transform:uppercase;letter-spacing:.07em;color:var(--faint);font-weight:700;margin-bottom:7px}
+.msroot .ro{white-space:pre-wrap;font-size:13px;line-height:1.5;color:var(--ink)}
+.msroot .ro.muted{color:var(--faint);font-style:italic}
 .msroot textarea{width:100%;border:1px dashed var(--line);border-radius:9px;padding:10px;font-family:var(--ui);font-size:13px;color:var(--ink);line-height:1.5;resize:vertical;background:#fff}
 .msroot textarea.notes{min-height:140px}
 .msroot textarea.gran{min-height:96px}
@@ -103,7 +105,7 @@ function initSelected(p: MixSheetPayload): Set<string> {
   return s.size ? s : all
 }
 
-export default function MixSheetView({ initial }: { initial: MixSheetPayload }) {
+export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPayload; canEdit: boolean }) {
   const [asOf, setAsOf] = useState(initial.asOf)
   const [data, setData] = useState<MixSheetPayload>(initial)
   const [selected, setSelected] = useState<Set<string>>(() => initSelected(initial))
@@ -131,6 +133,7 @@ export default function MixSheetView({ initial }: { initial: MixSheetPayload }) 
   }, [asOf, data.asOf])
 
   function saveConfig(next: { selected?: string[] | null; notes?: string; granular?: string }) {
+    if (!canEdit) return // non-editors can filter their own view, but never persist
     if (saveTimer.current) window.clearTimeout(saveTimer.current)
     saveTimer.current = window.setTimeout(async () => {
       const body = {
@@ -263,15 +266,19 @@ export default function MixSheetView({ initial }: { initial: MixSheetPayload }) 
             <div className="panel">
               <div className="bhead">🌾 Granular options</div>
               <div className="bbody">
-                <div className="elabel">✎ Editable · saved for {monthLabel(asOf)}</div>
-                <textarea className="gran" value={granular} placeholder={'e.g.\nRRR — ProPeat 5# per K, spot-spray weeds\nLHB — 28-3-10, 3.5# per K\nGranular preferred; liquid if weedy.'} onChange={e => { setGranular(e.target.value); saveConfig({ granular: e.target.value }) }} />
+                {canEdit ? (<>
+                  <div className="elabel">✎ Editable · saved for {monthLabel(asOf)}</div>
+                  <textarea className="gran" value={granular} placeholder={'e.g.\nRRR — ProPeat 5# per K, spot-spray weeds\nLHB — 28-3-10, 3.5# per K\nGranular preferred; liquid if weedy.'} onChange={e => { setGranular(e.target.value); saveConfig({ granular: e.target.value }) }} />
+                </>) : (granular ? <div className="ro">{granular}</div> : <div className="ro muted">No granular options noted.</div>)}
               </div>
             </div>
             <div className="panel">
               <div className="bhead">📝 Notes</div>
               <div className="bbody">
-                <div className="elabel">✎ Editable · saved for {monthLabel(asOf)}</div>
-                <textarea className="notes" value={notes} placeholder={'Round notes for the crew — e.g. “Water in the next morning. RRR is granular this round. PHC + Bed Weed = inspection, treat new sales.”'} onChange={e => { setNotes(e.target.value); saveConfig({ notes: e.target.value }) }} />
+                {canEdit ? (<>
+                  <div className="elabel">✎ Editable · saved for {monthLabel(asOf)}</div>
+                  <textarea className="notes" value={notes} placeholder={'Round notes for the crew — e.g. “Water in the next morning. RRR is granular this round. PHC + Bed Weed = inspection, treat new sales.”'} onChange={e => { setNotes(e.target.value); saveConfig({ notes: e.target.value }) }} />
+                </>) : (notes ? <div className="ro">{notes}</div> : <div className="ro muted">No notes for this month.</div>)}
               </div>
             </div>
           </aside>

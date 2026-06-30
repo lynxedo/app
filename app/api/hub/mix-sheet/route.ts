@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { gateMixSheet, loadMixSheet, parseMixSheetConfigBody } from '@/lib/mix-sheet-server'
+import { gateMixSheetRead, gateMixSheetWrite, loadMixSheet, parseMixSheetConfigBody } from '@/lib/mix-sheet-server'
 import { todayInTz } from '@/lib/service-mapping'
 
 export const dynamic = 'force-dynamic'
@@ -8,7 +8,7 @@ export const dynamic = 'force-dynamic'
 // GET ?asOf=YYYY-MM-DD → the live sheet for that date (columns + programs +
 // per-month config). Used when the user changes the date.
 export async function GET(request: Request) {
-  const ctx = await gateMixSheet()
+  const ctx = await gateMixSheetRead()
   if ('error' in ctx) return ctx.error
 
   const url = new URL(request.url)
@@ -22,7 +22,7 @@ export async function GET(request: Request) {
 
 // POST → upsert the per-month config (program selection / notes / granular box).
 export async function POST(request: Request) {
-  const ctx = await gateMixSheet()
+  const ctx = await gateMixSheetWrite()
   if ('error' in ctx) return ctx.error
 
   let body: Record<string, unknown>

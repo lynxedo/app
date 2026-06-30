@@ -1928,7 +1928,7 @@ function ServiceMappingTab() {
       </Section>
 
       <Section title="Technician Mix Sheet">
-        <p>The <strong className="text-white">Mix Sheet</strong> (button at the top of this screen, or in the Admin list) turns your dated mixes into a tech-facing tank chart — how much of each product to add for any water amount or lawn size. It <strong className="text-white">fills itself in</strong> from the mix in effect on the date you pick, so there&apos;s nothing to re-enter.</p>
+        <p>The <strong className="text-white">Mix Sheet</strong> is its own tool in the Hub (and there&apos;s a <strong className="text-white">Mix Sheet →</strong> button at the top of this screen). It turns your dated mixes into a tech-facing tank chart — how much of each product to add for any water amount or lawn size — and <strong className="text-white">fills itself in</strong> from the mix in effect on the date you pick. Everyone on the team can open it; only admins edit it. Use the <strong className="text-white">On sheet</strong> checkbox on each product (above) to keep a product off the sheet while still recording + loading it.</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
           <li><strong className="text-white">Mix for [date]</strong> — pick any date and the sheet shows that day&apos;s mix.</li>
           <li><strong className="text-white">Program chips</strong> — show or hide programs (LHB / LHP / LHC / RRR) to keep it to one page.</li>

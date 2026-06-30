@@ -265,6 +265,9 @@ export default function ServiceMappingPanel({
             onBlur={e => { const v = e.target.value.trim() || null; if (v !== sp.notes) patchMapping(sp.id, { notes: v }) }} />
         </td>
         <td className="py-2 pr-3 text-center">
+          <input type="checkbox" checked={sp.show_on_mix_sheet !== false} onChange={e => patchMapping(sp.id, { show_on_mix_sheet: e.target.checked })} title="Show this product on the Technician Mix Sheet (still recorded + loaded + decremented either way)" />
+        </td>
+        <td className="py-2 pr-3 text-center">
           <input type="checkbox" checked={sp.is_active} onChange={e => patchMapping(sp.id, { is_active: e.target.checked })} />
         </td>
         <td className="py-2 text-right">
@@ -281,7 +284,7 @@ export default function ServiceMappingPanel({
           <h1 className="text-xl md:text-2xl font-bold tracking-tight">Service Mapping</h1>
           <div className="flex gap-2">
             <Link href="/hub/admin/service-builder" className={btn}>← Service Builder</Link>
-            <Link href="/hub/admin/mix-sheet" className={btn}>Mix Sheet →</Link>
+            <Link href="/hub/mix-sheet" className={btn}>Mix Sheet →</Link>
           </div>
         </div>
         <p className="text-sm text-gray-400 mb-4">Tie Jobber line items to products as <strong className="text-gray-300">dated mixes</strong> — give each mix a start/end so the right products are used as the season changes. The system picks the mix in effect on each service date. Feeds the Technician Mix Sheet, Route Capacity + the Pesticide record.</p>
@@ -365,6 +368,7 @@ export default function ServiceMappingPanel({
                                 <th className="pb-2 pr-3 font-medium">Tank</th>
                                 <th className="pb-2 pr-3 font-medium">Match</th>
                                 <th className="pb-2 pr-3 font-medium">Notes</th>
+                                <th className="pb-2 pr-3 font-medium">On sheet</th>
                                 <th className="pb-2 pr-3 font-medium">Active</th>
                                 <th className="pb-2 font-medium" />
                               </tr>
