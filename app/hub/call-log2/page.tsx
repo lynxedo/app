@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { CoachingPanel, coachingGradeColor, type CoachingData } from '@/components/hub/CoachingPanel'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -48,6 +49,9 @@ type Call = {
   sentiment: string | null
   call_type: string | null
   action_items: string[] | null
+  coaching_grade: string | null
+  coaching_must_listen: boolean | null
+  coaching_json: CoachingData | null
   contact: { id: string; name: string; phone: string } | null
   ai_results: AiResult[]
   voicemail: Voicemail | null
@@ -110,7 +114,7 @@ function sentimentChip(sentiment: string | null | undefined) {
 // Left-panel row (mirrors CallRow in the original Call Log)
 // ---------------------------------------------------------------------------
 
-function CallRow({ call, selected, onClick }: { call: Call; selected: boolean; onClick: () => void }) {
+function CallRow({ call, selected, onClick, canViewCoaching }: { call: Call; selected: boolean; onClick: () => void; canViewCoaching: boolean }) {
   const dir = directionLabel(call.direction)
   const status = statusLabel(call)
   const displayNumber = call.direction === 'inbound' ? call.from_number : call.to_number
@@ -135,6 +139,7 @@ function CallRow({ call, selected, onClick }: { call: Call; selected: boolean; o
         <span>{formatDuration(call.recording_duration_seconds || call.duration_seconds)}</span>
         {status && <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${status.color}`}>{status.label}</span>}
         {sent && <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${sent.color}`}>{sent.label}</span>}
+        {canViewCoaching && call.coaching_grade && <span className={`px-1.5 py-0.5 rounded text-xs font-bold border ${coachingGradeColor(call.coaching_grade)}`}>{call.coaching_grade}</span>}
       </div>
       <div className="text-xs text-gray-600 mt-0.5">{formatDateTime(call.created_at)}</div>
     </button>
@@ -145,7 +150,7 @@ function CallRow({ call, selected, onClick }: { call: Call; selected: boolean; o
 // Right-panel detail (mirrors CallDetail in the original Call Log)
 // ---------------------------------------------------------------------------
 
-function CallDetail({ call }: { call: Call }) {
+function CallDetail({ call, canViewCoaching }: { call: Call; canViewCoaching: boolean }) {
   const [showTranscript, setShowTranscript] = useState(false)
   const [showEngines, setShowEngines] = useState(false)
   const dir = directionLabel(call.direction)
@@ -261,6 +266,11 @@ function CallDetail({ call }: { call: Call }) {
         </div>
       )}
 
+      {/* Coaching */}
+      {canViewCoaching && call.coaching_json && (
+        <CoachingPanel coaching={call.coaching_json} />
+      )}
+
       {/* Transcript */}
       {transcript && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
@@ -341,6 +351,7 @@ export default function CallLog2Page() {
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<Call | null>(null)
   const [showDetail, setShowDetail] = useState(false) // mobile: true = detail visible
+  const [canViewCoaching, setCanViewCoaching] = useState(false)
 
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
@@ -374,6 +385,7 @@ export default function CallLog2Page() {
       if (!res.ok) throw new Error(data.error || 'Failed to load')
       const list: Call[] = data.calls ?? []
       setCalls(list)
+      setCanViewCoaching(!!data.can_view_coaching)
       if (data.company_id) setCompanyId(data.company_id)
       if (opts.silent) {
         setSelected(prev => (prev ? list.find(c => c.id === prev.id) ?? prev : null))
@@ -491,6 +503,7 @@ export default function CallLog2Page() {
                 call={call}
                 selected={selected?.id === call.id}
                 onClick={() => { setSelected(call); setShowDetail(true) }}
+                canViewCoaching={canViewCoaching}
               />
             ))}
           </div>
@@ -499,7 +512,7 @@ export default function CallLog2Page() {
         {/* Right: detail */}
         <div className={`${showDetail ? 'flex' : 'hidden md:flex'} flex-1 flex-col overflow-y-auto`}>
           {selected ? (
-            <CallDetail call={selected} />
+            <CallDetail call={selected} canViewCoaching={canViewCoaching} />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-600 text-sm">
               Select a call to view details

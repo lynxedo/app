@@ -31,10 +31,20 @@ export async function GET(request: NextRequest) {
   const admin = createAdminClient()
   const companyId = profile.company_id || ''
 
+  // Coaching (rep-performance) scores are gated separately from transcripts so
+  // they stay manager-only. Read via the admin client (untyped) to avoid a
+  // generated-types dependency on the new column.
+  const { data: coachPerm } = await admin
+    .from('user_profiles')
+    .select('can_access_coaching')
+    .eq('id', user.id)
+    .single()
+  const canViewCoaching = coachPerm?.can_access_coaching === true || profile.role === 'admin'
+
   let q = admin
     .from('calls')
     .select(
-      'id, direction, from_number, to_number, status, duration_seconds, created_at, answered_at, ended_at, recording_storage_path, recording_duration_seconds, transcription_status, transcript, ai_summary, sentiment, call_type, topics, action_items, handled_by, initiated_by, contact:txt_contacts!contact_id(id, name, phone)'
+      'id, direction, from_number, to_number, status, duration_seconds, created_at, answered_at, ended_at, recording_storage_path, recording_duration_seconds, transcription_status, transcript, ai_summary, sentiment, call_type, topics, action_items, coaching_grade, coaching_must_listen, coaching_json, handled_by, initiated_by, contact:txt_contacts!contact_id(id, name, phone)'
     )
     .eq('company_id', companyId)
     .order('created_at', { ascending: false })
@@ -87,13 +97,20 @@ export async function GET(request: NextRequest) {
   const vmByCallId: Record<string, typeof voicemails[0]> = {}
   for (const vm of voicemails) vmByCallId[vm.call_id] = vm
 
-  const enriched = (calls ?? []).map(c => ({
-    ...c,
-    ai_results: aiByCallId[c.id] ?? [],
-    voicemail: vmByCallId[c.id] ?? null,
-  }))
+  const enriched = (calls ?? []).map(c => {
+    const base = {
+      ...c,
+      ai_results: aiByCallId[c.id] ?? [],
+      voicemail: vmByCallId[c.id] ?? null,
+    }
+    // Strip coaching for users without the dedicated permission.
+    if (!canViewCoaching) {
+      return { ...base, coaching_grade: null, coaching_must_listen: null, coaching_json: null }
+    }
+    return base
+  })
 
   // company_id lets the client subscribe to the `call-log2:{companyId}`
   // realtime broadcast (fired when a transcription completes) for live updates.
-  return NextResponse.json({ calls: enriched, company_id: companyId })
+  return NextResponse.json({ calls: enriched, company_id: companyId, can_view_coaching: canViewCoaching })
 }
