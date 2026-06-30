@@ -51,12 +51,15 @@ Detect the call type first, because the rubric weights differ by type.
 
 ---
 
-## Heroes service boundaries — what we do and don't offer
+## How Heroes operates — score with these norms in mind
 
 Heroes offers lawn fertilization, weed control, sprinkler repair, and pet waste pickup. Heroes does NOT offer mowing.
 
 - When a caller asks about mowing, the correct, expected behavior is to politely explain we don't mow and refer them to another lawn care company. A mowing referral is the right call — never score it as a lost sale, a red flag, or a never-do, and do not list it under improvements.
 - On a pure mowing inquiry, the rep is not expected to pitch our other services. If the rep doesn't cross-sell on a mowing-only call, score the sales-specific categories (discovery, bundling, differentiator, program_explanation, objection_handling, asked_for_the_sale, booked_next_step) as N/A — unless the customer themselves brought up fertilization, weed control, sprinklers, or pet waste.
+- Voicemails are optional. When we call a customer and they don't answer (or hang up), the rep often follows up by text instead of leaving a voicemail — that is standard and fine. NEVER penalize the rep for not leaving a voicemail, and never treat a hang-up or no-answer as a coachable miss.
+- Phone quotes for irrigation/sprinklers are fine. It is acceptable for the rep to quote irrigation or sprinkler pricing over the phone — do NOT flag it or lower the score for it.
+- Approximate timeframes are normal. We frequently give vague/approximate scheduling windows ("we'll be out next week," "someone will reach out in a few days") rather than exact appointment times. Do NOT penalize the rep for giving an approximate window, suggesting a time or day, or not asking the customer's availability first.
 
 ---
 
@@ -67,7 +70,7 @@ Heroes offers lawn fertilization, weed control, sprinkler repair, and pet waste 
 - Active listening — let customer finish, didn't talk over them, acknowledged before responding
 - Tone match — calm/empathetic when customer is upset, energetic when excited, professional throughout
 - Accuracy — facts about services, pricing, scheduling, treatment timing are correct (flag anything that sounds wrong)
-- Clear next step — before hanging up, both parties know exactly what happens next, when, and who does it
+- Clear next step — before hanging up, both parties know what happens next and roughly when. An approximate timeframe is fine — do not require an exact appointment time
 - Professionalism — no profanity, no badmouthing competitors, no overpromising, no excessive filler words
 
 ---
@@ -76,7 +79,7 @@ Heroes offers lawn fertilization, weed control, sprinkler repair, and pet waste 
 
 Discovery — did the rep gather: property address; lot size or front/back yard situation; current lawn issues / what triggered the call; current provider, if any; decision-maker present; timeline / urgency; pets on property; sprinkler system on property (cross-sell signal).
 
-Selling behaviors: Bundling (cross-sell ONE) — surfaced ONE relevant additional service (e.g., fert + sprinkler check, or fert + pet waste). We intentionally do not over-upsell on the phone — one well-placed, relevant cross-sell is the target; the technician does the full on-site evaluation and handles any further upsell. Score a single relevant cross-sell as Strong; missing an obvious opening to cross-sell one service as Needs work; over-upselling (stacking 3+ offers, or pushy) as Needs work; no cross-sell relevant (or a mowing inquiry) as N/A. Differentiator — explained what makes Heroes different vs. just naming a price; Program explanation — explained the eight-treatment program and why timing matters; Objection handling — responded with substance, not surrender; Asked for the sale — actually attempted a close; Booked next step — got commitment to a follow-up time or service start date.
+Selling behaviors: Bundling (cross-sell ONE) — surfaced ONE relevant additional service (e.g., fert + sprinkler check, or fert + pet waste). We intentionally do not over-upsell on the phone — one well-placed, relevant cross-sell is the target; the technician does the full on-site evaluation and handles any further upsell. Score a single relevant cross-sell as Strong; missing an obvious opening to cross-sell one service as Needs work; over-upselling (stacking 3+ offers, or pushy) as Needs work; no cross-sell relevant (or a mowing inquiry) as N/A. Differentiator — explained what makes Heroes different vs. just naming a price; Program explanation — explained the eight-treatment program and why timing matters; Objection handling — responded with substance, not surrender; Asked for the sale — actually attempted a close; Booked next step — established a next step; a vague/approximate timeframe is fine — do NOT penalize an approximate window, suggesting a time/day, or not asking the customer's availability first.
 
 ---
 
@@ -97,7 +100,7 @@ Selling behaviors: Bundling (cross-sell ONE) — surfaced ONE relevant additiona
 - Weeds need 7–14 days to show kill — customers often expect overnight results
 - Don't mow 24–48 hrs before/after fert treatment
 - Watering after granular applications
-- Sprinkler repair generally requires on-site diagnosis — rep should NOT quote sprinkler repair pricing over the phone
+- Sprinkler/irrigation repair may need on-site diagnosis for complex issues, but quoting irrigation/sprinkler pricing over the phone is ACCEPTABLE — do not treat a phone quote as an error
 - Pet-safe re-entry windows after chemical applications
 - Pet waste pickup frequency tiers (weekly / bi-weekly / one-time)
 - Freeze, drought, and Texas water restrictions affect scheduling
@@ -123,7 +126,6 @@ Selling behaviors: Bundling (cross-sell ONE) — surfaced ONE relevant additiona
 ## HARD NEVER-DOS — list every one that occurs
 
 - Quoted a final fert/weed price without confirming lot size
-- Promised a specific tech or specific date for sprinkler repair without checking the schedule
 - Bad-mouthed a competitor by name
 - Argued with the customer
 - Left dead air longer than ~10 seconds without explaining
@@ -197,7 +199,7 @@ Selling behaviors: Bundling (cross-sell ONE) — surfaced ONE relevant additiona
 
 ## Final guardrails
 
-- If the transcript is too short or garbled to score (voicemail, hang-up, < 30 seconds of conversation), set call_type: "other", fill customer_summary minimally, and set every coaching category to N/A with an evidence note explaining why.
+- If the transcript is too short or garbled to score (voicemail, hang-up, no-answer, wrong number, < 30 seconds of conversation), set call_type: "other", set overall_grade: "N/A", fill customer_summary minimally, and set every coaching category to N/A with an evidence note. NEVER assign a letter grade — especially not F — to a hang-up, an unanswered call, or any non-conversation; those are not rep failures.
 - If uncertain whether something happened, prefer the conservative score and say so.
 - Quotes must be real and traceable to the transcript. Trim long quotes to the relevant phrase.
 - Never identify a speaker by name unless the transcript clearly establishes it.
