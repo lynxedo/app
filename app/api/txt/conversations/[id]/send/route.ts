@@ -5,6 +5,7 @@ import {
   sendSms,
   twilioConfigured,
   twilioConvSendMessage,
+  isShortCode,
 } from '@/lib/twilio'
 import { renderTemplate } from '@/lib/txt-templates'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
@@ -93,6 +94,11 @@ export async function POST(
     ? null
     : (Array.isArray(conv.contact) ? conv.contact[0] : conv.contact)
 
+  // Short-code destinations (e.g. texting JOIN to 65208) are keyword opt-ins:
+  // the body must be the bare keyword. Don't append our signature or the
+  // STOP-to-opt-out compliance line, which would corrupt the keyword.
+  const isShortcodeDest = !isGroup && isShortCode(directContact?.phone)
+
   // Resolve the merge-field render context once — used for the template body AND
   // the signature (so a company default like "{first_name}, - Heroes" fills in).
   let finalText = text
@@ -142,7 +148,7 @@ export async function POST(
     const companySig = (settings?.company_default_signature || '').trim()
     let signature = allowUserSig && personalSig ? personalSig : companySig
 
-    if (signature) {
+    if (signature && !isShortcodeDest) {
       // Don't repeat the signature back-to-back from the same sender.
       const { data: lastOut } = await admin
         .from('txt_messages')
@@ -165,7 +171,7 @@ export async function POST(
     // (defaults: enabled, "Reply STOP to opt out.").
     const optOutEnabled = settings?.opt_out_on_first_message !== false
     const optOutMsg = (settings?.opt_out_message ?? 'Reply STOP to opt out.').trim()
-    if (!isGroup && directContact?.id && optOutEnabled && optOutMsg) {
+    if (!isGroup && !isShortcodeDest && directContact?.id && optOutEnabled && optOutMsg) {
       const { data: priorOutbound } = await admin
         .from('txt_messages')
         .select('id')
