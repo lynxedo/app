@@ -544,6 +544,14 @@ async function writeEngineResult(
   companyId: string | null,
   r: EngineResult
 ): Promise<void> {
+  // Average the Deepgram utterance confidences into a single transcript score.
+  let avgConfidence: number | null = null
+  const utt = (r.transcript_json as { deepgram?: { utterances?: Array<{ confidence?: number }> } } | null)
+    ?.deepgram?.utterances
+  if (Array.isArray(utt)) {
+    const vals = utt.map(u => u?.confidence).filter((v): v is number => typeof v === 'number')
+    if (vals.length > 0) avgConfidence = vals.reduce((a, b) => a + b, 0) / vals.length
+  }
   await admin
     .from('call_ai_results')
     .upsert(
@@ -560,6 +568,7 @@ async function writeEngineResult(
         intents: r.intents,
         action_items: r.action_items,
         call_type: r.call_type,
+        avg_confidence: avgConfidence,
         latency_ms: r.latency_ms,
         error_message: r.error_message,
       },

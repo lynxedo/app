@@ -311,6 +311,8 @@ export default function CallLogPage() {
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
   const [keyword, setKeyword] = useState('')
+  const [gradeFilter, setGradeFilter] = useState('')
+  const [repFilter, setRepFilter] = useState('')
 
   const fetchCalls = useCallback(async (params: {
     dateFrom: string; dateTo: string; phone: string; name: string; keyword: string
@@ -354,10 +356,20 @@ export default function CallLogPage() {
     setPhone('')
     setName('')
     setKeyword('')
+    setGradeFilter('')
+    setRepFilter('')
     fetchCalls({ dateFrom: '', dateTo: '', phone: '', name: '', keyword: '' })
   }
 
-  const hasFilters = dateFrom || dateTo || phone || name || keyword
+  const hasFilters = dateFrom || dateTo || phone || name || keyword || gradeFilter || repFilter
+
+  // Client-side narrowing on the loaded list (grade + rep); the rest is server-side.
+  const repOptions = Array.from(new Set(calls.map(c => c.rep_name).filter((v): v is string => !!v))).sort()
+  const filteredCalls = calls.filter(c => {
+    if (gradeFilter && (c.coaching_grade || '') !== gradeFilter) return false
+    if (repFilter && (c.rep_name || '') !== repFilter) return false
+    return true
+  })
 
   return (
     <div className="flex-1 flex flex-col bg-gray-950 text-white overflow-hidden">
@@ -422,6 +434,27 @@ export default function CallLogPage() {
               className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm placeholder-gray-600 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors w-36"
             />
           </div>
+          {canViewCoaching && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Score</label>
+              <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)}
+                className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors">
+                <option value="">All</option>
+                <option value="A">A</option><option value="B">B</option><option value="C">C</option>
+                <option value="D">D</option><option value="F">F</option><option value="N/A">N/A</option>
+              </select>
+            </div>
+          )}
+          {repOptions.length > 1 && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Rep</label>
+              <select value={repFilter} onChange={e => setRepFilter(e.target.value)}
+                className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors">
+                <option value="">All</option>
+                {repOptions.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+          )}
           <button
             onClick={handleSearch}
             disabled={loading}
@@ -445,17 +478,17 @@ export default function CallLogPage() {
         {/* Call list */}
         <div className="w-80 shrink-0 border-r border-gray-800 flex flex-col overflow-hidden">
           <div className="shrink-0 px-4 py-2 border-b border-gray-800 text-xs text-gray-500">
-            {loading ? 'Loading…' : `${calls.length} call${calls.length !== 1 ? 's' : ''}`}
+            {loading ? 'Loading…' : `${filteredCalls.length} call${filteredCalls.length !== 1 ? 's' : ''}`}
           </div>
 
           <div className="flex-1 overflow-y-auto">
             {error && (
               <div className="px-4 py-3 text-sm text-red-400">{error}</div>
             )}
-            {!loading && !error && calls.length === 0 && (
+            {!loading && !error && filteredCalls.length === 0 && (
               <div className="px-4 py-8 text-sm text-gray-500 text-center">No calls found</div>
             )}
-            {calls.map(call => (
+            {filteredCalls.map(call => (
               <CallRow
                 key={call.id}
                 call={call}

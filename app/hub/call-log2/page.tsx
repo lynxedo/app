@@ -18,6 +18,7 @@ type AiResult = {
   intents: unknown
   action_items: string[] | null
   call_type: string | null
+  avg_confidence: number | null
   latency_ms: number | null
   error_message: string | null
 }
@@ -316,6 +317,10 @@ function CallDetail({ call, canViewCoaching }: { call: Call; canViewCoaching: bo
       {/* Transcription pending notice */}
       {call.recording_storage_path && (call.transcription_status === 'pending' || call.transcription_status === 'processing') && !summary && !transcript && (
         <p className="text-xs text-gray-500 italic">Transcription in progress — check back in a minute.</p>
+      )}
+
+      {winner?.avg_confidence != null && (
+        <div className="text-xs text-gray-600 text-right">Transcript confidence: {Math.round(winner.avg_confidence * 100)}%</div>
       )}
     </div>
   )

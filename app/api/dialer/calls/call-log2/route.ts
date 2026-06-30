@@ -67,7 +67,7 @@ export async function GET(request: NextRequest) {
     call_id: string; engine: string; transcript_text: string | null
     summary: string | null; sentiment: string | null; sentiment_json: unknown
     topics: string[] | null; intents: unknown; action_items: string[] | null
-    call_type: string | null; latency_ms: number | null; error_message: string | null
+    call_type: string | null; avg_confidence: number | null; latency_ms: number | null; error_message: string | null
   }[] = []
   let voicemails: {
     id: string; call_id: string; from_number: string
@@ -79,7 +79,7 @@ export async function GET(request: NextRequest) {
     const [aiRes, vmRes] = await Promise.all([
       admin
         .from('call_ai_results')
-        .select('call_id, engine, transcript_text, summary, sentiment, sentiment_json, topics, intents, action_items, call_type, latency_ms, error_message')
+        .select('call_id, engine, transcript_text, summary, sentiment, sentiment_json, topics, intents, action_items, call_type, avg_confidence, latency_ms, error_message')
         .in('call_id', callIds),
       admin
         .from('voicemails')
