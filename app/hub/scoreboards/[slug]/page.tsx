@@ -7,6 +7,8 @@ import Scoreboard2View from './Scoreboard2View'
 import Scoreboard3View from './Scoreboard3View'
 import Scoreboard4View from './Scoreboard4View'
 import Scoreboard5View from './Scoreboard5View'
+import Scoreboard6View from './Scoreboard6View'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export const metadata = { title: 'Scoreboard' }
 export const dynamic = 'force-dynamic'
@@ -27,12 +29,17 @@ export default async function ScoreboardPage({ params }: { params: Promise<{ slu
     .single()
 
   const isAdmin = profile?.role === 'admin'
+  const admin = createAdminClient()
+  const { data: coach } = await admin
+    .from('user_profiles').select('can_access_coaching').eq('id', user.id).single()
   const perms = {
     isAdmin,
     canAccessScoreboards: !!profile?.can_access_scoreboards,
+    canAccessCoaching: coach?.can_access_coaching === true,
     allowedBoardSlugs: isAdmin ? [] : await getGrantedBoardSlugs(supabase, user.id),
   }
-  // Section gate + per-board view grant (Admin -> Scoreboards). Admins see all.
+  // Section gate + per-board view grant (Admin -> Scoreboards). Admins see all,
+  // EXCEPT the coaching board, which is gated on can_access_coaching alone.
   if (!canSeeBoard(perms, board.slug)) redirect('/hub')
 
   switch (board.slug) {
@@ -46,6 +53,8 @@ export default async function ScoreboardPage({ params }: { params: Promise<{ slu
       return <Scoreboard4View meta={board} />
     case '5':
       return <Scoreboard5View meta={board} />
+    case '6':
+      return <Scoreboard6View meta={board} />
     default:
       notFound()
   }

@@ -3,6 +3,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { boardsForUser } from '@/lib/scoreboards/registry'
 import { getGrantedBoardSlugs } from '@/lib/scoreboards/access'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export const metadata = { title: 'Scoreboards' }
 export const dynamic = 'force-dynamic'
@@ -19,14 +20,20 @@ export default async function ScoreboardsIndexPage() {
     .single()
 
   const isAdmin = profile?.role === 'admin'
-  // Section-level access: admin, or the can_access_scoreboards flag. Without it
-  // the user has no business here at all → send them home.
-  const hasSectionAccess = isAdmin || !!profile?.can_access_scoreboards
+  // Coaching board (slug '6') is gated on can_access_coaching alone (admins don't
+  // bypass); read it via the admin client to avoid a generated-types dependency.
+  const admin = createAdminClient()
+  const { data: coach } = await admin
+    .from('user_profiles').select('can_access_coaching').eq('id', user.id).single()
+  const canAccessCoaching = coach?.can_access_coaching === true
+  // Section-level access: admin, the can_access_scoreboards flag, or coaching.
+  const hasSectionAccess = isAdmin || !!profile?.can_access_scoreboards || canAccessCoaching
   if (!hasSectionAccess) redirect('/hub')
 
   const perms = {
     isAdmin,
     canAccessScoreboards: !!profile?.can_access_scoreboards,
+    canAccessCoaching,
     allowedBoardSlugs: isAdmin ? [] : await getGrantedBoardSlugs(supabase, user.id),
   }
   const boards = boardsForUser(perms)
