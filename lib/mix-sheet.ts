@@ -49,6 +49,10 @@ export type MixSheetConfig = {
   selected_programs: string[] | null // null/empty = all
   notes: string | null
   granular_options: string | null
+  // Per-month rate overrides keyed by column key (productId|ratePerK|unit) → ratePerK.
+  overrides: { rates?: Record<string, number> } | null
+  // Per-month Inspect/Treat checklist keyed "ITEM.ROUTE.ACTION" (e.g. PHC.BP.Treat) → bool.
+  checklist: Record<string, boolean> | null
 }
 
 type ColAccum = MixColumn & { _progs: Set<string>; _tags: Set<string> }

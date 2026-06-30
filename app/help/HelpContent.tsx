@@ -1934,7 +1934,8 @@ function ServiceMappingTab() {
           <li><strong className="text-white">Program chips</strong> — show or hide programs (LHB / LHP / LHC / RRR) to keep it to one page.</li>
           <li><strong className="text-white">Reorder columns</strong> — admins use the <strong className="text-white">‹ ›</strong> arrows on each product column to set the order; it&apos;s saved for everyone.</li>
           <li><strong className="text-white">Landscape PDF</strong> — prints black-and-white on a single page.</li>
-          <li><strong className="text-white">Notes</strong> and <strong className="text-white">Granular options</strong> are editable and saved per month.</li>
+          <li><strong className="text-white">Override a rate</strong> — admins can type a different rate in a column header just for that month; the column recalculates. It does <em>not</em> change the mapping.</li>
+          <li><strong className="text-white">Notes</strong>, <strong className="text-white">Granular options</strong>, and the <strong className="text-white">Inspect / Treat</strong> checklist (PHC / BWP by BP / RC routes) are editable and saved per month.</li>
         </ul>
         <p className="mt-2">The same product at the same rate across several programs shows as <strong className="text-white">one column</strong>, tagged with each program. Give two products the same <strong className="text-white">OR group</strong> in the Line-Item Map and they show as either/or on the sheet.</p>
       </Section>

@@ -68,7 +68,7 @@ export async function loadMixSheet(admin: SupabaseClient, companyId: string, asO
       .select('application_rate, tank_number')
       .eq('company_id', companyId).eq('is_active', true).order('tank_number', { ascending: true }),
     admin.from('mix_sheets')
-      .select('period_key, label, selected_programs, notes, granular_options')
+      .select('period_key, label, selected_programs, notes, granular_options, overrides, checklist')
       .eq('company_id', companyId).eq('period_key', periodKeyFor(asOf)).maybeSingle(),
     admin.from('mix_sheet_settings')
       .select('product_order')
@@ -91,6 +91,8 @@ export async function loadMixSheet(admin: SupabaseClient, companyId: string, asO
     selected_programs: c?.selected_programs ?? null,
     notes: c?.notes ?? null,
     granular_options: c?.granular_options ?? null,
+    overrides: c?.overrides ?? null,
+    checklist: c?.checklist ?? null,
   }
 
   return { asOf, tankRate, columns, programs, productOrder, config }
@@ -110,6 +112,14 @@ export function parseMixSheetConfigBody(body: Record<string, unknown>): Record<s
     if (v == null) out.selected_programs = null
     else if (Array.isArray(v)) out.selected_programs = v.filter(x => typeof x === 'string')
     else return { error: 'selected_programs must be an array' }
+  }
+  if ('overrides' in body) {
+    const v = body.overrides
+    out.overrides = v && typeof v === 'object' && !Array.isArray(v) ? v : {}
+  }
+  if ('checklist' in body) {
+    const v = body.checklist
+    out.checklist = v && typeof v === 'object' && !Array.isArray(v) ? v : {}
   }
   return out
 }

@@ -34,8 +34,8 @@ const CSS = `
 .msroot .saved{font-size:11.5px;color:var(--faint);font-weight:600}
 .msroot button:focus-visible,.msroot .chip:focus-visible,.msroot input:focus-visible{outline:2px solid #111;outline-offset:2px}
 .msroot .layout{display:block}
-.msroot .extras{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:16px}
-@media (max-width:760px){.msroot .extras{grid-template-columns:1fr}}
+.msroot .extras{display:grid;grid-template-columns:repeat(auto-fit,minmax(248px,1fr));gap:16px;margin-top:16px;align-items:start}
+@media (max-width:520px){.msroot .extras{grid-template-columns:1fr}}
 .msroot.phone .extras{grid-template-columns:1fr}
 .msroot .panel{background:#fff;border:1px solid var(--line);border-radius:12px;box-shadow:0 1px 2px rgba(0,0,0,.05)}
 .msroot .shead{display:flex;flex-wrap:wrap;align-items:center;justify-content:space-between;gap:8px;padding:12px 16px;border-bottom:1px solid var(--line-soft)}
@@ -49,6 +49,9 @@ const CSS = `
 .msroot thead th{position:sticky;top:0;z-index:3;background:var(--band);color:#fff;text-align:right;padding:9px 12px;font-size:12px;font-weight:700;vertical-align:bottom;white-space:nowrap}
 .msroot thead th .pname{font-size:13px;font-weight:800}
 .msroot thead th .prate{font-weight:700;color:#f0f0f0;font-size:11px;margin-top:2px}
+.msroot .prate .rate-in{width:44px;background:transparent;border:0;border-bottom:1px dashed rgba(255,255,255,.5);color:#fff;font-size:11px;font-weight:700;font-family:var(--ui);text-align:right;padding:0 1px;appearance:textfield;-moz-appearance:textfield}
+.msroot .prate .rate-in:focus{outline:0;border-bottom-color:#fff}
+.msroot .prate .rate-in::-webkit-inner-spin-button,.msroot .prate .rate-in::-webkit-outer-spin-button{-webkit-appearance:none;margin:0}
 .msroot thead th .tags{display:grid;grid-template-columns:repeat(2,auto);gap:3px 4px;justify-content:end;margin-top:5px}
 .msroot thead th .tag{font-size:9px;font-weight:800;letter-spacing:.03em;padding:2px 5px;border-radius:5px;background:rgba(255,255,255,.18);color:#fff}
 .msroot thead th.prod{white-space:normal;width:84px;min-width:84px}
@@ -77,6 +80,16 @@ const CSS = `
 .msroot .ro{white-space:pre-wrap;font-size:13px;line-height:1.5;color:var(--ink)}
 .msroot .ro.muted{color:var(--faint);font-style:italic}
 .msroot .print-only{display:none}
+.msroot .checkgrid{display:grid;grid-template-columns:1fr 1fr;gap:16px}
+@media (max-width:520px){.msroot .checkgrid{grid-template-columns:1fr}}
+.msroot .cg-head{display:grid;grid-template-columns:1fr 50px 50px;align-items:center;margin-bottom:5px;font-size:10.5px;font-weight:800;text-transform:uppercase;letter-spacing:.04em;color:var(--faint)}
+.msroot .cg-head .cg-item{color:#111;font-size:12.5px}
+.msroot .cg-head span:not(.cg-item){text-align:center}
+.msroot .cg-row{display:grid;grid-template-columns:1fr 50px 50px;align-items:center;padding:3px 0}
+.msroot .cg-row .cg-route{font-weight:700;font-size:13px;color:var(--ink)}
+.msroot .cbx{width:18px;height:18px;border:1.5px solid #555;border-radius:4px;background:#fff;display:inline-grid;place-items:center;padding:0;cursor:pointer;justify-self:center}
+.msroot span.cbx{cursor:default}
+.msroot .cbx.on::after{content:"✓";font-size:13px;font-weight:800;color:#111;line-height:1}
 .msroot textarea{width:100%;border:1px dashed var(--line);border-radius:9px;padding:10px;font-family:var(--ui);font-size:13px;color:var(--ink);line-height:1.5;resize:vertical;background:#fff}
 .msroot textarea.notes{min-height:140px}
 .msroot textarea.gran{min-height:96px}
@@ -128,6 +141,8 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
   const [notes, setNotes] = useState(initial.config.notes ?? '')
   const [granular, setGranular] = useState(initial.config.granular_options ?? '')
   const [order, setOrder] = useState<string[]>(initial.productOrder)
+  const [rates, setRates] = useState<Record<string, number>>(() => initial.config.overrides?.rates ?? {})
+  const [checklist, setChecklist] = useState<Record<string, boolean>>(() => initial.config.checklist ?? {})
   const [phone, setPhone] = useState(false)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
@@ -142,14 +157,14 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
       .then(r => r.json())
       .then((p: MixSheetPayload) => {
         if (cancelled || !p || !p.columns) return
-        setData(p); setSelected(initSelected(p)); setNotes(p.config.notes ?? ''); setGranular(p.config.granular_options ?? ''); setOrder(p.productOrder)
+        setData(p); setSelected(initSelected(p)); setNotes(p.config.notes ?? ''); setGranular(p.config.granular_options ?? ''); setOrder(p.productOrder); setRates(p.config.overrides?.rates ?? {}); setChecklist(p.config.checklist ?? {})
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setBusy(false) })
     return () => { cancelled = true }
   }, [asOf, data.asOf])
 
-  function saveConfig(next: { selected?: string[] | null; notes?: string; granular?: string }) {
+  function saveConfig(next: { selected?: string[] | null; notes?: string; granular?: string; rates?: Record<string, number>; checklist?: Record<string, boolean> }) {
     if (!canEdit) return // non-editors can filter their own view, but never persist
     if (saveTimer.current) window.clearTimeout(saveTimer.current)
     saveTimer.current = window.setTimeout(async () => {
@@ -159,6 +174,8 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
         selected_programs: next.selected !== undefined ? next.selected : (selected.size === data.programs.length ? null : [...selected]),
         notes: next.notes !== undefined ? next.notes : notes,
         granular_options: next.granular !== undefined ? next.granular : granular,
+        overrides: { rates: next.rates !== undefined ? next.rates : rates },
+        checklist: next.checklist !== undefined ? next.checklist : checklist,
       }
       try {
         const r = await fetch('/api/hub/mix-sheet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
@@ -174,6 +191,25 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
       saveConfig({ selected: next.size === data.programs.length ? null : [...next] })
       return next
     })
+  }
+
+  // Per-month rate override (admin) — falls back to the mapping rate.
+  const effRate = (c: { key: string; ratePerK: number }) => rates[c.key] ?? c.ratePerK
+  function setRate(c: { key: string; ratePerK: number }, raw: string) {
+    const n = raw === '' ? NaN : Number(raw)
+    const next = { ...rates }
+    if (!isFinite(n) || n === c.ratePerK) delete next[c.key] // blank or = mapping → clear override
+    else next[c.key] = n
+    setRates(next)
+    saveConfig({ rates: next })
+  }
+
+  function toggleCheck(key: string) {
+    if (!canEdit) return
+    const next = { ...checklist }
+    if (next[key]) delete next[key]; else next[key] = true
+    setChecklist(next)
+    saveConfig({ checklist: next })
   }
 
   const cols = useMemo(
@@ -274,7 +310,13 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
                             {orPair && <span className="orbadge">OR</span>}
                             {orPair && <br />}
                             <span className="pname">{c.name}</span>
-                            <div className="prate">{fmtAmt(c.ratePerK)} {c.unit}/K</div>
+                            <div className="prate">
+                              {canEdit
+                                ? <input className="rate-in ms-noprint" type="number" step="any" value={effRate(c)} onChange={e => setRate(c, e.target.value)} aria-label={`Rate for ${c.name}`} title="Override this month's rate (doesn't change the mapping)" />
+                                : <span>{fmtAmt(effRate(c))}</span>}
+                              {canEdit && <span className="print-only">{fmtAmt(effRate(c))}</span>}
+                              {' '}{c.unit}/K
+                            </div>
                             <div className="tags">{c.tags.map(t => <span key={t} className="tag">{t}</span>)}</div>
                           </th>
                         )
@@ -289,7 +331,7 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
                         {cols.map((c, i) => {
                           const prev = cols[i - 1], nextC = cols[i + 1]
                           const cls = `${(c.altGroup && (!prev || prev.altGroup !== c.altGroup)) ? ' or-start' : ''}${(c.altGroup && (!nextC || nextC.altGroup !== c.altGroup)) ? ' or-end' : ''}`
-                          return <td key={c.key} className={cls.trim()}>{fmtAmt(k * c.ratePerK)}<span className="u">{c.unit}</span></td>
+                          return <td key={c.key} className={cls.trim()}>{fmtAmt(k * effRate(c))}<span className="u">{c.unit}</span></td>
                         })}
                       </tr>
                     ))}
@@ -324,6 +366,31 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
                   </>) : (notes ? <div className="ro">{notes}</div> : <div className="ro muted">No notes for this month.</div>)}
                 </div>
                 <div className="print-only ro">{notes}</div>
+              </div>
+            </div>
+            <div className="panel">
+              <div className="bhead">🔍 Inspect / Treat</div>
+              <div className="bbody">
+                {canEdit && <div className="elabel">✎ Editable · saved for {monthLabel(asOf)}</div>}
+                <div className="checkgrid">
+                  {(['PHC', 'BWP'] as const).map(item => (
+                    <div key={item} className="checkgroup">
+                      <div className="cg-head"><span className="cg-item">{item}</span><span>Inspect</span><span>Treat</span></div>
+                      {(['BP', 'RC'] as const).map(route => (
+                        <div key={route} className="cg-row">
+                          <span className="cg-route">{route}</span>
+                          {(['Inspect', 'Treat'] as const).map(action => {
+                            const key = `${item}.${route}.${action}`
+                            const on = !!checklist[key]
+                            return canEdit
+                              ? <button key={action} type="button" className={`cbx${on ? ' on' : ''}`} aria-pressed={on} aria-label={`${item} ${route} ${action}`} onClick={() => toggleCheck(key)} />
+                              : <span key={action} className={`cbx${on ? ' on' : ''}`} role="img" aria-label={`${item} ${route} ${action}: ${on ? 'checked' : 'unchecked'}`} />
+                          })}
+                        </div>
+                      ))}
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
           </div>
