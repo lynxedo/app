@@ -1927,6 +1927,17 @@ function ServiceMappingTab() {
         <p className="mt-2">Within a round you can edit the <strong className="text-white">products</strong> (add from the dropdown, remove with the × on each chip), rename the round, set an <strong className="text-white">effective date</strong>, add a new round, or delete one. Most programs were pre-loaded with their rounds — you mainly need to mark which one is current and adjust the products.</p>
       </Section>
 
+      <Section title="Technician Mix Sheet">
+        <p>The <strong className="text-white">Mix Sheet</strong> (button at the top of this screen, or in the Admin list) turns your dated mixes into a tech-facing tank chart — how much of each product to add for any water amount or lawn size. It <strong className="text-white">fills itself in</strong> from the mix in effect on the date you pick, so there&apos;s nothing to re-enter.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Mix for [date]</strong> — pick any date and the sheet shows that day&apos;s mix.</li>
+          <li><strong className="text-white">Program chips</strong> — show or hide programs (LHB / LHP / LHC / RRR) to keep it to one page.</li>
+          <li><strong className="text-white">Landscape PDF</strong> — prints black-and-white on a single page.</li>
+          <li><strong className="text-white">Notes</strong> and <strong className="text-white">Granular options</strong> are editable and saved per month.</li>
+        </ul>
+        <p className="mt-2">The same product at the same rate across several programs shows as <strong className="text-white">one column</strong>, tagged with each program. Give two products the same <strong className="text-white">OR group</strong> in the Line-Item Map and they show as either/or on the sheet.</p>
+      </Section>
+
       <AdminOnly>
         <Section title="Permissions">
           <p>Uses the same <strong className="text-white">Products</strong> grant as the Products catalog and the Service Builder — full admins, or managers with the Products admin grant.</p>

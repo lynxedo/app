@@ -279,7 +279,10 @@ export default function ServiceMappingPanel({
       <div className="max-w-5xl mx-auto px-4 md:px-6 py-5 max-md:pl-14">
         <div className="flex items-start justify-between gap-3 mb-1">
           <h1 className="text-xl md:text-2xl font-bold tracking-tight">Service Mapping</h1>
-          <Link href="/hub/admin/service-builder" className={btn}>← Service Builder</Link>
+          <div className="flex gap-2">
+            <Link href="/hub/admin/service-builder" className={btn}>← Service Builder</Link>
+            <Link href="/hub/admin/mix-sheet" className={btn}>Mix Sheet →</Link>
+          </div>
         </div>
         <p className="text-sm text-gray-400 mb-4">Tie Jobber line items to products as <strong className="text-gray-300">dated mixes</strong> — give each mix a start/end so the right products are used as the season changes. The system picks the mix in effect on each service date. Feeds the Technician Mix Sheet, Route Capacity + the Pesticide record.</p>
 
