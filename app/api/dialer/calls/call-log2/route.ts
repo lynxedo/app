@@ -27,14 +27,26 @@ export async function GET(request: NextRequest) {
   const dateFrom = searchParams.get('date_from') || ''
   const dateTo = searchParams.get('date_to') || ''
   const phone = searchParams.get('phone') || ''
+  const keyword = searchParams.get('keyword') || ''
 
   const admin = createAdminClient()
   const companyId = profile.company_id || ''
 
+  // Coaching (rep-performance) scores are gated separately from transcripts so
+  // they stay manager-only. Read via the admin client (untyped) to avoid a
+  // generated-types dependency on the new column.
+  const { data: coachPerm } = await admin
+    .from('user_profiles')
+    .select('can_access_coaching')
+    .eq('id', user.id)
+    .single()
+  // Manager-only: gated on can_access_coaching ALONE — admins do NOT bypass.
+  const canViewCoaching = coachPerm?.can_access_coaching === true
+
   let q = admin
     .from('calls')
     .select(
-      'id, direction, from_number, to_number, status, duration_seconds, created_at, answered_at, ended_at, recording_storage_path, recording_duration_seconds, transcription_status, transcript, ai_summary, sentiment, call_type, topics, action_items, handled_by, initiated_by, contact:txt_contacts!contact_id(id, name, phone)'
+      'id, direction, from_number, to_number, status, duration_seconds, created_at, answered_at, ended_at, recording_storage_path, recording_duration_seconds, transcription_status, transcript, ai_summary, sentiment, call_type, topics, action_items, coaching_grade, coaching_must_listen, coaching_json, handled_by, initiated_by, contact:txt_contacts!contact_id(id, name, phone)'
     )
     .eq('company_id', companyId)
     .order('created_at', { ascending: false })
@@ -46,6 +58,7 @@ export async function GET(request: NextRequest) {
     const digits = phone.replace(/\D/g, '')
     q = q.or(`from_number.ilike.%${digits}%,to_number.ilike.%${digits}%`)
   }
+  if (keyword) q = q.ilike('transcript', `%${keyword}%`)
 
   const { data: calls, error } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -55,7 +68,7 @@ export async function GET(request: NextRequest) {
     call_id: string; engine: string; transcript_text: string | null
     summary: string | null; sentiment: string | null; sentiment_json: unknown
     topics: string[] | null; intents: unknown; action_items: string[] | null
-    call_type: string | null; latency_ms: number | null; error_message: string | null
+    call_type: string | null; avg_confidence: number | null; latency_ms: number | null; error_message: string | null
   }[] = []
   let voicemails: {
     id: string; call_id: string; from_number: string
@@ -67,7 +80,7 @@ export async function GET(request: NextRequest) {
     const [aiRes, vmRes] = await Promise.all([
       admin
         .from('call_ai_results')
-        .select('call_id, engine, transcript_text, summary, sentiment, sentiment_json, topics, intents, action_items, call_type, latency_ms, error_message')
+        .select('call_id, engine, transcript_text, summary, sentiment, sentiment_json, topics, intents, action_items, call_type, avg_confidence, latency_ms, error_message')
         .in('call_id', callIds),
       admin
         .from('voicemails')
@@ -87,13 +100,62 @@ export async function GET(request: NextRequest) {
   const vmByCallId: Record<string, typeof voicemails[0]> = {}
   for (const vm of voicemails) vmByCallId[vm.call_id] = vm
 
-  const enriched = (calls ?? []).map(c => ({
-    ...c,
-    ai_results: aiByCallId[c.id] ?? [],
-    voicemail: vmByCallId[c.id] ?? null,
-  }))
+  // Resolve the agent (who handled an inbound / made an outbound call) to a name.
+  const userIds = Array.from(
+    new Set((calls ?? []).flatMap(c => [c.handled_by, c.initiated_by]).filter((v): v is string => !!v))
+  )
+  const nameById: Record<string, string> = {}
+  if (userIds.length > 0) {
+    const { data: users } = await admin.from('hub_users').select('id, display_name').in('id', userIds)
+    for (const u of users ?? []) {
+      const row = u as { id: string; display_name: string | null }
+      if (row.display_name) nameById[row.id] = row.display_name
+    }
+  }
+  const agentName = (c: { direction?: string | null; handled_by?: string | null; initiated_by?: string | null }) => {
+    const id = (c.direction === 'inbound' ? c.handled_by : c.initiated_by) || c.handled_by || c.initiated_by
+    return id ? nameById[id] ?? null : null
+  }
+
+  const enriched = (calls ?? []).map(c => {
+    const base = {
+      ...c,
+      agent_name: agentName(c),
+      ai_results: aiByCallId[c.id] ?? [],
+      voicemail: vmByCallId[c.id] ?? null,
+    }
+    // Strip coaching for users without the dedicated permission.
+    if (!canViewCoaching) {
+      return { ...base, coaching_grade: null, coaching_must_listen: null, coaching_json: null }
+    }
+    return base
+  })
+
+  // Attach the manager's review (override grade + notes + reviewed flag); the
+  // override takes precedence for the displayed grade.
+  let withReviews: Record<string, unknown>[] = enriched as Record<string, unknown>[]
+  if (canViewCoaching && callIds.length > 0) {
+    const { data: reviews } = await admin
+      .from('call_coaching_reviews')
+      .select('call_id, override_grade, manager_notes, acknowledged, reviewed_at')
+      .eq('call_source', 'dialer')
+      .in('call_id', callIds)
+    const rByCall: Record<string, { override_grade: string | null; manager_notes: string | null; acknowledged: boolean }> = {}
+    for (const r of reviews ?? []) {
+      const row = r as { call_id: string; override_grade: string | null; manager_notes: string | null; acknowledged: boolean }
+      rByCall[row.call_id] = row
+    }
+    withReviews = (enriched as Record<string, unknown>[]).map(c => {
+      const review = rByCall[(c as { id: string }).id] ?? null
+      return {
+        ...c,
+        review,
+        coaching_grade: review?.override_grade ?? (c as { coaching_grade?: string | null }).coaching_grade ?? null,
+      }
+    })
+  }
 
   // company_id lets the client subscribe to the `call-log2:{companyId}`
   // realtime broadcast (fired when a transcription completes) for live updates.
-  return NextResponse.json({ calls: enriched, company_id: companyId })
+  return NextResponse.json({ calls: withReviews, company_id: companyId, can_view_coaching: canViewCoaching })
 }

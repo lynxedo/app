@@ -642,6 +642,15 @@ export type Database = {
           ai_summary: string | null
           answered_at: string | null
           call_type: string | null
+          coaching_grade: string | null
+          coaching_headline: string | null
+          coaching_improvements: Json | null
+          coaching_json: Json | null
+          coaching_must_listen: boolean | null
+          coaching_must_listen_reason: string | null
+          coaching_never_dos: Json | null
+          coaching_red_flags: Json | null
+          coaching_wins: Json | null
           company_id: string
           conference_agent_sid: string | null
           conference_customer_sid: string | null
@@ -685,6 +694,15 @@ export type Database = {
           ai_summary?: string | null
           answered_at?: string | null
           call_type?: string | null
+          coaching_grade?: string | null
+          coaching_headline?: string | null
+          coaching_improvements?: Json | null
+          coaching_json?: Json | null
+          coaching_must_listen?: boolean | null
+          coaching_must_listen_reason?: string | null
+          coaching_never_dos?: Json | null
+          coaching_red_flags?: Json | null
+          coaching_wins?: Json | null
           company_id: string
           conference_agent_sid?: string | null
           conference_customer_sid?: string | null
@@ -728,6 +746,15 @@ export type Database = {
           ai_summary?: string | null
           answered_at?: string | null
           call_type?: string | null
+          coaching_grade?: string | null
+          coaching_headline?: string | null
+          coaching_improvements?: Json | null
+          coaching_json?: Json | null
+          coaching_must_listen?: boolean | null
+          coaching_must_listen_reason?: string | null
+          coaching_never_dos?: Json | null
+          coaching_red_flags?: Json | null
+          coaching_wins?: Json | null
           company_id?: string
           conference_agent_sid?: string | null
           conference_customer_sid?: string | null

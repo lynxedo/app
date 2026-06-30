@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { CoachingPanel, coachingGradeColor, COACHING_CATEGORIES, type CoachingData, type CoachingReview } from '@/components/hub/CoachingPanel'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -17,6 +18,7 @@ type AiResult = {
   intents: unknown
   action_items: string[] | null
   call_type: string | null
+  avg_confidence: number | null
   latency_ms: number | null
   error_message: string | null
 }
@@ -48,6 +50,11 @@ type Call = {
   sentiment: string | null
   call_type: string | null
   action_items: string[] | null
+  agent_name: string | null
+  coaching_grade: string | null
+  coaching_must_listen: boolean | null
+  coaching_json: CoachingData | null
+  review: CoachingReview | null
   contact: { id: string; name: string; phone: string } | null
   ai_results: AiResult[]
   voicemail: Voicemail | null
@@ -110,7 +117,7 @@ function sentimentChip(sentiment: string | null | undefined) {
 // Left-panel row (mirrors CallRow in the original Call Log)
 // ---------------------------------------------------------------------------
 
-function CallRow({ call, selected, onClick }: { call: Call; selected: boolean; onClick: () => void }) {
+function CallRow({ call, selected, onClick, canViewCoaching }: { call: Call; selected: boolean; onClick: () => void; canViewCoaching: boolean }) {
   const dir = directionLabel(call.direction)
   const status = statusLabel(call)
   const displayNumber = call.direction === 'inbound' ? call.from_number : call.to_number
@@ -135,6 +142,8 @@ function CallRow({ call, selected, onClick }: { call: Call; selected: boolean; o
         <span>{formatDuration(call.recording_duration_seconds || call.duration_seconds)}</span>
         {status && <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${status.color}`}>{status.label}</span>}
         {sent && <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${sent.color}`}>{sent.label}</span>}
+        {canViewCoaching && call.coaching_grade && <span className={`px-1.5 py-0.5 rounded text-xs font-bold border ${coachingGradeColor(call.coaching_grade)}`}>{call.coaching_grade}</span>}
+        {call.agent_name && <span className="text-gray-600">· {call.agent_name}</span>}
       </div>
       <div className="text-xs text-gray-600 mt-0.5">{formatDateTime(call.created_at)}</div>
     </button>
@@ -145,7 +154,7 @@ function CallRow({ call, selected, onClick }: { call: Call; selected: boolean; o
 // Right-panel detail (mirrors CallDetail in the original Call Log)
 // ---------------------------------------------------------------------------
 
-function CallDetail({ call }: { call: Call }) {
+function CallDetail({ call, canViewCoaching }: { call: Call; canViewCoaching: boolean }) {
   const [showTranscript, setShowTranscript] = useState(false)
   const [showEngines, setShowEngines] = useState(false)
   const dir = directionLabel(call.direction)
@@ -182,6 +191,7 @@ function CallDetail({ call }: { call: Call }) {
           <span>{formatDuration(call.recording_duration_seconds || call.duration_seconds)}</span>
           {sent && <span className={`px-2 py-0.5 rounded text-xs font-medium ${sent.color}`}>{sent.label}</span>}
           {callType && <span className="px-2 py-0.5 rounded text-xs bg-gray-800 text-gray-300">{callType}</span>}
+          {call.agent_name && <span className="text-gray-400">· {call.agent_name}</span>}
         </div>
       </div>
 
@@ -261,6 +271,11 @@ function CallDetail({ call }: { call: Call }) {
         </div>
       )}
 
+      {/* Coaching */}
+      {canViewCoaching && call.coaching_json && (
+        <CoachingPanel coaching={call.coaching_json} callId={call.id} source="dialer" review={call.review} />
+      )}
+
       {/* Transcript */}
       {transcript && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
@@ -303,6 +318,10 @@ function CallDetail({ call }: { call: Call }) {
       {call.recording_storage_path && (call.transcription_status === 'pending' || call.transcription_status === 'processing') && !summary && !transcript && (
         <p className="text-xs text-gray-500 italic">Transcription in progress — check back in a minute.</p>
       )}
+
+      {winner?.avg_confidence != null && (
+        <div className="text-xs text-gray-600 text-right">Transcript confidence: {Math.round(winner.avg_confidence * 100)}%</div>
+      )}
     </div>
   )
 }
@@ -341,21 +360,26 @@ export default function CallLog2Page() {
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<Call | null>(null)
   const [showDetail, setShowDetail] = useState(false) // mobile: true = detail visible
+  const [canViewCoaching, setCanViewCoaching] = useState(false)
 
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [phone, setPhone] = useState('')
+  const [keyword, setKeyword] = useState('')
+  const [gradeFilter, setGradeFilter] = useState('')
+  const [repFilter, setRepFilter] = useState('')
+  const [catFilter, setCatFilter] = useState('')
 
   // companyId (from the API response) keys the realtime channel; filtersRef
   // lets a background refetch reuse whatever filters are currently applied.
   const [companyId, setCompanyId] = useState('')
-  const filtersRef = useRef({ dateFrom: '', dateTo: '', phone: '' })
+  const filtersRef = useRef({ dateFrom: '', dateTo: '', phone: '', keyword: '' })
 
   // silent = background refresh from the realtime broadcast: no loading
   // flash, and the open detail panel stays open (swapped to the fresh row so
   // a just-finished transcript appears in place).
   const fetchCalls = useCallback(async (
-    params: { dateFrom: string; dateTo: string; phone: string },
+    params: { dateFrom: string; dateTo: string; phone: string; keyword: string },
     opts: { silent?: boolean } = {}
   ) => {
     filtersRef.current = params
@@ -368,12 +392,14 @@ export default function CallLog2Page() {
       if (params.dateFrom) qs.set('date_from', params.dateFrom)
       if (params.dateTo) qs.set('date_to', params.dateTo)
       if (params.phone) qs.set('phone', params.phone)
+      if (params.keyword) qs.set('keyword', params.keyword)
 
       const res = await fetch(`/api/dialer/calls/call-log2?${qs}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to load')
       const list: Call[] = data.calls ?? []
       setCalls(list)
+      setCanViewCoaching(!!data.can_view_coaching)
       if (data.company_id) setCompanyId(data.company_id)
       if (opts.silent) {
         setSelected(prev => (prev ? list.find(c => c.id === prev.id) ?? prev : null))
@@ -388,7 +414,7 @@ export default function CallLog2Page() {
   }, [])
 
   useEffect(() => {
-    fetchCalls({ dateFrom: '', dateTo: '', phone: '' })
+    fetchCalls({ dateFrom: '', dateTo: '', phone: '', keyword: '' })
   }, [fetchCalls])
 
   // Live updates: the transcription pipeline broadcasts `call-updated` on
@@ -414,13 +440,22 @@ export default function CallLog2Page() {
     }
   }, [companyId, fetchCalls])
 
-  function handleSearch() { fetchCalls({ dateFrom, dateTo, phone }) }
+  function handleSearch() { fetchCalls({ dateFrom, dateTo, phone, keyword }) }
   function handleClear() {
-    setDateFrom(''); setDateTo(''); setPhone('')
-    fetchCalls({ dateFrom: '', dateTo: '', phone: '' })
+    setDateFrom(''); setDateTo(''); setPhone(''); setKeyword(''); setGradeFilter(''); setRepFilter(''); setCatFilter('')
+    fetchCalls({ dateFrom: '', dateTo: '', phone: '', keyword: '' })
   }
 
-  const hasFilters = dateFrom || dateTo || phone
+  const hasFilters = dateFrom || dateTo || phone || keyword || gradeFilter || repFilter || catFilter
+
+  // Client-side narrowing on the loaded list (grade + rep); keyword/date/phone are server-side.
+  const repOptions = Array.from(new Set(calls.map(c => c.agent_name).filter((v): v is string => !!v))).sort()
+  const filteredCalls = calls.filter(c => {
+    if (gradeFilter && (c.coaching_grade || '') !== gradeFilter) return false
+    if (repFilter && (c.agent_name || '') !== repFilter) return false
+    if (catFilter && (c.coaching_json?.categories?.[catFilter]?.score || '').toLowerCase() !== 'needs work') return false
+    return true
+  })
 
   return (
     <div className="flex-1 flex flex-col bg-gray-950 text-white overflow-hidden">
@@ -463,6 +498,42 @@ export default function CallLog2Page() {
             <input type="text" value={phone} onChange={e => setPhone(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} placeholder="e.g. 832…"
               className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm placeholder-gray-600 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 w-36" />
           </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500">Keyword</label>
+            <input type="text" value={keyword} onChange={e => setKeyword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} placeholder="in transcript…"
+              className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm placeholder-gray-600 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 w-36" />
+          </div>
+          {canViewCoaching && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Score</label>
+              <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)}
+                className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500">
+                <option value="">All</option>
+                <option value="A">A</option><option value="B">B</option><option value="C">C</option>
+                <option value="D">D</option><option value="F">F</option><option value="N/A">N/A</option>
+              </select>
+            </div>
+          )}
+          {repOptions.length > 1 && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Rep</label>
+              <select value={repFilter} onChange={e => setRepFilter(e.target.value)}
+                className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500">
+                <option value="">All</option>
+                {repOptions.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+          )}
+          {canViewCoaching && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Weak in</label>
+              <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
+                className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500">
+                <option value="">Any category</option>
+                {COACHING_CATEGORIES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+              </select>
+            </div>
+          )}
           <button onClick={handleSearch} disabled={loading}
             className="px-4 py-1.5 bg-purple-700 hover:bg-purple-600 disabled:bg-gray-800 disabled:text-gray-600 text-white font-medium rounded-lg text-sm transition-colors">
             {loading ? 'Loading…' : 'Search'}
@@ -478,19 +549,20 @@ export default function CallLog2Page() {
         {/* Left: call list */}
         <div className={`${showDetail ? 'hidden md:flex' : 'flex'} w-full md:w-80 shrink-0 border-r border-gray-800 flex-col overflow-hidden`}>
           <div className="shrink-0 px-4 py-2 border-b border-gray-800 text-xs text-gray-500">
-            {loading ? 'Loading…' : `${calls.length} call${calls.length !== 1 ? 's' : ''}`}
+            {loading ? 'Loading…' : `${filteredCalls.length} call${filteredCalls.length !== 1 ? 's' : ''}`}
           </div>
           <div className="flex-1 overflow-y-auto">
             {error && <div className="px-4 py-3 text-sm text-red-400">{error}</div>}
-            {!loading && !error && calls.length === 0 && (
+            {!loading && !error && filteredCalls.length === 0 && (
               <div className="px-4 py-8 text-sm text-gray-500 text-center">No calls found</div>
             )}
-            {calls.map(call => (
+            {filteredCalls.map(call => (
               <CallRow
                 key={call.id}
                 call={call}
                 selected={selected?.id === call.id}
                 onClick={() => { setSelected(call); setShowDetail(true) }}
+                canViewCoaching={canViewCoaching}
               />
             ))}
           </div>
@@ -499,7 +571,7 @@ export default function CallLog2Page() {
         {/* Right: detail */}
         <div className={`${showDetail ? 'flex' : 'hidden md:flex'} flex-1 flex-col overflow-y-auto`}>
           {selected ? (
-            <CallDetail call={selected} />
+            <CallDetail call={selected} canViewCoaching={canViewCoaching} />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-600 text-sm">
               Select a call to view details

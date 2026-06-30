@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function GET(request: Request) {
   const supabase = await createClient()
@@ -16,6 +17,17 @@ export async function GET(request: Request) {
   if (!profile?.can_access_call_log && profile?.role !== 'admin') {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
+
+  // Coaching is gated separately (manager-only) — read via admin (untyped) to
+  // avoid a generated-types dependency on the new column.
+  const admin = createAdminClient()
+  const { data: coachPerm } = await admin
+    .from('user_profiles')
+    .select('can_access_coaching')
+    .eq('id', user.id)
+    .single()
+  // Manager-only: gated on can_access_coaching ALONE — admins do NOT bypass.
+  const canViewCoaching = coachPerm?.can_access_coaching === true
 
   const { searchParams } = new URL(request.url)
   const dateFrom = searchParams.get('date_from')
@@ -44,5 +56,42 @@ export async function GET(request: Request) {
 
   const { data, error } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  return NextResponse.json(data ?? [])
+
+  const rows = data ?? []
+  let calls: Record<string, unknown>[] = rows
+  // Attach coaching (manager-only) as a second admin read, leaving the typed
+  // base query untouched by the coaching columns.
+  if (canViewCoaching && rows.length > 0) {
+    const ids = rows.map(r => (r as { id: string }).id)
+    const [{ data: coaching }, { data: reviews }] = await Promise.all([
+      admin.from('call_logs').select('id, overall_grade, must_listen, coaching_json').in('id', ids),
+      admin
+        .from('call_coaching_reviews')
+        .select('call_id, override_grade, manager_notes, acknowledged, reviewed_at')
+        .eq('call_source', 'unitel')
+        .in('call_id', ids),
+    ])
+    const byId: Record<string, { overall_grade: string | null; must_listen: boolean | null; coaching_json: unknown }> = {}
+    for (const r of coaching ?? []) {
+      const row = r as { id: string; overall_grade: string | null; must_listen: boolean | null; coaching_json: unknown }
+      byId[row.id] = row
+    }
+    const rByCall: Record<string, { override_grade: string | null; manager_notes: string | null; acknowledged: boolean }> = {}
+    for (const r of reviews ?? []) {
+      const row = r as { call_id: string; override_grade: string | null; manager_notes: string | null; acknowledged: boolean }
+      rByCall[row.call_id] = row
+    }
+    calls = rows.map(r => {
+      const row = r as Record<string, unknown> & { id: string }
+      const review = rByCall[row.id] ?? null
+      return {
+        ...row,
+        coaching_grade: review?.override_grade ?? byId[row.id]?.overall_grade ?? null,
+        coaching_must_listen: byId[row.id]?.must_listen ?? null,
+        coaching_json: byId[row.id]?.coaching_json ?? null,
+        review,
+      }
+    })
+  }
+  return NextResponse.json({ calls, can_view_coaching: canViewCoaching })
 }

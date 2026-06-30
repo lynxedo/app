@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
+import { CoachingPanel, coachingGradeColor, COACHING_CATEGORIES, type CoachingData, type CoachingReview } from '@/components/hub/CoachingPanel'
 
 interface CallLog {
   id: string
@@ -26,6 +27,10 @@ interface CallLog {
     segments?: { text: string; sentiment: string; sentiment_score: number }[]
   } | null
   transcript_speakers: { speaker: string; text: string }[] | null
+  coaching_grade?: string | null
+  coaching_must_listen?: boolean | null
+  coaching_json?: CoachingData | null
+  review?: CoachingReview | null
 }
 
 function formatDuration(seconds: number | null) {
@@ -111,7 +116,7 @@ function SettingsIcon() {
   )
 }
 
-function CallRow({ call, selected, onClick }: { call: CallLog; selected: boolean; onClick: () => void }) {
+function CallRow({ call, selected, onClick, canViewCoaching }: { call: CallLog; selected: boolean; onClick: () => void; canViewCoaching: boolean }) {
   const dir = directionLabel(call.direction)
   return (
     <button
@@ -133,6 +138,9 @@ function CallRow({ call, selected, onClick }: { call: CallLog; selected: boolean
             {sentimentChip(call.sentiment)!.label}
           </span>
         )}
+        {canViewCoaching && call.coaching_grade && (
+          <span className={`px-1.5 py-0.5 rounded text-xs font-bold border ${coachingGradeColor(call.coaching_grade)}`}>{call.coaching_grade}</span>
+        )}
       </div>
       <div className="text-xs text-gray-600 mt-0.5">
         {formatDateTime(call.call_datetime)}
@@ -141,7 +149,7 @@ function CallRow({ call, selected, onClick }: { call: CallLog; selected: boolean
   )
 }
 
-function CallDetail({ call }: { call: CallLog }) {
+function CallDetail({ call, canViewCoaching }: { call: CallLog; canViewCoaching: boolean }) {
   const audioRef = useRef<HTMLAudioElement>(null)
   const [showTranscript, setShowTranscript] = useState(false)
   const dir = directionLabel(call.direction)
@@ -222,6 +230,11 @@ function CallDetail({ call }: { call: CallLog }) {
       )}
 
 
+      {/* Coaching */}
+      {canViewCoaching && call.coaching_json && (
+        <CoachingPanel coaching={call.coaching_json} callId={call.id} source="unitel" review={call.review} />
+      )}
+
       {/* Transcript — speaker-sectioned when diarization is available,
           otherwise the raw single block (older calls / no speaker data). */}
       {((call.transcript_speakers && call.transcript_speakers.length > 0) || call.transcript_text) && (
@@ -291,12 +304,15 @@ export default function CallLogPage() {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
   const [selected, setSelected] = useState<CallLog | null>(null)
+  const [canViewCoaching, setCanViewCoaching] = useState(false)
 
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [phone, setPhone] = useState('')
   const [name, setName] = useState('')
   const [keyword, setKeyword] = useState('')
+  const [gradeFilter, setGradeFilter] = useState('')
+  const [catFilter, setCatFilter] = useState('')
 
   const fetchCalls = useCallback(async (params: {
     dateFrom: string; dateTo: string; phone: string; name: string; keyword: string
@@ -315,7 +331,8 @@ export default function CallLogPage() {
       const res = await fetch(`/api/calls/list?${qs}`)
       const data = await res.json()
       if (!res.ok) throw new Error(data.error || 'Failed to load')
-      setCalls(data)
+      setCalls(data.calls ?? [])
+      setCanViewCoaching(!!data.can_view_coaching)
       setSelected(null)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Unknown error')
@@ -339,10 +356,19 @@ export default function CallLogPage() {
     setPhone('')
     setName('')
     setKeyword('')
+    setGradeFilter('')
+    setCatFilter('')
     fetchCalls({ dateFrom: '', dateTo: '', phone: '', name: '', keyword: '' })
   }
 
-  const hasFilters = dateFrom || dateTo || phone || name || keyword
+  const hasFilters = dateFrom || dateTo || phone || name || keyword || gradeFilter || catFilter
+
+  // Client-side narrowing on the loaded list (grade + weak category); the rest is server-side.
+  const filteredCalls = calls.filter(c => {
+    if (gradeFilter && (c.coaching_grade || '') !== gradeFilter) return false
+    if (catFilter && (c.coaching_json?.categories?.[catFilter]?.score || '').toLowerCase() !== 'needs work') return false
+    return true
+  })
 
   return (
     <div className="flex-1 flex flex-col bg-gray-950 text-white overflow-hidden">
@@ -407,6 +433,27 @@ export default function CallLogPage() {
               className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm placeholder-gray-600 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors w-36"
             />
           </div>
+          {canViewCoaching && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Score</label>
+              <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)}
+                className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors">
+                <option value="">All</option>
+                <option value="A">A</option><option value="B">B</option><option value="C">C</option>
+                <option value="D">D</option><option value="F">F</option><option value="N/A">N/A</option>
+              </select>
+            </div>
+          )}
+          {canViewCoaching && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Weak in</label>
+              <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
+                className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors">
+                <option value="">Any category</option>
+                {COACHING_CATEGORIES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
+              </select>
+            </div>
+          )}
           <button
             onClick={handleSearch}
             disabled={loading}
@@ -430,22 +477,23 @@ export default function CallLogPage() {
         {/* Call list */}
         <div className="w-80 shrink-0 border-r border-gray-800 flex flex-col overflow-hidden">
           <div className="shrink-0 px-4 py-2 border-b border-gray-800 text-xs text-gray-500">
-            {loading ? 'Loading…' : `${calls.length} call${calls.length !== 1 ? 's' : ''}`}
+            {loading ? 'Loading…' : `${filteredCalls.length} call${filteredCalls.length !== 1 ? 's' : ''}`}
           </div>
 
           <div className="flex-1 overflow-y-auto">
             {error && (
               <div className="px-4 py-3 text-sm text-red-400">{error}</div>
             )}
-            {!loading && !error && calls.length === 0 && (
+            {!loading && !error && filteredCalls.length === 0 && (
               <div className="px-4 py-8 text-sm text-gray-500 text-center">No calls found</div>
             )}
-            {calls.map(call => (
+            {filteredCalls.map(call => (
               <CallRow
                 key={call.id}
                 call={call}
                 selected={selected?.id === call.id}
                 onClick={() => setSelected(call)}
+                canViewCoaching={canViewCoaching}
               />
             ))}
           </div>
@@ -454,7 +502,7 @@ export default function CallLogPage() {
         {/* Detail panel */}
         <div className="flex-1 overflow-y-auto">
           {selected ? (
-            <CallDetail call={selected} />
+            <CallDetail call={selected} canViewCoaching={canViewCoaching} />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-600 text-sm">
               Select a call to view details

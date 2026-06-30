@@ -28,7 +28,7 @@ import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { CALL_COACHING_RUBRIC } from '@/lib/call-rubric'
+import { CALL_COACHING_RUBRIC, coachingHasRealScore } from '@/lib/call-rubric'
 
 
 // The engine whose results are mirrored onto the calls row + used by the
@@ -243,7 +243,7 @@ function flattenDeepgramIntents(dg: DgResponse): string[] {
 // Claude narrative summary + coaching, reusing the Heroes rubric. Returns the
 // parsed JSON object, or null on failure (the engine still succeeds with the
 // Deepgram transcript + sentiment).
-async function claudeAnalyze(
+export async function claudeAnalyze(
   transcript: string,
   meta: { direction: string; phone: string; durationSec: number; createdAt: string | null }
 ): Promise<Record<string, unknown> | null> {
@@ -544,6 +544,14 @@ async function writeEngineResult(
   companyId: string | null,
   r: EngineResult
 ): Promise<void> {
+  // Average the Deepgram utterance confidences into a single transcript score.
+  let avgConfidence: number | null = null
+  const utt = (r.transcript_json as { deepgram?: { utterances?: Array<{ confidence?: number }> } } | null)
+    ?.deepgram?.utterances
+  if (Array.isArray(utt)) {
+    const vals = utt.map(u => u?.confidence).filter((v): v is number => typeof v === 'number')
+    if (vals.length > 0) avgConfidence = vals.reduce((a, b) => a + b, 0) / vals.length
+  }
   await admin
     .from('call_ai_results')
     .upsert(
@@ -560,6 +568,7 @@ async function writeEngineResult(
         intents: r.intents,
         action_items: r.action_items,
         call_type: r.call_type,
+        avg_confidence: avgConfidence,
         latency_ms: r.latency_ms,
         error_message: r.error_message,
       },
@@ -701,6 +710,30 @@ export async function processPendingCall(
     return { callId, status: 'error', engines, error: firstErr }
   }
 
+  // Lift the coaching object (computed by Engine A / deepgram_claude) onto the
+  // calls row as queryable columns for the coaching panel + scoreboard. Null
+  // when the winning engine produced no coaching (e.g. the Twilio VI fallback).
+  let coaching =
+    (winner.transcript_json as unknown as {
+      analysis?: {
+        coaching?: {
+          overall_grade?: string
+          headline?: string
+          must_listen?: boolean
+          must_listen_reason?: string
+          red_flags?: unknown
+          never_dos_triggered?: unknown
+          wins?: unknown
+          improvements?: unknown
+        }
+      }
+    } | null)?.analysis?.coaching ?? null
+
+  // No real conversation scored -> never a letter grade (see coachingHasRealScore).
+  if (coaching && coaching.overall_grade && coaching.overall_grade !== 'N/A' && !coachingHasRealScore(coaching)) {
+    coaching = { ...coaching, overall_grade: 'N/A' }
+  }
+
   await admin
     .from('calls')
     .update({
@@ -712,6 +745,16 @@ export async function processPendingCall(
       topics: winner.topics,
       intents: winner.intents,
       action_items: winner.action_items,
+      coaching_json: coaching,
+      coaching_grade: coaching?.overall_grade ?? null,
+      coaching_headline: coaching?.headline ?? null,
+      coaching_must_listen:
+        coaching && typeof coaching.must_listen === 'boolean' ? coaching.must_listen : null,
+      coaching_must_listen_reason: coaching?.must_listen_reason ?? null,
+      coaching_red_flags: coaching?.red_flags ?? null,
+      coaching_never_dos: coaching?.never_dos_triggered ?? null,
+      coaching_wins: coaching?.wins ?? null,
+      coaching_improvements: coaching?.improvements ?? null,
       transcription_status: 'complete',
       error_message: null,
     })
