@@ -113,13 +113,19 @@ async function recoachOne(admin: Admin, call: CallRow) {
     coaching = { ...coaching, overall_grade: 'N/A' }
   }
 
-  // Refresh the customer-facing fields too, so re-scored summaries reflect the
-  // updated rubric (e.g. "Kathryn" instead of "Catherine").
+  // Refresh the customer-facing fields on BOTH calls and call_ai_results. The
+  // call-log2 AI Summary reads the deepgram_claude result's `summary`, so if we
+  // only updated calls.ai_summary the old "Catherine" text kept showing.
   const extra: Record<string, unknown> = {}
+  const airExtra: Record<string, unknown> = {}
   if (analysis) {
-    if (typeof analysis.customer_summary === 'string') extra.ai_summary = analysis.customer_summary
-    if (typeof analysis.call_type === 'string') extra.call_type = analysis.call_type
-    if (Array.isArray(analysis.action_items)) extra.action_items = analysis.action_items
+    if (typeof analysis.customer_summary === 'string') { extra.ai_summary = analysis.customer_summary; airExtra.summary = analysis.customer_summary }
+    if (typeof analysis.call_type === 'string') { extra.call_type = analysis.call_type; airExtra.call_type = analysis.call_type }
+    if (Array.isArray(analysis.action_items)) { extra.action_items = analysis.action_items; airExtra.action_items = analysis.action_items }
+  } else {
+    // Non-conversation: clear stale summary text so old "Catherine ..." doesn't linger.
+    extra.ai_summary = null
+    airExtra.summary = null
   }
 
   await admin.from('calls').update({ ...coachingCols(coaching), ...extra }).eq('id', call.id)
@@ -131,7 +137,7 @@ async function recoachOne(admin: Admin, call: CallRow) {
         : {}
     await admin
       .from('call_ai_results')
-      .update({ transcript_json: { ...tj, analysis: analysis ?? { coaching } } })
+      .update({ transcript_json: { ...tj, analysis: analysis ?? { coaching } }, ...airExtra })
       .eq('id', air.id)
   }
 
