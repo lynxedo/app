@@ -71,6 +71,8 @@ type CallRow = {
   duration_seconds: number | null
   created_at: string | null
   transcription_status: string | null
+  handled_by: string | null
+  initiated_by: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -139,6 +141,10 @@ const DG_QUERY = [
   'punctuate=true',
   'utterances=true',
   'multichannel=true',
+  // diarize separates speakers on a MONO recording (most Twilio dialer
+  // recordings are single-channel, so multichannel alone collapses both
+  // parties into one block). With diarize, utterances carry a speaker index.
+  'diarize=true',
   'sentiment=true',
   'summarize=v2',
   'topics=true',
@@ -194,9 +200,18 @@ async function deepgramAnalyze(
 function buildDeepgramTranscript(dg: DgResponse): string {
   const utts = dg.results?.utterances || []
   if (utts.length > 0) {
+    // Dual-channel recordings separate the parties by channel; mono recordings
+    // (the common case) separate by diarized speaker index. Label by whichever
+    // dimension actually has >1 distinct value, so we never collapse both
+    // parties into a single "Speaker 1" block.
+    const channels = new Set(utts.map((u) => u.channel ?? 0))
+    const speakers = new Set(
+      utts.map((u) => u.speaker).filter((s): s is number => typeof s === 'number')
+    )
+    const useSpeaker = channels.size < 2 && speakers.size >= 2
     const labelOf = (u: DgUtterance) => {
-      const idx = u.channel ?? u.speaker ?? 0
-      return idx === 0 ? 'Speaker 1' : `Speaker ${idx + 1}`
+      const idx = (useSpeaker ? u.speaker : u.channel) ?? 0
+      return `Speaker ${idx + 1}`
     }
     // utterances are already roughly time-ordered; sort defensively by start.
     const sorted = [...utts].sort((a, b) => (a.start ?? 0) - (b.start ?? 0))
@@ -240,12 +255,31 @@ function flattenDeepgramIntents(dg: DgResponse): string[] {
   return [...set]
 }
 
+// Resolve the Heroes rep on a dialer call to a display name: the agent who
+// handled an inbound call or initiated an outbound one (falls back to either).
+// Passed to claudeAnalyze so the coaching attributes the right person — the
+// transcript usually can't establish who the rep is, and the rubric must not
+// assume it's always Kathryn.
+export async function resolveRepName(
+  admin: SupabaseClient,
+  call: { direction?: string | null; handled_by?: string | null; initiated_by?: string | null }
+): Promise<string | null> {
+  const id =
+    (call.direction === 'inbound' ? call.handled_by : call.initiated_by) ||
+    call.handled_by ||
+    call.initiated_by
+  if (!id) return null
+  const { data } = await admin.from('hub_users').select('display_name').eq('id', id).maybeSingle()
+  const name = (data as { display_name?: string | null } | null)?.display_name
+  return name || null
+}
+
 // Claude narrative summary + coaching, reusing the Heroes rubric. Returns the
 // parsed JSON object, or null on failure (the engine still succeeds with the
 // Deepgram transcript + sentiment).
 export async function claudeAnalyze(
   transcript: string,
-  meta: { direction: string; phone: string; durationSec: number; createdAt: string | null }
+  meta: { direction: string; phone: string; durationSec: number; createdAt: string | null; repName?: string | null }
 ): Promise<Record<string, unknown> | null> {
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey || !transcript.trim()) return null
@@ -255,11 +289,22 @@ export async function claudeAnalyze(
   const durationStr = meta.durationSec ? `${mins}m ${secs}s` : 'unknown'
   const when = meta.createdAt ? new Date(meta.createdAt).toISOString() : 'unknown'
 
+  const dir = (meta.direction || '').toLowerCase()
+  const directionLine =
+    dir === 'inbound'
+      ? 'inbound — the customer called Heroes and the rep answered'
+      : dir === 'outbound'
+        ? 'outbound — the rep placed this call to the customer'
+        : meta.direction || 'unknown'
+
   const userMessage = [
     '## Call metadata',
     `- Date/time: ${when}`,
-    `- Direction: ${meta.direction || 'unknown'}`,
-    `- Phone: ${meta.phone || 'unknown'}`,
+    `- Direction: ${directionLine}`,
+    ...(meta.repName
+      ? [`- Rep on this call: ${meta.repName} — this is the Heroes employee. Use this exact name for the rep; the other party is the customer. (The transcript may not name them, and may garble or reference other names.)`]
+      : []),
+    `- Customer phone: ${meta.phone || 'unknown'}`,
     `- Duration: ${durationStr}`,
     '',
     '## Transcript',
@@ -302,7 +347,8 @@ export async function claudeAnalyze(
 async function runDeepgramClaudeEngine(
   bytes: Buffer,
   contentType: string,
-  call: CallRow
+  call: CallRow,
+  repName: string | null
 ): Promise<EngineResult> {
   const start = Date.now()
   try {
@@ -324,6 +370,7 @@ async function runDeepgramClaudeEngine(
       phone: call.direction === 'inbound' ? call.from_number || '' : call.to_number || '',
       durationSec,
       createdAt: call.created_at,
+      repName,
     })
 
     const summary =
@@ -651,7 +698,7 @@ export async function processPendingCall(
   const { data: call } = await admin
     .from('calls')
     .select(
-      'id, company_id, direction, from_number, to_number, recording_storage_path, recording_duration_seconds, duration_seconds, created_at, transcription_status'
+      'id, company_id, direction, from_number, to_number, recording_storage_path, recording_duration_seconds, duration_seconds, created_at, transcription_status, handled_by, initiated_by'
     )
     .eq('id', callId)
     .maybeSingle<CallRow>()
@@ -677,9 +724,13 @@ export async function processPendingCall(
     return { callId, status: 'error', engines: [], error: 'R2 download failed' }
   }
 
+  // Resolve who the rep was (the agent who handled/placed the call) so the
+  // coaching attributes the right person instead of assuming Kathryn.
+  const repName = await resolveRepName(admin, call)
+
   // Run both engines. Engine B is null when VI isn't configured (skipped).
   const [engineA, engineB] = await Promise.all([
-    runDeepgramClaudeEngine(audio.bytes, audio.contentType, call),
+    runDeepgramClaudeEngine(audio.bytes, audio.contentType, call, repName),
     runTwilioViEngine(call),
   ])
 

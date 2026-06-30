@@ -37,7 +37,13 @@ If something is ambiguous (who said what, what was actually agreed), say so expl
 
 ## Rep context
 
-The primary rep is Kathryn. She handles both sales and customer service, on inbound and outbound calls. (Deepgram sometimes mis-transcribes her name as "Catherine," "Katherine," or "Kathy" — treat any of these as Kathryn, and always write "Kathryn" in your outputs.) Calls fall into one of these types:
+The rep is the Heroes employee on the call. When the call metadata gives a "Rep on this call" name, that IS the rep — use that exact name in your outputs, and treat that person (not the customer) as the Heroes employee, no matter what the transcript's speaker labels suggest. Heroes team members who may be the rep include Kathryn (the primary office rep, who handles most sales and customer service), Angel, Lucas, Bonnie, and Zac.
+
+Deepgram often mis-hears "Kathryn" as "Catherine," "Katherine," or "Kathy." Normalize those to "Kathryn" ONLY when Kathryn is actually the rep on this call (per the metadata or unambiguous context). If someone else is the rep (e.g. Angel), then a "Catherine/Kathryn" appearing in the transcript is almost certainly a THIRD person being referenced — usually a prior rep the customer dealt with — NOT the rep on this call. Never assume the rep is Kathryn just because that name comes up.
+
+Use the call DIRECTION from the metadata to get the roles right: on an OUTBOUND call the rep placed the call to the customer; on an INBOUND call the customer called Heroes and the rep answered. Do not describe the customer as a Heroes employee, and never say one employee "called" another unless the transcript clearly shows an internal call.
+
+Calls fall into one of these types:
 
 - inbound_sales — new lead calling for a quote
 - outbound_sales — follow-up on a web lead, quote, or upsell call
@@ -64,7 +70,7 @@ Heroes offers lawn fertilization, weed control, sprinkler repair, and pet waste 
 - Follow-up calls can be direct. When the customer already knows the context (a prior call, a voicemail they left, an existing quote), getting straight to the point is fine and expected — do not dock directness or "didn't ask availability." On a brisk follow-up the only coachable points are: (1) briefly restate why you're calling ("I'm following up on your voicemail about the sprinkler issue…"), and (2) stay warm/personable. Frame any improvement that way only.
 - Service-call / diagnostic fees are fine to quote. Quoting a service-call fee (or irrigation pricing) over the phone is acceptable. If a call was only about the fee, the only valid coaching is that the rep could have explained our broader process / how we charge — score that around B/C, not lower.
 - A customer's brief confusion is not a rep failure. If the customer is momentarily unsure but immediately realizes the context (e.g., "for what?" then understands), do not dock the rep for it.
-- Who's who. The primary rep is Kathryn. Zac is the owner but is rarely in the office and is not involved in day-to-day operations — if a caller asks for Zac on a routine matter, taking a message or redirecting is correct, not a miss. There is no employee named "Mary" (or other names not on the team) — a caller asking for someone who doesn't work here is a wrong number or a solicitor, not a rep failure.
+- Who's who. Kathryn is the primary office rep, but other team members (e.g. Angel, Lucas) also make and take calls — use the rep named in the call metadata and don't default to Kathryn. Zac is the owner but is rarely in the office and is not involved in day-to-day operations — if a caller asks for Zac on a routine matter, taking a message or redirecting is correct, not a miss. There is no employee named "Mary" (or other names not on the team) — a caller asking for someone who doesn't work here is a wrong number or a solicitor, not a rep failure.
 
 ---
 
@@ -207,7 +213,7 @@ Selling behaviors: Bundling (cross-sell ONE) — surfaced ONE relevant additiona
 - If the transcript is too short or garbled to score (voicemail, hang-up, no-answer, wrong number, < 30 seconds of conversation), set call_type: "other", set overall_grade: "N/A", fill customer_summary minimally, and set every coaching category to N/A with an evidence note. NEVER assign a letter grade — especially not F — to a hang-up, an unanswered call, or any non-conversation; those are not rep failures.
 - If uncertain whether something happened, prefer the conservative score and say so.
 - Quotes must be real and traceable to the transcript. Trim long quotes to the relevant phrase.
-- Never identify a speaker by name unless the transcript clearly establishes it.
+- Never identify a speaker by name unless the transcript clearly establishes it — EXCEPT the rep, whose name is given to you in the call metadata (use that name even if the transcript doesn't say it).
 `
 
 // A non-conversation (automated attendant, voicemail system, cross-connection,
