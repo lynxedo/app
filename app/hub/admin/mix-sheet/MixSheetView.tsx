@@ -75,7 +75,12 @@ const CSS = `
 .msroot .empty{padding:28px;text-align:center;color:var(--muted);font-size:13.5px}
 @media print{
   @page{size:landscape;margin:.4in}
-  .msroot{background:#fff;overflow:visible}
+  /* Print ONLY the mix sheet — hide the entire Hub shell (icon rail, sidebars,
+     headers) regardless of its markup, then lift the sheet to the page origin. */
+  html,body{background:#fff!important}
+  body *{visibility:hidden!important}
+  #ms-print,#ms-print *{visibility:visible!important}
+  #ms-print{position:fixed!important;left:0!important;top:0!important;right:0!important;width:100%!important;background:#fff!important;overflow:visible!important}
   .msroot .pad{max-width:none;padding:0}
   .msroot .ms-noprint{display:none!important}
   .msroot .layout{grid-template-columns:minmax(0,1fr) 260px;gap:12px}
@@ -152,13 +157,13 @@ export default function MixSheetView({ initial }: { initial: MixSheetPayload }) 
   }
 
   const cols = useMemo(
-    () => data.columns.filter(c => c.programKeys.length === 0 || c.programKeys.some(k => selected.has(k))),
+    () => data.columns.filter(c => c.programKeys.some(k => selected.has(k))),
     [data.columns, selected],
   )
   const fitsOnePage = cols.length <= 7
 
   return (
-    <div className={`msroot${phone ? ' phone' : ''}`}>
+    <div id="ms-print" className={`msroot${phone ? ' phone' : ''}`}>
       <style>{CSS}</style>
       <div className="pad">
         <div className="mast ms-noprint">
@@ -207,7 +212,9 @@ export default function MixSheetView({ initial }: { initial: MixSheetPayload }) 
 
             {cols.length === 0 ? (
               <div className="empty">
-                No products for this date. Set up a dated mix in <b>Service Mapping</b> whose dates cover {monthLabel(asOf)}, or pick another date.
+                {data.columns.length > 0
+                  ? <>No programs selected — turn on a program chip above to show its products.</>
+                  : <>No products for this date. Set up a dated mix in <b>Service Mapping</b> whose dates cover {monthLabel(asOf)}, or pick another date.</>}
               </div>
             ) : (
               <div className="scroll">

@@ -6,7 +6,7 @@
 // of every line item that uses it. Amount = rate × lawn size (K); per-gallon
 // products convert through the 2 gal/K tank ratio.
 
-import { PROGRAMS, programForLineItem, findProgram, cleanLineItemLabel, type ProgramDef } from './programs'
+import { PROGRAMS, programForLineItem, findProgram, cleanLineItemLabel } from './programs'
 
 export const DEFAULT_TANK_RATE = 2 // gallons of mix per 1,000 sq ft
 
@@ -80,7 +80,12 @@ export function buildMixColumns(
     }
     if (!col.altGroup && m.alt_group) col.altGroup = m.alt_group
     if (prog) { col._progs.add(prog.key); col._tags.add(prog.abbr) }
-    else col._tags.add(cleanLineItemLabel(m.jobber_line_item_name))
+    else {
+      // No known program → a per-line-item pseudo-program (e.g. "li:Soil Revive")
+      // so it's still a selectable chip and hides when not selected.
+      const label = cleanLineItemLabel(m.jobber_line_item_name)
+      col._progs.add(`li:${label}`); col._tags.add(label)
+    }
   }
 
   const order = new Map(PROGRAMS.map((p, i) => [p.abbr, i]))
@@ -108,11 +113,17 @@ function clusterAltGroups(cols: MixColumn[]): MixColumn[] {
   return out
 }
 
-// Programs actually present on the sheet (for the picker), in registry order.
-export function programsPresent(cols: MixColumn[]): ProgramDef[] {
+// Programs/line-items present on the sheet (for the picker): recognized programs
+// in registry order, then any per-line-item pseudo-programs (li:*) alphabetically.
+export function programsPresent(cols: MixColumn[]): { key: string; abbr: string; name: string }[] {
   const keys = new Set<string>()
   cols.forEach(c => c.programKeys.forEach(k => keys.add(k)))
-  return PROGRAMS.filter(p => keys.has(p.key))
+  const out: { key: string; abbr: string; name: string }[] = []
+  for (const p of PROGRAMS) if (keys.has(p.key)) out.push({ key: p.key, abbr: p.abbr, name: p.name })
+  for (const k of [...keys].filter(k => k.startsWith('li:')).sort()) {
+    out.push({ key: k, abbr: k.slice(3), name: k.slice(3) })
+  }
+  return out
 }
 
 // Round for display: 2 dp, trailing zeros stripped, tabular-friendly.

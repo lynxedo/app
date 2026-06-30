@@ -61,7 +61,7 @@ export async function loadMixSheet(admin: SupabaseClient, companyId: string, asO
   const active = selectMappingsForDate(rows, asOf)
   const productsById = new Map<string, MixProductInput>(((prod.data ?? []) as MixProductInput[]).map(p => [p.id, p]))
   const columns = buildMixColumns(active, productsById, tankRate)
-  const programs = programsPresent(columns).map(p => ({ key: p.key, abbr: p.abbr, name: p.name }))
+  const programs = programsPresent(columns)
 
   const c = cfg.data as Partial<MixSheetConfig> | null
   const config: MixSheetConfig = {
