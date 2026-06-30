@@ -411,7 +411,7 @@ function HubTab() {
     <>
       <Section title="What Hub Is">
         <p>Hub is where the Heroes team communicates day-to-day — like Slack or Teams, but built into Lynxedo and connected to the rest of your tools. Everything in Hub stays inside the company.</p>
-        <p>Hub has three main areas: <strong className="text-white">Rooms</strong> (group conversations), <strong className="text-white">DMs</strong> (one-on-one messages), and <strong className="text-white">Boards</strong> (saved messages you want to keep around).</p>
+        <p>Hub has three main areas: <strong className="text-white">Rooms</strong> (group conversations), <strong className="text-white">DMs</strong> (one-on-one messages), and <strong className="text-white">Boards</strong> (shared task lists). Everything assigned to you across boards is gathered under <strong className="text-white">My Tasks</strong>.</p>
       </Section>
 
       <Section title="Home Screen">
@@ -428,7 +428,7 @@ function HubTab() {
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">🔍 Search</strong> — opens the search palette (same as <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> / <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">Ctrl+K</kbd>). Jump to a room or person by name, or <strong className="text-white">type any keyword to search messages</strong> across every room and DM you&apos;re in — results show who said it, where, and when, with your keyword highlighted. Tap a result to open that conversation. The Apps drawer also has a <strong className="text-white">search bar at the top</strong> that filters the icons as you type.</li>
           <li><strong className="text-white">🕐 Clock</strong> — opens the Time Clock modal. A small green dot appears on the icon when you&apos;re punched in.</li>
-          <li><strong className="text-white">💬 Hub</strong> — team conversations. Sidebar lists My Time Clock · Daily Log · Unread · Favorites · Rooms · DMs · Boards.</li>
+          <li><strong className="text-white">💬 Hub</strong> — team conversations. Sidebar lists My Time Clock · Daily Log · Unread · Favorites · Rooms · DMs · My Tasks · Boards.</li>
           <li><strong className="text-white">📱 Txt</strong> — client SMS conversations (Captivated).</li>
           <li className="text-gray-300"><em>Then 4 user-configurable slots</em> (see &quot;My Hub&quot; below).</li>
           <li><strong className="text-white">⚙️ Settings</strong> — your profile, notifications, integrations, and My Hub.</li>
@@ -454,7 +454,8 @@ function HubTab() {
           <li><strong className="text-white">Favorites</strong> — your pinned rooms, DMs, and tools.</li>
           <li><strong className="text-white">Rooms</strong> — group conversations you belong to.</li>
           <li><strong className="text-white">Direct Messages</strong> — one-on-ones. The colored dot is the other person&apos;s status: <span className="inline-block w-2 h-2 rounded-full bg-green-400 align-middle"></span> Available, <span className="inline-block w-2 h-2 rounded-full bg-yellow-400 align-middle"></span> Busy, <span className="inline-block w-2 h-2 rounded-full bg-red-500 align-middle"></span> DND, <span className="inline-block w-2 h-2 rounded-full bg-gray-500 align-middle"></span> Offline.</li>
-          <li><strong className="text-white">Boards</strong> — your saved-message boards.</li>
+          <li><strong className="text-white">My Tasks</strong> — every open task assigned to you, pulled from all your boards into one list.</li>
+          <li><strong className="text-white">Boards</strong> — your shared task lists.</li>
         </ul>
         <p className="font-medium text-white mt-3">Landing page</p>
         <p>When you first sign in for the day — or after a long stretch (14+ hours) away from Hub — you land on the Home screen. It shows your Time Clock card up top, then announcements and shout outs, then a focused list of <strong className="text-white">your unread DMs / rooms</strong> followed by <strong className="text-white">recent @mentions</strong>. It&apos;s the &quot;what do I care about right now&quot; screen. There&apos;s no permanent way back to it from the rail — once you move on, the Activity bell and the Hub sidebar handle everything.</p>
@@ -619,13 +620,23 @@ function HubTab() {
         <Note>📱 On phone, opening a thread takes the full screen for the most reading room — tap the <strong className="text-white">←</strong> back arrow at the top-left to return to the room. The original message scrolls up with the replies as you read.</Note>
       </Section>
 
-      <Section title="Boards (Saved Messages)">
-        <p>Boards are personal — like bookmarking messages you want to come back to. Each board is a collection of saved messages.</p>
-        <Step n={1}>Long-press a message → <strong className="text-white">Add to Board</strong>.</Step>
-        <Step n={2}>Pick an existing board or create a new one (e.g. <em>Follow-ups</em>, <em>Quotes to send</em>, <em>Photos to post</em>).</Step>
-        <Step n={3}>Open the board from the sidebar to see everything you&apos;ve saved.</Step>
-        <p className="mt-3"><strong className="text-white">Notes &amp; files on a task</strong> — open a board item and use the <strong className="text-white">Notes</strong> tab to leave a comment and the <strong className="text-white">Files</strong> tab to attach a photo or document. On the card itself, a 💬 chip shows the note count and a 📎 chip shows the attachment count, so you can see at a glance which items have a discussion or files without opening them.</p>
-        <Note>Boards are private to you by default. Admins can create shared boards visible to multiple members.</Note>
+      <Section title="Boards &amp; Tasks">
+        <p>Boards are shared task lists. Each board holds tasks you can check off, assign, schedule, and discuss. Your boards — and the <strong className="text-white">My Tasks</strong> view — live in the Hub sidebar.</p>
+        <Step n={1}>Click <strong className="text-white">+</strong> next to <strong className="text-white">Boards</strong> in the sidebar to make one. Choose who can see it: <strong className="text-white">Public</strong> (everyone on the team), <strong className="text-white">Private</strong> (just you and the people you add), or <strong className="text-white">Personal</strong> (only you).</Step>
+        <Step n={2}>Type a task and press Enter. Click its row to set the options below.</Step>
+        <Step n={3}>Check the circle to mark a task done. The <strong className="text-white">Open / All</strong> toggle shows or hides completed tasks.</Step>
+        <p className="mt-3"><strong className="text-white">On each task you can set:</strong></p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Priority</strong> — None / Low / Medium / High.</li>
+          <li><strong className="text-white">Due date &amp; time</strong> — pick a date and, optionally, a time of day (e.g. 8:00 AM). Overdue tasks turn red.</li>
+          <li><strong className="text-white">Assignees</strong> — assign one <em>or several</em> people; tap names to add or remove them.</li>
+          <li><strong className="text-white">Repeat</strong> — Daily, Weekly, Every 2 weeks, or Monthly. Completing a repeating task drops a &ldquo;✅ Completed…&rdquo; note on it and rolls it forward to the next date automatically (a weekly task due Jul 1 reappears due Jul 8).</li>
+          <li><strong className="text-white">Notes &amp; Files</strong> — open a task to comment (tag a teammate with <strong className="text-white">@name</strong>) or attach a photo/document. The 💬 and 📎 chips on the card show the counts.</li>
+        </ul>
+        <p className="mt-3"><strong className="text-white">My Tasks</strong> — the <strong className="text-white">My Tasks</strong> link in the sidebar gathers <em>every open task assigned to you</em> — plus everything on a board that&apos;s yours alone (a Personal board, or a Private board only you belong to, where every task is implicitly yours) — into one list, grouped Overdue / Today / Upcoming. Check tasks off right there. Use the <strong className="text-white">Boards</strong> button to choose which boards feed your list — that&apos;s personal to you and doesn&apos;t affect anyone else&apos;s.</p>
+        <p className="mt-3"><strong className="text-white">Overdue reminders</strong> — when a task with a due date passes its deadline, Guardian sends each assignee a one-time direct message so nothing slips.</p>
+        <p className="mt-3"><strong className="text-white">Turn a message into a task</strong> — hover (or long-press on phone) any room, thread, or customer text message and choose <strong className="text-white">Add to Board</strong> to drop it onto a board.</p>
+        <Note>You only ever see tasks on boards you have access to — a teammate&apos;s Personal or Private board never shows up in your My Tasks.</Note>
       </Section>
 
       <Section title="Hub Files">

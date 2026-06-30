@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react'
 import { useToast, useConfirm, Spinner, EmptyState } from '@/components/ui'
 
-type HubUser = { id: string; display_name: string; avatar_url?: string | null }
+type HubUser = { id: string; display_name: string; avatar_url?: string | null; is_bot?: boolean }
 
 type Comment = {
   id: string
@@ -33,10 +33,11 @@ type BoardItem = {
   done_at: string | null
   priority: 'none' | 'low' | 'medium' | 'high'
   due_date: string | null
-  assignee_id: string | null
+  due_time: string | null
+  recurrence: 'none' | 'daily' | 'weekly' | 'biweekly' | 'monthly'
+  assignees: HubUser[]
   created_by: string
   created_at: string
-  assignee?: HubUser | null
   creator?: HubUser | null
   comment_count?: number
   attachment_count?: number
@@ -62,6 +63,17 @@ function priorityDot(priority: string) {
   return <span className={`inline-block w-2.5 h-2.5 rounded-full flex-none ${cfg.dot}`} title={cfg.label} />
 }
 
+const RECURRENCE_OPTIONS: { value: BoardItem['recurrence']; label: string }[] = [
+  { value: 'none', label: 'No repeat' },
+  { value: 'daily', label: 'Daily' },
+  { value: 'weekly', label: 'Weekly' },
+  { value: 'biweekly', label: 'Every 2 weeks' },
+  { value: 'monthly', label: 'Monthly' },
+]
+const RECURRENCE_LABEL: Record<string, string> = {
+  daily: 'Daily', weekly: 'Weekly', biweekly: 'Every 2 wks', monthly: 'Monthly',
+}
+
 function formatDue(dateStr: string) {
   const d = new Date(dateStr + 'T00:00:00')
   const today = new Date(); today.setHours(0, 0, 0, 0)
@@ -75,6 +87,16 @@ function formatDue(dateStr: string) {
 
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
+}
+
+// Format a Postgres `time` value ('HH:MM[:SS]') as a 12-hour clock label.
+function formatTimeOfDay(t: string) {
+  const [hStr, mStr] = t.split(':')
+  const hour = parseInt(hStr, 10)
+  if (Number.isNaN(hour)) return t
+  const ampm = hour >= 12 ? 'PM' : 'AM'
+  const h12 = hour % 12 === 0 ? 12 : hour % 12
+  return `${h12}:${mStr ?? '00'} ${ampm}`
 }
 
 function formatBytes(n: number) {
@@ -358,10 +380,12 @@ export default function BoardView({
   const [openMenuId, setOpenMenuId] = useState<string | null>(null)
   const [showDatePicker, setShowDatePicker] = useState<string | null>(null)
   const [showAssignPicker, setShowAssignPicker] = useState<string | null>(null)
+  const [showRepeatPicker, setShowRepeatPicker] = useState<string | null>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
   const [editContent, setEditContent] = useState('')
   const [threadItem, setThreadItem] = useState<BoardItem | null>(null)
   const composerRef = useRef<HTMLTextAreaElement>(null)
+  const toast = useToast()
 
   const loadItems = useCallback(() => {
     setLoading(true)
@@ -377,6 +401,7 @@ export default function BoardView({
     setOpenMenuId(null)
     setShowDatePicker(null)
     setShowAssignPicker(null)
+    setShowRepeatPicker(null)
   }
 
   async function addItem() {
@@ -395,6 +420,19 @@ export default function BoardView({
 
   async function toggleDone(item: BoardItem) {
     const next = !item.done
+    // Recurring task: completing it logs a note + rolls to the next occurrence
+    // (server-side), so skip the optimistic check and just reload after.
+    if (next && item.recurrence !== 'none' && item.due_date) {
+      const res = await fetch(`/api/hub/boards/${board.id}/items/${item.id}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ done: true }),
+      })
+      const data = await res.json().catch(() => null)
+      if (data?.next_due) toast.success(`Logged · next due ${formatDue(data.next_due).label}`)
+      loadItems()
+      return
+    }
     setItems(prev => prev.map(i => i.id === item.id ? { ...i, done: next, done_at: next ? new Date().toISOString() : null } : i))
     await fetch(`/api/hub/boards/${board.id}/items/${item.id}`, {
       method: 'PUT',
@@ -426,8 +464,8 @@ export default function BoardView({
   }
 
   async function setDueDate(item: BoardItem, due_date: string | null) {
+    // Keep the popover open so a time can be set in the same pass.
     setItems(prev => prev.map(i => i.id === item.id ? { ...i, due_date } : i))
-    setShowDatePicker(null)
     await fetch(`/api/hub/boards/${board.id}/items/${item.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
@@ -435,14 +473,38 @@ export default function BoardView({
     })
   }
 
-  async function setAssignee(item: BoardItem, assignee_id: string | null) {
-    const assignee = hubUsers.find(u => u.id === assignee_id) ?? null
-    setItems(prev => prev.map(i => i.id === item.id ? { ...i, assignee_id, assignee } : i))
-    setShowAssignPicker(null)
+  async function setDueTime(item: BoardItem, due_time: string | null) {
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, due_time } : i))
     await fetch(`/api/hub/boards/${board.id}/items/${item.id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ assignee_id }),
+      body: JSON.stringify({ due_time }),
+    })
+  }
+
+  // Multi-assignee: toggling a user adds/removes them; the picker stays open
+  // so several people can be selected in one go.
+  async function toggleAssignee(item: BoardItem, userId: string) {
+    const has = item.assignees.some(a => a.id === userId)
+    const nextIds = has
+      ? item.assignees.filter(a => a.id !== userId).map(a => a.id)
+      : [...item.assignees.map(a => a.id), userId]
+    const nextAssignees = hubUsers.filter(u => nextIds.includes(u.id))
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, assignees: nextAssignees } : i))
+    await fetch(`/api/hub/boards/${board.id}/items/${item.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ assignee_ids: nextIds }),
+    })
+  }
+
+  async function setRecurrence(item: BoardItem, recurrence: BoardItem['recurrence']) {
+    setItems(prev => prev.map(i => i.id === item.id ? { ...i, recurrence } : i))
+    closePopups()
+    await fetch(`/api/hub/boards/${board.id}/items/${item.id}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ recurrence }),
     })
   }
 
@@ -589,22 +651,63 @@ export default function BoardView({
                             <path strokeLinecap="round" strokeLinejoin="round" d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
                           </svg>
                           {item.due_date ? (
-                            <span className={formatDue(item.due_date).color}>{formatDue(item.due_date).label}</span>
+                            <span className={formatDue(item.due_date).color}>
+                              {formatDue(item.due_date).label}{item.due_time ? `, ${formatTimeOfDay(item.due_time)}` : ''}
+                            </span>
+                          ) : item.due_time ? (
+                            <span className="text-white/60">{formatTimeOfDay(item.due_time)}</span>
                           ) : (
                             <span className="text-white/30">Due date</span>
                           )}
                         </button>
                         {showDatePicker === item.id && (
-                          <div className="absolute left-0 top-6 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-3" onClick={e => e.stopPropagation()}>
+                          <div className="absolute left-0 top-6 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl p-3 space-y-2" onClick={e => e.stopPropagation()}>
                             <input
                               type="date"
                               defaultValue={item.due_date ?? ''}
-                              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:border-brand"
+                              className="block w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:border-brand"
                               onChange={e => setDueDate(item, e.target.value || null)}
                             />
-                            {item.due_date && (
-                              <button onClick={() => setDueDate(item, null)} className="block mt-2 text-xs text-white/40 hover:text-white/70 w-full text-left">Clear</button>
+                            <input
+                              type="time"
+                              value={item.due_time ? item.due_time.slice(0, 5) : ''}
+                              className="block w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white outline-none focus:border-brand"
+                              onChange={e => setDueTime(item, e.target.value || null)}
+                            />
+                            {(item.due_date || item.due_time) && (
+                              <button onClick={() => { setDueDate(item, null); setDueTime(item, null) }} className="block text-xs text-white/40 hover:text-white/70 w-full text-left">Clear</button>
                             )}
+                          </div>
+                        )}
+                      </div>
+
+                      {/* Repeat */}
+                      <div className="relative">
+                        <button
+                          onClick={e => { e.stopPropagation(); setShowRepeatPicker(showRepeatPicker === item.id ? null : item.id) }}
+                          className="flex items-center gap-1 text-xs text-white/40 hover:text-white/70 transition-colors"
+                        >
+                          <svg className="w-3.5 h-3.5 text-white/30" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+                          </svg>
+                          {item.recurrence !== 'none' ? (
+                            <span className="text-white/60">{RECURRENCE_LABEL[item.recurrence]}</span>
+                          ) : (
+                            <span className="text-white/30">Repeat</span>
+                          )}
+                        </button>
+                        {showRepeatPicker === item.id && (
+                          <div className="absolute left-0 top-6 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl py-1 min-w-[150px]" onClick={e => e.stopPropagation()}>
+                            {RECURRENCE_OPTIONS.map(o => (
+                              <button
+                                key={o.value}
+                                onClick={() => setRecurrence(item, o.value)}
+                                className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-gray-800 ${item.recurrence === o.value ? 'text-white' : 'text-gray-300'}`}
+                              >
+                                {o.label}
+                                {item.recurrence === o.value && <span className="ml-auto text-brand">✓</span>}
+                              </button>
+                            ))}
                           </div>
                         )}
                       </div>
@@ -615,12 +718,18 @@ export default function BoardView({
                           onClick={e => { e.stopPropagation(); setShowAssignPicker(showAssignPicker === item.id ? null : item.id) }}
                           className="flex items-center gap-1 text-xs text-white/40 hover:text-white/70 transition-colors"
                         >
-                          {item.assignee ? (
+                          {item.assignees.length > 0 ? (
                             <>
-                              <div className="w-4 h-4 rounded-full bg-brand flex items-center justify-center text-[9px] font-bold text-white flex-none">
-                                {item.assignee.display_name.slice(0, 1).toUpperCase()}
+                              <div className="flex -space-x-1.5">
+                                {item.assignees.slice(0, 3).map(a => (
+                                  <div key={a.id} className="w-4 h-4 rounded-full bg-brand ring-1 ring-gray-900 flex items-center justify-center text-[9px] font-bold text-white flex-none">
+                                    {a.display_name.slice(0, 1).toUpperCase()}
+                                  </div>
+                                ))}
                               </div>
-                              <span className="text-white/60">{item.assignee.display_name.split(' ')[0]}</span>
+                              <span className="text-white/60">
+                                {item.assignees.length === 1 ? item.assignees[0].display_name.split(' ')[0] : `${item.assignees.length} people`}
+                              </span>
                             </>
                           ) : (
                             <>
@@ -632,23 +741,24 @@ export default function BoardView({
                           )}
                         </button>
                         {showAssignPicker === item.id && (
-                          <div className="absolute left-0 top-6 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl py-1 min-w-[160px] max-h-48 overflow-y-auto" onClick={e => e.stopPropagation()}>
-                            {item.assignee && (
-                              <button onClick={() => setAssignee(item, null)} className="w-full px-3 py-2 text-xs text-white/50 hover:bg-gray-800 text-left">Unassign</button>
-                            )}
-                            {hubUsers.filter(u => !u.id.includes('bot')).map(u => (
-                              <button
-                                key={u.id}
-                                onClick={() => setAssignee(item, u.id)}
-                                className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-gray-800 ${item.assignee_id === u.id ? 'text-white' : 'text-gray-300'}`}
-                              >
-                                <div className="w-5 h-5 rounded-full bg-gray-600 flex items-center justify-center text-[10px] font-bold text-white flex-none">
-                                  {u.display_name.slice(0, 1).toUpperCase()}
-                                </div>
-                                {u.display_name.split(' ')[0]}
-                                {item.assignee_id === u.id && <span className="ml-auto text-brand">✓</span>}
-                              </button>
-                            ))}
+                          <div className="absolute left-0 top-6 z-50 bg-gray-900 border border-gray-700 rounded-xl shadow-2xl py-1 min-w-[180px] max-h-56 overflow-y-auto" onClick={e => e.stopPropagation()}>
+                            <div className="px-3 py-1.5 text-[11px] text-white/40 font-semibold uppercase tracking-wider">Assign to</div>
+                            {hubUsers.filter(u => !u.is_bot).map(u => {
+                              const selected = item.assignees.some(a => a.id === u.id)
+                              return (
+                                <button
+                                  key={u.id}
+                                  onClick={() => toggleAssignee(item, u.id)}
+                                  className={`w-full flex items-center gap-2 px-3 py-2 text-xs text-left hover:bg-gray-800 ${selected ? 'text-white' : 'text-gray-300'}`}
+                                >
+                                  <div className="w-5 h-5 rounded-full bg-gray-600 flex items-center justify-center text-[10px] font-bold text-white flex-none">
+                                    {u.display_name.slice(0, 1).toUpperCase()}
+                                  </div>
+                                  {u.display_name.split(' ')[0]}
+                                  {selected && <span className="ml-auto text-brand">✓</span>}
+                                </button>
+                              )
+                            })}
                           </div>
                         )}
                       </div>
