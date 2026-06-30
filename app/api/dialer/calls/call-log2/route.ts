@@ -40,7 +40,8 @@ export async function GET(request: NextRequest) {
     .select('can_access_coaching')
     .eq('id', user.id)
     .single()
-  const canViewCoaching = coachPerm?.can_access_coaching === true || profile.role === 'admin'
+  // Manager-only: gated on can_access_coaching ALONE — admins do NOT bypass.
+  const canViewCoaching = coachPerm?.can_access_coaching === true
 
   let q = admin
     .from('calls')

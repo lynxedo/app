@@ -21,7 +21,8 @@ export async function POST(req: NextRequest) {
     .select('can_access_coaching, role, company_id')
     .eq('id', user.id)
     .single()
-  if (!profile || (profile.can_access_coaching !== true && profile.role !== 'admin')) {
+  // Manager-only: gated on can_access_coaching ALONE — admins do NOT bypass.
+  if (profile?.can_access_coaching !== true) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
 
