@@ -263,4 +263,4 @@ export async function twilioConvSendMessage(opts: {
 // E.164 normalizer for US numbers — single source of truth in lib/phone.ts,
 // re-exported here so existing `import { toE164 } from '@/lib/twilio'` callers
 // keep working.
-export { toE164, isShortCode, normalizeSmsDestination } from './phone'
+export { toE164 } from './phone'

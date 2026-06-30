@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { normalizeSmsDestination } from '@/lib/twilio'
+import { toE164 } from '@/lib/twilio'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -17,8 +17,7 @@ export async function POST(request: Request) {
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
   const body = await request.json().catch(() => ({}))
-  // Accepts E.164 numbers AND 5–6 digit SMS short codes (e.g. 65208 for "JOIN").
-  const phoneE164 = normalizeSmsDestination(body.phone || '')
+  const phoneE164 = toE164(body.phone || '')
   if (!phoneE164) {
     return NextResponse.json({ error: 'Invalid phone' }, { status: 400 })
   }
