@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { claudeAnalyze } from '@/lib/call-transcribe'
+import { claudeAnalyze, resolveRepName } from '@/lib/call-transcribe'
 import { coachingHasRealScore } from '@/lib/call-rubric'
 
 // Re-score historical dialer calls through the CURRENT coaching rubric, reusing
@@ -62,6 +62,8 @@ interface CallRow {
   recording_duration_seconds: number | null
   duration_seconds: number | null
   created_at: string | null
+  handled_by: string | null
+  initiated_by: string | null
   coaching_grade?: string | null
   coaching_headline?: string | null
   ai_summary?: string | null
@@ -98,11 +100,13 @@ async function recoachOne(admin: Admin, call: CallRow) {
   if (noConvoStatus || hasVoicemail || (dur > 0 && dur < 25) || transcript.length < 60) {
     coaching = NA_COACHING
   } else {
+    const repName = await resolveRepName(admin, call)
     analysis = await claudeAnalyze(transcript, {
       direction: call.direction || '',
       phone: call.direction === 'inbound' ? call.from_number || '' : call.to_number || '',
       durationSec: dur,
       createdAt: call.created_at,
+      repName,
     })
     coaching = (analysis?.coaching as (Coaching & Record<string, unknown>)) ?? NA_COACHING
   }
@@ -145,7 +149,7 @@ async function recoachOne(admin: Admin, call: CallRow) {
 }
 
 const CALL_COLS =
-  'id, direction, status, from_number, to_number, recording_duration_seconds, duration_seconds, created_at, coaching_grade, coaching_headline, ai_summary'
+  'id, direction, status, from_number, to_number, recording_duration_seconds, duration_seconds, created_at, handled_by, initiated_by, coaching_grade, coaching_headline, ai_summary'
 
 export async function POST(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET

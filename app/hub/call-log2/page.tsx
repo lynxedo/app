@@ -150,6 +150,43 @@ function CallRow({ call, selected, onClick, canViewCoaching }: { call: Call; sel
   )
 }
 
+// Renders a [Speaker N]-labeled transcript as distinct, alternating rows so the
+// two parties read as a back-and-forth conversation instead of one wall of
+// text. Falls back to a plain block when the transcript has no speaker labels
+// (older mono recordings transcribed before diarization was enabled).
+function TranscriptView({ text }: { text: string }) {
+  const parsed = text
+    .split('\n')
+    .map(l => l.trim())
+    .filter(Boolean)
+    .map(line => {
+      const m = /^\[Speaker (\d+)\]\s*(.*)$/.exec(line)
+      return m ? { speaker: parseInt(m[1], 10), text: m[2] } : { speaker: null as number | null, text: line }
+    })
+  const hasSpeakers = parsed.some(p => p.speaker != null)
+  if (!hasSpeakers) {
+    return (
+      <pre className="mt-3 text-xs text-gray-300 whitespace-pre-wrap leading-relaxed font-sans max-h-96 overflow-y-auto">{text}</pre>
+    )
+  }
+  // We can't reliably tell which speaker is the rep vs the customer, so label
+  // them neutrally and just two-tone alternating turns for readability.
+  const accent = (sp: number | null) =>
+    sp == null ? 'border-gray-700' : sp % 2 === 1 ? 'border-purple-500/50' : 'border-blue-500/50'
+  return (
+    <div className="mt-3 space-y-2 max-h-96 overflow-y-auto pr-1">
+      {parsed.map((p, i) => (
+        <div key={i} className={`border-l-2 pl-3 ${accent(p.speaker)}`}>
+          {p.speaker != null && (
+            <div className="text-[10px] font-semibold uppercase tracking-wider text-gray-500 mb-0.5">Speaker {p.speaker}</div>
+          )}
+          <div className="text-xs text-gray-300 leading-relaxed">{p.text}</div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
 // ---------------------------------------------------------------------------
 // Right-panel detail (mirrors CallDetail in the original Call Log)
 // ---------------------------------------------------------------------------
@@ -286,11 +323,7 @@ function CallDetail({ call, canViewCoaching }: { call: Call; canViewCoaching: bo
             <span>Transcript</span>
             <span>{showTranscript ? '▲' : '▼'}</span>
           </button>
-          {showTranscript && (
-            <pre className="mt-3 text-xs text-gray-300 whitespace-pre-wrap leading-relaxed font-sans max-h-96 overflow-y-auto">
-              {transcript}
-            </pre>
-          )}
+          {showTranscript && <TranscriptView text={transcript} />}
         </div>
       )}
 
@@ -344,7 +377,7 @@ function EngineCard({ result, isWinner }: { result: AiResult; isWinner: boolean 
         </button>
       )}
       {showTranscript && result.transcript_text && (
-        <pre className="text-xs text-gray-400 whitespace-pre-wrap leading-relaxed max-h-64 overflow-y-auto">{result.transcript_text}</pre>
+        <TranscriptView text={result.transcript_text} />
       )}
     </div>
   )

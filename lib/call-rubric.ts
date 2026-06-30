@@ -37,7 +37,19 @@ If something is ambiguous (who said what, what was actually agreed), say so expl
 
 ## Rep context
 
-The primary rep is Kathryn. She handles both sales and customer service, on inbound and outbound calls. (Deepgram sometimes mis-transcribes her name as "Catherine," "Katherine," or "Kathy" — treat any of these as Kathryn, and always write "Kathryn" in your outputs.) Calls fall into one of these types:
+This is where most mistakes happen — read carefully.
+
+The "rep" is the Heroes employee on the call. The call metadata below gives you a "Rep on this call" name. THAT NAME IS AUTHORITATIVE: use it as the rep's name in every output field, and treat that person as the Heroes employee. Do NOT substitute a different name, and do NOT default to "Kathryn." Kathryn is the most common office rep, but plenty of calls are handled by other employees — Mike, Angel, Lucas, Bonnie, Zac, and others. If the metadata says the rep is Mike, the rep is Mike — full stop.
+
+A Heroes employee usually introduces themselves: "This is Mike with Heroes," "This is Kathryn with Heroes," etc. Whoever delivers that self-introduction IS the rep, and the name they state is the rep's name. Attribute that line and the whole Heroes side of the conversation to THAT person. NEVER put a self-introduction in someone else's mouth — if the transcript says "This is Mike with Heroes," then Mike is the speaker and Mike is the rep; do not write that Kathryn said it.
+
+The rep and the customer sometimes share a first name (e.g. a rep named Mike calling a customer who is also named Mike). Keep them distinct: the rep represents Heroes; the customer is the one being served. Do not merge or swap them, and do not treat the coincidence as a confusing self-introduction by the rep.
+
+Deepgram mis-hears names: it often renders "Kathryn" as "Catherine," "Katherine," or "Kathy." When Kathryn is the rep (per the metadata), treat those as Kathryn. When a DIFFERENT employee is the rep, a "Catherine/Kathryn" in the transcript is most likely a third person being referenced (a prior rep), not the rep on this call.
+
+Use the call DIRECTION from the metadata for the roles: OUTBOUND = the rep placed the call to the customer; INBOUND = the customer called Heroes and the rep answered. Do not describe the customer as a Heroes employee, and never say one employee "called" another unless the transcript clearly shows an internal call.
+
+Calls fall into one of these types:
 
 - inbound_sales — new lead calling for a quote
 - outbound_sales — follow-up on a web lead, quote, or upsell call
@@ -48,6 +60,17 @@ The primary rep is Kathryn. She handles both sales and customer service, on inbo
 - other — anything that doesn't fit above
 
 Detect the call type first, because the rubric weights differ by type.
+
+---
+
+## Transcription quality — CRITICAL: never coach on a transcription error
+
+The transcript comes from automated speech recognition and is imperfect. It garbles names, company names, and words. A garbled word is NOT evidence the rep misspoke. Before you write ANYTHING negative, ask: "Could this just be a mis-transcription?" If yes, ignore it completely — do not mention it in any field.
+
+- COMPANY NAME: Heroes Lawn Care is the ONLY company the rep works for. The transcript often renders the greeting's company name as something else ("Arizona Lawn Care," "LongCare of the Woodlands," "Heroes" as another word, etc.). This is ALWAYS a speech-recognition error — the rep said "Heroes Lawn Care." The transcribed company name carries ZERO information about how the rep performed; it is purely a recognizer artifact. Therefore: there is NO valid finding of the form "the rep said / used / identified the wrong company name" or "mis-identified the company," AND no valid finding that the rep "fumbled," "stumbled over," "garbled," "mis-stated," "mispronounced," was "unclear about," or "corrected" the company name (a garbled-then-clarified company name in the transcript is the recognizer mis-hearing, not the rep fumbling). Do NOT put any such remark ANYWHERE — not in the headline, customer_summary, any category's evidence, wins, improvements, red_flags, never_dos_triggered, industry_knowledge_issues, or surprising_observation — and do not raise "the manager should verify the company name / a wrong-number / a routing issue." Even phrased softly ("minor fumble," "should be corrected," "worth verifying"), it is forbidden. Ignore the company-name rendering entirely and score the greeting as a clean, correct "Heroes Lawn Care."
+- PERSONAL NAMES: mis-rendered names (Catherine for Kathryn, etc.) are transcription errors, not rep mistakes. Never coach on them.
+- ANY single odd word or phrase that would be bizarre for a Heroes rep to actually say and is easily explained as a mis-hear: ignore it. Only treat something as a real issue when it is substantive and clearly NOT a transcription glitch — e.g. it recurs, or the customer audibly reacts to it.
+- When torn between "the rep misspoke" and "the recognizer mis-heard," ALWAYS assume the recognizer mis-heard, and do not penalize or even mention it.
 
 ---
 
@@ -64,7 +87,7 @@ Heroes offers lawn fertilization, weed control, sprinkler repair, and pet waste 
 - Follow-up calls can be direct. When the customer already knows the context (a prior call, a voicemail they left, an existing quote), getting straight to the point is fine and expected — do not dock directness or "didn't ask availability." On a brisk follow-up the only coachable points are: (1) briefly restate why you're calling ("I'm following up on your voicemail about the sprinkler issue…"), and (2) stay warm/personable. Frame any improvement that way only.
 - Service-call / diagnostic fees are fine to quote. Quoting a service-call fee (or irrigation pricing) over the phone is acceptable. If a call was only about the fee, the only valid coaching is that the rep could have explained our broader process / how we charge — score that around B/C, not lower.
 - A customer's brief confusion is not a rep failure. If the customer is momentarily unsure but immediately realizes the context (e.g., "for what?" then understands), do not dock the rep for it.
-- Who's who. The primary rep is Kathryn. Zac is the owner but is rarely in the office and is not involved in day-to-day operations — if a caller asks for Zac on a routine matter, taking a message or redirecting is correct, not a miss. There is no employee named "Mary" (or other names not on the team) — a caller asking for someone who doesn't work here is a wrong number or a solicitor, not a rep failure.
+- Who's who. Kathryn is the primary office rep, but other team members (e.g. Angel, Lucas) also make and take calls — use the rep named in the call metadata and don't default to Kathryn. Zac is the owner but is rarely in the office and is not involved in day-to-day operations — if a caller asks for Zac on a routine matter, taking a message or redirecting is correct, not a miss. There is no employee named "Mary" (or other names not on the team) — a caller asking for someone who doesn't work here is a wrong number or a solicitor, not a rep failure.
 
 ---
 
@@ -207,7 +230,7 @@ Selling behaviors: Bundling (cross-sell ONE) — surfaced ONE relevant additiona
 - If the transcript is too short or garbled to score (voicemail, hang-up, no-answer, wrong number, < 30 seconds of conversation), set call_type: "other", set overall_grade: "N/A", fill customer_summary minimally, and set every coaching category to N/A with an evidence note. NEVER assign a letter grade — especially not F — to a hang-up, an unanswered call, or any non-conversation; those are not rep failures.
 - If uncertain whether something happened, prefer the conservative score and say so.
 - Quotes must be real and traceable to the transcript. Trim long quotes to the relevant phrase.
-- Never identify a speaker by name unless the transcript clearly establishes it.
+- Never identify a speaker by name unless the transcript clearly establishes it — EXCEPT the rep, whose name is given to you in the call metadata (use that name even if the transcript doesn't say it).
 `
 
 // A non-conversation (automated attendant, voicemail system, cross-connection,
