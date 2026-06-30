@@ -26,7 +26,7 @@ type Coaching = {
 // voicemail). These must never carry a letter grade — see the rubric guardrail.
 const NA_COACHING = {
   overall_grade: 'N/A',
-  headline: 'No scorable conversation (hang-up, no-answer, voicemail, or under ~20 seconds).',
+  headline: 'No scorable conversation (hang-up, no-answer, voicemail, or too short to evaluate).',
   categories: {},
   industry_knowledge_issues: [],
   wins: [],
@@ -55,6 +55,7 @@ function coachingCols(coaching: Coaching) {
 interface CallRow {
   id: string
   direction: string | null
+  status: string | null
   from_number: string | null
   to_number: string | null
   recording_duration_seconds: number | null
@@ -78,10 +79,22 @@ async function recoachOne(admin: Admin, call: CallRow) {
   const transcript = ((air?.transcript_text as string | null) || '').trim()
   const dur = call.recording_duration_seconds || call.duration_seconds || 0
 
+  // A call with a voicemail, a non-connecting status, or essentially no
+  // conversation has no rep performance to grade -> force N/A (never a letter
+  // grade). More reliable than trusting the model to detect it.
+  const { count: vmCount } = await admin
+    .from('voicemails')
+    .select('id', { count: 'exact', head: true })
+    .eq('call_id', call.id)
+  const hasVoicemail = (vmCount ?? 0) > 0
+  const noConvoStatus = ['no-answer', 'busy', 'failed', 'canceled', 'missed'].includes(
+    (call.status || '').toLowerCase()
+  )
+
   let analysis: Record<string, unknown> | null = null
   let coaching: Coaching & Record<string, unknown>
 
-  if ((dur > 0 && dur < 20) || transcript.length < 60) {
+  if (noConvoStatus || hasVoicemail || (dur > 0 && dur < 25) || transcript.length < 60) {
     coaching = NA_COACHING
   } else {
     analysis = await claudeAnalyze(transcript, {
@@ -119,7 +132,7 @@ async function recoachOne(admin: Admin, call: CallRow) {
 }
 
 const CALL_COLS =
-  'id, direction, from_number, to_number, recording_duration_seconds, duration_seconds, created_at, coaching_grade, coaching_headline, ai_summary'
+  'id, direction, status, from_number, to_number, recording_duration_seconds, duration_seconds, created_at, coaching_grade, coaching_headline, ai_summary'
 
 export async function POST(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET
