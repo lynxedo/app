@@ -62,22 +62,33 @@ export async function GET(request: Request) {
   // base query untouched by the coaching columns.
   if (canViewCoaching && rows.length > 0) {
     const ids = rows.map(r => (r as { id: string }).id)
-    const { data: coaching } = await admin
-      .from('call_logs')
-      .select('id, overall_grade, must_listen, coaching_json')
-      .in('id', ids)
+    const [{ data: coaching }, { data: reviews }] = await Promise.all([
+      admin.from('call_logs').select('id, overall_grade, must_listen, coaching_json').in('id', ids),
+      admin
+        .from('call_coaching_reviews')
+        .select('call_id, override_grade, manager_notes, acknowledged, reviewed_at')
+        .eq('call_source', 'unitel')
+        .in('call_id', ids),
+    ])
     const byId: Record<string, { overall_grade: string | null; must_listen: boolean | null; coaching_json: unknown }> = {}
     for (const r of coaching ?? []) {
       const row = r as { id: string; overall_grade: string | null; must_listen: boolean | null; coaching_json: unknown }
       byId[row.id] = row
     }
+    const rByCall: Record<string, { override_grade: string | null; manager_notes: string | null; acknowledged: boolean }> = {}
+    for (const r of reviews ?? []) {
+      const row = r as { call_id: string; override_grade: string | null; manager_notes: string | null; acknowledged: boolean }
+      rByCall[row.call_id] = row
+    }
     calls = rows.map(r => {
       const row = r as Record<string, unknown> & { id: string }
+      const review = rByCall[row.id] ?? null
       return {
         ...row,
-        coaching_grade: byId[row.id]?.overall_grade ?? null,
+        coaching_grade: review?.override_grade ?? byId[row.id]?.overall_grade ?? null,
         coaching_must_listen: byId[row.id]?.must_listen ?? null,
         coaching_json: byId[row.id]?.coaching_json ?? null,
+        review,
       }
     })
   }

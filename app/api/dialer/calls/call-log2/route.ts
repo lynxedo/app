@@ -110,7 +110,31 @@ export async function GET(request: NextRequest) {
     return base
   })
 
+  // Attach the manager's review (override grade + notes + reviewed flag); the
+  // override takes precedence for the displayed grade.
+  let withReviews: Record<string, unknown>[] = enriched as Record<string, unknown>[]
+  if (canViewCoaching && callIds.length > 0) {
+    const { data: reviews } = await admin
+      .from('call_coaching_reviews')
+      .select('call_id, override_grade, manager_notes, acknowledged, reviewed_at')
+      .eq('call_source', 'dialer')
+      .in('call_id', callIds)
+    const rByCall: Record<string, { override_grade: string | null; manager_notes: string | null; acknowledged: boolean }> = {}
+    for (const r of reviews ?? []) {
+      const row = r as { call_id: string; override_grade: string | null; manager_notes: string | null; acknowledged: boolean }
+      rByCall[row.call_id] = row
+    }
+    withReviews = (enriched as Record<string, unknown>[]).map(c => {
+      const review = rByCall[(c as { id: string }).id] ?? null
+      return {
+        ...c,
+        review,
+        coaching_grade: review?.override_grade ?? (c as { coaching_grade?: string | null }).coaching_grade ?? null,
+      }
+    })
+  }
+
   // company_id lets the client subscribe to the `call-log2:{companyId}`
   // realtime broadcast (fired when a transcription completes) for live updates.
-  return NextResponse.json({ calls: enriched, company_id: companyId, can_view_coaching: canViewCoaching })
+  return NextResponse.json({ calls: withReviews, company_id: companyId, can_view_coaching: canViewCoaching })
 }

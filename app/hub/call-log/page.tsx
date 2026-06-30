@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
-import { CoachingPanel, coachingGradeColor, type CoachingData } from '@/components/hub/CoachingPanel'
+import { CoachingPanel, coachingGradeColor, type CoachingData, type CoachingReview } from '@/components/hub/CoachingPanel'
 
 interface CallLog {
   id: string
@@ -30,6 +30,7 @@ interface CallLog {
   coaching_grade?: string | null
   coaching_must_listen?: boolean | null
   coaching_json?: CoachingData | null
+  review?: CoachingReview | null
 }
 
 function formatDuration(seconds: number | null) {
@@ -231,7 +232,7 @@ function CallDetail({ call, canViewCoaching }: { call: CallLog; canViewCoaching:
 
       {/* Coaching */}
       {canViewCoaching && call.coaching_json && (
-        <CoachingPanel coaching={call.coaching_json} />
+        <CoachingPanel coaching={call.coaching_json} callId={call.id} source="unitel" review={call.review} />
       )}
 
       {/* Transcript — speaker-sectioned when diarization is available,

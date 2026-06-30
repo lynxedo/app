@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { CoachingPanel, coachingGradeColor, type CoachingData } from '@/components/hub/CoachingPanel'
+import { CoachingPanel, coachingGradeColor, type CoachingData, type CoachingReview } from '@/components/hub/CoachingPanel'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -52,6 +52,7 @@ type Call = {
   coaching_grade: string | null
   coaching_must_listen: boolean | null
   coaching_json: CoachingData | null
+  review: CoachingReview | null
   contact: { id: string; name: string; phone: string } | null
   ai_results: AiResult[]
   voicemail: Voicemail | null
@@ -268,7 +269,7 @@ function CallDetail({ call, canViewCoaching }: { call: Call; canViewCoaching: bo
 
       {/* Coaching */}
       {canViewCoaching && call.coaching_json && (
-        <CoachingPanel coaching={call.coaching_json} />
+        <CoachingPanel coaching={call.coaching_json} callId={call.id} source="dialer" review={call.review} />
       )}
 
       {/* Transcript */}
