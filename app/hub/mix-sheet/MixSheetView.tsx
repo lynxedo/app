@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import Link from 'next/link'
-import { DEFAULT_MIX_ROWS, fmtAmt } from '@/lib/mix-sheet'
+import { DEFAULT_MIX_ROWS, fmtAmt, orderColumns } from '@/lib/mix-sheet'
 import type { MixSheetPayload } from '@/lib/mix-sheet-server'
 
 // All styling is scoped under .msroot so it can't touch the dark Hub chrome.
@@ -53,8 +53,11 @@ const CSS = `
 .msroot thead th .tag{font-size:9px;font-weight:800;letter-spacing:.03em;padding:2px 5px;border-radius:5px;background:rgba(255,255,255,.18);color:#fff}
 .msroot thead th.prod{white-space:normal;width:84px;min-width:84px}
 .msroot thead th.prod .pname{display:block;white-space:normal;overflow-wrap:anywhere}
-.msroot th.size,.msroot td.size{position:sticky;left:0;z-index:2;text-align:left;min-width:74px}
-.msroot th.water,.msroot td.water{position:sticky;z-index:2;text-align:left;min-width:80px}
+.msroot thead th .reorder{display:flex;justify-content:space-between;gap:4px;margin-bottom:4px}
+.msroot thead th .reorder button{cursor:pointer;border:1px solid rgba(255,255,255,.3);background:rgba(255,255,255,.12);color:#fff;border-radius:4px;width:17px;height:17px;line-height:1;font-size:12px;font-weight:800;padding:0;display:grid;place-items:center}
+.msroot thead th .reorder button:disabled{opacity:.25;cursor:default}
+.msroot th.size,.msroot td.size{position:sticky;left:0;z-index:2;text-align:left;width:62px;min-width:62px}
+.msroot th.water,.msroot td.water{position:sticky;z-index:2;text-align:left;width:74px;min-width:74px}
 .msroot thead th.size,.msroot thead th.water{z-index:4;text-align:left}
 .msroot td{padding:7px 12px;text-align:right;font-size:13.5px;border-bottom:1px solid var(--line-soft);white-space:nowrap}
 .msroot td .u{color:var(--faint);font-size:10.5px;margin-left:3px}
@@ -124,6 +127,7 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
   const [selected, setSelected] = useState<Set<string>>(() => initSelected(initial))
   const [notes, setNotes] = useState(initial.config.notes ?? '')
   const [granular, setGranular] = useState(initial.config.granular_options ?? '')
+  const [order, setOrder] = useState<string[]>(initial.productOrder)
   const [phone, setPhone] = useState(false)
   const [busy, setBusy] = useState(false)
   const [saved, setSaved] = useState<string | null>(null)
@@ -138,7 +142,7 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
       .then(r => r.json())
       .then((p: MixSheetPayload) => {
         if (cancelled || !p || !p.columns) return
-        setData(p); setSelected(initSelected(p)); setNotes(p.config.notes ?? ''); setGranular(p.config.granular_options ?? '')
+        setData(p); setSelected(initSelected(p)); setNotes(p.config.notes ?? ''); setGranular(p.config.granular_options ?? ''); setOrder(p.productOrder)
       })
       .catch(() => {})
       .finally(() => { if (!cancelled) setBusy(false) })
@@ -173,10 +177,24 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
   }
 
   const cols = useMemo(
-    () => data.columns.filter(c => c.programKeys.some(k => selected.has(k))),
-    [data.columns, selected],
+    () => orderColumns(data.columns.filter(c => c.programKeys.some(k => selected.has(k))), order),
+    [data.columns, selected, order],
   )
   const fitsOnePage = cols.length <= 9 // ~9 narrow columns fit a landscape page
+
+  // Move a product column left/right (admin) and persist the company-wide order.
+  function moveCol(i: number, dir: number) {
+    const j = i + dir
+    if (j < 0 || j >= cols.length) return
+    const ids = cols.map(c => c.productId)
+    ;[ids[i], ids[j]] = [ids[j], ids[i]]
+    const seen = new Set<string>(); const next: string[] = []
+    for (const id of ids) if (!seen.has(id)) { seen.add(id); next.push(id) }
+    setOrder(next)
+    fetch('/api/hub/mix-sheet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ product_order: next }) })
+      .then(r => { if (r.ok) setSaved(new Date().toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' })) })
+      .catch(() => {})
+  }
 
   return (
     <div id="ms-print" className={`msroot${phone ? ' phone' : ''}`}>
@@ -247,6 +265,12 @@ export default function MixSheetView({ initial, canEdit }: { initial: MixSheetPa
                         const cls = `prod${orStart ? ' or-start' : ''}${orEnd ? ' or-end' : ''}`
                         return (
                           <th key={c.key} className={cls}>
+                            {canEdit && (
+                              <div className="reorder ms-noprint">
+                                <button type="button" onClick={() => moveCol(i, -1)} disabled={i === 0} aria-label="Move column left" title="Move left">‹</button>
+                                <button type="button" onClick={() => moveCol(i, 1)} disabled={i === cols.length - 1} aria-label="Move column right" title="Move right">›</button>
+                              </div>
+                            )}
                             {orPair && <span className="orbadge">OR</span>}
                             {orPair && <br />}
                             <span className="pname">{c.name}</span>

@@ -28,10 +28,22 @@ export async function POST(request: Request) {
   let body: Record<string, unknown>
   try { body = await request.json() } catch { return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 }) }
 
+  const admin = createAdminClient()
+
+  // Manual column order is a company-wide preference (not per-month).
+  if ('product_order' in body) {
+    if (!Array.isArray(body.product_order)) return NextResponse.json({ error: 'product_order must be an array' }, { status: 400 })
+    const order = body.product_order.filter((x): x is string => typeof x === 'string')
+    const { error } = await admin
+      .from('mix_sheet_settings')
+      .upsert({ company_id: ctx.companyId, product_order: order, updated_at: new Date().toISOString() }, { onConflict: 'company_id' })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    return NextResponse.json({ ok: true })
+  }
+
   const parsed = parseMixSheetConfigBody(body)
   if ('error' in parsed) return NextResponse.json({ error: parsed.error }, { status: 400 })
 
-  const admin = createAdminClient()
   const { error } = await admin
     .from('mix_sheets')
     .upsert({ company_id: ctx.companyId, ...parsed, updated_at: new Date().toISOString() }, { onConflict: 'company_id,period_key' })

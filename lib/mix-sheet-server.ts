@@ -10,7 +10,7 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { createClient } from '@/lib/supabase/server'
 import { selectMappingsForDate } from '@/lib/service-mapping'
 import {
-  buildMixColumns, programsPresent, periodKeyFor, DEFAULT_TANK_RATE,
+  buildMixColumns, orderColumns, programsPresent, periodKeyFor, DEFAULT_TANK_RATE,
   type MixMappingInput, type MixProductInput, type MixColumn, type MixSheetConfig,
 } from '@/lib/mix-sheet'
 
@@ -43,6 +43,7 @@ export type MixSheetPayload = {
   tankRate: number
   columns: MixColumn[]
   programs: { key: string; abbr: string; name: string }[]
+  productOrder: string[]
   config: MixSheetConfig
 }
 
@@ -56,7 +57,7 @@ type DatedSpRow = MixMappingInput & {
 // the programs present (for the picker), the tank ratio, and the saved per-month
 // config (or sensible defaults when none exists yet).
 export async function loadMixSheet(admin: SupabaseClient, companyId: string, asOf: string): Promise<MixSheetPayload> {
-  const [sp, prod, tanks, cfg] = await Promise.all([
+  const [sp, prod, tanks, cfg, settings] = await Promise.all([
     admin.from('service_products')
       .select('id, jobber_line_item_name, product_id, application_rate, rate_unit, program, alt_group, show_on_mix_sheet, effective_start, effective_end, batch_label')
       .eq('company_id', companyId).eq('is_active', true).is('deleted_at', null),
@@ -69,6 +70,9 @@ export async function loadMixSheet(admin: SupabaseClient, companyId: string, asO
     admin.from('mix_sheets')
       .select('period_key, label, selected_programs, notes, granular_options')
       .eq('company_id', companyId).eq('period_key', periodKeyFor(asOf)).maybeSingle(),
+    admin.from('mix_sheet_settings')
+      .select('product_order')
+      .eq('company_id', companyId).maybeSingle(),
   ])
 
   const tankRows = (tanks.data ?? []) as { application_rate: number | null }[]
@@ -76,7 +80,8 @@ export async function loadMixSheet(admin: SupabaseClient, companyId: string, asO
   const rows = (sp.data ?? []) as unknown as DatedSpRow[]
   const active = selectMappingsForDate(rows, asOf)
   const productsById = new Map<string, MixProductInput>(((prod.data ?? []) as MixProductInput[]).map(p => [p.id, p]))
-  const columns = buildMixColumns(active, productsById, tankRate)
+  const productOrder = (((settings.data as { product_order?: unknown } | null)?.product_order) ?? []) as string[]
+  const columns = orderColumns(buildMixColumns(active, productsById, tankRate), productOrder)
   const programs = programsPresent(columns)
 
   const c = cfg.data as Partial<MixSheetConfig> | null
@@ -88,7 +93,7 @@ export async function loadMixSheet(admin: SupabaseClient, companyId: string, asO
     granular_options: c?.granular_options ?? null,
   }
 
-  return { asOf, tankRate, columns, programs, config }
+  return { asOf, tankRate, columns, programs, productOrder, config }
 }
 
 // Validate the editable per-month config (PATCH/POST upsert).

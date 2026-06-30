@@ -128,6 +128,15 @@ export function programsPresent(cols: MixColumn[]): { key: string; abbr: string;
   return out
 }
 
+// Stable-reorder columns by a saved product-id order (admin's manual order).
+// Listed products lead, in that order; anything unlisted keeps its default
+// position after them (Array.sort is stable).
+export function orderColumns(cols: MixColumn[], productOrder: string[] | null | undefined): MixColumn[] {
+  if (!productOrder || productOrder.length === 0) return cols
+  const idx = new Map(productOrder.map((id, i) => [id, i]))
+  return [...cols].sort((a, b) => (idx.get(a.productId) ?? Infinity) - (idx.get(b.productId) ?? Infinity))
+}
+
 // Round for display: 2 dp, trailing zeros stripped, tabular-friendly.
 export function fmtAmt(n: number): string {
   if (!isFinite(n)) return '—'

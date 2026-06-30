@@ -1932,6 +1932,7 @@ function ServiceMappingTab() {
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
           <li><strong className="text-white">Mix for [date]</strong> — pick any date and the sheet shows that day&apos;s mix.</li>
           <li><strong className="text-white">Program chips</strong> — show or hide programs (LHB / LHP / LHC / RRR) to keep it to one page.</li>
+          <li><strong className="text-white">Reorder columns</strong> — admins use the <strong className="text-white">‹ ›</strong> arrows on each product column to set the order; it&apos;s saved for everyone.</li>
           <li><strong className="text-white">Landscape PDF</strong> — prints black-and-white on a single page.</li>
           <li><strong className="text-white">Notes</strong> and <strong className="text-white">Granular options</strong> are editable and saved per month.</li>
         </ul>
