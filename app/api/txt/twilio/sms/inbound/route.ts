@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import {
   validateTwilioSignature,
   downloadTwilioMedia,
-  normalizeSmsDestination,
+  toE164,
   twilioConfigured,
 } from '@/lib/twilio'
 import { sendHubPush } from '@/lib/hub-push'
@@ -102,9 +102,7 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Match E.164 numbers AND short-code senders (e.g. a JOIN confirmation from
-  // 65208) so opt-in replies land in the right conversation instead of dropping.
-  const from = normalizeSmsDestination(params.From || '')
+  const from = toE164(params.From || '')
   const to = params.To || ''
   const body = params.Body || ''
   const sid = params.MessageSid || params.SmsSid || ''
