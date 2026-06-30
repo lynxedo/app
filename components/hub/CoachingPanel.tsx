@@ -92,6 +92,9 @@ const CATEGORY_GROUPS: { title: string; keys: [string, string][] }[] = [
   },
 ]
 
+/** Flat [key, label] list of every coaching category, in rubric order. */
+export const COACHING_CATEGORIES: [string, string][] = CATEGORY_GROUPS.flatMap(g => g.keys)
+
 const GRADE_CHOICES = ['A', 'B', 'C', 'D', 'F', 'N/A']
 
 function asList(v: unknown): string[] {

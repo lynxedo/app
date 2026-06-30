@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
-import { CoachingPanel, coachingGradeColor, type CoachingData, type CoachingReview } from '@/components/hub/CoachingPanel'
+import { CoachingPanel, coachingGradeColor, COACHING_CATEGORIES, type CoachingData, type CoachingReview } from '@/components/hub/CoachingPanel'
 
 interface CallLog {
   id: string
@@ -312,7 +312,7 @@ export default function CallLogPage() {
   const [name, setName] = useState('')
   const [keyword, setKeyword] = useState('')
   const [gradeFilter, setGradeFilter] = useState('')
-  const [repFilter, setRepFilter] = useState('')
+  const [catFilter, setCatFilter] = useState('')
 
   const fetchCalls = useCallback(async (params: {
     dateFrom: string; dateTo: string; phone: string; name: string; keyword: string
@@ -357,17 +357,16 @@ export default function CallLogPage() {
     setName('')
     setKeyword('')
     setGradeFilter('')
-    setRepFilter('')
+    setCatFilter('')
     fetchCalls({ dateFrom: '', dateTo: '', phone: '', name: '', keyword: '' })
   }
 
-  const hasFilters = dateFrom || dateTo || phone || name || keyword || gradeFilter || repFilter
+  const hasFilters = dateFrom || dateTo || phone || name || keyword || gradeFilter || catFilter
 
-  // Client-side narrowing on the loaded list (grade + rep); the rest is server-side.
-  const repOptions = Array.from(new Set(calls.map(c => c.rep_name).filter((v): v is string => !!v))).sort()
+  // Client-side narrowing on the loaded list (grade + weak category); the rest is server-side.
   const filteredCalls = calls.filter(c => {
     if (gradeFilter && (c.coaching_grade || '') !== gradeFilter) return false
-    if (repFilter && (c.rep_name || '') !== repFilter) return false
+    if (catFilter && (c.coaching_json?.categories?.[catFilter]?.score || '').toLowerCase() !== 'needs work') return false
     return true
   })
 
@@ -445,13 +444,13 @@ export default function CallLogPage() {
               </select>
             </div>
           )}
-          {repOptions.length > 1 && (
+          {canViewCoaching && (
             <div className="flex flex-col gap-1">
-              <label className="text-xs text-gray-500">Rep</label>
-              <select value={repFilter} onChange={e => setRepFilter(e.target.value)}
+              <label className="text-xs text-gray-500">Weak in</label>
+              <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
                 className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 transition-colors">
-                <option value="">All</option>
-                {repOptions.map(r => <option key={r} value={r}>{r}</option>)}
+                <option value="">Any category</option>
+                {COACHING_CATEGORIES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
               </select>
             </div>
           )}

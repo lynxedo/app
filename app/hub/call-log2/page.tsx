@@ -2,7 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { CoachingPanel, coachingGradeColor, type CoachingData, type CoachingReview } from '@/components/hub/CoachingPanel'
+import { CoachingPanel, coachingGradeColor, COACHING_CATEGORIES, type CoachingData, type CoachingReview } from '@/components/hub/CoachingPanel'
 
 // ---------------------------------------------------------------------------
 // Types
@@ -368,6 +368,7 @@ export default function CallLog2Page() {
   const [keyword, setKeyword] = useState('')
   const [gradeFilter, setGradeFilter] = useState('')
   const [repFilter, setRepFilter] = useState('')
+  const [catFilter, setCatFilter] = useState('')
 
   // companyId (from the API response) keys the realtime channel; filtersRef
   // lets a background refetch reuse whatever filters are currently applied.
@@ -441,17 +442,18 @@ export default function CallLog2Page() {
 
   function handleSearch() { fetchCalls({ dateFrom, dateTo, phone, keyword }) }
   function handleClear() {
-    setDateFrom(''); setDateTo(''); setPhone(''); setKeyword(''); setGradeFilter(''); setRepFilter('')
+    setDateFrom(''); setDateTo(''); setPhone(''); setKeyword(''); setGradeFilter(''); setRepFilter(''); setCatFilter('')
     fetchCalls({ dateFrom: '', dateTo: '', phone: '', keyword: '' })
   }
 
-  const hasFilters = dateFrom || dateTo || phone || keyword || gradeFilter || repFilter
+  const hasFilters = dateFrom || dateTo || phone || keyword || gradeFilter || repFilter || catFilter
 
   // Client-side narrowing on the loaded list (grade + rep); keyword/date/phone are server-side.
   const repOptions = Array.from(new Set(calls.map(c => c.agent_name).filter((v): v is string => !!v))).sort()
   const filteredCalls = calls.filter(c => {
     if (gradeFilter && (c.coaching_grade || '') !== gradeFilter) return false
     if (repFilter && (c.agent_name || '') !== repFilter) return false
+    if (catFilter && (c.coaching_json?.categories?.[catFilter]?.score || '').toLowerCase() !== 'needs work') return false
     return true
   })
 
@@ -519,6 +521,16 @@ export default function CallLog2Page() {
                 className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500">
                 <option value="">All</option>
                 {repOptions.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+          )}
+          {canViewCoaching && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Weak in</label>
+              <select value={catFilter} onChange={e => setCatFilter(e.target.value)}
+                className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500">
+                <option value="">Any category</option>
+                {COACHING_CATEGORIES.map(([k, label]) => <option key={k} value={k}>{label}</option>)}
               </select>
             </div>
           )}

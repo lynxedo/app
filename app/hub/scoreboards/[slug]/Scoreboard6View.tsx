@@ -265,11 +265,13 @@ export default function Scoreboard6View({ meta }: { meta: ScoreboardMeta }) {
             {trend.length === 0 ? (
               <div className="text-sm text-gray-600">Not enough data.</div>
             ) : (
-              <div className="flex items-end gap-1.5 h-32">
+              <div className="flex gap-1.5" style={{ height: '9rem' }}>
                 {trend.map(t => (
-                  <div key={t.k} className="flex-1 flex flex-col items-center justify-end gap-1" title={`${t.k}: ${t.gpa.toFixed(1)}`}>
-                    <div className="w-full rounded-t" style={{ height: `${(t.gpa / 4) * 100}%`, background: gradeBar(gpaToLetter(t.gpa)) }} />
-                    <span className="text-[10px] text-gray-600 whitespace-nowrap">{t.k.slice(5)}</span>
+                  <div key={t.k} className="flex-1 flex flex-col items-center min-w-0" title={`Week of ${t.k}: ${t.gpa.toFixed(1)} GPA`}>
+                    <div className="flex-1 w-full flex items-end">
+                      <div className="w-full rounded-t" style={{ height: `${Math.max(3, (t.gpa / 4) * 100)}%`, background: gradeBar(gpaToLetter(t.gpa)) }} />
+                    </div>
+                    <span className="text-[10px] text-gray-600 mt-1 whitespace-nowrap">{t.k.slice(5)}</span>
                   </div>
                 ))}
               </div>

@@ -123,7 +123,10 @@ export async function GET(request: NextRequest) {
       source: 'unitel',
       ts: c.call_datetime,
       grade,
-      rep: c.rep_name ?? null,
+      // The old Unitel log can't reliably tie a call to a user (the name comes
+      // from the transcript: Kathryn / Kathy / Kathryn Root, all the same person).
+      // Attribute all legacy calls to Kathryn; the dialer uses the real user.
+      rep: 'Kathryn',
       mustListen: c.must_listen === true,
       acknowledged: rev?.acknowledged === true,
       phone: c.phone,
