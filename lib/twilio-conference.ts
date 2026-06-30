@@ -225,20 +225,30 @@ async function twilioDelete(path: string): Promise<RestResult> {
 }
 
 // ---------------------------------------------------------------------------
-// Caller-ID display-name probe (June 2026)
+// Caller-ID display-name probe (June 2026) — DISABLED June 30, 2026
 // ---------------------------------------------------------------------------
-// The native call screens (iOS CallKit + Android full-screen notification) show
-// `callInvite.from` — the From we set when REST-adding the agent's Client leg,
-// which today is the caller's raw number (so the crew sees a number, not a name).
+// The intent: make the native call screens (iOS CallKit + Android full-screen
+// notification) show the caller's NAME instead of their number, by sending the
+// resolved contact name as the participant `From` on the agent's Client leg.
 //
-// Twilio's From is *documented* as a number / `client:` id / SIP id, but for a
-// CLIENT `to` it has historically forwarded an arbitrary string straight to the
-// device. So we TRY the resolved contact name as From; if Twilio rejects it the
-// participant-add fails and we immediately retry with the real numeric From — the
-// caller is never dropped. The accept/reject answer is static per Twilio account,
-// so after the first rejection we stop trying for the life of the process: a
-// failed probe costs exactly one extra round-trip, one time.
-let displayNameAsFromSupported = true
+// Why it's OFF: Twilio does NOT forward an alphabetic From to the device as text
+// — it coerces the letters to their phone-keypad (T9) digits. So the probe never
+// displayed a name; it displayed a garbage number. Worse, Twilio ACCEPTS the POST
+// (200 OK), so the "rejected → disable" self-check below never tripped and every
+// named contact got mangled. Observed live on prod (June 30, 2026):
+//   "Ben Simpson"    → BENSIMPSON     → 236-746-7766
+//   "Bonnie Simpson" → BONNIESIMPSON  → 2666437467766
+//   "Lynn Sorrell"   → LYNNSORRELL    → a number instead of her name
+// The real caller number is delivered + stored correctly (Call Log shows it
+// right) — only the live incoming-call screen was mangled.
+//
+// With this flag false we always ring the agent with the caller's real numeric
+// From. iOS CallKit then matches that number against the device's own address
+// book (showing the saved name anyway), and the in-app Dialer already resolves
+// the name from contact_id. Putting a name on the lock screen for real needs a
+// native CallKit `localizedCallerName` change in the app shells — NOT this layer.
+// Do NOT flip this back to true without that native change.
+let displayNameAsFromSupported = false
 let displayNameProbeLogged = false
 export function callerIdNameProbeActive(): boolean {
   return displayNameAsFromSupported
