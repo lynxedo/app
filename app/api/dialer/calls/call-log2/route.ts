@@ -27,6 +27,7 @@ export async function GET(request: NextRequest) {
   const dateFrom = searchParams.get('date_from') || ''
   const dateTo = searchParams.get('date_to') || ''
   const phone = searchParams.get('phone') || ''
+  const keyword = searchParams.get('keyword') || ''
 
   const admin = createAdminClient()
   const companyId = profile.company_id || ''
@@ -56,6 +57,7 @@ export async function GET(request: NextRequest) {
     const digits = phone.replace(/\D/g, '')
     q = q.or(`from_number.ilike.%${digits}%,to_number.ilike.%${digits}%`)
   }
+  if (keyword) q = q.ilike('transcript', `%${keyword}%`)
 
   const { data: calls, error } = await q
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -97,9 +99,27 @@ export async function GET(request: NextRequest) {
   const vmByCallId: Record<string, typeof voicemails[0]> = {}
   for (const vm of voicemails) vmByCallId[vm.call_id] = vm
 
+  // Resolve the agent (who handled an inbound / made an outbound call) to a name.
+  const userIds = Array.from(
+    new Set((calls ?? []).flatMap(c => [c.handled_by, c.initiated_by]).filter((v): v is string => !!v))
+  )
+  const nameById: Record<string, string> = {}
+  if (userIds.length > 0) {
+    const { data: users } = await admin.from('hub_users').select('id, display_name').in('id', userIds)
+    for (const u of users ?? []) {
+      const row = u as { id: string; display_name: string | null }
+      if (row.display_name) nameById[row.id] = row.display_name
+    }
+  }
+  const agentName = (c: { direction?: string | null; handled_by?: string | null; initiated_by?: string | null }) => {
+    const id = (c.direction === 'inbound' ? c.handled_by : c.initiated_by) || c.handled_by || c.initiated_by
+    return id ? nameById[id] ?? null : null
+  }
+
   const enriched = (calls ?? []).map(c => {
     const base = {
       ...c,
+      agent_name: agentName(c),
       ai_results: aiByCallId[c.id] ?? [],
       voicemail: vmByCallId[c.id] ?? null,
     }

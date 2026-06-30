@@ -49,6 +49,7 @@ type Call = {
   sentiment: string | null
   call_type: string | null
   action_items: string[] | null
+  agent_name: string | null
   coaching_grade: string | null
   coaching_must_listen: boolean | null
   coaching_json: CoachingData | null
@@ -141,6 +142,7 @@ function CallRow({ call, selected, onClick, canViewCoaching }: { call: Call; sel
         {status && <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${status.color}`}>{status.label}</span>}
         {sent && <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${sent.color}`}>{sent.label}</span>}
         {canViewCoaching && call.coaching_grade && <span className={`px-1.5 py-0.5 rounded text-xs font-bold border ${coachingGradeColor(call.coaching_grade)}`}>{call.coaching_grade}</span>}
+        {call.agent_name && <span className="text-gray-600">· {call.agent_name}</span>}
       </div>
       <div className="text-xs text-gray-600 mt-0.5">{formatDateTime(call.created_at)}</div>
     </button>
@@ -188,6 +190,7 @@ function CallDetail({ call, canViewCoaching }: { call: Call; canViewCoaching: bo
           <span>{formatDuration(call.recording_duration_seconds || call.duration_seconds)}</span>
           {sent && <span className={`px-2 py-0.5 rounded text-xs font-medium ${sent.color}`}>{sent.label}</span>}
           {callType && <span className="px-2 py-0.5 rounded text-xs bg-gray-800 text-gray-300">{callType}</span>}
+          {call.agent_name && <span className="text-gray-400">· {call.agent_name}</span>}
         </div>
       </div>
 
@@ -357,17 +360,20 @@ export default function CallLog2Page() {
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
   const [phone, setPhone] = useState('')
+  const [keyword, setKeyword] = useState('')
+  const [gradeFilter, setGradeFilter] = useState('')
+  const [repFilter, setRepFilter] = useState('')
 
   // companyId (from the API response) keys the realtime channel; filtersRef
   // lets a background refetch reuse whatever filters are currently applied.
   const [companyId, setCompanyId] = useState('')
-  const filtersRef = useRef({ dateFrom: '', dateTo: '', phone: '' })
+  const filtersRef = useRef({ dateFrom: '', dateTo: '', phone: '', keyword: '' })
 
   // silent = background refresh from the realtime broadcast: no loading
   // flash, and the open detail panel stays open (swapped to the fresh row so
   // a just-finished transcript appears in place).
   const fetchCalls = useCallback(async (
-    params: { dateFrom: string; dateTo: string; phone: string },
+    params: { dateFrom: string; dateTo: string; phone: string; keyword: string },
     opts: { silent?: boolean } = {}
   ) => {
     filtersRef.current = params
@@ -380,6 +386,7 @@ export default function CallLog2Page() {
       if (params.dateFrom) qs.set('date_from', params.dateFrom)
       if (params.dateTo) qs.set('date_to', params.dateTo)
       if (params.phone) qs.set('phone', params.phone)
+      if (params.keyword) qs.set('keyword', params.keyword)
 
       const res = await fetch(`/api/dialer/calls/call-log2?${qs}`)
       const data = await res.json()
@@ -401,7 +408,7 @@ export default function CallLog2Page() {
   }, [])
 
   useEffect(() => {
-    fetchCalls({ dateFrom: '', dateTo: '', phone: '' })
+    fetchCalls({ dateFrom: '', dateTo: '', phone: '', keyword: '' })
   }, [fetchCalls])
 
   // Live updates: the transcription pipeline broadcasts `call-updated` on
@@ -427,13 +434,21 @@ export default function CallLog2Page() {
     }
   }, [companyId, fetchCalls])
 
-  function handleSearch() { fetchCalls({ dateFrom, dateTo, phone }) }
+  function handleSearch() { fetchCalls({ dateFrom, dateTo, phone, keyword }) }
   function handleClear() {
-    setDateFrom(''); setDateTo(''); setPhone('')
-    fetchCalls({ dateFrom: '', dateTo: '', phone: '' })
+    setDateFrom(''); setDateTo(''); setPhone(''); setKeyword(''); setGradeFilter(''); setRepFilter('')
+    fetchCalls({ dateFrom: '', dateTo: '', phone: '', keyword: '' })
   }
 
-  const hasFilters = dateFrom || dateTo || phone
+  const hasFilters = dateFrom || dateTo || phone || keyword || gradeFilter || repFilter
+
+  // Client-side narrowing on the loaded list (grade + rep); keyword/date/phone are server-side.
+  const repOptions = Array.from(new Set(calls.map(c => c.agent_name).filter((v): v is string => !!v))).sort()
+  const filteredCalls = calls.filter(c => {
+    if (gradeFilter && (c.coaching_grade || '') !== gradeFilter) return false
+    if (repFilter && (c.agent_name || '') !== repFilter) return false
+    return true
+  })
 
   return (
     <div className="flex-1 flex flex-col bg-gray-950 text-white overflow-hidden">
@@ -476,6 +491,32 @@ export default function CallLog2Page() {
             <input type="text" value={phone} onChange={e => setPhone(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} placeholder="e.g. 832…"
               className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm placeholder-gray-600 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 w-36" />
           </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-xs text-gray-500">Keyword</label>
+            <input type="text" value={keyword} onChange={e => setKeyword(e.target.value)} onKeyDown={e => e.key === 'Enter' && handleSearch()} placeholder="in transcript…"
+              className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm placeholder-gray-600 focus:outline-none focus:border-purple-500 focus:ring-1 focus:ring-purple-500 w-36" />
+          </div>
+          {canViewCoaching && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Score</label>
+              <select value={gradeFilter} onChange={e => setGradeFilter(e.target.value)}
+                className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500">
+                <option value="">All</option>
+                <option value="A">A</option><option value="B">B</option><option value="C">C</option>
+                <option value="D">D</option><option value="F">F</option><option value="N/A">N/A</option>
+              </select>
+            </div>
+          )}
+          {repOptions.length > 1 && (
+            <div className="flex flex-col gap-1">
+              <label className="text-xs text-gray-500">Rep</label>
+              <select value={repFilter} onChange={e => setRepFilter(e.target.value)}
+                className="bg-gray-800 border border-gray-700 text-white rounded-lg px-3 py-1.5 text-sm focus:outline-none focus:border-purple-500">
+                <option value="">All</option>
+                {repOptions.map(r => <option key={r} value={r}>{r}</option>)}
+              </select>
+            </div>
+          )}
           <button onClick={handleSearch} disabled={loading}
             className="px-4 py-1.5 bg-purple-700 hover:bg-purple-600 disabled:bg-gray-800 disabled:text-gray-600 text-white font-medium rounded-lg text-sm transition-colors">
             {loading ? 'Loading…' : 'Search'}
@@ -491,14 +532,14 @@ export default function CallLog2Page() {
         {/* Left: call list */}
         <div className={`${showDetail ? 'hidden md:flex' : 'flex'} w-full md:w-80 shrink-0 border-r border-gray-800 flex-col overflow-hidden`}>
           <div className="shrink-0 px-4 py-2 border-b border-gray-800 text-xs text-gray-500">
-            {loading ? 'Loading…' : `${calls.length} call${calls.length !== 1 ? 's' : ''}`}
+            {loading ? 'Loading…' : `${filteredCalls.length} call${filteredCalls.length !== 1 ? 's' : ''}`}
           </div>
           <div className="flex-1 overflow-y-auto">
             {error && <div className="px-4 py-3 text-sm text-red-400">{error}</div>}
-            {!loading && !error && calls.length === 0 && (
+            {!loading && !error && filteredCalls.length === 0 && (
               <div className="px-4 py-8 text-sm text-gray-500 text-center">No calls found</div>
             )}
-            {calls.map(call => (
+            {filteredCalls.map(call => (
               <CallRow
                 key={call.id}
                 call={call}
