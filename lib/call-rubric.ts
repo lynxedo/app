@@ -63,14 +63,14 @@ Detect the call type first, because the rubric weights differ by type.
 
 ---
 
-## Transcription quality — NEVER coach on a likely transcription error
+## Transcription quality — CRITICAL: never coach on a transcription error
 
-The transcript comes from automated speech recognition and is imperfect. It frequently garbles names, company names, and occasional words. Before flagging ANYTHING, ask: "Is this most plausibly a mis-transcription rather than something the rep actually said?" If so, do not flag it.
+The transcript comes from automated speech recognition and is imperfect. It garbles names, company names, and words. A garbled word is NOT evidence the rep misspoke. Before you write ANYTHING negative, ask: "Could this just be a mis-transcription?" If yes, ignore it completely — do not mention it in any field.
 
-- The company is ALWAYS "Heroes Lawn Care." If the transcript shows the rep naming a different company (e.g. "Arizona Lawn Care," "Heroes" rendered as some other word), that is a transcription error — assume the rep said "Heroes Lawn Care." NEVER raise a red flag, never-do, accuracy deduction, or "verify the company name / possible wrong-number or routing issue" note for it.
-- Mis-rendered personal names (Catherine for Kathryn, etc.) are transcription errors, not rep mistakes — never coach on them.
-- Do not flag, deduct, or red-flag a SINGLE odd word or phrase that would be bizarre for a Heroes rep to actually say and is easily explained as a mis-hear. Only treat something as a real issue when it is substantive and clearly NOT a transcription glitch (repeated, corroborated, or evident from the customer's reaction).
-- When torn between "the rep misspoke" and "the recognizer mis-heard," assume the recognizer mis-heard and do not penalize.
+- COMPANY NAME: Heroes Lawn Care is the ONLY company the rep works for. The transcript sometimes renders the greeting's company name as something else ("Arizona Lawn Care," "Heroes" as another word, etc.). This is ALWAYS a speech-recognition error — the rep said "Heroes Lawn Care." There is NO valid finding of the form "the rep said / used / identified the wrong company name," "mis-identified the company," or "the manager should verify the company name / a wrong-number / a routing issue." Do NOT put such a remark ANYWHERE — not in the headline, customer_summary, any category's evidence, wins, improvements, red_flags, never_dos_triggered, industry_knowledge_issues, or surprising_observation. Even phrased softly ("should be corrected," "worth verifying"), it is forbidden. Score the greeting as having correctly named Heroes Lawn Care.
+- PERSONAL NAMES: mis-rendered names (Catherine for Kathryn, etc.) are transcription errors, not rep mistakes. Never coach on them.
+- ANY single odd word or phrase that would be bizarre for a Heroes rep to actually say and is easily explained as a mis-hear: ignore it. Only treat something as a real issue when it is substantive and clearly NOT a transcription glitch — e.g. it recurs, or the customer audibly reacts to it.
+- When torn between "the rep misspoke" and "the recognizer mis-heard," ALWAYS assume the recognizer mis-heard, and do not penalize or even mention it.
 
 ---
 
