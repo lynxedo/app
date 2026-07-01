@@ -486,6 +486,17 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         // Edge selection — Twilio recommends letting the SDK auto-pick
         // unless the deployment is region-locked.
         edge: 'roaming',
+        // Prefer Opus (wideband) over PCMU. The SDK default is [PCMU, Opus],
+        // i.e. narrowband G.711 first — which makes the web/desktop softphone
+        // sound thin, quiet and "hollow/speakerphone" vs the native app (the
+        // native Twilio Voice SDK already defaults to Opus and sounds clear).
+        // Applies to both inbound-accepted and outbound legs. Opus also uses
+        // LESS bandwidth than PCMU and handles packet loss far better.
+        codecPreferences: ['opus', 'pcmu'] as Call.Codec[],
+        // Nudge Opus toward crisper voice on Chrome/Edge (Chromium-only SDP
+        // tweak; ignored elsewhere). 32 kbps is ample for speech and well
+        // within the SDK's 6k–510k bounds.
+        maxAverageBitrate: 32000,
       })
 
       device.on('registered', () => setState('ready'))
