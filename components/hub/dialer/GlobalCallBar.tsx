@@ -277,6 +277,16 @@ export default function GlobalCallBar() {
             onToggleRecordingPause={handleToggleRecordingPause}
             pauseAutoResumeSec={pauseAutoResumeSec}
             autoOpenTransfer={transferIntent}
+            audioDeviceSupported={device.audioDeviceSupported}
+            audioInputs={device.audioInputs}
+            audioOutputs={device.audioOutputs}
+            selectedInputId={device.selectedInputId}
+            selectedOutputId={device.selectedOutputId}
+            outputSelectionSupported={device.outputSelectionSupported}
+            onSelectAudioInput={device.setAudioInput}
+            onSelectAudioOutput={device.setAudioOutput}
+            onTestAudioOutput={device.testAudioOutput}
+            onOpenAudioDevices={device.ensureAudioDevices}
             contact={device.contactMatch}
           />
         </div>

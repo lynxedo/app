@@ -5,6 +5,7 @@ import { useTwilioDevice } from '@/hooks/use-twilio-device'
 import { friendlyCallError } from '@/lib/dialer-errors'
 import Dialpad from '@/components/hub/dialer/Dialpad'
 import ActiveCall from '@/components/hub/dialer/ActiveCall'
+import AudioDevicePicker from '@/components/hub/dialer/AudioDevicePicker'
 import IncomingCall from '@/components/hub/dialer/IncomingCall'
 import { useDialerContext, usePipControls } from '@/components/hub/dialer/DialerProvider'
 
@@ -46,6 +47,7 @@ export default function DialerPanel({
   }, [])
 
   const [recordingPaused, setRecordingPaused] = useState(false)
+  const [showAudioSetup, setShowAudioSetup] = useState(false)
 
   // From-number picker. /api/txt/numbers returns this user's access-allowed
   // numbers (the shared registry, filtered by user_phone_number_access). We only
@@ -148,6 +150,16 @@ export default function DialerPanel({
             recordingPaused={recordingPaused}
             onToggleRecordingPause={handleToggleRecordingPause}
             pauseAutoResumeSec={pauseAutoResumeSec}
+            audioDeviceSupported={device.audioDeviceSupported}
+            audioInputs={device.audioInputs}
+            audioOutputs={device.audioOutputs}
+            selectedInputId={device.selectedInputId}
+            selectedOutputId={device.selectedOutputId}
+            outputSelectionSupported={device.outputSelectionSupported}
+            onSelectAudioInput={device.setAudioInput}
+            onSelectAudioOutput={device.setAudioOutput}
+            onTestAudioOutput={device.testAudioOutput}
+            onOpenAudioDevices={device.ensureAudioDevices}
             contact={device.contactMatch}
           />
         ) : (
@@ -184,6 +196,35 @@ export default function DialerPanel({
               }
               disabled={device.state === 'not-configured' || device.state === 'connecting'}
             />
+            {device.audioDeviceSupported && (
+              <div className="w-full max-w-xs">
+                <button
+                  type="button"
+                  onClick={() => { if (!showAudioSetup) device.ensureAudioDevices(); setShowAudioSetup((v) => !v) }}
+                  className="flex items-center gap-1.5 mx-auto text-xs text-white/50 hover:text-white/80 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 13v-1a8 8 0 1116 0v1" />
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M2 16a2 2 0 012-2h1v5H4a2 2 0 01-2-2v-1zm18-2a2 2 0 012 2v1a2 2 0 01-2 2h-1v-5h1z" />
+                  </svg>
+                  {showAudioSetup ? 'Hide audio settings' : 'Audio settings'}
+                </button>
+                {showAudioSetup && (
+                  <div className="mt-3">
+                    <AudioDevicePicker
+                      inputs={device.audioInputs}
+                      outputs={device.audioOutputs}
+                      selectedInputId={device.selectedInputId}
+                      selectedOutputId={device.selectedOutputId}
+                      outputSelectionSupported={device.outputSelectionSupported}
+                      onSelectInput={device.setAudioInput}
+                      onSelectOutput={device.setAudioOutput}
+                      onTest={device.testAudioOutput}
+                    />
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
