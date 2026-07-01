@@ -60,6 +60,8 @@ export default function AudioDevicePicker({
   onSelectInput,
   onSelectOutput,
   onTest,
+  headsetMode,
+  onToggleHeadsetMode,
 }: {
   inputs: AudioDevice[]
   outputs: AudioDevice[]
@@ -69,6 +71,8 @@ export default function AudioDevicePicker({
   onSelectInput: (id: string) => void
   onSelectOutput: (id: string) => void
   onTest: () => void
+  headsetMode: boolean
+  onToggleHeadsetMode: (on: boolean) => void
 }) {
   // null selection means "browser default" — highlight the 'default' entry.
   const inSel = selectedInputId ?? 'default'
@@ -133,6 +137,20 @@ export default function AudioDevicePicker({
           </div>
         )}
       </div>
+
+      {/* Headset mode — reduce mic processing for fuller audio */}
+      <label className="flex items-start gap-2 pt-1 cursor-pointer select-none">
+        <input
+          type="checkbox"
+          checked={headsetMode}
+          onChange={(e) => onToggleHeadsetMode(e.target.checked)}
+          className="mt-0.5 accent-sky-500"
+        />
+        <span className="text-xs text-white/70 leading-snug">
+          <span className="font-medium text-white">Headset mode</span> — fuller, more natural audio.
+          Turn on if you wear a headset; leave off if you use speakers (prevents echo).
+        </span>
+      </label>
     </div>
   )
 }

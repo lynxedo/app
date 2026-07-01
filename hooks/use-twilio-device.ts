@@ -70,6 +70,7 @@ async function fetchActiveConferenceRoomResilient(attempts = 4): Promise<string 
 // speaker route picker (audioRoute*) instead.
 const AUDIO_INPUT_KEY = 'dialer.audioInputId'
 const AUDIO_OUTPUT_KEY = 'dialer.audioOutputId'
+const AUDIO_HEADSET_MODE_KEY = 'dialer.headsetMode'
 
 function fallbackDeviceLabel(kind: 'mic' | 'speaker', deviceId: string, index: number): string {
   if (deviceId === 'default') return 'System default'
@@ -94,6 +95,14 @@ function buildAudioDeviceLists(list: MediaDeviceInfo[]): {
     }
   }
   return { inputs, outputs }
+}
+
+// Headset mode defaults ON for desktop (browser + Electron app), where agents
+// are on headsets, and OFF for mobile browsers. (The native mobile app doesn't
+// use this web path at all.) An explicit saved choice always wins.
+function isDesktopEnvironment(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return !/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')
 }
 
 export type DialerState =
@@ -170,6 +179,10 @@ export type UseTwilioDevice = {
   setAudioInput: (deviceId: string) => void
   setAudioOutput: (deviceId: string) => void
   testAudioOutput: () => void
+  // "Headset mode" — reduce browser mic processing (echo-cancel + noise-
+  // suppression) for fuller audio. Headset-only; off by default.
+  headsetMode: boolean
+  setHeadsetMode: (on: boolean) => void
   // Called when the picker opens — primes mic permission so device labels show.
   ensureAudioDevices: () => void
   // Lifecycle
@@ -209,6 +222,12 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   // Ref mirror of the chosen mic so placeCall / acceptIncoming can read it
   // without a stale closure. 'default'/null both mean "let the browser pick".
   const selectedInputIdRef = useRef<string | null>(null)
+  // "Headset mode" — drop the browser's echo-cancellation + noise-suppression
+  // for fuller, more natural (and usually louder) audio. Safe ONLY on a headset
+  // (no speaker→mic loop); off by default so speakerphone users keep echo
+  // protection. Ref mirror for applyAudioForCall.
+  const [headsetMode, setHeadsetModeState] = useState(false)
+  const headsetModeRef = useRef(false)
 
   const deviceRef = useRef<DeviceType | null>(null)
   const incomingCallRef = useRef<Call | null>(null)
@@ -628,6 +647,12 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           selectedInputIdRef.current = savedIn
           setSelectedInputId(savedIn ?? 'default')
           setSelectedOutputId(savedOut ?? 'default')
+          let savedHm: string | null = null
+          try { savedHm = localStorage.getItem(AUDIO_HEADSET_MODE_KEY) } catch { /* ignore */ }
+          // Default ON for desktop (headset assumed); respect an explicit choice.
+          const hmOn = savedHm === null ? isDesktopEnvironment() : savedHm === '1'
+          headsetModeRef.current = hmOn
+          setHeadsetModeState(hmOn)
         }
       } catch { /* audio helper unavailable — picker stays hidden */ }
 
@@ -761,6 +786,14 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         try { await audio.speakerDevices.set(outId) } catch { /* ignore */ }
       }
     }
+    // Headset mode: drop echo-cancel + noise-suppression for fuller audio.
+    try {
+      if (headsetModeRef.current) {
+        await audio.setAudioConstraints({ echoCancellation: false, noiseSuppression: false })
+      } else {
+        await audio.unsetAudioConstraints()
+      }
+    } catch { /* constraints unsupported — ignore */ }
   }, [])
 
   const setAudioInput = useCallback((deviceId: string) => {
@@ -782,6 +815,20 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
 
   const testAudioOutput = useCallback(() => {
     deviceRef.current?.audio?.speakerDevices.test().catch(() => {})
+  }, [])
+
+  const setHeadsetMode = useCallback((on: boolean) => {
+    headsetModeRef.current = on
+    setHeadsetModeState(on)
+    try { localStorage.setItem(AUDIO_HEADSET_MODE_KEY, on ? '1' : '0') } catch { /* ignore */ }
+    // Apply live if a call is active; otherwise it takes effect on the next call.
+    const audio = deviceRef.current?.audio
+    if (audio && activeCallRef.current) {
+      (on
+        ? audio.setAudioConstraints({ echoCancellation: false, noiseSuppression: false })
+        : audio.unsetAudioConstraints()
+      ).catch(() => {})
+    }
   }, [])
 
   // Keep the mic/speaker lists fresh as devices are plugged/unplugged (web only).
@@ -1035,6 +1082,8 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     setAudioInput,
     setAudioOutput,
     testAudioOutput,
+    headsetMode,
+    setHeadsetMode,
     ensureAudioDevices,
     ensureRegistered,
   }
