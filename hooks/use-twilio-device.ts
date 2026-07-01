@@ -97,6 +97,14 @@ function buildAudioDeviceLists(list: MediaDeviceInfo[]): {
   return { inputs, outputs }
 }
 
+// Headset mode defaults ON for desktop (browser + Electron app), where agents
+// are on headsets, and OFF for mobile browsers. (The native mobile app doesn't
+// use this web path at all.) An explicit saved choice always wins.
+function isDesktopEnvironment(): boolean {
+  if (typeof navigator === 'undefined') return false
+  return !/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')
+}
+
 export type DialerState =
   | 'idle'                  // no token yet
   | 'not-configured'        // Twilio creds empty server-side
@@ -641,8 +649,10 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           setSelectedOutputId(savedOut ?? 'default')
           let savedHm: string | null = null
           try { savedHm = localStorage.getItem(AUDIO_HEADSET_MODE_KEY) } catch { /* ignore */ }
-          headsetModeRef.current = savedHm === '1'
-          setHeadsetModeState(savedHm === '1')
+          // Default ON for desktop (headset assumed); respect an explicit choice.
+          const hmOn = savedHm === null ? isDesktopEnvironment() : savedHm === '1'
+          headsetModeRef.current = hmOn
+          setHeadsetModeState(hmOn)
         }
       } catch { /* audio helper unavailable — picker stays hidden */ }
 
