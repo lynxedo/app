@@ -10,6 +10,7 @@ export type TxtConvPermissions = {
   isTxtUser: boolean // any teammate with Txt2 access
   canView: boolean // read the thread: participant OR any Txt2 user (shared "All" inbox)
   canArchive: boolean // owner OR a Txt manager (admin / can_admin_txt / can_assign_txt_threads)
+  canUnarchive: boolean // REOPEN an archived thread: any Txt2 teammate (low-stakes + reversible)
   canManageMembers: boolean // add/remove OTHER people: owner OR a Txt manager
   canReply: boolean // SEND a text: owner or added member ONLY
   canJoin: boolean // self-join: any Txt2 user who isn't already a participant
@@ -65,6 +66,12 @@ export async function getTxtConvPermissions(
     // (A plain Txt2 teammate viewing the shared inbox must NOT archive someone
     // else's thread.) Admins/managers keep the override.
     canArchive: isOwner || isManager,
+    // Reopening (unarchiving) is NOT owner-level. Bringing a thread back into the
+    // active inbox is low-stakes + reversible, and it's exactly what a rep needs
+    // to re-engage an archived customer. Any Txt2 teammate who can view the shared
+    // inbox may reopen — mirrors Join/Claim (they can already reply on any active
+    // thread once they claim/join). Only ARCHIVING-for-everyone stays privileged.
+    canUnarchive: isTxtUser,
     // Adding/removing OTHER people is privileged — owner of the thread or a
     // Txt manager. (Self-join is handled separately via `canJoin`.)
     canManageMembers: isOwner || isManager,
