@@ -164,7 +164,7 @@ export default function FeedbackView() {
       <header className="px-4 md:px-6 pt-4 pb-3 border-b border-white/10 max-md:pl-14">
         <h1 className="text-xl font-bold">Report an Issue</h1>
         <p className="text-sm text-white/50 mt-0.5">
-          Found a bug or have an idea? Send it straight to the development board.
+          Found a bug or have an idea? Tell us below.
         </p>
       </header>
 
