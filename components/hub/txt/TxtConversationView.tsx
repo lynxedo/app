@@ -1033,7 +1033,29 @@ export default function TxtConversationView({
     })
     if (res.ok) {
       const data = await res.json()
-      setConversation({ ...conversation, status: data.conversation.status })
+      // Reopening a direct thread claims it for me (server seats me as owner) so
+      // the composer appears in one tap — reflect that ownership locally too.
+      const claimedByMe =
+        !archived && !isGroup && data.conversation.assigned_to === currentUserId
+      setConversation({
+        ...conversation,
+        status: data.conversation.status,
+        assigned_to: data.conversation.assigned_to,
+        assignee: claimedByMe
+          ? { id: currentUserId, display_name: currentUserName || 'You' }
+          : conversation.assignee,
+      })
+      if (claimedByMe) {
+        setMembers((prev) => [
+          // Drop the prior owner + any stale seat for me, then seat me as owner.
+          ...prev.filter((m) => m.role !== 'owner' && m.user_id !== currentUserId),
+          {
+            user_id: currentUserId,
+            role: 'owner',
+            user: { id: currentUserId, display_name: currentUserName || 'You' },
+          },
+        ])
+      }
     }
   }
 
@@ -1508,7 +1530,9 @@ export default function TxtConversationView({
               </span>
             )}
           </button>
-          {canArchive && (
+          {/* Reopen (↺) is available to ANY Txt teammate — a rep must be able to
+              re-engage an archived customer. Archiving (✓) stays owner/manager-only. */}
+          {(isArchived || canArchive) && (
             <button
               onClick={toggleArchive}
               className="text-xs px-2 py-1 rounded-md bg-white/10 hover:bg-white/20"
@@ -2225,11 +2249,20 @@ export default function TxtConversationView({
         </div>
       )}
 
+      {/* Archived footer — reopening is open to everyone (a rep needs to re-engage
+          the customer). Reopen claims the thread + returns the composer in one tap. */}
       {isArchived && (
-        <div className="border-t border-white/10 px-4 py-3 bg-amber-500/5 text-[var(--t-tint-warning)] text-sm text-center">
-          {canArchive
-            ? 'This conversation is archived. Tap ↺ above to reopen.'
-            : 'This conversation is archived.'}
+        <div className="border-t border-white/10 px-4 py-3 bg-amber-500/5 flex items-center justify-between gap-3">
+          <span className="text-sm text-[var(--t-tint-warning)]">
+            This conversation is archived.
+          </span>
+          <button
+            type="button"
+            onClick={toggleArchive}
+            className="flex-none text-sm px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-white"
+          >
+            Reopen to reply
+          </button>
         </div>
       )}
 
