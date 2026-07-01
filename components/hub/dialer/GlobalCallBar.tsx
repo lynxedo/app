@@ -287,6 +287,8 @@ export default function GlobalCallBar() {
             onSelectAudioOutput={device.setAudioOutput}
             onTestAudioOutput={device.testAudioOutput}
             onOpenAudioDevices={device.ensureAudioDevices}
+            headsetMode={device.headsetMode}
+            onToggleHeadsetMode={device.setHeadsetMode}
             contact={device.contactMatch}
           />
         </div>

@@ -82,6 +82,8 @@ export default function ActiveCall({
   onSelectAudioOutput,
   onTestAudioOutput,
   onOpenAudioDevices,
+  headsetMode = false,
+  onToggleHeadsetMode,
   contact = null,
 }: {
   status: 'placing' | 'in-call'
@@ -121,6 +123,8 @@ export default function ActiveCall({
   onSelectAudioOutput?: (id: string) => void
   onTestAudioOutput?: () => void
   onOpenAudioDevices?: () => void
+  headsetMode?: boolean
+  onToggleHeadsetMode?: (on: boolean) => void
   // Session 4/6: the matched customer identity for the screen-pop card + the
   // in-call quick actions (text / on-my-way / note / open-in-Jobber).
   contact?: DialerLookupMatch | null
@@ -480,6 +484,8 @@ export default function ActiveCall({
             onSelectInput={(id) => onSelectAudioInput?.(id)}
             onSelectOutput={(id) => onSelectAudioOutput?.(id)}
             onTest={() => onTestAudioOutput?.()}
+            headsetMode={headsetMode}
+            onToggleHeadsetMode={(on) => onToggleHeadsetMode?.(on)}
           />
           <button
             type="button"

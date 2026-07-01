@@ -160,6 +160,8 @@ export default function DialerPanel({
             onSelectAudioOutput={device.setAudioOutput}
             onTestAudioOutput={device.testAudioOutput}
             onOpenAudioDevices={device.ensureAudioDevices}
+            headsetMode={device.headsetMode}
+            onToggleHeadsetMode={device.setHeadsetMode}
             contact={device.contactMatch}
           />
         ) : (
@@ -220,6 +222,8 @@ export default function DialerPanel({
                       onSelectInput={device.setAudioInput}
                       onSelectOutput={device.setAudioOutput}
                       onTest={device.testAudioOutput}
+                      headsetMode={device.headsetMode}
+                      onToggleHeadsetMode={device.setHeadsetMode}
                     />
                   </div>
                 )}
