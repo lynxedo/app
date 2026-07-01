@@ -12,7 +12,7 @@
 import { useState, type ReactNode } from 'react'
 import { useRouter } from 'next/navigation'
 import type { DialerLookupMatch } from '@/lib/dialer-lookup'
-import { StatusPill } from './IncomingCall'
+import { StatusPill, CallerIdPill } from './IncomingCall'
 
 const ETA_OPTIONS = [10, 15, 20, 30, 45]
 
@@ -33,7 +33,9 @@ export default function CallContactCard({
 
   const targetPhone = contact?.phone || number || null
   const canText = !!targetPhone
-  const firstName = contact?.name?.trim().split(/\s+/)[0] || null
+  // Don't seed an outgoing text with a caller-ID first name — it's unverified
+  // (could be a spouse / line-holder), so a "Hi <name>," greeting could be wrong.
+  const firstName = contact?.nameIsCallerId ? null : contact?.name?.trim().split(/\s+/)[0] || null
 
   function flash(msg: string) {
     setToast(msg)
@@ -46,7 +48,8 @@ export default function CallContactCard({
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
         phone: targetPhone,
-        name: contact?.name || undefined,
+        // Never save a carrier caller-ID guess as the contact's real name.
+        name: contact?.nameIsCallerId ? undefined : contact?.name || undefined,
         jobber_client_id: contact?.jobberClientId || undefined,
       }),
     })
@@ -121,6 +124,7 @@ export default function CallContactCard({
           <div className="flex items-center gap-2">
             {contact?.name && <span className="font-semibold text-white truncate">{contact.name}</span>}
             {contact?.status && <StatusPill status={contact.status} />}
+            {contact?.nameIsCallerId && <CallerIdPill />}
           </div>
           {contact?.address && <div className="text-xs text-white/60 truncate mt-0.5">{contact.address}</div>}
         </div>

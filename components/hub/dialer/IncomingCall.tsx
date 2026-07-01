@@ -23,6 +23,25 @@ export function StatusPill({ status }: { status: DialerContactStatus }) {
   )
 }
 
+// Shown in place of a status pill when the displayed name is Twilio's carrier
+// caller-ID (an unverified guess — could be a spouse / line-holder), so the crew
+// can tell it apart from a name we have on file. Neutral/translucent on purpose,
+// visually distinct from the colored Customer/Lead status pills.
+export function CallerIdPill() {
+  return (
+    <span
+      className="inline-flex items-center gap-1 px-1.5 py-px rounded text-[10px] font-medium uppercase tracking-wide bg-white/15 text-white/85 ring-1 ring-white/25"
+      title="Name from carrier caller ID — not a saved contact"
+    >
+      <svg className="w-2.5 h-2.5 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8} aria-hidden="true">
+        <path strokeLinecap="round" strokeLinejoin="round" d="M4 5.5h16a1 1 0 011 1v11a1 1 0 01-1 1H4a1 1 0 01-1-1v-11a1 1 0 011-1z" />
+        <path strokeLinecap="round" strokeLinejoin="round" d="M9.5 11a1.6 1.6 0 100-3.2 1.6 1.6 0 000 3.2zM7 15.2a2.6 2.6 0 015 0M14.5 9.5h3M14.5 13h3" />
+      </svg>
+      Caller ID
+    </span>
+  )
+}
+
 export default function IncomingCall({
   from,
   contact,
@@ -61,6 +80,7 @@ export default function IncomingCall({
             <span className="truncate">{caller}</span>
             {name && from && <span className="font-normal text-white/70 flex-none">· {formatPhone(from)}</span>}
             {contact?.status && <StatusPill status={contact.status} />}
+            {contact?.nameIsCallerId && <CallerIdPill />}
           </div>
           {subtitle && (
             <div className="text-[11px] text-white/60 truncate leading-tight">{subtitle}</div>
