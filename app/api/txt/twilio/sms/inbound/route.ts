@@ -144,7 +144,9 @@ export async function POST(req: NextRequest) {
       .insert({
         company_id: HEROES_COMPANY_ID,
         phone: from,
+        phone_digits: from.replace(/\D/g, '').slice(-10),
         name: jobberName || from,
+        in_directory: false,
       })
       .select('id')
       .single()

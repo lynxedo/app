@@ -43,7 +43,7 @@ export async function findOrCreateContactByPhone(
   const jobberName = await enrichTxtContactName(companyId, phone).catch(() => null)
   const { data: created, error } = await admin
     .from('txt_contacts')
-    .insert({ company_id: companyId, phone, name: jobberName || phone })
+    .insert({ company_id: companyId, phone, phone_digits: phone.replace(/\D/g, '').slice(-10), name: jobberName || phone, in_directory: false })
     .select('id')
     .single()
   if (error || !created) {
