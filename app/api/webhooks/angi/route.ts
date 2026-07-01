@@ -155,7 +155,7 @@ export async function POST(request: Request) {
     phone,
     email,
     service: svc ? [svc] : null,
-    lead_source: 'Angi',
+    lead_source: 'Angi Lead', // matches the Lead Source dropdown option so the cell shows selected
     status: 'Current',
     stage: 'current',
     service_address,
