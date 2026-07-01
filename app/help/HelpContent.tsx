@@ -56,6 +56,7 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
 
 const TABS = [
   { id: 'hub',          icon: '💬', label: 'Hub' },
+  { id: 'feedback',     icon: '🚩', label: 'Report an Issue' },
   { id: 'routing',      icon: '⚡', label: 'Route Optimizer' },
   { id: 'lawn-sizer',   icon: '🌿', label: 'Lawn Sizer' },
   { id: 'zone-sizer',   icon: '💧', label: 'Zone Sizer' },
@@ -91,6 +92,7 @@ type TabId = typeof TABS[number]['id']
 // building the search index; the visible tab is still rendered as <XxxTab />.
 const TAB_BODY: Record<TabId, () => ReactNode> = {
   'hub': HubTab,
+  'feedback': FeedbackTab,
   'routing': RoutingTab,
   'lawn-sizer': LawnSizerTab,
   'zone-sizer': ZoneSizerTab,
@@ -405,6 +407,42 @@ export default function HelpContent() {
 // ──────────────────────────────────────────────────────────────────────────
 // HUB
 // ──────────────────────────────────────────────────────────────────────────
+
+function FeedbackTab() {
+  return (
+    <>
+      <Section title="What is Report an Issue?">
+        <p><strong className="text-white">Report an Issue</strong> is the fastest way to send a bug or a feature idea straight to the people who build Lynxedo. Everyone on the team has it — find it in the app menu (the 🚩 <strong className="text-white">Report an Issue</strong> icon).</p>
+        <p className="mt-2">Every report lands on the internal <strong className="text-white">Development board</strong> and pings Ben directly, so nothing gets lost in a group chat.</p>
+      </Section>
+
+      <Section title="Sending a report">
+        <Step n={1}>Open <strong className="text-white">Report an Issue</strong> from the app menu (tap <em>Apps</em> on mobile if you don&apos;t see it).</Step>
+        <Step n={2}>Choose <strong className="text-white">🐛 Bug Report</strong> (something is broken) or <strong className="text-white">✨ Feature Request</strong> (an idea or improvement).</Step>
+        <Step n={3}>Write a short <strong className="text-white">Summary</strong> — one line describing the issue. This becomes the task title, so keep it clear (e.g. &quot;Dialer drops the call when I use hold&quot;).</Step>
+        <Step n={4}>Pick an <strong className="text-white">Urgency</strong>: Low, Medium, High, or Urgent.</Step>
+        <Step n={5}>Add <strong className="text-white">Details</strong> — the more the better. For a bug: what happened, what you expected, where in the app, and how to reproduce it.</Step>
+        <Step n={6}>Optionally <strong className="text-white">add a screenshot or photo</strong> (see below).</Step>
+        <Step n={7}>Tap <strong className="text-white">Send</strong>. You&apos;ll see a confirmation once it&apos;s in.</Step>
+      </Section>
+
+      <Section title="Adding a screenshot or photo">
+        <p>Tap <strong className="text-white">Add a screenshot or photo</strong>. On a phone you can take a new photo or pick one from your library; on a computer it opens a file picker. You&apos;ll see a preview — tap the <strong className="text-white">×</strong> to remove it and choose a different one.</p>
+        <Note>A picture of the problem (or a screenshot of an error) almost always makes a bug quicker to fix. The image is attached to the task and viewable from its <strong className="text-white">Files</strong> tab.</Note>
+      </Section>
+
+      <Section title="What happens after you send">
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li>A <strong className="text-white">task</strong> is created on the Development board with your summary as the title.</li>
+          <li>All of your details are saved as a <strong className="text-white">note</strong> on that task, along with your name and the urgency.</li>
+          <li>Ben gets a <strong className="text-white">Guardian DM</strong> in the Hub (and a push notification) so he sees it right away.</li>
+          <li>If it needs a follow-up question, he&apos;ll reach out to you.</li>
+        </ul>
+        <Note>Tip: send <strong className="text-white">one issue per report</strong> so each can be tracked and fixed on its own.</Note>
+      </Section>
+    </>
+  )
+}
 
 function HubTab() {
   return (

@@ -34,6 +34,7 @@ export type CatalogId =
   | 'scoreboards'
   | 'pricer'        // staff quoting tool, gated by canAccessPricer
   | 'mix-sheet'     // technician tank mix sheet (all users view, admins edit)
+  | 'feedback'      // Report an Issue — bug reports + feature requests (all users)
   | 'people'        // admin-only (Admin → People)
   | 'guardian'      // admin-only (Admin → Guardian)
   | 'products'      // admin-only (Admin → Products)
@@ -149,6 +150,8 @@ const PATHS = {
   pricer: 'M6 3h12a1 1 0 011 1v16a1 1 0 01-1 1H6a1 1 0 01-1-1V4a1 1 0 011-1zM8 7h8M8 11h.01M12 11h.01M16 11h.01M8 15h.01M12 15h.01M16 15h.01',
   // Mix Sheet — a table/grid: outline + header row + first-column divider.
   mixSheet: 'M4 5h16v14H4zM4 9h16M9 9v10',
+  // Report an Issue — a flag on a pole (raise a flag / report an issue).
+  feedback: 'M5 3v18M5 4h12l-2.2 3.5L17 11H5',
 }
 
 // Reusable icon factory (also used by the Tools sidebar and Hub sidebar
@@ -184,6 +187,7 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
     case 'scoreboards':   return <I d={PATHS.scoreboards} />
     case 'pricer':        return <I d={PATHS.pricer} />
     case 'mix-sheet':     return <I d={PATHS.mixSheet} />
+    case 'feedback':      return <I d={PATHS.feedback} />
     case 'people':        return <I d={PATHS.people} />
     case 'guardian':      return <I d={PATHS.guardian} />
     case 'products':      return <I d={PATHS.products} />
@@ -259,6 +263,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'scoreboards', label: 'Scoreboards', href: '/hub/scoreboards', prefixMatch: true, pickable: true, requires: 'canAccessScoreboards' },
   { id: 'pricer',      label: 'Pricer',      href: '/hub/pricer', prefixMatch: true, pickable: true, requires: 'canAccessPricer' },
   { id: 'mix-sheet',   label: 'Mix Sheet',   href: '/hub/mix-sheet', prefixMatch: true, pickable: true },
+  { id: 'feedback',    label: 'Report an Issue', href: '/hub/feedback', prefixMatch: true, pickable: true },
 ]
 
 export function catalogEntriesFor(perms: RailPermissions): CatalogEntry[] {
