@@ -786,10 +786,12 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         try { await audio.speakerDevices.set(outId) } catch { /* ignore */ }
       }
     }
-    // Headset mode: drop echo-cancel + noise-suppression for fuller audio.
+    // Headset mode: drop echo-cancellation (the main cause of the "hollow"
+    // sound) for fuller audio, but KEEP noise-suppression on so office
+    // background noise doesn't reach the caller.
     try {
       if (headsetModeRef.current) {
-        await audio.setAudioConstraints({ echoCancellation: false, noiseSuppression: false })
+        await audio.setAudioConstraints({ echoCancellation: false })
       } else {
         await audio.unsetAudioConstraints()
       }
@@ -825,7 +827,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     const audio = deviceRef.current?.audio
     if (audio && activeCallRef.current) {
       (on
-        ? audio.setAudioConstraints({ echoCancellation: false, noiseSuppression: false })
+        ? audio.setAudioConstraints({ echoCancellation: false })
         : audio.unsetAudioConstraints()
       ).catch(() => {})
     }
