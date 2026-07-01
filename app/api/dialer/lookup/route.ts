@@ -23,7 +23,11 @@ export async function GET(request: NextRequest) {
   if (!phone) return NextResponse.json({ match: null })
 
   try {
-    const match = await lookupByPhone(phone, profile.company_id)
+    // Screen-pop is the ONLY caller allowed to trigger the paid Twilio caller-ID
+    // dip (and only when we have no name of our own); every other lookup path
+    // reads the cache. This tolerates the small extra latency for an unknown
+    // caller — the popup shows the number immediately, then the name pops in.
+    const match = await lookupByPhone(phone, profile.company_id, { fetchCallerId: true })
     return NextResponse.json({ match })
   } catch {
     // Never let a lookup failure block the call UI — degrade to "unknown".

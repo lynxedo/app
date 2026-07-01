@@ -19,14 +19,22 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/phone'
+import { fetchTwilioCallerId, callerIdEnabled } from '@/lib/twilio-caller-id'
 
 const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
+
+// Re-dip a number's carrier caller-ID at most about twice a year (also throttles
+// re-paying for numbers that come back blank).
+const CALLER_ID_TTL_MS = 180 * 24 * 60 * 60 * 1000
 
 export type DialerContactStatus = 'lead' | 'customer' | 'archived'
 
 export type DialerLookupMatch = {
   source: 'txt_contact' | 'client'
   name: string | null
+  // True when `name` came from Twilio's carrier caller-ID rather than our own
+  // data: the UI labels it as unverified and it is never persisted as a name.
+  nameIsCallerId?: boolean
   phone: string // the E.164 we matched on
   status: DialerContactStatus | null
   address: string | null
@@ -189,7 +197,8 @@ export async function enrichTxtContactName(
 ): Promise<string | null> {
   try {
     const match = await lookupByPhone(phoneRaw, companyId)
-    if (!match?.name) return null
+    // Never persist a carrier caller-ID guess as the real saved name.
+    if (!match?.name || match.nameIsCallerId) return null
     if (match.txtContactId) {
       const admin = createAdminClient()
       const { data: tc } = await admin
@@ -271,6 +280,7 @@ export async function findOrCreateTxtContact(
 export async function lookupByPhone(
   phoneRaw: string,
   companyId?: string | null,
+  opts?: { fetchCallerId?: boolean },
 ): Promise<DialerLookupMatch | null> {
   const e164 = toE164(phoneRaw)
   if (!e164) return null
@@ -282,7 +292,7 @@ export async function lookupByPhone(
   //    jobber link even when its name is a webhook placeholder.
   const { data: tc } = await admin
     .from('txt_contacts')
-    .select('id, name, jobber_client_id')
+    .select('id, name, jobber_client_id, caller_id_name, caller_id_checked_at')
     .eq('company_id', company)
     .eq('phone', e164)
     .limit(1)
@@ -303,12 +313,45 @@ export async function lookupByPhone(
     }
   }
 
-  if (!tc && !client && !personName) return null
+  // Prefer an explicit txt-contact name, then the matched person, then the client.
+  const internalName = tcName || personName || (client ? clientDisplayName(client) : null)
+
+  // Caller-ID (Twilio CNAM) fallback — reached ONLY when we have no name of our
+  // own. Returned clearly flagged so the UI labels it and it is never persisted.
+  let callerIdName: string | null = null
+  if (!internalName) {
+    const cachedName = tc ? usableName(tc.caller_id_name, e164) : null
+    const checkedAt = tc?.caller_id_checked_at ? Date.parse(tc.caller_id_checked_at) : 0
+    const checkedRecently = checkedAt > 0 && Date.now() - checkedAt < CALLER_ID_TTL_MS
+    if (cachedName) {
+      callerIdName = cachedName
+    } else if (opts?.fetchCallerId && callerIdEnabled() && !checkedRecently) {
+      const fetched = await fetchTwilioCallerId(e164)
+      if (fetched?.name) {
+        callerIdName = fetched.name
+        if (tc?.id) {
+          void admin
+            .from('txt_contacts')
+            .update({ caller_id_name: fetched.name, caller_id_checked_at: new Date().toISOString() })
+            .eq('id', tc.id)
+        }
+      } else if (tc?.id) {
+        // Stamp the check so we don't re-pay for a blank number until the TTL.
+        void admin
+          .from('txt_contacts')
+          .update({ caller_id_checked_at: new Date().toISOString() })
+          .eq('id', tc.id)
+      }
+    }
+  }
+
+  const finalName = internalName || callerIdName
+  if (!tc && !client && !personName && !finalName) return null
 
   return {
     source: tc ? 'txt_contact' : 'client',
-    // Prefer an explicit txt-contact name, then the matched person, then the client.
-    name: tcName || personName || (client ? clientDisplayName(client) : null),
+    name: finalName,
+    nameIsCallerId: !internalName && !!callerIdName,
     phone: e164,
     status: client ? clientStatus(client) : null,
     address: client ? await addressForClient(admin, company, client.id) : null,

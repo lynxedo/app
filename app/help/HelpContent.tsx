@@ -1282,6 +1282,11 @@ function DialerTab() {
         <p>To turn off cross-page ringing — for example, if you don&apos;t want your browser holding an open phone connection while you&apos;re heads-down on something else — open <strong className="text-white">Settings → Account → Communications</strong> and uncheck <em>Ring me on every Hub page</em>. With the toggle off, calls only ring you while you&apos;re on the Dialer page itself.</p>
       </Section>
 
+      <Section title="Who's calling — caller ID">
+        <p>The ringing overlay (and the in-call card, mini-dialer, and missed-call notification) shows who&apos;s calling. It always prefers a name <strong className="text-white">we have on file</strong> — a saved contact, or a matched Jobber customer or contact person — and tags it <strong className="text-white">Customer</strong> or <strong className="text-white">Lead</strong> when it&apos;s a Jobber match.</p>
+        <p>When the number isn&apos;t anyone we know, the Dialer falls back to the phone carrier&apos;s <strong className="text-white">caller ID</strong> and shows that name with a small <strong className="text-white">Caller ID</strong> tag. That name is the carrier&apos;s best guess — it can be a spouse, a previous line-holder, or blank for a cell or a blocked/spam call — so treat it as a hint, not gospel. It&apos;s never saved as the contact&apos;s real name. If the carrier has no name (common for blocked callers), you&apos;ll just see the number.</p>
+      </Section>
+
       <Section title="Auto-attendant (IVR)">
         <p>Set up a phone menu callers hear before reaching anyone — &quot;Thank you for calling Heroes Lawn Care. Press 1 for scheduling, press 2 for billing.&quot; Configure it in <strong className="text-white">Admin → Dialer</strong> under the <em>Auto-attendant</em> section.</p>
         <p>The menu is a tree of <strong className="text-white">menus</strong> (nodes). Each menu has a <strong className="text-white">prompt</strong> the caller hears and a set of <strong className="text-white">keypress actions</strong> (what happens when they press 0–9, *, or #).</p>
