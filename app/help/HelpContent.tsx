@@ -856,6 +856,7 @@ function HubTab() {
 
       <Section title="Tracker (Lead Pipeline)">
         <p>Tracker is the lead pipeline — every inbound lead from any source ends up here as a row, grouped under the stage it&apos;s in. There&apos;s no separate &ldquo;Stage&rdquo; column anymore; a lead&apos;s stage <em>is</em> the group it sits under. Move a lead by dragging it (or via the bulk action bar / the edit drawer) into a different stage group.</p>
+        <Note><strong className="text-white">Angi leads land here automatically.</strong> New leads from your Angi (Angi Leads/Ads) account are delivered straight into the Tracker under <em>Leads — Current</em>, tagged <strong className="text-white">Lead Source: Angi</strong>, with the customer&apos;s questionnaire answers, comments, and the Angi lead fee saved as the first note. They&apos;re also added to Contacts. No copy-paste from the Angi app — they appear on their own within seconds of Angi sending them.</Note>
         <p className="mt-3"><strong className="text-white">Collapse a stage</strong> with the arrow on the <em>left</em> of each stage header, next to the select-all checkbox.</p>
         <p className="mt-3"><strong className="text-white">Resize or reorder columns.</strong> Drag a column header to reorder it. Drag the right edge of any header to resize. Column order is saved <em>per-user</em> and follows you across devices.</p>
 
