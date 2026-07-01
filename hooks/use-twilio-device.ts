@@ -64,6 +64,38 @@ async function fetchActiveConferenceRoomResilient(attempts = 4): Promise<string 
   return null
 }
 
+// ── Web audio device selection (mic + speaker picker) ──────────────────────
+// Persisted per browser in localStorage so a user's headset choice sticks
+// across sessions. Native builds don't use this — they have the earpiece/
+// speaker route picker (audioRoute*) instead.
+const AUDIO_INPUT_KEY = 'dialer.audioInputId'
+const AUDIO_OUTPUT_KEY = 'dialer.audioOutputId'
+
+function fallbackDeviceLabel(kind: 'mic' | 'speaker', deviceId: string, index: number): string {
+  if (deviceId === 'default') return 'System default'
+  if (deviceId === 'communications') return 'Communications device'
+  return kind === 'mic' ? `Microphone ${index}` : `Speaker ${index}`
+}
+
+function buildAudioDeviceLists(list: MediaDeviceInfo[]): {
+  inputs: { deviceId: string; label: string }[]
+  outputs: { deviceId: string; label: string }[]
+} {
+  const inputs: { deviceId: string; label: string }[] = []
+  const outputs: { deviceId: string; label: string }[] = []
+  let ci = 1
+  let co = 1
+  for (const d of list) {
+    if (!d.deviceId) continue
+    if (d.kind === 'audioinput') {
+      inputs.push({ deviceId: d.deviceId, label: d.label || fallbackDeviceLabel('mic', d.deviceId, ci++) })
+    } else if (d.kind === 'audiooutput') {
+      outputs.push({ deviceId: d.deviceId, label: d.label || fallbackDeviceLabel('speaker', d.deviceId, co++) })
+    }
+  }
+  return { inputs, outputs }
+}
+
 export type DialerState =
   | 'idle'                  // no token yet
   | 'not-configured'        // Twilio creds empty server-side
@@ -125,6 +157,21 @@ export type UseTwilioDevice = {
   transfer: (mode: TransferMode, to?: string) => Promise<{ ok: boolean; error?: string }>
   sendDigit: (digit: string) => void
   hangup: () => void
+  // Web audio device selection (mic + speaker). Empty/false on native, which
+  // uses the earpiece/speaker route picker (audioRoute*) above instead.
+  // `outputSelectionSupported` is false on Safari/Firefox (no setSinkId) — the
+  // speaker picker hides there; the mic picker still works everywhere.
+  audioDeviceSupported: boolean
+  outputSelectionSupported: boolean
+  audioInputs: { deviceId: string; label: string }[]
+  audioOutputs: { deviceId: string; label: string }[]
+  selectedInputId: string | null
+  selectedOutputId: string | null
+  setAudioInput: (deviceId: string) => void
+  setAudioOutput: (deviceId: string) => void
+  testAudioOutput: () => void
+  // Called when the picker opens — primes mic permission so device labels show.
+  ensureAudioDevices: () => void
   // Lifecycle
   ensureRegistered: () => Promise<void>
 }
@@ -151,6 +198,17 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   // transfer mid-flight.
   const [conferenceRoom, setConferenceRoom] = useState<string | null>(null)
   const [consulting, setConsulting] = useState(false)
+
+  // Web audio device selection (mic + speaker picker). Native uses audioRoute*.
+  const [audioDeviceSupported, setAudioDeviceSupported] = useState(false)
+  const [outputSelectionSupported, setOutputSelectionSupported] = useState(false)
+  const [audioInputs, setAudioInputs] = useState<{ deviceId: string; label: string }[]>([])
+  const [audioOutputs, setAudioOutputs] = useState<{ deviceId: string; label: string }[]>([])
+  const [selectedInputId, setSelectedInputId] = useState<string | null>(null)
+  const [selectedOutputId, setSelectedOutputId] = useState<string | null>(null)
+  // Ref mirror of the chosen mic so placeCall / acceptIncoming can read it
+  // without a stale closure. 'default'/null both mean "let the browser pick".
+  const selectedInputIdRef = useRef<string | null>(null)
 
   const deviceRef = useRef<DeviceType | null>(null)
   const incomingCallRef = useRef<Call | null>(null)
@@ -539,6 +597,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           setHeld(false)
           setConferenceRoom(null)
           setConsulting(false)
+          deviceRef.current?.audio?.unsetInputDevice().catch(() => {})
           setState('ready')
         })
         call.on('cancel', () => {
@@ -552,6 +611,25 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           setState('ready')
         })
       })
+
+      // ── Web audio device selection ───────────────────────────────────────
+      // Enable the picker + restore the saved selection for display. The saved
+      // mic/speaker are actually applied per-call (applyAudioForCall) so we
+      // never hold the mic open while idle. Best-effort — never block register.
+      try {
+        const audio = device.audio
+        if (audio && typeof navigator !== 'undefined' && navigator.mediaDevices) {
+          setAudioDeviceSupported(true)
+          setOutputSelectionSupported(!!audio.isOutputSelectionSupported)
+          let savedIn: string | null = null
+          let savedOut: string | null = null
+          try { savedIn = localStorage.getItem(AUDIO_INPUT_KEY) } catch { /* ignore */ }
+          try { savedOut = localStorage.getItem(AUDIO_OUTPUT_KEY) } catch { /* ignore */ }
+          selectedInputIdRef.current = savedIn
+          setSelectedInputId(savedIn ?? 'default')
+          setSelectedOutputId(savedOut ?? 'default')
+        }
+      } catch { /* audio helper unavailable — picker stays hidden */ }
 
       await device.register()
       deviceRef.current = device
@@ -634,6 +712,87 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     return () => { cancelled = true }
   }, [remoteNumber])
 
+  // ── Web audio device selection (mic + speaker picker) ────────────────────
+  // Lists come straight from navigator.enumerateDevices (independent of SDK
+  // refresh timing); selection is applied through the Twilio AudioHelper.
+  // Native is unaffected — audioDeviceSupported stays false there.
+  const refreshAudioDevices = useCallback(async () => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) return
+    try {
+      const { inputs, outputs } = buildAudioDeviceLists(await navigator.mediaDevices.enumerateDevices())
+      setAudioInputs(inputs)
+      setAudioOutputs(outputs)
+    } catch { /* ignore */ }
+  }, [])
+
+  const ensureAudioDevices = useCallback(async () => {
+    if (typeof navigator === 'undefined' || !navigator.mediaDevices?.enumerateDevices) return
+    try {
+      let list = await navigator.mediaDevices.enumerateDevices()
+      // Labels are blank until the origin has been granted mic permission once
+      // — prime it so the picker shows real device names, not "Microphone 1".
+      const hasLabels = list.some((d) => (d.kind === 'audioinput' || d.kind === 'audiooutput') && !!d.label)
+      if (!hasLabels) {
+        const stream = await navigator.mediaDevices.getUserMedia({ audio: true }).catch(() => null)
+        if (stream) stream.getTracks().forEach((t) => t.stop())
+        list = await navigator.mediaDevices.enumerateDevices()
+      }
+      const { inputs, outputs } = buildAudioDeviceLists(list)
+      setAudioInputs(inputs)
+      setAudioOutputs(outputs)
+    } catch { /* ignore */ }
+  }, [])
+
+  // Apply the user's saved mic + speaker to the SDK right before a call. Doing
+  // it per-call (not at registration) means we never hold the mic open — and
+  // show the browser "recording" dot — while idle. 'default'/null → let the
+  // browser pick, matching the original behavior.
+  const applyAudioForCall = useCallback(async () => {
+    const audio = deviceRef.current?.audio
+    if (!audio) return
+    const inId = selectedInputIdRef.current
+    if (inId && inId !== 'default') {
+      try { await audio.setInputDevice(inId) } catch { /* fall back to default mic */ }
+    }
+    if (audio.isOutputSelectionSupported) {
+      let outId: string | null = null
+      try { outId = localStorage.getItem(AUDIO_OUTPUT_KEY) } catch { /* ignore */ }
+      if (outId && outId !== 'default' && audio.availableOutputDevices.has(outId)) {
+        try { await audio.speakerDevices.set(outId) } catch { /* ignore */ }
+      }
+    }
+  }, [])
+
+  const setAudioInput = useCallback((deviceId: string) => {
+    selectedInputIdRef.current = deviceId
+    setSelectedInputId(deviceId)
+    try { localStorage.setItem(AUDIO_INPUT_KEY, deviceId) } catch { /* ignore */ }
+    // Live-swap the mic if a call is active; otherwise it takes effect on the
+    // next call (applyAudioForCall).
+    const audio = deviceRef.current?.audio
+    if (audio && activeCallRef.current) audio.setInputDevice(deviceId).catch(() => {})
+  }, [])
+
+  const setAudioOutput = useCallback((deviceId: string) => {
+    setSelectedOutputId(deviceId)
+    try { localStorage.setItem(AUDIO_OUTPUT_KEY, deviceId) } catch { /* ignore */ }
+    const audio = deviceRef.current?.audio
+    if (audio?.isOutputSelectionSupported) audio.speakerDevices.set(deviceId).catch(() => {})
+  }, [])
+
+  const testAudioOutput = useCallback(() => {
+    deviceRef.current?.audio?.speakerDevices.test().catch(() => {})
+  }, [])
+
+  // Keep the mic/speaker lists fresh as devices are plugged/unplugged (web only).
+  useEffect(() => {
+    if (!audioDeviceSupported || typeof navigator === 'undefined' || !navigator.mediaDevices) return
+    void refreshAudioDevices()
+    const onChange = () => { void refreshAudioDevices() }
+    navigator.mediaDevices.addEventListener?.('devicechange', onChange)
+    return () => navigator.mediaDevices.removeEventListener?.('devicechange', onChange)
+  }, [audioDeviceSupported, refreshAudioDevices])
+
   const acceptIncoming = useCallback(() => {
     // Native (Android overlay): answer the pending invite through the plugin —
     // there's no JS Call object. callConnected then drives the in-call screen.
@@ -641,8 +800,11 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       getNativeVoice()?.acceptCall?.()
       return
     }
-    incomingCallRef.current?.accept()
-  }, [])
+    const call = incomingCallRef.current
+    if (!call) return
+    // Apply the chosen mic + speaker before answering, then accept.
+    void applyAudioForCall().finally(() => call.accept())
+  }, [applyAudioForCall])
 
   const rejectIncoming = useCallback(() => {
     if (nativeVoiceAvailable()) {
@@ -719,6 +881,8 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       if (extras?.conversationId) params.txt_conversation_id = extras.conversationId
       if (extras?.contactId) params.txt_contact_id = extras.contactId
       if (extras?.callerId) params.caller_id = extras.callerId
+      // Apply the user's chosen mic + speaker (if any) before dialing.
+      await applyAudioForCall()
       const call = await device.connect({ params })
       activeCallRef.current = call
       setInCallWith(number)
@@ -735,6 +899,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         setHeld(false)
         setConferenceRoom(null)
         setConsulting(false)
+        deviceRef.current?.audio?.unsetInputDevice().catch(() => {})
         setState('ready')
       })
       call.on('error', (e: Error) => {
@@ -745,7 +910,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       setErrorMessage(err instanceof Error ? err.message : 'place_call_failed')
       setState('error')
     }
-  }, [ensureRegistered])
+  }, [ensureRegistered, applyAudioForCall])
 
   const toggleMute = useCallback(() => {
     const next = !muted
@@ -861,6 +1026,16 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     transfer,
     sendDigit,
     hangup,
+    audioDeviceSupported,
+    outputSelectionSupported,
+    audioInputs,
+    audioOutputs,
+    selectedInputId,
+    selectedOutputId,
+    setAudioInput,
+    setAudioOutput,
+    testAudioOutput,
+    ensureAudioDevices,
     ensureRegistered,
   }
 }

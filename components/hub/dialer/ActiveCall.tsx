@@ -5,6 +5,7 @@ import { formatPhone } from '@/lib/format'
 import { nativePlatform, type NativeAudioRoute } from '@/lib/native-voice'
 import type { DialerLookupMatch } from '@/lib/dialer-lookup'
 import CallContactCard from './CallContactCard'
+import AudioDevicePicker from './AudioDevicePicker'
 
 const DTMF_KEYS = ['1', '2', '3', '4', '5', '6', '7', '8', '9', '*', '0', '#']
 
@@ -71,6 +72,16 @@ export default function ActiveCall({
   onToggleRecordingPause,
   pauseAutoResumeSec = 60,
   autoOpenTransfer = false,
+  audioDeviceSupported = false,
+  audioInputs = [],
+  audioOutputs = [],
+  selectedInputId = null,
+  selectedOutputId = null,
+  outputSelectionSupported = false,
+  onSelectAudioInput,
+  onSelectAudioOutput,
+  onTestAudioOutput,
+  onOpenAudioDevices,
   contact = null,
 }: {
   status: 'placing' | 'in-call'
@@ -98,6 +109,18 @@ export default function ActiveCall({
   // GlobalCallBar so its slim-bar Transfer button is a one-tap shortcut into
   // the transfer form instead of dropping the user on the generic action grid.
   autoOpenTransfer?: boolean
+  // Web audio device selection (mic + speaker picker). Hidden on native, which
+  // uses the earpiece/speaker route picker (audioRoute*) instead.
+  audioDeviceSupported?: boolean
+  audioInputs?: { deviceId: string; label: string }[]
+  audioOutputs?: { deviceId: string; label: string }[]
+  selectedInputId?: string | null
+  selectedOutputId?: string | null
+  outputSelectionSupported?: boolean
+  onSelectAudioInput?: (id: string) => void
+  onSelectAudioOutput?: (id: string) => void
+  onTestAudioOutput?: () => void
+  onOpenAudioDevices?: () => void
   // Session 4/6: the matched customer identity for the screen-pop card + the
   // in-call quick actions (text / on-my-way / note / open-in-Jobber).
   contact?: DialerLookupMatch | null
@@ -105,6 +128,7 @@ export default function ActiveCall({
   const [now, setNow] = useState(() => Date.now())
   const [showKeypad, setShowKeypad] = useState(false)
   const [showAudio, setShowAudio] = useState(false)
+  const [showDevices, setShowDevices] = useState(false)
   // Transfer panel state.
   const [showTransfer, setShowTransfer] = useState(autoOpenTransfer)
   const [transferTarget, setTransferTarget] = useState('')
@@ -245,6 +269,26 @@ export default function ActiveCall({
     )
   }
 
+  // Web mic/speaker picker (desktop/browser). Mutually exclusive with the native
+  // route button above. Usable while placing too, so no in-call-only disable.
+  if (audioDeviceSupported) {
+    actionButtons.push(
+      <button
+        key="devices"
+        type="button"
+        onClick={() => { onOpenAudioDevices?.(); setShowDevices(true) }}
+        className="aspect-square rounded-full bg-white/5 hover:bg-white/10 flex flex-col items-center justify-center text-xs text-white"
+        aria-label="Audio devices"
+      >
+        <svg className="w-6 h-6 mb-1" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M4 13v-1a8 8 0 1116 0v1" />
+          <path strokeLinecap="round" strokeLinejoin="round" d="M2 16a2 2 0 012-2h1v5H4a2 2 0 01-2-2v-1zm18-2a2 2 0 012 2v1a2 2 0 01-2 2h-1v-5h1z" />
+        </svg>
+        <span>Audio</span>
+      </button>
+    )
+  }
+
   if (conferenceActive && onTransfer) {
     actionButtons.push(
       <button
@@ -326,7 +370,7 @@ export default function ActiveCall({
 
       {/* Screen-pop identity + in-call quick actions (Sessions 4 + 6). Shown for
           real outside numbers, hidden for extension/internal dials. */}
-      {who && who.replace(/\D/g, '').length >= 10 && !showTransfer && !consulting && !showAudio && (
+      {who && who.replace(/\D/g, '').length >= 10 && !showTransfer && !consulting && !showAudio && !showDevices && (
         <div className="mb-4 max-w-xs mx-auto">
           <CallContactCard contact={contact} number={who} />
         </div>
@@ -421,6 +465,26 @@ export default function ActiveCall({
             type="button"
             onClick={() => setShowAudio(false)}
             className="text-white/50 hover:text-white text-xs pt-1"
+          >
+            Back
+          </button>
+        </div>
+      ) : showDevices ? (
+        <div className="mb-5 max-w-xs mx-auto">
+          <AudioDevicePicker
+            inputs={audioInputs}
+            outputs={audioOutputs}
+            selectedInputId={selectedInputId}
+            selectedOutputId={selectedOutputId}
+            outputSelectionSupported={outputSelectionSupported}
+            onSelectInput={(id) => onSelectAudioInput?.(id)}
+            onSelectOutput={(id) => onSelectAudioOutput?.(id)}
+            onTest={() => onTestAudioOutput?.()}
+          />
+          <button
+            type="button"
+            onClick={() => setShowDevices(false)}
+            className="text-white/50 hover:text-white text-xs pt-3"
           >
             Back
           </button>
