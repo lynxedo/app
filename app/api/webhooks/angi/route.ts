@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import crypto from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
+import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
 
 // Angi "Standard Lead API" webhook.
 //
@@ -17,6 +18,9 @@ import { syncLeadToDirectory } from '@/lib/contacts-directory'
 export const runtime = 'nodejs'
 
 const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
+// Guardian/Claude bot (posts system messages) + the Hub "office" room.
+const GUARDIAN_BOT_ID = '00000000-0000-0000-0001-000000000001'
+const OFFICE_ROOM_ID = 'cebac7e5-caf8-400c-a15d-5eb9d81e1967'
 
 function safeEqual(a: string, b: string): boolean {
   const ab = Buffer.from(a)
@@ -185,6 +189,26 @@ export async function POST(request: Request) {
     note: buildNote(body),
     created_by: 'Angi',
   })
+
+  // Alert the Hub "office" room so someone works the lead fast (speed-to-lead).
+  // Best-effort — a messaging hiccup must never fail the lead ingest.
+  try {
+    const leadName = [first, last].filter(Boolean).join(' ') || 'Unknown name'
+    const line2 = [svc && `Service: ${svc}`, phone, service_address].filter(Boolean).join(' · ')
+    const content = `📥 New Angi lead: ${leadName}${line2 ? `\n${line2}` : ''}\nOpen the Lead Tracker → /hub/tracker`
+    const { data: alertMsg } = await admin
+      .from('messages')
+      .insert({ company_id: HEROES_COMPANY_ID, room_id: OFFICE_ROOM_ID, sender_id: GUARDIAN_BOT_ID, content })
+      .select('id')
+      .single()
+    if (alertMsg) {
+      void broadcastMessageInserted({
+        messageId: alertMsg.id, roomId: OFFICE_ROOM_ID, conversationId: null, parentId: null, senderId: GUARDIAN_BOT_ID,
+      })
+    }
+  } catch (e) {
+    console.error('[angi] office-room alert failed:', (e as Error).message)
+  }
 
   // Add to the unified contacts directory (best-effort; never blocks the lead).
   void syncLeadToDirectory(admin, HEROES_COMPANY_ID, {
