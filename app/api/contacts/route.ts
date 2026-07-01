@@ -43,6 +43,7 @@ export async function GET(request: Request) {
       tags:contact_tag_assignments(tag_id, contact_tags(id, label, color))
     `)
     .is('deleted_at', null)
+    .eq('in_directory', true)
     .order('name', { ascending: true })
     .limit(limit)
 
@@ -155,7 +156,7 @@ export async function POST(request: Request) {
     const sources = Array.from(new Set([...(existing.sources ?? []), 'manual']))
     await admin
       .from('txt_contacts')
-      .update({ name, email, notes, ...directoryFields, sources, manually_edited: true })
+      .update({ name, email, notes, ...directoryFields, sources, manually_edited: true, in_directory: true })
       .eq('id', contactId)
   } else {
     const { data: created, error } = await admin

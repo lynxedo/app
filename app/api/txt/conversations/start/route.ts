@@ -43,10 +43,12 @@ export async function POST(request: Request) {
       .insert({
         company_id: HEROES_COMPANY_ID,
         phone: phoneE164,
+        phone_digits: phoneE164.replace(/\D/g, '').slice(-10),
         name,
         email,
         notes,
         jobber_client_id: jobberClientId,
+        in_directory: jobberClientId != null,
       })
       .select('id')
       .single()

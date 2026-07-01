@@ -92,6 +92,7 @@ export async function syncClientsToDirectory(
         // free (no other row owns them) to never break the unique keys.
         const update: Record<string, unknown> = {
           jobber_client_id: c.external_id,
+          in_directory: true,
           updated_at: new Date().toISOString(),
         }
         // add 'jobber' to sources
@@ -212,6 +213,7 @@ export async function syncLeadToDirectory(
         sources: Array.from(new Set([...((cur?.sources as string[]) ?? []), 'leads'])),
         // A lead represents fresh texting consent → make this person textable.
         do_not_text: false,
+        in_directory: true,
         updated_at: new Date().toISOString(),
       }
       if (!cur?.manually_edited) {

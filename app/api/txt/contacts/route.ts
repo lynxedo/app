@@ -33,6 +33,7 @@ export async function GET(request: Request) {
     // a null phone — they can't be texted, so exclude them. Leaving them in
     // crashed the composer's phone formatter (null.replace) → white screen.
     .not('phone', 'is', null)
+    .eq('in_directory', true)
     .order('name', { ascending: true })
     .limit(limit)
 
@@ -73,16 +74,37 @@ export async function POST(request: Request) {
 
   const { data: existing } = await admin
     .from('txt_contacts')
-    .select('id, name, phone, email, notes, do_not_text, jobber_client_id')
+    .select('id, sources')
     .eq('company_id', HEROES_COMPANY_ID)
     .eq('phone', phoneE164)
     .maybeSingle()
 
+  // If a record already exists for this number — including a hidden, inbound-only
+  // stub from a past text/call — adopt it: fill in the entered details and reveal
+  // it in the directory, instead of erroring with "already exists".
   if (existing) {
-    return NextResponse.json(
-      { error: 'A contact with this phone number already exists', contact: existing },
-      { status: 409 }
-    )
+    const sources = Array.from(new Set([...(((existing.sources as string[]) ?? [])), 'manual']))
+    const { data: updated, error: updErr } = await admin
+      .from('txt_contacts')
+      .update({
+        name,
+        email,
+        notes,
+        phone_digits: phoneE164.replace(/\D/g, '').slice(-10),
+        sources,
+        manually_edited: true,
+        in_directory: true,
+      })
+      .eq('id', existing.id)
+      .select('id, name, phone, email, notes, do_not_text, jobber_client_id')
+      .single()
+    if (updErr || !updated) {
+      return NextResponse.json(
+        { error: updErr?.message || 'Contact update failed' },
+        { status: 500 }
+      )
+    }
+    return NextResponse.json({ contact: updated }, { status: 200 })
   }
 
   const { data: created, error: createErr } = await admin
@@ -90,9 +112,12 @@ export async function POST(request: Request) {
     .insert({
       company_id: HEROES_COMPANY_ID,
       phone: phoneE164,
+      phone_digits: phoneE164.replace(/\D/g, '').slice(-10),
       name,
       email,
       notes,
+      sources: ['manual'],
+      manually_edited: true,
     })
     .select('id, name, phone, email, notes, do_not_text, jobber_client_id')
     .single()

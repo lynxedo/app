@@ -1384,15 +1384,16 @@ function ContactsTab() {
   return (
     <>
       <Section title="Contacts">
-        <p>The Contacts page is your company-wide address book — and it&apos;s growing into the one central directory every tool reads from. Anyone you call from the Dialer, anyone who texts in through Txt, plus customers and their mailing/email info — they all live in one searchable list at <strong className="text-white">Tools → Communications → Contacts</strong>, with one record per person.</p>
-        <p>Search by name, phone, or email from the top bar. Tap any contact to see their details, call them (Dialer), text them, or edit their info. Each contact now also holds a <strong className="text-white">company name</strong>, a <strong className="text-white">mailing address</strong>, and an <strong className="text-white">email subscription status</strong>, and shows where it came from (Jobber, texted in, called in, manually added, imported, or from the Lead Tracker).</p>
+        <p>The Contacts page is your company-wide address book — the one central directory every tool reads from. It fills automatically from two places: your <strong className="text-white">Jobber customers</strong> and anyone added to the <Link href="/hub/tracker/leads" className="text-sky-400 hover:underline">Lead Tracker</Link>. You can also add someone by hand any time. Everyone lives in one searchable list at <strong className="text-white">Tools → Communications → Contacts</strong>, with one record per person.</p>
+        <p>Search by name, phone, or email from the top bar. Tap any contact to see their details, call them (Dialer), text them, or edit their info. Each contact now also holds a <strong className="text-white">company name</strong>, a <strong className="text-white">mailing address</strong>, and an <strong className="text-white">email subscription status</strong>, and shows where it came from (Jobber, the Lead Tracker, manually added, or imported).</p>
+        <Note><strong className="text-white">Just calling or texting a number doesn&apos;t add it to Contacts.</strong> Random inbound texts and calls still show up in your Txt inbox and the Dialer exactly as before — but a number only becomes a saved contact when it&apos;s a Jobber customer, a lead, or you add it by hand. If someone you&apos;ve texted or called later becomes a customer or a lead, they turn into a full contact automatically — with their past conversation kept.</Note>
         <Note><strong className="text-white">Leads land here automatically.</strong> When a new lead is added to the <Link href="/hub/tracker/leads" className="text-sky-400 hover:underline">Lead Tracker</Link>, it&apos;s also added to Contacts (tagged source <em>Leads</em>) so you have one record for that person across the whole platform. Because a lead form isn&apos;t texting consent, lead-sourced contacts are set <strong className="text-white">do-not-text</strong> until someone opts them in.</Note>
       </Section>
 
       <Section title="Filtering the directory">
         <p>Below the search box are three quick filters so you can slice the directory the way each tool sees it:</p>
         <Step n={1}><strong className="text-white">Channel</strong> — show only contacts that have a phone (the Txt/Dialer view) or have an email (the Email Marketing view).</Step>
-        <Step n={2}><strong className="text-white">Source</strong> — where the contact came from: Jobber, Manual, Imported, Texted in, or Called in.</Step>
+        <Step n={2}><strong className="text-white">Source</strong> — where the contact came from: Jobber, the Lead Tracker, Manual, or Imported.</Step>
         <Step n={3}><strong className="text-white">Email status</strong> — Subscribed, Unsubscribed, Bounced, or Complained. <strong className="text-white">Reset</strong> clears these three at once.</Step>
       </Section>
 
