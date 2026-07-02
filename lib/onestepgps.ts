@@ -97,3 +97,165 @@ export async function getFleetDevices(): Promise<FleetDevice[]> {
   })()
   return inflight
 }
+
+// ---------------------------------------------------------------------------
+// Historical breadcrumb points (Day History)
+//
+// OneStepGPS exposes history at /device-point. Working params (verified live):
+// dt_tracker_from / dt_tracker_to (ISO) + limit; results come back sorted
+// sequence,desc (newest first) and the sort can't be changed. The similarly
+// named dtf/dtt params are silently IGNORED (the API falls back to "last
+// 24h") — don't "simplify" back to them. Each raw point is ~8 KB because it
+// carries a full device_point_detail, so points are slimmed server-side
+// before anything is cached or returned.
+// ---------------------------------------------------------------------------
+
+const HISTORY_ENDPOINT = 'https://track.onestepgps.com/v3/api/public/device-point'
+const HISTORY_PAGE_LIMIT = 2000
+const HISTORY_MAX_PAGES = 8
+const HISTORY_CACHE_MAX_ENTRIES = 120
+const HISTORY_TTL_PAST_MS = 6 * 60 * 60_000 // a finished day never changes
+const HISTORY_TTL_LIVE_MS = 60_000 // today keeps growing
+
+export type FleetHistoryPoint = {
+  t: string // dt_tracker ISO timestamp
+  lat: number
+  lng: number
+  speed_mph: number
+  drive_status: FleetDriveStatus
+}
+
+export type FleetStop = {
+  lat: number
+  lng: number
+  start: string
+  end: string
+  minutes: number
+}
+
+export type FleetHistory = { points: FleetHistoryPoint[]; stops: FleetStop[] }
+
+const historyCache = new Map<string, { fetchedAt: number; ttlMs: number; data: FleetHistory }>()
+
+function normalizeHistoryPoint(raw: unknown): FleetHistoryPoint | null {
+  if (!raw || typeof raw !== 'object') return null
+  const p = raw as Record<string, unknown>
+  const lat = Number(p.lat)
+  const lng = Number(p.lng)
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null
+  const t = String(p.dt_tracker ?? p.dt_server ?? '')
+  if (!t || !Number.isFinite(Date.parse(t))) return null
+  const state = (p.device_state ?? {}) as Record<string, unknown>
+  const statusRaw = String(state.drive_status ?? 'unknown')
+  const speedKmh = Number(p.speed ?? 0)
+  return {
+    t,
+    lat,
+    lng,
+    speed_mph: Math.round((speedKmh / 1.609344) * 10) / 10,
+    drive_status: (ALLOWED_STATUS as string[]).includes(statusRaw)
+      ? (statusRaw as FleetDriveStatus)
+      : 'unknown',
+  }
+}
+
+function haversineMeters(aLat: number, aLng: number, bLat: number, bLng: number): number {
+  const R = 6371000
+  const dLat = ((bLat - aLat) * Math.PI) / 180
+  const dLng = ((bLng - aLng) * Math.PI) / 180
+  const s =
+    Math.sin(dLat / 2) ** 2 +
+    Math.cos((aLat * Math.PI) / 180) * Math.cos((bLat * Math.PI) / 180) * Math.sin(dLng / 2) ** 2
+  return 2 * R * Math.asin(Math.sqrt(s))
+}
+
+const STOP_RADIUS_M = 120
+const STOP_MIN_MINUTES = 10
+
+// Cluster consecutive pings that stay within STOP_RADIUS_M of the cluster's
+// first point; any cluster spanning >= STOP_MIN_MINUTES is a stop. When the
+// engine is off the device stops pinging, so the time gap between the last
+// ping at a spot and the next ping (still at that spot when the engine
+// restarts) correctly counts toward the stop's duration.
+export function detectStops(points: FleetHistoryPoint[]): FleetStop[] {
+  const stops: FleetStop[] = []
+  let i = 0
+  while (i < points.length) {
+    const anchor = points[i]
+    let j = i
+    while (
+      j + 1 < points.length &&
+      haversineMeters(anchor.lat, anchor.lng, points[j + 1].lat, points[j + 1].lng) <= STOP_RADIUS_M
+    ) {
+      j++
+    }
+    const minutes = (Date.parse(points[j].t) - Date.parse(points[i].t)) / 60_000
+    if (j > i && minutes >= STOP_MIN_MINUTES) {
+      let sumLat = 0
+      let sumLng = 0
+      for (let k = i; k <= j; k++) {
+        sumLat += points[k].lat
+        sumLng += points[k].lng
+      }
+      const n = j - i + 1
+      stops.push({
+        lat: sumLat / n,
+        lng: sumLng / n,
+        start: points[i].t,
+        end: points[j].t,
+        minutes: Math.round(minutes),
+      })
+    }
+    i = j > i ? j + 1 : i + 1
+  }
+  return stops
+}
+
+export async function getDeviceHistory(
+  deviceId: string,
+  fromIso: string,
+  toIso: string,
+): Promise<FleetHistory> {
+  const cacheKey = `${deviceId}|${fromIso}|${toIso}`
+  const cached = historyCache.get(cacheKey)
+  if (cached && Date.now() - cached.fetchedAt < cached.ttlMs) return cached.data
+
+  const key = process.env.ONESTEPGPS_API_KEY
+  if (!key) throw new Error('ONESTEPGPS_API_KEY is not configured')
+
+  const points: FleetHistoryPoint[] = []
+  let pageTo = toIso
+  for (let page = 0; page < HISTORY_MAX_PAGES; page++) {
+    const url =
+      `${HISTORY_ENDPOINT}?api-key=${encodeURIComponent(key)}` +
+      `&device_id=${encodeURIComponent(deviceId)}` +
+      `&dt_tracker_from=${encodeURIComponent(fromIso)}` +
+      `&dt_tracker_to=${encodeURIComponent(pageTo)}` +
+      `&limit=${HISTORY_PAGE_LIMIT}`
+    const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(15000) })
+    if (!res.ok) throw new Error(`OneStepGPS history upstream ${res.status}`)
+    const body = (await res.json()) as { result_list?: unknown[] }
+    const list = Array.isArray(body.result_list) ? body.result_list : []
+    const batch = list
+      .map(normalizeHistoryPoint)
+      .filter((p): p is FleetHistoryPoint => p !== null)
+    points.push(...batch)
+    if (list.length < HISTORY_PAGE_LIMIT) break
+    // Results are newest-first; continue the next page below the oldest
+    // timestamp we've seen so far.
+    const oldest = batch[batch.length - 1]?.t
+    if (!oldest) break
+    pageTo = new Date(Date.parse(oldest) - 1000).toISOString()
+  }
+
+  points.sort((a, b) => Date.parse(a.t) - Date.parse(b.t))
+  const data: FleetHistory = { points, stops: detectStops(points) }
+
+  const ttlMs = Date.parse(toIso) < Date.now() - 60_000 ? HISTORY_TTL_PAST_MS : HISTORY_TTL_LIVE_MS
+  historyCache.set(cacheKey, { fetchedAt: Date.now(), ttlMs, data })
+  if (historyCache.size > HISTORY_CACHE_MAX_ENTRIES) {
+    const oldestKey = historyCache.keys().next().value
+    if (oldestKey) historyCache.delete(oldestKey)
+  }
+  return data
+}

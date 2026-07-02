@@ -880,6 +880,7 @@ function HubTab() {
           <li><strong className="text-gray-300">Gray</strong> — off / offline</li>
         </ul>
         <p>A small red dot in the corner of a pin means at least one alert is active for that vehicle. The data refreshes every 30 seconds.</p>
+        <p className="mt-4"><strong className="text-white">Day History</strong> — see the path a vehicle actually took on any day. In the <em>Day History</em> card in the sidebar, pick a vehicle and a date, then tap <strong className="text-white">Show path</strong>: a dotted blue line traces the day&apos;s route through every GPS ping, and <strong className="text-orange-300">larger orange dots</strong> mark anywhere the truck sat for <strong className="text-white">10+ minutes</strong>. Tap any dot for its exact time — stop dots also show how long the truck was there (arrival – departure). The map zooms to fit the whole day. Tap <em>✕ Back to live</em> to clear the path and return to live tracking.</p>
         <p>Four alert types can fire:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">🚨 Speeding</strong> — vehicle is driving over the configured speed limit</li>

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from 'react'
 import 'mapbox-gl/dist/mapbox-gl.css'
-import type { Map as MapboxMap, Marker as MapboxMarker, Popup as MapboxPopup } from 'mapbox-gl'
+import type { GeoJSONSource, Map as MapboxMap, Marker as MapboxMarker, Popup as MapboxPopup } from 'mapbox-gl'
 
 // The mapbox-gl engine (~800 KB) is browser-only and heavy, so it's lazy-loaded
 // inside the init effect via `await import('mapbox-gl')` rather than a static
@@ -64,6 +64,38 @@ function alertLabel(type: AlertEvent['alert_type']): string {
   }
 }
 
+// --- Day History (historical breadcrumb path) ---
+
+type HistoryPoint = {
+  t: string
+  lat: number
+  lng: number
+  speed_mph: number
+  drive_status: Device['drive_status']
+}
+type HistoryStop = { lat: number; lng: number; start: string; end: string; minutes: number }
+type DayHistory = { points: HistoryPoint[]; stops: HistoryStop[] }
+
+const HIST_LINE_SOURCE = 'fleet-hist-line'
+const HIST_PINGS_SOURCE = 'fleet-hist-pings'
+const HIST_STOPS_SOURCE = 'fleet-hist-stops'
+const HIST_LINE_LAYER = 'fleet-hist-line-layer'
+const HIST_PINGS_LAYER = 'fleet-hist-pings-layer'
+const HIST_STOPS_LAYER = 'fleet-hist-stops-layer'
+
+// Heroes' operating timezone — 'en-CA' formats as YYYY-MM-DD.
+function chicagoToday(): string {
+  return new Intl.DateTimeFormat('en-CA', { timeZone: 'America/Chicago' }).format(new Date())
+}
+
+function fmtChicagoTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString('en-US', {
+    timeZone: 'America/Chicago',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
+}
+
 function relativeTime(iso: string): string {
   const ms = Date.now() - Date.parse(iso)
   if (!Number.isFinite(ms) || ms < 0) return iso
@@ -78,7 +110,12 @@ function relativeTime(iso: string): string {
 
 function buildMarkerEl(device: Device, hasAlert: boolean): HTMLDivElement {
   const wrap = document.createElement('div')
-  wrap.style.position = 'relative'
+  // NO inline `position` here: mapbox-gl positions markers via its
+  // .mapboxgl-marker class (position:absolute + transform). An inline
+  // position:relative overrides that class and drops the marker into normal
+  // layout flow, offsetting every pin by a constant pixel amount — which
+  // looks like "pins are miles off" when zoomed out. (The absolute-positioned
+  // wrap still anchors the alert badge below.)
   wrap.style.width = '32px'
   wrap.style.height = '32px'
 
@@ -136,6 +173,15 @@ export default function FleetPage() {
   // while the vehicle sidebar — which needs no WebGL — keeps working.
   const [mapError, setMapError] = useState<string | null>(null)
   const [mapReady, setMapReady] = useState(false)
+
+  // Day History state
+  const histPopupRef = useRef<MapboxPopup | null>(null)
+  const histHandlersRef = useRef(false)
+  const [histDevice, setHistDevice] = useState('')
+  const [histDate, setHistDate] = useState(chicagoToday)
+  const [histLoading, setHistLoading] = useState(false)
+  const [histError, setHistError] = useState<string | null>(null)
+  const [hist, setHist] = useState<DayHistory | null>(null)
 
   // Map of device_id → list of open alert types
   const alertsByDevice = useMemo(() => {
@@ -254,6 +300,189 @@ export default function FleetPage() {
     }
   }, [devices, alertsByDevice, mapReady])
 
+  async function loadHistory() {
+    if (!histDevice) return
+    setHistLoading(true)
+    setHistError(null)
+    try {
+      const res = await fetch(
+        `/api/fleet/history?device_id=${encodeURIComponent(histDevice)}&date=${histDate}`,
+        { cache: 'no-store' },
+      )
+      const body = (await res.json().catch(() => null)) as
+        | (Partial<DayHistory> & { error?: string })
+        | null
+      if (!res.ok) throw new Error(body?.error ?? `history ${res.status}`)
+      setHist({ points: body?.points ?? [], stops: body?.stops ?? [] })
+    } catch (err) {
+      setHistError(err instanceof Error ? err.message : String(err))
+      setHist(null)
+    } finally {
+      setHistLoading(false)
+    }
+  }
+
+  function clearHistory() {
+    setHist(null)
+    setHistError(null)
+  }
+
+  // Draw / clear the Day History path layers whenever the loaded history
+  // changes. Layers need the map STYLE loaded (unlike DOM markers), so fall
+  // back to the map's 'load' event when it hasn't finished yet.
+  useEffect(() => {
+    const map = mapRef.current
+    const mapboxgl = mapboxglRef.current
+    if (!map || !mapboxgl || !mapReady) return
+
+    const draw = () => {
+      histPopupRef.current?.remove()
+      histPopupRef.current = null
+
+      if (!hist) {
+        for (const layer of [HIST_STOPS_LAYER, HIST_PINGS_LAYER, HIST_LINE_LAYER]) {
+          if (map.getLayer(layer)) map.removeLayer(layer)
+        }
+        for (const source of [HIST_STOPS_SOURCE, HIST_PINGS_SOURCE, HIST_LINE_SOURCE]) {
+          if (map.getSource(source)) map.removeSource(source)
+        }
+        return
+      }
+
+      const line: GeoJSON.Feature<GeoJSON.LineString> = {
+        type: 'Feature',
+        geometry: { type: 'LineString', coordinates: hist.points.map((p) => [p.lng, p.lat]) },
+        properties: {},
+      }
+      const pings: GeoJSON.FeatureCollection<GeoJSON.Point> = {
+        type: 'FeatureCollection',
+        features: hist.points.map((p) => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [p.lng, p.lat] },
+          properties: { t: p.t, speed: p.speed_mph, status: statusLabel(p.drive_status) },
+        })),
+      }
+      const stops: GeoJSON.FeatureCollection<GeoJSON.Point> = {
+        type: 'FeatureCollection',
+        features: hist.stops.map((s) => ({
+          type: 'Feature',
+          geometry: { type: 'Point', coordinates: [s.lng, s.lat] },
+          properties: { start: s.start, end: s.end, minutes: s.minutes },
+        })),
+      }
+
+      const upsert = (id: string, data: GeoJSON.Feature | GeoJSON.FeatureCollection) => {
+        const src = map.getSource(id) as GeoJSONSource | undefined
+        if (src) src.setData(data)
+        else map.addSource(id, { type: 'geojson', data })
+      }
+      upsert(HIST_LINE_SOURCE, line)
+      upsert(HIST_PINGS_SOURCE, pings)
+      upsert(HIST_STOPS_SOURCE, stops)
+
+      if (!map.getLayer(HIST_LINE_LAYER)) {
+        map.addLayer({
+          id: HIST_LINE_LAYER,
+          type: 'line',
+          source: HIST_LINE_SOURCE,
+          layout: { 'line-cap': 'round', 'line-join': 'round' },
+          // dasharray [0, 2] + round caps renders as a dotted line
+          paint: { 'line-color': '#2563eb', 'line-width': 2.5, 'line-dasharray': [0, 2] },
+        })
+      }
+      if (!map.getLayer(HIST_PINGS_LAYER)) {
+        map.addLayer({
+          id: HIST_PINGS_LAYER,
+          type: 'circle',
+          source: HIST_PINGS_SOURCE,
+          paint: {
+            'circle-radius': 4,
+            'circle-color': '#2563eb',
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 1.5,
+          },
+        })
+      }
+      if (!map.getLayer(HIST_STOPS_LAYER)) {
+        map.addLayer({
+          id: HIST_STOPS_LAYER,
+          type: 'circle',
+          source: HIST_STOPS_SOURCE,
+          paint: {
+            'circle-radius': 10,
+            'circle-color': '#f97316',
+            'circle-stroke-color': '#ffffff',
+            'circle-stroke-width': 2,
+          },
+        })
+      }
+
+      // Click → timestamp popups. Registered once per map instance.
+      if (!histHandlersRef.current) {
+        histHandlersRef.current = true
+        map.on('click', HIST_STOPS_LAYER, (e) => {
+          const f = e.features?.[0]
+          if (!f) return
+          const props = f.properties as { start?: string; end?: string; minutes?: number }
+          histPopupRef.current?.remove()
+          histPopupRef.current = new mapboxgl.Popup({ offset: 12 })
+            .setLngLat(e.lngLat)
+            .setHTML(
+              `<div style="font-family:system-ui;color:#111;font-size:12px">
+                <div style="font-weight:600">⏱ Stopped ${Number(props.minutes ?? 0)} min</div>
+                <div style="color:#444;margin-top:2px">${props.start ? fmtChicagoTime(props.start) : ''} – ${props.end ? fmtChicagoTime(props.end) : ''}</div>
+              </div>`,
+            )
+            .addTo(map)
+        })
+        map.on('click', HIST_PINGS_LAYER, (e) => {
+          // A stop dot sits on top of its own pings — let the stop popup win.
+          if (map.getLayer(HIST_STOPS_LAYER)) {
+            const stopsHit = map.queryRenderedFeatures(e.point, { layers: [HIST_STOPS_LAYER] })
+            if (stopsHit.length > 0) return
+          }
+          const f = e.features?.[0]
+          if (!f) return
+          const props = f.properties as { t?: string; speed?: number; status?: string }
+          histPopupRef.current?.remove()
+          histPopupRef.current = new mapboxgl.Popup({ offset: 8 })
+            .setLngLat(e.lngLat)
+            .setHTML(
+              `<div style="font-family:system-ui;color:#111;font-size:12px">
+                <div style="font-weight:600">${props.t ? fmtChicagoTime(props.t) : ''}</div>
+                <div style="color:#444;margin-top:2px">${Number(props.speed ?? 0)} mph · ${escapeHtml(String(props.status ?? ''))}</div>
+              </div>`,
+            )
+            .addTo(map)
+        })
+        for (const layer of [HIST_PINGS_LAYER, HIST_STOPS_LAYER]) {
+          map.on('mouseenter', layer, () => {
+            map.getCanvas().style.cursor = 'pointer'
+          })
+          map.on('mouseleave', layer, () => {
+            map.getCanvas().style.cursor = ''
+          })
+        }
+      }
+
+      // Fit the whole day's path in view
+      if (hist.points.length > 0) {
+        const bounds = new mapboxgl.LngLatBounds()
+        for (const p of hist.points) bounds.extend([p.lng, p.lat])
+        map.fitBounds(bounds, { padding: 60, maxZoom: 15 })
+      }
+    }
+
+    if (map.isStyleLoaded()) {
+      draw()
+      return
+    }
+    map.once('load', draw)
+    return () => {
+      map.off('load', draw)
+    }
+  }, [hist, mapReady])
+
   // Poll devices + alerts
   useEffect(() => {
     let cancelled = false
@@ -322,6 +551,52 @@ export default function FleetPage() {
         )}
       </div>
       <div className="w-full md:w-80 md:border-l border-t md:border-t-0 border-white/10 overflow-y-auto p-3 space-y-2">
+        <div className="rounded-lg border border-white/10 bg-white/5 p-2.5 space-y-2">
+          <div className="flex items-center justify-between">
+            <h2 className="text-sm font-semibold uppercase tracking-wider text-white/70">Day History</h2>
+            {hist && (
+              <button onClick={clearHistory} className="text-xs text-sky-300 hover:text-sky-200">
+                ✕ Back to live
+              </button>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <select
+              value={histDevice}
+              onChange={(e) => setHistDevice(e.target.value)}
+              className="flex-1 min-w-0 bg-gray-900 text-white border border-white/10 rounded px-2 py-1.5 text-base md:text-sm"
+            >
+              <option value="">Vehicle…</option>
+              {devices.map((d) => (
+                <option key={d.id} value={d.id}>
+                  {d.name}
+                </option>
+              ))}
+            </select>
+            <input
+              type="date"
+              value={histDate}
+              max={chicagoToday()}
+              onChange={(e) => setHistDate(e.target.value)}
+              className="bg-gray-900 text-white border border-white/10 rounded px-2 py-1.5 text-base md:text-sm [color-scheme:dark]"
+            />
+          </div>
+          <button
+            onClick={loadHistory}
+            disabled={!histDevice || histLoading}
+            className="w-full bg-sky-600 hover:bg-sky-500 disabled:opacity-40 rounded py-1.5 text-sm font-medium"
+          >
+            {histLoading ? 'Loading…' : 'Show path'}
+          </button>
+          {histError && <div className="text-xs text-red-300">{histError}</div>}
+          {hist && !histLoading && (
+            <div className="text-xs text-white/60">
+              {hist.points.length === 0
+                ? 'No GPS data for this day.'
+                : `${hist.points.length} pings · ${hist.stops.length} stop${hist.stops.length === 1 ? '' : 's'} ≥ 10 min — tap a dot for its time`}
+            </div>
+          )}
+        </div>
         <div className="flex items-center justify-between mb-1">
           <h2 className="text-sm font-semibold uppercase tracking-wider text-white/70">Vehicles</h2>
           <span className="text-xs text-white/40">refresh 30s</span>
