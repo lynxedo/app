@@ -25,6 +25,7 @@ export default function MessageActionsSheet({
   hasOnOpenThread,
   onClose,
   onCopy,
+  onCopyLink,
   onAddReaction,
   onForward,
   onSaveToFiles,
@@ -40,6 +41,7 @@ export default function MessageActionsSheet({
   hasOnOpenThread: boolean
   onClose: () => void
   onCopy: () => void
+  onCopyLink?: () => void
   onAddReaction: (emoji: string) => void
   onForward: () => void
   onSaveToFiles: () => void
@@ -63,6 +65,7 @@ export default function MessageActionsSheet({
 
   const actions: Action[] = [
     ...(hasText ? [{ icon: '📋', label: 'Copy text', onClick: () => { onCopy(); dismiss() } }] : []),
+    ...(onCopyLink ? [{ icon: '🔗', label: 'Copy link', onClick: () => { onCopyLink(); dismiss() } }] : []),
     { icon: '↗', label: 'Forward', onClick: () => { onForward(); dismiss() } },
     ...(hasImages ? [{ icon: '📁', label: 'Save to Files', onClick: () => { onSaveToFiles(); dismiss() } }] : []),
     { icon: '☑', label: 'Add to Board', onClick: () => { onAddToBoard(); dismiss() } },

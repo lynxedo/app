@@ -8,7 +8,7 @@ import SaveToFilesModal from './SaveToFilesModal'
 import MessageActionsSheet from './MessageActionsSheet'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { renderContent } from './renderContent'
-import { useConfirm } from '@/components/ui'
+import { useConfirm, useToast } from '@/components/ui'
 import {
   saveMessages,
   getMessages,
@@ -80,6 +80,10 @@ function normFiles(raw: unknown): FileItem[] {
 }
 function formatBytes(b: number) {
   return b < 1024 * 1024 ? `${Math.round(b / 1024)} KB` : `${(b / 1024 / 1024).toFixed(1)} MB`
+}
+function cssEscapeId(id: string) {
+  if (typeof window !== 'undefined' && window.CSS?.escape) return window.CSS.escape(id)
+  return id
 }
 
 function Avatar({ sender }: { sender: Sender | null }) {
@@ -230,6 +234,7 @@ type MessageRowProps = {
   isFullPickerOpen: boolean
   isThreadOpen: boolean
   isAddToBoardOpen: boolean
+  isHighlighted: boolean
   reactions: RxItem[]
   replyCount: number
   readersLabel: string | null
@@ -254,6 +259,7 @@ type MessageRowProps = {
   onOpenBoardPicker: (msgId: string) => void
   onAddToBoard: (boardId: string) => void
   onCloseBoardPicker: () => void
+  onCopyLink: (msg: HubMessage) => void
   onOpenThread?: (msg: HubMessage) => void
 }
 
@@ -271,6 +277,7 @@ const MessageRow = memo(function MessageRow({
   isFullPickerOpen,
   isThreadOpen,
   isAddToBoardOpen,
+  isHighlighted,
   reactions,
   replyCount,
   readersLabel,
@@ -295,6 +302,7 @@ const MessageRow = memo(function MessageRow({
   onOpenBoardPicker,
   onAddToBoard,
   onCloseBoardPicker,
+  onCopyLink,
   onOpenThread,
 }: MessageRowProps) {
   const sender = normSender(msg.sender)
@@ -326,7 +334,8 @@ const MessageRow = memo(function MessageRow({
 
   return (
     <div
-      className={`group relative flex items-start gap-2 py-0.5 rounded hover:bg-gray-900/50 transition-colors select-none md:select-text ${isThreadOpen ? 'bg-brand/5 border-l-2 border-brand' : ''}`}
+      data-msg-id={msg.id}
+      className={`group relative flex items-start gap-2 py-0.5 rounded hover:bg-gray-900/50 transition-colors select-none md:select-text ${isThreadOpen ? 'bg-brand/5 border-l-2 border-brand' : ''} ${isHighlighted ? 'hub-msg-flash' : ''}`}
       onClick={() => { if (!isEditing) onTap(msg.id) }}
       onTouchStart={() => { if (!isEditing) onStartLongPress(msg.id) }}
       onTouchMove={onCancelLongPress}
@@ -473,10 +482,13 @@ const MessageRow = memo(function MessageRow({
           <div className="relative">
             <button
               onClick={() => onToggleQuickPicker(msg.id)}
-              className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-sm md:px-1.5 md:py-0.5"
+              className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 md:px-1.5 md:py-0.5"
               title="Add reaction"
+              aria-label="Add reaction"
             >
-              😊
+              <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+              </svg>
             </button>
             {isPickerOpen && (
               <div
@@ -519,6 +531,17 @@ const MessageRow = memo(function MessageRow({
             title="Forward message"
           >
             ↗
+          </button>
+
+          <button
+            onClick={() => onCopyLink(msg)}
+            className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 md:px-1.5 md:py-0.5"
+            title="Copy link to message"
+            aria-label="Copy link to message"
+          >
+            <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m8.656-2.828l1.5-1.5a4 4 0 00-5.656-5.656l-3 3a4 4 0 000 5.656" />
+            </svg>
           </button>
 
           {files.some(f => f.mime_type.startsWith('image/')) && (
@@ -607,6 +630,12 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   rooms?: { id: string; name: string }[]
   conversationMembers?: HubUser[]
   initialMemberReadReceipts?: { user_id: string; last_read_at: string }[]
+  // Deep-link target: a message id to scroll to and flash-highlight (from a
+  // search result or a copied message link). Older pages auto-load until it's
+  // found. onTargetLocated fires with the located message so the caller can,
+  // e.g., open its thread when the deep link points at a thread reply.
+  focusMessageId?: string | null
+  onTargetLocated?: (msg: HubMessage) => void
 }>(function MessageFeed({
   roomId,
   conversationId,
@@ -619,8 +648,11 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   rooms,
   conversationMembers,
   initialMemberReadReceipts,
+  focusMessageId,
+  onTargetLocated,
 }, ref) {
   const confirmDialog = useConfirm()
+  const toast = useToast()
   const [messages, setMessages] = useState<HubMessage[]>(initialMessages)
   const [loadingOlder, setLoadingOlder] = useState(false)
   const [hasMoreOlder, setHasMoreOlder] = useState(initialMessages.length >= MESSAGE_PAGE_SIZE)
@@ -662,6 +694,25 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const [feedReady, setFeedReady] = useState(false)
   const supabase = createClient()
+
+  // Deep-link focus: the id we still need to scroll to, the id currently
+  // flashing, and a guard so we skip the initial pin-to-bottom when we mounted
+  // with a target to jump to (otherwise the pin fights our scroll).
+  const [pendingFocusId, setPendingFocusId] = useState<string | null>(focusMessageId ?? null)
+  const [highlightId, setHighlightId] = useState<string | null>(null)
+  const hasInitialFocusRef = useRef<boolean>(!!focusMessageId)
+  const focusPagesLoadedRef = useRef(0)
+  const onTargetLocatedRef = useRef(onTargetLocated)
+  onTargetLocatedRef.current = onTargetLocated
+  // Re-arm the jump when the target changes (e.g. clicking another search
+  // result while already viewing this room — only the query string changes,
+  // the component does not remount).
+  useEffect(() => {
+    if (focusMessageId) {
+      focusPagesLoadedRef.current = 0
+      setPendingFocusId(focusMessageId)
+    }
+  }, [focusMessageId])
 
   const [memberReceipts, setMemberReceipts] = useState<Record<string, string>>(() => {
     const map: Record<string, string> = {}
@@ -729,6 +780,12 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   useLayoutEffect(() => {
     const el = scrollContainerRef.current
     if (!el) return
+    // Jumping to a deep-linked message: don't pin to the bottom on mount, or
+    // the pin would yank us away from the message the focus effect scrolls to.
+    if (hasInitialFocusRef.current) {
+      setFeedReady(true)
+      return
+    }
     let pinning = true
     const pin = () => { if (pinning) el.scrollTop = el.scrollHeight }
     pin()
@@ -880,6 +937,39 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     io.observe(sentinel)
     return () => io.disconnect()
   }, [feedReady, hasMoreOlder, loadOlder])
+
+  // Deep-link jump: once the feed is ready, find the target message (pulling
+  // older pages if needed), center it, and flash it. Bounded by MAX_FOCUS_PAGES
+  // so a bad/stale id can't loop forever.
+  const MAX_FOCUS_PAGES = 20
+  useEffect(() => {
+    if (!pendingFocusId || !feedReady) return
+    const found = messages.find(m => m.id === pendingFocusId)
+    if (found) {
+      const id = pendingFocusId
+      setPendingFocusId(null)
+      focusPagesLoadedRef.current = 0
+      const scrollToRow = () => {
+        const el = scrollContainerRef.current
+        const node = el?.querySelector(`[data-msg-id="${cssEscapeId(id)}"]`) as HTMLElement | null
+        node?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+      }
+      requestAnimationFrame(scrollToRow)
+      const t1 = setTimeout(scrollToRow, 120)
+      const t2 = setTimeout(scrollToRow, 450)
+      setHighlightId(id)
+      const t3 = setTimeout(() => setHighlightId(h => (h === id ? null : h)), 2600)
+      onTargetLocatedRef.current?.(found)
+      return () => { clearTimeout(t1); clearTimeout(t2); clearTimeout(t3) }
+    }
+    if (hasMoreOlder && focusPagesLoadedRef.current < MAX_FOCUS_PAGES && !loadingOlderRef.current) {
+      focusPagesLoadedRef.current += 1
+      void loadOlder()
+    } else if (!hasMoreOlder || focusPagesLoadedRef.current >= MAX_FOCUS_PAGES) {
+      // Not found anywhere reachable — likely deleted or in a thread. Give up quietly.
+      setPendingFocusId(null)
+    }
+  }, [pendingFocusId, feedReady, messages, hasMoreOlder, loadOlder])
 
   useEffect(() => {
     if (!conversationId) return
@@ -1303,6 +1393,25 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     setLightbox({ items, index })
   }, [])
 
+  // Build a shareable deep link to a message and copy it. The current path is
+  // already /hub/<roomId> or /hub/pm/<convId>, so we just tack on ?msg=. Thread
+  // replies (parent_id set) also carry &thread=<parentId> so the link opens the
+  // thread — feed messages are always top-level, so this stays ?msg= there.
+  const handleCopyLink = useCallback((msg: HubMessage) => {
+    if (typeof window === 'undefined') return
+    const base = `${window.location.origin}${window.location.pathname}`
+    const url = msg.parent_id
+      ? `${base}?msg=${msg.id}&thread=${msg.parent_id}`
+      : `${base}?msg=${msg.id}`
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url)
+        .then(() => toast.success('Link copied'))
+        .catch(() => toast.error('Could not copy link'))
+    } else {
+      toast.error('Could not copy link')
+    }
+  }, [toast])
+
   // Group messages by date
   const groups: { date: string; messages: HubMessage[] }[] = []
   for (const msg of messages) {
@@ -1355,6 +1464,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                   isFullPickerOpen={fullPickerMsgId === msg.id}
                   isThreadOpen={openThreadMsgId === msg.id}
                   isAddToBoardOpen={addToBoardMsgId === msg.id}
+                  isHighlighted={highlightId === msg.id}
                   reactions={rxMap[msg.id] ?? EMPTY_REACTIONS}
                   replyCount={replyCounts[msg.id] ?? 0}
                   readersLabel={readersLabel}
@@ -1379,6 +1489,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                   onOpenBoardPicker={openBoardPicker}
                   onAddToBoard={handleAddToBoard}
                   onCloseBoardPicker={handleCloseBoardPicker}
+                  onCopyLink={handleCopyLink}
                   onOpenThread={onOpenThread}
                 />
               )
@@ -1421,6 +1532,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
             hasOnOpenThread={!!onOpenThread}
             onClose={() => setActionSheetMsgId(null)}
             onCopy={() => { navigator.clipboard?.writeText(msg.content ?? '').catch(() => {}) }}
+            onCopyLink={() => handleCopyLink(msg)}
             onAddReaction={emoji => toggleReaction(msg.id, emoji)}
             onForward={() => setForwardingMsg(msg)}
             onSaveToFiles={() => setSaveToFilesMsg(msg)}

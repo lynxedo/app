@@ -1,6 +1,7 @@
 'use client'
 
 import { useRef, useState, useCallback, useEffect } from 'react'
+import { useSearchParams } from 'next/navigation'
 import MessageFeed, { type HubMessage, type HubUser, type MessageFeedHandle } from './MessageFeed'
 import MessageComposer from './MessageComposer'
 import ThreadPanel from './ThreadPanel'
@@ -36,12 +37,33 @@ export default function RoomView({
   conversationMembers?: HubUser[]
   initialMemberReadReceipts?: { user_id: string; last_read_at: string }[]
 }) {
+  // Deep-link target from a search result or a copied message link:
+  //   ?msg=<id>                → scroll to & flash a top-level message
+  //   ?msg=<replyId>&thread=<parentId> → jump to the parent, open its thread,
+  //                                      and flash the reply inside the thread
+  const searchParams = useSearchParams()
+  const msgParam = searchParams.get('msg')
+  const threadParam = searchParams.get('thread')
+  // The message that lives in the main feed: the thread parent when the link
+  // points at a reply, otherwise the message itself.
+  const feedFocusId = threadParam || msgParam || null
+  const [threadReplyHighlightId, setThreadReplyHighlightId] = useState<string | null>(null)
+
   const [openThreadMsg, setOpenThreadMsg] = useState<HubMessage | null>(null)
   // Desktop "Expand → full" — when on, the thread fills the pane and the feed
   // hides. Drag-resize (threadWidth) is untouched and applies when collapsed.
   const [threadExpanded, setThreadExpanded] = useState(false)
   const feedRef = useRef<MessageFeedHandle>(null)
   const containerRef = useRef<HTMLDivElement>(null)
+
+  // When the feed locates a deep-linked reply's parent, open that thread and
+  // flag the reply so ThreadPanel can flash it once its replies load.
+  const handleTargetLocated = useCallback((m: HubMessage) => {
+    if (threadParam) {
+      setOpenThreadMsg(m)
+      setThreadReplyHighlightId(msgParam)
+    }
+  }, [threadParam, msgParam])
 
   // Thread pane width — persisted, desktop only.
   const [threadWidth, setThreadWidth] = useState(DEFAULT_THREAD_W)
@@ -110,6 +132,8 @@ export default function RoomView({
           rooms={rooms}
           conversationMembers={conversationMembers}
           initialMemberReadReceipts={initialMemberReadReceipts}
+          focusMessageId={feedFocusId}
+          onTargetLocated={handleTargetLocated}
         />
         <MessageComposer
           roomId={roomId}
@@ -145,8 +169,9 @@ export default function RoomView({
             hubUsers={hubUsers}
             isAdmin={isAdmin}
             expanded={threadExpanded}
+            highlightReplyId={openThreadMsg.id === feedFocusId ? threadReplyHighlightId : null}
             onToggleExpand={() => setThreadExpanded(v => !v)}
-            onClose={() => { setOpenThreadMsg(null); setThreadExpanded(false) }}
+            onClose={() => { setOpenThreadMsg(null); setThreadExpanded(false); setThreadReplyHighlightId(null) }}
             onReplyPosted={(parentId, replyId) => feedRef.current?.bumpReplyCount(parentId, replyId)}
           />
         </div>

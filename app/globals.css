@@ -70,6 +70,18 @@ body {
   animation: marquee 18s linear infinite;
 }
 
+/* Flash used to draw the eye to a message you jumped to (search result or a
+   copied message link). Fades a brand-tinted background out over ~2.4s. */
+@keyframes hubMsgFlash {
+  0%   { background-color: rgba(58, 141, 201, 0.32); }
+  15%  { background-color: rgba(58, 141, 201, 0.32); }
+  100% { background-color: transparent; }
+}
+.hub-msg-flash {
+  animation: hubMsgFlash 2.4s ease-out;
+  border-radius: 0.375rem;
+}
+
 /* ─── Theme system ────────────────────────────────────────────────────────────
    12 curated themes: 2 dark (Midnight default, Carbon), 2 light (Daylight,
    Blossom), 2 hybrid (Eclipse, Pine), 6 glossy / liquid-glass (Aurora, Nebula, Tide,
