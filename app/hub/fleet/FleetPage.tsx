@@ -80,6 +80,7 @@ const HIST_LINE_SOURCE = 'fleet-hist-line'
 const HIST_PINGS_SOURCE = 'fleet-hist-pings'
 const HIST_STOPS_SOURCE = 'fleet-hist-stops'
 const HIST_LINE_LAYER = 'fleet-hist-line-layer'
+const HIST_ARROWS_LAYER = 'fleet-hist-arrows-layer'
 const HIST_PINGS_LAYER = 'fleet-hist-pings-layer'
 const HIST_STOPS_LAYER = 'fleet-hist-stops-layer'
 
@@ -340,7 +341,7 @@ export default function FleetPage() {
       histPopupRef.current = null
 
       if (!hist) {
-        for (const layer of [HIST_STOPS_LAYER, HIST_PINGS_LAYER, HIST_LINE_LAYER]) {
+        for (const layer of [HIST_STOPS_LAYER, HIST_PINGS_LAYER, HIST_ARROWS_LAYER, HIST_LINE_LAYER]) {
           if (map.getLayer(layer)) map.removeLayer(layer)
         }
         for (const source of [HIST_STOPS_SOURCE, HIST_PINGS_SOURCE, HIST_LINE_SOURCE]) {
@@ -388,6 +389,33 @@ export default function FleetPage() {
           layout: { 'line-cap': 'round', 'line-join': 'round' },
           // dasharray [0, 2] + round caps renders as a dotted line
           paint: { 'line-color': '#2563eb', 'line-width': 2.5, 'line-dasharray': [0, 2] },
+        })
+      }
+      if (!map.getLayer(HIST_ARROWS_LAYER)) {
+        // Direction-of-travel arrows along the path. The line's coordinates
+        // are chronological, so line direction = direction of movement.
+        map.addLayer({
+          id: HIST_ARROWS_LAYER,
+          type: 'symbol',
+          source: HIST_LINE_SOURCE,
+          layout: {
+            'symbol-placement': 'line',
+            'symbol-spacing': 90,
+            'text-field': '▶',
+            'text-size': 12,
+            'text-font': ['Arial Unicode MS Regular'],
+            // Keep arrows pointing along travel direction (never auto-flipped
+            // to stay upright), always visible, and out of the street-label
+            // collision game.
+            'text-keep-upright': false,
+            'text-allow-overlap': true,
+            'text-ignore-placement': true,
+          },
+          paint: {
+            'text-color': '#1d4ed8',
+            'text-halo-color': '#ffffff',
+            'text-halo-width': 1.5,
+          },
         })
       }
       if (!map.getLayer(HIST_PINGS_LAYER)) {
