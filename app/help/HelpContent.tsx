@@ -875,7 +875,7 @@ function HubTab() {
         <p>Pin colors:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-green-300">Green</strong> — driving</li>
-          <li><strong className="text-yellow-300">Yellow</strong> — stopped or parked</li>
+          <li><strong className="text-amber-300">Amber</strong> — idle (engine running, parked at a stop)</li>
           <li><strong className="text-orange-300">Orange</strong> — being towed</li>
           <li><strong className="text-gray-300">Gray</strong> — off / offline</li>
         </ul>

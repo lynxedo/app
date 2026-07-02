@@ -19,7 +19,7 @@ type Device = {
   lng: number
   speed_mph: number
   heading: number
-  drive_status: 'driving' | 'stopped' | 'off' | 'being_towed' | 'parked' | 'unknown'
+  drive_status: 'driving' | 'idle' | 'off' | 'towing' | 'unknown'
   fuel_pct: number | null
   last_ping: string
 }
@@ -36,22 +36,20 @@ type AlertEvent = {
 
 function statusColor(status: Device['drive_status']): string {
   switch (status) {
-    case 'driving': return '#22c55e'
-    case 'stopped': return '#eab308'
-    case 'parked':  return '#eab308'
-    case 'being_towed': return '#f97316'
+    case 'driving': return '#22c55e' // green
+    case 'idle':    return '#f59e0b' // amber — engine on, parked at a job
+    case 'towing':  return '#f97316' // orange
     case 'off':
     case 'unknown':
-    default:        return '#6b7280'
+    default:        return '#6b7280' // gray
   }
 }
 
 function statusLabel(status: Device['drive_status']): string {
   switch (status) {
     case 'driving': return 'Driving'
-    case 'stopped': return 'Stopped'
-    case 'parked':  return 'Parked'
-    case 'being_towed': return 'Being towed'
+    case 'idle':    return 'Idle'
+    case 'towing':  return 'Towing'
     case 'off':     return 'Off'
     default:        return 'Unknown'
   }
@@ -174,7 +172,7 @@ export default function FleetPage() {
         mapboxgl.accessToken = MAPBOX_TOKEN
         const map = new mapboxgl.Map({
           container: mapContainerRef.current,
-          style: 'mapbox://styles/mapbox/dark-v11',
+          style: 'mapbox://styles/mapbox/streets-v12',
           center: [-95.45, 30.27], // The Woodlands, TX-ish
           zoom: 10,
         })
