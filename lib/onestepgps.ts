@@ -3,10 +3,9 @@ const CACHE_TTL_MS = 20_000
 
 export type FleetDriveStatus =
   | 'driving'
-  | 'stopped'
+  | 'idle'
   | 'off'
-  | 'being_towed'
-  | 'parked'
+  | 'towing'
   | 'unknown'
 
 export type FleetDevice = {
@@ -26,13 +25,12 @@ type CacheEntry = { fetchedAt: number; devices: FleetDevice[] }
 let cache: CacheEntry | null = null
 let inflight: Promise<FleetDevice[]> | null = null
 
-const ALLOWED_STATUS: FleetDriveStatus[] = [
-  'driving',
-  'stopped',
-  'off',
-  'being_towed',
-  'parked',
-]
+// OneStepGPS's real drive_status enum, verified from live device history:
+// driving / idle / off / towing. It never emits "stopped" or "parked", and it
+// sends "towing" (not "being_towed"). The old whitelist was missing the very
+// common "idle" (engine on, parked at a job) so idling trucks fell through to
+// "unknown" → gray, making the fleet look gray most of the day.
+const ALLOWED_STATUS: FleetDriveStatus[] = ['driving', 'idle', 'off', 'towing']
 
 function normalizeDevice(raw: unknown): FleetDevice | null {
   if (!raw || typeof raw !== 'object') return null
