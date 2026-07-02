@@ -84,6 +84,11 @@ function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })
 }
 
+function cssEscapeId(id: string) {
+  if (typeof window !== 'undefined' && window.CSS?.escape) return window.CSS.escape(id)
+  return id
+}
+
 function Avatar({ sender }: { sender: Sender | null }) {
   const [imgError, setImgError] = useState(false)
   if (!sender) return <div className="w-7 h-7 rounded-full bg-gray-700 flex-none" />
@@ -114,6 +119,7 @@ export default function ThreadPanel({
   hubUsers,
   isAdmin,
   expanded,
+  highlightReplyId,
   onToggleExpand,
   onClose,
   onReplyPosted,
@@ -125,6 +131,9 @@ export default function ThreadPanel({
   // Desktop "Expand → full" toggle, driven by RoomView. Drag-resize is
   // unaffected; this just snaps the panel to fill the pane and back.
   expanded?: boolean
+  // Deep-link target: a reply id to scroll to and flash once replies load
+  // (set when opening a thread from a copied reply link / search result).
+  highlightReplyId?: string | null
   onToggleExpand?: () => void
   onClose: () => void
   // Fired right after a thread reply lands in the DB so the main feed
@@ -194,6 +203,27 @@ export default function ThreadPanel({
   // a constant re-subscribe.
   const onReplyPostedRef = useRef(onReplyPosted)
   onReplyPostedRef.current = onReplyPosted
+
+  // Deep-link reply highlight — scroll to & flash a specific reply once loaded.
+  const [flashReplyId, setFlashReplyId] = useState<string | null>(null)
+  const flashedRef = useRef<string | null>(null)
+  const scrollAreaRef = useRef<HTMLDivElement>(null)
+
+  // Copy a shareable link to a message in this thread. The parent is a
+  // top-level message (?msg=<parentId>); a reply also carries the thread so the
+  // link reopens it (?msg=<replyId>&thread=<parentId>).
+  function copyMessageLink(id: string, isReply: boolean) {
+    if (typeof window === 'undefined') return
+    const base = `${window.location.origin}${window.location.pathname}`
+    const url = isReply ? `${base}?msg=${id}&thread=${parentMessage.id}` : `${base}?msg=${id}`
+    if (navigator.clipboard?.writeText) {
+      navigator.clipboard.writeText(url)
+        .then(() => toast.success('Link copied'))
+        .catch(() => toast.error('Could not copy link'))
+    } else {
+      toast.error('Could not copy link')
+    }
+  }
 
   useEffect(() => {
     ensureEmojiData().then(() => setEmojiData(_emojiData))
@@ -406,14 +436,37 @@ export default function ThreadPanel({
   // visible scroll on thread open. Subsequent reply arrivals use smooth scroll.
   useLayoutEffect(() => {
     if (didInitialScroll.current || replies.length === 0) return
+    // Opening from a reply deep link: skip the jump-to-bottom so the highlight
+    // effect below can center the linked reply instead.
+    if (highlightReplyId) { didInitialScroll.current = true; return }
     bottomRef.current?.scrollIntoView({ block: 'end' })
     didInitialScroll.current = true
-  }, [replies.length])
+  }, [replies.length, highlightReplyId])
 
   useEffect(() => {
     if (!didInitialScroll.current) return
+    // Don't yank to the bottom until the deep-linked reply has been flashed.
+    if (highlightReplyId && flashedRef.current !== highlightReplyId) return
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
-  }, [replies.length])
+  }, [replies.length, highlightReplyId])
+
+  // Deep-link reply highlight: once the linked reply is loaded, center it and
+  // flash it (fires once per target id).
+  useEffect(() => {
+    if (!highlightReplyId || flashedRef.current === highlightReplyId) return
+    if (!replies.some(r => r.id === highlightReplyId)) return
+    flashedRef.current = highlightReplyId
+    const id = highlightReplyId
+    const scrollToReply = () => {
+      const node = scrollAreaRef.current?.querySelector(`[data-reply-id="${cssEscapeId(id)}"]`) as HTMLElement | null
+      node?.scrollIntoView({ block: 'center', behavior: 'smooth' })
+    }
+    requestAnimationFrame(scrollToReply)
+    const t1 = setTimeout(scrollToReply, 200)
+    setFlashReplyId(id)
+    const t2 = setTimeout(() => setFlashReplyId(f => (f === id ? null : f)), 2600)
+    return () => { clearTimeout(t1); clearTimeout(t2) }
+  }, [highlightReplyId, replies])
 
   useEffect(() => {
     // Apply a reply that arrived via either realtime path. Fetches the full
@@ -675,11 +728,13 @@ export default function ThreadPanel({
               setFullReactionPickerMsgId(null)
               setReactionPickerMsgId(prev => (prev === msgId ? null : msgId))
             }}
-            className="text-gray-500 hover:text-gray-300 w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-800 text-sm opacity-70 hover:opacity-100"
+            className="text-gray-500 hover:text-gray-300 w-6 h-6 flex items-center justify-center rounded-full hover:bg-gray-800 opacity-70 hover:opacity-100"
             title="Add reaction"
             aria-label="Add reaction"
           >
-            😊
+            <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+            </svg>
           </button>
           {reactionPickerMsgId === msgId && (
             <div
@@ -722,7 +777,7 @@ export default function ThreadPanel({
 
   // Pills-only reaction render for replies — a reply's add-reaction entry point
   // lives in its hover bar / long-press sheet (like the main feed), so we don't
-  // also show the persistent 😊 button that renderReactions() adds.
+  // also show the persistent + add-reaction button that renderReactions() adds.
   function renderReactionPills(msgId: string) {
     const reactions = rxMap[msgId] ?? []
     if (reactions.length === 0) return null
@@ -919,7 +974,7 @@ export default function ThreadPanel({
       {/* Scrollable area — the original message is now the first item here (not
           a fixed bar), so it scrolls up out of the way as you read replies,
           giving the reply pane more room. */}
-      <div className="flex-1 overflow-y-auto w-full px-4 py-4 space-y-5">
+      <div ref={scrollAreaRef} className="flex-1 overflow-y-auto w-full px-4 py-4 space-y-5">
         {/* Original message */}
         <div className="flex items-start gap-3 pb-4 border-b border-gray-800/70">
           <Avatar sender={parentSender} />
@@ -965,7 +1020,8 @@ export default function ThreadPanel({
           return (
             <div
               key={reply.id}
-              className="group relative flex items-start gap-3 rounded transition-colors hover:bg-gray-900/40 select-none md:select-text"
+              data-reply-id={reply.id}
+              className={`group relative flex items-start gap-3 rounded transition-colors hover:bg-gray-900/40 select-none md:select-text ${flashReplyId === reply.id ? 'hub-msg-flash' : ''}`}
               onTouchStart={() => { if (!isEditing) startLongPress(reply.id) }}
               onTouchMove={cancelLongPress}
               onTouchEnd={cancelLongPress}
@@ -1034,10 +1090,13 @@ export default function ThreadPanel({
                   <div className="relative">
                     <button
                       onClick={() => { setBarFullPickerMsgId(null); setBarPickerMsgId(barPickerMsgId === reply.id ? null : reply.id) }}
-                      className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800 text-sm"
+                      className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
                       title="Add reaction"
+                      aria-label="Add reaction"
                     >
-                      😊
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
+                      </svg>
                     </button>
                     {barPickerMsgId === reply.id && (
                       <div
@@ -1080,6 +1139,17 @@ export default function ThreadPanel({
                     title="Forward message"
                   >
                     ↗
+                  </button>
+
+                  <button
+                    onClick={() => copyMessageLink(reply.id, true)}
+                    className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800"
+                    title="Copy link to message"
+                    aria-label="Copy link to message"
+                  >
+                    <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.828 10.172a4 4 0 010 5.656l-3 3a4 4 0 01-5.656-5.656l1.5-1.5m8.656-2.828l1.5-1.5a4 4 0 00-5.656-5.656l-3 3a4 4 0 000 5.656" />
+                    </svg>
                   </button>
 
                   {files.some(f => f.mime_type.startsWith('image/')) && (
@@ -1433,6 +1503,7 @@ export default function ThreadPanel({
             hasOnOpenThread={false}
             onClose={() => setActionSheetMsgId(null)}
             onCopy={() => { navigator.clipboard?.writeText(reply.content ?? '').catch(() => {}) }}
+            onCopyLink={() => copyMessageLink(reply.id, true)}
             onAddReaction={emoji => toggleReaction(reply.id, emoji)}
             onForward={() => setForwardingReply(reply)}
             onSaveToFiles={() => setSaveToFilesReply(reply)}

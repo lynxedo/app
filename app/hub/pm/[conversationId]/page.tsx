@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -126,18 +127,20 @@ export default async function PMPage({
         othersCount={others.length}
       />
 
-      <RoomView
-        conversationId={conversationId}
-        initialMessages={initialMessages as never}
-        currentUserId={user.id}
-        hubUsers={(hubUsersResult.data ?? []) as never}
-        isAdmin={profileResult.data?.role === 'admin'}
-        senderDisplayName={convTitle}
-        composerPlaceholder={`Message ${convTitle}`}
-        rooms={(allRoomsResult.data ?? []) as { id: string; name: string }[]}
-        conversationMembers={participants}
-        initialMemberReadReceipts={(receiptsResult.data ?? []) as { user_id: string; last_read_at: string }[]}
-      />
+      <Suspense fallback={null}>
+        <RoomView
+          conversationId={conversationId}
+          initialMessages={initialMessages as never}
+          currentUserId={user.id}
+          hubUsers={(hubUsersResult.data ?? []) as never}
+          isAdmin={profileResult.data?.role === 'admin'}
+          senderDisplayName={convTitle}
+          composerPlaceholder={`Message ${convTitle}`}
+          rooms={(allRoomsResult.data ?? []) as { id: string; name: string }[]}
+          conversationMembers={participants}
+          initialMemberReadReceipts={(receiptsResult.data ?? []) as { user_id: string; last_read_at: string }[]}
+        />
+      </Suspense>
     </div>
   )
 }
