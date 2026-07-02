@@ -176,7 +176,11 @@ export async function POST(request: Request) {
     mentionRecipientIds = matchedIds.filter((id: string) => mentionMemberSet.has(id))
 
     if (mentionRecipientIds.length > 0) {
-      const destination = room_id ? `/hub/${room_id}` : `/hub/pm/${conversation_id}`
+      // Mentions inside a thread reply deep-link into the thread
+      // (?msg=<replyId>&thread=<parentId> — same format RoomView already
+      // handles for search results and copied message links).
+      const base = room_id ? `/hub/${room_id}` : `/hub/pm/${conversation_id}`
+      const destination = parent_id ? `${base}?msg=${msg.id}&thread=${parent_id}` : base
       sendHubPush(mentionRecipientIds, {
         title: `💬 ${senderName} mentioned you`,
         body: textToScan.trim().slice(0, 120),
@@ -208,7 +212,12 @@ export async function POST(request: Request) {
     const threadRecipients = [...participantIds].filter(id => memberSet.has(id) && !mentionedSet.has(id))
 
     if (threadRecipients.length > 0) {
-      const destination = room_id ? `/hub/${room_id}` : `/hub/pm/${conversation_id}`
+      // Deep-link into the thread itself, not just the room/DM. RoomView reads
+      // ?msg=<replyId>&thread=<parentId>, jumps the feed to the parent, opens
+      // its ThreadPanel, and flashes the reply — on mobile the panel is a
+      // fullscreen overlay, so the tap lands directly in the thread.
+      const base = room_id ? `/hub/${room_id}` : `/hub/pm/${conversation_id}`
+      const destination = `${base}?msg=${msg.id}&thread=${parent_id}`
       sendHubPush(threadRecipients, {
         title: `💬 ${senderName} replied in a thread`,
         body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
