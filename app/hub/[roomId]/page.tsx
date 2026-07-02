@@ -1,3 +1,4 @@
+import { Suspense } from 'react'
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { selectInChunks } from '@/lib/supabase/chunked-in'
@@ -99,16 +100,18 @@ export default async function RoomPage({
         <RoomNotifBell roomId={roomId} />
       </header>
 
-      <RoomView
-        roomId={roomId}
-        initialMessages={initialMessages as never}
-        currentUserId={user.id}
-        hubUsers={(hubUsersResult.data ?? []) as never}
-        isAdmin={profileResult.data?.role === 'admin'}
-        senderDisplayName={room.name}
-        composerPlaceholder={`Message #${room.name}`}
-        rooms={(allRoomsResult.data ?? []) as { id: string; name: string }[]}
-      />
+      <Suspense fallback={null}>
+        <RoomView
+          roomId={roomId}
+          initialMessages={initialMessages as never}
+          currentUserId={user.id}
+          hubUsers={(hubUsersResult.data ?? []) as never}
+          isAdmin={profileResult.data?.role === 'admin'}
+          senderDisplayName={room.name}
+          composerPlaceholder={`Message #${room.name}`}
+          rooms={(allRoomsResult.data ?? []) as { id: string; name: string }[]}
+        />
+      </Suspense>
     </div>
   )
 }

@@ -156,8 +156,11 @@ export default function HubQuickCompose({
   }
 
   function openMessageResult(r: MessageResult) {
-    if (r.room_id) router.push(`/hub/${r.room_id}`)
-    else if (r.conversation_id) router.push(`/hub/pm/${r.conversation_id}`)
+    // Deep-link to the actual message so the conversation opens scrolled to it
+    // (and flashes it). Thread replies also carry the parent so the thread opens.
+    const qs = r.parent_id ? `?msg=${r.id}&thread=${r.parent_id}` : `?msg=${r.id}`
+    if (r.room_id) router.push(`/hub/${r.room_id}${qs}`)
+    else if (r.conversation_id) router.push(`/hub/pm/${r.conversation_id}${qs}`)
     onClose()
   }
 
