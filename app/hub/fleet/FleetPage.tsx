@@ -391,33 +391,6 @@ export default function FleetPage() {
           paint: { 'line-color': '#2563eb', 'line-width': 2.5, 'line-dasharray': [0, 2] },
         })
       }
-      if (!map.getLayer(HIST_ARROWS_LAYER)) {
-        // Direction-of-travel arrows along the path. The line's coordinates
-        // are chronological, so line direction = direction of movement.
-        map.addLayer({
-          id: HIST_ARROWS_LAYER,
-          type: 'symbol',
-          source: HIST_LINE_SOURCE,
-          layout: {
-            'symbol-placement': 'line',
-            'symbol-spacing': 90,
-            'text-field': '▶',
-            'text-size': 12,
-            'text-font': ['Arial Unicode MS Regular'],
-            // Keep arrows pointing along travel direction (never auto-flipped
-            // to stay upright), always visible, and out of the street-label
-            // collision game.
-            'text-keep-upright': false,
-            'text-allow-overlap': true,
-            'text-ignore-placement': true,
-          },
-          paint: {
-            'text-color': '#1d4ed8',
-            'text-halo-color': '#ffffff',
-            'text-halo-width': 1.5,
-          },
-        })
-      }
       if (!map.getLayer(HIST_PINGS_LAYER)) {
         map.addLayer({
           id: HIST_PINGS_LAYER,
@@ -428,6 +401,56 @@ export default function FleetPage() {
             'circle-color': '#2563eb',
             'circle-stroke-color': '#ffffff',
             'circle-stroke-width': 1.5,
+          },
+        })
+      }
+      // Direction-of-travel arrows along the path. The line's coordinates are
+      // chronological, so line direction = direction of movement. The arrow is
+      // a canvas-drawn image (a font glyph like '▶' can silently render as
+      // nothing if the style's glyph fetch fails), and this layer sits ABOVE
+      // the ping dots — on a dense day the overlapping ping circles form a
+      // solid rope that buries anything drawn beneath them.
+      if (!map.hasImage('fleet-hist-arrow')) {
+        const size = 44 // drawn at 2x, rendered at pixelRatio 2 → crisp ~22px base
+        const canvas = document.createElement('canvas')
+        canvas.width = size
+        canvas.height = size
+        const ctx = canvas.getContext('2d')
+        if (ctx) {
+          // Right-pointing solid arrow with a white outline for contrast
+          ctx.beginPath()
+          ctx.moveTo(8, 8)
+          ctx.lineTo(38, 22)
+          ctx.lineTo(8, 36)
+          ctx.closePath()
+          ctx.fillStyle = '#1d4ed8'
+          ctx.strokeStyle = '#ffffff'
+          ctx.lineWidth = 4
+          ctx.lineJoin = 'round'
+          ctx.stroke()
+          ctx.fill()
+          map.addImage(
+            'fleet-hist-arrow',
+            ctx.getImageData(0, 0, size, size),
+            { pixelRatio: 2 },
+          )
+        }
+      }
+      if (!map.getLayer(HIST_ARROWS_LAYER) && map.hasImage('fleet-hist-arrow')) {
+        map.addLayer({
+          id: HIST_ARROWS_LAYER,
+          type: 'symbol',
+          source: HIST_LINE_SOURCE,
+          layout: {
+            'symbol-placement': 'line',
+            'symbol-spacing': 100,
+            'icon-image': 'fleet-hist-arrow',
+            'icon-size': 0.6,
+            // Rotate with the line on the map (direction of travel), always
+            // visible, and out of the street-label collision game.
+            'icon-rotation-alignment': 'map',
+            'icon-allow-overlap': true,
+            'icon-ignore-placement': true,
           },
         })
       }
