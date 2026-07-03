@@ -31,8 +31,8 @@ export const MENU_ACCENT: Record<string, string> = {
   'daily-log': '#fb923c', 'daily-log-v2': '#fb923c', routing: '#818cf8', reports: '#a78bfa',
   fleet: '#22d3ee', tracker: '#f472b6', books: '#10b981', marketing: '#fb7185', files: '#38bdf8',
   contacts: '#7dd3fc', forms: '#a3e635', 'pesticide-records': '#34d399', 'call-log': '#c084fc',
-  'call-log2': '#c084fc', tools: '#94a3b8', 'company-news': '#f59e0b', 'zone-sizer': '#2dd4bf',
-  lawn: '#a3e635', 'time-records': '#fbbf24', links: '#7dd3fc',
+  'call-log2': '#c084fc', 'company-news': '#f59e0b', 'zone-sizer': '#2dd4bf',
+  lawn: '#a3e635', 'time-records': '#fbbf24',
 }
 
 /** The accent color for a token (DND tiers, url/room/dm, or a catalog app). */
@@ -75,7 +75,5 @@ export function resolveMenuLabel(token: string, ctx: MenuContext): string | null
   const id = c.id
   if (id === 'hub') return 'Hub'
   if (id === 'time-clock') return 'Clock'
-  if (id === 'tools') return 'Tools'
-  if (id === 'links') return 'Links'
   return catalogById(id, ctx.permissions)?.label ?? null
 }

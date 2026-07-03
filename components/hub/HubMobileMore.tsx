@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CatalogIcon, DndIcon, catalogById, type RailPermissions } from './railCatalog'
+import { CatalogIcon, CustomUrlIcon, DndIcon, catalogById, type RailPermissions } from './railCatalog'
 import { classifyToken, MOBILE_VISIBLE } from '@/lib/hub-layout'
 import { resolveMenuAccent, resolveMenuLabel, convFirstNames, type MenuContext } from './menuItem'
 
@@ -15,8 +15,6 @@ export default function HubMobileMore({
   showAdmin,
   unreadActivity,
   onSearchClick,
-  onToolsClick,
-  onLinksClick,
   onProfileClick,
   onActivityClick,
   onTimeClockClick,
@@ -41,8 +39,6 @@ export default function HubMobileMore({
   showAdmin: boolean
   unreadActivity?: number
   onSearchClick: () => void
-  onToolsClick: () => void
-  onLinksClick: () => void
   onProfileClick: () => void
   onActivityClick: () => void
   onTimeClockClick: () => void
@@ -124,7 +120,7 @@ export default function HubMobileMore({
       onClick = () => onToggleDialerDnd?.()
     } else if (c.kind === 'url') {
       try { label = new URL(c.href).hostname.replace(/^www\./, '') } catch { label = c.href }
-      icon = <span className="text-white/80"><CatalogIcon id="links" /></span>
+      icon = <span className="text-white/80"><CustomUrlIcon /></span>
       onClick = () => { onClose(); window.open(c.href, '_blank', 'noopener') }
     } else if (c.kind === 'room') {
       const room = rooms.find(r => r.id === c.id)
@@ -142,8 +138,6 @@ export default function HubMobileMore({
       const id = c.id
       if (id === 'hub') { label = 'Hub'; icon = <CatalogIcon id="hub" />; onClick = openHub }
       else if (id === 'time-clock') { label = 'Clock'; icon = <CatalogIcon id="time-clock" />; onClick = () => { onClose(); onTimeClockClick() } }
-      else if (id === 'tools') { label = 'Tools'; icon = <CatalogIcon id="tools" />; onClick = () => onToolsClick() }
-      else if (id === 'links') { label = 'Links'; icon = <CatalogIcon id="links" />; onClick = () => onLinksClick() }
       else {
         const entry = catalogById(id, permissions)
         if (!entry) return null

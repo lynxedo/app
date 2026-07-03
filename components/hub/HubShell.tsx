@@ -11,8 +11,6 @@ import AppLauncherPanel from './AppLauncherPanel'
 import LayoutEditor from './LayoutEditor'
 import HubActivityPanel from './HubActivityBell'
 import { THEME_IDS } from '@/lib/themes'
-import ToolsSidebar from './sidebars/ToolsSidebar'
-import LinksSidebar from './sidebars/LinksSidebar'
 import AdminSidebar from './sidebars/AdminSidebar'
 import SettingsSidebar from './sidebars/SettingsSidebar'
 import ProfileSidebar from './sidebars/ProfileSidebar'
@@ -43,8 +41,8 @@ type RailConversation = { id: string; participants: { id: string; display_name: 
 export const HUB_CONV_CREATED_EVENT = 'hub-conversation-created'
 
 // Sections that have a sidebar of their own. Driven by a manual override
-// (rail click) for sections that have no URL (tools, links, profile).
-type ManualRail = 'tools' | 'links' | 'profile' | 'activity' | null
+// (rail click) for sections that have no URL (profile).
+type ManualRail = 'profile' | 'activity' | null
 
 export default function HubShell({
   rooms,
@@ -749,31 +747,6 @@ export default function HubShell({
             companyId={companyId || ''}
           />
         )
-      case 'tools':
-        return (
-          <ToolsSidebar
-            isAdmin={!!isAdmin}
-            canAccessRouting={!!canAccessRouting}
-            canAccessTracker={!!canAccessTracker}
-            canAccessLawn={!!canAccessLawn}
-            canAccessZoneSizer={!!canAccessZoneSizer}
-            canAccessCallLog={!!canAccessCallLog}
-            canAccessCallLog2={!!canAccessCallLog2}
-            canAccessBooks={!!canAccessBooks}
-            canAccessFleet={!!canAccessFleet}
-            canAccessTimesheet={!!canAccessTimesheet}
-            canAccessDialer={!!canAccessDialer}
-            canAccessMarketing={!!canAccessMarketing}
-            canAdminMarketing={!!canAdminMarketing}
-            canAccessEmail={!!canAccessEmail}
-            canAdminEmail={!!canAdminEmail}
-            canAccessForms={!!canAccessForms}
-            canAccessScoreboards={!!canAccessScoreboards}
-            canAccessPricer={!!canAccessPricer}
-            onClose={closeMobileDrawer}
-            {...collapseProps}
-          />
-        )
       case 'scoreboards':
         return <ScoreboardsSidebar isAdmin={!!isAdmin} allowedSlugs={scoreboardSlugs} onClose={closeMobileDrawer} {...collapseProps} />
       case 'tracker':
@@ -790,8 +763,6 @@ export default function HubShell({
             {...collapseProps}
           />
         )
-      case 'links':
-        return <LinksSidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'activity':
         return <ActivitySidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'admin':
@@ -889,8 +860,6 @@ export default function HubShell({
         isClockedIn={isClockedIn}
         onSearchClick={() => setShowCompose(true)}
         onProfileClick={() => setManualRail('profile')}
-        onToolsClick={() => setManualRail('tools')}
-        onLinksClick={() => setManualRail('links')}
         onTimeClockClick={() => setShowTimeClock(true)}
         onActivityClick={() => setShowActivity(true)}
         onOpenLauncher={() => setShowDesktopLauncher(v => !v)}
@@ -1017,8 +986,6 @@ export default function HubShell({
         onPhoneClick={() => { setManualRail(null); setMobileDrawerOpen(true) }}
         onUserSlotNav={() => { setManualRail(null); setMobileDrawerOpen(true) }}
         onTimeClockClick={() => setShowTimeClock(true)}
-        onToolsClick={() => { setManualRail('tools'); setMobileDrawerOpen(true) }}
-        onLinksClick={() => { setManualRail('links'); setMobileDrawerOpen(true) }}
         onToggleDnd={toggleDnd}
         onToggleHubDnd={toggleHubDnd}
         onToggleDialerDnd={toggleDialerDnd}
@@ -1065,8 +1032,6 @@ export default function HubShell({
         showAdmin={showAdminRail}
         unreadActivity={unreadActivity}
         onSearchClick={() => { setShowMobileMore(false); setShowCompose(true) }}
-        onToolsClick={() => { setShowMobileMore(false); setManualRail('tools'); setMobileDrawerOpen(true) }}
-        onLinksClick={() => { setShowMobileMore(false); setManualRail('links'); setMobileDrawerOpen(true) }}
         onProfileClick={() => { setShowMobileMore(false); setManualRail('profile'); setMobileDrawerOpen(true) }}
         onActivityClick={() => { setShowMobileMore(false); setShowActivity(true) }}
         onTimeClockClick={() => { setShowMobileMore(false); setShowTimeClock(true) }}
@@ -1100,8 +1065,6 @@ export default function HubShell({
         onSearch={() => { setShowDesktopLauncher(false); setShowCompose(true) }}
         onActivity={() => { setShowDesktopLauncher(false); setShowActivity(true) }}
         onProfile={() => { setShowDesktopLauncher(false); setManualRail('profile'); openSidebar() }}
-        onTools={() => { setShowDesktopLauncher(false); setManualRail('tools'); openSidebar() }}
-        onLinks={() => { setShowDesktopLauncher(false); setManualRail('links'); openSidebar() }}
         onTimeClock={() => { setShowDesktopLauncher(false); setShowTimeClock(true) }}
         onToggleDnd={toggleDnd}
         onToggleHubDnd={toggleHubDnd}

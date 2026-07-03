@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useRef, useState } from 'react'
 import {
   CatalogIcon,
+  CustomUrlIcon,
   SearchIcon,
   SettingsIcon,
   AdminIcon,
@@ -27,8 +28,6 @@ type RailConversation = { id: string; participants: { id: string; display_name: 
 export type RailId =
   | 'time-clock'
   | 'hub'
-  | 'tools'
-  | 'links'
   | 'admin'
   | 'settings'
   | 'profile'
@@ -78,8 +77,6 @@ export default function HubRail({
   isClockedIn,
   onSearchClick,
   onProfileClick,
-  onToolsClick,
-  onLinksClick,
   onTimeClockClick,
   onActivityClick,
   onOpenLauncher,
@@ -118,8 +115,6 @@ export default function HubRail({
   isClockedIn?: boolean
   onSearchClick: () => void
   onProfileClick: () => void
-  onToolsClick: () => void
-  onLinksClick: () => void
   onTimeClockClick: () => void
   onActivityClick: () => void
   onOpenLauncher: () => void
@@ -142,7 +137,7 @@ export default function HubRail({
   collapsed: boolean
   onToggleCollapsed: () => void
   onOpenSidebar: () => void
-  activeManualRail?: 'tools' | 'links' | 'profile' | 'activity' | null
+  activeManualRail?: 'profile' | 'activity' | null
   permissions: RailPermissions
   /** The one shared layout list (already permission-filtered). */
   items: string[]
@@ -155,8 +150,8 @@ export default function HubRail({
   const onCallUsers = useOnCallUsers()
   const active = railFromPath(pathname)
   // Effective rail for active-icon detection — manual overrides win for the
-  // pathless rails (tools, links, profile). Means clicking the same icon
-  // again can toggle collapse even when the section has no URL of its own.
+  // pathless rails (profile). Means clicking the same icon again can toggle
+  // collapse even when the section has no URL of its own.
   const effectiveActive: RailId = (activeManualRail as RailId) ?? active
 
   // The rail never scrolls — it shows as many icons as fit in the available
@@ -181,7 +176,7 @@ export default function HubRail({
   const visibleItems = items.slice(0, fitCount)
   const hiddenCount = Math.max(0, items.length - visibleItems.length)
 
-  // Cmd/Ctrl + 1..5 keyboard shortcuts for the common sections.
+  // Cmd/Ctrl + 1..4 keyboard shortcuts for the common sections.
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
       if (!(e.metaKey || e.ctrlKey)) return
@@ -196,12 +191,11 @@ export default function HubRail({
         }
         case '3': e.preventDefault(); router.push('/hub/txt'); break
         case '4': e.preventDefault(); onActivityClick(); break
-        case '5': e.preventDefault(); onToolsClick(); break
       }
     }
     document.addEventListener('keydown', onKey)
     return () => document.removeEventListener('keydown', onKey)
-  }, [router, onTimeClockClick, onActivityClick, onToolsClick])
+  }, [router, onTimeClockClick, onActivityClick])
 
   const isOnLanding = !!pathname && pathname.startsWith('/hub/home')
 
@@ -224,20 +218,6 @@ export default function HubRail({
       return
     }
     router.push('/hub?source=push')
-  }
-
-  function handleToolsClick(e: React.MouseEvent) {
-    e.preventDefault()
-    if (effectiveActive === 'tools') { onToggleCollapsed(); return }
-    onOpenSidebar()
-    onToolsClick()
-  }
-
-  function handleLinksClick(e: React.MouseEvent) {
-    e.preventDefault()
-    if (effectiveActive === 'links') { onToggleCollapsed(); return }
-    onOpenSidebar()
-    onLinksClick()
   }
 
   function handleProfileClick(_e: React.MouseEvent) {
@@ -366,7 +346,7 @@ export default function HubRail({
           className={railBtnClass(false)}
           title={c.href}
         >
-          <CatalogIcon id="links" />
+          <CustomUrlIcon />
           <span className="truncate max-w-[58px]">{label}</span>
         </a>
       )
@@ -522,26 +502,6 @@ export default function HubRail({
           </span>
           <span>Dialer</span>
         </Link>
-      )
-    }
-
-    // Tools / Links — open their sidebar (toggle on re-click).
-    if (id === 'tools') {
-      return (
-        <button key={`tools-${idx}`} type="button" onClick={handleToolsClick} className={railBtnClass(effectiveActive === 'tools')} title="Tools">
-          <ActiveBar show={effectiveActive === 'tools'} />
-          <span className={effectiveActive === 'tools' ? 'text-sky-300' : ''}><CatalogIcon id="tools" /></span>
-          <span>Tools</span>
-        </button>
-      )
-    }
-    if (id === 'links') {
-      return (
-        <button key={`links-${idx}`} type="button" onClick={handleLinksClick} className={railBtnClass(effectiveActive === 'links')} title="Links">
-          <ActiveBar show={effectiveActive === 'links'} />
-          <span className={effectiveActive === 'links' ? 'text-sky-300' : ''}><CatalogIcon id="links" /></span>
-          <span>Links</span>
-        </button>
       )
     }
 

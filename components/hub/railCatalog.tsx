@@ -9,8 +9,6 @@ export type CatalogId =
   | 'hub'           // fixed
   | 'txt2'          // Twilio /hub/txt texting (labeled "Txt"), gated by canAccessTxt
   | 'activity'      // can be in rail OR as a floating bell
-  | 'tools'
-  | 'links'
   | 'tracker'
   | 'routing'
   | 'fleet'
@@ -101,8 +99,8 @@ const PATHS = {
   // single-bubble 'hub' glyph.
   txt2: 'M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z',
   activity: 'M15 17h5l-1.4-1.4A2 2 0 0118 14.16V11a6 6 0 10-12 0v3.16a2 2 0 01-.6 1.44L4 17h5m6 0a3 3 0 11-6 0',
-  tools: 'M11.42 15.17L17.25 21A2.65 2.65 0 0021 17.25l-5.83-5.83m-3.75 3.75L4.5 7.5A2.65 2.65 0 014.5 3.75L9.34 8.59m1.83 6.58l-6.71 6.71',
-  links: 'M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71',
+  // Custom URL — a plain chain-link glyph for a user's own app-drawer link.
+  customUrl: 'M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71',
   tracker: 'M3 12l4-4 5 5 8-8M15 5h6v6',
   routing: 'M3 12h4l3-9 4 18 3-9h4',
   fleet: 'M3 17h2a2 2 0 014 0h6a2 2 0 014 0h2v-7l-3-4H8L3 10v7zM5 17a2 2 0 104 0M15 17a2 2 0 104 0',
@@ -162,8 +160,6 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
     case 'hub':         return <I d={PATHS.hub} />
     case 'txt2':        return <I d={PATHS.txt2} />
     case 'activity':    return <I d={PATHS.activity} />
-    case 'tools':       return <I d={PATHS.tools} />
-    case 'links':       return <I d={PATHS.links} />
     case 'tracker':     return <I d={PATHS.tracker} />
     case 'routing':     return <I d={PATHS.routing} />
     case 'fleet':       return <I d={PATHS.fleet} />
@@ -232,12 +228,13 @@ export function LockIcon({ className = 'w-3 h-3' }: { className?: string }) {
   )
 }
 
+// Generic icon for a user's own custom app-drawer link (a 'url:<href>' token).
+export function CustomUrlIcon() { return <I d={PATHS.customUrl} /> }
+
 // Catalog definition. Order is the order they appear in the picker.
 // Note: 'activity' is NOT pickable — the floating bell in the top-right is
 // always present and is the only Activity entry point.
 export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
-  { id: 'tools',        label: 'Tools',         pickable: true },
-  { id: 'links',        label: 'Links',         pickable: true },
   { id: 'activity',     label: 'Activity',      pickable: false },
   { id: 'daily-log',    label: 'Daily Log',     href: '/hub/daily-log', prefixMatch: true, pickable: true },
   { id: 'daily-log-v2', label: 'Daily Log v2',  href: '/hub/daily-log-v2', prefixMatch: true, pickable: true, requires: 'canAccessDailyLogV2' },
@@ -277,28 +274,4 @@ export function catalogById(id: CatalogId, perms: RailPermissions): CatalogEntry
   if (!e) return null
   if (e.requires && !perms[e.requires]) return null
   return { ...e, icon: <CatalogIcon id={e.id} /> }
-}
-
-// Default rail config when the user hasn't set one yet.
-export const DEFAULT_RAIL_CONFIG: { desktop: (CatalogId | null)[]; mobile: (CatalogId | null)[] } = {
-  desktop: ['tools', 'links', 'daily-log', null],
-  mobile:  ['tools'],
-}
-
-export type RailConfig = {
-  desktop: (CatalogId | string | null)[]   // string = "url:https://..."
-  mobile: (CatalogId | string | null)[]
-  drawer_pins?: CatalogId[]               // items pinned to the top of the app drawer
-}
-
-export function normalizeRailConfig(raw: unknown): RailConfig {
-  const safe = (raw && typeof raw === 'object') ? raw as Record<string, unknown> : {}
-  const desktop = Array.isArray(safe.desktop) ? safe.desktop.slice(0, 4) : DEFAULT_RAIL_CONFIG.desktop
-  const mobile  = Array.isArray(safe.mobile)  ? safe.mobile.slice(0, 1)  : DEFAULT_RAIL_CONFIG.mobile
-  const drawer_pins = Array.isArray(safe.drawer_pins)
-    ? (safe.drawer_pins as unknown[]).filter((v): v is CatalogId => typeof v === 'string' && CATALOG.some(c => c.id === v))
-    : []
-  while (desktop.length < 4) desktop.push(null)
-  while (mobile.length  < 1) mobile.push(null)
-  return { desktop: desktop as RailConfig['desktop'], mobile: mobile as RailConfig['mobile'], drawer_pins }
 }
