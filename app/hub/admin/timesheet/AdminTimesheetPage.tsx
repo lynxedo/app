@@ -9,6 +9,8 @@ type Employee = {
   first_name: string
   last_name: string
   preferred_name: string | null
+  email: string | null
+  phone: string | null
   department: string
   job_title: string
   pay_type: 'hourly' | 'salary'
@@ -16,6 +18,7 @@ type Employee = {
   hourly_rate: number | null
   gusto_synced_at: string | null
   user_id: string | null
+  is_active: boolean | null
 }
 
 type LynxedoUser = { id: string; email: string }
@@ -69,18 +72,28 @@ type EditRequest = {
   time_entries: { id: string; date: string; clock_in: string; clock_out: string | null } | null
 }
 
-type ImportChange = {
-  key: string
-  action: 'add' | 'update_rate' | 'update_title' | 'deactivate'
+type MatchDiff = {
+  field: 'job_title' | 'department' | 'pay_type' | 'hourly_rate'
   label: string
-  detail: string
-  [k: string]: unknown
+  current: string
+  incoming: string
 }
 
-type ImportPreview = {
-  configured: boolean
-  changes: ImportChange[]
-  message?: string
+type EmployeeMatch = {
+  employee_id: string
+  name: string
+  gusto_uuid: string
+  matched_by: 'gusto' | 'email' | 'name'
+  diffs: MatchDiff[]
+  up_to_date: boolean
+}
+
+type MatchPreview = {
+  connected: boolean
+  matches?: EmployeeMatch[]
+  unmatched_roster?: { id: string; name: string }[]
+  unmatched_gusto?: { name: string; title: string | null }[]
+  error?: string
 }
 
 type PaidHoliday = {
@@ -286,15 +299,23 @@ export default function AdminTimesheetPage() {
   }>({ pay_period_start_day: 1, overtime_threshold_weekly: 40, gps_enabled: true })
   const [tsSettingsSave, setTsSettingsSave] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
   const tsSettingsAppliedRef = useRef(false)
-  const [importPreview, setImportPreview] = useState<ImportPreview | null>(null)
-  const [importLoading, setImportLoading] = useState(false)
-  const [importSelections, setImportSelections] = useState<Set<string>>(new Set())
-  const [applying, setApplying] = useState(false)
-  const [applyResult, setApplyResult] = useState<{ added: number; updated: number; deactivated: number } | null>(null)
+  const [matchPreview, setMatchPreview] = useState<MatchPreview | null>(null)
+  const [matchLoading, setMatchLoading] = useState(false)
+  const [matchSelections, setMatchSelections] = useState<Set<string>>(new Set())
+  const [matchApplying, setMatchApplying] = useState(false)
+  const [matchResult, setMatchResult] = useState<{ updated: number; errors: string[] } | null>(null)
+  const [gustoConnected, setGustoConnected] = useState<boolean | null>(null)
+  const [rosterFilter, setRosterFilter] = useState<'active' | 'inactive' | 'all'>('active')
+  const [rosterAll, setRosterAll] = useState<Employee[] | null>(null)
   const [showAddEmployee, setShowAddEmployee] = useState(false)
   const [addForm, setAddForm] = useState(BLANK_ADD_FORM)
   const [addSaving, setAddSaving] = useState(false)
   const [addError, setAddError] = useState('')
+  const [editEmp, setEditEmp] = useState<Employee | null>(null)
+  const [editForm, setEditForm] = useState(BLANK_ADD_FORM)
+  const [editActive, setEditActive] = useState(true)
+  const [editSaving, setEditSaving] = useState(false)
+  const [editError, setEditError] = useState('')
   const [linkingEmployee, setLinkingEmployee] = useState<Employee | null>(null)
   const [lynxedoUsers, setLynxedoUsers] = useState<LynxedoUser[]>([])
   const [selectedUserId, setSelectedUserId] = useState('')
@@ -690,40 +711,121 @@ export default function AdminTimesheetPage() {
     loadPolicies()
   }
 
-  // ── Gusto import ──────────────────────────────────────────────────────────
+  // ── Roster + Match with Gusto ─────────────────────────────────────────────
 
-  async function fetchImportPreview() {
-    setImportLoading(true)
-    setApplyResult(null)
-    const res = await fetch('/api/timesheet/gusto-import')
+  // The Roster tab shows active + deactivated rows (status filter); the other
+  // tabs keep the default active-only list from loadData.
+  useEffect(() => {
+    if (tab !== 'employees') return
+    fetch('/api/timesheet/employees?include=all')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => { if (d) setRosterAll(d.employees ?? []) })
+      .catch(() => {})
+    fetch('/api/timesheet/gusto-match?status=1')
+      .then(r => (r.ok ? r.json() : null))
+      .then(d => setGustoConnected(!!d?.connected))
+      .catch(() => setGustoConnected(false))
+  }, [tab, employees])
+
+  async function fetchMatchPreview() {
+    setMatchLoading(true)
+    setMatchResult(null)
+    const res = await fetch('/api/timesheet/gusto-match')
     const data = await res.json()
-    setImportPreview(data)
-    setImportSelections(new Set((data.changes ?? []).map((c: ImportChange) => c.key)))
-    setImportLoading(false)
+    if (!res.ok) {
+      setMatchPreview({ connected: true, error: data.error ?? 'Match failed' })
+      setMatchLoading(false)
+      return
+    }
+    setMatchPreview(data)
+    const initial = new Set<string>()
+    for (const m of (data.matches ?? []) as EmployeeMatch[]) {
+      for (const d of m.diffs) initial.add(`${m.employee_id}|${d.field}`)
+    }
+    setMatchSelections(initial)
+    setMatchLoading(false)
   }
 
-  async function applyImport() {
-    if (!importPreview) return
-    setApplying(true)
-    const selected = importPreview.changes.filter(c => importSelections.has(c.key))
-    const res = await fetch('/api/timesheet/gusto-import', {
+  async function applyMatch() {
+    if (!matchPreview?.matches) return
+    setMatchApplying(true)
+    const changes = matchPreview.matches
+      .map(m => ({
+        employee_id: m.employee_id,
+        gusto_uuid: m.gusto_uuid,
+        name: m.name,
+        fields: m.diffs.map(d => d.field).filter(f => matchSelections.has(`${m.employee_id}|${f}`)),
+      }))
+      .filter(c => c.fields.length > 0)
+    const res = await fetch('/api/timesheet/gusto-match', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ changes: selected }),
+      body: JSON.stringify({ changes }),
     })
     const data = await res.json()
-    setApplyResult(data.results)
-    setImportPreview(null)
-    setApplying(false)
-    loadData()
+    setMatchResult(res.ok ? data.results : { updated: 0, errors: [data.error ?? 'Apply failed'] })
+    setMatchApplying(false)
+    if (res.ok) {
+      setMatchPreview(null)
+      setRosterAll(null)
+      loadData()
+    }
   }
 
-  function toggleSelection(key: string) {
-    setImportSelections(prev => {
+  function toggleMatchField(key: string) {
+    setMatchSelections(prev => {
       const next = new Set(prev)
       next.has(key) ? next.delete(key) : next.add(key)
       return next
     })
+  }
+
+  function openEditEmployee(emp: Employee) {
+    setEditEmp(emp)
+    setEditForm({
+      first_name: emp.first_name,
+      last_name: emp.last_name,
+      preferred_name: emp.preferred_name ?? '',
+      email: emp.email ?? '',
+      phone: emp.phone ?? '',
+      job_title: emp.job_title ?? '',
+      department: emp.department ?? '',
+      pay_type: emp.pay_type,
+      hourly_rate: emp.hourly_rate != null ? String(emp.hourly_rate) : '',
+    })
+    setEditActive(emp.is_active !== false)
+    setEditError('')
+  }
+
+  async function saveEmployeeEdit() {
+    if (!editEmp) return
+    setEditSaving(true)
+    setEditError('')
+    const res = await fetch(`/api/timesheet/employees/${editEmp.id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        first_name: editForm.first_name.trim(),
+        last_name: editForm.last_name.trim(),
+        preferred_name: editForm.preferred_name.trim() || null,
+        email: editForm.email.trim() || null,
+        phone: editForm.phone.trim() || null,
+        job_title: editForm.job_title.trim() || null,
+        department: editForm.department.trim() || null,
+        pay_type: editForm.pay_type,
+        hourly_rate: editForm.pay_type === 'hourly' && editForm.hourly_rate ? parseFloat(editForm.hourly_rate) : null,
+        is_active: editActive,
+      }),
+    })
+    const data = await res.json()
+    setEditSaving(false)
+    if (!res.ok) {
+      setEditError(data.error ?? 'Save failed')
+      return
+    }
+    setEditEmp(null)
+    setRosterAll(null)
+    loadData()
   }
 
   async function saveNewEmployee() {
@@ -980,9 +1082,6 @@ export default function AdminTimesheetPage() {
                         ${emp.hourly_rate}/hr · est. ${((summary.regular * emp.hourly_rate) + (summary.ot * emp.hourly_rate * 1.5)).toFixed(0)}
                       </div>
                     )}
-                    {emp.pay_type === 'salary' && (
-                      <div className="text-xs text-gray-500">Salaried — not pushed to Gusto</div>
-                    )}
                     <div className="flex gap-2 mt-auto pt-1">
                       {isCurrentWeek && (
                         <button
@@ -1012,17 +1111,10 @@ export default function AdminTimesheetPage() {
                 <h2 className="font-semibold">Pay Period Summary</h2>
                 <p className="text-xs text-gray-500 mt-0.5">{formatWeekRange(weekStart)}</p>
               </div>
-              <div className="flex gap-2">
-                <button
-                  onClick={() => exportPayPeriodCSV(employees, entries, weekStart, tsSettings.overtime_threshold_weekly)}
-                  className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                >↓ Export CSV</button>
-                <button
-                  disabled
-                  title="Gusto OAuth required — coming in Phase 2"
-                  className="bg-blue-600/40 text-blue-400 text-sm font-medium px-4 py-2 rounded-lg cursor-not-allowed border border-blue-500/25"
-                >Send to Gusto ↗</button>
-              </div>
+              <button
+                onClick={() => exportPayPeriodCSV(employees, entries, weekStart, tsSettings.overtime_threshold_weekly)}
+                className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+              >↓ Export CSV</button>
             </div>
             <div className="overflow-x-auto">
               <table className="w-full text-sm">
@@ -1037,7 +1129,6 @@ export default function AdminTimesheetPage() {
                     <th className="text-right px-4 py-3">PTO</th>
                     <th className="text-right px-4 py-3">Total</th>
                     <th className="text-right px-4 py-3">Est. Wages</th>
-                    <th className="text-center px-4 py-3">Gusto</th>
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-gray-800">
@@ -1103,17 +1194,12 @@ export default function AdminTimesheetPage() {
                         <td className="text-right px-4 py-3 tabular-nums">
                           {estPay !== null ? `$${estPay.toFixed(2)}` : <span className="text-gray-600">—</span>}
                         </td>
-                        <td className="text-center px-4 py-3">
-                          {emp.pay_type === 'hourly'
-                            ? <span className="text-xs text-gray-600 bg-gray-800 px-2 py-0.5 rounded">Pending</span>
-                            : <span className="text-xs text-gray-700">N/A</span>}
-                        </td>
                       </tr>,
 
                       // Expanded row
                       isExpanded && (
                         <tr key={`${emp.id}-expanded`} className="bg-gray-800/20">
-                          <td colSpan={10} className="px-4 py-3">
+                          <td colSpan={9} className="px-4 py-3">
                             <div className="space-y-3">
 
                               {/* Holiday override editor */}
@@ -1318,7 +1404,6 @@ export default function AdminTimesheetPage() {
                           <td className="text-right px-4 py-3 tabular-nums text-violet-400">{totPto > 0 ? `${totPto.toFixed(2)}h` : '—'}</td>
                           <td className="text-right px-4 py-3 tabular-nums">{totHrs.toFixed(2)}h</td>
                           <td className="text-right px-4 py-3 tabular-nums">${totPay.toFixed(2)}</td>
-                          <td />
                         </>
                       )
                     })()}
@@ -1326,32 +1411,44 @@ export default function AdminTimesheetPage() {
                 </tfoot>
               </table>
             </div>
-            <div className="px-5 py-3 border-t border-gray-800">
-              <p className="text-xs text-gray-600">Holiday and PTO columns are informational — not included in clocked hours or Gusto export. Click a Holiday value to override hours for that employee.</p>
-            </div>
           </div>
         ) : tab === 'employees' ? (
           // ── Roster ────────────────────────────────────────────────────────────
           <div className="space-y-4">
             <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
-              <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between">
-                <div>
+              <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
                   <h2 className="font-semibold">Employee Roster</h2>
-                  <p className="text-xs text-gray-500 mt-0.5">{employees.length} active employees</p>
+                  <div className="flex gap-1 bg-gray-800 rounded-lg p-1 border border-gray-700">
+                    {([['active', 'Active'], ['inactive', 'Deactivated'], ['all', 'All']] as const).map(([key, label]) => (
+                      <button
+                        key={key}
+                        onClick={() => setRosterFilter(key)}
+                        className={`px-2.5 py-1 rounded-md text-xs transition-colors ${rosterFilter === key ? 'bg-gray-700 text-white' : 'text-gray-400 hover:text-white'}`}
+                      >{label}</button>
+                    ))}
+                  </div>
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => { setShowAddEmployee(true); setAddForm(BLANK_ADD_FORM); setAddError('') }}
                     className="flex items-center gap-1.5 bg-gray-800 hover:bg-gray-700 border border-gray-700 text-white text-sm font-medium px-3 py-2 rounded-lg transition-colors"
                   >+ Add Employee</button>
-                  <button
-                    onClick={fetchImportPreview}
-                    disabled={importLoading}
-                    className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
-                  >
-                    {importLoading ? <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : '↓'}
-                    Sync from Gusto
-                  </button>
+                  {gustoConnected === false ? (
+                    <a
+                      href="/api/admin/gusto/connect"
+                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                    >🔗 Connect Gusto</a>
+                  ) : (
+                    <button
+                      onClick={fetchMatchPreview}
+                      disabled={matchLoading || gustoConnected === null}
+                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                    >
+                      {matchLoading ? <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : '⇄'}
+                      Match with Gusto
+                    </button>
+                  )}
                 </div>
               </div>
               <div className="overflow-x-auto">
@@ -1364,13 +1461,23 @@ export default function AdminTimesheetPage() {
                       <th className="text-center px-4 py-3">Type</th>
                       <th className="text-right px-4 py-3">$/hr</th>
                       <th className="text-center px-4 py-3">Account</th>
-                      <th className="text-right px-5 py-3">Gusto Synced</th>
+                      <th className="text-right px-4 py-3">Gusto Synced</th>
+                      <th className="text-right px-5 py-3" />
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-gray-800">
-                    {employees.map(emp => (
-                      <tr key={emp.id} className="hover:bg-gray-800/40 transition-colors">
-                        <td className="px-5 py-3 font-medium">{emp.first_name} {emp.last_name}</td>
+                    {(rosterAll ?? employees)
+                      .filter(emp =>
+                        rosterFilter === 'all' ? true : rosterFilter === 'inactive' ? emp.is_active === false : emp.is_active !== false
+                      )
+                      .map(emp => (
+                      <tr key={emp.id} className={`hover:bg-gray-800/40 transition-colors ${emp.is_active === false ? 'opacity-50' : ''}`}>
+                        <td className="px-5 py-3 font-medium">
+                          {emp.first_name} {emp.last_name}
+                          {emp.is_active === false && rosterFilter === 'all' && (
+                            <span className="ml-2 text-xs bg-gray-800 text-gray-500 border border-gray-700 px-1.5 py-0.5 rounded-full">Deactivated</span>
+                          )}
+                        </td>
                         <td className="px-4 py-3 text-gray-400">{emp.job_title}</td>
                         <td className="px-4 py-3 text-gray-500 text-xs">{emp.department}</td>
                         <td className="px-4 py-3 text-center">
@@ -1386,8 +1493,15 @@ export default function AdminTimesheetPage() {
                             <button onClick={() => openLinkModal(emp)} className="text-xs text-gray-500 hover:text-blue-400 border border-gray-700 hover:border-blue-500/40 px-2 py-0.5 rounded-full transition-colors">Link</button>
                           )}
                         </td>
-                        <td className="px-5 py-3 text-right text-xs text-gray-600">
+                        <td className="px-4 py-3 text-right text-xs text-gray-600">
                           {emp.gusto_synced_at ? new Date(emp.gusto_synced_at).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : '—'}
+                        </td>
+                        <td className="px-5 py-3 text-right">
+                          <button
+                            onClick={() => openEditEmployee(emp)}
+                            className="text-xs text-gray-500 hover:text-white border border-gray-700 hover:border-gray-500 px-2 py-1 rounded-lg transition-colors"
+                            title="Edit employee"
+                          >✎ Edit</button>
                         </td>
                       </tr>
                     ))}
@@ -1395,10 +1509,17 @@ export default function AdminTimesheetPage() {
                 </table>
               </div>
             </div>
-            {applyResult && (
-              <div className="bg-green-500/10 border border-green-500/25 rounded-xl px-5 py-3 flex items-center justify-between">
-                <span className="text-green-400 text-sm">Import complete — {applyResult.added} added, {applyResult.updated} updated, {applyResult.deactivated} deactivated</span>
-                <button onClick={() => setApplyResult(null)} className="text-green-600 hover:text-green-400 text-lg leading-none" aria-label="Dismiss">×</button>
+            {matchResult && (
+              <div className={`${matchResult.errors.length > 0 ? 'bg-amber-500/10 border-amber-500/25' : 'bg-green-500/10 border-green-500/25'} border rounded-xl px-5 py-3`}>
+                <div className="flex items-center justify-between">
+                  <span className={`${matchResult.errors.length > 0 ? 'text-amber-400' : 'text-green-400'} text-sm`}>
+                    Match complete — {matchResult.updated} {matchResult.updated === 1 ? 'change' : 'changes'} applied from Gusto
+                  </span>
+                  <button onClick={() => setMatchResult(null)} className="text-gray-500 hover:text-white text-lg leading-none" aria-label="Dismiss">×</button>
+                </div>
+                {matchResult.errors.map((e, i) => (
+                  <p key={i} className="text-xs text-amber-400 mt-1">{e}</p>
+                ))}
               </div>
             )}
           </div>
@@ -1691,69 +1812,207 @@ export default function AdminTimesheetPage() {
 
       {/* ── Modals ─────────────────────────────────────────────────────────── */}
 
-      {/* Gusto import preview */}
-      {importPreview && (
-        <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setImportPreview(null) }}>
+      {/* Match with Gusto review */}
+      {matchPreview && (() => {
+        const matches = matchPreview.matches ?? []
+        const withDiffs = matches.filter(m => m.diffs.length > 0)
+        const upToDate = matches.filter(m => m.up_to_date)
+        const totalDiffs = withDiffs.reduce((s, m) => s + m.diffs.length, 0)
+        return (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setMatchPreview(null) }}>
           <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg max-h-[85vh] flex flex-col">
             <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between shrink-0">
-              <div>
-                <h3 className="font-semibold">Gusto Import Preview</h3>
-                <p className="text-xs text-gray-500 mt-0.5">Select what to import, then click Apply</p>
-              </div>
-              <button onClick={() => setImportPreview(null)} className="text-gray-500 hover:text-white transition-colors text-xl leading-none" aria-label="Close">×</button>
+              <h3 className="font-semibold">Match with Gusto</h3>
+              <button onClick={() => setMatchPreview(null)} className="text-gray-500 hover:text-white transition-colors text-xl leading-none" aria-label="Close">×</button>
             </div>
             <div className="overflow-y-auto flex-1 px-5 py-4">
-              {!importPreview.configured ? (
-                <div className="text-center py-6 space-y-3">
+              {!matchPreview.connected ? (
+                <div className="text-center py-6 space-y-4">
                   <div className="text-3xl">🔗</div>
                   <p className="text-sm font-medium text-gray-300">Gusto not connected</p>
-                  <p className="text-xs text-gray-500 leading-relaxed max-w-xs mx-auto">{importPreview.message}</p>
+                  <a
+                    href="/api/admin/gusto/connect"
+                    className="inline-block bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                  >Connect Gusto</a>
                 </div>
-              ) : importPreview.changes.length === 0 ? (
-                <div className="text-center py-6 space-y-3">
-                  <div className="text-3xl">✅</div>
-                  <p className="text-sm font-medium text-gray-300">All up to date</p>
-                </div>
+              ) : matchPreview.error ? (
+                <p className="text-sm text-red-400 py-4">{matchPreview.error}</p>
               ) : (
                 <div className="space-y-5">
-                  <div className="flex gap-3 text-xs">
-                    <button onClick={() => setImportSelections(new Set(importPreview.changes.map(c => c.key)))} className="text-blue-400 hover:text-blue-300">Select all</button>
-                    <span className="text-gray-700">·</span>
-                    <button onClick={() => setImportSelections(new Set())} className="text-gray-500 hover:text-gray-400">Deselect all</button>
-                    <span className="ml-auto text-gray-600">{importSelections.size} of {importPreview.changes.length} selected</span>
-                  </div>
-                  {(['add', 'update_rate', 'update_title', 'deactivate'] as const).map(action => {
-                    const group = importPreview.changes.filter(c => c.action === action)
-                    if (group.length === 0) return null
-                    const labels: Record<string, string> = { add: '🆕 New Employees', update_rate: '💰 Rate Changes', update_title: '📝 Title Changes', deactivate: '⚠️ No Longer in Gusto' }
-                    return (
-                      <div key={action}>
-                        <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-2">{labels[action]} ({group.length})</div>
-                        <div className="space-y-1">
-                          {group.map(change => (
-                            <label key={change.key} className="flex items-center gap-3 py-2 px-3 rounded-lg hover:bg-gray-800 cursor-pointer">
-                              <input type="checkbox" checked={importSelections.has(change.key)} onChange={() => toggleSelection(change.key)} className="w-4 h-4 rounded accent-blue-500 shrink-0" />
-                              <div className="flex-1 min-w-0">
-                                <div className="text-sm font-medium">{change.label}</div>
-                                <div className={`text-xs mt-0.5 ${action === 'deactivate' ? 'text-amber-500' : 'text-gray-500'}`}>{change.detail}</div>
-                              </div>
-                            </label>
-                          ))}
-                        </div>
+                  {withDiffs.length === 0 && (
+                    <div className="text-center py-4 space-y-2">
+                      <div className="text-3xl">✅</div>
+                      <p className="text-sm font-medium text-gray-300">Roster matches Gusto</p>
+                    </div>
+                  )}
+
+                  {withDiffs.length > 0 && (
+                    <div className="flex gap-3 text-xs">
+                      <button
+                        onClick={() => {
+                          const all = new Set<string>()
+                          for (const m of withDiffs) for (const d of m.diffs) all.add(`${m.employee_id}|${d.field}`)
+                          setMatchSelections(all)
+                        }}
+                        className="text-blue-400 hover:text-blue-300"
+                      >Select all</button>
+                      <span className="text-gray-700">·</span>
+                      <button onClick={() => setMatchSelections(new Set())} className="text-gray-500 hover:text-gray-400">Deselect all</button>
+                      <span className="ml-auto text-gray-600">{matchSelections.size} of {totalDiffs} selected</span>
+                    </div>
+                  )}
+
+                  {withDiffs.map(m => (
+                    <div key={m.employee_id} className="border border-gray-800 rounded-xl overflow-hidden">
+                      <div className="px-3 py-2 bg-gray-800/50 flex items-center gap-2">
+                        <span className="text-sm font-medium">{m.name}</span>
+                        {m.matched_by !== 'gusto' && (
+                          <span className="text-[11px] text-gray-500">matched by {m.matched_by}</span>
+                        )}
                       </div>
-                    )
-                  })}
+                      <div className="divide-y divide-gray-800/60">
+                        {m.diffs.map(d => {
+                          const key = `${m.employee_id}|${d.field}`
+                          return (
+                            <label key={key} className="flex items-center gap-3 py-2 px-3 hover:bg-gray-800 cursor-pointer">
+                              <input
+                                type="checkbox"
+                                checked={matchSelections.has(key)}
+                                onChange={() => toggleMatchField(key)}
+                                className="w-4 h-4 rounded accent-blue-500 shrink-0"
+                              />
+                              <span className="text-xs text-gray-500 w-20 shrink-0">{d.label}</span>
+                              <span className="text-sm min-w-0">
+                                <span className="text-gray-400">{d.current}</span>
+                                <span className="text-gray-600 mx-1.5">→</span>
+                                <span className="text-white font-medium">{d.incoming}</span>
+                              </span>
+                            </label>
+                          )
+                        })}
+                      </div>
+                    </div>
+                  ))}
+
+                  {upToDate.length > 0 && withDiffs.length > 0 && (
+                    <p className="text-xs text-gray-600">✓ Already matching Gusto: {upToDate.map(m => m.name).join(', ')}</p>
+                  )}
+
+                  {(matchPreview.unmatched_gusto?.length ?? 0) > 0 && (
+                    <div className="border border-gray-800 rounded-xl px-3 py-2.5">
+                      <div className="text-xs font-semibold text-gray-400 uppercase tracking-wide mb-1.5">In Gusto, not on the roster</div>
+                      {matchPreview.unmatched_gusto!.map((g, i) => (
+                        <div key={i} className="text-sm text-gray-400">{g.name}{g.title ? <span className="text-gray-600"> · {g.title}</span> : null}</div>
+                      ))}
+                      <p className="text-xs text-gray-600 mt-1.5">Add people to the roster with the Employee Roster toggle in Admin → People.</p>
+                    </div>
+                  )}
+
+                  {(matchPreview.unmatched_roster?.length ?? 0) > 0 && (
+                    <div className="border border-amber-500/25 bg-amber-500/5 rounded-xl px-3 py-2.5">
+                      <div className="text-xs font-semibold text-amber-400 uppercase tracking-wide mb-1.5">On the roster, not found in Gusto</div>
+                      {matchPreview.unmatched_roster!.map(r => (
+                        <div key={r.id} className="text-sm text-gray-400">{r.name}</div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
-            {importPreview.configured && importPreview.changes.length > 0 && (
+            {matchPreview.connected && !matchPreview.error && withDiffs.length > 0 && (
               <div className="px-5 py-4 border-t border-gray-800 flex gap-3 shrink-0">
-                <button onClick={applyImport} disabled={applying || importSelections.size === 0} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm">
-                  {applying ? 'Applying…' : `Apply Import (${importSelections.size})`}
+                <button
+                  onClick={applyMatch}
+                  disabled={matchApplying || matchSelections.size === 0}
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm"
+                >
+                  {matchApplying ? 'Applying…' : `Apply ${matchSelections.size} ${matchSelections.size === 1 ? 'change' : 'changes'}`}
                 </button>
-                <button onClick={() => setImportPreview(null)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
+                <button onClick={() => setMatchPreview(null)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
               </div>
             )}
+          </div>
+        </div>
+        )
+      })()}
+
+      {/* Edit Employee modal */}
+      {editEmp && (
+        <div className="fixed inset-0 bg-black/60 z-50 flex items-end sm:items-center justify-center p-4" onClick={e => { if (e.target === e.currentTarget) setEditEmp(null) }}>
+          <div className="bg-gray-900 border border-gray-800 rounded-2xl w-full max-w-lg max-h-[90vh] flex flex-col">
+            <div className="px-5 py-4 border-b border-gray-800 flex items-center justify-between shrink-0">
+              <h3 className="font-semibold">Edit Employee</h3>
+              <button onClick={() => setEditEmp(null)} className="text-gray-500 hover:text-white text-xl leading-none" aria-label="Close">×</button>
+            </div>
+            <div className="overflow-y-auto flex-1 px-5 py-4 space-y-4">
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">First Name *</label>
+                  <input value={editForm.first_name} onChange={e => setEditForm(f => ({ ...f, first_name: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Last Name *</label>
+                  <input value={editForm.last_name} onChange={e => setEditForm(f => ({ ...f, last_name: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                </div>
+              </div>
+              <div>
+                <label className="text-xs text-gray-500 block mb-1">Preferred Name</label>
+                <input value={editForm.preferred_name} onChange={e => setEditForm(f => ({ ...f, preferred_name: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Email</label>
+                  <input type="email" value={editForm.email} onChange={e => setEditForm(f => ({ ...f, email: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Phone</label>
+                  <input value={editForm.phone} onChange={e => setEditForm(f => ({ ...f, phone: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Job Title</label>
+                  <input value={editForm.job_title} onChange={e => setEditForm(f => ({ ...f, job_title: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                </div>
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Department</label>
+                  <input value={editForm.department} onChange={e => setEditForm(f => ({ ...f, department: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="text-xs text-gray-500 block mb-1">Pay Type *</label>
+                  <select value={editForm.pay_type} onChange={e => setEditForm(f => ({ ...f, pay_type: e.target.value as 'hourly' | 'salary' }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none">
+                    <option value="hourly">Hourly</option>
+                    <option value="salary">Salary</option>
+                  </select>
+                </div>
+                {editForm.pay_type === 'hourly' && (
+                  <div>
+                    <label className="text-xs text-gray-500 block mb-1">Hourly Rate</label>
+                    <input type="number" step="0.01" min="0" value={editForm.hourly_rate} onChange={e => setEditForm(f => ({ ...f, hourly_rate: e.target.value }))} className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-blue-500" />
+                  </div>
+                )}
+              </div>
+              <div className="flex items-center justify-between pt-1">
+                <span className="text-sm text-gray-300">Active on roster</span>
+                <button
+                  role="switch"
+                  aria-checked={editActive}
+                  onClick={() => setEditActive(v => !v)}
+                  className={`relative w-10 h-5 rounded-full transition-colors ${editActive ? 'bg-emerald-500' : 'bg-gray-700'}`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${editActive ? 'right-0.5' : 'left-0.5'}`} />
+                </button>
+              </div>
+              {editError && <p className="text-red-400 text-xs">{editError}</p>}
+            </div>
+            <div className="px-5 py-4 border-t border-gray-800 flex gap-3 shrink-0">
+              <button onClick={saveEmployeeEdit} disabled={editSaving || !editForm.first_name || !editForm.last_name} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm">
+                {editSaving ? 'Saving…' : 'Save'}
+              </button>
+              <button onClick={() => setEditEmp(null)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
+            </div>
           </div>
         </div>
       )}

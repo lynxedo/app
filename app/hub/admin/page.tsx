@@ -25,13 +25,13 @@ export default async function AdminPage() {
     supabase.from('user_profiles').select('company_id').eq('id', user.id).single(),
   ])
 
+  // ALL roster rows (linked + unlinked, active + inactive) — the panel needs
+  // them for the per-user Employee Roster toggle and the no-login section.
   const { data: employeeRows } = company?.company_id
     ? await admin
         .from('employees')
-        .select('id, first_name, last_name, preferred_name, department, job_title, pay_type, email, user_id')
+        .select('id, first_name, last_name, preferred_name, department, job_title, pay_type, hourly_rate, email, user_id, is_active')
         .eq('company_id', company.company_id)
-        .eq('is_active', true)
-        .is('user_id', null)
     : { data: [] }
 
   const usersWithProfiles = (rows ?? []).map((r: {
@@ -52,9 +52,10 @@ export default async function AdminPage() {
     can_access_daily_log_v2: boolean;
     can_access_call_log2: boolean; can_access_scoreboards: boolean;
     can_access_files: boolean; can_access_pesticide_records: boolean;
-    can_access_pricer: boolean;
+    can_access_pricer: boolean; can_access_coaching: boolean;
     display_name: string | null; avatar_url: string | null; invite_sent_at: string | null;
     full_name: string | null;
+    locked_at: string | null; deactivated_at: string | null;
   }) => ({
     id: r.id,
     email: r.email ?? '',
@@ -64,6 +65,8 @@ export default async function AdminPage() {
     display_name: r.display_name ?? null,
     avatar_url: r.avatar_url ?? null,
     invite_sent_at: r.invite_sent_at ?? null,
+    locked_at: r.locked_at ?? null,
+    deactivated_at: r.deactivated_at ?? null,
     profile: {
       id: r.id,
       role: r.role,
@@ -107,6 +110,7 @@ export default async function AdminPage() {
       can_access_files: r.can_access_files,
       can_access_pesticide_records: r.can_access_pesticide_records,
       can_access_pricer: r.can_access_pricer,
+      can_access_coaching: r.can_access_coaching,
     },
   }))
 

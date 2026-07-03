@@ -190,7 +190,7 @@ export async function resolveRingGroupAvailableMembers(
   const [{ data: profileRows }, { data: hubStatusRows }] = await Promise.all([
     admin
       .from('user_profiles')
-      .select('id, master_dnd_enabled, master_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule')
+      .select('id, master_dnd_enabled, master_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule, locked_at, deactivated_at')
       .in('id', memberIds),
     admin
       .from('hub_users')
@@ -208,6 +208,7 @@ export async function resolveRingGroupAvailableMembers(
     const dialerSched = (p.dialer_dnd_schedule || null) as DndSchedule | null
     dndById.set(
       p.id,
+      Boolean(p.locked_at) || Boolean(p.deactivated_at) ||
       Boolean(p.master_dnd_enabled) || isInDndSchedule(masterSched) ||
       Boolean(hubDndById.get(p.id)) ||
       Boolean(p.dialer_dnd_enabled) || isInDndSchedule(dialerSched)
@@ -229,7 +230,7 @@ export async function isAgentDndNow(
     const [{ data: profile }, { data: hubUser }] = await Promise.all([
       admin
         .from('user_profiles')
-        .select('master_dnd_enabled, master_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule')
+        .select('master_dnd_enabled, master_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule, locked_at, deactivated_at')
         .eq('id', userId)
         .maybeSingle(),
       admin
@@ -238,6 +239,9 @@ export async function isAgentDndNow(
         .eq('id', userId)
         .maybeSingle(),
     ])
+
+    // Locked/deactivated accounts never ring
+    if (profile?.locked_at || profile?.deactivated_at) return true
 
     // Master DND — silences everything
     const masterSched = (profile?.master_dnd_schedule || null) as DndSchedule | null
