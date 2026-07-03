@@ -91,6 +91,10 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   // Thin wrapper so the existing profileResult.data?.X reads below stay unchanged.
   const profileResult = { data: profileData }
 
+  // Locked/deactivated accounts get a dead-end page instead of the Hub. The
+  // auth ban blocks new sign-ins and refresh; this makes the lockout immediate.
+  if (profileData?.locked_at || profileData?.deactivated_at) redirect('/locked')
+
   // Smart presence: bump last_active_at on every Hub route load (fire-and-forget).
   // Drives the salaried/unlinked path of hub_users_with_presence.effective_status.
   markActive(user.id)

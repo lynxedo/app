@@ -17,11 +17,11 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { data: activeEmps, error } = await supabase
-    .from('employees')
-    .select('*')
-    .eq('is_active', true)
-    .order('first_name')
+  // include=all → active + deactivated rows (the Roster tab's status filter)
+  const includeAll = req.nextUrl.searchParams.get('include') === 'all'
+  let query = supabase.from('employees').select('*').order('first_name')
+  if (!includeAll) query = query.eq('is_active', true)
+  const { data: activeEmps, error } = await query
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

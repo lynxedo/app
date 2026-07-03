@@ -77,6 +77,17 @@ export async function DELETE(
   }
 
   const admin = createAdminClient()
+
+  // Remove is for accounts that never became real people (typo emails, test
+  // accounts). Anyone who has signed in has history — Deactivate them instead.
+  const { data: authUser } = await admin.auth.admin.getUserById(id)
+  if (authUser?.user?.last_sign_in_at) {
+    return NextResponse.json(
+      { error: 'This person has signed in before — use Deactivate instead so their history is kept' },
+      { status: 400 }
+    )
+  }
+
   await admin.from('user_profiles').delete().eq('id', id)
 
   const { error } = await admin.auth.admin.deleteUser(id)
