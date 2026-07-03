@@ -10,7 +10,7 @@
  * rearrange; the rail shows more than the mobile dock, that's the only diff.
  *
  * A token is one of:
- *   - a CatalogId  ('routing', 'fleet', 'daily-log', 'tools', 'links', and the
+ *   - a CatalogId  ('routing', 'fleet', 'daily-log', and the
  *     system items 'hub' | 'time-clock' | 'txt2' | 'dialer')
  *   - 'sys:dnd'        — Master DND quick-toggle (silences everything)
  *   - 'sys:hub-dnd'    — Hub notifications DND quick-toggle
@@ -35,13 +35,13 @@ export const MOBILE_VISIBLE = 5
 
 // Brand-new user default (no legacy config, no pins). Permission filtering drops
 // anything they can't access (e.g. dialer).
-export const DEFAULT_ITEMS: string[] = ['hub', 'txt2', 'dialer', 'time-clock', 'daily-log', 'tools']
+export const DEFAULT_ITEMS: string[] = ['hub', 'txt2', 'dialer', 'time-clock', 'daily-log']
 
 // Catalog ids that are real navigable PAGES (have an href). These are the only
-// tokens auto-seeded into a user's drawer (see reconcileSeededApps). Container
-// items ('tools', 'links'), the floating bell ('activity'), and non-catalog
-// tokens (url:/room:/dm:) are intentionally excluded — links, DMs, and rooms are
-// never auto-added. Derived from CATALOG so new pages are covered automatically.
+// tokens auto-seeded into a user's drawer (see reconcileSeededApps). The
+// floating bell ('activity') and non-catalog tokens (url:/room:/dm:) are
+// intentionally excluded — custom links, DMs, and rooms are never auto-added.
+// Derived from CATALOG so new pages are covered automatically.
 export const PAGE_CATALOG_IDS: CatalogId[] = CATALOG.filter(e => !!e.href).map(e => e.id)
 
 // These items are LOCKED to the front of every user's menu (rail + mobile bar)
@@ -72,7 +72,7 @@ export function lockedCount(items: string[]): number {
 }
 
 const SYSTEM_CATALOG_IDS = new Set<CatalogId>(['hub', 'time-clock'])
-const ALWAYS_ALLOWED = new Set<CatalogId>(['hub', 'time-clock', 'tools', 'links'])
+const ALWAYS_ALLOWED = new Set<CatalogId>(['hub', 'time-clock'])
 
 export type Classified =
   | { kind: 'master-dnd' }

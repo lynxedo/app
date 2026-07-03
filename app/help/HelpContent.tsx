@@ -477,13 +477,13 @@ function HubTab() {
         <p>A small bell icon floats in the top-right of the main content area, anywhere inside Hub. The red badge shows how many @mentions or thread replies are waiting for you. Tap it to slide in a panel with the list — last 30 days. The bell hides when the keyboard is open on mobile so it doesn&apos;t cover the composer.</p>
         <p className="font-medium text-white mt-3">Keyboard shortcuts</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘1</kbd> Time Clock · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘2</kbd> Hub · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘3</kbd> Txt · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘4</kbd> Activity · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘5</kbd> Tools · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> Search (use Ctrl on Windows).</li>
+          <li><kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘1</kbd> Time Clock · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘2</kbd> Hub · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘3</kbd> Txt · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘4</kbd> Activity · <kbd className="px-1 py-0.5 rounded bg-white/10 text-xs">⌘K</kbd> Search (use Ctrl on Windows).</li>
         </ul>
         <p className="font-medium text-white mt-3">Mobile bottom bar</p>
-        <p>Five tabs always within thumb reach: <strong className="text-white">Clock · Hub · Txt · [your pick] · More</strong>. The fourth slot is configurable in Settings → My Hub. Tap <strong className="text-white">More</strong> for everything else (Tools, Links, Settings, Admin if you have it, and your profile). A floating <strong className="text-white">+</strong> button in the bottom-right opens the quick compose / search palette.</p>
+        <p>Five tabs always within thumb reach: <strong className="text-white">Clock · Hub · Txt · [your pick] · More</strong>. The fourth slot is configurable in Settings → My Hub. Tap <strong className="text-white">More</strong> to see your full app list plus Search, Activity, Settings, Admin if you have it, Help, and your profile. A floating <strong className="text-white">+</strong> button in the bottom-right opens the quick compose / search palette.</p>
         <Note>📱 The top bar is gone on phones — just tap the bottom tab for the section you want. When the keyboard pops up, the bottom bar and the floating <strong className="text-white">+</strong> button slide out of the way so you see the most messages possible.</Note>
         <p className="font-medium text-white mt-3">My Hub — pick your own rail icons</p>
-        <p>In <strong className="text-white">Settings → My Hub</strong>, pick what fills the 4 user-configurable rail slots (desktop) and the 1 mobile slot. Options include Tools, Links, Activity, Daily Log, Tracker, Routing, Fleet, Books, Lawn Sizer, Call Log, Time Records (admins), Files, Company News, or a custom URL of your choosing. The defaults give everyone Activity, Tools, and Links with one slot empty — but if you live in Tracker, put it directly on the rail and skip a click.</p>
+        <p>In <strong className="text-white">Settings → My Hub</strong>, customize your own app list — add, remove, and reorder any page (Daily Log, Tracker, Routing, Fleet, Books, Lawn Sizer, Call Log, Time Records for admins, Files, Company News, and more), or add a custom URL of your own. Hub, Txt, Dialer, and Time Clock always lead the list; everything after that is yours. The desktop rail shows as many as fit; the mobile bar shows your first 5 — the rest live one tap away under More.</p>
         <p className="font-medium text-white mt-3">Hub sidebar contents</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">My Time Clock</strong> — backup access to the clock-in modal (same as the rail icon).</li>
@@ -687,14 +687,6 @@ function HubTab() {
         </ul>
         <AdminOnly>
           <p>Admins manage the tag list under <strong className="text-white">/admin/hub → Files Tags</strong>. Add, rename, or remove tags. Tags applied to existing files stay attached even if you rename the tag.</p>
-        </AdminOnly>
-      </Section>
-
-      <Section title="External Links">
-        <p>The <strong className="text-white">LINKS</strong> section near the bottom of the sidebar is a curated list of shortcuts to outside tools the team uses every day — Jobber, Gusto, QuickBooks, Captivated, and so on. Click any link to open it in a new browser tab.</p>
-        <Note>Click the chevron next to <strong className="text-white">LINKS</strong> to collapse the section if you don&apos;t want it taking up space.</Note>
-        <AdminOnly>
-          <p>Admins manage the list under <strong className="text-white">/admin/hub → External Links</strong>. Each link has a name, URL, emoji icon, and sort order. Use multiples of 10 for sort order (10, 20, 30…) so you can insert new links between later. Everyone in Hub sees the same set of links.</p>
         </AdminOnly>
       </Section>
 
@@ -1287,7 +1279,7 @@ function DialerTab() {
       </Section>
 
       <Section title="Placing a Call">
-        <Step n={1}>Open <strong className="text-white">Dialer</strong> from the sidebar under Tools → Communications, or from your favorites if you&apos;ve pinned it.</Step>
+        <Step n={1}>Open <strong className="text-white">Dialer</strong> from your app drawer, or from your favorites if you&apos;ve pinned it.</Step>
         <Step n={2}>Tap digits on the keypad or type a phone number directly into the field.</Step>
         <Step n={3}>Tap the green <strong className="text-white">Call</strong> button. The browser asks for microphone access the first time — say yes.</Step>
         <Step n={4}>While the call is connecting, the screen switches to the active-call view with caller info, a mute button, a keypad for tone entry (e.g. menu choices), and a red hang-up button.</Step>
@@ -1424,7 +1416,7 @@ function ContactsTab() {
   return (
     <>
       <Section title="Contacts">
-        <p>The Contacts page is your company-wide address book — the one central directory every tool reads from. It fills automatically from two places: your <strong className="text-white">Jobber customers</strong> and anyone added to the <Link href="/hub/tracker/leads" className="text-sky-400 hover:underline">Lead Tracker</Link>. You can also add someone by hand any time. Everyone lives in one searchable list at <strong className="text-white">Tools → Communications → Contacts</strong>, with one record per person.</p>
+        <p>The Contacts page is your company-wide address book — the one central directory every tool reads from. It fills automatically from two places: your <strong className="text-white">Jobber customers</strong> and anyone added to the <Link href="/hub/tracker/leads" className="text-sky-400 hover:underline">Lead Tracker</Link>. You can also add someone by hand any time. Everyone lives in one searchable list at <strong className="text-white">Contacts</strong> in your app drawer, with one record per person.</p>
         <p>Search by name, phone, or email from the top bar. Tap any contact to see their details, call them (Dialer), text them, or edit their info. Each contact now also holds a <strong className="text-white">company name</strong>, a <strong className="text-white">mailing address</strong>, and an <strong className="text-white">email subscription status</strong>, and shows where it came from (Jobber, the Lead Tracker, manually added, or imported).</p>
         <Note><strong className="text-white">Just calling or texting a number doesn&apos;t add it to Contacts.</strong> Random inbound texts and calls still show up in your Txt inbox and the Dialer exactly as before — but a number only becomes a saved contact when it&apos;s a Jobber customer, a lead, or you add it by hand. If someone you&apos;ve texted or called later becomes a customer or a lead, they turn into a full contact automatically — with their past conversation kept.</Note>
         <Note><strong className="text-white">Leads land here automatically.</strong> When a new lead is added to the <Link href="/hub/tracker/leads" className="text-sky-400 hover:underline">Lead Tracker</Link>, it&apos;s also added to Contacts (tagged source <em>Leads</em>) so you have one record for that person across the whole platform. Because a lead form isn&apos;t texting consent, lead-sourced contacts are set <strong className="text-white">do-not-text</strong> until someone opts them in.</Note>
@@ -1510,11 +1502,11 @@ function MarketingTab() {
   return (
     <>
       <Section title="The Marketing section">
-        <p>All marketing channels live under one roof. Open <strong className="text-white">Marketing</strong> (the megaphone icon, or Tools → Marketing → Marketing home) to reach the overview, then pick a channel from the cards or the Marketing sidebar: <strong className="text-white">Email</strong>, <strong className="text-white">Social</strong>, and — soon — <strong className="text-white">Txt</strong>. The Marketing sidebar stays with you as you move between channels, with admin shortcuts at the bottom for anyone with admin access.</p>
+        <p>All marketing channels live under one roof. Open <strong className="text-white">Marketing</strong> (the megaphone icon in your app drawer) to reach the overview, then pick a channel from the cards or the Marketing sidebar: <strong className="text-white">Email</strong>, <strong className="text-white">Social</strong>, and — soon — <strong className="text-white">Txt</strong>. The Marketing sidebar stays with you as you move between channels, with admin shortcuts at the bottom for anyone with admin access.</p>
       </Section>
       <Section title="Social Posting">
         <p>Schedule Facebook and Instagram posts directly from Hub Files photos — without leaving Lynxedo.</p>
-        <p className="mt-2">Navigate to <strong className="text-white">Marketing → Social</strong> from the Tools sidebar to access the queue.</p>
+        <p className="mt-2">Navigate to <strong className="text-white">Marketing → Social</strong> from your app drawer to access the queue.</p>
       </Section>
       <Section title="Creating a Post">
         <ol className="list-decimal pl-5 space-y-1">
@@ -1628,7 +1620,7 @@ function TimesheetTab() {
 
       <Section title="Admin — Time Records">
         <AdminOnly>
-          <p>Admins manage all timesheet data at <strong className="text-white">/admin/timesheet</strong> (also reachable from the Hub sidebar under Tools → Time Records).</p>
+          <p>Admins manage all timesheet data at <strong className="text-white">/admin/timesheet</strong> (also reachable from <strong className="text-white">Time Records</strong> in your app drawer).</p>
           <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
             <li>Review every employee&apos;s shifts for the pay period</li>
             <li><strong className="text-white">Edit one day at a time</strong> — on the Summary tab, expand an employee and click <strong className="text-white">✎ Edit</strong> on a day. The Clock In / Clock Out / reason editor opens right there on that day&apos;s row — no popup listing the whole week&apos;s punches.</li>
@@ -1793,13 +1785,13 @@ function FormsTab() {
   return (
     <>
       <Section title="What are Forms?">
-        <p>Forms is a customizable checklist and inspection tool. Your admin team builds forms in the <strong className="text-white">Form Builder</strong>, and field technicians fill them out from <strong className="text-white">Tools → Forms</strong>.</p>
+        <p>Forms is a customizable checklist and inspection tool. Your admin team builds forms in the <strong className="text-white">Form Builder</strong>, and field technicians fill them out from <strong className="text-white">Forms</strong> in their app drawer.</p>
         <p className="mt-2">Uses include after-service reports, irrigation inspection checklists, equipment sign-offs, and any other structured data you want to capture per job.</p>
       </Section>
 
       <Section title="Filling Out a Form">
         <ol className="list-decimal list-inside text-gray-400 space-y-2 ml-2">
-          <li>Go to <strong className="text-white">Tools → Forms</strong> in the sidebar.</li>
+          <li>Go to <strong className="text-white">Forms</strong> in your app drawer.</li>
           <li>Tap the form you want to fill out (e.g. <em>Irrigation Inspection Report</em>).</li>
           <li>Fill in each field — checkboxes, dates, short answers, dropdowns, etc.</li>
           <li>For the <strong className="text-white">signature field</strong>, draw directly on the canvas with your finger or stylus. Tap <em>Clear</em> to redo.</li>
@@ -2029,7 +2021,7 @@ function PricerTab() {
   return (
     <>
       <Section title="What is the Pricer?">
-        <p>The Pricer is a fast quoting tool for the office and sales team. Enter a customer&apos;s <strong className="text-white">lawn size</strong> and it instantly prices every program — per visit and annual — plus the add-ons. It lives at <strong className="text-white">Pricer</strong> in your app menu (under Tools → Sales).</p>
+        <p>The Pricer is a fast quoting tool for the office and sales team. Enter a customer&apos;s <strong className="text-white">lawn size</strong> and it instantly prices every program — per visit and annual — plus the add-ons. It lives at <strong className="text-white">Pricer</strong> in your app menu.</p>
         <p className="mt-2">All the numbers come <strong className="text-white">live from the Service Builder</strong> — whatever an admin has published is what you quote. When pricing changes, it&apos;s published once in the Builder and the Pricer updates automatically. There&apos;s nothing to edit here.</p>
       </Section>
 

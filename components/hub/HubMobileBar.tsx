@@ -5,6 +5,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { railFromPath } from './HubRail'
 import {
   CatalogIcon,
+  CustomUrlIcon,
   AppsIcon,
   DndIcon,
   catalogById,
@@ -28,8 +29,6 @@ export default function HubMobileBar({
   onPhoneClick,
   onUserSlotNav,
   onTimeClockClick,
-  onToolsClick,
-  onLinksClick,
   onToggleDnd,
   onToggleHubDnd,
   onToggleDialerDnd,
@@ -59,8 +58,6 @@ export default function HubMobileBar({
   /** Open the mobile drawer for a sidebar-backed item (Txt / Dialer). */
   onUserSlotNav?: () => void
   onTimeClockClick: () => void
-  onToolsClick: () => void
-  onLinksClick: () => void
   onToggleDnd: () => void
   onToggleHubDnd?: () => void
   onToggleDialerDnd?: () => void
@@ -114,14 +111,6 @@ export default function HubMobileBar({
     if (drawerOpen && active === 'dialer' && !activeManualRail) { onCloseDrawer?.(); return }
     onPhoneClick()
     if (active !== 'dialer') router.push('/hub/dialer')
-  }
-
-  function wrapToggleable(slotId: string, openFn: () => void) {
-    return (e: React.MouseEvent) => {
-      e.preventDefault()
-      if (drawerOpen && activeManualRail === slotId) { onCloseDrawer?.(); return }
-      openFn()
-    }
   }
 
   const btn = (isActive: boolean) =>
@@ -178,7 +167,7 @@ export default function HubMobileBar({
       try { label = new URL(c.href).hostname.replace(/^www\./, '') } catch {}
       return (
         <a key={`url-${idx}`} href={c.href} target="_blank" rel="noopener noreferrer" className={btn(false)}>
-          <CatalogIcon id="links" />
+          <CustomUrlIcon />
           <span className="truncate max-w-full px-1">{label}</span>
         </a>
       )
@@ -263,22 +252,6 @@ export default function HubMobileBar({
         <button key={`txt2-${idx}`} type="button" onClick={onClick} className={btn(active === 'txt2')}>
           <span className="relative"><CatalogIcon id="txt2" />{dot(!!txtUnread && active !== 'txt2')}</span>
           <span>Txt</span>
-        </button>
-      )
-    }
-    if (id === 'tools') {
-      return (
-        <button key={`tools-${idx}`} type="button" onClick={wrapToggleable('tools', onToolsClick)} className={btn(false)}>
-          <CatalogIcon id="tools" />
-          <span>Tools</span>
-        </button>
-      )
-    }
-    if (id === 'links') {
-      return (
-        <button key={`links-${idx}`} type="button" onClick={wrapToggleable('links', onLinksClick)} className={btn(false)}>
-          <CatalogIcon id="links" />
-          <span>Links</span>
         </button>
       )
     }

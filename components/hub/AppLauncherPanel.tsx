@@ -3,7 +3,7 @@
 import Link from 'next/link'
 import { useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { CatalogIcon, DndIcon, catalogById, type CatalogId, type RailPermissions } from './railCatalog'
+import { CatalogIcon, CustomUrlIcon, DndIcon, catalogById, type CatalogId, type RailPermissions } from './railCatalog'
 import { classifyToken } from '@/lib/hub-layout'
 import { resolveMenuAccent, resolveMenuLabel, convFirstNames, type MenuContext } from './menuItem'
 
@@ -21,8 +21,6 @@ export default function AppLauncherPanel({
   onSearch,
   onActivity,
   onProfile,
-  onTools,
-  onLinks,
   onTimeClock,
   onToggleDnd,
   onToggleHubDnd,
@@ -44,8 +42,6 @@ export default function AppLauncherPanel({
   onSearch: () => void
   onActivity: () => void
   onProfile: () => void
-  onTools: () => void
-  onLinks: () => void
   onTimeClock: () => void
   onToggleDnd: () => void
   onToggleHubDnd?: () => void
@@ -115,7 +111,7 @@ export default function AppLauncherPanel({
       onClick = () => onToggleDialerDnd?.()
     } else if (c.kind === 'url') {
       try { label = new URL(c.href).hostname.replace(/^www\./, '') } catch { label = c.href }
-      icon = <span className="text-white/80"><CatalogIcon id="links" /></span>
+      icon = <span className="text-white/80"><CustomUrlIcon /></span>
       onClick = () => { onClose(); window.open(c.href, '_blank', 'noopener') }
     } else if (c.kind === 'room') {
       const room = rooms.find(r => r.id === c.id)
@@ -133,8 +129,6 @@ export default function AppLauncherPanel({
       const id = c.id
       if (id === 'hub') { label = 'Hub'; icon = <CatalogIcon id="hub" />; onClick = openHub }
       else if (id === 'time-clock') { label = 'Clock'; icon = <CatalogIcon id="time-clock" />; onClick = () => { onClose(); onTimeClock() } }
-      else if (id === 'tools') { label = 'Tools'; icon = <CatalogIcon id="tools" />; onClick = () => { onClose(); onTools() } }
-      else if (id === 'links') { label = 'Links'; icon = <CatalogIcon id="links" />; onClick = () => { onClose(); onLinks() } }
       else {
         const entry = catalogById(id, permissions)
         if (!entry) return null

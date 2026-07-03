@@ -79,15 +79,6 @@ type ChatSynxBridge = {
   hub_room: { id: string; name: string } | null
 }
 
-type ExternalLink = {
-  id: string
-  name: string
-  url: string
-  icon: string
-  sort_order: number
-  created_at: string
-}
-
 const DURATION_OPTIONS = [
   { label: '1 day', hours: 24 },
   { label: '3 days', hours: 72 },
@@ -209,24 +200,8 @@ export default function HubAdminPanel({
     name: '', color: '#6B7280', tag_type: 'general', description: ''
   })
 
-  // External Links
-  const [externalLinks, setExternalLinks] = useState<ExternalLink[]>([])
-  const [externalLinksLoaded, setExternalLinksLoaded] = useState(false)
-  const [newLinkName, setNewLinkName] = useState('')
-  const [newLinkUrl, setNewLinkUrl] = useState('')
-  const [newLinkIcon, setNewLinkIcon] = useState('🔗')
-  const [newLinkSortOrder, setNewLinkSortOrder] = useState(0)
-  const [savingLink, setSavingLink] = useState(false)
-  const [linkError, setLinkError] = useState('')
-  const [showNewLinkEmojiPicker, setShowNewLinkEmojiPicker] = useState(false)
-  const [editingLinkId, setEditingLinkId] = useState<string | null>(null)
-  const [editLinkDraft, setEditLinkDraft] = useState<{ name: string; url: string; icon: string; sort_order: number }>({
-    name: '', url: '', icon: '🔗', sort_order: 0,
-  })
-  const [showEditLinkEmojiPicker, setShowEditLinkEmojiPicker] = useState(false)
-
   // Section tabs
-  const [tab, setTab] = useState<'rooms' | 'members' | 'settings' | 'announcements' | 'api-keys' | 'automation' | 'chat-synx' | 'file-tags' | 'external-links'>(only ?? 'rooms')
+  const [tab, setTab] = useState<'rooms' | 'members' | 'settings' | 'announcements' | 'api-keys' | 'automation' | 'chat-synx' | 'file-tags'>(only ?? 'rooms')
 
   // In single-section ("only") mode the tab bar is hidden, so load that
   // section's lazy data on mount instead of on a tab click.
@@ -617,75 +592,6 @@ export default function HubAdminPanel({
     setFileTags(prev => prev.filter(t => t.id !== tag.id))
   }
 
-  async function loadExternalLinks() {
-    const res = await fetch('/api/admin/external-links')
-    if (!res.ok) return
-    const data = await res.json()
-    setExternalLinks(data.links ?? [])
-    setExternalLinksLoaded(true)
-  }
-
-  async function createExternalLink() {
-    if (!newLinkName.trim() || !newLinkUrl.trim() || savingLink) return
-    setSavingLink(true)
-    setLinkError('')
-    const res = await fetch('/api/admin/external-links', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: newLinkName.trim(),
-        url: newLinkUrl.trim(),
-        icon: newLinkIcon || '🔗',
-        sort_order: newLinkSortOrder,
-      }),
-    })
-    const data = await res.json()
-    setSavingLink(false)
-    if (!res.ok) { setLinkError(data.error ?? 'Failed to create link'); return }
-    setExternalLinks(prev => [...prev, data.link].sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)))
-    setNewLinkName(''); setNewLinkUrl(''); setNewLinkIcon('🔗'); setNewLinkSortOrder(0)
-    window.dispatchEvent(new Event('hub-external-links-changed'))
-  }
-
-  function startEditLink(link: ExternalLink) {
-    setEditingLinkId(link.id)
-    setEditLinkDraft({ name: link.name, url: link.url, icon: link.icon, sort_order: link.sort_order })
-    setLinkError('')
-  }
-
-  async function saveEditLink(id: string) {
-    if (!editLinkDraft.name.trim() || !editLinkDraft.url.trim()) return
-    setLinkError('')
-    const res = await fetch(`/api/admin/external-links/${id}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({
-        name: editLinkDraft.name.trim(),
-        url: editLinkDraft.url.trim(),
-        icon: editLinkDraft.icon || '🔗',
-        sort_order: editLinkDraft.sort_order,
-      }),
-    })
-    const data = await res.json()
-    if (!res.ok) { setLinkError(data.error ?? 'Failed to update link'); return }
-    setExternalLinks(prev => prev.map(l => l.id === id ? data.link : l)
-      .sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)))
-    setEditingLinkId(null)
-    window.dispatchEvent(new Event('hub-external-links-changed'))
-  }
-
-  async function deleteExternalLink(link: ExternalLink) {
-    if (!(await confirmDialog({ message: `Delete link "${link.name}"?`, danger: true }))) return
-    const res = await fetch(`/api/admin/external-links/${link.id}`, { method: 'DELETE' })
-    if (!res.ok) {
-      const data = await res.json().catch(() => ({}))
-      toast.error(data.error ?? 'Failed to delete link')
-      return
-    }
-    setExternalLinks(prev => prev.filter(l => l.id !== link.id))
-    window.dispatchEvent(new Event('hub-external-links-changed'))
-  }
-
   async function loadAutomationRules() {
     if (automationLoaded) return
     const [rulesRes, boardsRes] = await Promise.all([
@@ -759,11 +665,10 @@ export default function HubAdminPanel({
           ['api-keys', 'API Keys'],
           ['automation', 'Automation'],
           ['chat-synx', 'Chat Synx'],
-          ['external-links', 'External Links'],
         ] as const).map(([key, label]) => (
           <button
             key={key}
-            onClick={() => { setTab(key); if (key === 'api-keys') loadApiKeys(); if (key === 'automation') loadAutomationRules(); if (key === 'chat-synx') { if (!chatSynxLinksLoaded) loadChatSynxLinks(); if (!chatSynxBridgesLoaded) loadChatSynxBridges(); } if (key === 'external-links' && !externalLinksLoaded) loadExternalLinks() }}
+            onClick={() => { setTab(key); if (key === 'api-keys') loadApiKeys(); if (key === 'automation') loadAutomationRules(); if (key === 'chat-synx') { if (!chatSynxLinksLoaded) loadChatSynxLinks(); if (!chatSynxBridgesLoaded) loadChatSynxBridges(); } }}
             className={`px-4 py-2.5 text-sm font-medium border-b-2 -mb-px transition-colors ${
               tab === key ? 'border-brand text-white' : 'border-transparent text-gray-500 hover:text-gray-300'
             }`}
@@ -2019,189 +1924,6 @@ Content-Type: application/json
         </div>
       )}
 
-      {/* ── EXTERNAL LINKS TAB ── */}
-      {tab === 'external-links' && (
-        <div className="space-y-8">
-          {/* Create link */}
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-            <h2 className="font-semibold text-white mb-1">Add External Link</h2>
-            <p className="text-sm text-gray-500 mb-4">
-              Links appear in the Hub sidebar under <strong className="text-white">LINKS</strong>. Click opens in a new tab. Use these for tools the team uses outside of Lynxedo (Jobber, Gusto, QBO, etc.).
-            </p>
-            <div className="grid grid-cols-1 md:grid-cols-[auto_1fr_auto] gap-3 items-end">
-              <div className="relative">
-                <label className="text-xs text-gray-400 block mb-1">Icon</label>
-                <button
-                  type="button"
-                  onClick={() => setShowNewLinkEmojiPicker(v => !v)}
-                  className="w-12 h-[42px] bg-gray-800 border border-gray-700 rounded-xl text-xl hover:border-brand transition-colors flex items-center justify-center"
-                  title="Pick emoji"
-                >
-                  {newLinkIcon}
-                </button>
-                {showNewLinkEmojiPicker && (
-                  <EmojiPicker
-                    onSelect={emoji => { setNewLinkIcon(emoji); setShowNewLinkEmojiPicker(false) }}
-                    onClose={() => setShowNewLinkEmojiPicker(false)}
-                  />
-                )}
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 block mb-1">Name</label>
-                <input
-                  value={newLinkName}
-                  onChange={e => setNewLinkName(e.target.value)}
-                  placeholder="e.g. Jobber"
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
-                />
-              </div>
-              <div>
-                <label className="text-xs text-gray-400 block mb-1">Sort order</label>
-                <input
-                  type="number"
-                  value={newLinkSortOrder}
-                  onChange={e => setNewLinkSortOrder(parseInt(e.target.value) || 0)}
-                  className="w-24 bg-gray-800 border border-gray-700 rounded-xl px-3 py-2.5 text-sm text-white outline-none focus:border-brand"
-                />
-              </div>
-              <div className="md:col-span-3">
-                <label className="text-xs text-gray-400 block mb-1">URL</label>
-                <input
-                  value={newLinkUrl}
-                  onChange={e => setNewLinkUrl(e.target.value)}
-                  onKeyDown={e => e.key === 'Enter' && createExternalLink()}
-                  placeholder="https://..."
-                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white placeholder-gray-500 outline-none focus:border-brand"
-                />
-              </div>
-            </div>
-            {linkError && <p className="text-sm text-red-400 mt-3">{linkError}</p>}
-            <button
-              onClick={createExternalLink}
-              disabled={savingLink || !newLinkName.trim() || !newLinkUrl.trim()}
-              className="mt-4 px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
-            >
-              {savingLink ? 'Adding…' : 'Add Link'}
-            </button>
-          </div>
-
-          {/* Links list */}
-          <div>
-            <h2 className="font-semibold text-white mb-3">Links ({externalLinks.length})</h2>
-            {!externalLinksLoaded ? (
-              <p className="text-sm text-gray-500 px-1">Loading…</p>
-            ) : externalLinks.length === 0 ? (
-              <p className="text-sm text-gray-500 px-1">No links yet. Add one above.</p>
-            ) : (
-              <div className="space-y-2">
-                {externalLinks.map(link => (
-                  <div key={link.id} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3">
-                    {editingLinkId === link.id ? (
-                      <div className="space-y-3">
-                        <div className="flex gap-3 items-end flex-wrap">
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={() => setShowEditLinkEmojiPicker(v => !v)}
-                              className="w-12 h-10 bg-gray-800 border border-gray-700 rounded-lg text-lg hover:border-brand transition-colors flex items-center justify-center"
-                              title="Pick emoji"
-                            >
-                              {editLinkDraft.icon}
-                            </button>
-                            {showEditLinkEmojiPicker && (
-                              <EmojiPicker
-                                onSelect={emoji => {
-                                  setEditLinkDraft(d => ({ ...d, icon: emoji }))
-                                  setShowEditLinkEmojiPicker(false)
-                                }}
-                                onClose={() => setShowEditLinkEmojiPicker(false)}
-                              />
-                            )}
-                          </div>
-                          <input
-                            value={editLinkDraft.name}
-                            onChange={e => setEditLinkDraft(d => ({ ...d, name: e.target.value }))}
-                            placeholder="Name"
-                            className="flex-1 min-w-[180px] bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand"
-                          />
-                          <input
-                            type="number"
-                            value={editLinkDraft.sort_order}
-                            onChange={e => setEditLinkDraft(d => ({ ...d, sort_order: parseInt(e.target.value) || 0 }))}
-                            className="w-20 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand"
-                            title="Sort order"
-                          />
-                        </div>
-                        <input
-                          value={editLinkDraft.url}
-                          onChange={e => setEditLinkDraft(d => ({ ...d, url: e.target.value }))}
-                          placeholder="https://..."
-                          className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white outline-none focus:border-brand"
-                        />
-                        <div className="flex gap-2 justify-end">
-                          <button
-                            onClick={() => setEditingLinkId(null)}
-                            className="px-3 py-1.5 text-xs text-gray-400 hover:text-gray-200 transition-colors"
-                          >
-                            Cancel
-                          </button>
-                          <button
-                            onClick={() => saveEditLink(link.id)}
-                            disabled={!editLinkDraft.name.trim() || !editLinkDraft.url.trim()}
-                            className="px-4 py-1.5 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-40 text-xs text-white font-medium transition-colors"
-                          >
-                            Save
-                          </button>
-                        </div>
-                        {linkError && <p className="text-sm text-red-400">{linkError}</p>}
-                      </div>
-                    ) : (
-                      <div className="flex items-center gap-3">
-                        <span className="text-xl flex-none">{link.icon}</span>
-                        <div className="flex-1 min-w-0">
-                          <div className="text-sm text-white font-medium truncate">{link.name}</div>
-                          <a
-                            href={link.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="text-xs text-gray-500 hover:text-gray-300 truncate block"
-                          >
-                            {link.url}
-                          </a>
-                        </div>
-                        <span className="text-xs text-gray-600 flex-none">#{link.sort_order}</span>
-                        <button
-                          onClick={() => startEditLink(link)}
-                          className="text-xs text-gray-400 hover:text-white px-2 py-1 transition-colors"
-                        >
-                          Edit
-                        </button>
-                        <button
-                          onClick={() => deleteExternalLink(link)}
-                          className="text-xs text-red-400 hover:text-red-300 px-2 py-1 transition-colors"
-                        >
-                          Delete
-                        </button>
-                      </div>
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-          </div>
-
-          {/* Help */}
-          <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-            <h2 className="font-semibold text-white mb-3">About External Links</h2>
-            <div className="space-y-3 text-sm text-gray-400">
-              <p>Links show up in the Hub sidebar under the <strong className="text-white">LINKS</strong> section, between Pages and the bottom of the sidebar. The section is collapsible — clicking the chevron hides it.</p>
-              <p>Everyone in Hub sees the same set of links. Only admins can add, edit, or delete them.</p>
-              <p><strong className="text-white">Sort order</strong> controls the order links appear in the sidebar (lower numbers first). Use multiples of 10 (10, 20, 30…) so you can insert between later.</p>
-              <p>Clicking a link opens the URL in a new browser tab.</p>
-            </div>
-          </div>
-        </div>
-      )}
     </div>
   )
 }
