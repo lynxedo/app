@@ -528,9 +528,14 @@ export default function FleetPage() {
       draw()
       return
     }
-    map.once('load', draw)
+    // NOT map.once('load', …): 'load' fires exactly once per map lifetime, so
+    // if the style is merely mid-repaint (isStyleLoaded() is transiently false
+    // — e.g. tiles still streaming in when the user clicks Show path) a 'load'
+    // listener never fires and nothing draws until the next click. 'idle'
+    // re-fires every time the map settles.
+    map.once('idle', draw)
     return () => {
-      map.off('load', draw)
+      map.off('idle', draw)
     }
   }, [hist, mapReady])
 
