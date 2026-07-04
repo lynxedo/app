@@ -127,3 +127,34 @@ export function enforceRateLimit(
   }
   return null
 }
+
+// ── Module access ─────────────────────────────────────────────────────────────
+// Make extension actions respect the same Hub module gates as the web app: a
+// token must not drive a module its owner can't access in the Hub. Scan/extract
+// needs no module (the core function is always available); adding to the
+// directory has no module flag. Admins pass everything; the txt check mirrors the
+// app's isTxtUser (Txt access OR a Txt manager).
+export async function tokenUserHasModuleAccess(
+  userId: string,
+  moduleName: 'txt' | 'tracker' | 'dialer'
+): Promise<boolean> {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('user_profiles')
+    .select(
+      'role, can_admin_txt, can_assign_txt_threads, can_access_txt, can_access_tracker, can_access_dialer'
+    )
+    .eq('id', userId)
+    .maybeSingle()
+  if (!data) return false
+  if (data.role === 'admin') return true
+  if (moduleName === 'txt') {
+    return (
+      data.can_access_txt === true ||
+      data.can_admin_txt === true ||
+      data.can_assign_txt_threads === true
+    )
+  }
+  if (moduleName === 'tracker') return data.can_access_tracker === true
+  return data.can_access_dialer === true
+}

@@ -4,6 +4,7 @@ import { sendDirectTxtMessage } from '@/lib/txt-send'
 import {
   authenticateExtensionRequest,
   enforceRateLimit,
+  tokenUserHasModuleAccess,
   EXTENSION_CORS_HEADERS,
   extensionPreflight,
 } from '@/lib/extension-auth'
@@ -40,6 +41,12 @@ export async function POST(request: Request) {
     { key: `ext:text:day:${auth.tokenId}`, limit: 200, windowMs: 86_400_000 },
   ])
   if (limited) return limited
+
+  // Respect the Hub's Txt gate — a token can't send SMS if its owner can't text
+  // in the app (e.g. a scan-only / reviewer account). Scanning stays ungated.
+  if (!(await tokenUserHasModuleAccess(userId, 'txt'))) {
+    return json({ error: 'This account is not enabled for texting.' }, 403)
+  }
 
   const body = await request.json().catch(() => ({}))
   const text: string = typeof body.body === 'string' ? body.body.trim() : ''
