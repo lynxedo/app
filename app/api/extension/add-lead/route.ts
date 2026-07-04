@@ -4,6 +4,7 @@ import { syncLeadToDirectory } from '@/lib/contacts-directory'
 import {
   authenticateExtensionRequest,
   enforceRateLimit,
+  tokenUserHasModuleAccess,
   EXTENSION_CORS_HEADERS,
   extensionPreflight,
 } from '@/lib/extension-auth'
@@ -37,6 +38,12 @@ export async function POST(request: Request) {
     { key: `ext:add-lead:${auth.tokenId}`, limit: 60, windowMs: 60_000 },
   ])
   if (limited) return limited
+
+  // Respect the Hub's Lead Tracker gate — no creating leads from the extension if
+  // the account can't access the tracker in the app.
+  if (!(await tokenUserHasModuleAccess(userId, 'tracker'))) {
+    return json({ error: 'This account is not enabled for the Lead Tracker.' }, 403)
+  }
 
   const body = await request.json().catch(() => ({}))
   const s = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)
