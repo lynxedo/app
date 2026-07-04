@@ -3,6 +3,7 @@ import { toE164 } from '@/lib/twilio'
 import { sendDirectTxtMessage } from '@/lib/txt-send'
 import {
   authenticateExtensionRequest,
+  enforceRateLimit,
   EXTENSION_CORS_HEADERS,
   extensionPreflight,
 } from '@/lib/extension-auth'
@@ -31,6 +32,14 @@ export async function POST(request: Request) {
   const auth = await authenticateExtensionRequest(request)
   if (!auth) return json({ error: 'Unauthorized' }, 401)
   const { userId, companyId } = auth
+
+  // Texts are the highest-risk action (real SMS, A2P compliance). Cap per-minute
+  // bursts and daily volume per token.
+  const limited = enforceRateLimit([
+    { key: `ext:text:min:${auth.tokenId}`, limit: 15, windowMs: 60_000 },
+    { key: `ext:text:day:${auth.tokenId}`, limit: 200, windowMs: 86_400_000 },
+  ])
+  if (limited) return limited
 
   const body = await request.json().catch(() => ({}))
   const text: string = typeof body.body === 'string' ? body.body.trim() : ''

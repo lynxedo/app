@@ -3,6 +3,7 @@ import { getAnthropic } from '@/lib/anthropic'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
   authenticateExtensionRequest,
+  enforceRateLimit,
   EXTENSION_CORS_HEADERS,
   extensionPreflight,
 } from '@/lib/extension-auth'
@@ -23,7 +24,10 @@ import {
 // Cheap/fast model for a simple extraction task. Env-overridable so accuracy can
 // be escalated without a deploy (Chrome Extension PRD open decision #4).
 const EXTRACT_MODEL = process.env.EXTENSION_EXTRACT_MODEL || 'claude-haiku-4-5-20251001'
-const MAX_INPUT_CHARS = 14_000
+// Long directory / "About" pages can carry contacts well past the old 14k cap;
+// Haiku's context handles 30k trivially, so raise it to avoid silently dropping
+// the tail of a page. Whitespace is already collapsed client-side before send.
+const MAX_INPUT_CHARS = 30_000
 
 export type ExtractedContact = {
   name: string | null
@@ -138,9 +142,52 @@ function regexFallback(text: string): ExtractedContact[] {
   return out
 }
 
+// Collapse duplicate detections (the same person listed in a header and again in
+// a footer, or a repeated directory row) keyed by phone (last 10) → email. The
+// first occurrence is kept and any blank fields are backfilled from later dupes,
+// so we surface one complete card instead of several partial ones. Contacts with
+// neither a phone nor an email are already filtered out upstream.
+function dedupeContacts(list: ExtractedContact[]): ExtractedContact[] {
+  const seen = new Map<string, ExtractedContact>()
+  const out: ExtractedContact[] = []
+  for (const c of list) {
+    const key = tenDigits(c.phone) || (c.email ? c.email.toLowerCase() : null)
+    if (!key) { out.push(c); continue }
+    const kept = seen.get(key)
+    if (!kept) { seen.set(key, c); out.push(c); continue }
+    kept.name ||= c.name
+    kept.first_name ||= c.first_name
+    kept.last_name ||= c.last_name
+    kept.phone ||= c.phone
+    kept.email ||= c.email
+    kept.company ||= c.company
+    kept.address ||= c.address
+    kept.context ||= c.context
+  }
+  return out
+}
+
+// Single exit path for every extraction result: dedupe, annotate directory
+// matches, and return with CORS.
+async function respond(
+  companyId: string,
+  contacts: ExtractedContact[],
+  extra: Record<string, unknown> = {}
+) {
+  const deduped = dedupeContacts(contacts)
+  await annotateMatches(companyId, deduped)
+  return json({ contacts: deduped, ...extra })
+}
+
 export async function POST(request: Request) {
   const auth = await authenticateExtensionRequest(request)
   if (!auth) return json({ error: 'Unauthorized' }, 401)
+
+  // Each extract calls Claude, so cap per-token throughput to blunt a leaked token.
+  const limited = enforceRateLimit([
+    { key: `ext:extract:${auth.tokenId}`, limit: 30, windowMs: 60_000 },
+  ])
+  if (limited) return limited
 
   const body = await request.json().catch(() => ({}))
   const rawText: string = typeof body.text === 'string' ? body.text : ''
@@ -152,9 +199,7 @@ export async function POST(request: Request) {
 
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
-    const contacts = regexFallback(text)
-    await annotateMatches(auth.companyId, contacts)
-    return json({ contacts, degraded: true })
+    return respond(auth.companyId, regexFallback(text), { degraded: true })
   }
 
   try {
@@ -166,7 +211,7 @@ export async function POST(request: Request) {
         {
           name: 'return_contacts',
           description:
-            'Return every distinct real person or business contact found in the page text, with their phone and/or email when present. Do not invent data. Only include an entry if it has at least a phone or an email.',
+            'Return every distinct real person or business contact found in the page text, with their phone and/or email when present. If the same person appears more than once, return them a single time with the most complete details merged. Do not invent data. Only include an entry if it has at least a phone or an email.',
           input_schema: {
             type: 'object',
             properties: {
@@ -226,12 +271,9 @@ export async function POST(request: Request) {
       // A contact is only useful if we can act on it — needs a phone or email.
       .filter((c) => c.phone || c.email)
 
-    await annotateMatches(auth.companyId, contacts)
-    return json({ contacts })
+    return respond(auth.companyId, contacts)
   } catch (e) {
     console.error('[extension/extract] model call failed', e)
-    const contacts = regexFallback(text)
-    await annotateMatches(auth.companyId, contacts)
-    return json({ contacts, degraded: true })
+    return respond(auth.companyId, regexFallback(text), { degraded: true })
   }
 }
