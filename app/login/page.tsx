@@ -157,7 +157,11 @@ function LoginForm() {
         .single()
       if (profile?.landing_page === 'dashboard') landing = '/dashboard'
     }
-    router.push(landing)
+    // Honor a safe internal ?next= (used by the browser-extension sign-in flow,
+    // /extension/connect). Only same-site paths — never an absolute/external URL.
+    const nextParam = searchParams.get('next')
+    const dest = nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : landing
+    router.push(dest)
   }
 
   const handleUseDifferentEmail = () => {
@@ -187,7 +191,11 @@ function LoginForm() {
         .single()
       if (profile?.landing_page === 'dashboard') landing = '/dashboard'
     }
-    router.push(landing)
+    // Honor a safe internal ?next= (used by the browser-extension sign-in flow,
+    // /extension/connect). Only same-site paths — never an absolute/external URL.
+    const nextParam = searchParams.get('next')
+    const dest = nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : landing
+    router.push(dest)
   }
 
   return (
