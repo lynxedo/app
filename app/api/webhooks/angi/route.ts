@@ -210,32 +210,9 @@ export async function POST(request: Request) {
     console.error('[angi] office-room alert failed:', (e as Error).message)
   }
 
-  // Fill the custom "Email" tracker column. The Lead Tracker table has no
-  // built-in email column, so Heroes added a custom one — the built-in
-  // leads.email above won't show there. Look the column up by name (survives a
-  // rename/recreate) and set its value. Best-effort.
-  if (email) {
-    try {
-      const { data: emailCol } = await admin
-        .from('tracker_column_definitions')
-        .select('id')
-        .eq('company_id', HEROES_COMPANY_ID)
-        .ilike('name', 'email')
-        .limit(1)
-        .maybeSingle()
-      if (emailCol) {
-        await admin.from('lead_column_values').upsert({
-          lead_id: lead.id,
-          company_id: HEROES_COMPANY_ID,
-          column_id: emailCol.id,
-          value: email,
-          updated_at: new Date().toISOString(),
-        }, { onConflict: 'lead_id,column_id' })
-      }
-    } catch (e) {
-      console.error('[angi] email column fill failed:', (e as Error).message)
-    }
-  }
+  // (Email displays via the built-in Email column in the Lead Tracker as of
+  // July 2026. The old fill of a custom "Email" column was removed once that
+  // built-in column shipped and the redundant custom column was retired.)
 
   // Add to the unified contacts directory (best-effort; never blocks the lead).
   void syncLeadToDirectory(admin, HEROES_COMPANY_ID, {
