@@ -1685,6 +1685,12 @@ function SettingsTab() {
         <Note>⚠️ If visits aren&apos;t loading in the Route Optimizer, try disconnecting and reconnecting. The OAuth token occasionally needs a refresh.</Note>
       </Section>
 
+      <Section title="Integrations — Browser Extension">
+        <p>The Lynxedo browser extension scans the web page you&apos;re on for contacts and lets you add them to your directory, text them, or dial them — without leaving the page. To connect it, click <strong className="text-white">Generate token</strong> under <strong className="text-white">Settings → Integrations → Browser Extension</strong>, give it a label (like &ldquo;My laptop&rdquo;), and paste the token into the extension&apos;s settings.</p>
+        <p>The token is shown <strong className="text-white">only once</strong> — copy it right away. It lets the extension act as you, so treat it like a password. If a token is lost or a device is retired, click <strong className="text-white">Revoke</strong> next to it and the extension stops working immediately.</p>
+        <Note>Contacts added from the extension are textable by default, the same as leads and Jobber contacts — your company is responsible for having consent before texting.</Note>
+      </Section>
+
       <Section title="Account — Default Landing Page">
         <p>Where you land after signing in:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">

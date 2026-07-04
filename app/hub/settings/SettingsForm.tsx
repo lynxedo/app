@@ -9,6 +9,7 @@ import NotificationDeviceControls from '@/components/hub/NotificationDeviceContr
 import { type RailPermissions } from '@/components/hub/railCatalog'
 import TxtPersonalTemplates from './TxtPersonalTemplates'
 import DialerPersonalSettings from './DialerPersonalSettings'
+import ExtensionTokensSection from './ExtensionTokensSection'
 import DndScheduleEditor from '@/components/hub/DndScheduleEditor'
 import type { DndSchedule } from '@/lib/dnd-schedule'
 import { useToast, useConfirm } from '@/components/ui'
@@ -955,6 +956,9 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
           Routing settings (depot, duration rules, drive speed) live in <a href="/hub/admin/routing" className="text-orange-400 hover:text-orange-300 underline">Admin → Routing</a>.
         </p>
       </section>
+
+      {/* Browser Extension tokens */}
+      <ExtensionTokensSection />
 
       </>}
 
