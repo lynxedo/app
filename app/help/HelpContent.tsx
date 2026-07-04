@@ -1686,7 +1686,7 @@ function SettingsTab() {
       </Section>
 
       <Section title="Integrations — Browser Extension">
-        <p>The Lynxedo browser extension scans the web page you&apos;re on for contacts and lets you add them to your directory, text them, or dial them — without leaving the page. To connect it, click <strong className="text-white">Generate token</strong> under <strong className="text-white">Settings → Integrations → Browser Extension</strong>, give it a label (like &ldquo;My laptop&rdquo;), and paste the token into the extension&apos;s settings.</p>
+        <p>The Lynxedo browser extension scans the web page you&apos;re on for contacts and lets you add them to your directory, add them to the Lead Tracker, text them, or dial them — without leaving the page. It also shows an <strong className="text-white">In Hub</strong> badge on anyone already in your directory, so you don&apos;t create duplicates. To connect it, click <strong className="text-white">Generate token</strong> under <strong className="text-white">Settings → Integrations → Browser Extension</strong>, give it a label (like &ldquo;My laptop&rdquo;), and paste the token into the extension&apos;s settings.</p>
         <p>The token is shown <strong className="text-white">only once</strong> — copy it right away. It lets the extension act as you, so treat it like a password. If a token is lost or a device is retired, click <strong className="text-white">Revoke</strong> next to it and the extension stops working immediately.</p>
         <Note>Contacts added from the extension are textable by default, the same as leads and Jobber contacts — your company is responsible for having consent before texting.</Note>
       </Section>
