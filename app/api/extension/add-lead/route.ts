@@ -3,6 +3,7 @@ import { toE164 } from '@/lib/twilio'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
 import {
   authenticateExtensionRequest,
+  enforceRateLimit,
   EXTENSION_CORS_HEADERS,
   extensionPreflight,
 } from '@/lib/extension-auth'
@@ -31,6 +32,11 @@ export async function POST(request: Request) {
   const auth = await authenticateExtensionRequest(request)
   if (!auth) return json({ error: 'Unauthorized' }, 401)
   const { userId, companyId } = auth
+
+  const limited = enforceRateLimit([
+    { key: `ext:add-lead:${auth.tokenId}`, limit: 60, windowMs: 60_000 },
+  ])
+  if (limited) return limited
 
   const body = await request.json().catch(() => ({}))
   const s = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null)

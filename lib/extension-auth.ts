@@ -8,6 +8,7 @@
 // client for its work, scoping every query by companyId.
 import { createHash, randomBytes } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { rateLimit } from '@/lib/rate-limit'
 
 const TOKEN_PREFIX = 'lyx_ext_'
 
@@ -98,4 +99,31 @@ export const EXTENSION_CORS_HEADERS: Record<string, string> = {
 /** Standard preflight response for extension routes. */
 export function extensionPreflight(): Response {
   return new Response(null, { status: 204, headers: EXTENSION_CORS_HEADERS })
+}
+
+// ── Rate limiting ─────────────────────────────────────────────────────────────
+// Cap abuse from a leaked token. Every extension route runs one or more checks
+// keyed by the tokenId right after auth; the first check that trips returns a
+// ready 429 (with CORS + Retry-After). Limits are deliberately generous for real
+// human use — they only bite runaway/automated traffic.
+export function enforceRateLimit(
+  checks: Array<{ key: string; limit: number; windowMs: number }>
+): Response | null {
+  for (const c of checks) {
+    const r = rateLimit(c.key, c.limit, c.windowMs)
+    if (!r.ok) {
+      return new Response(
+        JSON.stringify({ error: 'Too many requests — please slow down and try again shortly.' }),
+        {
+          status: 429,
+          headers: {
+            'Content-Type': 'application/json',
+            'Retry-After': String(r.retryAfter),
+            ...EXTENSION_CORS_HEADERS,
+          },
+        }
+      )
+    }
+  }
+  return null
 }
