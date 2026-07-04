@@ -331,6 +331,18 @@ const LEAD_COLUMNS: ColumnDef[] = [
     ),
   },
   {
+    id: 'email', label: 'Email', defaultWidth: 200,
+    render: (lead, { lightMode, onUpdate }) => (
+      <EditCell value={lead.email} lightMode={lightMode} onSave={v => onUpdate(lead.id, 'email', v)} />
+    ),
+  },
+  {
+    id: 'service_address', label: 'Address', defaultWidth: 220,
+    render: (lead, { lightMode, onUpdate }) => (
+      <EditCell value={lead.service_address} lightMode={lightMode} onSave={v => onUpdate(lead.id, 'service_address', v)} />
+    ),
+  },
+  {
     id: 'service', label: 'Service', defaultWidth: 160,
     render: (lead, { opts, lightMode, onUpdate }) => (
       <MultiSelectCell values={lead.service} options={opts.service_options} lightMode={lightMode} onSave={v => onUpdate(lead.id, 'service', v)} />
