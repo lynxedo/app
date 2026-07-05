@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { callHeroesTool } from '@/lib/hub-claude'
+import { sendDirectTxtToPhone } from '@/lib/txt-send'
 
 function buildReportMessage(args: {
   firstName: string
@@ -117,29 +117,19 @@ export async function POST(
     notes: report.notes,
   })
 
-  // Send via Heroes MCP (Captivated).
-  let sent = false
-  let sendError: string | null = null
-  try {
-    const phoneForSend = rawDigits
-    const nameParts = stop.client_name.trim().split(/\s+/)
-    const lastName = nameParts.slice(1).join(' ') || undefined
-    const result = await callHeroesTool('send_text', {
-      to: phoneForSend,
-      message,
-      first_name: firstName,
-      ...(lastName ? { last_name: lastName } : {}),
-    })
-    sent = result.startsWith('✅')
-    if (!sent) {
-      sendError = result.replace(/^❌\s*/, '').slice(0, 200) || 'Send failed'
-    }
-  } catch (e) {
-    sendError = e instanceof Error ? e.message : 'Send failed'
-  }
+  // Send via the Twilio Txt stack (unified thread + inbound replies route back
+  // to the Txt inbox) — replaces the retired Captivated MCP send_text path.
+  const result = await sendDirectTxtToPhone({
+    admin,
+    companyId: profile.company_id,
+    userId: user.id,
+    phone: stop.client_phone,
+    name: stop.client_name,
+    body: message,
+  })
 
-  if (!sent) {
-    return NextResponse.json({ error: sendError ?? 'Send failed' }, { status: 502 })
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error ?? 'Send failed' }, { status: 502 })
   }
 
   // Stamp the report as sent.

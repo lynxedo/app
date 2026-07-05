@@ -12,7 +12,7 @@
 // route's direct path onto this helper; that refactor touches live customer
 // texting so it deserves its own staging cycle (deferred from Session 1).
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendSms, twilioConfigured } from '@/lib/twilio'
+import { sendSms, twilioConfigured, toE164 } from '@/lib/twilio'
 import { renderTemplate } from '@/lib/txt-templates'
 import { resolveFromNumber } from '@/lib/txt-numbers'
 import { buildMessagePreview } from '@/lib/txt-preview'
@@ -203,4 +203,121 @@ export async function sendDirectTxtMessage(opts: {
     .eq('id', inserted.id)
 
   return { ok: true, message_id: inserted.id, twilio_sid: result.sid, status: result.status }
+}
+
+// Find-or-create the contact + direct conversation for a raw phone number, then
+// send through sendDirectTxtMessage. For non-interactive server surfaces that
+// only have a phone (Daily Log On-My-Way + service-report texts) and can't reuse
+// the interactive route. Mirrors the extension text endpoint's find-or-create so
+// these texts behave like any other Txt: they land in the unified thread (owned
+// by the sending user) and customer replies route back to the Txt inbox.
+export async function sendDirectTxtToPhone(opts: {
+  admin: Admin
+  companyId: string
+  userId: string
+  phone: string
+  name?: string | null
+  body: string
+  templateId?: string | null
+}): Promise<DirectSendResult & { conversation_id?: string; contact_id?: string }> {
+  const { admin, companyId, userId } = opts
+
+  const e164 = toE164(opts.phone || '')
+  if (!e164) return { ok: false, error: 'Invalid phone number' }
+
+  // ── Find-or-create the contact (adopts an existing inbound stub by phone) ────
+  type Contact = { id: string; phone: string | null; name: string | null; do_not_text: boolean }
+  let contact: Contact | null = null
+
+  const { data: existing } = await admin
+    .from('txt_contacts')
+    .select('id, phone, name, do_not_text')
+    .eq('company_id', companyId)
+    .eq('phone', e164)
+    .maybeSingle()
+
+  if (existing) {
+    contact = existing as Contact
+  } else {
+    const name = (opts.name || '').trim() || e164
+    const { data: created, error } = await admin
+      .from('txt_contacts')
+      .insert({
+        company_id: companyId,
+        phone: e164,
+        phone_digits: e164.replace(/\D/g, '').slice(-10),
+        name,
+        do_not_text: false,
+        in_directory: true,
+        sources: ['daily-log'],
+      })
+      .select('id, phone, name, do_not_text')
+      .single()
+    if (error || !created) return { ok: false, error: error?.message || 'Contact create failed' }
+    contact = created as Contact
+  }
+
+  // ── Find-or-create the direct conversation, owned by the sender ─────────────
+  let conversationId: string
+  const { data: existingConv } = await admin
+    .from('txt_conversations')
+    .select('id, status')
+    .eq('company_id', companyId)
+    .eq('contact_id', contact.id)
+    .eq('kind', 'direct')
+    .maybeSingle()
+
+  if (existingConv) {
+    conversationId = existingConv.id as string
+    if (existingConv.status === 'archived') {
+      // Reopen + take ownership (mirrors /conversations/start + extension text).
+      await admin
+        .from('txt_conversations')
+        .update({ status: 'assigned', assigned_to: userId, archived_by: null })
+        .eq('id', conversationId)
+      await admin
+        .from('txt_conversation_members')
+        .delete()
+        .eq('conversation_id', conversationId)
+        .eq('role', 'owner')
+      await admin.from('txt_conversation_members').insert({
+        conversation_id: conversationId,
+        user_id: userId,
+        role: 'owner',
+        added_by: userId,
+      })
+    }
+  } else {
+    const { data: createdConv, error: convErr } = await admin
+      .from('txt_conversations')
+      .insert({
+        company_id: companyId,
+        contact_id: contact.id,
+        assigned_to: userId,
+        status: 'assigned',
+        kind: 'direct',
+      })
+      .select('id')
+      .single()
+    if (convErr || !createdConv) return { ok: false, error: convErr?.message || 'Conversation create failed' }
+    conversationId = createdConv.id as string
+    await admin.from('txt_conversation_members').insert({
+      conversation_id: conversationId,
+      user_id: userId,
+      role: 'owner',
+      added_by: userId,
+    })
+  }
+
+  const result = await sendDirectTxtMessage({
+    admin,
+    companyId,
+    conversationId,
+    contact,
+    userId,
+    body: opts.body,
+    templateId: opts.templateId ?? null,
+  })
+
+  return { ...result, conversation_id: conversationId, contact_id: contact.id }
 }

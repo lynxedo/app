@@ -41,6 +41,7 @@ type Contact = {
   email: string | null
   do_not_text: boolean
   jobber_client_id: string | null
+  in_directory?: boolean
 }
 
 type Conversation = {
@@ -217,6 +218,7 @@ export default function TxtConversationView({
   const [assignOpen, setAssignOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [editContactOpen, setEditContactOpen] = useState(false)
+  const [addContactOpen, setAddContactOpen] = useState(false)
   const [numbers, setNumbers] = useState<PhoneNumberOption[]>([])
   const [numberPickerOpen, setNumberPickerOpen] = useState(false)
   // Pending MMS attachments — staged client-side via the 📎 button, sent in
@@ -1162,6 +1164,14 @@ export default function TxtConversationView({
 
   const isArchived = conversation.status === 'archived'
   const phoneDisplay = conversation.contact ? formatPhone(conversation.contact.phone) : ''
+  // A hidden inbound stub (in_directory === false) isn't in the official
+  // directory yet. Offer a one-tap "Add to Contacts" that graduates it (POST
+  // /api/txt/contacts adopts the row by phone, keeping full history).
+  const contactInDirectory = conversation.contact?.in_directory !== false
+  const contactNameIsPlaceholder =
+    !!conversation.contact?.phone &&
+    (conversation.contact.name || '').replace(/\D/g, '') ===
+      conversation.contact.phone.replace(/\D/g, '')
   // Min for the schedule datetime-local input — 1 minute out (UX hint only;
   // the server validates send_at is in the future).
   const minScheduleDateTime = new Date(Date.now() + 60_000).toISOString().slice(0, 16)
@@ -1269,10 +1279,19 @@ export default function TxtConversationView({
         ) : (
           <button
             type="button"
-            onClick={() => conversation.contact && setEditContactOpen(true)}
+            onClick={() =>
+              conversation.contact &&
+              (contactInDirectory ? setEditContactOpen(true) : setAddContactOpen(true))
+            }
             disabled={!conversation.contact}
             className="min-w-0 text-left -ml-1 px-1 py-0.5 rounded hover:bg-white/5 disabled:cursor-default disabled:hover:bg-transparent"
-            title={conversation.contact ? 'Edit contact' : undefined}
+            title={
+              conversation.contact
+                ? contactInDirectory
+                  ? 'Edit contact'
+                  : 'Add to contacts'
+                : undefined
+            }
           >
             <div className="font-medium truncate">
               {conversation.contact?.name || 'Unknown'}
@@ -1281,6 +1300,17 @@ export default function TxtConversationView({
           </button>
         )}
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          {/* Not-in-directory → one-tap graduate to the contacts directory */}
+          {!isGroup && conversation.contact && !contactInDirectory && (
+            <button
+              type="button"
+              onClick={() => setAddContactOpen(true)}
+              className="text-xs px-2 py-1 rounded-md bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 whitespace-nowrap"
+              title="Save this number to your contacts directory"
+            >
+              + Add to Contacts
+            </button>
+          )}
           {/* Assignment chip */}
           <div className="relative">
             <button
@@ -2332,8 +2362,31 @@ export default function TxtConversationView({
           contact={conversation.contact as ContactForModal}
           onClose={() => setEditContactOpen(false)}
           onSaved={(updated) => {
-            setConversation({ ...conversation, contact: updated })
+            setConversation({
+              ...conversation,
+              contact: { ...conversation.contact!, ...updated },
+            })
             setEditContactOpen(false)
+          }}
+        />
+      )}
+
+      {addContactOpen && conversation.contact && (
+        <ContactModal
+          mode="create"
+          initial={{
+            name: contactNameIsPlaceholder ? '' : conversation.contact.name || '',
+            phone: conversation.contact.phone || '',
+          }}
+          onClose={() => setAddContactOpen(false)}
+          onCreated={(created) => {
+            // POST adopts the existing stub by phone (same id → history kept)
+            // and flips in_directory true; mirror that in local state.
+            setConversation({
+              ...conversation,
+              contact: { ...conversation.contact!, ...created, in_directory: true },
+            })
+            setAddContactOpen(false)
           }}
         />
       )}
