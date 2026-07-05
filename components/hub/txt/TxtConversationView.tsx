@@ -1307,8 +1307,11 @@ export default function TxtConversationView({
               onClick={() => setAddContactOpen(true)}
               className="text-xs px-2 py-1 rounded-md bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 whitespace-nowrap"
               title="Save this number to your contacts directory"
+              aria-label="Add to contacts"
             >
-              + Add to Contacts
+              {/* Icon-only on mobile (keeps the header to one row); labeled on desktop */}
+              <span aria-hidden className="sm:hidden">+👤</span>
+              <span className="hidden sm:inline">+ Add to Contacts</span>
             </button>
           )}
           {/* Assignment chip */}
