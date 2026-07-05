@@ -1008,14 +1008,19 @@ async function buildOfficeBoard(supabase: Awaited<ReturnType<typeof createClient
 // churn_reasons/churn_reason_aliases (old Monday + Jobber spellings both map);
 // unmapped reasons surface as churn_type 'Review', never silently dropped.
 // All aggregation happens in the scoreboard_churn_summary RPC.
+// Retention method = full-year book (see the churn_retention_by_year migration):
+//   retention(Y) = 1 − cancels-during-Y ÷ services-on-the-book-at-any-point-in-Y.
+// Works identically for any year, so the board can show the current year (YTD) as
+// the headline and the prior year (full year) as a reminder. The prior-year figure
+// matters because the Recurring Services board began in 2025 — there's no earlier
+// start-of-year base, so a start-of-year cohort can't be computed for 2025.
 type ChurnSummary = {
   year: number
-  active_now: number; upgraded: number; downgraded: number
-  new_in_year: number; start_of_year: number
+  book_size: number; active_now: number; new_in_year: number
   churned_gross: number; churned_controllable: number
   churned_company_initiated: number; churned_uncontrollable: number; churned_review: number
   churned_annual_value: number; active_annual_value: number
-  gross_churn_pct: number | null; controllable_churn_pct: number | null
+  retention_pct: number | null; gross_churn_pct: number | null; controllable_churn_pct: number | null
   by_reason: { reason: string; churn_type: string; count: number; annual_value: number }[]
   by_type: { churn_type: string; count: number; annual_value: number }[]
   monthly: { month: string; gross: number; controllable: number }[]
@@ -1023,16 +1028,30 @@ type ChurnSummary = {
 
 async function buildRetentionBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
   const year = new Date().getFullYear()
-  const { data, error } = await supabase.rpc('scoreboard_churn_summary', { p_company_id: company, p_year: year })
+  const [{ data: cur, error }, { data: prev, error: prevErr }] = await Promise.all([
+    supabase.rpc('scoreboard_churn_summary', { p_company_id: company, p_year: year }),
+    supabase.rpc('scoreboard_churn_summary', { p_company_id: company, p_year: year - 1 }),
+  ])
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
-  const s = data as unknown as ChurnSummary
+  if (prevErr) return NextResponse.json({ error: prevErr.message }, { status: 500 })
+  const s = cur as unknown as ChurnSummary
+  const p = prev as unknown as ChurnSummary
+  // Prior full year is only worth showing once it actually has a book behind it.
+  const prior = p.book_size > 0
+    ? { year: p.year, retention_pct: p.retention_pct, book_size: p.book_size, churned_gross: p.churned_gross, churned_annual_value: p.churned_annual_value }
+    : null
 
   // Owner-language callouts, computed server-side so snapshots freeze them too.
   const insights: string[] = []
-  const net = s.new_in_year - s.churned_gross
   insights.push(
-    `${year} so far: +${s.new_in_year} services added, −${s.churned_gross} cancelled → net ${net >= 0 ? '+' : ''}${net} (${s.start_of_year} → ${s.active_now}).`,
+    `${year} YTD: kept ${s.retention_pct}% of the ${s.book_size} recurring services on the books this year (${s.churned_gross} cancelled).`,
   )
+  if (prior && prior.retention_pct != null && s.retention_pct != null) {
+    const delta = Math.round((s.retention_pct - prior.retention_pct) * 10) / 10
+    insights.push(
+      `Retention is ${delta >= 0 ? 'up' : 'down'} ${Math.abs(delta)} pts vs ${prior.year} full year (${prior.retention_pct}%) — note ${year} is only part-way through, so it will move as the year finishes.`,
+    )
+  }
   const ctrl = s.by_type.find(t => t.churn_type === 'Controllable')
   if (ctrl && ctrl.count > 0) {
     insights.push(
@@ -1050,7 +1069,7 @@ async function buildRetentionBoard(supabase: Awaited<ReturnType<typeof createCli
     )
   }
 
-  return NextResponse.json({ asOf: new Date().toISOString(), ...s, insights })
+  return NextResponse.json({ asOf: new Date().toISOString(), ...s, prior, insights })
 }
 
 // ── Board 8: Lead Sources ────────────────────────────────────────────────────

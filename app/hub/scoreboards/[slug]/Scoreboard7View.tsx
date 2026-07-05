@@ -20,12 +20,12 @@ Chart.defaults.font.size = 11
 type Payload = {
   asOf: string
   year: number
-  active_now: number; upgraded: number; downgraded: number
-  new_in_year: number; start_of_year: number
+  book_size: number; active_now: number; new_in_year: number
   churned_gross: number; churned_controllable: number
   churned_company_initiated: number; churned_uncontrollable: number; churned_review: number
   churned_annual_value: number; active_annual_value: number
-  gross_churn_pct: number | null; controllable_churn_pct: number | null
+  retention_pct: number | null; gross_churn_pct: number | null; controllable_churn_pct: number | null
+  prior: { year: number; retention_pct: number | null; book_size: number; churned_gross: number; churned_annual_value: number } | null
   by_reason: { reason: string; churn_type: string; count: number; annual_value: number }[]
   by_type: { churn_type: string; count: number; annual_value: number }[]
   monthly: { month: string; gross: number; controllable: number }[]
@@ -89,32 +89,31 @@ function Kpi({ label, value, sub, color }: { label: string; value: string; sub?:
 }
 
 function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
-  const retention = data.gross_churn_pct != null ? Math.round((100 - data.gross_churn_pct) * 10) / 10 : null
+  const retention = data.retention_pct
   const net = data.new_in_year - data.churned_gross
+  const prior = data.prior
 
-  // Floating-bar waterfall: Start → +New → −Lost → Now. Each bar is a [low, high] span.
-  const wfStart = data.start_of_year
-  const wfAfterNew = wfStart + data.new_in_year
-  const waterfall = {
-    labels: [`Start of ${data.year}`, '+ New', '− Cancelled', 'Today'],
-    spans: [[0, wfStart], [wfStart, wfAfterNew], [data.active_now, wfAfterNew], [0, data.active_now]] as [number, number][],
-    colors: ['rgba(56,189,248,0.7)', 'rgba(34,197,94,0.75)', 'rgba(248,113,113,0.75)', 'rgba(56,189,248,0.7)'],
-    borders: ['#38bdf8', '#22c55e', '#f87171', '#38bdf8'],
-    deltas: [wfStart, data.new_in_year, -data.churned_gross, data.active_now],
-  }
+  // Retention by year: prior full year vs current YTD. Two bars, clearly labeled
+  // so the mid-year current number isn't mistaken for a finished-year figure.
+  const retYears = [
+    ...(prior && prior.retention_pct != null ? [{ label: `${prior.year} (full yr)`, pct: prior.retention_pct }] : []),
+    ...(retention != null ? [{ label: `${data.year} (YTD)`, pct: retention }] : []),
+  ]
 
   const monthLabels = data.monthly.map(m => new Date(m.month + '-15').toLocaleString('en-US', { month: 'short' }))
 
   return (
     <div className="mx-auto max-w-[1280px] px-4 md:px-6 pb-12 pt-2">
       {/* KPI summary */}
-      <SectionTitle>{data.year} Recurring Book — Year to Date</SectionTitle>
+      <SectionTitle>Recurring Book — {data.year} Year to Date{prior ? ` (vs ${prior.year})` : ''}</SectionTitle>
       <div className="grid grid-cols-2 gap-3.5 lg:grid-cols-4">
         <Kpi
-          label="Gross Retention"
+          label={`Gross Retention — ${data.year} YTD`}
           value={retention != null ? `${retention}%` : '—'}
           color={retention != null ? retColor(retention) : undefined}
-          sub={`${data.churned_gross} of ${data.start_of_year} services lost YTD`}
+          sub={prior && prior.retention_pct != null
+            ? <>{data.churned_gross} of {data.book_size} services lost · <span className="text-gray-400">{prior.year} full yr: {prior.retention_pct}%</span></>
+            : `${data.churned_gross} of ${data.book_size} services lost this year`}
         />
         <Kpi
           label="Controllable Churn"
@@ -125,7 +124,7 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
         <Kpi
           label="Active Recurring Services"
           value={data.active_now.toLocaleString()}
-          sub={<>+{data.new_in_year} new · −{data.churned_gross} lost · net {net >= 0 ? '+' : ''}{net} · {data.upgraded} upgraded</>}
+          sub={<>+{data.new_in_year} new · −{data.churned_gross} lost · net {net >= 0 ? '+' : ''}{net} this year</>}
         />
         <Kpi
           label="Annual Value Lost"
@@ -182,33 +181,40 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
               </>}
         </Card>
 
-        {/* Chart 2 — Customer waterfall */}
+        {/* Chart 2 — Retention by year (prior full year vs current YTD) */}
         <Card>
-          <ChartHead title="Recurring Services Waterfall" sub={`Start of ${data.year} → today`} />
-          <ChartCanvas make={c => new Chart(c, {
-            type: 'bar',
-            data: {
-              labels: waterfall.labels,
-              datasets: [{
-                label: 'Services',
-                data: waterfall.spans,
-                backgroundColor: waterfall.colors,
-                borderColor: waterfall.borders,
-                borderWidth: 1, borderRadius: 3, borderSkipped: false,
-              }],
-            },
-            options: {
-              responsive: true, maintainAspectRatio: false,
-              plugins: {
-                legend: { display: false },
-                tooltip: { ...tooltipStyle, callbacks: { label: ctx => { const d = waterfall.deltas[ctx.dataIndex]; return ` ${d > 0 && ctx.dataIndex !== 0 && ctx.dataIndex !== 3 ? '+' : ''}${d}` } } },
-              },
-              scales: {
-                x: { grid: { color: GRID }, ticks: { color: '#64748b' } },
-                y: { beginAtZero: true, grid: { color: GRID }, ticks: { color: '#64748b', precision: 0 } },
-              },
-            },
-          })} />
+          <ChartHead title="Retention by Year" sub={prior ? `${prior.year} full year vs ${data.year} year-to-date` : `${data.year} year-to-date`} />
+          {retYears.length === 0
+            ? <div className="flex h-[240px] items-center justify-center text-sm text-gray-500">Not enough data yet</div>
+            : <ChartCanvas make={c => new Chart(c, {
+                type: 'bar',
+                data: {
+                  labels: retYears.map(r => r.label),
+                  datasets: [{
+                    label: 'Retention %',
+                    data: retYears.map(r => r.pct),
+                    backgroundColor: retYears.map(r => retColor(r.pct) + 'b3'),
+                    borderColor: retYears.map(r => retColor(r.pct)),
+                    borderWidth: 1, borderRadius: 4,
+                  }],
+                },
+                options: {
+                  responsive: true, maintainAspectRatio: false,
+                  plugins: {
+                    legend: { display: false },
+                    tooltip: { ...tooltipStyle, callbacks: { label: ctx => ` ${ctx.parsed.y}% retained` } },
+                  },
+                  scales: {
+                    x: { grid: { display: false }, ticks: { color: '#94a3b8' } },
+                    y: { beginAtZero: true, max: 100, grid: { color: GRID }, ticks: { color: '#64748b', callback: v => v + '%' } },
+                  },
+                },
+              })} />}
+          {prior && (
+            <div className="mt-2.5 text-[11px] leading-snug text-gray-500">
+              {prior.year} lost {prior.churned_gross} services ({usd(prior.churned_annual_value)}/yr). {data.year} is mid-year, so its bar will keep moving as cancellations land.
+            </div>
+          )}
         </Card>
 
         {/* Chart 3 — Churn by type donut */}
