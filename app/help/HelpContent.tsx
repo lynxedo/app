@@ -2088,8 +2088,9 @@ function ScoreboardsTab() {
       </Section>
 
       <Section title="Retention &amp; Lead Sources — How to Read Them">
-        <p>Both boards look at <strong className="text-white">this year&apos;s recurring book</strong>: every active recurring service plus the ones cancelled this year. Last year&apos;s cancellations don&apos;t count against you.</p>
+        <p>Both boards look at <strong className="text-white">this year&apos;s recurring book</strong>: every active recurring service plus the ones cancelled this year. Last year&apos;s cancellations don&apos;t count against the current year.</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Retention</strong> = of every recurring service on the books during a year, the share kept. The headline is <strong className="text-white">this year (YTD)</strong>, with the <strong className="text-white">prior full year</strong> shown beside it as a reminder. The current-year number starts high and drifts down as more cancellations land — it&apos;s only part-way through the year (the Recurring Services board began in 2025, so there&apos;s no earlier year to compare a full 12 months against yet).</li>
           <li><strong className="text-white">Controllable churn</strong> is the number to manage against — cancels we could have influenced (price, results, service). Moves, deaths, and accounts <em>we</em> cancelled are reported separately, not blamed on operations.</li>
           <li>A cancellation shows as <strong className="text-white">Review</strong> when its reason is blank or unrecognized — fill in the reason on the Recurring Services board and it moves to the right bucket.</li>
           <li>The Lead Sources board reads the <strong className="text-white">&ldquo;HLC105 Lead Source&rdquo;</strong> field on the Jobber client. The <strong className="text-white">Source Coverage</strong> card shows how much of the book has a known source — set the field on every new client to make these numbers sharper.</li>
