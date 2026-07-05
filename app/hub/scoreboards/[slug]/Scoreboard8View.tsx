@@ -79,10 +79,12 @@ function ChartLegend({ items }: { items: { label: string; color: string }[] }) {
   )
 }
 function Kpi({ label, value, sub, color }: { label: string; value: string; sub?: ReactNode; color?: string }) {
+  // Long text values (source names) shrink so they wrap inside the card instead of clipping.
+  const long = value.length > 12
   return (
     <Card>
       <div className="text-[11px] font-medium text-sky-300">{label}</div>
-      <div className="mt-1.5 text-[26px] font-bold leading-none tracking-tight" style={{ color: color ?? '#f0f9ff' }}>{value}</div>
+      <div className={`mt-1.5 font-bold tracking-tight ${long ? 'text-[16px] leading-tight break-words' : 'text-[26px] leading-none'}`} style={{ color: color ?? '#f0f9ff' }}>{value}</div>
       {sub != null && <div className="mt-1.5 text-[11px] text-gray-500">{sub}</div>}
     </Card>
   )
