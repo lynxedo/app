@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { callHeroesTool } from '@/lib/hub-claude'
+import { sendDirectTxtToPhone } from '@/lib/txt-send'
 
 // System default — used when daily_log_settings.on_my_way_template is NULL.
 // Configurable per-company under /hub/admin/daily-log.
@@ -111,30 +111,20 @@ export async function POST(
 
   const message = renderTemplate(template, { first_name: firstName, tech_name: techName, eta })
 
-  // Send via Heroes MCP send_text (same path Hub Clients SMS uses).
-  // The MCP tool returns a string starting with ✅ on success or ❌ on failure.
-  let sent = false
-  let sendError: string | null = null
-  try {
-    const phoneForSend = rawDigits
-    const nameParts = stop.client_name.trim().split(/\s+/)
-    const last = nameParts.slice(1).join(' ') || undefined
-    const result = await callHeroesTool('send_text', {
-      to: phoneForSend,
-      message,
-      first_name: firstName,
-      ...(last ? { last_name: last } : {}),
-    })
-    sent = result.startsWith('✅')
-    if (!sent) {
-      sendError = result.replace(/^❌\s*/, '').slice(0, 200) || 'Send failed'
-    }
-  } catch (e) {
-    sendError = e instanceof Error ? e.message : 'Send failed'
-  }
+  // Send via the Twilio Txt stack so the message lands in the unified thread
+  // (owned by the tech) and any customer reply routes back to the Txt inbox.
+  // Replaces the retired Captivated MCP send_text path (cancelled July 2026).
+  const result = await sendDirectTxtToPhone({
+    admin,
+    companyId: profile.company_id,
+    userId: user.id,
+    phone: stop.client_phone,
+    name: stop.client_name,
+    body: message,
+  })
 
-  if (!sent) {
-    return NextResponse.json({ error: sendError ?? 'Send failed' }, { status: 502 })
+  if (!result.ok) {
+    return NextResponse.json({ error: result.error ?? 'Send failed' }, { status: 502 })
   }
 
   // Stamp the stop only on success.

@@ -14,6 +14,8 @@ export type ContactForModal = {
 
 type CreateProps = {
   mode: 'create'
+  // Optional prefill (e.g. graduating a conversation stub → pass its phone/name).
+  initial?: { name?: string; phone?: string; email?: string | null; notes?: string | null }
   onClose: () => void
   // Called after the contact is created (no conversation is started).
   onCreated: (contact: ContactForModal) => void
@@ -32,7 +34,13 @@ export default function ContactModal(props: Props) {
   const isEdit = props.mode === 'edit'
   const initial = isEdit
     ? props.contact
-    : { name: '', phone: '', email: '', notes: '', do_not_text: false }
+    : {
+        name: props.initial?.name ?? '',
+        phone: props.initial?.phone ?? '',
+        email: props.initial?.email ?? '',
+        notes: props.initial?.notes ?? '',
+        do_not_text: false,
+      }
 
   const [name, setName] = useState(initial.name)
   const [phone, setPhone] = useState(initial.phone)
