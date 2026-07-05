@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { ilikeSearchPattern } from '@/lib/search'
 
 export const dynamic = 'force-dynamic'
 
@@ -38,8 +39,8 @@ export async function GET(request: Request) {
     // Multi-column OR — postgrest ilike on customer_name OR address OR technician_name.
     // Chemical name match would require querying chemicals_applied jsonb which
     // is much more expensive; we'd add that as a follow-up if it's needed.
-    const safe = q.replace(/[%_]/g, '\\$&')
-    query = query.or(`customer_name.ilike.%${safe}%,location_address.ilike.%${safe}%,technician_name.ilike.%${safe}%`)
+    const pattern = ilikeSearchPattern(q)
+    query = query.or(`customer_name.ilike.${pattern},location_address.ilike.${pattern},technician_name.ilike.${pattern}`)
   }
 
   const { data, error } = await query

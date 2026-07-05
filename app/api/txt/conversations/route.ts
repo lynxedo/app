@@ -3,6 +3,8 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildMessagePreview } from '@/lib/txt-preview'
 import { getAccessibleNumberIds } from '@/lib/phone-number-access'
+import { fetchAllRows } from '@/lib/email-contacts'
+import { ilikeSearchPattern } from '@/lib/search'
 
 // ── Unified Inbox (Session 3): cross-channel last-activity enrichment ───────
 // When the caller can_access_unified_inbox, each conversation row is decorated
@@ -73,26 +75,40 @@ async function enrichWithCallActivity(
     return a
   }
 
-  const [callsRes, vmsRes] = await Promise.all([
-    admin
-      .from('calls')
-      .select('contact_id, created_at, direction, status')
-      .eq('company_id', companyId)
-      .in('contact_id', contactIds)
-      .order('created_at', { ascending: false })
-      .limit(5000),
-    admin
-      .from('voicemails')
-      .select('contact_id, created_at, heard_at')
-      .eq('company_id', companyId)
-      .in('contact_id', contactIds)
-      .is('deleted_at', null)
-      .order('created_at', { ascending: false })
-      .limit(5000),
-  ])
+  // Chunk the .in() list (hundreds of UUIDs overflow the PostgREST GET URL) and
+  // page each chunk — a single response caps at 1,000 rows regardless of
+  // .limit(), which silently dropped missed-call/VM indicators on older
+  // conversations. The id tiebreak keeps pages non-overlapping on created_at ties.
+  type CallRow = { contact_id: string | null; created_at: string; direction: string | null; status: string | null }
+  type VmRow = { contact_id: string | null; created_at: string; heard_at: string | null }
+  const callRows: CallRow[] = []
+  const vmRows: VmRow[] = []
+  const CHUNK = 100
+  for (let i = 0; i < contactIds.length; i += CHUNK) {
+    const part = contactIds.slice(i, i + CHUNK)
+    const [calls, vms] = await Promise.all([
+      fetchAllRows<CallRow>(() => admin
+        .from('calls')
+        .select('contact_id, created_at, direction, status')
+        .eq('company_id', companyId)
+        .in('contact_id', part)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })),
+      fetchAllRows<VmRow>(() => admin
+        .from('voicemails')
+        .select('contact_id, created_at, heard_at')
+        .eq('company_id', companyId)
+        .in('contact_id', part)
+        .is('deleted_at', null)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })),
+    ])
+    callRows.push(...calls)
+    vmRows.push(...vms)
+  }
 
   // Rows arrive newest-first, so the first row seen for a contact is the latest.
-  for (const row of callsRes.data ?? []) {
+  for (const row of callRows) {
     if (!row.contact_id) continue
     const a = get(row.contact_id)
     if (!a.lastCallAt) a.lastCallAt = row.created_at
@@ -102,7 +118,7 @@ async function enrichWithCallActivity(
       if (!a.lastMissedAt) a.lastMissedAt = row.created_at
     }
   }
-  for (const row of vmsRes.data ?? []) {
+  for (const row of vmRows) {
     if (!row.contact_id) continue
     const a = get(row.contact_id)
     if (!a.lastVmAt) a.lastVmAt = row.created_at
@@ -212,7 +228,7 @@ export async function GET(request: Request) {
     const q = (url.searchParams.get('q') || '').trim()
     if (q.length < 2) return NextResponse.json({ conversations: [] })
 
-    const pattern = `%${q}%`
+    const pattern = ilikeSearchPattern(q)
     const [contactsRes, msgsRes] = await Promise.all([
       supabase
         .from('txt_contacts')

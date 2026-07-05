@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/phone'
+import { ilikeSearchPattern } from '@/lib/search'
 
 // GET /api/contacts
 //   ?search=...            (matches name / phone / email)
@@ -54,7 +55,7 @@ export async function GET(request: Request) {
   if (status) query = query.eq('email_status', status)
 
   if (search) {
-    const pattern = `%${search.replace(/[%_]/g, '\\$&')}%`
+    const pattern = ilikeSearchPattern(search)
     query = query.or(`name.ilike.${pattern},phone.ilike.${pattern},email.ilike.${pattern}`)
   }
 

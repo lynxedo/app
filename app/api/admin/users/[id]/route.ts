@@ -24,12 +24,23 @@ const RESTRICTED_FIELDS = new Set([
   'guardian_tier',
 ])
 
+// Editable-field allowlist for PATCH. The body must never be spread raw into
+// the update — that would mass-assign anything a caller names (company_id,
+// locked_at, deactivated_at, invite_sent_at, …). Permission toggles all follow
+// the can_* naming (can_access_* / can_admin_* / can_post_shout_outs), so new
+// toggles keep working automatically; everything else editable is named
+// explicitly. display_name/full_name are handled separately below.
+const EDITABLE_PATTERN = /^can_[a-z0-9_]+$/
+const EDITABLE_EXACT = new Set(['role', 'guardian_tier'])
+
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
   const check = await requireAdminArea('people')
-  if (!check.ok || !check.user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!check.ok || !check.user || !check.company_id) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   const { id } = await params
   const body = await request.json()
@@ -45,8 +56,20 @@ export async function PATCH(
   // display_name lives on hub_users — pull it out and write separately
   const { display_name, full_name, ...profileFields } = body
 
+  const notEditable = Object.keys(profileFields).filter(
+    k => !EDITABLE_PATTERN.test(k) && !EDITABLE_EXACT.has(k)
+  )
+  if (notEditable.length > 0) {
+    return NextResponse.json({ error: `Not an editable field: ${notEditable.join(', ')}` }, { status: 400 })
+  }
+
+  // All writes are scoped to the admin's own company — an id outside it is a no-op.
   if (display_name !== undefined) {
-    await admin.from('hub_users').update({ display_name: display_name || null }).eq('id', id)
+    await admin
+      .from('hub_users')
+      .update({ display_name: display_name || null })
+      .eq('id', id)
+      .eq('company_id', check.company_id)
   }
 
   // full_name and everything else (role, permissions) lives on user_profiles
@@ -57,6 +80,7 @@ export async function PATCH(
     .from('user_profiles')
     .update(profileUpdates)
     .eq('id', id)
+    .eq('company_id', check.company_id)
     .select()
     .single()
 
@@ -69,7 +93,9 @@ export async function DELETE(
   { params }: { params: Promise<{ id: string }> }
 ) {
   const check = await requireAdminArea('people')
-  if (!check.ok || !check.user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!check.ok || !check.user || !check.company_id) {
+    return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
 
   const { id } = await params
   if (check.user.id === id) {
@@ -77,6 +103,17 @@ export async function DELETE(
   }
 
   const admin = createAdminClient()
+
+  // Company scope: a target with a profile in another company is invisible here.
+  // (A profile-less orphan auth account is still removable — nothing to scope on.)
+  const { data: target } = await admin
+    .from('user_profiles')
+    .select('company_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (target && target.company_id !== check.company_id) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
 
   // Remove is for accounts that never became real people (typo emails, test
   // accounts). Anyone who has signed in has history — Deactivate them instead.

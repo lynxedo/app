@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
@@ -114,13 +114,15 @@ export async function POST(request: Request) {
   // HubSidebar (`hub-sidebar-messages` channel) both listen on this
   // broadcast and dedupe by id, so receiving via realtime AND broadcast
   // is harmless.
-  void broadcastMessageInserted({
+  // after() — a bare detached promise isn't guaranteed to finish once the
+  // handler returns (the dropped-notification lesson from the Txt inbound route).
+  after(() => broadcastMessageInserted({
     messageId: msg.id,
     roomId: room_id ?? null,
     conversationId: conversation_id ?? null,
     parentId: parent_id ?? null,
     senderId: user.id,
-  })
+  }))
 
   // All push recipient lookups use adminClient to bypass RLS
   const pushAdmin = createAdminClient()
@@ -181,7 +183,7 @@ export async function POST(request: Request) {
       // handles for search results and copied message links).
       const base = room_id ? `/hub/${room_id}` : `/hub/pm/${conversation_id}`
       const destination = parent_id ? `${base}?msg=${msg.id}&thread=${parent_id}` : base
-      sendHubPush(mentionRecipientIds, {
+      after(() => sendHubPush(mentionRecipientIds, {
         title: `💬 ${senderName} mentioned you`,
         body: textToScan.trim().slice(0, 120),
         url: destination,
@@ -189,7 +191,7 @@ export async function POST(request: Request) {
         groupKey: conversation_id ?? room_id ?? undefined,
       }, { isMention: true, roomId: room_id ?? null }).catch((err: Error) =>
         console.error('[messages] mention push failed:', err.message)
-      )
+      ))
     }
   }
 
@@ -218,7 +220,7 @@ export async function POST(request: Request) {
       // fullscreen overlay, so the tap lands directly in the thread.
       const base = room_id ? `/hub/${room_id}` : `/hub/pm/${conversation_id}`
       const destination = `${base}?msg=${msg.id}&thread=${parent_id}`
-      sendHubPush(threadRecipients, {
+      after(() => sendHubPush(threadRecipients, {
         title: `💬 ${senderName} replied in a thread`,
         body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
         url: destination,
@@ -226,7 +228,7 @@ export async function POST(request: Request) {
         groupKey: conversation_id ?? room_id ?? undefined,
       }, { isDm: !!conversation_id, roomId: room_id ?? null }).catch((err: Error) =>
         console.error('[messages] thread reply push failed:', err.message)
-      )
+      ))
     }
   }
 
@@ -234,7 +236,7 @@ export async function POST(request: Request) {
   if (room_id && !parent_id && textToScan.toLowerCase().includes('@room')) {
     const { data: roomMeta } = await pushAdmin.from('rooms').select('name').eq('id', room_id).single()
     if (roomMemberIds.length > 0) {
-      sendHubPush(roomMemberIds, {
+      after(() => sendHubPush(roomMemberIds, {
         title: `📢 @room — #${roomMeta?.name ?? 'room'} — ${senderName}`,
         body: textToScan.trim().slice(0, 120),
         url: `/hub/${room_id}`,
@@ -242,13 +244,13 @@ export async function POST(request: Request) {
         groupKey: room_id,
       }, { isMention: true, roomId: room_id }).catch((err: Error) =>
         console.error('[messages] @room push failed:', err.message)
-      )
+      ))
     }
   }
 
   // Push for new DM messages (top-level only) — notify all other participants
   if (conversation_id && !parent_id && convMemberIds.length > 0) {
-    sendHubPush(convMemberIds, {
+    after(() => sendHubPush(convMemberIds, {
       title: `💬 DM — ${senderName}`,
       body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
       url: `/hub/pm/${conversation_id}`,
@@ -256,7 +258,7 @@ export async function POST(request: Request) {
       groupKey: conversation_id,
     }, { isDm: true }).catch((err: Error) =>
       console.error('[messages] DM push failed:', err.message)
-    )
+    ))
   }
 
   // Push for new room messages (top-level only) — notify the room's MEMBERS only.
@@ -268,7 +270,7 @@ export async function POST(request: Request) {
       .eq('id', room_id)
       .single()
 
-    sendHubPush(roomMemberIds, {
+    after(() => sendHubPush(roomMemberIds, {
       title: `🏠 #${roomData?.name ?? 'room'} — ${senderName}`,
       body: hasContent ? content.trim().slice(0, 120) : '📎 Sent an attachment',
       url: `/hub/${room_id}`,
@@ -276,7 +278,7 @@ export async function POST(request: Request) {
       groupKey: room_id,
     }, { roomId: room_id }).catch((err: Error) =>
       console.error('[messages] room push failed:', err.message)
-    )
+    ))
   }
 
   // Check per-room and per-user Claude gates — both must pass
@@ -298,14 +300,14 @@ export async function POST(request: Request) {
 
   // @Guardian handler — rooms only, top-level and thread replies both supported
   if (room_id && roomClaudeEnabled && canUseClaude && hasContent && content.toLowerCase().includes('@guardian')) {
-    handleClaudeReply({
+    after(() => handleClaudeReply({
       roomId: room_id,
       parentMessageId: parent_id ?? msg.id,
       threadId: parent_id ?? null,
       companyId: profile.company_id,
       triggeringContent: content.trim(),
       userId: user.id,
-    }).catch(() => null)
+    }).catch(() => null))
   } else if (room_id && roomClaudeEnabled && canUseClaude && parent_id && hasContent) {
     // Thread reply without @guardian — auto-continue if Guardian is already in this thread
     const { count } = await supabase
@@ -314,14 +316,14 @@ export async function POST(request: Request) {
       .eq('parent_id', parent_id)
       .eq('sender_id', CLAUDE_BOT_ID)
     if ((count ?? 0) > 0) {
-      handleClaudeReply({
+      after(() => handleClaudeReply({
         roomId: room_id,
         parentMessageId: parent_id,
         threadId: parent_id,
         companyId: profile.company_id,
         triggeringContent: content.trim(),
         userId: user.id,
-      }).catch(() => null)
+      }).catch(() => null))
     }
   }
 
@@ -329,12 +331,12 @@ export async function POST(request: Request) {
   if (conversation_id && canUseClaude && hasContent && !parent_id) {
     const mentionsClaude = content.toLowerCase().includes('@guardian')
     if (mentionsClaude) {
-      handleClaudeReplyDM({
+      after(() => handleClaudeReplyDM({
         conversationId: conversation_id,
         companyId: profile.company_id,
         triggeringContent: content.trim(),
         userId: user.id,
-      }).catch(() => null)
+      }).catch(() => null))
     } else {
       // Auto-continue: check if Claude has already posted in this DM
       const { count } = await supabase
@@ -344,30 +346,30 @@ export async function POST(request: Request) {
         .eq('sender_id', CLAUDE_BOT_ID)
         .is('parent_id', null)
       if ((count ?? 0) > 0) {
-        handleClaudeReplyDM({
+        after(() => handleClaudeReplyDM({
           conversationId: conversation_id,
           companyId: profile.company_id,
           triggeringContent: content.trim(),
           userId: user.id,
-        }).catch(() => null)
+        }).catch(() => null))
       }
     }
   }
 
   // Automation rules — only for top-level room messages from real users (not bot)
   if (room_id && !parent_id && hasContent && user.id !== CLAUDE_BOT_ID) {
-    fireAutomationRules({
+    after(() => fireAutomationRules({
       companyId: profile.company_id,
       roomId: room_id,
       content: content.trim(),
       senderName,
       roomName: '', // resolved inside fireAutomationRules lazily
-    }).catch(() => null)
+    }).catch(() => null))
   }
 
   // Chat Synx bridge — mirror Hub room messages (incl. thread replies) to Slack if a bridge exists
   if (room_id && (hasContent || hasFiles) && user.id !== CLAUDE_BOT_ID) {
-    bridgeHubMessageToChatSynx({
+    after(() => bridgeHubMessageToChatSynx({
       messageId: msg.id,
       roomId: room_id,
       parentId: parent_id ?? null,
@@ -376,7 +378,7 @@ export async function POST(request: Request) {
       senderAvatarUrl: senderProfile?.avatar_url ?? null,
       content: hasContent ? content.trim() : '',
       files: hasFiles ? files : undefined,
-    }).catch(() => null)
+    }).catch(() => null))
   }
 
   return NextResponse.json(msg, { status: 201 })
@@ -428,7 +430,7 @@ async function fireAutomationRules({
         content: messageText,
       }).select('id').single()
       if (inserted) {
-        void broadcastMessageInserted({
+        await broadcastMessageInserted({
           messageId: inserted.id,
           roomId: rule.target_room_id,
           conversationId: null,
@@ -486,7 +488,7 @@ async function fireAutomationRules({
         content: messageText,
       }).select('id').single()
       if (inserted) {
-        void broadcastMessageInserted({
+        await broadcastMessageInserted({
           messageId: inserted.id,
           roomId: null,
           conversationId,
@@ -549,7 +551,7 @@ async function handleClaudeReplyDM({
     content: 'On it! Please stand by…',
   }).select('id').single()
   if (ackMsg) {
-    void broadcastMessageInserted({
+    await broadcastMessageInserted({
       messageId: ackMsg.id,
       roomId: null,
       conversationId,
@@ -583,7 +585,7 @@ async function handleClaudeReplyDM({
     content: claudeText.trim(),
   }).select('id').single()
   if (replyMsg) {
-    void broadcastMessageInserted({
+    await broadcastMessageInserted({
       messageId: replyMsg.id,
       roomId: null,
       conversationId,
@@ -681,7 +683,7 @@ async function handleClaudeReply({
     content: 'On it! Please stand by…',
   }).select('id').single()
   if (ackMsg) {
-    void broadcastMessageInserted({
+    await broadcastMessageInserted({
       messageId: ackMsg.id,
       roomId,
       conversationId: null,
@@ -716,7 +718,7 @@ async function handleClaudeReply({
     content: claudeText.trim(),
   }).select('id').single()
   if (replyMsg) {
-    void broadcastMessageInserted({
+    await broadcastMessageInserted({
       messageId: replyMsg.id,
       roomId,
       conversationId: null,

@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { ilikeSearchPattern } from '@/lib/search'
 
 const COLUMNS =
   'id, name, phone, email, lead_comments, service, lead_source, status, lead_creation_date, annual_value, sold_date, salesperson, base_program_sold, auxiliary_services, cancelled_status, cancellation_reason, cancel_date, temp_updated, temp_prepaid, monday_group, created_at, updated_at'
@@ -24,8 +25,9 @@ export async function GET(request: Request) {
   if (cancelled) query = query.eq('cancelled_status', cancelled)
   if (salesperson) query = query.eq('salesperson', salesperson)
   if (search) {
+    const pattern = ilikeSearchPattern(search)
     query = query.or(
-      `name.ilike.%${search}%,phone.ilike.%${search}%,email.ilike.%${search}%`
+      `name.ilike.${pattern},phone.ilike.${pattern},email.ilike.${pattern}`
     )
   }
 

@@ -21,18 +21,21 @@ export async function gateTankAdmin(): Promise<{ companyId: string } | { error: 
   return { companyId: check.company_id }
 }
 
-// Gate for the routing-user endpoints (capacity-data, tank-assignments): any
-// signed-in user with a company. Returns their company_id for write scoping.
+// Gate for the routing-user endpoints (capacity-data, tank-assignments):
+// requires the same can_access_routing flag that gates the Routing nav/page
+// (flag-only, no admin bypass — mirrors app/hub/layout.tsx). Returns the
+// company_id for write scoping.
 export async function gateRoutingUser(): Promise<{ companyId: string; userId: string } | { error: NextResponse }> {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('company_id')
+    .select('company_id, can_access_routing')
     .eq('id', user.id)
     .single()
   if (!profile?.company_id) return { error: NextResponse.json({ error: 'No company' }, { status: 403 }) }
+  if (!profile.can_access_routing) return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   return { companyId: profile.company_id, userId: user.id }
 }
 

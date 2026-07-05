@@ -16,6 +16,7 @@ import { sendSms, twilioConfigured, toE164 } from '@/lib/twilio'
 import { renderTemplate } from '@/lib/txt-templates'
 import { resolveFromNumber } from '@/lib/txt-numbers'
 import { buildMessagePreview } from '@/lib/txt-preview'
+import { signTxtMediaUrl } from '@/lib/txt-media-sign'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -177,7 +178,7 @@ export async function sendDirectTxtMessage(opts: {
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
   const publicMediaUrls = mediaUrls.map((m) =>
-    /^https?:\/\//i.test(m) ? m : `${baseUrl}/api/txt/media/${m}`
+    /^https?:\/\//i.test(m) ? m : signTxtMediaUrl(baseUrl, m)
   )
   const statusCallback = `${baseUrl}/api/txt/twilio/sms/status`
 

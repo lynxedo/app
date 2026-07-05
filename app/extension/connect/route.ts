@@ -21,10 +21,24 @@ const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL || 'https://lynxedo.com'
 
+// Optional pin to specific extension IDs (comma-separated env). The redirect
+// host chrome.identity uses is <extension-id>.chromiumapp.org, so with the pin
+// set, a different (malicious) extension on the same machine can no longer
+// harvest a token through this flow. Unset = any *.chromiumapp.org (needed
+// while the extension is loaded unpacked) — set EXTENSION_ALLOWED_IDS once the
+// Chrome Web Store submission assigns the final ID.
+const ALLOWED_EXTENSION_IDS = (process.env.EXTENSION_ALLOWED_IDS || '')
+  .split(',')
+  .map((s) => s.trim().toLowerCase())
+  .filter(Boolean)
+
 function isValidExtensionRedirect(uri: string): boolean {
   try {
     const u = new URL(uri)
-    return u.protocol === 'https:' && u.hostname.endsWith('.chromiumapp.org')
+    if (u.protocol !== 'https:' || !u.hostname.endsWith('.chromiumapp.org')) return false
+    if (ALLOWED_EXTENSION_IDS.length === 0) return true
+    const extId = u.hostname.slice(0, -'.chromiumapp.org'.length)
+    return ALLOWED_EXTENSION_IDS.includes(extId)
   } catch {
     return false
   }

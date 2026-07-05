@@ -10,6 +10,7 @@ import { renderTemplate } from '@/lib/txt-templates'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
 import { resolveFromNumber } from '@/lib/txt-numbers'
 import { buildMessagePreview } from '@/lib/txt-preview'
+import { signTxtMediaUrl } from '@/lib/txt-media-sign'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -308,14 +309,15 @@ export async function POST(
       .maybeSingle()
     fromNumberId = pn?.id ?? null
   }
-  // Session 54.5: convert R2 storage keys to public /api/txt/media URLs so
-  // Twilio can fetch them. mediaUrls coming from the client are storage_path
+  // Session 54.5: convert R2 storage keys to /api/txt/media URLs so Twilio can
+  // fetch them — now short-TTL HMAC-signed (the route requires either a session
+  // or a valid signature). mediaUrls coming from the client are storage_path
   // values returned by /api/txt/upload (e.g. "txt/{company}/12345-abc.jpg").
   // Anything that already looks like an http(s) URL passes through unchanged
   // (useful for testing or for future direct-link sends).
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
   const publicMediaUrls = mediaUrls.map((m) =>
-    /^https?:\/\//i.test(m) ? m : `${baseUrl}/api/txt/media/${m}`
+    /^https?:\/\//i.test(m) ? m : signTxtMediaUrl(baseUrl, m)
   )
   const result = await sendSms({
     to: directContact!.phone,
