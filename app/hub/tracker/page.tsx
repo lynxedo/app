@@ -2,8 +2,8 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 
-// Each entry is a "board" inside the Tracker section. Lead Tracker is the first
-// live board; more boards (pulled from Monday.com) get added to this array.
+// Each entry is a "board" inside the Tracker section (Lead Tracker, Recurring,
+// Route Capacity). Lynxedo owns leads directly — there is no Monday.com sync.
 type TrackerBoard = {
   id: string
   title: string
@@ -63,15 +63,6 @@ export default async function HubTrackerRoute() {
               </div>
             </Link>
           ))}
-
-          {/* Placeholder for future Monday.com boards */}
-          <div className="flex items-start gap-3 rounded-xl border border-dashed border-gray-800 bg-gray-950 px-4 py-4 opacity-70">
-            <div className="text-2xl leading-none">➕</div>
-            <div className="min-w-0">
-              <div className="font-semibold text-gray-400">More trackers coming soon</div>
-              <div className="text-sm text-gray-600 mt-0.5">Additional boards imported from Monday.com will appear here.</div>
-            </div>
-          </div>
         </div>
       </div>
     </div>
