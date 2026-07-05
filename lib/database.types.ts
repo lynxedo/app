@@ -8431,6 +8431,10 @@ export type Database = {
           salesperson_name: string
         }[]
       }
+      scoreboard_churn_summary: {
+        Args: { p_company_id: string; p_year: number }
+        Returns: Json
+      }
       scoreboard_ir_repair_ticket: {
         Args: { p_company_id: string; p_end: string; p_start: string }
         Returns: {
@@ -8450,6 +8454,24 @@ export type Database = {
           has_bwp: boolean
           has_phc: boolean
           job_id: string
+        }[]
+      }
+      scoreboard_source_scorecard: {
+        Args: { p_company_id: string; p_year: number }
+        Returns: {
+          source: string
+          source_group: string
+          cost_type: string
+          total_customers: number
+          active_count: number
+          churned_count: number
+          retention_pct: number
+          new_in_year: number
+          active_annual_value: number
+          avg_annual_value: number
+          avg_tenure_months: number
+          est_ltv: number
+          unresolved_count: number
         }[]
       }
       scoreboard_tech_hours: {
