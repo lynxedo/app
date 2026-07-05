@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import crypto from 'crypto'
 import { processJobberWebhookEvent } from '@/lib/jobber-sync'
 
@@ -60,9 +60,16 @@ export async function POST(req: NextRequest) {
   // `occuredAt` is the legacy spelling on apps created before 2023-12-08.
   const occurredAt = evt.occurredAt ?? evt.occuredAt ?? null
 
-  // Acknowledge fast (Jobber wants 200 within seconds); process in background.
-  void processJobberWebhookEvent({ topic: evt.topic, itemId: evt.itemId, companyId: COMPANY_ID, occurredAt })
-    .catch(err => console.error('[jobber-webhook]', evt.topic, evt.itemId, err))
+  // Acknowledge fast (Jobber wants 200 within seconds); process post-response
+  // via after() — a bare detached promise is NOT guaranteed to run once the
+  // handler returns, which could silently drop the event. (Consts because the
+  // guard above doesn't narrow evt's properties inside the closure.)
+  const topic = evt.topic
+  const itemId = evt.itemId
+  after(() =>
+    processJobberWebhookEvent({ topic, itemId, companyId: COMPANY_ID, occurredAt })
+      .catch(err => console.error('[jobber-webhook]', topic, itemId, err))
+  )
 
   return new NextResponse('ok', { status: 200 })
 }

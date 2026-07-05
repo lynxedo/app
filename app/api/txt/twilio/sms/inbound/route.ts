@@ -343,8 +343,11 @@ async function processInboundSideEffects(args: {
   const mediaCount = Array.isArray(msgRow?.media_urls) ? msgRow!.media_urls.length : 0
 
   // Fire any "inbound text" automations — real messages only, not STOP/START/HELP.
+  // Awaited (with its own catch, so a failure can't skip the push fan-out below):
+  // a bare detached promise inside the after() callback isn't awaited by Next and
+  // can still be dropped when the callback finishes first.
   if (!compliance) {
-    void evaluateEventAutomations({
+    await evaluateEventAutomations({
       companyId: HEROES_COMPANY_ID,
       source: 'txt_inbound',
       vars: {
@@ -354,7 +357,7 @@ async function processInboundSideEffects(args: {
         date: now.slice(0, 10),
       },
       filter: { keyword: body ?? '' },
-    })
+    }).catch(err => console.error('[txt-inbound] automations failed:', err))
   }
 
   // Push notification fan-out — same machinery Hub messages use.

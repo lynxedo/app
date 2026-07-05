@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { ilikeSearchPattern } from '@/lib/search'
 
 export async function GET(request: Request) {
   const supabase = await createClient()
@@ -51,7 +52,10 @@ export async function GET(request: Request) {
     const digitsOnly = phone.replace(/\D/g, '')
     if (digitsOnly) query = query.ilike('phone', `%${digitsOnly}%`)
   }
-  if (name) query = query.or(`customer_name.ilike.%${name}%,rep_name.ilike.%${name}%`)
+  if (name) {
+    const namePattern = ilikeSearchPattern(name)
+    query = query.or(`customer_name.ilike.${namePattern},rep_name.ilike.${namePattern}`)
+  }
   if (keyword) query = query.ilike('transcript_text', `%${keyword}%`)
 
   const { data, error } = await query

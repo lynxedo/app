@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { pushBadgeUpdate } from '@/lib/hub-badges'
@@ -218,14 +218,14 @@ export async function POST(request: Request) {
   // Broadcast receipt update for DMs so the sender's "Read" indicator
   // appears immediately even when postgres_changes drops the WAL event.
   if (conversation_id) {
-    void broadcastReceiptUpdated(conversation_id, user.id, record.last_read_at)
+    after(() => broadcastReceiptUpdated(conversation_id, user.id, record.last_read_at))
   }
 
   // Push the new lower badge count to this user's other devices so reading
-  // on phone clears the iPad badge too. Fire-and-forget — never block the
-  // read-receipt response on push delivery.
-  pushBadgeUpdate(createAdminClient(), user.id, profile.company_id)
-    .catch((err: Error) => console.error('[read-receipts] badge update failed:', err.message))
+  // on phone clears the iPad badge too. Post-response via after() — never
+  // blocks the read-receipt response on push delivery.
+  after(() => pushBadgeUpdate(createAdminClient(), user.id, profile.company_id)
+    .catch((err: Error) => console.error('[read-receipts] badge update failed:', err.message)))
 
   return NextResponse.json({ ok: true })
 }

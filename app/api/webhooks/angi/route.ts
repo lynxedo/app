@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import crypto from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
@@ -202,9 +202,9 @@ export async function POST(request: Request) {
       .select('id')
       .single()
     if (alertMsg) {
-      void broadcastMessageInserted({
+      after(() => broadcastMessageInserted({
         messageId: alertMsg.id, roomId: OFFICE_ROOM_ID, conversationId: null, parentId: null, senderId: GUARDIAN_BOT_ID,
-      })
+      }))
     }
   } catch (e) {
     console.error('[angi] office-room alert failed:', (e as Error).message)
@@ -215,12 +215,13 @@ export async function POST(request: Request) {
   // built-in column shipped and the redundant custom column was retired.)
 
   // Add to the unified contacts directory (best-effort; never blocks the lead).
-  void syncLeadToDirectory(admin, HEROES_COMPANY_ID, {
+  // after() so it's guaranteed to run post-response.
+  after(() => syncLeadToDirectory(admin, HEROES_COMPANY_ID, {
     first_name: first,
     last_name: last,
     phone,
     email,
-  }).catch(() => {})
+  }).catch(() => {}))
 
   return NextResponse.json({ ok: true, lead_id: lead.id })
 }

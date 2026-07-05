@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { runInitialJobberSync, runDeltaJobberSync } from '@/lib/jobber-sync'
@@ -38,15 +38,17 @@ export async function POST(req: NextRequest) {
   const body = await req.json().catch(() => ({}))
   const type = body.type === 'delta' ? 'delta' : 'initial'
 
-  // Kick off in background — don't await (initial pull takes 10–20 min)
+  // Kick off post-response via after() — still not awaited before the response
+  // (initial pull takes 10–20 min), but guaranteed to run to completion, unlike
+  // a bare detached promise.
   if (type === 'initial') {
-    void runInitialJobberSync(COMPANY_ID).catch(err =>
+    after(() => runInitialJobberSync(COMPANY_ID).catch(err =>
       console.error('[jobber-sync] Unhandled error in initial sync:', err)
-    )
+    ))
   } else {
-    void runDeltaJobberSync(COMPANY_ID).catch(err =>
+    after(() => runDeltaJobberSync(COMPANY_ID).catch(err =>
       console.error('[jobber-sync] Unhandled error in delta sync:', err)
-    )
+    ))
   }
 
   return NextResponse.json({ status: 'started', type })

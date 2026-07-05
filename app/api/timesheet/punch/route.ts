@@ -1,4 +1,4 @@
-import { NextRequest, NextResponse } from 'next/server'
+import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
@@ -188,7 +188,9 @@ export async function POST(req: NextRequest) {
         admin.from('hub_users').select('display_name').eq('id', emp.user_id).maybeSingle(),
       ])
       if (prof?.company_id) {
-        void evaluateEventAutomations({
+        // after() — a bare detached promise isn't guaranteed to run once the
+        // handler returns, silently skipping clock-event automations.
+        after(() => evaluateEventAutomations({
           companyId: prof.company_id,
           source: 'clock_event',
           actorUserId: emp.user_id,
@@ -199,7 +201,7 @@ export async function POST(req: NextRequest) {
             date: now.toISOString().slice(0, 10),
           },
           filter: { event: action },
-        })
+        }))
       }
     }
   } catch {

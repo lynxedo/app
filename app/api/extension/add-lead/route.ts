@@ -1,3 +1,4 @@
+import { after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/twilio'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
@@ -116,12 +117,13 @@ export async function POST(request: Request) {
   })
 
   // Mirror into the unified directory (source 'leads' → textable, in_directory).
-  void syncLeadToDirectory(admin, companyId, {
+  // after() so it's guaranteed to run post-response.
+  after(() => syncLeadToDirectory(admin, companyId, {
     first_name: firstName,
     last_name: lastName,
     phone: e164,
     email,
-  }).catch(() => {})
+  }).catch(() => {}))
 
   return json({ lead_id: lead.id, created: true, existing: false })
 }

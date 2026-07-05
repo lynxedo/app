@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { validateTwilioSignature, twilioConfigured, sendSms } from '@/lib/twilio'
+import { signTxtMediaUrl } from '@/lib/txt-media-sign'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -134,7 +135,7 @@ export async function POST(req: NextRequest) {
 
         const mediaUrls: string[] = Array.isArray(row.media_urls) ? row.media_urls : []
         const publicMediaUrls = mediaUrls.map((m) =>
-          /^https?:\/\//i.test(m) ? m : `${baseUrl}/api/txt/media/${m}`
+          /^https?:\/\//i.test(m) ? m : signTxtMediaUrl(baseUrl, m)
         )
 
         const resend = await sendSms({

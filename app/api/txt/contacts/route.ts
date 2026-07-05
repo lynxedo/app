@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/twilio'
+import { ilikeSearchPattern } from '@/lib/search'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -39,7 +40,7 @@ export async function GET(request: Request) {
 
   if (!includeBlocked) query = query.eq('do_not_text', false)
   if (search) {
-    const pattern = `%${search.replace(/[%_]/g, '\\$&')}%`
+    const pattern = ilikeSearchPattern(search)
     query = query.or(`name.ilike.${pattern},phone.ilike.${pattern}`)
   }
 

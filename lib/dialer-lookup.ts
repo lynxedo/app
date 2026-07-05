@@ -252,10 +252,12 @@ export async function findOrCreateTxtContact(
     // ignoreDuplicates so a concurrent create (e.g. a near-simultaneous inbound
     // SMS) never clobbers a real name back to the placeholder — on conflict the
     // insert is skipped and we re-select the winner below.
+    // phone_digits is required: the nightly Jobber sync matches on it, so a row
+    // created without it can never be matched (the July 1 `86d7c05` incident).
     const { data: created } = await admin
       .from('txt_contacts')
       .upsert(
-        { company_id: companyId, phone: e164, name: e164 },
+        { company_id: companyId, phone: e164, phone_digits: e164.replace(/\D/g, '').slice(-10), name: e164 },
         { onConflict: 'company_id,phone', ignoreDuplicates: true },
       )
       .select('id')

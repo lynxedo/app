@@ -1,25 +1,25 @@
 import { NextResponse } from 'next/server'
 import { S3Client, GetObjectCommand } from '@aws-sdk/client-s3'
 import { getSignedUrl } from '@aws-sdk/s3-request-presigner'
+import { createClient } from '@/lib/supabase/server'
+import { verifyTxtMediaSignature } from '@/lib/txt-media-sign'
 
 // GET /api/txt/media/[...key]
 //
-// Public-read media endpoint for txt attachments. Used in two places:
-//   1. Twilio MMS fetch — when sending outbound MMS, Twilio HTTPS-GETs the
-//      MediaUrl with no auth. This route gives Twilio a URL it can fetch.
-//   2. In-app rendering of inbound + outbound media in TxtConversationView.
-//
-// Security model: deliberately public. The R2 key path includes a random
-// 11-char slug after the timestamp (Math.random().toString(36).slice(2)),
-// so URLs are unguessable. Acceptable for SMS attachments since the same
-// media is delivered over plaintext SMS anyway. If a tenant ever needs
-// stricter access, this is where we'd add HMAC-signed expiring URLs.
+// Media endpoint for txt attachments (customer MMS photos — PII). Used in two
+// places, each with its own gate (no more public-by-obscurity):
+//   1. Twilio MMS fetch — outbound sends mint a short-TTL HMAC-signed URL
+//      (lib/txt-media-sign.ts) since Twilio GETs the MediaUrl with no cookies.
+//   2. In-app rendering (TxtConversationView, templates, admin) — the browser
+//      sends session cookies; we require a logged-in user whose company owns
+//      the key. Keys are always `txt/{company_id}/...` (both the upload route
+//      and the inbound webhook write that layout).
 //
 // We only serve keys under `txt/` to avoid this route accidentally exposing
 // other content in the same R2 bucket (e.g. hub/* uploads).
 
 export async function GET(
-  _request: Request,
+  request: Request,
   { params }: { params: Promise<{ key: string[] }> }
 ) {
   const { key: keyParts } = await params
@@ -27,6 +27,31 @@ export async function GET(
 
   if (!key.startsWith('txt/')) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // Gate 1: valid short-TTL signature (Twilio's cookieless MediaUrl fetch).
+  const url = new URL(request.url)
+  const signatureOk = verifyTxtMediaSignature(
+    key,
+    url.searchParams.get('exp'),
+    url.searchParams.get('sig'),
+  )
+
+  // Gate 2: logged-in user whose company owns the key (in-app rendering).
+  if (!signatureOk) {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (!user) {
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+    }
+    const { data: profile } = await supabase
+      .from('user_profiles')
+      .select('company_id')
+      .eq('id', user.id)
+      .maybeSingle()
+    if (!profile?.company_id || !key.startsWith(`txt/${profile.company_id}/`)) {
+      return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+    }
   }
 
   if (!process.env.CF_R2_ACCESS_KEY_ID || !process.env.CF_R2_BUCKET_NAME) {
@@ -53,7 +78,8 @@ export async function GET(
     { expiresIn: 3600 }
   )
 
+  // `private` — this content is now access-gated; shared caches must not store it.
   return NextResponse.redirect(signedUrl, {
-    headers: { 'Cache-Control': 'public, max-age=3600' },
+    headers: { 'Cache-Control': 'private, max-age=3600' },
   })
 }

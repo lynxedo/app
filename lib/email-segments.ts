@@ -86,16 +86,21 @@ async function lineItemClientGids(admin: Admin, companyId: string, token: string
   const value = sep === -1 ? '' : token.slice(sep + 1)
   if (!value || (kind !== 'dept' && kind !== 'name')) return new Set()
 
-  let q = admin
-    .from('line_items')
-    .select('parent_id')
-    .eq('company_id', companyId)
-    .eq('parent_type', 'job')
-    .is('deleted_at', null)
-  q = kind === 'dept' ? q.eq('dept_prefix', value) : q.eq('name', value)
-  const { data: liRows } = await q.limit(50000)
+  // Paged — PostgREST caps any single response at 1,000 rows no matter the
+  // .limit(), which silently computed segment membership from a fraction of the
+  // line items (incomplete campaign audiences).
+  const liRows = await fetchAllRows<{ parent_id: string | null }>(() => {
+    const q = admin
+      .from('line_items')
+      .select('parent_id')
+      .eq('company_id', companyId)
+      .eq('parent_type', 'job')
+      .is('deleted_at', null)
+      .order('id', { ascending: true })
+    return kind === 'dept' ? q.eq('dept_prefix', value) : q.eq('name', value)
+  })
 
-  const jobIds = [...new Set((liRows ?? []).map(r => r.parent_id as string).filter(Boolean))]
+  const jobIds = [...new Set(liRows.map(r => r.parent_id as string).filter(Boolean))]
   if (jobIds.length === 0) return new Set()
 
   const gids = new Set<string>()

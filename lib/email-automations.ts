@@ -16,6 +16,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { renderAndSendEmail, type EmailSendIdentity } from '@/lib/email-campaigns'
 import { normalizeDesign, renderDesignToHtml } from '@/lib/email-blocks'
+import { fetchAllRows } from '@/lib/email-contacts'
 
 type Admin = SupabaseClient<any, any, any>
 
@@ -59,7 +60,9 @@ export async function runEnrollmentSweeps(admin: Admin): Promise<{ enrolled: num
 // automation does NOT blast the entire back-catalog.
 async function sweepNewClient(admin: Admin, a: AutomationRow): Promise<number> {
   const cutoff = a.last_swept_at || a.created_at
-  const { data: contacts } = await admin
+  // Paged — last_swept_at advances after this sweep, so any row beyond a
+  // truncated page would have been skipped forever, not just delayed.
+  const contacts = await fetchAllRows<any>(() => admin
     .from('txt_contacts')
     .select('id, email, first_name, last_name')
     .eq('company_id', a.company_id)
@@ -67,8 +70,8 @@ async function sweepNewClient(admin: Admin, a: AutomationRow): Promise<number> {
     .eq('email_status', 'subscribed')
     .not('email', 'is', null)
     .gt('created_at', cutoff)
-    .limit(500)
-  return enrollContacts(admin, a, contacts ?? [])
+    .order('id', { ascending: true }))
+  return enrollContacts(admin, a, contacts)
 }
 
 // Any emailable directory contact carrying the trigger tag who isn't enrolled
@@ -77,12 +80,13 @@ async function sweepNewClient(admin: Admin, a: AutomationRow): Promise<number> {
 async function sweepTagAdded(admin: Admin, a: AutomationRow): Promise<number> {
   const tagId = a.trigger_config?.tag_id
   if (!tagId) return 0
-  const { data: assigns } = await admin
+  // Paged — PostgREST caps a single response at 1,000 rows regardless of .limit().
+  const assigns = await fetchAllRows<{ contact_id: string }>(() => admin
     .from('contact_tag_assignments')
     .select('contact_id')
     .eq('tag_id', tagId)
-    .limit(5000)
-  const ids = [...new Set((assigns ?? []).map((x: any) => x.contact_id as string))]
+    .order('contact_id', { ascending: true }))
+  const ids = [...new Set(assigns.map((x) => x.contact_id))]
   if (!ids.length) return 0
 
   let total = 0

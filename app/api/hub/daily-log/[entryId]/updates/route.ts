@@ -1,4 +1,4 @@
-import { NextResponse } from 'next/server'
+import { NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
@@ -129,7 +129,7 @@ export async function POST(
   // so anyone currently *viewing* the Daily Log sees the new update appear without
   // refreshing. Recipient-scoped consumers (sidebar/rail dot, chime, desktop
   // banner) self-filter on `recipient_ids`; the in-view refresh ignores it.
-  void broadcastDailyLogUpdate(profile.company_id, {
+  after(() => broadcastDailyLogUpdate(profile.company_id, {
     update_id: update.id,
     entry_id: entryId,
     sender_id: user.id,
@@ -137,12 +137,12 @@ export async function POST(
     tech_name: techName,
     snippet,
     recipient_ids: recipientIds,
-  })
+  }))
 
   if (entryRow?.completed_at) {
-    notifyDailyLogComplete(entryId).catch((err) =>
+    after(() => notifyDailyLogComplete(entryId).catch((err) =>
       console.error('[daily-log] re-notify on update failed:', err),
-    )
+    ))
   }
 
   return NextResponse.json(update, { status: 201 })
