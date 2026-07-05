@@ -62,6 +62,18 @@ export const SCOREBOARDS: ScoreboardMeta[] = [
     subtitle: 'Call grades, weak spots, must-listen queue & rep performance',
     badge: 'Coaching',
   },
+  {
+    slug: '7',
+    title: 'Retention & Churn',
+    subtitle: 'Recurring retention, churn by reason & type, monthly trend — 2026 book',
+    badge: 'Retention',
+  },
+  {
+    slug: '8',
+    title: 'Lead Sources',
+    subtitle: 'Which sources bring customers — and which ones keep them',
+    badge: 'Sources',
+  },
 ]
 
 /** Whether a user can see the Scoreboards section at all (i.e. has ≥1 visible board). */

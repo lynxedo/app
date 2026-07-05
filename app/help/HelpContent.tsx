@@ -2081,8 +2081,20 @@ function ScoreboardsTab() {
           <li><strong className="text-white">IR Irrigation</strong> — Gold book size, avg repair ticket, visit revenue by tech, Rachio + Gold sold/week.</li>
           <li><strong className="text-white">PW Pet Waste</strong> — active customers + annual value, visit revenue by tech (weekly + monthly), and a full cross-department view for Bonnie.</li>
           <li><strong className="text-white">Office</strong> — office-staff performance metrics.</li>
+          <li><strong className="text-white">Retention &amp; Churn</strong> — this year&apos;s recurring book: gross retention, controllable churn (the part we could have influenced), cancellations by reason and by month, and the annual value lost.</li>
+          <li><strong className="text-white">Lead Sources</strong> — where customers come from and which sources keep them: new customers by source, a per-source scorecard (retention, tenure, value, estimated LTV), close rate by source, and the paid-vs-free mix.</li>
         </ul>
         <p className="mt-2">Scoreboards are at <strong className="text-white">/hub/scoreboards</strong> — tap a board in the left sidebar to open it.</p>
+      </Section>
+
+      <Section title="Retention &amp; Lead Sources — How to Read Them">
+        <p>Both boards look at <strong className="text-white">this year&apos;s recurring book</strong>: every active recurring service plus the ones cancelled this year. Last year&apos;s cancellations don&apos;t count against you.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Controllable churn</strong> is the number to manage against — cancels we could have influenced (price, results, service). Moves, deaths, and accounts <em>we</em> cancelled are reported separately, not blamed on operations.</li>
+          <li>A cancellation shows as <strong className="text-white">Review</strong> when its reason is blank or unrecognized — fill in the reason on the Recurring Services board and it moves to the right bucket.</li>
+          <li>The Lead Sources board reads the <strong className="text-white">&ldquo;HLC105 Lead Source&rdquo;</strong> field on the Jobber client. The <strong className="text-white">Source Coverage</strong> card shows how much of the book has a known source — set the field on every new client to make these numbers sharper.</li>
+          <li><strong className="text-white">Retention by source</strong> favors newer sources (their customers haven&apos;t had time to leave yet) — read it together with the <em>Tenure</em> column on the scorecard.</li>
+        </ul>
       </Section>
 
       <Section title="Access — Who Sees What">

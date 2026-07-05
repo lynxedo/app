@@ -83,7 +83,7 @@ async function handleScoreboards(request: Request) {
 
   const sp = new URL(request.url).searchParams
   const board = sp.get('board') ?? '1'
-  if (board !== '1' && board !== '2' && board !== '3' && board !== '4' && board !== '5') return NextResponse.json({ error: 'Unknown scoreboard' }, { status: 404 })
+  if (board !== '1' && board !== '2' && board !== '3' && board !== '4' && board !== '5' && board !== '7' && board !== '8') return NextResponse.json({ error: 'Unknown scoreboard' }, { status: 404 })
 
   // Per-board view grant (Admin -> Scoreboards). Admins bypass; non-admins must
   // be explicitly granted this board even when they have section access.
@@ -123,6 +123,8 @@ async function handleScoreboards(request: Request) {
   if (board === '3') return buildIrBoard(supabase, company)
   if (board === '4') return buildPwBoard(supabase, company)
   if (board === '5') return buildOfficeBoard(supabase, company)
+  if (board === '7') return buildRetentionBoard(supabase, company)
+  if (board === '8') return buildLeadSourceBoard(supabase, company)
   return buildMainBoard(supabase, company)
 }
 
@@ -287,6 +289,8 @@ export async function computeBoardPayload(
     : board === '3' ? await buildIrBoard(supabase, company)
     : board === '4' ? await buildPwBoard(supabase, company)
     : board === '5' ? await buildOfficeBoard(supabase, company)
+    : board === '7' ? await buildRetentionBoard(supabase, company)
+    : board === '8' ? await buildLeadSourceBoard(supabase, company)
     : await buildMainBoard(supabase, company)
   if (!res.ok) {
     const body = (await res.json().catch(() => ({}))) as { error?: string }
@@ -994,5 +998,145 @@ async function buildOfficeBoard(supabase: Awaited<ReturnType<typeof createClient
     leadSources,                                                   // [{ src, won, lost }]
     companyWeekly: { labels: weekLabels, won: salesWonVal.map(v => Math.round(v)), upsells: salesUpVal.map(v => Math.round(v)) }, // $ value
     katherineMonthly: { labels: monthBuckets.map(b => b.label), won: kWonVal.map(v => Math.round(v)), upsells: kUpVal.map(v => Math.round(v)) },
+  })
+}
+
+// ── Board 7: Retention & Churn ───────────────────────────────────────────────
+// Universe = the Recurring Services board (recurring_services), scoped to the
+// CURRENT YEAR: Active/Upgraded/Downgraded rows + Cancelled rows whose
+// cancel_date falls in the year. Cancellation reasons are normalized through
+// churn_reasons/churn_reason_aliases (old Monday + Jobber spellings both map);
+// unmapped reasons surface as churn_type 'Review', never silently dropped.
+// All aggregation happens in the scoreboard_churn_summary RPC.
+type ChurnSummary = {
+  year: number
+  active_now: number; upgraded: number; downgraded: number
+  new_in_year: number; start_of_year: number
+  churned_gross: number; churned_controllable: number
+  churned_company_initiated: number; churned_uncontrollable: number; churned_review: number
+  churned_annual_value: number; active_annual_value: number
+  gross_churn_pct: number | null; controllable_churn_pct: number | null
+  by_reason: { reason: string; churn_type: string; count: number; annual_value: number }[]
+  by_type: { churn_type: string; count: number; annual_value: number }[]
+  monthly: { month: string; gross: number; controllable: number }[]
+}
+
+async function buildRetentionBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
+  const year = new Date().getFullYear()
+  const { data, error } = await supabase.rpc('scoreboard_churn_summary', { p_company_id: company, p_year: year })
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  const s = data as unknown as ChurnSummary
+
+  // Owner-language callouts, computed server-side so snapshots freeze them too.
+  const insights: string[] = []
+  const net = s.new_in_year - s.churned_gross
+  insights.push(
+    `${year} so far: +${s.new_in_year} services added, −${s.churned_gross} cancelled → net ${net >= 0 ? '+' : ''}${net} (${s.start_of_year} → ${s.active_now}).`,
+  )
+  const ctrl = s.by_type.find(t => t.churn_type === 'Controllable')
+  if (ctrl && ctrl.count > 0) {
+    insights.push(
+      `Controllable churn — the part we can fight — is ${s.churned_controllable} of ${s.churned_gross} cancels (~$${Math.round(ctrl.annual_value).toLocaleString()}/yr in lost value).`,
+    )
+  }
+  if (s.monthly.length > 1) {
+    const worst = [...s.monthly].sort((a, b) => b.gross - a.gross)[0]
+    const label = new Date(worst.month + '-15').toLocaleString('en-US', { month: 'long' })
+    insights.push(`Worst month: ${label} (${worst.gross} cancellations).`)
+  }
+  if (s.churned_review > 0) {
+    insights.push(
+      `${s.churned_review} cancellation${s.churned_review === 1 ? ' has' : 's have'} no usable reason — tag them on the Recurring Services board so they count toward the right bucket.`,
+    )
+  }
+
+  return NextResponse.json({ asOf: new Date().toISOString(), ...s, insights })
+}
+
+// ── Board 8: Lead Sources ────────────────────────────────────────────────────
+// Per-source scorecard over the same current-year recurring universe as board 7.
+// Lead source resolves at read time through a waterfall (recurring row's own
+// lead_source → the matched client's "HLC105 Lead Source" custom field → Lead
+// Tracker match → unknown); the unresolved share drives the coverage badge.
+// Close rates come straight from the Lead Tracker (leads), current-year cohort.
+type ScorecardRow = {
+  source: string; source_group: string; cost_type: string
+  total_customers: number; active_count: number; churned_count: number
+  retention_pct: number | null; new_in_year: number
+  active_annual_value: number; avg_annual_value: number | null
+  avg_tenure_months: number | null; est_ltv: number | null
+  unresolved_count: number
+}
+
+async function buildLeadSourceBoard(supabase: Awaited<ReturnType<typeof createClient>>, company: string) {
+  const year = new Date().getFullYear()
+  const [{ data: rows, error }, { data: leadRows, error: leadsError }] = await Promise.all([
+    supabase.rpc('scoreboard_source_scorecard', { p_company_id: company, p_year: year }),
+    supabase
+      .from('leads')
+      .select('lead_source, stage')
+      .eq('company_id', company)
+      .gte('lead_creation_date', `${year}-01-01`),
+  ])
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (leadsError) return NextResponse.json({ error: leadsError.message }, { status: 500 })
+  const scorecard = (rows ?? []) as ScorecardRow[]
+
+  // Close rate by source — Lead Tracker cohort (leads CREATED this year), the
+  // same cohort basis the Office board uses for its close-rate metrics.
+  const closeAgg: Record<string, { won: number; lost: number }> = {}
+  for (const l of leadRows ?? []) {
+    if (l.stage !== 'closed_won' && l.stage !== 'closed_lost') continue
+    const src = (l.lead_source || '').trim() || 'Other / Unknown'
+    const slot = (closeAgg[src] ??= { won: 0, lost: 0 })
+    if (l.stage === 'closed_won') slot.won++
+    else slot.lost++
+  }
+  const closeRates = Object.entries(closeAgg)
+    .map(([src, c]) => ({ src, won: c.won, lost: c.lost, rate: Math.round((100 * c.won) / (c.won + c.lost)) }))
+    .sort((a, b) => (b.won + b.lost) - (a.won + a.lost))
+    .slice(0, 8)
+
+  // Coverage badge — how much of the recurring book has a known source.
+  const totalCustomers = scorecard.reduce((s, r) => s + r.total_customers, 0)
+  const unresolved = scorecard.reduce((s, r) => s + r.unresolved_count, 0)
+  const coveragePct = totalCustomers > 0 ? Math.round((1000 * (totalCustomers - unresolved)) / totalCustomers) / 10 : 0
+
+  // Paid vs Free mix of the current-year NEW customers.
+  const mix: Record<string, number> = {}
+  for (const r of scorecard) mix[r.cost_type] = (mix[r.cost_type] ?? 0) + r.new_in_year
+
+  // Best / worst retention among sources with a meaningful sample (n ≥ 5),
+  // excluding the Other/Unknown bucket (it's a mixed bag, not a channel).
+  const rated = scorecard.filter(r => r.source !== 'Other / Unknown' && r.total_customers >= 5 && r.retention_pct != null)
+  const best = [...rated].sort((a, b) => (b.retention_pct ?? 0) - (a.retention_pct ?? 0))[0] ?? null
+  const worst = [...rated].sort((a, b) => (a.retention_pct ?? 0) - (b.retention_pct ?? 0))[0] ?? null
+
+  const insights: string[] = []
+  if (best) insights.push(`Best-retaining source: ${best.source} — ${best.retention_pct}% of its ${best.total_customers} recurring customers are still active.`)
+  if (worst && best && worst.source !== best.source) {
+    insights.push(`Weakest: ${worst.source} — ${worst.retention_pct}% retained (${worst.churned_count} of ${worst.total_customers} cancelled this year).`)
+  }
+  const referral = scorecard.filter(r => r.source_group === 'Referral / Relationship')
+  const paid = scorecard.filter(r => r.cost_type === 'Paid')
+  const grpRate = (rs: ScorecardRow[]) => {
+    const t = rs.reduce((s, r) => s + r.total_customers, 0)
+    const a = rs.reduce((s, r) => s + r.active_count, 0)
+    return t > 0 ? Math.round((1000 * a) / t) / 10 : null
+  }
+  const refRate = grpRate(referral); const paidRate = grpRate(paid)
+  if (refRate != null && paidRate != null) {
+    insights.push(`Referral & repeat customers retain at ${refRate}% vs ${paidRate}% for paid lead sources.`)
+  }
+  insights.push(`Lead source is known for ${coveragePct}% of the book — the rest read Other/Unknown. Set "HLC105 Lead Source" on new clients to tighten this.`)
+
+  return NextResponse.json({
+    asOf: new Date().toISOString(),
+    year,
+    scorecard,
+    closeRates,
+    coveragePct,
+    mix,
+    insights,
   })
 }

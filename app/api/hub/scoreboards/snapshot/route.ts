@@ -59,6 +59,9 @@ export async function POST(req: NextRequest) {
 
   for (const company of companies) {
     for (const b of SCOREBOARDS) {
+      // Call Coaching (6) has its own endpoint + no snapshot UI — computeBoardPayload
+      // has no case for it and would silently store a Main-board payload under its slug.
+      if (b.slug === '6') continue
       try {
         const payload = await computeBoardPayload(admin, company, b.slug)
         const { error } = await admin

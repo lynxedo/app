@@ -8,6 +8,8 @@ import Scoreboard3View from './Scoreboard3View'
 import Scoreboard4View from './Scoreboard4View'
 import Scoreboard5View from './Scoreboard5View'
 import Scoreboard6View from './Scoreboard6View'
+import Scoreboard7View from './Scoreboard7View'
+import Scoreboard8View from './Scoreboard8View'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export const metadata = { title: 'Scoreboard' }
@@ -55,6 +57,10 @@ export default async function ScoreboardPage({ params }: { params: Promise<{ slu
       return <Scoreboard5View meta={board} />
     case '6':
       return <Scoreboard6View meta={board} />
+    case '7':
+      return <Scoreboard7View meta={board} />
+    case '8':
+      return <Scoreboard8View meta={board} />
     default:
       notFound()
   }
