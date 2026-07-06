@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useMemo, useCallback } from 'react'
+import { formatCurrency } from '@/lib/format'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -62,7 +63,7 @@ function display(row: Row, col: Col): string {
   switch (col.type) {
     case 'money': {
       const n = Number(v)
-      return isNaN(n) ? '' : '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+      return isNaN(n) ? '' : formatCurrency(n, { decimals: 2 })
     }
     case 'number': {
       const n = Number(v)

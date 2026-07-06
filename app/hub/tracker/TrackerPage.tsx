@@ -5,6 +5,7 @@ import { useState, useEffect, useCallback, useRef, useMemo, type ReactNode, type
 import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
 import { useToast } from '@/components/ui'
 import { useUnsavedGuard } from '@/hooks/use-unsaved-guard'
+import { formatPhone, formatCurrency as fmtCurrency } from '@/lib/format'
 
 // ── Types ────────────────────────────────────────
 type Stage = { id: string; key: string; label: string; color: string; sort_order: number }
@@ -94,18 +95,6 @@ function fmtDate(d: string | null): string {
   return `${m}/${day}/${y.slice(2)}`
 }
 
-function fmtCurrency(v: number | null): string {
-  if (v == null) return ''
-  return '$' + v.toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })
-}
-
-function formatPhone(v: string | null): string {
-  if (!v) return ''
-  const digits = v.replace(/\D/g, '').slice(0, 10)
-  if (digits.length < 4) return digits
-  if (digits.length < 7) return `(${digits.slice(0, 3)}) ${digits.slice(3)}`
-  return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-}
 
 // ── Frozen-column background helper ──────────────
 function frozenBg(lightMode: boolean, checked: boolean): string {

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { useConfirm } from '@/components/ui'
+import { formatPhone } from '@/lib/format'
 
 type Tag = { id: string; label: string; color: string }
 
@@ -36,17 +37,6 @@ const SOURCE_LABELS: Record<string, string> = {
 function oneLineAddress(c: Contact): string | null {
   const parts = [c.address_line1, c.city, c.state, c.postal_code].filter(Boolean)
   return parts.length ? parts.join(', ') : null
-}
-
-function formatPhone(raw: string): string {
-  const digits = raw.replace(/\D/g, '')
-  if (digits.length === 11 && digits[0] === '1') {
-    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-  }
-  if (digits.length === 10) {
-    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-  }
-  return raw
 }
 
 export default function ContactsPanel({

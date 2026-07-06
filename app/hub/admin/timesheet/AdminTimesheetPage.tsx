@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { useConfirm } from '@/components/ui'
+import { formatDurationMs } from '@/lib/format'
 
 type Employee = {
   id: string
@@ -209,10 +210,7 @@ function punchTimeWarnings(clockInIso: string, clockOutIso: string): string[] {
 }
 
 function formatDuration(sinceTs: string): string {
-  const ms = Date.now() - new Date(sinceTs).getTime()
-  const h = Math.floor(ms / 3600000)
-  const m = Math.floor((ms % 3600000) / 60000)
-  return h > 0 ? `${h}h ${m}m` : `${m}m`
+  return formatDurationMs(Date.now() - new Date(sinceTs).getTime(), { style: 'verbose' })
 }
 
 function displayName(e: Employee): string {

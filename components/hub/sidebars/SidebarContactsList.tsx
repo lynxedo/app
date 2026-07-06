@@ -5,6 +5,7 @@ import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import ContactModal from '@/components/hub/txt/ContactModal'
 import { Spinner, EmptyState, useToast } from '@/components/ui'
+import { formatPhone } from '@/lib/format'
 
 type Tag = { id: string; label: string; color: string }
 
@@ -17,17 +18,6 @@ type Contact = {
   notes: string | null
   jobber_client_id: string | null
   tags: Tag[]
-}
-
-function formatPhone(raw: string): string {
-  const digits = (raw || '').replace(/\D/g, '')
-  if (digits.length === 11 && digits[0] === '1') {
-    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-  }
-  if (digits.length === 10) {
-    return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-  }
-  return raw
 }
 
 /**

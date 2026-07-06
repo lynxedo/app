@@ -11,6 +11,7 @@ import ContactModal from '@/components/hub/txt/ContactModal'
 import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
 import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
 import { TXT_GROUPS_ENABLED, TXT_BROADCASTS_ENABLED } from '@/lib/txt-features'
+import { formatPhone } from '@/lib/format'
 
 type Conversation = {
   id: string
@@ -51,13 +52,6 @@ const ACTIVITY_ICON: Record<'text' | 'call' | 'voicemail', string> = {
 }
 
 type SimpleUser = { id: string; display_name: string }
-
-function formatPhone(phone: string) {
-  const digits = phone.replace(/\D/g, '')
-  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-  if (digits.length === 11 && digits[0] === '1') return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-  return phone
-}
 
 function formatRelative(iso: string | null) {
   if (!iso) return ''

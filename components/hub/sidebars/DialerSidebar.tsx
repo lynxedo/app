@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useCallback, useRef } from 'react'
-import { formatPhone } from '@/lib/format'
+import { formatPhone, formatDurationSec } from '@/lib/format'
 import { useRouter } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
 import SidebarContactsList from './SidebarContactsList'
@@ -50,13 +50,6 @@ function formatRelative(iso: string): string {
   if (diff < 86400) return `${Math.floor(diff / 3600)}h`
   if (d.toDateString() === now.toDateString()) return 'today'
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
-}
-
-function formatDuration(seconds: number): string {
-  if (!seconds) return ''
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${m}:${s.toString().padStart(2, '0')}`
 }
 
 export default function DialerSidebar({
@@ -367,7 +360,7 @@ function CallList({
                 </span>
                 {c.duration_seconds > 0 && (
                   <span className="text-[10px] text-white/40 flex-none">
-                    {formatDuration(c.duration_seconds)}
+                    {formatDurationSec(c.duration_seconds)}
                   </span>
                 )}
               </div>
@@ -462,7 +455,7 @@ function VoicemailList({
                   </span>
                   {v.recording_duration_sec ? (
                     <span className="text-[10px] text-white/40 flex-none">
-                      {formatDuration(v.recording_duration_sec)}
+                      {formatDurationSec(v.recording_duration_sec)}
                     </span>
                   ) : null}
                 </div>

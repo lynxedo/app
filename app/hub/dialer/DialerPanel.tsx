@@ -8,6 +8,7 @@ import ActiveCall from '@/components/hub/dialer/ActiveCall'
 import AudioDevicePicker from '@/components/hub/dialer/AudioDevicePicker'
 import IncomingCall from '@/components/hub/dialer/IncomingCall'
 import { useDialerContext, usePipControls } from '@/components/hub/dialer/DialerProvider'
+import { formatPhone } from '@/lib/format'
 
 export default function DialerPanel({
   initialNumber = null,
@@ -252,12 +253,6 @@ export default function DialerPanel({
       )}
     </div>
   )
-}
-
-function formatPhone(e164: string) {
-  const d = e164.replace(/\D/g, '')
-  if (d.length === 11 && d[0] === '1') return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`
-  return e164
 }
 
 function StatusPill({ state }: { state: ReturnType<typeof useTwilioDevice>['state'] }) {

@@ -9,6 +9,7 @@ import {
   type RouteCapacityFormulas,
 } from '@/lib/route-capacity-formulas'
 import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
+import { formatCurrency } from '@/lib/format'
 import { useToast, useConfirm } from '@/components/ui'
 
 type ColKind = 'data' | 'formula'
@@ -53,11 +54,10 @@ function sortValue(row: RouteCapacityRow, col: Col): unknown {
   return (row as unknown as Record<string, unknown>)[col.key]
 }
 
-function fmtMoney(n: number | null): string { return n == null ? '' : `$${Math.round(n).toLocaleString()}` }
 function fmtNum(n: number | null): string { return n == null ? '' : `${Math.round(n * 100) / 100}` }
 function fmtHours(n: number | null): string { return n == null ? '' : `${Math.round(n * 100) / 100}` }
 function fmtBy(v: number | null, fmt?: Fmt): string {
-  if (fmt === 'money') return fmtMoney(v)
+  if (fmt === 'money') return formatCurrency(v)
   if (fmt === 'hours') return fmtHours(v)
   return fmtNum(v)
 }
@@ -280,7 +280,7 @@ export default function RouteCapacityPage() {
                               let content = ''
                               if (c.footer === 'count') content = `${group.rows.length} total`
                               else if (c.footer === 'sum') {
-                                if (c.key === 'total') content = fmtMoney(summary.total)
+                                if (c.key === 'total') content = formatCurrency(summary.total)
                                 else if (c.key === 'productionTime') content = fmtHours(summary.productionTime)
                                 else if (c.key === 'drive_time') content = fmtHours(summary.driveTime)
                                 else if (c.key === 'totalTime') content = fmtHours(summary.totalTime)

@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect, useCallback } from 'react'
+import { formatCurrency } from '@/lib/format'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -114,8 +115,7 @@ function aggregate(rows: RawRow[]): TechRow[] {
 // ── Formatting ───────────────────────────────────────────────────────────────
 
 function usd(n: number) {
-  if (n === 0) return '—'
-  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return formatCurrency(n, { decimals: 2, blankZero: true })
 }
 
 function pct(num: number, den: number) {

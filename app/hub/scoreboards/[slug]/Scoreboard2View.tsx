@@ -10,6 +10,7 @@ import { useScoreboardData } from '@/hooks/use-scoreboard-data'
 import ScoreboardError from '@/components/hub/ScoreboardError'
 import SnapshotControls from '@/components/hub/scoreboards/SnapshotControls'
 import { ChartCanvas } from '@/components/hub/scoreboards/ChartCanvas'
+import { formatCurrency } from '@/lib/format'
 
 Chart.register(BarController, BarElement, DoughnutController, ArcElement, CategoryScale, LinearScale, Tooltip, Legend)
 Chart.defaults.color = '#64748b'
@@ -52,7 +53,7 @@ const TIER_COLORS: Record<string, string> = {
 }
 const GRID = 'rgba(255,255,255,0.06)'
 const WF_GREEN = { bg: 'rgba(34,197,94,0.75)', border: '#22c55e' }
-const usd = (v: number) => '$' + Math.round(v).toLocaleString()
+const usd = (v: number) => formatCurrency(v)
 const usdTick = (v: number | string) => { const n = Number(v); return '$' + (n >= 1000 ? Math.round(n / 1000) + 'k' : n) }
 
 const tooltipStyle = {

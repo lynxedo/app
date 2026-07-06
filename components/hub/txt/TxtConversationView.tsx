@@ -9,6 +9,7 @@ import MediaLightbox, { type LightboxItem } from '@/components/hub/MediaLightbox
 import { createClient } from '@/lib/supabase/client'
 import { renderTemplate, DEFAULT_ON_MY_WAY_TEMPLATE } from '@/lib/txt-templates'
 import { CallMarker, VoicemailMarker, type TimelineCallEvent } from './TimelineMarkers'
+import { formatPhone } from '@/lib/format'
 
 type Message = {
   id: string
@@ -111,13 +112,6 @@ function friendlyDeliveryError(raw: string): { label: string; hard: boolean } {
   if (/not configured/i.test(code)) return { label: 'Not sent — texting not configured (staging)', hard: false }
   if (/^\d{4,6}$/.test(code)) return { label: `Delivery failed (code ${code})`, hard: false }
   return { label: code || 'Delivery failed', hard: false }
-}
-
-function formatPhone(phone: string) {
-  const digits = phone.replace(/\D/g, '')
-  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-  if (digits.length === 11 && digits[0] === '1') return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-  return phone
 }
 
 function formatTime(iso: string) {

@@ -5,6 +5,7 @@ import RoutePreviewMap, { type RoutePreviewPin } from '@/components/RoutePreview
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { Spinner, EmptyState } from '@/components/ui'
 import { fmtQty, type StoredRouteLoadout, type StoredLoadoutProduct } from '@/lib/route-capacity'
+import { formatPhone, formatCurrency, formatDurationMs, formatDurationSec } from '@/lib/format'
 
 // ── Types ────────────────────────────────────────────────────────────────────
 
@@ -173,26 +174,13 @@ function pinLabel(ord: number): string {
   return ord <= 9 ? String(ord) : String.fromCharCode(97 + (ord - 10))
 }
 
-function formatPhone(p: string): string {
-  const digits = p.replace(/\D/g, '')
-  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-  if (digits.length === 11 && digits.startsWith('1')) return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-  return p
-}
 
 function formatMoney(n: number): string {
-  return `$${n.toFixed(2)}`
+  return formatCurrency(n, { decimals: 2 })
 }
 
 function formatDuration(ms: number): string {
-  if (ms < 0) ms = 0
-  const totalSec = Math.floor(ms / 1000)
-  const h = Math.floor(totalSec / 3600)
-  const m = Math.floor((totalSec % 3600) / 60)
-  const s = totalSec % 60
-  if (h > 0) return `${h}h ${m}m`
-  if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`
-  return `${s}s`
+  return formatDurationMs(ms, { style: 'verbose', seconds: true })
 }
 
 // ── UserAvatar ────────────────────────────────────────────────────────────────
@@ -540,8 +528,7 @@ export default function DailyLogV2View({
 // the Route Optimizer: predicted times, total sq ft, tank fill, products to mix.
 function fmtHrsMin(min: number | null | undefined): string | null {
   if (min == null || min <= 0) return null
-  const h = Math.floor(min / 60), m = Math.round(min % 60)
-  return h > 0 ? `${h}h ${m}m` : `${m}m`
+  return formatDurationSec(min * 60, { style: 'verbose' })
 }
 
 // Group loadout products by line item, so the same product applied for two line

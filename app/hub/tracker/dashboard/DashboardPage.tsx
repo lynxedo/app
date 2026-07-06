@@ -1,6 +1,7 @@
 'use client'
 
 import { useState, useEffect } from 'react'
+import { formatCurrency } from '@/lib/format'
 
 type Lead = {
   id: string
@@ -32,11 +33,6 @@ function parseDate(s: string | null): Date | null {
   return isNaN(d.getTime()) ? null : d
 }
 
-function fmtCurrency(v: number): string {
-  if (v >= 1000) return '$' + (v / 1000).toFixed(1) + 'k'
-  return '$' + v.toLocaleString()
-}
-
 type MetricCard = {
   label: string
   value: number
@@ -49,7 +45,7 @@ function Card({ label, value, count, isRate }: MetricCard) {
     <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
       <p className="text-xs text-gray-500 font-medium uppercase tracking-wide mb-2">{label}</p>
       <p className="text-3xl font-bold text-white">
-        {isRate ? `${value.toFixed(1)}%` : fmtCurrency(value)}
+        {isRate ? `${value.toFixed(1)}%` : formatCurrency(value, { abbreviate: true })}
       </p>
       <p className="text-sm text-gray-500 mt-1">{count} lead{count !== 1 ? 's' : ''}</p>
     </div>
@@ -191,7 +187,7 @@ export default function DashboardPage({
               <div key={sp}>
                 <div className="flex items-center justify-between mb-1">
                   <span className="text-sm text-white">{sp}</span>
-                  <span className="text-sm text-gray-400">{fmtCurrency(rev)} <span className="text-gray-600 text-xs">· {count} sold</span></span>
+                  <span className="text-sm text-gray-400">{formatCurrency(rev, { abbreviate: true })} <span className="text-gray-600 text-xs">· {count} sold</span></span>
                 </div>
                 <div className="h-2 bg-gray-800 rounded-full overflow-hidden">
                   <div

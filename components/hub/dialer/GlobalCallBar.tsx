@@ -17,19 +17,12 @@
 // Hidden on /hub/dialer itself, where the full DialerPanel already renders.
 
 import { useCallback, useEffect, useState, type ReactNode } from 'react'
-import { formatPhone } from '@/lib/format'
+import { formatPhone, formatDurationMs } from '@/lib/format'
 import { friendlyCallError } from '@/lib/dialer-errors'
 import { usePathname, useRouter } from 'next/navigation'
 import { useDialerContext, usePipControls } from './DialerProvider'
 import ActiveCall from './ActiveCall'
 
-
-function formatDuration(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const mm = Math.floor(total / 60)
-  const ss = total % 60
-  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
-}
 
 export default function GlobalCallBar() {
   const device = useDialerContext()
@@ -130,7 +123,7 @@ export default function GlobalCallBar() {
   const label =
     device.state === 'placing'
       ? `Dialing ${who || ''}…`
-      : `${who || 'On call'} · ${formatDuration(elapsed)}`
+      : `${who || 'On call'} · ${formatDurationMs(elapsed)}`
 
   const showHold = device.holdSupported
   const showTransfer = device.conferenceActive

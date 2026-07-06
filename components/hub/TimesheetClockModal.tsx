@@ -4,17 +4,10 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useClockPunch } from '@/hooks/use-clock-punch'
 import { Spinner } from '@/components/ui'
+import { formatDurationMs } from '@/lib/format'
 
 function formatTime(ts: string): string {
   return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-}
-
-function formatDuration(ms: number): string {
-  const h = Math.floor(ms / 3600000)
-  const m = Math.floor((ms % 3600000) / 60000)
-  const s = Math.floor((ms % 60000) / 1000)
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
 export default function TimesheetClockModal({ onClose }: { onClose: () => void }) {
@@ -76,7 +69,7 @@ export default function TimesheetClockModal({ onClose }: { onClose: () => void }
                   <>
                     <div className="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-2">Shift in progress</div>
                     <div className="text-4xl font-bold tabular-nums tracking-tight text-green-400 my-2">
-                      {formatDuration(elapsed)}
+                      {formatDurationMs(elapsed)}
                     </div>
                     <div className="text-sm text-gray-500">Since {formatTime(since)}</div>
                   </>
