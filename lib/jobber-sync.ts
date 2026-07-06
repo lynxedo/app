@@ -263,6 +263,58 @@ function dedupLineItems(rows: Record<string, unknown>[]): Record<string, unknown
   return Array.from(seen.values())
 }
 
+// Each entity query fetches lineItems(first: 25) per parent. A parent that
+// returns exactly this many might have more we never saw, so the reconcile
+// below skips it rather than risk tombstoning a line we simply didn't fetch.
+const LINE_ITEM_PAGE_CAP = 25
+
+/**
+ * Soft-delete the line items Jobber no longer returns for a set of just-synced
+ * parents ("orphans"). The line-item upserts above only INSERT/UPDATE whatever
+ * Jobber currently returns and never remove anything — so a line item deleted in
+ * Jobber (or replaced when a tech edits it, since Jobber assigns the edited line
+ * a brand-new id) otherwise lingers forever and is still counted by the revenue
+ * scoreboards, which SUM line_items.total WHERE deleted_at IS NULL.
+ *
+ * Mechanism: every line Jobber just returned got last_synced_at = nowIso from the
+ * upsert. Any live row for these SAME parents still carrying an OLDER
+ * last_synced_at wasn't in Jobber's response this run, so tombstone it. This is
+ * why a stale timestamp alone can never delete a legit line: the row's parent
+ * must have been re-fetched THIS run (present in parentExternalIds) and Jobber
+ * must have omitted it. Scoped to source='jobber' + this parent_type + the exact
+ * parents we fetched, so it can never touch another parent's or another tool's
+ * rows. (Today the Jobber sync is the only writer of line_items, all source
+ * 'jobber' — if that ever changes, revisit this scope.)
+ */
+async function reconcileDeletedLineItems(
+  admin: ReturnType<typeof createAdminClient>,
+  companyId: string,
+  parentType: 'job' | 'visit' | 'invoice',
+  parentExternalIds: string[],
+  nowIso: string
+): Promise<void> {
+  if (!parentExternalIds.length) return
+  const { data, error } = await admin
+    .from('line_items')
+    .update({ deleted_at: nowIso })
+    .eq('company_id', companyId)
+    .eq('source', 'jobber')
+    .eq('parent_type', parentType)
+    .in('parent_external_id', parentExternalIds)
+    .is('deleted_at', null)
+    .lt('last_synced_at', nowIso)
+    .select('id')
+  if (error) {
+    // Non-fatal: the upsert already succeeded; a reconcile failure must not abort
+    // the sync. Orphans simply self-heal on the next run of this parent.
+    console.error(`[jobber-sync] ${parentType} line-item reconcile failed:`, error.message)
+    return
+  }
+  if (data?.length) {
+    console.log(`[jobber-sync] reconcile: soft-deleted ${data.length} orphaned ${parentType} line item(s)`)
+  }
+}
+
 function parseDeptPrefix(lineItemName: string | null | undefined): string | null {
   if (!lineItemName) return null
   const prefixes = ['WF', 'IR', 'PW', 'MO', 'LD']
@@ -864,6 +916,14 @@ async function syncJobs(
       if (error) throw new Error(`job line_items upsert: ${error.message}`)
     }
 
+    // Reconcile deletions: tombstone any job line items Jobber no longer returns.
+    await reconcileDeletedLineItems(
+      admin, companyId, 'job',
+      nodes.filter(job => jobIdByExternal.has(job.id) &&
+        (job.lineItems?.nodes?.length ?? 0) < LINE_ITEM_PAGE_CAP).map(job => job.id),
+      nowIso
+    )
+
     total += nodes.length
     console.log(`[jobber-sync] jobs: synced ${total} so far`)
 
@@ -1022,6 +1082,16 @@ async function syncVisits(
       )
       if (error) throw new Error(`visit line_items upsert: ${error.message}`)
     }
+
+    // Reconcile deletions: tombstone any visit line items Jobber no longer
+    // returns. This is what corrects the revenue scoreboards — they SUM visit
+    // line items, so a stale line inflated (or a negative one deflated) a visit.
+    await reconcileDeletedLineItems(
+      admin, companyId, 'visit',
+      nodes.filter(v => visitIdByExternal.has(v.id) &&
+        (v.lineItems?.nodes?.length ?? 0) < LINE_ITEM_PAGE_CAP).map(v => v.id),
+      nowIso
+    )
 
     total += nodes.length
     console.log(`[jobber-sync] visits: synced ${total} so far`)
@@ -1190,6 +1260,14 @@ async function syncInvoices(
       )
       if (error) throw new Error(`invoice line_items upsert: ${error.message}`)
     }
+
+    // Reconcile deletions: tombstone any invoice line items Jobber no longer returns.
+    await reconcileDeletedLineItems(
+      admin, companyId, 'invoice',
+      nodes.filter(inv => invoiceIdByExternal.has(inv.id) &&
+        (inv.lineItems?.nodes?.length ?? 0) < LINE_ITEM_PAGE_CAP).map(inv => inv.id),
+      nowIso
+    )
 
     total += nodes.length
     console.log(`[jobber-sync] invoices: synced ${total} so far`)
