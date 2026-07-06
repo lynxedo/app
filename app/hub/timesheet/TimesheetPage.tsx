@@ -13,6 +13,7 @@
 
 import { useState, useEffect, useCallback } from 'react'
 import Link from 'next/link'
+import { formatDurationMs } from '@/lib/format'
 
 type Employee = {
   id: string
@@ -61,14 +62,6 @@ function formatTime(ts: string): string {
 
 function formatDate(d: string): string {
   return new Date(d + 'T12:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric' })
-}
-
-function formatDuration(ms: number): string {
-  const h = Math.floor(ms / 3600000)
-  const m = Math.floor((ms % 3600000) / 60000)
-  const s = Math.floor((ms % 60000) / 1000)
-  if (h > 0) return `${h}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
 }
 
 function getCurrentWeekStart(): Date {
@@ -325,7 +318,7 @@ export default function TimesheetPage({
                     <>
                       <div className="text-xs font-semibold uppercase tracking-widest text-gray-500 mb-2">Shift in progress</div>
                       <div className="text-5xl font-bold tabular-nums tracking-tight text-green-400 my-3">
-                        {formatDuration(elapsed)}
+                        {formatDurationMs(elapsed)}
                       </div>
                       <div className="text-sm text-gray-500">Since {formatTime(since)}</div>
                     </>

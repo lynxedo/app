@@ -9,6 +9,8 @@
 // Consumed downstream by the Route Capacity tool, Daily Log V2, and pesticide records,
 // so keep the shapes stable. See Hub/CHEMICAL_TRACKING_PRD.md + the foundation vision doc.
 
+import { formatCurrency } from '@/lib/format'
+
 export type RateBasis = 'per_1000sqft' | 'per_gallon' | 'per_tree' | 'other'
 
 export const RATE_BASIS_LABELS: Record<RateBasis, string> = {
@@ -155,7 +157,7 @@ export function inventoryValue(
 // ---------------------------------------------------------------------------
 export function fmtMoney(n: number | null | undefined): string {
   if (n == null || !isFinite(n)) return '—'
-  return '$' + n.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+  return formatCurrency(n, { decimals: 2 })
 }
 
 export function fmtNum(n: number | null | undefined, maxFrac = 2): string {

@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useToast, useConfirm } from '@/components/ui'
+import { formatPhone } from '@/lib/format'
 
 export type TxtNumber = {
   id: string
@@ -18,14 +19,6 @@ type UserNumberAssignment = {
   txt_default_number_id: string | null
   // [] = unrestricted (sees all numbers); non-empty = limited to these ids.
   access_number_ids: string[]
-}
-
-function formatPhone(e164: string) {
-  const digits = e164.replace(/\D/g, '')
-  if (digits.length === 11 && digits[0] === '1') {
-    return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-  }
-  return e164
 }
 
 export default function TxtNumbersPanel({

@@ -20,20 +20,13 @@
 // idle (ready, with Close).
 
 import { useEffect, useState, type ReactNode } from 'react'
-import { formatPhone } from '@/lib/format'
+import { formatPhone, formatDurationMs } from '@/lib/format'
 import { createPortal } from 'react-dom'
 import { useDialerContext } from './DialerProvider'
 import Dialpad from './Dialpad'
 import CallContactCard from './CallContactCard'
 import { StatusPill } from './IncomingCall'
 
-
-function formatDuration(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const mm = Math.floor(total / 60)
-  const ss = total % 60
-  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
-}
 
 const KEYPAD: Array<{ d: string; sub?: string }> = [
   { d: '1' },
@@ -164,7 +157,7 @@ export default function PipDialer({ pipWindow }: { pipWindow: Window }) {
         <div className="text-center">
           <div className="text-base font-semibold text-white truncate">{label}</div>
           <div className="mt-0.5 text-sm font-mono text-white/70">
-            {device.held ? 'On hold' : formatDuration(elapsed)}
+            {device.held ? 'On hold' : formatDurationMs(elapsed)}
           </div>
         </div>
 

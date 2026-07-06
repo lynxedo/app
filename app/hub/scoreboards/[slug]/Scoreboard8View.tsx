@@ -10,6 +10,7 @@ import { useScoreboardData } from '@/hooks/use-scoreboard-data'
 import ScoreboardError from '@/components/hub/ScoreboardError'
 import SnapshotControls from '@/components/hub/scoreboards/SnapshotControls'
 import { ChartCanvas } from '@/components/hub/scoreboards/ChartCanvas'
+import { formatCurrency } from '@/lib/format'
 
 Chart.register(BarController, BarElement, CategoryScale, LinearScale, DoughnutController, ArcElement, Tooltip, Legend)
 Chart.defaults.color = '#64748b'
@@ -36,7 +37,7 @@ type Payload = {
 }
 
 const GRID = 'rgba(255,255,255,0.06)'
-const usd = (v: number) => '$' + Math.round(v).toLocaleString()
+const usd = (v: number) => formatCurrency(v)
 const retColor = (p: number) => (p >= 90 ? '#22c55e' : p >= 80 ? '#f59e0b' : '#f87171')
 
 const COST_COLOR: Record<string, { bg: string; border: string }> = {

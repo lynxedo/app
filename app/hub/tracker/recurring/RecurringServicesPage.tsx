@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from 'react'
 import { computeFormulas, summarize, type RecurringRow, type RecurringFormulas } from '@/lib/recurring-formulas'
 import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
+import { formatCurrency } from '@/lib/format'
 import { useToast, useConfirm } from '@/components/ui'
 
 // ---- Option lists (mirrored exactly from Monday board 18188676554) ----
@@ -99,11 +100,10 @@ function sortValue(row: RecurringRow, col: Col): unknown {
   return raw
 }
 
-function fmtMoney(n: number | null): string { return n == null ? '' : `$${Math.round(n).toLocaleString()}` }
 function fmtInt(n: number | null): string { return n == null ? '' : `${Math.round(n).toLocaleString()}` }
 function fmtPct(n: number | null): string { return n == null ? '' : `${Math.round(n * 10) / 10}%` }
 function fmtVal(v: number | null, fmt?: Fmt): string {
-  if (fmt === 'money') return fmtMoney(v)
+  if (fmt === 'money') return formatCurrency(v)
   if (fmt === 'pct') return fmtPct(v)
   return fmtInt(v)
 }
@@ -419,7 +419,7 @@ export default function RecurringServicesPage() {
                             {COLS.map(c => {
                               let content = ''
                               if (c.footer === 'count') content = `${group.rows.length} total`
-                              else if (c.footer === 'sumAnnual') content = fmtMoney(annualSum)
+                              else if (c.footer === 'sumAnnual') content = formatCurrency(annualSum)
                               else if (c.footer === 'summary') content = fmtVal((summary as unknown as Record<string, number | null>)[c.key], c.fmt)
                               return (
                                 <td key={c.key} className={`px-2 py-2 text-xs text-gray-200 ${c.kind === 'formula' || c.footer === 'sumAnnual' ? 'text-right tabular-nums' : ''}`}>

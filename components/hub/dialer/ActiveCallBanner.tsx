@@ -5,17 +5,10 @@
 // × dismisses for the lifetime of this call (resets on the next call).
 
 import { useEffect, useState } from 'react'
-import { formatPhone } from '@/lib/format'
+import { formatPhone, formatDurationMs } from '@/lib/format'
 import { usePathname, useRouter } from 'next/navigation'
 import { useDialerContext } from './DialerProvider'
 
-
-function formatDuration(ms: number): string {
-  const total = Math.max(0, Math.floor(ms / 1000))
-  const mm = Math.floor(total / 60)
-  const ss = total % 60
-  return `${String(mm).padStart(2, '0')}:${String(ss).padStart(2, '0')}`
-}
 
 export default function ActiveCallBanner() {
   const device = useDialerContext()
@@ -51,7 +44,7 @@ export default function ActiveCallBanner() {
   const elapsed = device.callStartedAt ? now - device.callStartedAt : 0
   const label = device.state === 'placing'
     ? `Dialing ${formatPhone(device.inCallWith)}…`
-    : `On call with ${formatPhone(device.inCallWith) || 'caller'} · ${formatDuration(elapsed)}`
+    : `On call with ${formatPhone(device.inCallWith) || 'caller'} · ${formatDurationMs(elapsed)}`
 
   return (
     <button

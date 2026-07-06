@@ -1,7 +1,7 @@
 'use client'
 
 import { useEffect, useState, useRef, type ReactNode } from 'react'
-import { formatPhone } from '@/lib/format'
+import { formatPhone, formatDurationSec } from '@/lib/format'
 import { nativePlatform, type NativeAudioRoute } from '@/lib/native-voice'
 import type { DialerLookupMatch } from '@/lib/dialer-lookup'
 import CallContactCard from './CallContactCard'
@@ -41,13 +41,6 @@ function AudioRouteIcon({ route }: { route: NativeAudioRoute }) {
     </svg>
   )
 }
-
-function formatTimer(seconds: number): string {
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${m}:${s.toString().padStart(2, '0')}`
-}
-
 
 export default function ActiveCall({
   status,
@@ -347,7 +340,7 @@ export default function ActiveCall({
       </div>
       <div className="text-2xl font-light text-white mb-1">{formatPhone(who)}</div>
       <div className="text-white/50 text-sm mb-2">
-        {status === 'in-call' ? formatTimer(elapsed) : '—'}
+        {status === 'in-call' ? formatDurationSec(elapsed) : '—'}
       </div>
 
       {/* Recording indicator */}

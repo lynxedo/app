@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { formatDurationSec, formatPhone } from '@/lib/format'
 import { CoachingPanel, coachingGradeColor, COACHING_CATEGORIES, type CoachingData, type CoachingReview } from '@/components/hub/CoachingPanel'
 
 // ---------------------------------------------------------------------------
@@ -64,13 +65,6 @@ type Call = {
 // Helpers (mirrors the original Call Log style)
 // ---------------------------------------------------------------------------
 
-function formatDuration(seconds: number | null | undefined) {
-  if (!seconds || seconds <= 0) return '—'
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${m}:${String(s).padStart(2, '0')}`
-}
-
 function formatDateTime(iso: string) {
   const d = new Date(iso)
   return d.toLocaleString('en-US', {
@@ -78,14 +72,6 @@ function formatDateTime(iso: string) {
     hour: 'numeric', minute: '2-digit', hour12: true,
     timeZone: 'America/Chicago',
   })
-}
-
-function formatPhone(phone: string | null | undefined) {
-  if (!phone) return '—'
-  const d = phone.replace(/\D/g, '')
-  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
-  if (d.length === 11 && d[0] === '1') return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`
-  return phone
 }
 
 function directionLabel(dir: string) {
@@ -132,14 +118,14 @@ function CallRow({ call, selected, onClick, canViewCoaching }: { call: Call; sel
     >
       <div className="flex items-center justify-between gap-2 mb-0.5">
         <span className="text-sm font-medium text-white truncate">
-          {displayName || formatPhone(displayNumber)}
+          {displayName || formatPhone(displayNumber) || '—'}
         </span>
       </div>
       <div className="flex items-center gap-2 flex-wrap text-xs text-gray-500">
         <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${dir.color}`}>{dir.label}</span>
-        {displayName && <span className="truncate">{formatPhone(displayNumber)}</span>}
+        {displayName && <span className="truncate">{formatPhone(displayNumber) || '—'}</span>}
         <span>·</span>
-        <span>{formatDuration(call.recording_duration_seconds || call.duration_seconds)}</span>
+        <span>{(() => { const d = call.recording_duration_seconds || call.duration_seconds; return d && d > 0 ? formatDurationSec(d) : '—' })()}</span>
         {status && <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${status.color}`}>{status.label}</span>}
         {sent && <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${sent.color}`}>{sent.label}</span>}
         {canViewCoaching && call.coaching_grade && <span className={`px-1.5 py-0.5 rounded text-xs font-bold border ${coachingGradeColor(call.coaching_grade)}`}>{call.coaching_grade}</span>}
@@ -215,9 +201,9 @@ function CallDetail({ call, canViewCoaching }: { call: Call; canViewCoaching: bo
         <div className="flex items-start justify-between gap-3 mb-1">
           <div>
             <h2 className="text-lg font-bold text-white">
-              {displayName || formatPhone(displayNumber)}
+              {displayName || formatPhone(displayNumber) || '—'}
             </h2>
-            {displayName && <div className="text-sm text-gray-400">{formatPhone(displayNumber)}</div>}
+            {displayName && <div className="text-sm text-gray-400">{formatPhone(displayNumber) || '—'}</div>}
           </div>
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
@@ -225,7 +211,7 @@ function CallDetail({ call, canViewCoaching }: { call: Call; canViewCoaching: bo
           {status && <span className={`px-2 py-0.5 rounded text-xs font-medium ${status.color}`}>{status.label}</span>}
           <span>{formatDateTime(call.created_at)}</span>
           <span>·</span>
-          <span>{formatDuration(call.recording_duration_seconds || call.duration_seconds)}</span>
+          <span>{(() => { const d = call.recording_duration_seconds || call.duration_seconds; return d && d > 0 ? formatDurationSec(d) : '—' })()}</span>
           {sent && <span className={`px-2 py-0.5 rounded text-xs font-medium ${sent.color}`}>{sent.label}</span>}
           {callType && <span className="px-2 py-0.5 rounded text-xs bg-gray-800 text-gray-300">{callType}</span>}
           {call.agent_name && <span className="text-gray-400">· {call.agent_name}</span>}
@@ -251,7 +237,7 @@ function CallDetail({ call, canViewCoaching }: { call: Call; canViewCoaching: bo
       {call.voicemail?.recording_storage_path && (
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
           <div className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-3">
-            Voicemail · {formatDuration(call.voicemail.recording_duration_sec)}
+            Voicemail · {call.voicemail.recording_duration_sec && call.voicemail.recording_duration_sec > 0 ? formatDurationSec(call.voicemail.recording_duration_sec) : '—'}
           </div>
           {/* eslint-disable-next-line jsx-a11y/media-has-caption */}
           <audio

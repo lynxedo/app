@@ -1,9 +1,10 @@
 'use client'
 
 import type { PLData, PLMonth } from '@/app/api/qbo/pl/route'
+import { formatCurrency } from '@/lib/format'
 
 function fmt(n: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(n)
+  return formatCurrency(n)
 }
 
 function pctChange(current: number, prev: number): string | null {

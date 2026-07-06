@@ -10,6 +10,7 @@ import { useScoreboardData } from '@/hooks/use-scoreboard-data'
 import ScoreboardError from '@/components/hub/ScoreboardError'
 import SnapshotControls from '@/components/hub/scoreboards/SnapshotControls'
 import { ChartCanvas } from '@/components/hub/scoreboards/ChartCanvas'
+import { formatCurrency } from '@/lib/format'
 
 Chart.register(
   BarController, BarElement, LineController, LineElement, PointElement,
@@ -47,7 +48,7 @@ const DEPT_COLORS: Record<string, { bg: string; border: string; label: string }>
 }
 const PIE_COLORS = ['#0ea5e9', '#38bdf8', '#22c55e', '#f59e0b', '#8b5cf6']
 const GRID = 'rgba(255,255,255,0.06)'
-const usd = (v: number) => '$' + Math.round(v).toLocaleString()
+const usd = (v: number) => formatCurrency(v)
 const usdTick = (v: number | string) => { const n = Number(v); return '$' + (n >= 1000 ? Math.round(n / 1000) + 'k' : n) }
 
 const stackedScales = {

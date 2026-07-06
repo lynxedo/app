@@ -3,6 +3,7 @@
 import { useEffect, useRef } from 'react'
 import { Chart, BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend } from 'chart.js'
 import type { PLData } from '@/app/api/qbo/pl/route'
+import { formatCurrency } from '@/lib/format'
 
 Chart.register(BarController, BarElement, CategoryScale, LinearScale, Tooltip, Legend)
 
@@ -53,7 +54,7 @@ export default function MonthlyPLChart({ data }: Props) {
             callbacks: {
               label: ctx => {
                 const val = ctx.parsed.y ?? 0
-                return ` ${ctx.dataset.label}: ${new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', maximumFractionDigits: 0 }).format(val)}`
+                return ` ${ctx.dataset.label}: ${formatCurrency(val)}`
               },
             },
           },

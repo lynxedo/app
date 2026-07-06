@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react'
 import Link from 'next/link'
+import { formatDurationSec, formatPhone } from '@/lib/format'
 import { CoachingPanel, coachingGradeColor, COACHING_CATEGORIES, type CoachingData, type CoachingReview } from '@/components/hub/CoachingPanel'
 
 interface CallLog {
@@ -33,13 +34,6 @@ interface CallLog {
   review?: CoachingReview | null
 }
 
-function formatDuration(seconds: number | null) {
-  if (!seconds || seconds <= 0) return '—'
-  const m = Math.floor(seconds / 60)
-  const s = seconds % 60
-  return `${m}:${String(s).padStart(2, '0')}`
-}
-
 // call_datetime is stored in Supabase as Texas local time labeled with +00:00.
 // Parse the naive parts and format directly — don't let the browser TZ-convert.
 function formatDateTime(iso: string) {
@@ -51,14 +45,6 @@ function formatDateTime(iso: string) {
   const period = h >= 12 ? 'PM' : 'AM'
   const h12 = h % 12 || 12
   return `${months[parseInt(month) - 1]} ${parseInt(day)}, ${year} ${h12}:${minute} ${period}`
-}
-
-function formatPhone(phone: string) {
-  if (!phone || phone === 'PRIVATE') return phone || '—'
-  const d = phone.replace(/\D/g, '')
-  if (d.length === 10) return `(${d.slice(0, 3)}) ${d.slice(3, 6)}-${d.slice(6)}`
-  if (d.length === 11 && d[0] === '1') return `(${d.slice(1, 4)}) ${d.slice(4, 7)}-${d.slice(7)}`
-  return phone
 }
 
 function directionLabel(dir: string) {
@@ -125,14 +111,14 @@ function CallRow({ call, selected, onClick, canViewCoaching }: { call: CallLog; 
     >
       <div className="flex items-center justify-between gap-2 mb-0.5">
         <span className="text-sm font-medium text-white truncate">
-          {call.customer_name || formatPhone(call.phone)}
+          {call.customer_name || formatPhone(call.phone) || '—'}
         </span>
       </div>
       <div className="flex items-center gap-2 text-xs text-gray-500">
         <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${dir.color}`}>{dir.label}</span>
-        <span>{formatPhone(call.phone)}</span>
+        <span>{formatPhone(call.phone) || '—'}</span>
         <span>·</span>
-        <span>{formatDuration(call.duration_seconds)}</span>
+        <span>{call.duration_seconds && call.duration_seconds > 0 ? formatDurationSec(call.duration_seconds) : '—'}</span>
         {sentimentChip(call.sentiment) && (
           <span className={`px-1.5 py-0.5 rounded text-xs font-medium ${sentimentChip(call.sentiment)!.color}`}>
             {sentimentChip(call.sentiment)!.label}
@@ -161,10 +147,10 @@ function CallDetail({ call, canViewCoaching }: { call: CallLog; canViewCoaching:
         <div className="flex items-start justify-between gap-3 mb-1">
           <div>
             <h2 className="text-lg font-bold text-white">
-              {call.customer_name || formatPhone(call.phone)}
+              {call.customer_name || formatPhone(call.phone) || '—'}
             </h2>
             {call.customer_name && (
-              <div className="text-sm text-gray-400">{formatPhone(call.phone)}</div>
+              <div className="text-sm text-gray-400">{formatPhone(call.phone) || '—'}</div>
             )}
           </div>
         </div>
@@ -172,7 +158,7 @@ function CallDetail({ call, canViewCoaching }: { call: CallLog; canViewCoaching:
           <span className={`px-2 py-0.5 rounded text-xs font-medium ${dir.color}`}>{dir.label}</span>
           <span>{formatDateTime(call.call_datetime)}</span>
           <span>·</span>
-          <span>{formatDuration(call.duration_seconds)}</span>
+          <span>{call.duration_seconds && call.duration_seconds > 0 ? formatDurationSec(call.duration_seconds) : '—'}</span>
           {call.rep_name && <><span>·</span><span>{call.rep_name}</span></>}
           {sentimentChip(call.sentiment) && (
             <span className={`px-2 py-0.5 rounded text-xs font-medium ${sentimentChip(call.sentiment)!.color}`}>

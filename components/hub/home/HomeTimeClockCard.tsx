@@ -3,6 +3,7 @@
 import Link from 'next/link'
 import { useEffect, useRef } from 'react'
 import { useClockPunch, type ClockEmployee } from '@/hooks/use-clock-punch'
+import { formatDurationMs } from '@/lib/format'
 
 export type HomeTimeClockInitial = {
   employee: ClockEmployee
@@ -12,13 +13,6 @@ export type HomeTimeClockInitial = {
 
 function formatTime(ts: string): string {
   return new Date(ts).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
-}
-
-function formatDuration(ms: number): string {
-  const h = Math.floor(ms / 3600000)
-  const m = Math.floor((ms % 3600000) / 60000)
-  if (h > 0) return `${h}h ${m}m`
-  return `${m}m`
 }
 
 export default function HomeTimeClockCard({ initial }: { initial: HomeTimeClockInitial }) {
@@ -58,7 +52,7 @@ export default function HomeTimeClockCard({ initial }: { initial: HomeTimeClockI
               <div className="mt-1 text-white">
                 <span className="text-2xl font-bold tabular-nums">{formatTime(since)}</span>
                 <span className="text-gray-500 mx-2">·</span>
-                <span className="text-lg tabular-nums text-gray-200">{formatDuration(elapsed)}</span>
+                <span className="text-lg tabular-nums text-gray-200">{formatDurationMs(elapsed, { style: 'verbose' })}</span>
               </div>
             </>
           ) : lastOut ? (

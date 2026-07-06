@@ -1,6 +1,7 @@
 'use client'
 
 import { useEffect, useMemo, useState } from 'react'
+import { formatCurrency } from '@/lib/format'
 
 // Staff Pricer — a faithful port of Pricer/pricer.html, but the program data is
 // read live from /api/hub/pricer/charts (published Service Builder charts)
@@ -22,7 +23,7 @@ type Program = {
 
 function fmt(val: number): string {
   if (!isFinite(val)) return '—'
-  return val % 1 === 0 ? '$' + val.toFixed(0) : '$' + val.toFixed(2)
+  return formatCurrency(val, { decimals: val % 1 === 0 ? 0 : 2 })
 }
 // Formula (matches the Service Builder + the original Pricer): per-visit price =
 // base + perK × sizeK; annual = per-visit × visits.

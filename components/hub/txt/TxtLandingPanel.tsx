@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { useRouter } from 'next/navigation'
+import { formatPhone } from '@/lib/format'
 
 type UnknownActivityGroup = {
   phone: string
@@ -18,13 +19,6 @@ type UnknownActivityGroup = {
     duration_seconds?: number | null
     preview?: string | null
   }>
-}
-
-function formatPhone(phone: string) {
-  const digits = phone.replace(/\D/g, '')
-  if (digits.length === 10) return `(${digits.slice(0, 3)}) ${digits.slice(3, 6)}-${digits.slice(6)}`
-  if (digits.length === 11 && digits[0] === '1') return `(${digits.slice(1, 4)}) ${digits.slice(4, 7)}-${digits.slice(7)}`
-  return phone
 }
 
 function formatRelative(iso: string) {
