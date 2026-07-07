@@ -16,7 +16,7 @@ import { sendSms, twilioConfigured, toE164 } from '@/lib/twilio'
 import { renderTemplate } from '@/lib/txt-templates'
 import { resolveFromNumber } from '@/lib/txt-numbers'
 import { buildMessagePreview } from '@/lib/txt-preview'
-import { signTxtMediaUrl } from '@/lib/txt-media-sign'
+import { twilioMediaUrls } from '@/lib/txt-media-sign'
 
 type Admin = ReturnType<typeof createAdminClient>
 
@@ -177,9 +177,9 @@ export async function sendDirectTxtMessage(opts: {
   }
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
-  const publicMediaUrls = mediaUrls.map((m) =>
-    /^https?:\/\//i.test(m) ? m : signTxtMediaUrl(baseUrl, m)
-  )
+  // Direct R2 presigned URL for Twilio (bypasses Cloudflare's block on our
+  // domain → error 11200); see lib/txt-media-sign.ts.
+  const publicMediaUrls = await twilioMediaUrls(mediaUrls)
   const statusCallback = `${baseUrl}/api/txt/twilio/sms/status`
 
   const result = await sendSms({

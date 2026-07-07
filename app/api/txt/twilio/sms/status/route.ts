@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { validateTwilioSignature, twilioConfigured, sendSms } from '@/lib/twilio'
-import { signTxtMediaUrl } from '@/lib/txt-media-sign'
+import { twilioMediaUrls } from '@/lib/txt-media-sign'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -134,9 +134,9 @@ export async function POST(req: NextRequest) {
         }
 
         const mediaUrls: string[] = Array.isArray(row.media_urls) ? row.media_urls : []
-        const publicMediaUrls = mediaUrls.map((m) =>
-          /^https?:\/\//i.test(m) ? m : signTxtMediaUrl(baseUrl, m)
-        )
+        // Direct R2 presigned URL for Twilio (bypasses Cloudflare's block on
+        // our domain → error 11200); see lib/txt-media-sign.ts.
+        const publicMediaUrls = await twilioMediaUrls(mediaUrls)
 
         const resend = await sendSms({
           to: contact.phone,
