@@ -1,4 +1,5 @@
 import crypto from 'crypto'
+import { r2SignedUrl } from './r2'
 
 // Short-TTL HMAC signatures for /api/txt/media/[...key].
 //
@@ -43,4 +44,19 @@ export function verifyTxtMediaSignature(key: string, exp: string | null, sig: st
   const expected = Buffer.from(hmac(secret, key, expNum))
   const given = Buffer.from(sig)
   return expected.length === given.length && crypto.timingSafeEqual(expected, given)
+}
+
+// Build the MediaUrl(s) for an OUTBOUND Twilio send. We hand Twilio a DIRECT R2
+// presigned URL (r2.cloudflarestorage.com) instead of our own /api/txt/media
+// route, because Cloudflare's edge bot-filter blocks Twilio's media fetcher on
+// our domain (returns 403 → Twilio error 11200 "HTTP retrieval failure"), while
+// the R2 object host is not behind that filter. In-app rendering is unaffected:
+// the browser keeps loading the session-gated /api/txt/media route. The R2 URL
+// is a 1-hour signed link to the customer's own photo we're texting them — same
+// exposure the /api/txt/media route already redirected to. Values that are
+// already absolute http(s) URLs pass through unchanged.
+export async function twilioMediaUrls(mediaKeys: string[]): Promise<string[]> {
+  return Promise.all(
+    mediaKeys.map((m) => (/^https?:\/\//i.test(m) ? Promise.resolve(m) : r2SignedUrl(m))),
+  )
 }

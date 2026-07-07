@@ -10,7 +10,7 @@ import { renderTemplate } from '@/lib/txt-templates'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
 import { resolveFromNumber } from '@/lib/txt-numbers'
 import { buildMessagePreview } from '@/lib/txt-preview'
-import { signTxtMediaUrl } from '@/lib/txt-media-sign'
+import { twilioMediaUrls } from '@/lib/txt-media-sign'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -309,16 +309,13 @@ export async function POST(
       .maybeSingle()
     fromNumberId = pn?.id ?? null
   }
-  // Session 54.5: convert R2 storage keys to /api/txt/media URLs so Twilio can
-  // fetch them — now short-TTL HMAC-signed (the route requires either a session
-  // or a valid signature). mediaUrls coming from the client are storage_path
-  // values returned by /api/txt/upload (e.g. "txt/{company}/12345-abc.jpg").
-  // Anything that already looks like an http(s) URL passes through unchanged
-  // (useful for testing or for future direct-link sends).
-  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
-  const publicMediaUrls = mediaUrls.map((m) =>
-    /^https?:\/\//i.test(m) ? m : signTxtMediaUrl(baseUrl, m)
-  )
+  // mediaUrls are storage_path keys from /api/txt/upload (e.g.
+  // "txt/{company}/12345-abc.jpg"). Hand Twilio a DIRECT R2 presigned URL — NOT
+  // our /api/txt/media route — because Cloudflare's edge blocks Twilio's media
+  // fetcher on our own domain (403 → Twilio error 11200 "HTTP retrieval
+  // failure"). In-app rendering still uses the session-gated route. See
+  // lib/txt-media-sign.ts. Already-absolute http(s) URLs pass through unchanged.
+  const publicMediaUrls = await twilioMediaUrls(mediaUrls)
   const result = await sendSms({
     to: directContact!.phone,
     body: finalText,
