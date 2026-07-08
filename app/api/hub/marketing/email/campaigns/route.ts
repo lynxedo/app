@@ -9,10 +9,11 @@ import {
   describeAudience,
   type CampaignRecipient,
 } from '@/lib/email-campaigns'
+import { resolveIdentityRow, validIdentityId } from '@/lib/email-identities'
 
 const LIST_SELECT =
   `id, name, subject, status, recipient_count, sent_count, failed_count, skipped_count,
-   throttle_per_min, template_id, segment_id, scheduled_at, started_at, completed_at,
+   throttle_per_min, template_id, segment_id, identity_id, scheduled_at, started_at, completed_at,
    last_error, created_by, created_at`
 
 const THROTTLE_MIN = 1
@@ -70,6 +71,10 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient()
 
+  // Which sending identity (From/domain) this campaign uses. Null = the company
+  // default is resolved at send time. Validated against this company's identities.
+  const identityId = await validIdentityId(admin, access.companyId, typeof body.identity_id === 'string' ? body.identity_id : null)
+
   // Absolute origin for image URLs. NEXT_PUBLIC_APP_URL is the public domain;
   // request.url's origin is the proxy-internal address behind the Cloudflare
   // tunnel (e.g. localhost:3000), which Gmail's image proxy can't fetch.
@@ -97,6 +102,7 @@ export async function POST(request: Request) {
         created_by: access.userId,
         template_id: content.templateId,
         segment_id: usedSegmentId,
+        identity_id: identityId,
         name: name || autoName,
         subject: content.subject,
         design: content.design,
@@ -122,15 +128,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'No subscribed, emailable recipients match this audience right now.' }, { status: 400 })
   }
 
-  // Compliance / deliverability warnings (non-blocking — surfaced to the user).
-  const { data: settings } = await admin
-    .from('email_settings')
-    .select('from_email, physical_address, domain_verified')
-    .eq('company_id', access.companyId)
-    .maybeSingle()
+  // Compliance / deliverability warnings (non-blocking — surfaced to the user),
+  // scoped to the identity this campaign will actually send from.
+  const [identityRow, { data: settings }] = await Promise.all([
+    resolveIdentityRow(admin, access.companyId, identityId),
+    admin.from('email_settings').select('physical_address').eq('company_id', access.companyId).maybeSingle(),
+  ])
   const warnings: string[] = []
-  if (!settings?.from_email) warnings.push('No sending address is configured (Admin → Email Marketing).')
-  if (!settings?.domain_verified) warnings.push('The sending domain is not verified yet — emails will not deliver until it is.')
+  if (!identityRow?.from_email) warnings.push('No sending address is configured (Admin → Email Marketing).')
+  else if (!identityRow.domain_verified) warnings.push(`The sending domain${identityRow.sending_domain ? ` (${identityRow.sending_domain})` : ''} is not verified yet — emails will not deliver until it is.`)
   if (!settings?.physical_address) warnings.push('No physical mailing address is set — required by CAN-SPAM. Add it in Admin → Email Marketing.')
 
   const { data: campaign, error: cErr } = await admin
@@ -140,6 +146,7 @@ export async function POST(request: Request) {
       created_by: access.userId,
       template_id: content.templateId,
       segment_id: usedSegmentId,
+      identity_id: identityId,
       name: name || autoName,
       subject: content.subject,
       design: content.design,

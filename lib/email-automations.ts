@@ -15,6 +15,7 @@
 // email_automation_sends so the Resend webhook can track + auto-suppress them.
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { renderAndSendEmail, type EmailSendIdentity } from '@/lib/email-campaigns'
+import { resolveSendIdentity } from '@/lib/email-identities'
 import { normalizeDesign, renderDesignToHtml } from '@/lib/email-blocks'
 import { fetchAllRows } from '@/lib/email-contacts'
 
@@ -35,6 +36,7 @@ type AutomationRow = {
   status: string
   last_swept_at: string | null
   created_at: string
+  identity_id?: string | null
 }
 
 // ─── 1. Enrollment sweeps ────────────────────────────────────────────────────
@@ -145,6 +147,7 @@ export async function advanceDueEnrollments(
 ): Promise<{ processed: number; sent: number }> {
   const automations = new Map<string, AutomationRow>()
   const steps = new Map<string, StepRow[]>()
+  // Keyed by the resolved identity (per-automation choice) or the company default.
   const identities = new Map<string, EmailSendIdentity | null>()
   const suppressed = new Map<string, Set<string>>()
   const templates = new Map<string, { id: string; subject: string; design: any } | null>()
@@ -156,7 +159,7 @@ export async function advanceDueEnrollments(
     if (automations.has(id)) return automations.get(id)!
     const { data } = await admin
       .from('email_automations')
-      .select('id, company_id, trigger_type, trigger_config, status, last_swept_at, created_at')
+      .select('id, company_id, trigger_type, trigger_config, status, last_swept_at, created_at, identity_id')
       .eq('id', id)
       .maybeSingle()
     automations.set(id, (data as AutomationRow) ?? null as any)
@@ -173,16 +176,12 @@ export async function advanceDueEnrollments(
     steps.set(automationId, arr)
     return arr
   }
-  async function getIdentity(companyId: string): Promise<EmailSendIdentity | null> {
-    if (identities.has(companyId)) return identities.get(companyId)!
-    const { data } = await admin
-      .from('email_settings')
-      .select('from_name, from_email, reply_to, physical_address')
-      .eq('company_id', companyId)
-      .maybeSingle()
-    const id = data?.from_email ? (data as EmailSendIdentity) : null
-    identities.set(companyId, id)
-    return id
+  async function getIdentity(companyId: string, identityId: string | null): Promise<EmailSendIdentity | null> {
+    const key = identityId ? `id:${identityId}` : `def:${companyId}`
+    if (identities.has(key)) return identities.get(key)!
+    const resolved = await resolveSendIdentity(admin, companyId, identityId)
+    identities.set(key, resolved)
+    return resolved
   }
   async function getSuppressed(companyId: string): Promise<Set<string>> {
     if (suppressed.has(companyId)) return suppressed.get(companyId)!
@@ -231,7 +230,7 @@ export async function advanceDueEnrollments(
           .eq('id', e.id)
         continue
       }
-      const identity = await getIdentity(e.company_id)
+      const identity = await getIdentity(e.company_id, automation.identity_id ?? null)
       if (!identity) continue // no sending address: HOLD this company's enrollments
       const stepList = await getSteps(e.automation_id)
       const supp = await getSuppressed(e.company_id)

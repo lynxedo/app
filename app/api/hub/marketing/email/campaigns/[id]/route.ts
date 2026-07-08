@@ -9,13 +9,14 @@ import {
   describeAudience,
   type CampaignRecipient,
 } from '@/lib/email-campaigns'
+import { resolveIdentityRow, validIdentityId } from '@/lib/email-identities'
 
 const THROTTLE_MIN = 1
 const THROTTLE_MAX = 120
 
 const DETAIL_SELECT =
   `id, name, subject, body_html, design, audience, status, recipient_count, sent_count, failed_count,
-   skipped_count, throttle_per_min, template_id, segment_id, scheduled_at, started_at,
+   skipped_count, throttle_per_min, template_id, segment_id, identity_id, scheduled_at, started_at,
    completed_at, last_error, created_by, created_at`
 
 // GET /api/hub/marketing/email/campaigns/[id] — one campaign + a recent recipient sample.
@@ -82,6 +83,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const body = await request.json().catch(() => ({} as Record<string, unknown>))
   const send = body.send === true
   const name = String(body.name || '').trim()
+  const identityId = await validIdentityId(admin, access.companyId, typeof body.identity_id === 'string' ? body.identity_id : null)
   let throttle = Number(body.throttle_per_min)
   throttle = Number.isFinite(throttle) ? Math.min(THROTTLE_MAX, Math.max(THROTTLE_MIN, Math.round(throttle))) : 60
 
@@ -109,6 +111,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
       .update({
         template_id: content.templateId,
         segment_id: usedSegmentId,
+        identity_id: identityId,
         name: name || autoName,
         subject: content.subject,
         design: content.design,
@@ -137,6 +140,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     .update({
       template_id: content.templateId,
       segment_id: usedSegmentId,
+      identity_id: identityId,
       name: name || autoName,
       subject: content.subject,
       design: content.design,
@@ -155,14 +159,13 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
   const enq = await enqueueCampaignRecipients(admin, id, audience)
   if (!enq.ok) return NextResponse.json({ error: enq.error }, { status: 500 })
 
-  const { data: settings } = await admin
-    .from('email_settings')
-    .select('from_email, physical_address, domain_verified')
-    .eq('company_id', access.companyId)
-    .maybeSingle()
+  const [identityRow, { data: settings }] = await Promise.all([
+    resolveIdentityRow(admin, access.companyId, identityId),
+    admin.from('email_settings').select('physical_address').eq('company_id', access.companyId).maybeSingle(),
+  ])
   const warnings: string[] = []
-  if (!settings?.from_email) warnings.push('No sending address is configured (Admin → Email Marketing).')
-  if (!settings?.domain_verified) warnings.push('The sending domain is not verified yet — emails will not deliver until it is.')
+  if (!identityRow?.from_email) warnings.push('No sending address is configured (Admin → Email Marketing).')
+  else if (!identityRow.domain_verified) warnings.push(`The sending domain${identityRow.sending_domain ? ` (${identityRow.sending_domain})` : ''} is not verified yet — emails will not deliver until it is.`)
   if (!settings?.physical_address) warnings.push('No physical mailing address is set — required by CAN-SPAM. Add it in Admin → Email Marketing.')
 
   return NextResponse.json({ campaign_id: id, recipient_count: audience.length, scheduled_at: scheduledAt, warnings })

@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireEmailAccess } from '@/lib/email-auth'
 import { safeNormalizeSteps } from '@/lib/email-automation-steps'
+import { validIdentityId } from '@/lib/email-identities'
 
 const TRIGGERS = new Set(['new_client', 'tag_added', 'manual'])
-const LIST_SELECT = 'id, name, description, trigger_type, trigger_config, status, created_at, updated_at'
+const LIST_SELECT = 'id, name, description, trigger_type, trigger_config, status, identity_id, created_at, updated_at'
 
 // GET — list automations + a quick active-enrollment count per automation.
 export async function GET() {
@@ -56,6 +57,7 @@ export async function POST(request: Request) {
   const description = String(body.description || '').trim()
   const triggerType = String(body.trigger_type || '')
   const triggerConfig = body.trigger_config && typeof body.trigger_config === 'object' ? body.trigger_config : {}
+  const rawIdentityId = typeof body.identity_id === 'string' ? body.identity_id : null
 
   if (!name) return NextResponse.json({ error: 'Give the automation a name.' }, { status: 400 })
   if (!TRIGGERS.has(triggerType)) return NextResponse.json({ error: 'Pick a valid trigger.' }, { status: 400 })
@@ -64,6 +66,7 @@ export async function POST(request: Request) {
   if (!stepsResult.ok) return NextResponse.json({ error: stepsResult.error }, { status: 400 })
 
   const admin = createAdminClient()
+  const identityId = await validIdentityId(admin, access.companyId, rawIdentityId)
   const { data: automation, error } = await admin
     .from('email_automations')
     .insert({
@@ -73,6 +76,7 @@ export async function POST(request: Request) {
       description,
       trigger_type: triggerType,
       trigger_config: triggerConfig,
+      identity_id: identityId,
       status: 'draft',
     })
     .select('id')

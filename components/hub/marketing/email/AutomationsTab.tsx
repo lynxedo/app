@@ -5,6 +5,7 @@ import { Modal, Button, EmptyState, useToast, useConfirm } from '@/components/ui
 
 type Tag = { id: string; label: string }
 type Template = { id: string; name: string; subject: string }
+type Identity = { id: string; label: string; from_name: string | null; from_email: string; is_default: boolean }
 type TriggerType = 'new_client' | 'tag_added' | 'manual'
 
 type Automation = {
@@ -16,6 +17,7 @@ type Automation = {
   status: 'draft' | 'active' | 'paused'
   active_enrollments: number
   step_count: number
+  identity_id?: string | null
 }
 
 type Step =
@@ -42,24 +44,28 @@ export default function AutomationsTab() {
   const [automations, setAutomations] = useState<Automation[]>([])
   const [templates, setTemplates] = useState<Template[]>([])
   const [tags, setTags] = useState<Tag[]>([])
+  const [identities, setIdentities] = useState<Identity[]>([])
   const [loading, setLoading] = useState(true)
   const [editing, setEditing] = useState<Automation | 'new' | null>(null)
   const [monitorFor, setMonitorFor] = useState<Automation | null>(null)
 
   const load = useCallback(async () => {
     try {
-      const [aRes, tRes, gRes] = await Promise.all([
+      const [aRes, tRes, gRes, iRes] = await Promise.all([
         fetch(BASE),
         fetch('/api/hub/marketing/email/templates'),
         fetch('/api/hub/marketing/email/tags'),
+        fetch('/api/hub/marketing/email/identities'),
       ])
       const aData = await aRes.json().catch(() => ({}))
       const tData = await tRes.json().catch(() => ({}))
       const gData = await gRes.json().catch(() => ({}))
+      const iData = await iRes.json().catch(() => ({}))
       if (aRes.ok) setAutomations(aData.automations || [])
       else toast.error(aData.error || 'Could not load automations.')
       if (tRes.ok) setTemplates(tData.templates || [])
       if (gRes.ok) setTags(gData.tags || [])
+      if (iRes.ok) setIdentities(iData.identities || [])
     } finally {
       setLoading(false)
     }
@@ -138,6 +144,7 @@ export default function AutomationsTab() {
           automation={editing === 'new' ? null : editing}
           templates={templates}
           tags={tags}
+          identities={identities}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); setLoading(true); load() }}
         />
@@ -149,8 +156,8 @@ export default function AutomationsTab() {
 }
 
 function AutomationEditor({
-  automation, templates, tags, onClose, onSaved,
-}: { automation: Automation | null; templates: Template[]; tags: Tag[]; onClose: () => void; onSaved: () => void }) {
+  automation, templates, tags, identities, onClose, onSaved,
+}: { automation: Automation | null; templates: Template[]; tags: Tag[]; identities: Identity[]; onClose: () => void; onSaved: () => void }) {
   const toast = useToast()
   const [name, setName] = useState(automation?.name || '')
   const [description, setDescription] = useState(automation?.description || '')
@@ -159,6 +166,11 @@ function AutomationEditor({
   const [steps, setSteps] = useState<Step[]>([])
   const [loadingSteps, setLoadingSteps] = useState(!!automation)
   const [saving, setSaving] = useState(false)
+
+  // Sending identity for every email this automation sends. Empty = company default.
+  const [identityId, setIdentityId] = useState<string>(
+    automation?.identity_id || identities.find((i) => i.is_default)?.id || (identities.length === 1 ? identities[0].id : ''),
+  )
 
   // Load existing steps when editing.
   useEffect(() => {
@@ -192,6 +204,7 @@ function AutomationEditor({
       name: name.trim(),
       description: description.trim(),
       trigger_type: triggerType,
+      identity_id: identityId || null,
       trigger_config: triggerType === 'tag_added' ? { tag_id: triggerTagId } : {},
       steps: steps.map((s) =>
         s.type === 'send'
@@ -240,6 +253,17 @@ function AutomationEditor({
           <input value={name} onChange={(e) => setName(e.target.value)} placeholder="e.g. New customer welcome"
             className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white" />
         </div>
+
+        {identities.length >= 2 && (
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Send from</label>
+            <select value={identityId} onChange={(e) => setIdentityId(e.target.value)}
+              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white">
+              {identities.map((i) => <option key={i.id} value={i.id}>{i.label}{i.is_default ? ' · default' : ''}</option>)}
+            </select>
+            <p className="text-[11px] text-gray-500 mt-1">Every email in this automation is sent from this domain.</p>
+          </div>
+        )}
 
         <div>
           <label className="block text-xs text-gray-400 mb-1">Trigger — who enters this automation</label>

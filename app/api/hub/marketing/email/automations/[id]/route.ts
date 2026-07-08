@@ -2,9 +2,10 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireEmailAccess } from '@/lib/email-auth'
 import { safeNormalizeSteps } from '@/lib/email-automation-steps'
+import { validIdentityId } from '@/lib/email-identities'
 
 const DETAIL_SELECT =
-  'id, name, description, trigger_type, trigger_config, status, last_swept_at, created_at, updated_at'
+  'id, name, description, trigger_type, trigger_config, status, identity_id, last_swept_at, created_at, updated_at'
 
 async function loadOwned(admin: ReturnType<typeof createAdminClient>, companyId: string, id: string) {
   const { data } = await admin
@@ -66,6 +67,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     update.name = body.name.trim()
   }
   if (typeof body.description === 'string') update.description = body.description.trim()
+  if ('identity_id' in body) update.identity_id = await validIdentityId(admin, access.companyId, typeof body.identity_id === 'string' ? body.identity_id : null)
   if (typeof body.trigger_type === 'string') {
     if (!['new_client', 'tag_added', 'manual'].includes(body.trigger_type)) {
       return NextResponse.json({ error: 'Invalid trigger.' }, { status: 400 })
