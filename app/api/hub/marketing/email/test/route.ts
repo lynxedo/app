@@ -5,6 +5,7 @@ import { sendEmail, formatFrom, resendConfigured } from '@/lib/resend'
 import { renderMergeFields } from '@/lib/email-markdown'
 import { normalizeDesign, isEmptyDesign, renderDesignToHtml } from '@/lib/email-blocks'
 import { appendComplianceFooter, unsubscribeUrls } from '@/lib/email-campaigns'
+import { resolveSendIdentity, resolveIdentityRow } from '@/lib/email-identities'
 
 // Send a verified test email to the signed-in user. Gated on can_access_email
 // (admins always). Uses the company's configured sending identity from
@@ -38,18 +39,19 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient()
-  const { data: settings } = await admin
-    .from('email_settings')
-    .select('from_name, from_email, reply_to, domain_verified, physical_address')
-    .eq('company_id', profile.company_id)
-    .maybeSingle()
-
-  if (!settings?.from_email) {
-    return NextResponse.json({ error: 'No sending address configured. Set the From address in Admin → Email Marketing first.' }, { status: 400 })
-  }
 
   const body = await request.json().catch(() => ({} as Record<string, unknown>))
   const tplSubject = typeof body?.subject === 'string' ? body.subject.trim() : ''
+  const identityId = typeof body?.identity_id === 'string' && body.identity_id ? body.identity_id : null
+
+  // The chosen sending identity (or the company default) + its verification state.
+  const [identity, identityRow] = await Promise.all([
+    resolveSendIdentity(admin, profile.company_id, identityId),
+    resolveIdentityRow(admin, profile.company_id, identityId),
+  ])
+  if (!identity?.from_email) {
+    return NextResponse.json({ error: 'No sending address configured. Set the From address in Admin → Email Marketing first.' }, { status: 400 })
+  }
   const design = normalizeDesign(body?.design)
   const isTemplateTest = !isEmptyDesign(design) || tplSubject !== ''
 
@@ -72,8 +74,8 @@ export async function POST(request: Request) {
     // unsubscribe) real campaigns get, so the test is a faithful preview.
     const unsub = unsubscribeUrls(baseUrl, profile.company_id, user.email)
     html = appendComplianceFooter(rendered, {
-      brand: settings.from_name || '',
-      physicalAddress: settings.physical_address,
+      brand: identity.from_name || '',
+      physicalAddress: identity.physical_address,
       unsubscribeLink: unsub.link,
     })
     text = 'This is a test send of a draft email template, delivered only to you.'
@@ -83,9 +85,9 @@ export async function POST(request: Request) {
       <p>This is a test from your Lynxedo Email Marketing module. 🎉</p>
       <p>If you received this, your sending identity is wired up:</p>
       <ul>
-        <li><strong>From:</strong> ${formatFrom(settings.from_name, settings.from_email)}</li>
-        <li><strong>Reply-To:</strong> ${settings.reply_to || '(none)'}</li>
-        <li><strong>Domain verified:</strong> ${settings.domain_verified ? 'yes' : 'no'}</li>
+        <li><strong>From:</strong> ${formatFrom(identity.from_name, identity.from_email)}</li>
+        <li><strong>Reply-To:</strong> ${identity.reply_to || '(none)'}</li>
+        <li><strong>Domain verified:</strong> ${identityRow?.domain_verified ? 'yes' : 'no'}</li>
       </ul>
       <p style="color:#666;font-size:13px">Sent by Lynxedo. No action needed.</p>
     </div>`
@@ -93,9 +95,9 @@ export async function POST(request: Request) {
   }
 
   const result = await sendEmail({
-    from: formatFrom(settings.from_name, settings.from_email),
+    from: formatFrom(identity.from_name, identity.from_email),
     to: user.email,
-    replyTo: settings.reply_to || undefined,
+    replyTo: identity.reply_to || undefined,
     subject,
     html,
     text,

@@ -8,6 +8,7 @@ import BlockEditor from '@/components/hub/marketing/email/BlockEditor'
 type Filter = { has_tag?: string[]; missing_tag?: string[]; has_line_item?: string[]; missing_line_item?: string[] }
 type Template = { id: string; name: string; subject: string; design: EmailDesign }
 type Segment = { id: string; name: string; filter: Filter }
+type Identity = { id: string; label: string; from_name: string | null; from_email: string; is_default: boolean }
 
 // Audience spec persisted on the campaign (mirrors lib/email-campaigns AudienceSpec).
 type AudienceSpec = {
@@ -39,6 +40,7 @@ type CampaignDetail = Campaign & {
   design: EmailDesign | null
   audience: AudienceSpec | null
   template_id: string | null
+  identity_id: string | null
   throttle_per_min: number
 }
 
@@ -295,6 +297,11 @@ function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | n
   const editing = !!draft
   const [templates, setTemplates] = useState<Template[]>([])
   const [segments, setSegments] = useState<Segment[]>([])
+  const [identities, setIdentities] = useState<Identity[]>([])
+
+  // Which sending identity (From/domain) this campaign uses. Empty = the company
+  // default (resolved server-side). Preselected to the default once loaded.
+  const [identityId, setIdentityId] = useState<string>(draft?.identity_id || '')
 
   // Content (the campaign's own editable copy). template_id is provenance only.
   const [templateId, setTemplateId] = useState(draft?.template_id || '')
@@ -326,14 +333,25 @@ function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | n
 
   useEffect(() => {
     (async () => {
-      const [tRes, sRes] = await Promise.all([
+      const [tRes, sRes, iRes] = await Promise.all([
         fetch('/api/hub/marketing/email/templates'),
         fetch('/api/hub/marketing/email/segments'),
+        fetch('/api/hub/marketing/email/identities'),
       ])
       const tData = await tRes.json().catch(() => ({}))
       const sData = await sRes.json().catch(() => ({}))
+      const iData = await iRes.json().catch(() => ({}))
       if (tRes.ok) setTemplates(tData.templates || [])
       if (sRes.ok) setSegments(sData.segments || [])
+      if (iRes.ok) {
+        const list: Identity[] = iData.identities || []
+        setIdentities(list)
+        // Preselect the draft's identity if it's still valid, else the company default.
+        setIdentityId((cur) => {
+          if (cur && list.some((i) => i.id === cur)) return cur
+          return list.find((i) => i.is_default)?.id || list[0]?.id || ''
+        })
+      }
     })()
   }, [])
 
@@ -414,7 +432,7 @@ function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | n
     try {
       const res = await fetch('/api/hub/marketing/email/test', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ subject, design }),
+        body: JSON.stringify({ subject, design, identity_id: identityId || null }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok) toast.error(data.error || 'Could not send the test.')
@@ -429,6 +447,7 @@ function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | n
     try {
       const payload: Record<string, unknown> = {
         template_id: templateId || null, subject: subject.trim(), design, name: name.trim(),
+        identity_id: identityId || null,
         ...buildSpec(),
       }
       if (when === 'later' && scheduledAt) payload.scheduled_at = new Date(scheduledAt).toISOString()
@@ -452,6 +471,7 @@ function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | n
     try {
       const payload: Record<string, unknown> = {
         template_id: templateId || null, subject: subject.trim(), design, name: name.trim(),
+        identity_id: identityId || null,
         ...buildSpec(),
       }
       if (when === 'later' && scheduledAt) payload.scheduled_at = new Date(scheduledAt).toISOString()
@@ -474,6 +494,8 @@ function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | n
       setBusy(false)
     }
   }
+
+  const selectedIdentity = identities.find((i) => i.id === identityId)
 
   return (
     <Modal
@@ -512,6 +534,24 @@ function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | n
           </div>
           <Button variant="ghost" onClick={sendTest} disabled={testing}>{testing ? 'Sending…' : 'Send test to myself'}</Button>
         </div>
+
+        {/* Send from — which verified domain/From this campaign goes out on. */}
+        {identities.length >= 2 && (
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">Send from</label>
+            <select
+              value={identityId} onChange={(e) => setIdentityId(e.target.value)}
+              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white"
+            >
+              {identities.map((i) => <option key={i.id} value={i.id}>{i.label}{i.is_default ? ' · default' : ''}</option>)}
+            </select>
+            {selectedIdentity && (
+              <p className="text-[11px] text-gray-500 mt-1">
+                Sends as {selectedIdentity.from_name ? `${selectedIdentity.from_name} <${selectedIdentity.from_email}>` : selectedIdentity.from_email}
+              </p>
+            )}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
           <div>

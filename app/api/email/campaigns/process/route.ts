@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { resendConfigured } from '@/lib/resend'
 import { renderAndSendEmail } from '@/lib/email-campaigns'
+import { resolveSendIdentity } from '@/lib/email-identities'
 
 // Called by VPS cron every minute:
 //   curl -s -X POST https://lynxedo.com/api/email/campaigns/process \
@@ -38,7 +39,7 @@ export async function POST(request: Request) {
 
   const { data: campaigns } = await admin
     .from('email_campaigns')
-    .select('id, company_id, subject, body_html, throttle_per_min, scheduled_at')
+    .select('id, company_id, subject, body_html, throttle_per_min, scheduled_at, identity_id')
     .in('status', ['queued', 'processing'])
     .or(`scheduled_at.is.null,scheduled_at.lte.${nowIso}`)
     .order('created_at', { ascending: true })
@@ -55,13 +56,10 @@ export async function POST(request: Request) {
     if (Date.now() - startedAt > BATCH_MAX_MS) break
     if (totalProcessed >= PROCESS_MAX_PER_TICK) break
 
-    // Sending identity for this company (read once per campaign per tick).
-    const { data: settings } = await admin
-      .from('email_settings')
-      .select('from_name, from_email, reply_to, physical_address')
-      .eq('company_id', c.company_id)
-      .maybeSingle()
-    if (!settings?.from_email) {
+    // Sending identity for this campaign — its chosen identity, else the company
+    // default (read once per campaign per tick).
+    const identity = await resolveSendIdentity(admin, c.company_id, c.identity_id)
+    if (!identity?.from_email) {
       // Config gap, not a recipient problem — leave queued, flag it, skip this campaign.
       await admin.from('email_campaigns')
         .update({ last_error: 'No sending address configured (Admin → Email Marketing).' })
@@ -109,7 +107,7 @@ export async function POST(request: Request) {
         }
 
         const result = await renderAndSendEmail({
-          identity: settings,
+          identity,
           baseUrl,
           companyId: c.company_id,
           email,
