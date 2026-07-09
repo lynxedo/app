@@ -5,7 +5,7 @@ import { toE164 } from '@/lib/twilio'
 
 // GET /api/admin/txt/numbers — list all phone numbers for the caller's company.
 export async function GET() {
-  const auth = await requireAdminArea('hub')
+  const auth = await requireAdminArea('txt')
   if (!auth.ok || !auth.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
@@ -23,7 +23,7 @@ export async function GET() {
 // POST /api/admin/txt/numbers — create a new phone number.
 // Body: { twilio_number, label?, is_default? }
 export async function POST(request: Request) {
-  const auth = await requireAdminArea('hub')
+  const auth = await requireAdminArea('txt')
   if (!auth.ok || !auth.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }

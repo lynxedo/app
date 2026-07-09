@@ -7,7 +7,7 @@ const MAX_BODY = 1500
 
 // GET /api/admin/txt/templates — list all ORG templates for the caller's company.
 export async function GET() {
-  const auth = await requireAdminArea('hub')
+  const auth = await requireAdminArea('txt')
   if (!auth.ok || !auth.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
@@ -28,7 +28,7 @@ export async function GET() {
 // POST /api/admin/txt/templates — create a new org template.
 // Body: { title, body, sort_order? }
 export async function POST(request: Request) {
-  const auth = await requireAdminArea('hub')
+  const auth = await requireAdminArea('txt')
   if (!auth.ok || !auth.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
