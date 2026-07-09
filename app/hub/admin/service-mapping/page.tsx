@@ -23,12 +23,11 @@ export default async function ServiceMappingPage() {
   if (!profile?.company_id) redirect('/hub/home')
 
   const admin = createAdminClient()
-  const { serviceProducts, rounds, products, lineItemNames } = await loadServiceMappingData(admin, profile.company_id)
+  const { serviceProducts, products, lineItemNames } = await loadServiceMappingData(admin, profile.company_id)
 
   return (
     <ServiceMappingPanel
       initialServiceProducts={serviceProducts}
-      initialRounds={rounds}
       products={products}
       lineItemNames={lineItemNames}
     />
