@@ -488,7 +488,11 @@ export default function CallLogPage() {
         {/* Detail panel */}
         <div className="flex-1 overflow-y-auto">
           {selected ? (
-            <CallDetail call={selected} canViewCoaching={canViewCoaching} />
+            // key={selected.id} forces a remount when the selected call changes,
+            // so CoachingPanel re-seeds its Notes / override-grade / reviewed
+            // state from the new call's props instead of leaking the previous
+            // call's review (its state is useState-initialized from props once).
+            <CallDetail key={selected.id} call={selected} canViewCoaching={canViewCoaching} />
           ) : (
             <div className="flex items-center justify-center h-full text-gray-600 text-sm">
               Select a call to view details
