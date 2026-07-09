@@ -92,6 +92,7 @@ export default function HubShell({
   initialMasterDndEnabled = false,
   initialHubDndEnabled = false,
   initialDialerDndEnabled = false,
+  betaFlags = {},
   children,
 }: {
   rooms: Room[]
@@ -158,6 +159,8 @@ export default function HubShell({
   initialMasterDndEnabled?: boolean
   initialHubDndEnabled?: boolean
   initialDialerDndEnabled?: boolean
+  /** Resolved beta flag map (featureKey → on) for this user; see lib/beta-flags.ts. */
+  betaFlags?: Record<string, boolean>
   children: React.ReactNode
 }) {
   const pathname = usePathname() ?? ''
@@ -1111,5 +1114,7 @@ export default function HubShell({
   // ConversationPopoutProvider owns the floating message-thread window (txt / DM
   // / room) for everyone — like the dialer PiP, but for text. Wrapped outermost
   // so the pop-out survives navigation across every Hub page.
-  return <ConversationPopoutProvider>{withDialer}</ConversationPopoutProvider>
+  // Gated behind the conversation_popout beta flag — the pop-out button hides
+  // for anyone not opted in (or once the beta is force-off in Admin → Beta).
+  return <ConversationPopoutProvider enabled={!!betaFlags.conversation_popout}>{withDialer}</ConversationPopoutProvider>
 }

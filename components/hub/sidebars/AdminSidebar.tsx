@@ -10,12 +10,15 @@ import { CatalogIcon, type CatalogId } from '../railCatalog'
 function AdminRow({
   href,
   iconId,
+  icon,
   label,
   exact,
   onClose,
 }: {
   href: string
-  iconId: CatalogId
+  iconId?: CatalogId
+  // A custom glyph for rows without a catalog icon (e.g. Beta). Takes precedence.
+  icon?: React.ReactNode
   label: string
   exact?: boolean
   onClose?: () => void
@@ -37,7 +40,7 @@ function AdminRow({
       }`}
     >
       <span className="text-white/70 flex-none w-5 h-5 flex items-center justify-center">
-        <CatalogIcon id={iconId} />
+        {icon ?? (iconId ? <CatalogIcon id={iconId} /> : null)}
       </span>
       <span className="truncate flex-1">{label}</span>
     </Link>
@@ -127,6 +130,19 @@ export default function AdminSidebar({
       )}
       {isSuperAdmin && (
         <AdminRow href="/hub/admin/scoreboards" iconId="scoreboards" label="Scoreboards" onClose={onClose} />
+      )}
+      {isSuperAdmin && (
+        <AdminRow
+          href="/hub/admin/beta"
+          icon={
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M9 3h6M10 3v5.5L5.2 17a2 2 0 001.8 3h10a2 2 0 001.8-3L14 8.5V3" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M7.5 14h9" />
+            </svg>
+          }
+          label="Beta"
+          onClose={onClose}
+        />
       )}
     </SidebarShell>
   )

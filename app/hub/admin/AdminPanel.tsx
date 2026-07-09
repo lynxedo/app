@@ -44,6 +44,7 @@ type UserProfile = {
   can_access_daily_log_v2: boolean
   can_access_call_log2: boolean
   can_access_coaching: boolean
+  can_access_beta: boolean
   can_access_scoreboards: boolean
   can_access_files: boolean
   can_access_pesticide_records: boolean
@@ -121,6 +122,7 @@ const TOOL_GROUPS: { title: string; items: { key: keyof UserProfile; label: stri
       { key: 'can_access_scoreboards', label: 'Scoreboards' },
       { key: 'can_access_files', label: 'Files' },
       { key: 'can_post_shout_outs', label: 'Post Shout Outs' },
+      { key: 'can_access_beta', label: 'Beta Features' },
     ],
   },
 ]
@@ -190,6 +192,7 @@ function defaultProfile(id: string, overrides: Partial<UserProfile> = {}): UserP
     can_access_lawn: false,
     can_access_call_log: false,
     can_access_coaching: false,
+    can_access_beta: false,
     can_access_responder: false,
     can_access_timesheet: false,
     can_access_books: false,

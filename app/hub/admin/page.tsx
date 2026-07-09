@@ -52,7 +52,7 @@ export default async function AdminPage() {
     can_access_daily_log_v2: boolean;
     can_access_call_log2: boolean; can_access_scoreboards: boolean;
     can_access_files: boolean; can_access_pesticide_records: boolean;
-    can_access_pricer: boolean; can_access_coaching: boolean;
+    can_access_pricer: boolean; can_access_coaching: boolean; can_access_beta: boolean;
     display_name: string | null; avatar_url: string | null; invite_sent_at: string | null;
     full_name: string | null;
     locked_at: string | null; deactivated_at: string | null;
@@ -111,6 +111,7 @@ export default async function AdminPage() {
       can_access_pesticide_records: r.can_access_pesticide_records,
       can_access_pricer: r.can_access_pricer,
       can_access_coaching: r.can_access_coaching,
+      can_access_beta: r.can_access_beta,
     },
   }))
 

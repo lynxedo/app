@@ -536,6 +536,7 @@ function HubTab() {
       </Section>
 
       <Section title="Pop out a conversation">
+        <Note><strong className="text-white">Beta feature.</strong> The pop-out button only appears once you turn it on in <strong className="text-white">Settings → Beta Features</strong> (you&apos;ll need the Beta Features grant from an admin first).</Note>
         <p>Every room/channel and DM has a <strong className="text-white">⧉ pop-out</strong> button in its header. Tap it to float that conversation in its own always-on-top window — the same way the <Link href="/hub/dialer" className="text-sky-400 hover:underline">Dialer</Link> pops out. Keep it in the corner of your screen while you work in another part of Hub, or in another app entirely, and reply without switching back and forth. Close it and the conversation returns to the normal in-page view.</p>
         <p>The pop-out is a <strong className="text-white">trimmed</strong> view — the running messages plus a box to type a reply. Threads/replies, reactions, file uploads, and message actions stay on the full in-page conversation.</p>
         <Note>The floating window works in <strong className="text-white">Chrome, Edge, Arc, and Brave</strong> (it uses their Picture-in-Picture support). On Safari and the mobile/native app the button doesn&apos;t appear — everything else works the same. Only one conversation floats at a time; popping out another moves the window to it. The window closes if you fully reload the page or leave Hub.</Note>
@@ -1799,6 +1800,13 @@ function SettingsTab() {
           <li><strong className="text-white">Glossy</strong> (frosted panels over a color gradient) — Aurora, Nebula, Tide, Obsidian, Ember Glass, Heroes Glass</li>
         </ul>
         <p>Everyone on your team can have their own theme — it&apos;s a personal preference and doesn&apos;t affect what other users see.</p>
+      </Section>
+
+      <Section title="Beta Features">
+        <p>Beta features are new tools we&apos;re trying out with a few people before rolling them out to everyone. If an admin has given you the <strong className="text-white">Beta Features</strong> grant, a <strong className="text-white">Beta Features</strong> tab appears here in Settings.</p>
+        <p className="mt-2">Each beta shows a short description (sometimes with a screenshot) and an on/off switch. Turn one on to start using it right away; turn it off any time to go back to normal. Betas are new, so they may change or have rough edges.</p>
+        <p className="mt-2">Under each beta is a <strong className="text-white">Feedback</strong> box — tell us what&apos;s working, what&apos;s confusing, or what&apos;s broken, then hit <strong className="text-white">Send feedback</strong>. It goes straight to the team.</p>
+        <Note>Don&apos;t see a Beta Features tab? Either no betas are open right now, or you don&apos;t have the grant yet — ask an admin. Admins manage the list of betas in <strong className="text-white">Admin → Beta</strong> and grant access per person in <strong className="text-white">Admin → People</strong>.</Note>
       </Section>
     </>
   )

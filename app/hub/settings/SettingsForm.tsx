@@ -10,6 +10,7 @@ import { type RailPermissions } from '@/components/hub/railCatalog'
 import TxtPersonalTemplates from './TxtPersonalTemplates'
 import DialerPersonalSettings from './DialerPersonalSettings'
 import ExtensionTokensSection from './ExtensionTokensSection'
+import BetaFeaturesTab from './BetaFeaturesTab'
 import DndScheduleEditor from '@/components/hub/DndScheduleEditor'
 import type { DndSchedule } from '@/lib/dnd-schedule'
 import { useToast, useConfirm } from '@/components/ui'
@@ -35,6 +36,8 @@ interface Props {
   landingPage: 'hub' | 'dashboard'
   notifPref: NotifPref
   railPermissions: RailPermissions
+  /** Admin → People "Beta Features" grant (admins always). Gates the Beta tab. */
+  canAccessBeta?: boolean
   txtSignature: string
   allowUserSignatures?: boolean
   companyDefaultSignature?: string | null
@@ -48,7 +51,7 @@ interface Props {
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
-type Tab = 'profile' | 'my-hub' | 'notifications' | 'integrations' | 'account'
+type Tab = 'profile' | 'my-hub' | 'notifications' | 'integrations' | 'beta' | 'account'
 
 function getInitials(name: string | null, email: string): string {
   if (name) {
@@ -92,7 +95,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, initialTheme, jobberConnected, landingPage, notifPref, railPermissions, txtSignature, allowUserSignatures = true, companyDefaultSignature = null, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, initialTheme, jobberConnected, landingPage, notifPref, railPermissions, canAccessBeta = false, txtSignature, allowUserSignatures = true, companyDefaultSignature = null, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
   const router = useRouter()
   const toast = useToast()
   const confirmDialog = useConfirm()
@@ -100,7 +103,7 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
   // settings tab lands there, and the browser back button moves between tabs),
   // mirroring the Help page.
   const searchParams = useSearchParams()
-  const ALL_TABS: Tab[] = ['profile', 'my-hub', 'notifications', 'integrations', 'account']
+  const ALL_TABS: Tab[] = ['profile', 'my-hub', 'notifications', 'integrations', ...(canAccessBeta ? ['beta' as const] : []), 'account']
   const initialTab = searchParams.get('tab') as Tab | null
   const [activeTab, setActiveTab] = useState<Tab>(
     initialTab && ALL_TABS.includes(initialTab) ? initialTab : 'profile'
@@ -524,6 +527,7 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
     { id: 'my-hub',        label: 'My Hub' },
     { id: 'notifications', label: 'Notifications' },
     { id: 'integrations',  label: 'Integrations' },
+    ...(canAccessBeta ? [{ id: 'beta' as const, label: 'Beta Features' }] : []),
     { id: 'account',       label: 'Account' },
   ]
 
@@ -962,6 +966,9 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
 
       </>}
 
+
+      {/* ── BETA FEATURES TAB ───────────────────────────────────────────── */}
+      {activeTab === 'beta' && canAccessBeta && <BetaFeaturesTab />}
 
       {/* ACCOUNT TAB */}
       {activeTab === 'account' && (

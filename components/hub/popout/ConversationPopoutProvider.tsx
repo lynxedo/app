@@ -63,7 +63,15 @@ function targetKey(t: PopoutTarget): string {
   return `dm:${t.roomId ?? ''}:${t.conversationId ?? ''}`
 }
 
-export default function ConversationPopoutProvider({ children }: { children: ReactNode }) {
+export default function ConversationPopoutProvider({
+  enabled = false,
+  children,
+}: {
+  // Gated by the conversation_popout beta flag (HubShell passes betaFlags). When
+  // false the button never renders — the feature is invisible to non-beta users.
+  enabled?: boolean
+  children: ReactNode
+}) {
   const pip = useDocumentPip()
   const [target, setTarget] = useState<PopoutTarget | null>(null)
 
@@ -87,14 +95,14 @@ export default function ConversationPopoutProvider({ children }: { children: Rea
 
   const value = useMemo<ConversationPopout>(
     () => ({
-      supported: pip.supported,
+      supported: enabled && pip.supported,
       isOpen,
       current: target,
       popout,
       close,
       isActive: (t) => isOpen && !!target && targetKey(t) === targetKey(target),
     }),
-    [pip.supported, isOpen, target, popout, close]
+    [enabled, pip.supported, isOpen, target, popout, close]
   )
 
   return (

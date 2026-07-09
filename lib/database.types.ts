@@ -7716,6 +7716,7 @@ export type Database = {
           can_access_lawn: boolean
           can_access_marketing: boolean
           can_access_email: boolean
+          can_access_beta: boolean
           can_access_responder: boolean
           can_access_files: boolean
           can_access_pesticide_records: boolean
@@ -7787,6 +7788,7 @@ export type Database = {
           can_access_lawn?: boolean
           can_access_marketing?: boolean
           can_access_email?: boolean
+          can_access_beta?: boolean
           can_access_responder?: boolean
           can_access_files?: boolean
           can_access_pesticide_records?: boolean
@@ -7858,6 +7860,7 @@ export type Database = {
           can_access_lawn?: boolean
           can_access_marketing?: boolean
           can_access_email?: boolean
+          can_access_beta?: boolean
           can_access_responder?: boolean
           can_access_files?: boolean
           can_access_pesticide_records?: boolean
@@ -8302,6 +8305,7 @@ export type Database = {
           can_access_lawn: boolean
           can_access_marketing: boolean
           can_access_email: boolean
+          can_access_beta: boolean
           can_access_responder: boolean
           can_access_files: boolean
           can_access_pesticide_records: boolean
