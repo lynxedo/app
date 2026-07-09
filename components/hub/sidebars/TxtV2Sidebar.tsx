@@ -10,7 +10,7 @@ import { Spinner, EmptyState, useToast } from '@/components/ui'
 import ContactModal from '@/components/hub/txt/ContactModal'
 import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
 import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
-import { TXT_GROUPS_ENABLED, TXT_BROADCASTS_ENABLED } from '@/lib/txt-features'
+import { TXT_GROUPS_ENABLED } from '@/lib/txt-features'
 import { formatPhone } from '@/lib/format'
 
 type Conversation = {
@@ -95,6 +95,7 @@ export default function TxtV2Sidebar({
   canManage,
   canCall = false,
   canAccessUnifiedInbox = false,
+  betaBroadcasts = false,
   currentUserId,
   companyId,
 }: {
@@ -107,6 +108,10 @@ export default function TxtV2Sidebar({
   /** Unified inbox: rows carry cross-channel activity → show the activity icon,
    *  the Missed/Voicemails filters, and fold calls/VMs into the unread dot. */
   canAccessUnifiedInbox?: boolean
+  /** Txt Broadcasts is a Beta feature (txt_broadcasts flag). Show the Broadcast
+   *  composer button + Broadcasts page link only when this user has the beta on
+   *  (AND is a manager). Resolved server-side in HubShell from betaFlags. */
+  betaBroadcasts?: boolean
   currentUserId: string
   companyId: string
 }) {
@@ -455,13 +460,14 @@ export default function TxtV2Sidebar({
         >
           + Add contact
         </button>
-        {/* Group + Broadcast are kill-switched off (see lib/txt-features.ts).
-            Both flags currently false → this whole block renders nothing.
-            Layout still adapts to 1 or 2 buttons when re-enabled. */}
-        {(TXT_GROUPS_ENABLED || (canManage && TXT_BROADCASTS_ENABLED)) && (
+        {/* Group is kill-switched off (lib/txt-features.ts); Broadcast is a Beta
+            feature (betaBroadcasts = the txt_broadcasts flag). This block renders
+            nothing unless groups are on OR this manager has the broadcast beta.
+            Layout still adapts to 1 or 2 buttons. */}
+        {(TXT_GROUPS_ENABLED || (canManage && betaBroadcasts)) && (
           <div
             className={`grid ${
-              TXT_GROUPS_ENABLED && canManage && TXT_BROADCASTS_ENABLED
+              TXT_GROUPS_ENABLED && canManage && betaBroadcasts
                 ? 'grid-cols-2'
                 : 'grid-cols-1'
             } gap-2`}
@@ -476,7 +482,7 @@ export default function TxtV2Sidebar({
                 + Group
               </button>
             )}
-            {canManage && TXT_BROADCASTS_ENABLED && (
+            {canManage && betaBroadcasts && (
               <button
                 type="button"
                 onClick={() => setBroadcastOpen(true)}
@@ -795,7 +801,7 @@ export default function TxtV2Sidebar({
       )}
 
       <div className="px-3 py-2 border-t border-white/5 flex items-center justify-between">
-        {canManage && TXT_BROADCASTS_ENABLED ? (
+        {canManage && betaBroadcasts ? (
           <Link
             href="/hub/txt/broadcasts"
             onClick={onClose}

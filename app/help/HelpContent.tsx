@@ -1252,7 +1252,8 @@ function TxtTab() {
       </Section>
 
       <Section title="Groups &amp; broadcasts">
-        <p><strong className="text-amber-300">Temporarily turned off.</strong> Group texts and broadcasts are disabled for now while we rework how group messaging behaves, so the <strong className="text-white">+ Group</strong> and <strong className="text-white">📣 Broadcast</strong> buttons aren&apos;t shown. Regular one-to-one texting is unaffected. They&apos;ll come back in a future update.</p>
+        <p><strong className="text-emerald-300">Broadcasts are back — in Beta.</strong> A <strong className="text-white">Texting Manager</strong> turns on <strong className="text-white">Txt Broadcasts</strong> under <strong className="text-white">Settings → Beta Features</strong>; once it&apos;s on, the <strong className="text-white">📣 Broadcast</strong> button and the <strong className="text-white">Broadcasts</strong> link appear. A broadcast sends one message to many customers as separate private one-to-one texts — nobody sees anyone else — automatically skips <em>do-not-text</em> contacts, and appends your opt-out notice on the first text to each person.</p>
+        <p className="mt-3"><strong className="text-amber-300">Group texts are still turned off</strong> while we rework how group messaging behaves, so the <strong className="text-white">+ Group</strong> button isn&apos;t shown. Regular one-to-one texting is unaffected.</p>
       </Section>
 
       <Section title="Opt-outs (STOP / HELP)">
