@@ -26,6 +26,7 @@ import TimesheetClockModal from './TimesheetClockModal'
 import NotifPrefsModal from './NotifPrefsModal'
 import DialerProvider from './dialer/DialerProvider'
 import GlobalCallBar from './dialer/GlobalCallBar'
+import ConversationPopoutProvider from './popout/ConversationPopoutProvider'
 import OnCallPresenceProvider from './OnCallPresenceProvider'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
 import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
@@ -1105,5 +1106,10 @@ export default function HubShell({
   // the user has dialer access AND hasn't opted out via Settings. Anyone else
   // gets the original Session 56 behavior: Device only registers when
   // DialerPanel mounts on /hub/dialer.
-  return liftDialerDevice ? <DialerProvider>{withPresence}</DialerProvider> : withPresence
+  const withDialer = liftDialerDevice ? <DialerProvider>{withPresence}</DialerProvider> : withPresence
+
+  // ConversationPopoutProvider owns the floating message-thread window (txt / DM
+  // / room) for everyone — like the dialer PiP, but for text. Wrapped outermost
+  // so the pop-out survives navigation across every Hub page.
+  return <ConversationPopoutProvider>{withDialer}</ConversationPopoutProvider>
 }

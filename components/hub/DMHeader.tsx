@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { StatusDot } from './StatusPicker'
 import { useOnCallUsers } from './OnCallPresenceProvider'
+import PopoutButton from './popout/PopoutButton'
 
 // Live DM-header dot + title. Subscribes to the same hub-status-broadcast
 // channel HubSidebar uses so the colored dot at the top of a DM flips the
@@ -20,12 +21,16 @@ export default function DMHeader({
   initialManualStatus,
   convTitle,
   othersCount,
+  conversationId,
+  currentUserId,
 }: {
   solo: { id: string } | null
   initialEffectiveStatus: string | null
   initialManualStatus: string | null
   convTitle: string
   othersCount: number
+  conversationId: string
+  currentUserId: string
 }) {
   const [effectiveStatus, setEffectiveStatus] = useState<string | null>(initialEffectiveStatus)
   const [manualStatus, setManualStatus] = useState<string | null>(initialManualStatus)
@@ -72,6 +77,11 @@ export default function DMHeader({
       {othersCount > 1 && (
         <span className="text-xs text-gray-500 bg-gray-800 px-2 py-0.5 rounded">{othersCount + 1} people</span>
       )}
+      <div className="ml-auto">
+        <PopoutButton
+          target={{ kind: 'dm', conversationId, title: convTitle, currentUserId }}
+        />
+      </div>
     </header>
   )
 }
