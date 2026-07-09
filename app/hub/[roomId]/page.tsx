@@ -5,6 +5,7 @@ import { selectInChunks } from '@/lib/supabase/chunked-in'
 import RoomView from '@/components/hub/RoomView'
 import RoomNotifBell from '@/components/hub/RoomNotifBell'
 import RoomMembersButton from '@/components/hub/RoomMembersButton'
+import PopoutButton from '@/components/hub/popout/PopoutButton'
 import { LockIcon } from '@/components/hub/railCatalog'
 
 export default async function RoomPage({
@@ -98,6 +99,7 @@ export default async function RoomPage({
         )}
         <RoomMembersButton roomId={roomId} />
         <RoomNotifBell roomId={roomId} />
+        <PopoutButton target={{ kind: 'dm', roomId, title: `#${room.name}`, currentUserId: user.id }} />
       </header>
 
       <Suspense fallback={null}>

@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ContactModal, { type ContactForModal } from './ContactModal'
+import PopoutButton from '@/components/hub/popout/PopoutButton'
 import TemplatePicker, { filterTemplates, type PickerTemplate } from './TemplatePicker'
 import EmojiPicker from '@/components/hub/EmojiPicker'
 import MediaLightbox, { type LightboxItem } from '@/components/hub/MediaLightbox'
@@ -1294,6 +1295,17 @@ export default function TxtConversationView({
           </button>
         )}
         <div className="flex items-center gap-1.5 flex-wrap justify-end">
+          {/* Pop this thread out into a floating always-on-top window (Chromium
+              only — hidden elsewhere). Lets the user keep texting while working
+              anywhere else in Hub or another desktop app. */}
+          <PopoutButton
+            target={{
+              kind: 'txt',
+              id: conversation.id,
+              title: conversation.contact?.name || 'Text conversation',
+              companyId,
+            }}
+          />
           {/* Not-in-directory → one-tap graduate to the contacts directory */}
           {!isGroup && conversation.contact && !contactInDirectory && (
             <button

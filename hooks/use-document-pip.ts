@@ -35,7 +35,7 @@ declare global {
 export type UseDocumentPip = {
   supported: boolean
   pipWindow: Window | null
-  open: (size?: { width?: number; height?: number }) => Promise<void>
+  open: (size?: { width?: number; height?: number; title?: string }) => Promise<void>
   close: () => void
 }
 
@@ -83,7 +83,7 @@ export function useDocumentPip(): UseDocumentPip {
   }, [])
 
   const open = useCallback(
-    async (size?: { width?: number; height?: number }) => {
+    async (size?: { width?: number; height?: number; title?: string }) => {
       if (!supported || pipWindow || openingRef.current) return
       const api = window.documentPictureInPicture
       if (!api) return
@@ -96,7 +96,7 @@ export function useDocumentPip(): UseDocumentPip {
           height: size?.height ?? 540,
         })
         copyStyles(w)
-        w.document.title = 'Hub Dialer'
+        w.document.title = size?.title ?? 'Hub'
         w.document.body.style.margin = '0'
         // When the user closes the PiP via the OS window chrome, drop our state so
         // React unmounts the portal and the controls return to the docked bar.

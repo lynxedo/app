@@ -66,7 +66,7 @@ export default function DialerProvider({ children }: { children: ReactNode }) {
   const pipControls: PipControls = {
     supported: pip.supported,
     isOpen: !!pip.pipWindow,
-    open: () => { void pip.open() },
+    open: () => { void pip.open({ title: 'Hub Dialer' }) },
     close: pip.close,
   }
 
