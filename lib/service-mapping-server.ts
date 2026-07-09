@@ -16,11 +16,13 @@ export async function gateServiceMapping(): Promise<{ companyId: string } | { er
   return { companyId: check.company_id }
 }
 
-// One round-trip for the whole screen: the two mapping tables, the live product
+// One round-trip for the whole screen: the mapping rows, the live product
 // catalog (read-only here — edited on the Products screen), and the distinct
-// Jobber line-item names for the autocomplete.
+// Jobber line-item names for the autocomplete. (The legacy product_rounds
+// table was fully imported into service_products on 2026-07-09 and is no
+// longer loaded here — the Service Builder keeps a read-only fallback.)
 export async function loadServiceMappingData(admin: SupabaseClient, companyId: string) {
-  const [serviceProducts, rounds, products, names] = await Promise.all([
+  const [serviceProducts, products, names] = await Promise.all([
     admin
       .from('service_products')
       .select('*')
@@ -28,13 +30,6 @@ export async function loadServiceMappingData(admin: SupabaseClient, companyId: s
       .is('deleted_at', null)
       .order('jobber_line_item_name', { ascending: true })
       .order('created_at', { ascending: true }),
-    admin
-      .from('product_rounds')
-      .select('*')
-      .eq('company_id', companyId)
-      .is('deleted_at', null)
-      .order('program', { ascending: true })
-      .order('round_label', { ascending: true }),
     admin
       .from('products')
       .select('*')
@@ -45,10 +40,9 @@ export async function loadServiceMappingData(admin: SupabaseClient, companyId: s
   ])
   return {
     serviceProducts: serviceProducts.data ?? [],
-    rounds: rounds.data ?? [],
     products: products.data ?? [],
     lineItemNames: names.data ?? [],
-    error: serviceProducts.error || rounds.error || products.error || names.error || null,
+    error: serviceProducts.error || products.error || names.error || null,
   }
 }
 

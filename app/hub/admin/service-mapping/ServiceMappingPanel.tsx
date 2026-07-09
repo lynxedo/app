@@ -1,11 +1,11 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import { useConfirm } from '@/components/ui'
 import type { Product } from '@/lib/products'
 import {
-  type ServiceProduct, type ProductRound, type LineItemName,
+  type ServiceProduct, type LineItemName,
   type MatchType, MATCH_TYPES, TANK_OPTIONS,
   mixBatchKey, datedBatchesOverlap, naturalCompare, isPlaceholderDate, placeholderStarts, todayInTz,
 } from '@/lib/service-mapping'
@@ -83,10 +83,9 @@ function cloneRowFields(r: ServiceProduct) {
 }
 
 export default function ServiceMappingPanel({
-  initialServiceProducts, initialRounds, products, lineItemNames,
+  initialServiceProducts, products, lineItemNames,
 }: {
   initialServiceProducts: ServiceProduct[]
-  initialRounds: ProductRound[]
   products: Product[]
   lineItemNames: LineItemName[]
 }) {
@@ -94,9 +93,6 @@ export default function ServiceMappingPanel({
   const [mappings, setMappings] = useState<ServiceProduct[]>(initialServiceProducts)
   const [notice, setNotice] = useState<string | null>(null)
   const [busy, setBusy] = useState(false)
-  // Rounds from the retired "Current Rounds" tab — read-only reference, shown
-  // per program until imported. The originals are never modified.
-  const legacyRounds = initialRounds
 
   const productById = useMemo(() => {
     const m = new Map<string, Product>()
@@ -122,9 +118,8 @@ export default function ServiceMappingPanel({
   const programOptions = useMemo(() => {
     const s = new Set<string>()
     for (const sp of mappings) if (sp.program?.trim()) s.add(sp.program.trim())
-    for (const r of legacyRounds) if (r.program?.trim()) s.add(r.program.trim())
     return [...s].sort(naturalCompare)
-  }, [mappings, legacyRounds])
+  }, [mappings])
 
   const [selectedRaw, setSelected] = useState('')
   const selected = selectedRaw || programOptions[0] || UNASSIGNED
@@ -154,70 +149,6 @@ export default function ServiceMappingPanel({
     }
     return out.sort((a, b) => naturalCompare(a.lineItem, b.lineItem))
   }, [mappings, selected])
-
-  // ── Legacy Current Rounds import ──
-  const legacyForProgram = useMemo(() =>
-    selected === UNASSIGNED ? [] : legacyRounds
-      .filter(r => r.program === selected)
-      .sort((a, b) => naturalCompare(a.round_label ?? '', b.round_label ?? '')),
-    [legacyRounds, selected])
-
-  const importedLabels = useMemo(() => {
-    const s = new Set<string>()
-    for (const g of groups) for (const b of g.batches) if (b.label) s.add(b.label.trim().toLowerCase())
-    return s
-  }, [groups])
-  // A legacy round with no label imports (and is recognized afterwards) under a
-  // deterministic fallback name, so re-clicking Import can never duplicate it.
-  const legacyLabel = (r: ProductRound, i: number) => r.round_label?.trim() || `Round ${i + 1}`
-  const pendingImports = legacyForProgram
-    .map((r, i) => ({ round: r, label: legacyLabel(r, i) }))
-    .filter(x => !importedLabels.has(x.label.toLowerCase()))
-
-  const [importTarget, setImportTarget] = useState('')
-  useEffect(() => {
-    if (selected === UNASSIGNED) { setImportTarget(''); return }
-    const guess = lineItemNames.find(n => n.name.toLowerCase().includes(selected.toLowerCase()))?.name
-    setImportTarget(guess ?? '')
-    // Re-guess only when the program changes — not on every row edit.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, lineItemNames])
-
-  async function importLegacyRounds() {
-    const target = importTarget.trim()
-    if (!target) { flash('Pick the Jobber line item these rounds belong to first.'); return }
-    if (pendingImports.length === 0) return
-    const starts = placeholderStarts(
-      mappings.filter(m => m.jobber_line_item_name === target).map(m => m.effective_start),
-      pendingImports.length)
-    const rows: Record<string, unknown>[] = []
-    pendingImports.forEach(({ round, label }, i) => {
-      const pids = [...new Set((round.product_ids ?? []).filter(Boolean))]
-      const base = {
-        jobber_line_item_name: target, match_type: 'contains', program: selected,
-        batch_label: label, effective_start: starts[i], effective_end: starts[i],
-        is_active: false, show_on_mix_sheet: true,
-      }
-      if (pids.length === 0) rows.push({ ...base, product_id: null })
-      else for (const pid of pids) rows.push({ ...base, product_id: pid })
-    })
-    const d = await api('/api/admin/service-mapping/service-products/bulk', 'POST', { rows })
-    if (!d?.serviceProducts) return
-    setMappings(prev => [...prev, ...(d.serviceProducts as ServiceProduct[])])
-    // Pull the line item's existing untagged rows into this program too, so its
-    // current always-on mix shows beside the imported rounds instead of under Unassigned.
-    const untagged = mappings.filter(m => m.jobber_line_item_name === target && !m.program?.trim())
-    if (untagged.length > 0) {
-      const results = await Promise.all(untagged.map(m =>
-        api(`/api/admin/service-mapping/service-products/${m.id}`, 'PATCH', { program: selected })))
-      const updated = new Map(results
-        .map(res => res?.serviceProduct as ServiceProduct | undefined)
-        .filter((sp): sp is ServiceProduct => !!sp)
-        .map(sp => [sp.id, sp]))
-      setMappings(prev => prev.map(x => updated.get(x.id) ?? x))
-    }
-    flash(`Imported ${pendingImports.length} round${pendingImports.length === 1 ? '' : 's'} as drafts — set each round's real dates, then Activate.`)
-  }
 
   // ── Row-level actions ──
   async function addMapping(name: string, extra: Record<string, unknown>): Promise<ServiceProduct | null> {
@@ -482,43 +413,6 @@ export default function ServiceMappingPanel({
           {lineItemNames.map(n => <option key={n.name} value={n.name}>{`${n.uses} uses`}</option>)}
         </datalist>
 
-        {/* Legacy Current Rounds import */}
-        {legacyForProgram.length > 0 && (
-          <div className="bg-gray-900 border border-amber-500/30 rounded-xl p-4 mb-5">
-            <h2 className="text-sm font-semibold text-amber-300 mb-1">Rounds from the old “Current Rounds” tab</h2>
-            {pendingImports.length === 0 ? (
-              <p className="text-xs text-emerald-300">All {legacyForProgram.length} legacy rounds for this program have been imported ✓</p>
-            ) : (
-              <>
-                <p className="text-xs text-gray-400 mb-2">
-                  {selected} has <strong className="text-gray-200">{pendingImports.length}</strong> round{pendingImports.length === 1 ? '' : 's'} defined in the retired Current Rounds tab. Import them here as <strong className="text-gray-200">drafts</strong> — they stay invisible to the Mix Sheet, Loadout and Pesticide records until you set each round’s real dates and Activate it. The originals are kept untouched.
-                </p>
-                <div className="flex flex-wrap gap-1.5 mb-3">
-                  {legacyForProgram.map((r, i) => {
-                    const label = legacyLabel(r, i)
-                    const done = importedLabels.has(label.toLowerCase())
-                    return (
-                      <span key={r.id} className={`px-2 py-0.5 rounded-full text-[11px] border ${done ? 'bg-emerald-500/10 text-emerald-300 border-emerald-500/30' : 'bg-gray-800 text-gray-300 border-gray-700'}`}>
-                        {done ? '✓ ' : ''}{label} · {(r.product_ids ?? []).length} products
-                      </span>
-                    )
-                  })}
-                </div>
-                <div className="flex flex-wrap items-end gap-2">
-                  <div className="flex-1 min-w-[240px]">
-                    <label className="block text-xs text-gray-400 mb-1">Jobber line item these rounds run under</label>
-                    <input className={`${inputCls} w-full`} list="line-item-names" placeholder="e.g. WF - Lawn Health Basic"
-                      value={importTarget} onChange={e => setImportTarget(e.target.value)} />
-                  </div>
-                  <button className={btnPrimary} disabled={busy} onClick={importLegacyRounds}>
-                    Import {pendingImports.length} round{pendingImports.length === 1 ? '' : 's'} as drafts
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-
         {/* Add a line item */}
         <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-5">
           <h2 className="text-sm font-semibold text-gray-200 mb-3">Add a line item{selected !== UNASSIGNED ? ` to ${selected}` : ''}</h2>
@@ -544,9 +438,7 @@ export default function ServiceMappingPanel({
           <div className="text-center text-gray-500 py-12 border border-dashed border-gray-800 rounded-xl">
             {selected === UNASSIGNED
               ? 'No unassigned line items — everything belongs to a program.'
-              : legacyForProgram.length > 0
-                ? 'No line items mapped for this program yet — import its legacy rounds above, or add a line item.'
-                : 'No line items mapped for this program yet. Add one above.'}
+              : 'No line items mapped for this program yet. Add one above.'}
           </div>
         ) : groups.map(group => (
           <div key={group.lineItem} className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-4">

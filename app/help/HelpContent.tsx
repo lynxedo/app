@@ -2010,8 +2010,8 @@ function ServiceMappingTab() {
         <p className="mt-2">Changes save as you go. <strong className="text-white">Remove</strong> takes a product off a round; <strong className="text-white">Delete round</strong> removes the whole round (soft delete — kept in the database).</p>
       </Section>
 
-      <Section title="Importing from the old Current Rounds tab">
-        <p>The old <strong className="text-white">Current Rounds</strong> tab is retired — rounds and their dates now live together in one place. If a program still has rounds that were only defined there, an amber <strong className="text-white">import panel</strong> appears when you select it: confirm which Jobber line item the rounds run under and click <strong className="text-white">Import as drafts</strong>. Each legacy round arrives as a draft with placeholder dates; work through them — set the real window, then Activate. Nothing changes for the Mix Sheet or Pesticide records until you do, and the legacy data itself is kept untouched.</p>
+      <Section title="Where did Current Rounds go?">
+        <p>The old <strong className="text-white">Current Rounds</strong> tab is retired — every program&apos;s rounds were imported here (July 2026) and now live with their dates in one place. Imported rounds arrived as <strong className="text-white">drafts with placeholder dates in year 2000</strong>; work through each program — set the real window on each round, then Activate. Nothing reaches the Mix Sheet, Loadout or Pesticide records until you do.</p>
       </Section>
 
       <Section title="Technician Mix Sheet">
