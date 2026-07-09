@@ -1,6 +1,8 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { userHasBetaFeature } from '@/lib/beta-flags'
 
 function relativeTime(iso: string) {
   const d = new Date(iso)
@@ -18,13 +20,24 @@ export default async function TxtBroadcastsPage() {
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Txt2 (new Twilio texting) is gated per-user.
+  // Broadcasts are a manager-only Beta feature (txt_broadcasts). Gate the page
+  // the same way as the sidebar link + create route, so a direct URL can't reach
+  // it without the beta on.
   const { data: gate } = await supabase
     .from('user_profiles')
-    .select('can_access_txt')
+    .select('role, can_access_txt, can_admin_txt, can_assign_txt_threads, can_access_beta, company_id')
     .eq('id', user.id)
     .single()
   if (!gate?.can_access_txt) redirect('/hub')
+  const isManager =
+    gate?.role === 'admin' || gate?.can_admin_txt === true || gate?.can_assign_txt_threads === true
+  const hasBroadcastBeta =
+    isManager &&
+    (await userHasBetaFeature(createAdminClient(), user.id, 'txt_broadcasts', {
+      canAccessBeta: gate?.role === 'admin' || gate?.can_access_beta === true,
+      companyId: gate?.company_id ?? null,
+    }))
+  if (!hasBroadcastBeta) redirect('/hub/txt')
 
   const { data: broadcasts } = await supabase
     .from('txt_broadcasts')

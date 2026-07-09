@@ -80,3 +80,27 @@ export async function getBetaFlags(
   }
   return map
 }
+
+// Is a single beta feature globally available (admin kill-switch on, not
+// retired)? Company-agnostic — for background jobs (crons) that aren't tied to
+// one user, e.g. the broadcast drainer respecting the Admin → Beta kill-switch.
+export async function isBetaFeatureAvailable(admin: Admin, key: string): Promise<boolean> {
+  const { data } = await admin
+    .from('beta_features')
+    .select('is_available, retired_at')
+    .eq('key', key)
+    .maybeSingle()
+  return !!data && data.is_available === true && data.retired_at === null
+}
+
+// Convenience: is ONE beta feature on for this user (availability + opt-in)?
+// Thin wrapper over getBetaFlags for server routes/pages gating a single beta.
+export async function userHasBetaFeature(
+  admin: Admin,
+  userId: string,
+  key: string,
+  opts: { canAccessBeta: boolean; companyId: string | null },
+): Promise<boolean> {
+  const flags = await getBetaFlags(admin, userId, opts)
+  return flags[key] === true
+}

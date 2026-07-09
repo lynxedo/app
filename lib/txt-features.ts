@@ -1,4 +1,4 @@
-// Temporary kill-switch for Txt group + broadcast messaging (June 29, 2026).
+// Kill-switch for Txt group messaging (June 29, 2026).
 //
 // GROUPS: the "+ Group" feature provisions a real Twilio Conversations
 // group-MMS thread — every member's phone is bound to our number, so ANY
@@ -7,12 +7,12 @@
 // is not how we want group messaging to behave, so groups are off until the
 // behavior is redesigned.
 //
-// BROADCASTS: turned off alongside groups at Ben's request for now. The
-// broadcast feature itself works (one message to many customers as separate
-// 1:1 texts — no group thread); it's only disabled, not broken.
+// BROADCASTS moved to the Beta ring (July 9, 2026): they're now gated by the
+// `txt_broadcasts` beta feature flag (per-user opt-in via Settings → Beta
+// Features, admin kill-switch via Admin → Beta), NOT this static constant. See
+// lib/beta-flags.ts + the broadcast routes/pages/sidebar, which resolve the
+// flag per user. This file only carries the groups switch now.
 //
-// To re-enable either feature, flip its flag back to `true`. Both the Txt
-// sidebar buttons and the API route guards read these constants, so a single
-// flip restores the feature end-to-end (no other code changes needed).
+// To re-enable groups, flip the flag back to `true`. Both the Txt sidebar
+// button and the start-group API guard read this constant.
 export const TXT_GROUPS_ENABLED = false
-export const TXT_BROADCASTS_ENABLED = false
