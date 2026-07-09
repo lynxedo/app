@@ -88,6 +88,23 @@ export default function PopoutDmConversation({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [key])
 
+  // Refetch the recent window — used by the reconcile poll below.
+  const refresh = useCallback(() => {
+    const supabase = createClient()
+    const col = roomId ? 'room_id' : 'conversation_id'
+    return supabase
+      .from('messages')
+      .select(SELECT)
+      .eq(col, key)
+      .is('parent_id', null)
+      .is('deleted_at', null)
+      .order('created_at', { ascending: true })
+      .limit(100)
+      .then(({ data }) => {
+        if (data) setMessages(data as unknown as DmMessage[])
+      })
+  }, [key, roomId])
+
   // Initial load — RLS restricts to threads the user can see, so a stray
   // roomId/conversationId simply returns nothing rather than leaking. `loading`
   // starts true and the host remounts per thread, so no re-set is needed here.
@@ -112,10 +129,24 @@ export default function PopoutDmConversation({
     return () => { cancelled = true }
   }, [key, roomId, markRead])
 
-  // Realtime — mirror MessageFeed: postgres_changes INSERT/UPDATE plus the
-  // admin-insert broadcast backstop. Fetch the full row (with sender join) for
-  // each new id so bubbles render names/avatars consistently.
+  // Realtime + reconcile poll.
+  //
+  // CRITICAL: the channel topic must be pop-out-PRIVATE (`feed:popout:{key}`),
+  // NOT MessageFeed's `feed:{key}`. The browser Supabase client is a singleton,
+  // so `.channel('feed:{key}')` returns the main page's ALREADY-subscribed
+  // channel, and adding postgres_changes bindings to a subscribed channel throws
+  // ("cannot add postgres_changes callbacks after subscribe()") — which is what
+  // white-screened the pop-out. A distinct topic gets us our own channel;
+  // postgres_changes is delivered by the binding's table/filter, not the topic
+  // name, so events still arrive. Our removeChannel() then only tears down OUR
+  // channel and never disturbs MessageFeed's.
+  //
+  // We can't reuse the `feed:{key}` `message-inserted` broadcast backstop here
+  // (same-topic collision), and postgres_changes silently drops admin-client
+  // inserts (bot / Guardian / scheduled / Chat Synx messages). A slow reconcile
+  // poll fills that gap and also catches any edit/delete we missed.
   useEffect(() => {
+    let cancelled = false
     const supabase = createClient()
     const filter = roomId ? `room_id=eq.${roomId}` : `conversation_id=eq.${conversationId}`
 
@@ -123,7 +154,7 @@ export default function PopoutDmConversation({
       if (parentId) return // replies belong to the in-page thread panel
       if (senderId && senderId !== currentUserId) markRead()
       const { data } = await supabase.from('messages').select(SELECT).eq('id', msgId).single()
-      if (!data) return
+      if (!data || cancelled) return
       const msg = data as unknown as DmMessage
       setMessages((prev) => {
         const idx = prev.findIndex((m) => m.id === msg.id)
@@ -133,7 +164,7 @@ export default function PopoutDmConversation({
     }
 
     const channel = supabase
-      .channel(`feed:${key}`)
+      .channel(`feed:popout:${key}`)
       .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'messages', filter }, (payload) => {
         const n = payload.new as { id: string; parent_id: string | null; sender_id: string | null }
         ingest(n.id, n.parent_id, n.sender_id)
@@ -146,17 +177,16 @@ export default function PopoutDmConversation({
           setMessages((prev) => prev.map((m) => (m.id === u.id ? { ...m, content: u.content } : m)))
         }
       })
-      .on('broadcast', { event: 'message-inserted' }, ({ payload }) => {
-        const p = (payload ?? {}) as { id?: string; parent_id?: string | null; sender_id?: string; room_id?: string | null; conversation_id?: string | null }
-        if (!p.id) return
-        // The broadcast is company-wide — only ingest ones for this thread.
-        if (roomId ? p.room_id !== roomId : p.conversation_id !== conversationId) return
-        ingest(p.id, p.parent_id, p.sender_id)
-      })
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
-  }, [key, roomId, conversationId, currentUserId, markRead])
+    const poll = setInterval(() => { if (!cancelled) void refresh() }, 15000)
+
+    return () => {
+      cancelled = true
+      clearInterval(poll)
+      supabase.removeChannel(channel)
+    }
+  }, [key, roomId, conversationId, currentUserId, markRead, refresh])
 
   useEffect(() => {
     const el = scrollRef.current
