@@ -21,7 +21,7 @@ export default async function SettingsPage() {
       .maybeSingle(),
     supabase
       .from('user_profiles')
-      .select('role, company_id, phone, full_name, landing_page, rail_config, txt_signature, dialer_global_ring, hub_theme, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_call_log2, can_access_timesheet, can_access_dialer, can_access_txt, can_access_marketing, can_access_email, can_access_forms, can_access_daily_log_v2, can_access_scoreboards, can_access_files, can_access_pesticide_records, can_access_pricer, can_access_hub, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule')
+      .select('role, company_id, phone, full_name, landing_page, rail_config, txt_signature, dialer_global_ring, hub_theme, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_call_log2, can_access_timesheet, can_access_dialer, can_access_txt, can_access_marketing, can_access_email, can_access_forms, can_access_daily_log_v2, can_access_scoreboards, can_access_files, can_access_pesticide_records, can_access_pricer, can_access_hub, can_access_beta, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule')
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -51,6 +51,8 @@ export default async function SettingsPage() {
   // flag but no granted boards effectively has no access, so don't offer it as a
   // pinnable rail tool. Admins always have it.
   const isSettingsAdmin = profileResult.data?.role === 'admin'
+  // Beta Features tab shows for admins + anyone with the can_access_beta grant.
+  const canAccessBeta = isSettingsAdmin || !!profileResult.data?.can_access_beta
   const effectiveCanAccessScoreboards =
     isSettingsAdmin ||
     (!!profileResult.data?.can_access_scoreboards &&
@@ -121,6 +123,7 @@ export default async function SettingsPage() {
           landingPage={landingPage}
           notifPref={notifPref}
           railPermissions={railPermissions}
+          canAccessBeta={canAccessBeta}
           txtSignature={txtSignature}
           allowUserSignatures={allowUserSignatures}
           companyDefaultSignature={companyDefaultSignature}

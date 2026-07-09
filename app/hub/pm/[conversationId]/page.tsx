@@ -125,6 +125,8 @@ export default async function PMPage({
         }
         convTitle={convTitle}
         othersCount={others.length}
+        conversationId={conversationId}
+        currentUserId={user.id}
       />
 
       <Suspense fallback={null}>

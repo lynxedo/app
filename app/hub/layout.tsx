@@ -16,6 +16,7 @@ import { ToastProvider, ConfirmProvider } from '@/components/ui'
 import { markActive } from '@/lib/hub-activity'
 import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
 import { resolveLayout, reconcileSeededApps } from '@/lib/hub-layout'
+import { getBetaFlags } from '@/lib/beta-flags'
 import type { RailPermissions } from '@/components/hub/railCatalog'
 import { SCOREBOARDS } from '@/lib/scoreboards/registry'
 
@@ -217,6 +218,12 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const initialMasterDndEnabled = profileResult.data?.master_dnd_enabled ?? false
   const initialHubDndEnabled = profileResult.data?.hub_dnd_enabled ?? false
   const initialDialerDndEnabled = profileResult.data?.dialer_dnd_enabled ?? false
+  // Beta features — eligibility (the Admin → People toggle; admins always) and
+  // the resolved flag map (featureKey → on) for this user. Empty unless eligible.
+  // Passed to the shell like permissions so gated betas (e.g. the conversation
+  // pop-out) can check betaFlags.<key>.
+  const canAccessBeta = isAdmin || (profileResult.data?.can_access_beta ?? false)
+  const betaFlags = await getBetaFlags(admin, user.id, { canAccessBeta, companyId })
 
   // Resolve the customizable Hub launcher layout. Uses the stored hub_layout if
   // set; otherwise migrates the legacy rail_config + pinned tools so existing
@@ -364,6 +371,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         initialMasterDndEnabled={initialMasterDndEnabled}
         initialHubDndEnabled={initialHubDndEnabled}
         initialDialerDndEnabled={initialDialerDndEnabled}
+        betaFlags={betaFlags}
       >
         {children}
       </HubShell>

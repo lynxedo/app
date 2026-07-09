@@ -535,6 +535,13 @@ function HubTab() {
         <p>If someone sends a message to an archived DM, or if you start a new DM with that person, it automatically jumps back to your active list. You never have to think about whether archiving was the right call — new activity always wins.</p>
       </Section>
 
+      <Section title="Pop out a conversation">
+        <Note><strong className="text-white">Beta feature.</strong> The pop-out button only appears once you turn it on in <strong className="text-white">Settings → Beta Features</strong> (you&apos;ll need the Beta Features grant from an admin first).</Note>
+        <p>Every room/channel and DM has a <strong className="text-white">⧉ pop-out</strong> button in its header. Tap it to float that conversation in its own always-on-top window — the same way the <Link href="/hub/dialer" className="text-sky-400 hover:underline">Dialer</Link> pops out. Keep it in the corner of your screen while you work in another part of Hub, or in another app entirely, and reply without switching back and forth. Close it and the conversation returns to the normal in-page view.</p>
+        <p>The pop-out is a <strong className="text-white">trimmed</strong> view — the running messages plus a box to type a reply. Threads/replies, reactions, file uploads, and message actions stay on the full in-page conversation.</p>
+        <Note>The floating window works in <strong className="text-white">Chrome, Edge, Arc, and Brave</strong> (it uses their Picture-in-Picture support). On Safari and the mobile/native app the button doesn&apos;t appear — everything else works the same. Only one conversation floats at a time; popping out another moves the window to it. The window closes if you fully reload the page or leave Hub.</Note>
+      </Section>
+
       <Section title="Your status (Available / Busy / DND / Offline)">
         <p>The colored dot next to each name tells everyone whether you&apos;re actually around. You can set <strong className="text-white">Busy</strong> or <strong className="text-white">Do Not Disturb</strong> manually; the rest is figured out automatically based on whether you&apos;re clocked in (techs) or active in Hub (office).</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
@@ -1230,6 +1237,12 @@ function TxtTab() {
         <p>Direct conversations have a <strong className="text-white">📞</strong> button in the header that jumps to the Dialer with the customer&apos;s number filled in. Texting and calling stay linked so Call Log can show which thread a call came from.</p>
       </Section>
 
+      <Section title="Pop out a conversation">
+        <p>Tap the <strong className="text-white">⧉ pop-out</strong> button in a conversation&apos;s header to float that text thread in its own always-on-top window — the same way the <Link href="/hub/dialer" className="text-sky-400 hover:underline">Dialer</Link> pops out. You can then move around Hub, or switch to another app entirely, and keep reading and replying without losing the thread. Close it and the conversation goes right back to the normal in-page view.</p>
+        <p>The pop-out is a <strong className="text-white">trimmed</strong> view — the running conversation plus a box to type your reply. Templates, on-my-way, scheduling, notes, attaching media, and assignment stay on the full Txt page (incoming photos still show in the pop-out).</p>
+        <Note>The floating window works in <strong className="text-white">Chrome, Edge, Arc, and Brave</strong> (it uses their Picture-in-Picture support). On Safari and the mobile/native app the button simply doesn&apos;t appear — everything else works the same. Only one thread floats at a time; popping out a second conversation moves the window to that one. The window closes if you fully reload the page or leave Hub.</Note>
+      </Section>
+
       <Section title="Unified inbox (calls + voicemails)">
         <p>Every customer thread is one chronological story of <em>every</em> way you&apos;ve talked: texts as bubbles, plus inline markers for <strong className="text-white">📞 calls</strong> and <strong className="text-white">🎙 voicemails</strong> — visible to <strong className="text-white">anyone with Txt</strong> (you already see the texts; now the calls and voicemails sit right alongside them). Tap a call or voicemail marker to expand it — play the recording right in the app, read the AI summary and sentiment, and open the full transcript. A missed call that left a voicemail shows as <em>one</em> combined marker, not two.</p>
         <p>Turning on <strong className="text-white">Unified Inbox</strong> for someone (Admin → People) adds the extras below on top of those in-thread markers: the channel icons + sorting + filter chips in the conversation list, and the AI <strong className="text-white">🧭 Catch me up</strong> recap.</p>
@@ -1787,6 +1800,13 @@ function SettingsTab() {
           <li><strong className="text-white">Glossy</strong> (frosted panels over a color gradient) — Aurora, Nebula, Tide, Obsidian, Ember Glass, Heroes Glass</li>
         </ul>
         <p>Everyone on your team can have their own theme — it&apos;s a personal preference and doesn&apos;t affect what other users see.</p>
+      </Section>
+
+      <Section title="Beta Features">
+        <p>Beta features are new tools we&apos;re trying out with a few people before rolling them out to everyone. If an admin has given you the <strong className="text-white">Beta Features</strong> grant, a <strong className="text-white">Beta Features</strong> tab appears here in Settings.</p>
+        <p className="mt-2">Each beta shows a short description (sometimes with a screenshot) and an on/off switch. Turn one on to start using it right away; turn it off any time to go back to normal. Betas are new, so they may change or have rough edges.</p>
+        <p className="mt-2">Under each beta is a <strong className="text-white">Feedback</strong> box — tell us what&apos;s working, what&apos;s confusing, or what&apos;s broken, then hit <strong className="text-white">Send feedback</strong>. It goes straight to the team.</p>
+        <Note>Don&apos;t see a Beta Features tab? Either no betas are open right now, or you don&apos;t have the grant yet — ask an admin. Admins manage the list of betas in <strong className="text-white">Admin → Beta</strong> and grant access per person in <strong className="text-white">Admin → People</strong>.</Note>
       </Section>
     </>
   )
