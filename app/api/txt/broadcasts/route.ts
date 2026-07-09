@@ -47,6 +47,8 @@ export async function POST(request: Request) {
   const text: string = (body.body || '').trim()
   const contactIds: string[] = Array.isArray(body.contact_ids) ? body.contact_ids : []
   const applySignature: boolean = body.apply_signature === true
+  const phoneNumberId: string | null =
+    typeof body.phone_number_id === 'string' && body.phone_number_id ? body.phone_number_id : null
 
   if (!text) return NextResponse.json({ error: 'Body required' }, { status: 400 })
   if (contactIds.length === 0) {
@@ -83,6 +85,20 @@ export async function POST(request: Request) {
     )
   }
 
+  // "Send from" (optional): the chosen line must be one of this company's
+  // numbers. Stored on the broadcast; the drainer sends every recipient from it.
+  if (phoneNumberId) {
+    const { data: pn } = await admin
+      .from('txt_phone_numbers')
+      .select('id')
+      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('id', phoneNumberId)
+      .maybeSingle()
+    if (!pn) {
+      return NextResponse.json({ error: 'Unknown sending number' }, { status: 400 })
+    }
+  }
+
   // Validate contacts belong to this company; bucket them up front so the
   // recipient rows pre-classify do-not-text as 'skipped'.
   const { data: contacts, error: cErr } = await admin
@@ -105,6 +121,7 @@ export async function POST(request: Request) {
       created_by: user.id,
       body: text,
       apply_signature: applySignature,
+      phone_number_id: phoneNumberId,
       status: 'queued',
       recipient_count: contacts.length,
       skipped_count: blocked.length,

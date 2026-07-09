@@ -107,6 +107,12 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'insert failed' }, { status: 500 })
   }
 
+  // A member reply to an ARCHIVED group pops it back — same as a customer
+  // texting an archived 1:1. Keep the owner if the group still has one.
+  const reopenPatch: Record<string, unknown> =
+    conv.status === 'archived'
+      ? { status: conv.assigned_to ? 'assigned' : 'unassigned', archived_by: null }
+      : {}
   await supabase
     .from('txt_conversations')
     .update({
@@ -114,6 +120,7 @@ export async function POST(req: NextRequest) {
       last_inbound_at: now,
       last_message_preview: buildMessagePreview(body, 0),
       last_message_direction: 'inbound',
+      ...reopenPatch,
     })
     .eq('id', conversationId)
 
