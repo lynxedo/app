@@ -122,7 +122,9 @@ export default function TxtBroadcastComposer({ onClose }: { onClose: () => void 
           <div className="text-xs text-white/50">
             Pick recipients. do-not-text contacts are excluded automatically.
           </div>
-          <div className="flex-1 min-h-0">
+          {/* overflow-hidden: belt-and-suspenders so the contact list can never
+              paint over the Cancel / Send footer if flex sizing misbehaves. */}
+          <div className="flex-1 min-h-0 overflow-hidden">
             <TxtContactMultiPicker
               selectedIds={selected}
               onChange={setSelected}

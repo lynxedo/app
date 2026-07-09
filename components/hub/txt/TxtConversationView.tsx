@@ -22,6 +22,9 @@ type Message = {
   twilio_sid: string | null
   created_at: string
   sent_by: string | null
+  /** Which contact sent an inbound (set by the webhooks). Group threads use it
+   *  to label who said what. */
+  contact_id?: string | null
   phone_number_id?: string | null
   rerouted?: boolean
   number?: { label: string | null; twilio_number: string } | { label: string | null; twilio_number: string }[] | null
@@ -1679,12 +1682,21 @@ export default function TxtConversationView({
             }
             const m = item.message
             const isOutbound = m.direction === 'outbound'
-            // Who sent this outbound message: the user's first name, or
+            // Who sent this message. Outbound: the user's first name, or
             // "Guardian" when sent_by is null (responder/AI auto-sends are the
-            // only outbound path without a user).
-            const senderLabel = isOutbound
-              ? m.sender?.display_name?.trim().split(/\s+/)[0] || (!m.sent_by ? 'Guardian' : null)
-              : null
+            // only outbound path without a user). Inbound in a GROUP: the
+            // participant who texted — their contact name (from the group's
+            // participant list, falling back to any contact match by id),
+            // else their phone number, else "Unknown" — so "who said Blue?"
+            // is never a mystery. 1:1 inbound stays unlabeled (it's obvious).
+            let senderLabel: string | null = null
+            if (isOutbound) {
+              senderLabel =
+                m.sender?.display_name?.trim().split(/\s+/)[0] || (!m.sent_by ? 'Guardian' : null)
+            } else if (isGroup) {
+              const gc = groupContacts.find((c) => c.id === m.contact_id)
+              senderLabel = gc?.name?.trim() || (gc?.phone ? formatPhone(gc.phone) : 'Unknown')
+            }
             // The line this message used, joined on the message itself so it's
             // stable across refetches and independent of the viewer's number
             // access. Null only on pre-launch messages (never stamped).
