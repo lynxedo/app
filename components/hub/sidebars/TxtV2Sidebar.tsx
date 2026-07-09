@@ -26,6 +26,7 @@ type Conversation = {
   created_at: string
   contact: { id: string; name: string; phone: string; do_not_text: boolean } | null
   assignee: { id: string; display_name: string } | null
+  members?: Array<{ user_id: string; role?: string | null }>
   group_contacts?: Array<{ contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null }>
   phone_number_id?: string | null
   number?: { label: string | null; twilio_number: string } | { label: string | null; twilio_number: string }[] | null
@@ -257,14 +258,31 @@ export default function TxtV2Sidebar({
     if (m) markRead(m[1])
   }, [pathname, conversations, markRead])
 
+  // A thread "belongs to me" when I own it (assigned_to) or I'm on it as a
+  // member — the same owner-or-member set the "Mine" tab and the rail dot
+  // (/api/txt/unread) already scope to. assigned_to and the members row are
+  // written together on every claim/start/assign path, so either alone is
+  // enough; checking both is belt-and-suspenders.
+  function isMine(c: Conversation) {
+    if (c.assigned_to && c.assigned_to === currentUserId) return true
+    return (c.members ?? []).some((m) => m.user_id === currentUserId)
+  }
+
   // A conversation is unread when a customer inbound landed after this device
   // last opened it. The currently-open thread never shows a dot. With the
   // unified inbox on, "inbound" also covers a missed call or a new voicemail
   // (last_inbound_activity_at), so the same dot lights for any unhandled
   // incoming on any channel — and opening the thread (which shows the markers)
   // clears it via the existing per-device reads stamp.
+  //
+  // The dot only lights for threads that are MINE. In the shared "All" view
+  // every teammate's threads are visible; lighting everyone's unread dots
+  // buried the ones actually assigned to me. Unassigned Queue threads surface
+  // in their own pinned section, so scoping the per-row dot to my threads
+  // hides nothing that needs triage.
   function isUnread(c: Conversation) {
     if (c.status === 'archived') return false
+    if (!isMine(c)) return false
     if (pathname === `/hub/txt/${c.id}`) return false
     const inbound = canAccessUnifiedInbox
       ? c.last_inbound_activity_at ?? c.last_inbound_at
