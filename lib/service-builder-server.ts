@@ -7,6 +7,7 @@ import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { requireAdminArea } from '@/lib/admin-auth'
 import type { BuilderRound, BuilderSettings, ChartStatus } from '@/lib/service-builder'
+import { deriveRoundsFromMappings, naturalCompare, type SeededRound } from '@/lib/service-mapping'
 
 const STATUSES: ChartStatus[] = ['draft', 'published', 'archived']
 
@@ -93,9 +94,11 @@ export async function gateServiceBuilder(): Promise<{ companyId: string } | { er
 
 // One round-trip for the whole Builder screen: the price charts (program versions),
 // the live product catalog (read-only here — edited on the Products screen), and the
-// seeded product_rounds (so a new version can pre-fill its rounds).
+// per-program rounds (so a new version can pre-fill its rounds). Rounds are derived
+// from Service Mapping's dated batches (2026-07-09 redesign); programs that have no
+// mapping batches yet fall back to the legacy product_rounds table.
 export async function loadServiceBuilderData(admin: SupabaseClient, companyId: string) {
-  const [charts, products, rounds] = await Promise.all([
+  const [charts, products, mappingRows, legacyRounds] = await Promise.all([
     admin
       .from('program_price_charts')
       .select('*')
@@ -110,17 +113,27 @@ export async function loadServiceBuilderData(admin: SupabaseClient, companyId: s
       .is('deleted_at', null)
       .order('name', { ascending: true }),
     admin
+      .from('service_products')
+      .select('jobber_line_item_name, program, product_id, effective_start, effective_end, batch_label')
+      .eq('company_id', companyId)
+      .is('deleted_at', null),
+    admin
       .from('product_rounds')
       .select('id, program, round_label, product_ids')
       .eq('company_id', companyId)
-      .is('deleted_at', null)
-      .order('program', { ascending: true })
-      .order('round_label', { ascending: true }),
+      .is('deleted_at', null),
   ])
+
+  const derived = deriveRoundsFromMappings(mappingRows.data ?? [])
+  const derivedPrograms = new Set(derived.map(r => r.program))
+  const legacy = ((legacyRounds.data ?? []) as SeededRound[])
+    .filter(r => r.program && !derivedPrograms.has(r.program))
+    .sort((a, b) => naturalCompare(a.program, b.program) || naturalCompare(a.round_label ?? '', b.round_label ?? ''))
+
   return {
     charts: charts.data ?? [],
     products: products.data ?? [],
-    rounds: rounds.data ?? [],
-    error: charts.error || products.error || rounds.error || null,
+    rounds: [...derived, ...legacy],
+    error: charts.error || products.error || mappingRows.error || legacyRounds.error || null,
   }
 }

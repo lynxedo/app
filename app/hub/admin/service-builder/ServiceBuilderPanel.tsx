@@ -45,7 +45,7 @@ export default function ServiceBuilderPanel({
 
   function flash(msg: string) { setError(msg); setTimeout(() => setError(''), 4500) }
 
-  // distinct program names seeded in product_rounds (for "Seed rounds" + new-program suggestions)
+  // distinct program names from Service Mapping's rounds (for "Seed rounds" + new-program suggestions)
   const seededPrograms = useMemo(() => {
     const s = new Set(seededRounds.map(r => r.program))
     return [...s].sort()
@@ -179,7 +179,7 @@ export default function ServiceBuilderPanel({
   async function seedRoundsFromCurrent() {
     if (!active) return
     const matches = seededRounds.filter(r => r.program === active.name)
-    if (!matches.length) { flash(`No seeded rounds found for "${active.name}". The product_rounds program name must match exactly.`); return }
+    if (!matches.length) { flash(`No rounds found for "${active.name}" — set them up in Service Mapping (the program name must match exactly).`); return }
     const ok = await confirmDialog({ message: `Replace this version's ${active.rounds?.length ?? 0} round(s) with the ${matches.length} seeded round(s) for "${active.name}"?` })
     if (!ok) return
     setRounds(matches.map((m, i) => ({ id: uid(), name: m.round_label || `Round ${i + 1}`, product_ids: m.product_ids })))
