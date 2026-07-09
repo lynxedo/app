@@ -76,8 +76,10 @@ export async function GET(request: NextRequest) {
       .not('overall_grade', 'is', null)
       .gte('call_datetime', fromTs)
       .lte('call_datetime', toTs),
-    admin.from('call_coaching_reviews').select('call_id, override_grade, acknowledged').eq('call_source', 'dialer'),
-    admin.from('call_coaching_reviews').select('call_id, override_grade, acknowledged').eq('call_source', 'unitel'),
+    // Reviews are private per reviewer — the scoreboard reflects the VIEWING
+    // manager's own overrides + acknowledgements, so filter to their reviews.
+    admin.from('call_coaching_reviews').select('call_id, override_grade, acknowledged').eq('call_source', 'dialer').eq('reviewed_by', user.id),
+    admin.from('call_coaching_reviews').select('call_id, override_grade, acknowledged').eq('call_source', 'unitel').eq('reviewed_by', user.id),
   ])
 
   const revD: Record<string, { override_grade: string | null; acknowledged: boolean }> = {}

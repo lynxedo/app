@@ -119,7 +119,10 @@ export async function proxy(request: NextRequest) {
         '/tracker': 'can_access_tracker',
         '/hub': 'can_access_hub',
         '/hub/timesheet': 'can_access_timesheet',
-        '/hub/call-log': 'can_access_call_log',
+        // /hub/call-log (the merged Call Log) is gated at the page + data-route
+        // level by an OR of can_access_call_log / can_access_call_log2 /
+        // can_admin_dialer / admin — which this single-flag map can't express —
+        // so it's intentionally NOT listed here. /hub/call-log2 just redirects.
         '/hub/lawn': 'can_access_lawn',
         '/hub/tracker': 'can_access_tracker',
         '/hub/routing': 'can_access_routing',

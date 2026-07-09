@@ -302,7 +302,7 @@ export default function Scoreboard6View({ meta }: { meta: ScoreboardMeta }) {
             ) : (
               <div className="space-y-2 max-h-80 overflow-y-auto">
                 {mustList.map(c => (
-                  <a key={c.id} href={c.source === 'dialer' ? '/hub/call-log2' : '/hub/call-log'}
+                  <a key={c.id} href="/hub/call-log"
                     className="block border-b border-gray-800 pb-2 hover:bg-gray-800/40 rounded px-1 -mx-1">
                     <div className="flex items-center justify-between gap-2">
                       <span className="text-sm text-white">{fmtPhone(c.phone)}</span>
