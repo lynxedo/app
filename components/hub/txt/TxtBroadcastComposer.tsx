@@ -1,14 +1,20 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import TxtContactMultiPicker from './TxtContactMultiPicker'
 import { useConfirm } from '@/components/ui'
+import { formatPhone } from '@/lib/format'
+
+type TxtNumber = { id: string; twilio_number: string; label: string | null; is_default: boolean }
 
 // Broadcast composer modal. POSTs to /api/txt/broadcasts which inserts the
 // broadcast + queued recipient rows; the actual sending is drained by the
 // /api/txt/broadcasts/process cron endpoint at the broadcast's throttle MPS
 // (default 8/sec, under the 10DLC vetted cap). do-not-text contacts are
 // pre-marked 'skipped' server-side and counted in skipped_count.
+// "Send from" picker: with 2+ company numbers a dropdown chooses which line the
+// whole broadcast sends from (defaults to the company default); single-number
+// setups never see it.
 export default function TxtBroadcastComposer({ onClose }: { onClose: () => void }) {
   const confirmDialog = useConfirm()
   const [selected, setSelected] = useState<string[]>([])
@@ -16,6 +22,23 @@ export default function TxtBroadcastComposer({ onClose }: { onClose: () => void 
   const [applySignature, setApplySignature] = useState(false)
   const [submitting, setSubmitting] = useState(false)
   const [error, setError] = useState('')
+  const [numbers, setNumbers] = useState<TxtNumber[]>([])
+  const [numberId, setNumberId] = useState<string>('')
+
+  useEffect(() => {
+    fetch('/api/txt/numbers')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        const list: TxtNumber[] = data.numbers || []
+        setNumbers(list)
+        const def = list.find((n) => n.is_default) || list[0]
+        if (def) setNumberId(def.id)
+      })
+      .catch(() => setNumbers([]))
+  }, [])
+
+  const numberLabel = (n: TxtNumber) =>
+    `${n.label?.trim() || formatPhone(n.twilio_number)}${n.is_default ? ' (default)' : ''}`
 
   async function submit() {
     if (selected.length === 0 || !body.trim() || submitting) return
@@ -31,6 +54,7 @@ export default function TxtBroadcastComposer({ onClose }: { onClose: () => void 
         body: body.trim(),
         contact_ids: selected,
         apply_signature: applySignature,
+        phone_number_id: numberId || undefined,
       }),
     })
     const data = await res.json()
@@ -52,6 +76,23 @@ export default function TxtBroadcastComposer({ onClose }: { onClose: () => void 
           </button>
         </div>
         <div className="p-4 space-y-3 flex-1 flex flex-col min-h-0">
+          {numbers.length > 1 && (
+            <div>
+              <label className="text-xs text-white/50 block mb-1">Send from</label>
+              <select
+                value={numberId}
+                onChange={(e) => setNumberId(e.target.value)}
+                className="w-full px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm"
+                style={{ fontSize: 16 }}
+              >
+                {numbers.map((n) => (
+                  <option key={n.id} value={n.id} className="bg-[var(--t-panel)]">
+                    {numberLabel(n)}
+                  </option>
+                ))}
+              </select>
+            </div>
+          )}
           <div>
             <label className="text-xs text-white/50 block mb-1">Message</label>
             <textarea

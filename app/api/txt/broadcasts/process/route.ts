@@ -45,7 +45,7 @@ export async function POST(request: Request) {
   // single-process cron means we don't have to lock — only one runner.
   const { data: queuedBroadcasts } = await admin
     .from('txt_broadcasts')
-    .select('id, body, apply_signature, created_by, company_id, throttle_mps, recipient_count, skipped_count')
+    .select('id, body, apply_signature, created_by, company_id, phone_number_id, throttle_mps, recipient_count, skipped_count')
     .in('status', ['queued', 'processing'])
     .order('created_at', { ascending: true })
 
@@ -96,13 +96,37 @@ export async function POST(request: Request) {
       companyName = company?.name || null
     }
 
-    // Resolve the from-number once per broadcast (sender is constant).
-    // No per-conversation override for broadcast sends — each recipient gets
-    // a fresh direct conversation, so falls through user-default → company-default.
-    const fromNumber = await resolveFromNumber(admin, {
-      userId: bc.created_by,
-      companyId: bc.company_id,
-    })
+    // Resolve the from-number once per broadcast (sender is constant). The
+    // composer's explicit "Send from" choice (bc.phone_number_id) wins; without
+    // one, fall through user-default → company-default as before.
+    let fromNumber: string | null = null
+    let fromNumberId: string | null = bc.phone_number_id ?? null
+    if (fromNumberId) {
+      const { data: pn } = await admin
+        .from('txt_phone_numbers')
+        .select('id, twilio_number')
+        .eq('id', fromNumberId)
+        .maybeSingle()
+      fromNumber = pn?.twilio_number ?? null
+      if (!fromNumber) fromNumberId = null // number row gone — fall back below
+    }
+    if (!fromNumber) {
+      fromNumber = await resolveFromNumber(admin, {
+        userId: bc.created_by,
+        companyId: bc.company_id,
+      })
+      // Stamp the resolved default's id too, so per-message line labels work
+      // the same whether or not a "Send from" was explicitly chosen.
+      if (fromNumber) {
+        const { data: pn } = await admin
+          .from('txt_phone_numbers')
+          .select('id')
+          .eq('company_id', bc.company_id)
+          .eq('twilio_number', fromNumber)
+          .maybeSingle()
+        fromNumberId = pn?.id ?? null
+      }
+    }
 
     // Opt-out notice config — applies on the first outbound to a contact,
     // independent of apply_signature (defaults: enabled, "Reply STOP to opt out.").
@@ -143,6 +167,7 @@ export async function POST(request: Request) {
           senderName,
           companyName,
           fromNumber,
+          fromNumberId,
           optOutEnabled,
           optOutMsg,
         })
@@ -205,10 +230,12 @@ async function sendOneRecipient(opts: {
   senderName: string | null
   companyName: string | null
   fromNumber: string | null
+  /** txt_phone_numbers.id of the resolved sender — stamps message rows + pins new conversations. */
+  fromNumberId: string | null
   optOutEnabled: boolean
   optOutMsg: string
 }): Promise<SendOutcome> {
-  const { admin, companyId, broadcastId, recipientId, contactId, senderId, body, signatureTemplate, senderName, companyName, fromNumber, optOutEnabled, optOutMsg } = opts
+  const { admin, companyId, broadcastId, recipientId, contactId, senderId, body, signatureTemplate, senderName, companyName, fromNumber, fromNumberId, optOutEnabled, optOutMsg } = opts
 
   const { data: contact } = await admin
     .from('txt_contacts')
@@ -293,6 +320,10 @@ async function sendOneRecipient(opts: {
         assigned_to: senderId,
         status: 'assigned',
         kind: 'direct',
+        // Pin brand-new threads to the broadcast's line so later replies +
+        // sends stay on the number the customer first heard from. Existing
+        // threads keep their own pin (per-message labels cover the mix).
+        phone_number_id: fromNumberId,
       })
       .select('id')
       .single()
@@ -327,6 +358,8 @@ async function sendOneRecipient(opts: {
       media_urls: [],
       sent_by: senderId,
       status: 'sending',
+      // Which of our lines this send used (powers the per-message line label).
+      phone_number_id: fromNumberId,
     })
     .select('id')
     .single()

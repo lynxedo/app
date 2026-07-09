@@ -10,7 +10,6 @@ import { Spinner, EmptyState, useToast } from '@/components/ui'
 import ContactModal from '@/components/hub/txt/ContactModal'
 import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
 import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
-import { TXT_GROUPS_ENABLED } from '@/lib/txt-features'
 import { formatPhone } from '@/lib/format'
 
 type Conversation = {
@@ -96,6 +95,7 @@ export default function TxtV2Sidebar({
   canCall = false,
   canAccessUnifiedInbox = false,
   betaBroadcasts = false,
+  betaGroups = false,
   currentUserId,
   companyId,
 }: {
@@ -112,6 +112,10 @@ export default function TxtV2Sidebar({
    *  composer button + Broadcasts page link only when this user has the beta on
    *  (AND is a manager). Resolved server-side in HubShell from betaFlags. */
   betaBroadcasts?: boolean
+  /** Group texting is a Beta feature (txt_groups flag) — true Group MMS on our
+   *  long code (everyone sees everyone, like a native phone group text). Shows
+   *  the + Group button for any Txt user with the beta on. */
+  betaGroups?: boolean
   currentUserId: string
   companyId: string
 }) {
@@ -460,19 +464,18 @@ export default function TxtV2Sidebar({
         >
           + Add contact
         </button>
-        {/* Group is kill-switched off (lib/txt-features.ts); Broadcast is a Beta
-            feature (betaBroadcasts = the txt_broadcasts flag). This block renders
-            nothing unless groups are on OR this manager has the broadcast beta.
-            Layout still adapts to 1 or 2 buttons. */}
-        {(TXT_GROUPS_ENABLED || (canManage && betaBroadcasts)) && (
+        {/* Group + Broadcast are both Beta features (txt_groups / txt_broadcasts
+            flags, resolved in HubShell). This block renders nothing unless the
+            user has at least one beta on. Layout adapts to 1 or 2 buttons. */}
+        {(betaGroups || (canManage && betaBroadcasts)) && (
           <div
             className={`grid ${
-              TXT_GROUPS_ENABLED && canManage && betaBroadcasts
+              betaGroups && canManage && betaBroadcasts
                 ? 'grid-cols-2'
                 : 'grid-cols-1'
             } gap-2`}
           >
-            {TXT_GROUPS_ENABLED && (
+            {betaGroups && (
               <button
                 type="button"
                 onClick={() => setGroupOpen(true)}

@@ -3,12 +3,15 @@
 import { useState } from 'react'
 import TxtContactMultiPicker from './TxtContactMultiPicker'
 
-// New group conversation modal. Picks 2+ contacts, optional friendly name.
-// POSTs /api/txt/conversations/start-group; on success navigates to the new
-// conversation page. The Twilio Conversations resource is provisioned when
-// creds are present; staging without creds creates the conv with
-// twilio_conversation_sid=null and sends will fail until creds go live —
-// matches the same not-configured pattern as 1:1 sends.
+// New group conversation modal (Beta: txt_groups). Picks 2–9 contacts,
+// optional friendly name. POSTs /api/txt/conversations/start-group; on success
+// navigates to the new conversation page. Backed by TRUE Group MMS (projected
+// address on our long code) — everyone in the group sees everyone's messages
+// and numbers, like a native phone group text; a member's 1:1 texts to us stay
+// in their own thread. Max 9 contacts (Twilio caps Group MMS at 10 total
+// participants incl. our number); US/Canada mobile phones only.
+const MAX_GROUP_CONTACTS = 9
+
 export default function TxtGroupComposer({ onClose }: { onClose: () => void }) {
   const [selected, setSelected] = useState<string[]>([])
   const [name, setName] = useState('')
@@ -16,7 +19,7 @@ export default function TxtGroupComposer({ onClose }: { onClose: () => void }) {
   const [error, setError] = useState('')
 
   async function create() {
-    if (selected.length < 2 || submitting) return
+    if (selected.length < 2 || selected.length > MAX_GROUP_CONTACTS || submitting) return
     setSubmitting(true)
     setError('')
     const res = await fetch('/api/txt/conversations/start-group', {
@@ -57,7 +60,11 @@ export default function TxtGroupComposer({ onClose }: { onClose: () => void }) {
             />
           </div>
           <div className="text-xs text-white/50">
-            Pick at least 2 contacts. Do-not-text contacts can&apos;t be added.
+            A real group text: <span className="text-white/70">everyone in the group sees everyone&apos;s
+            messages and phone numbers</span>, and their replies go to the whole group — just like a
+            group text on your phone. Their separate 1-on-1 texts with us stay private. Pick 2–9
+            contacts (US/Canada cell phones; do-not-text contacts can&apos;t be added). Sends from our
+            main number.
           </div>
           <div className="flex-1 min-h-0">
             <TxtContactMultiPicker
@@ -72,7 +79,9 @@ export default function TxtGroupComposer({ onClose }: { onClose: () => void }) {
           <span className="text-[11px] text-white/40">
             {selected.length < 2
               ? `Select ${2 - selected.length} more`
-              : `${selected.length} contacts`}
+              : selected.length > MAX_GROUP_CONTACTS
+              ? `Max ${MAX_GROUP_CONTACTS} — remove ${selected.length - MAX_GROUP_CONTACTS}`
+              : `${selected.length} of ${MAX_GROUP_CONTACTS} contacts`}
           </span>
           <div className="flex gap-2">
             <button
@@ -85,7 +94,7 @@ export default function TxtGroupComposer({ onClose }: { onClose: () => void }) {
             <button
               type="button"
               onClick={create}
-              disabled={selected.length < 2 || submitting}
+              disabled={selected.length < 2 || selected.length > MAX_GROUP_CONTACTS || submitting}
               className="px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm disabled:opacity-50"
             >
               {submitting ? '…' : 'Create group'}

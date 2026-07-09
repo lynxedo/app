@@ -205,6 +205,77 @@ export async function twilioConvAddSmsParticipant(opts: {
   return { ok: true }
 }
 
+// ── True Group MMS (projected-address model) ─────────────────────────────────
+// A ProxyAddress binding (above) is the 1:1 RELAY model: Twilio claims the
+// (contact ↔ our number) pair exclusively, which is why a group member's
+// ordinary 1:1 text got absorbed into the group (the June 2026 incident). For a
+// REAL group text — everyone sees everyone, threads like iMessage — the contact
+// joins with an ADDRESS-ONLY binding and our number joins as a standalone
+// ProjectedAddress. Thread identity is then the full participant set, so a
+// member's 1:1 to the same number stays a separate thread. Twilio docs:
+// conversations-classic/group-texting. Group MMS = +1 LONG CODES only (toll-free
+// cannot group-text), max 10 total participants.
+
+// Add a customer to a group-MMS conversation (address-only — no proxy).
+export async function twilioConvAddGroupParticipant(opts: {
+  conversationSid: string
+  contactPhone: string // E.164
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!twilioConfigured()) return { ok: false, error: 'twilio_not_configured' }
+  const form = new URLSearchParams()
+  form.set('MessagingBinding.Address', opts.contactPhone)
+  const res = await twilioConvFetch(
+    `/Conversations/${opts.conversationSid}/Participants`,
+    { method: 'POST', body: form.toString() }
+  )
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => null)) as
+      | { message?: string }
+      | null
+    return { ok: false, error: payload?.message || `twilio_http_${res.status}` }
+  }
+  return { ok: true }
+}
+
+// Add OUR number to a group-MMS conversation as a standalone projected address
+// (no chat identity). REST sends into the group must set author = this number.
+export async function twilioConvAddProjectedAddress(opts: {
+  conversationSid: string
+  projectedNumber: string // E.164 — must be a +1 long code (not toll-free)
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!twilioConfigured()) return { ok: false, error: 'twilio_not_configured' }
+  const form = new URLSearchParams()
+  form.set('MessagingBinding.ProjectedAddress', opts.projectedNumber)
+  const res = await twilioConvFetch(
+    `/Conversations/${opts.conversationSid}/Participants`,
+    { method: 'POST', body: form.toString() }
+  )
+  if (!res.ok) {
+    const payload = (await res.json().catch(() => null)) as
+      | { message?: string }
+      | null
+    return { ok: false, error: payload?.message || `twilio_http_${res.status}` }
+  }
+  return { ok: true }
+}
+
+// Tear down a Conversation at Twilio. Used to clean up a half-provisioned group
+// (June 2026 lesson: a DB archive does NOT kill the Twilio resource — only
+// deleting it does).
+export async function twilioConvDelete(opts: {
+  conversationSid: string
+}): Promise<{ ok: boolean; error?: string }> {
+  if (!twilioConfigured()) return { ok: false, error: 'twilio_not_configured' }
+  const res = await twilioConvFetch(`/Conversations/${opts.conversationSid}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok && res.status !== 404) {
+    const payload = (await res.json().catch(() => null)) as { message?: string } | null
+    return { ok: false, error: payload?.message || `twilio_http_${res.status}` }
+  }
+  return { ok: true }
+}
+
 // Attach a CONVERSATION-SCOPED inbound webhook so participant replies POST to
 // this environment's handler. We deliberately use a per-conversation webhook
 // (not the account-global Conversations webhook) because staging + prod share

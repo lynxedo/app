@@ -256,14 +256,52 @@ export async function POST(
         status: 'failed',
       })
     }
-    const senderName = perms.role
-      ? (await admin.from('hub_users').select('display_name').eq('id', user.id).maybeSingle())
-          .data?.display_name || undefined
-      : undefined
+    // Photos aren't wired for groups yet (Conversations REST needs a separate
+    // media upload pipeline, not the plain MediaUrl the SMS API takes). Fail
+    // loudly instead of silently sending the text without the photo.
+    if (mediaUrls.length > 0) {
+      await admin
+        .from('txt_messages')
+        .update({
+          status: 'failed',
+          error_message: 'Photos in group texts aren’t supported yet — send text only',
+        })
+        .eq('id', inserted.id)
+      return NextResponse.json({
+        ok: false,
+        message_id: inserted.id,
+        error: 'group_media_not_supported',
+        status: 'failed',
+      })
+    }
+    // Group MMS (projected-address model): the REST author MUST be the group's
+    // projected number — our long code the group was provisioned on (the
+    // conversation is pinned to it via phone_number_id, so the resolver's
+    // per-conversation tier returns it). A display-name author would be treated
+    // as a chat identity with no projected address and the send would fail.
+    const projectedNumber = await resolveFromNumber(admin, {
+      conversationId,
+      companyId: HEROES_COMPANY_ID,
+    })
+    if (!projectedNumber) {
+      await admin
+        .from('txt_messages')
+        .update({
+          status: 'failed',
+          error_message: 'Group has no pinned sending number — recreate the group',
+        })
+        .eq('id', inserted.id)
+      return NextResponse.json({
+        ok: false,
+        message_id: inserted.id,
+        error: 'group_number_missing',
+        status: 'failed',
+      })
+    }
     const result = await twilioConvSendMessage({
       conversationSid: conv.twilio_conversation_sid,
       body: finalText,
-      author: senderName,
+      author: projectedNumber,
     })
     if (!result.ok) {
       await admin

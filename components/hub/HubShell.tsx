@@ -748,6 +748,7 @@ export default function HubShell({
             canCall={!!canAccessDialer}
             canAccessUnifiedInbox={!!canAccessUnifiedInbox}
             betaBroadcasts={!!betaFlags.txt_broadcasts}
+            betaGroups={!!betaFlags.txt_groups}
             currentUserId={currentUserId}
             companyId={companyId || ''}
           />
