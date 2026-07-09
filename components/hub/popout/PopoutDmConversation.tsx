@@ -18,9 +18,19 @@
 // Top-level messages only (parent_id IS NULL) — replies live in the in-page
 // thread panel, which isn't part of the trimmed view.
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useRef, useState, type ReactNode } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { renderContent } from '../renderContent'
+
+// Never let one message's formatting blow up the whole list — fall back to the
+// raw text if renderContent throws on some unexpected input.
+function safeRenderContent(content: string | null | undefined): ReactNode {
+  try {
+    return renderContent(content ?? '', [])
+  } catch {
+    return content ?? ''
+  }
+}
 
 type Sender = { id: string; display_name: string; avatar_url: string | null; is_bot?: boolean }
 
@@ -207,7 +217,7 @@ export default function PopoutDmConversation({
                     mine ? 'bg-indigo-600 text-white' : 'bg-white/10 text-white'
                   }`}
                 >
-                  <div className="whitespace-pre-wrap break-words">{renderContent(m.content, [])}</div>
+                  <div className="whitespace-pre-wrap break-words">{safeRenderContent(m.content)}</div>
                 </div>
                 <div className="mt-0.5 px-1 text-[10px] text-white/40">{formatTime(m.created_at)}</div>
               </div>

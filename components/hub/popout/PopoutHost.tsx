@@ -8,6 +8,7 @@
 
 import { createPortal } from 'react-dom'
 import type { PopoutTarget } from './ConversationPopoutProvider'
+import PopoutErrorBoundary from './PopoutErrorBoundary'
 import PopoutTxtConversation from './PopoutTxtConversation'
 import PopoutDmConversation from './PopoutDmConversation'
 
@@ -55,7 +56,7 @@ export default function PopoutHost({
           </svg>
         </button>
       </div>
-      {body}
+      <PopoutErrorBoundary>{body}</PopoutErrorBoundary>
     </div>,
     pipWindow.document.body
   )
