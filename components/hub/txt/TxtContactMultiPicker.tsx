@@ -138,7 +138,12 @@ export default function TxtContactMultiPicker({
             than letting them assume everyone is listed. */}
         {results === null && contacts.length >= 500 && ' · search to find more'}
       </div>
-      <div className="flex-1 overflow-y-auto rounded-md border border-white/10 bg-white/5 min-h-0">
+      {/* max-h hard cap: the flex-chain sizing broke on the desktop app (the
+          list ran past the modal footer and covered the buttons — July 9
+          2026), so cap the scroll area at a viewport fraction the modal
+          chrome always fits around, same idea as NewConversationModal's
+          max-h-56 results list. flex-1 still lets it shrink when tight. */}
+      <div className="flex-1 overflow-y-auto rounded-md border border-white/10 bg-white/5 min-h-0 max-h-[45vh]">
         {loading && <div className="p-3 text-sm text-white/40">Loading contacts…</div>}
         {!loading && searching && filtered.length === 0 && (
           <div className="p-3 text-sm text-white/40">Searching…</div>

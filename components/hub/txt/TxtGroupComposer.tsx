@@ -66,7 +66,9 @@ export default function TxtGroupComposer({ onClose }: { onClose: () => void }) {
             contacts (US/Canada cell phones; do-not-text contacts can&apos;t be added). Sends from our
             main number.
           </div>
-          <div className="flex-1 min-h-0">
+          {/* overflow-hidden: belt-and-suspenders so the contact list can never
+              paint over the Cancel / Create footer if flex sizing misbehaves. */}
+          <div className="flex-1 min-h-0 overflow-hidden">
             <TxtContactMultiPicker
               selectedIds={selected}
               onChange={setSelected}

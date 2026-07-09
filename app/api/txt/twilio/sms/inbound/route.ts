@@ -108,6 +108,23 @@ export async function POST(req: NextRequest) {
   const sid = params.MessageSid || params.SmsSid || ''
   const numMedia = parseInt(params.NumMedia || '0', 10) || 0
 
+  // GROUP MMS guard: a reply to a group text is addressed to multiple
+  // recipients, and Twilio marks it with OtherRecipients{N} params. Twilio
+  // delivers it BOTH to the matching Conversations resource (our
+  // /api/txt/twilio/conversations webhook records it in the group thread) AND
+  // to this plain per-number webhook — without this skip, the same reply also
+  // materialized as a phantom 1:1 thread between the member and our number
+  // (found live July 9, 2026: group replies double-wrote IM… + MM… rows).
+  // A true 1:1 text never carries OtherRecipients, so this can't drop real
+  // direct traffic.
+  if (Object.keys(params).some((k) => k.startsWith('OtherRecipients'))) {
+    console.log('[txt:inbound] group-MMS inbound skipped (Conversations webhook owns it)', {
+      sid,
+      from,
+    })
+    return twimlResponse()
+  }
+
   if (!from || !sid) {
     console.warn('[txt:inbound] missing from or sid', { hasFrom: !!from, sid })
     return twimlResponse()
