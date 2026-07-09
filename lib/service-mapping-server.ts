@@ -119,43 +119,6 @@ export function parseServiceProductBody(
   return out
 }
 
-// Validate the editable fields of a product_rounds row. `partial` = PATCH.
-export function parseProductRoundBody(
-  body: Record<string, unknown>,
-  partial: boolean,
-): Record<string, unknown> | { error: string } {
-  const out: Record<string, unknown> = {}
-
-  if ('program' in body || !partial) {
-    const v = body.program
-    if (typeof v !== 'string' || !v.trim()) return { error: 'program is required' }
-    if (v.length > 200) return { error: 'program is too long' }
-    out.program = v.trim()
-  }
-
-  if ('round_label' in body) {
-    const v = body.round_label
-    if (v === null || v === undefined || v === '') out.round_label = null
-    else if (typeof v === 'string') out.round_label = v.trim()
-    else return { error: 'round_label must be a string' }
-  }
-
-  if ('product_ids' in body) {
-    const v = body.product_ids
-    if (!Array.isArray(v)) return { error: 'product_ids must be an array' }
-    out.product_ids = v.filter((x): x is string => typeof x === 'string')
-  }
-
-  // is_current is set only via the dedicated set-current endpoint (it must be
-  // exclusive per program), so it's intentionally NOT parsed here.
-
-  if ('effective_from' in body) {
-    const v = body.effective_from
-    if (v === null || v === undefined || v === '') out.effective_from = null
-    else if (typeof v === 'string') out.effective_from = v
-    else return { error: 'invalid effective_from' }
-  }
-
-  if (!partial && Object.keys(out).length === 0) return { error: 'Nothing to create' }
-  return out
-}
+// (parseProductRoundBody was removed 2026-07-09 with the Current Rounds tab —
+// product_rounds is now read-only legacy data, kept for the in-panel import
+// and the Service Builder pre-fill fallback.)
