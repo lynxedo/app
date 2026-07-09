@@ -327,31 +327,43 @@ export async function POST(request: Request) {
     }
   }
 
-  // @Guardian in DMs — user must be allowed; no room gate for DMs
+  // @Guardian in DMs — user must be allowed AND Guardian must be an actual member of
+  // this conversation. Guardian only participates in DMs/groups he was deliberately part
+  // of (a real 1:1 Guardian chat, or a group created with him included). Without this
+  // gate, anyone could type "@guardian" inside a two-person human DM and permanently turn
+  // on auto-continue, making Guardian reply to every subsequent message with no off switch.
   if (conversation_id && canUseClaude && hasContent && !parent_id) {
-    const mentionsClaude = content.toLowerCase().includes('@guardian')
-    if (mentionsClaude) {
-      after(() => handleClaudeReplyDM({
-        conversationId: conversation_id,
-        companyId: profile.company_id,
-        triggeringContent: content.trim(),
-        userId: user.id,
-      }).catch(() => null))
-    } else {
-      // Auto-continue: check if Claude has already posted in this DM
-      const { count } = await supabase
-        .from('messages')
-        .select('id', { count: 'exact', head: true })
-        .eq('conversation_id', conversation_id)
-        .eq('sender_id', CLAUDE_BOT_ID)
-        .is('parent_id', null)
-      if ((count ?? 0) > 0) {
+    const { count: guardianMemberCount } = await adminClient
+      .from('conversation_members')
+      .select('user_id', { count: 'exact', head: true })
+      .eq('conversation_id', conversation_id)
+      .eq('user_id', CLAUDE_BOT_ID)
+    const guardianIsMember = (guardianMemberCount ?? 0) > 0
+    if (guardianIsMember) {
+      const mentionsClaude = content.toLowerCase().includes('@guardian')
+      if (mentionsClaude) {
         after(() => handleClaudeReplyDM({
           conversationId: conversation_id,
           companyId: profile.company_id,
           triggeringContent: content.trim(),
           userId: user.id,
         }).catch(() => null))
+      } else {
+        // Auto-continue: check if Claude has already posted in this DM
+        const { count } = await supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('conversation_id', conversation_id)
+          .eq('sender_id', CLAUDE_BOT_ID)
+          .is('parent_id', null)
+        if ((count ?? 0) > 0) {
+          after(() => handleClaudeReplyDM({
+            conversationId: conversation_id,
+            companyId: profile.company_id,
+            triggeringContent: content.trim(),
+            userId: user.id,
+          }).catch(() => null))
+        }
       }
     }
   }
