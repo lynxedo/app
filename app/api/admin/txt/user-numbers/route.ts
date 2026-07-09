@@ -6,7 +6,7 @@ import { requireAdminArea } from '@/lib/admin-auth'
 // with their currently-assigned default Txt phone number (if any). Used to
 // render the per-user default-number assignment grid in the Numbers tab.
 export async function GET() {
-  const auth = await requireAdminArea('hub')
+  const auth = await requireAdminArea('txt')
   if (!auth.ok || !auth.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
@@ -62,7 +62,7 @@ export async function GET() {
 // POST /api/admin/txt/user-numbers — set/clear a user's default Txt number.
 // Body: { user_id, phone_number_id | null }
 export async function POST(request: Request) {
-  const auth = await requireAdminArea('hub')
+  const auth = await requireAdminArea('txt')
   if (!auth.ok || !auth.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }

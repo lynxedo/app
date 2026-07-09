@@ -4,10 +4,11 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 // GET /api/admin/txt/settings  — read company Txt settings (admin)
 // POST /api/admin/txt/settings — save settings (admin)
-// Gated via requireAdminArea('hub') — Txt is part of Hub.
+// Gated via requireAdminArea('txt') — requires the can_admin_txt grant,
+// matching the Admin → Txt page (app/hub/admin/txt/page.tsx).
 
 export async function GET() {
-  const auth = await requireAdminArea('hub')
+  const auth = await requireAdminArea('txt')
   if (!auth.ok || !auth.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
@@ -35,7 +36,7 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const auth = await requireAdminArea('hub')
+  const auth = await requireAdminArea('txt')
   if (!auth.ok || !auth.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }

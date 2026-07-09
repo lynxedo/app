@@ -10,7 +10,7 @@ import { requireAdminArea } from '@/lib/admin-auth'
 // array limits the user to exactly those numbers. Managers/admins bypass this in
 // app code regardless of what's stored here.
 export async function POST(request: Request) {
-  const auth = await requireAdminArea('hub')
+  const auth = await requireAdminArea('txt')
   if (!auth.ok || !auth.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }

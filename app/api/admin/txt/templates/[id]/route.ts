@@ -10,7 +10,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireAdminArea('hub')
+  const auth = await requireAdminArea('txt')
   if (!auth.ok || !auth.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
@@ -73,7 +73,7 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const auth = await requireAdminArea('hub')
+  const auth = await requireAdminArea('txt')
   if (!auth.ok || !auth.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
