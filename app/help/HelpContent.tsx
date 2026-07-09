@@ -733,7 +733,8 @@ function HubTab() {
       </Section>
 
       <Section title="@Guardian Bot">
-        <p>Guardian is an AI helper that lives in Hub. @mention <strong className="text-orange-300">@Guardian</strong> in any room or DM and ask it questions about Lynxedo or the business — it has context on your data and replies in-thread.</p>
+        <p>Guardian is an AI helper that lives in Hub. @mention <strong className="text-orange-300">@Guardian</strong> in any room, or in your one-on-one Guardian chat, and ask it questions about Lynxedo or the business — it has context on your data and replies in-thread.</p>
+        <p className="text-gray-400 text-xs">Guardian only takes part in chats it&apos;s actually a member of — a room where it&apos;s enabled, or your own one-on-one Guardian chat. It won&apos;t reply inside a regular direct message between two people, so @mentioning it there does nothing.</p>
         <p className="text-gray-400 text-xs">Examples: <em>&ldquo;@Guardian how many visits do we have tomorrow?&rdquo;</em> · <em>&ldquo;@Guardian who&apos;s clocked in right now?&rdquo;</em></p>
         <p><strong className="text-white">What Guardian can do depends on your tier:</strong></p>
         <ul className="list-disc pl-5 space-y-1">
