@@ -3,6 +3,7 @@
 import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ContactModal, { type ContactForModal } from './ContactModal'
+import AddToTrackerModal from '@/components/hub/tracker/AddToTrackerModal'
 import PopoutButton from '@/components/hub/popout/PopoutButton'
 import TemplatePicker, { filterTemplates, type PickerTemplate } from './TemplatePicker'
 import EmojiPicker from '@/components/hub/EmojiPicker'
@@ -217,6 +218,8 @@ export default function TxtConversationView({
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [editContactOpen, setEditContactOpen] = useState(false)
   const [addContactOpen, setAddContactOpen] = useState(false)
+  const [trackerOpen, setTrackerOpen] = useState(false)
+  const [trackerLeadId, setTrackerLeadId] = useState<string | null>(null)
   const [numbers, setNumbers] = useState<PhoneNumberOption[]>([])
   const [numberPickerOpen, setNumberPickerOpen] = useState(false)
   // Pending MMS attachments — staged client-side via the 📎 button, sent in
@@ -1323,6 +1326,30 @@ export default function TxtConversationView({
               <span className="hidden sm:inline">+ Add to Contacts</span>
             </button>
           )}
+          {/* Add this person to the Lead Tracker (always available on a 1:1 with a
+              contact; flips to a "In tracker" link once linked). */}
+          {!isGroup && conversation.contact &&
+            (trackerLeadId ? (
+              <a
+                href="/hub/tracker"
+                className="text-xs px-2 py-1 rounded-md bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 whitespace-nowrap"
+                title="View in the Lead Tracker"
+              >
+                <span aria-hidden className="sm:hidden">✓📋</span>
+                <span className="hidden sm:inline">✓ In tracker</span>
+              </a>
+            ) : (
+              <button
+                type="button"
+                onClick={() => setTrackerOpen(true)}
+                className="text-xs px-2 py-1 rounded-md bg-white/10 text-white/80 hover:bg-white/20 whitespace-nowrap"
+                title="Add this person to the Lead Tracker"
+                aria-label="Add to Lead Tracker"
+              >
+                <span aria-hidden className="sm:hidden">+📋</span>
+                <span className="hidden sm:inline">+ Add to Lead Tracker</span>
+              </button>
+            ))}
           {/* Assignment chip */}
           <div className="relative">
             <button
@@ -2408,6 +2435,24 @@ export default function TxtConversationView({
               contact: { ...conversation.contact!, ...created, in_directory: true },
             })
             setAddContactOpen(false)
+          }}
+        />
+      )}
+
+      {trackerOpen && !isGroup && conversation.contact && (
+        <AddToTrackerModal
+          sourceType="txt"
+          sourceId={conversation.id}
+          draftNoteConversationId={conversation.id}
+          prefill={{
+            name: conversation.contact.name,
+            phone: conversation.contact.phone,
+            email: conversation.contact.email ?? undefined,
+          }}
+          onClose={() => setTrackerOpen(false)}
+          onLinked={(id) => {
+            setTrackerLeadId(id)
+            setTrackerOpen(false)
           }}
         />
       )}
