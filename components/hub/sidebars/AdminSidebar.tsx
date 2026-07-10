@@ -57,6 +57,7 @@ export default function AdminSidebar({
     people: boolean
     hub: boolean
     guardian?: boolean
+    ai?: boolean
     txt?: boolean
     announcements?: boolean
     file_tags?: boolean
@@ -83,8 +84,18 @@ export default function AdminSidebar({
       {show(grants.hub) && (
         <AdminRow href="/hub/admin/hub" iconId="hub" label="Hub" onClose={onClose} />
       )}
-      {show(!!(grants.guardian ?? grants.hub)) && (
-        <AdminRow href="/hub/admin/guardian" iconId="guardian" label="Guardian" onClose={onClose} />
+      {show(!!(grants.ai ?? grants.guardian ?? grants.hub)) && (
+        <AdminRow
+          href="/hub/admin/ai"
+          icon={
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 3l1.6 4.4L18 9l-4.4 1.6L12 15l-1.6-4.4L6 9l4.4-1.6L12 3z" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M18.5 13.5l.7 2 2 .7-2 .7-.7 2-.7-2-2-.7 2-.7.7-2z" />
+            </svg>
+          }
+          label="AI"
+          onClose={onClose}
+        />
       )}
       {show(!!(grants.txt ?? grants.hub)) && (
         <AdminRow href="/hub/admin/txt" iconId="txt2" label="Txt" onClose={onClose} />

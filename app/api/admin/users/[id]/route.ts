@@ -7,6 +7,7 @@ const RESTRICTED_FIELDS = new Set([
   'can_admin_people',
   'can_admin_hub',
   'can_admin_guardian',
+  'can_admin_ai',
   'can_admin_txt',
   'can_admin_announcements',
   'can_admin_file_tags',

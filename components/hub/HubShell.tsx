@@ -108,6 +108,7 @@ export default function HubShell({
     people: boolean
     hub: boolean
     guardian?: boolean
+    ai?: boolean
     txt?: boolean
     announcements?: boolean
     file_tags?: boolean
@@ -675,7 +676,7 @@ export default function HubShell({
   }, [])
 
   const rawGrants = adminGrants ?? {
-    people: !!isAdmin, hub: !!isAdmin, guardian: !!isAdmin, txt: !!isAdmin,
+    people: !!isAdmin, hub: !!isAdmin, guardian: !!isAdmin, ai: !!isAdmin, txt: !!isAdmin,
     announcements: !!isAdmin, file_tags: !!isAdmin, routing: !!isAdmin,
     timesheet: !!isAdmin, fleet: !!isAdmin, daily_log: !!isAdmin, zone_sizer: !!isAdmin,
     dialer: !!isAdmin, contacts: !!isAdmin, products: !!isAdmin,
@@ -684,6 +685,7 @@ export default function HubShell({
     people: !!rawGrants.people,
     hub: !!rawGrants.hub,
     guardian: !!(rawGrants.guardian ?? isAdmin),
+    ai: !!(rawGrants.ai ?? isAdmin),
     txt: !!(rawGrants.txt ?? isAdmin),
     announcements: !!(rawGrants.announcements ?? isAdmin),
     file_tags: !!(rawGrants.file_tags ?? isAdmin),
@@ -699,7 +701,7 @@ export default function HubShell({
   }
   const isSuperAdmin = !!isAdmin
   const showAdminRail =
-    isSuperAdmin || grants.people || grants.hub || grants.guardian || grants.txt ||
+    isSuperAdmin || grants.people || grants.hub || grants.guardian || grants.ai || grants.txt ||
     grants.announcements || grants.file_tags || grants.routing ||
     grants.timesheet || grants.fleet || grants.daily_log || grants.zone_sizer ||
     grants.dialer || grants.contacts || grants.products || grants.forms

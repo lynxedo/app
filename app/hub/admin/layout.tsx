@@ -14,7 +14,7 @@ export default async function HubAdminLayout({ children }: { children: React.Rea
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_products')
+    .select('role, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_ai, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_products')
     .eq('id', user.id)
     .single()
 
@@ -24,6 +24,7 @@ export default async function HubAdminLayout({ children }: { children: React.Rea
       profile.can_admin_people ||
       profile.can_admin_hub ||
       profile.can_admin_guardian ||
+      profile.can_admin_ai ||
       profile.can_admin_txt ||
       profile.can_admin_announcements ||
       profile.can_admin_file_tags ||
