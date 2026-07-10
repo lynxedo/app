@@ -1039,29 +1039,51 @@ export default function DialerAdminPanel({
 
         {/* Greeting */}
         <div>
-          <label className="text-xs font-medium text-white/70 block mb-1">Greeting</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-medium text-white/70">Greeting</label>
+            {!vr.greeting.trim() && initialVoiceReceptionist.greeting_default.trim() && (
+              <button
+                type="button"
+                onClick={() => setVr(p => ({ ...p, greeting: initialVoiceReceptionist.greeting_default }))}
+                className="text-xs text-brand hover:underline"
+              >
+                Load default to edit
+              </button>
+            )}
+          </div>
           <textarea
             value={vr.greeting}
             onChange={e => setVr(p => ({ ...p, greeting: e.target.value.slice(0, 1000) }))}
             rows={3}
-            placeholder={initialVoiceReceptionist.greeting_default}
+            placeholder="Leave blank to use the recommended default greeting."
             className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
           />
-          <p className="text-xs text-white/40 mt-1">Spoken the moment the call connects. Leave blank to use the default.</p>
+          <p className="text-xs text-white/40 mt-1">Spoken the moment the call connects. Blank uses the recommended default (it improves automatically). Click “Load default to edit” to write your own.</p>
         </div>
 
         {/* Instructions */}
         <div>
-          <label className="text-xs font-medium text-white/70 block mb-1">Instructions</label>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-medium text-white/70">Instructions</label>
+            {!vr.instructions.trim() && initialVoiceReceptionist.instructions_default.trim() && (
+              <button
+                type="button"
+                onClick={() => setVr(p => ({ ...p, instructions: initialVoiceReceptionist.instructions_default }))}
+                className="text-xs text-brand hover:underline"
+              >
+                Load default to edit
+              </button>
+            )}
+          </div>
           <textarea
             value={vr.instructions}
             onChange={e => setVr(p => ({ ...p, instructions: e.target.value.slice(0, 8000) }))}
             rows={16}
-            placeholder={initialVoiceReceptionist.instructions_default}
+            placeholder="Leave blank to use the recommended default instructions."
             className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-y font-mono"
           />
           <p className="text-xs text-white/40 mt-1">
-            The behavior/prompt that shapes how the assistant talks and what it collects. Leave blank to use the default.
+            The behavior that shapes how the assistant talks and what it collects. Blank uses the recommended default. Click “Load default to edit” to write your own.
           </p>
         </div>
 
