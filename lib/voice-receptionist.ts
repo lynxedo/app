@@ -169,16 +169,16 @@ export function buildWelcomeGreeting(level: number | null | undefined = 2): stri
 // Build the inbound-call TwiML that hands the caller to the ConversationRelay AI
 // receptionist.
 //
-// `<Start><Recording>` MUST come before `<Connect>`: ConversationRelay silently
-// ignores the REST API `record:true` flag, so a call-scoped recording started in
-// TwiML is the only way to capture the audio. We point its status callback at the
-// EXISTING dialer recording route so AI calls flow into the same R2 storage +
-// transcription pipeline as every other call (the inbound webhook already
-// inserted the matching `calls` row keyed on this CallSid, so it links up).
-//
-// (Note: Twilio's noun is `<Recording>`, NOT the `<Record>` verb — `<Record>`
-// captures the caller only, voicemail-style. Verified via the Twilio
-// call-recordings guidance.)
+// NOTE on recording (2026-07-10, corrected): an earlier version of this builder
+// embedded `<Start><Recording>` here, on the (docs-plausible but WRONG)
+// assumption that it was the only way to capture audio on a ConversationRelay
+// call. Verified live it does NOT work — Twilio creates zero Recording
+// resources for these calls and raises no error, so it silently no-ops
+// (the same class of documented incompatibility as `<Connect><Stream>` +
+// ConversationRelay). The recording is instead started via the REST API
+// (`startCallRecording`, the same proven mechanism the real inbound/outbound
+// dialer routes use) from app/api/voice/brain/route.ts once the call is
+// confirmed connected — see that file for the full explanation.
 export function buildConversationRelayTwiml(opts: {
   baseUrl: string
   wssUrl: string
@@ -187,14 +187,10 @@ export function buildConversationRelayTwiml(opts: {
   greeting: string
 }): string {
   const relayUrl = `${opts.wssUrl}?key=${encodeURIComponent(opts.wsKey)}`
-  const recordingCallback = `${opts.baseUrl}/api/dialer/voice/recording`
   const fallbackAction = `${opts.baseUrl}/api/voice/twiml/fallback`
   return (
     `<?xml version="1.0" encoding="UTF-8"?>` +
     `<Response>` +
-    `<Start>` +
-    `<Recording recordingStatusCallback="${escapeXmlAttr(recordingCallback)}" recordingStatusCallbackEvent="completed"/>` +
-    `</Start>` +
     `<Connect action="${escapeXmlAttr(fallbackAction)}">` +
     `<ConversationRelay url="${escapeXmlAttr(relayUrl)}" welcomeGreeting="${escapeXmlAttr(opts.greeting)}" ttsProvider="ElevenLabs" voice="${escapeXmlAttr(opts.voiceId)}" transcriptionProvider="Deepgram" interruptible="true"/>` +
     `</Connect>` +

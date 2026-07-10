@@ -5,6 +5,8 @@ import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
 import { CLAUDE_MODEL } from '@/lib/anthropic'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
+import { startCallRecording } from '@/lib/twilio-voice'
+import { findOrCreateTxtContact } from '@/lib/dialer-lookup'
 
 // AI Voice Receptionist — "brain" endpoint (Phase 1a).
 //
@@ -55,6 +57,67 @@ export async function POST(request: Request) {
   // Load the company's editable receptionist settings (Admin -> Dialer -> AI
   // Receptionist), falling back to the code defaults when a field is blank.
   const settings = await getEffectiveVoiceReceptionistSettings(admin, companyId)
+
+  // Log the call + start recording.
+  //
+  // WHY THIS IS HERE, NOT IN THE TwiML:
+  // 1. `<Start><Recording>` in the ConversationRelay TwiML does NOT produce a
+  //    recording — verified live (Twilio's own Recordings API returns zero
+  //    resources for calls that included it, with no error). The proven,
+  //    working mechanism elsewhere in this codebase is the REST API
+  //    (startCallRecording, used by the real inbound/outbound dialer routes),
+  //    fired once the call is actually connected — which is exactly now.
+  // 2. Direct entry points (app/api/voice/twiml) never insert a `calls` row at
+  //    all, so calls never appeared in the Call Log and the recording
+  //    completion webhook (app/api/dialer/voice/recording) had nothing to
+  //    attach to even when a recording did exist. This endpoint is the one
+  //    place EVERY receptionist call passes through exactly once at connect
+  //    time, so it's the right place to log the call for every entry point.
+  // Awaited directly (NOT after()) — after() proved unreliable for this route
+  // (called by an external Node service, not a browser navigation); verified
+  // live that its body never ran. The greeting is static TwiML spoken
+  // immediately, and the caller's first reply is several seconds out, so this
+  // adds no perceptible latency.
+  if (body.callSid) {
+    const callSid = body.callSid
+    const toNumber = body.to || 'unknown'
+    const fromNumber = body.from || 'unknown'
+    try {
+      const { data: dialerSettings } = await admin
+        .from('dialer_settings')
+        .select('recording_enabled')
+        .eq('company_id', companyId)
+        .maybeSingle()
+      const recordingEnabled = dialerSettings?.recording_enabled === true
+
+      let contactId: string | null = null
+      if (body.from) {
+        contactId = await findOrCreateTxtContact(companyId, body.from).catch(() => null)
+      }
+
+      await admin.from('calls').insert({
+        company_id: companyId,
+        twilio_call_sid: callSid,
+        direction: 'inbound',
+        from_number: fromNumber,
+        to_number: toNumber,
+        status: 'in-progress',
+        answered_at: new Date().toISOString(),
+        contact_id: contactId,
+        handled_by: null,
+        call_type: 'ai_receptionist',
+      })
+
+      if (recordingEnabled) {
+        const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+        startCallRecording(callSid, `${baseUrl}/api/dialer/voice/recording`).catch((err) =>
+          console.error('[voice.brain] startCallRecording failed', err)
+        )
+      }
+    } catch (err) {
+      console.error('[voice.brain] call logging failed', err)
+    }
+  }
 
   // Assemble the shared Guardian system prompt in 'voice' mode + the phone task
   // (the editable instructions, or the VOICE_RECEPTIONIST_PROMPT default).
