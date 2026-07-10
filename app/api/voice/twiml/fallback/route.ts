@@ -36,6 +36,23 @@ export async function POST(request: NextRequest) {
     }
   }
 
+  // Twilio hits this <Connect action> URL whenever the ConversationRelay session
+  // ends — INCLUDING a normal, completed call. When the assistant finished on its
+  // own it already said goodbye and we sent `end` with reason 'assistant_complete',
+  // so just hang up cleanly. Only genuine drops/errors (no or non-complete
+  // handoff) should fall through to voicemail.
+  const lower: Record<string, string> = {}
+  for (const [k, v] of Object.entries(paramObj)) lower[k.toLowerCase()] = v
+  let endReason = ''
+  try {
+    endReason = lower.handoffdata ? String(JSON.parse(lower.handoffdata).reason || '') : ''
+  } catch {
+    endReason = ''
+  }
+  if (endReason === 'assistant_complete') {
+    return twimlResponse('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>')
+  }
+
   return twimlResponse(
     twimlRecordVoicemail({
       action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,
