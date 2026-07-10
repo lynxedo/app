@@ -96,7 +96,7 @@ Heroes offers lawn fertilization, weed control, sprinkler repair, and pet waste 
 ## UNIVERSAL FUNDAMENTALS — score on every call
 
 - Greeting — opened with company name + rep's name + offer to help; warm tone
-- Customer name use — used the customer's name at least once after the opening. Score N/A if the transcript makes clear the rep and customer already know each other well (e.g., they reference prior texts, emails, or an ongoing relationship) — omitting the name is normal there, not a gap.
+- Customer name use — a nice-to-have, NOT required. If the rep uses the customer's name, score Strong; if they don't, score N/A — NEVER "Needs work." Not using the customer's name is never a deduction and must NOT appear as an improvement, a gap, a red flag, or in the headline. Do not coach the rep to use the customer's name more.
 - Active listening — let customer finish, didn't talk over them, acknowledged before responding
 - Tone match — calm/empathetic when customer is upset, energetic when excited, professional throughout
 - Accuracy — facts about services, pricing, scheduling, treatment timing are correct (flag anything that sounds wrong)

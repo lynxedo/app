@@ -2,7 +2,7 @@ import Link from 'next/link'
 
 export const metadata = {
   title: 'Privacy Policy — Lynxedo',
-  description: 'Privacy policy for the Lynxedo platform and mobile app.',
+  description: 'Privacy policy for the Lynxedo platform, mobile app, and browser extension.',
 }
 
 export default function PrivacyPage() {
@@ -16,7 +16,7 @@ export default function PrivacyPage() {
       </header>
 
       <main className="max-w-2xl mx-auto px-6 py-10 space-y-8 text-sm text-gray-300 leading-relaxed">
-        <p className="text-gray-500 text-xs">Last updated: June 10, 2026</p>
+        <p className="text-gray-500 text-xs">Last updated: July 3, 2026</p>
 
         <section>
           <h2 className="text-white font-semibold text-base mb-3">Overview</h2>
@@ -171,6 +171,33 @@ export default function PrivacyPage() {
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
               <p className="text-white font-medium mb-1">Location (optional)</p>
               <p className="text-gray-400">Location access is requested only when you clock in or out using the time clock feature, and only if your administrator has enabled GPS capture for clock punches. Location is captured once at the moment of the punch — not continuously tracked in the background.</p>
+            </div>
+          </div>
+        </section>
+
+        <section id="browser-extension">
+          <h2 className="text-white font-semibold text-base mb-3">Lynxedo Browser Extension</h2>
+          <p>
+            The Lynxedo browser extension (&quot;Add to Hub&quot;) lets you scan the web page you are
+            viewing for contact details and add, text, or call those people in Lynxedo. It acts only
+            when you click — there is no background scanning and no automatic collection.
+          </p>
+          <div className="mt-3 space-y-3">
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <p className="text-white font-medium mb-1">Page content you choose to scan</p>
+              <p className="text-gray-400">When you click &quot;Scan this page,&quot; the extension reads the visible text of the current tab and sends it to Lynxedo, which uses AI (Anthropic&apos;s Claude) to detect names, phone numbers, email addresses, and companies. The page text is used to return those contacts and is not retained after the scan. The extension reads a page only when you explicitly scan it — it never reads pages in the background and does not track your browsing history.</p>
+            </div>
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <p className="text-white font-medium mb-1">Contacts you choose to save</p>
+              <p className="text-gray-400">When you click Add to Hub, Add as Lead, or Text, that contact&apos;s details (name, phone, email, company, and the source page URL) are saved to your organization&apos;s Lynxedo contact directory, and any text you send is delivered through Lynxedo&apos;s SMS system. Contacts you don&apos;t act on are never saved.</p>
+            </div>
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <p className="text-white font-medium mb-1">Your access token</p>
+              <p className="text-gray-400">To connect the extension to your account, Lynxedo issues a per-user access token that is stored locally in your browser&apos;s extension storage. Only a hashed form of the token is stored on our servers, and you can revoke it at any time in Lynxedo under Settings → Integrations → Browser Extension.</p>
+            </div>
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
+              <p className="text-white font-medium mb-1">Browser permissions</p>
+              <p className="text-gray-400">The extension requests access to the current tab&apos;s content so it can read a page you choose to scan, and stores your connection settings locally. It does not sell your data, use it for advertising, or share page content with anyone other than the services described in this policy that are needed to detect and save contacts.</p>
             </div>
           </div>
         </section>
