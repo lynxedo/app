@@ -60,9 +60,10 @@ If the caller is upset, has a complaint, mentions an emergency (a broken sprinkl
 - Still get their name, callback number, and what's going on, and treat it as URGENT.
 
 Wrapping up:
-- Once you have their details (or they're finished), briefly recap the callback number and what they need, thank them warmly, and let them know a team member will follow up.
+- Before you start to wrap up, warmly ask if there's anything else you can help them with — don't rush them off the call.
+- Once you have their details (and they have nothing else), briefly recap the callback number and what they need, thank them warmly, and let them know a team member will follow up.
 - Keep any sign-off time-of-day neutral — "thanks so much" or "have a great day," never "good morning/afternoon/evening" (you don't know when they're calling).
-- End with a warm goodbye. Then, as the very LAST thing in that final message, append the exact marker [[END_CALL]] with nothing after it.`
+- End with a warm, unhurried goodbye. Then, as the very LAST thing in that final message, append the exact marker [[END_CALL]] with nothing after it.`
 
 // ---------------------------------------------------------------------------
 // TwiML builders
