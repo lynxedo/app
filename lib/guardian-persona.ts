@@ -34,18 +34,19 @@ export type SystemBlock =
   | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
 
 // ---------------------------------------------------------------------------
-// GUARDIAN_CORE — the universal identity + rules that apply on EVERY surface,
-// including a direct question to Guardian. Keep this to principles that are true
-// no matter the task; anything task-specific (e.g. "return only the message
-// body", "never reveal you're an AI" for outgoing drafts) belongs in the per-
-// surface task layer, not here. Company-specific facts (services, pricing, the
-// refer-out list, customer-service standards) live in the Knowledge Base so Ben
-// can edit them without a code change — not here.
+// GUARDIAN_CORE — the universal rules that apply on EVERY surface, including a
+// direct question to Guardian. Keep this to principles that are true no matter
+// the task; anything task-specific (e.g. "return only the message body", "never
+// reveal you're an AI" for outgoing drafts) belongs in the per-surface task
+// layer, not here. Company-specific facts — INCLUDING the company's identity and
+// service list — live in the Knowledge Base so admins edit them without a code
+// change: identity in the reserved `identity` doc (injected right below this
+// core by buildGuardianSystem), everything else in the other KB docs.
 // ---------------------------------------------------------------------------
-export const GUARDIAN_CORE = `You are part of Heroes Lawn Care of The Woodlands / Spring / Conroe / Magnolia / Montgomery / Tomball / Cypress, TX — a local company doing lawn fertilization & weed control, irrigation (sprinkler) service, mosquito & fire ant control, and pet waste pickup.
+export const GUARDIAN_CORE = `You are part of the company described in the COMPANY IDENTITY below — you work for them and represent them and their team.
 
 Principles that always apply, no matter the task:
-- Speak in Heroes' voice: warm, local, plain-spoken, like a real teammate — never corporate, stiff, or robotic.
+- Speak in the company's voice: warm, local, plain-spoken, like a real teammate — never corporate, stiff, or robotic.
 - Never invent facts. Use only what's in this prompt, the knowledge below, the conversation, or the account data provided. If you don't know something, don't guess — say what you do know.
 - Never promise a specific date, time, or price unless it's a fixed, published fee you are 100% certain of. Scheduling and quotes are committed by the live team, not automatically.
 - Lead with empathy on any complaint or concern; never get defensive.
@@ -91,12 +92,27 @@ export async function buildGuardianSystem(opts: {
   const admin = opts.admin ?? createAdminClient()
   const sections: string[] = [GUARDIAN_CORE]
 
+  // COMPANY IDENTITY — who this company is, what it does / doesn't do, and its
+  // service area. Lives in the Knowledge Base under the reserved `identity` slug
+  // (one edit in Admin → Guardian updates every AI surface) and is placed first
+  // so everything after it reads in the company's context.
+  try {
+    const identity = await getKnowledgeDoc(admin, opts.companyId, 'identity')
+    if (identity?.body?.trim()) {
+      sections.push(`COMPANY IDENTITY:\n\n${identity.body.trim()}`)
+    }
+  } catch {
+    // non-fatal — proceed without the identity doc
+  }
+
   // Always-included KB docs — the company-wide knowledge Ben flags to travel
-  // everywhere. Same loader the Responder and @Guardian already use.
+  // everywhere. Same loader the Responder and @Guardian already use. The
+  // `identity` doc is excluded here because it was already placed first above.
   try {
     const docs = await getAlwaysIncludedDocs(admin, opts.companyId)
-    if (docs.length > 0) {
-      sections.push(docs.map((d) => `## ${d.title}\n\n${d.body}`).join('\n\n---\n\n'))
+    const rest = docs.filter((d) => d.slug !== 'identity')
+    if (rest.length > 0) {
+      sections.push(rest.map((d) => `## ${d.title}\n\n${d.body}`).join('\n\n---\n\n'))
     }
   } catch {
     // non-fatal — proceed without the always-included docs
