@@ -192,6 +192,49 @@ export async function POST(request: Request) {
   const summary = extracted?.summary || 'After-hours AI receptionist call (no summary extracted).'
   const urgency = extracted?.urgency || 'normal'
 
+  // ── TEST MODE ──────────────────────────────────────────────────────────
+  // When VOICE_TEST_MODE=true (staging, during testing), do NOT write to the
+  // shared Lead Tracker / Queue / directory — staging + prod share ONE DB, so
+  // test calls would otherwise show up as real leads everyone sees. Instead,
+  // just DM the captured info to the notify users (Ben) via Guardian. Flip the
+  // flag off to resume full lead capture.
+  if (process.env.VOICE_TEST_MODE === 'true') {
+    const callerName = extracted?.name || 'Unknown caller'
+    const urgentFlag = urgency === 'emergency' || urgency === 'high'
+    const facts: string[] = []
+    if (extracted?.name) facts.push(`Name: ${extracted.name}`)
+    if (callbackPhone) facts.push(`Callback: ${formatPhone(callbackPhone) || callbackPhone}`)
+    if (extracted?.address_or_area) facts.push(`Address/area: ${extracted.address_or_area}`)
+    if (service) facts.push(`Service: ${service}`)
+    if (extracted?.timeframe) facts.push(`Timeframe: ${extracted.timeframe}`)
+    facts.push(`Urgency: ${urgency}`)
+    const dmBody =
+      `🧪 TEST — AI Receptionist call (NOT saved to the Lead Tracker)\n` +
+      `${urgentFlag ? '🔴 ' : ''}Caller: ${callerName}` +
+      `${fromNumber ? ` (${formatPhone(fromNumber) || fromNumber})` : ''}\n\n` +
+      `${summary}\n\n${facts.join('\n')}` +
+      `${transcriptText.trim() ? `\n\n--- Transcript ---\n${transcriptText}` : ''}`
+    after(async () => {
+      try {
+        const userIds = notifyUserIds()
+        await fanoutGuardianNotification({ companyId, userIds, roomIds: [], body: dmBody, admin })
+        await sendHubPush(
+          userIds,
+          {
+            title: '🧪 AI Receptionist (test call)',
+            body: `${callerName}: ${service || summary}`.slice(0, 120),
+            url: '/hub',
+            type: 'lead',
+          },
+          { isDm: true },
+        )
+      } catch (e) {
+        console.warn('[voice.wrapup] test-mode DM failed', (e as Error).message)
+      }
+    })
+    return NextResponse.json({ ok: true, testMode: true })
+  }
+
   // 2) Insert the lead (mirrors the Angi webhook shape).
   const { data: lead, error: leadErr } = await admin
     .from('leads')
