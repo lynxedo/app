@@ -9,27 +9,34 @@
 // This module holds (a) the phone-specific task layered onto Guardian and (b)
 // the TwiML the inbound webhook returns to hand a call to ConversationRelay.
 // It is import-safe with no configured env (all builders are pure string ops).
+//
+// NOTE: The greeting + instructions below are DEFAULTS. Once the Admin →
+// AI Receptionist settings exist, the brain/twiml endpoints prefer the
+// company's edited copy and fall back to these.
 
 // ---------------------------------------------------------------------------
 // Persona
 // ---------------------------------------------------------------------------
 
-// TODO(Ben): finalize after ElevenLabs voice audition — the name the assistant
-// introduces itself with, once the voice is chosen. Neutral default until then.
-export const RECEPTIONIST_NAME = 'the Heroes Lawn Care virtual assistant'
+// Intentionally nameless for now (Ben's call) — the assistant refers to itself
+// as "the virtual assistant." Swap here (or via Admin settings later) to name it.
+export const RECEPTIONIST_NAME = 'the virtual assistant'
 
 // The phone-specific TASK layered onto Guardian (knowledge: 'voice'). Guardian
 // supplies the identity, company knowledge, and guardrails (see
-// lib/guardian-persona.ts GUARDIAN_CORE); this only adds the after-hours
-// receptionist behavior. Kept deliberately tight so spoken turns stay short and
-// natural.
+// lib/guardian-persona.ts GUARDIAN_CORE); this only adds the receptionist
+// behavior. Kept deliberately tight so spoken turns stay short and natural.
+//
+// The receptionist answers whenever the team can't pick up — after hours, on a
+// weekend, OR a missed call during business hours — so the wording stays neutral
+// about *why* no one answered and about the time of day.
 //
 // IMPORTANT — the [[END_CALL]] marker: the assistant ends its FINAL turn with
 // the exact literal text `[[END_CALL]]`. The voice WS service STRIPS this marker
 // before the text is spoken (it is never read aloud) and uses its presence as
 // the signal to hang up the call. Do not change the marker text without updating
 // the voice service in lockstep.
-export const VOICE_RECEPTIONIST_PROMPT = `YOUR TASK — You are ${RECEPTIONIST_NAME}, answering the phone for Heroes Lawn Care AFTER HOURS. The office is closed and no one is available to talk live right now, so your job is to warmly take a detailed message and make sure a real team member follows up as soon as we're back.
+export const VOICE_RECEPTIONIST_PROMPT = `YOUR TASK — You are ${RECEPTIONIST_NAME}, answering the phone for Heroes Lawn Care when the team can't pick up live. This might be after hours, on a weekend, or because everyone is busy with other customers — don't assume which, and don't say "after hours." Your job is to warmly take a detailed message and make sure a real team member follows up as soon as possible.
 
 How to speak on the phone:
 - This is a live phone call. Keep EVERY turn short and natural — one or two sentences, the way a friendly person talks on the phone. Ask for ONE thing at a time and wait for the answer. Never give a monologue or rattle off a list.
@@ -54,6 +61,7 @@ If the caller is upset, has a complaint, mentions an emergency (a broken sprinkl
 
 Wrapping up:
 - Once you have their details (or they're finished), briefly recap the callback number and what they need, thank them warmly, and let them know a team member will follow up.
+- Keep any sign-off time-of-day neutral — "thanks so much" or "have a great day," never "good morning/afternoon/evening" (you don't know when they're calling).
 - End with a warm goodbye. Then, as the very LAST thing in that final message, append the exact marker [[END_CALL]] with nothing after it.`
 
 // ---------------------------------------------------------------------------
@@ -72,11 +80,10 @@ function escapeXmlAttr(s: string): string {
 }
 
 // The greeting ConversationRelay speaks the instant the call connects (its
-// `welcomeGreeting` attribute). Includes the virtual-assistant disclosure so
-// it's spoken up front. Also returned by /api/voice/brain so the WS service can
-// reuse the exact same wording if it drives the first turn itself.
+// `welcomeGreeting` attribute). Neutral about time of day and why no one
+// answered. Includes the virtual-assistant disclosure so it's spoken up front.
 export function buildWelcomeGreeting(): string {
-  return `Thanks for calling Heroes Lawn Care! You've reached our after-hours virtual assistant. I can take down your info and what you need, and a team member will follow up with you. To get started, may I have your name?`
+  return `Thanks for calling Heroes Lawn Care! You've reached our virtual assistant — our team isn't able to take your call right now, but I can grab your details and what you need so someone can follow up with you. To start, may I have your name?`
 }
 
 // Build the inbound-call TwiML that hands the caller to the ConversationRelay AI
