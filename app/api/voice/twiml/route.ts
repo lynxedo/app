@@ -1,10 +1,18 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   EMPTY_VOICE_TWIML,
+  twimlRecordVoicemail,
   validateTwilioVoiceSignature,
   voiceConfigured,
 } from '@/lib/twilio-voice'
-import { buildConversationRelayTwiml, buildWelcomeGreeting } from '@/lib/voice-receptionist'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { buildConversationRelayTwiml } from '@/lib/voice-receptionist'
+import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
+
+// Phase 1a is single-tenant (Heroes). Reuses the same company-id constant the
+// dialer/brain voice routes use.
+const HEROES_COMPANY_ID =
+  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 // AI Voice Receptionist — standalone inbound voice webhook (Phase 1a).
 //
@@ -44,13 +52,29 @@ export async function POST(request: NextRequest) {
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin
 
+  // Load the company's editable receptionist settings (Admin -> Dialer -> AI
+  // Receptionist). When the admin has turned the receptionist OFF, do NOT hand
+  // the caller to the AI — fall back to the standard voicemail flow instead.
+  const admin = createAdminClient()
+  const settings = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
+
+  if (!settings.enabled) {
+    return twimlResponse(
+      twimlRecordVoicemail({
+        action: `${baseUrl}/api/dialer/voice/voicemail/complete`,
+        spokenFallback:
+          "Thanks for calling. Please leave a message after the beep and we'll get back to you. Press pound when finished.",
+      })
+    )
+  }
+
   return twimlResponse(
     buildConversationRelayTwiml({
       baseUrl,
       wssUrl: process.env.VOICE_WSS_URL || '',
       wsKey: process.env.VOICE_WS_SECRET || '',
-      voiceId: process.env.VOICE_ELEVENLABS_VOICE_ID || '',
-      greeting: buildWelcomeGreeting(),
+      voiceId: settings.voiceId,
+      greeting: settings.greeting,
     })
   )
 }

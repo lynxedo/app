@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
 import { CLAUDE_MODEL } from '@/lib/anthropic'
-import { VOICE_RECEPTIONIST_PROMPT, buildWelcomeGreeting } from '@/lib/voice-receptionist'
+import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 
 // AI Voice Receptionist — "brain" endpoint (Phase 1a).
 //
@@ -52,11 +52,16 @@ export async function POST(request: Request) {
   const companyId = HEROES_COMPANY_ID
   const admin = createAdminClient()
 
-  // Assemble the shared Guardian system prompt in 'voice' mode + the phone task.
+  // Load the company's editable receptionist settings (Admin -> Dialer -> AI
+  // Receptionist), falling back to the code defaults when a field is blank.
+  const settings = await getEffectiveVoiceReceptionistSettings(admin, companyId)
+
+  // Assemble the shared Guardian system prompt in 'voice' mode + the phone task
+  // (the editable instructions, or the VOICE_RECEPTIONIST_PROMPT default).
   const system = await buildGuardianSystem({
     companyId,
     knowledge: 'voice',
-    task: VOICE_RECEPTIONIST_PROMPT,
+    task: settings.instructions,
     admin,
   })
 
@@ -72,7 +77,7 @@ export async function POST(request: Request) {
     companyId,
     model,
     system,
-    greeting: buildWelcomeGreeting(),
+    greeting: settings.greeting,
     callSid: body.callSid ?? null,
   })
 }

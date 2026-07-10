@@ -5,6 +5,11 @@ import DialerAdminPanel from './DialerAdminPanel'
 import type { IvrConfig } from './IvrEditor'
 import type { ExtensionRow } from './ExtensionsPanel'
 import type { RingGroup } from './RingGroupsPanel'
+import { VOICE_RECEPTIONIST_PROMPT, buildWelcomeGreeting } from '@/lib/voice-receptionist'
+import {
+  resolveVoiceReceptionistSettings,
+  type VoiceReceptionistSettingsRow,
+} from '@/lib/voice-receptionist-settings'
 
 export const metadata = { title: 'Dialer Admin' }
 
@@ -42,6 +47,7 @@ export default async function AdminDialerPage() {
     { data: ringMemberRows },
     { data: responderRow },
     { data: responderCalls },
+    { data: voiceReceptionistRow },
   ] = await Promise.all([
     admin
       .from('dialer_settings')
@@ -78,6 +84,11 @@ export default async function AdminDialerPage() {
       .eq('company_id', profile.company_id)
       .order('called_at', { ascending: false })
       .limit(20),
+    admin
+      .from('voice_receptionist_settings')
+      .select('company_id, enabled, greeting, instructions, voice_id, updated_at, updated_by')
+      .eq('company_id', profile.company_id)
+      .maybeSingle(),
   ])
 
   const settings = {
@@ -124,6 +135,20 @@ export default async function AdminDialerPage() {
       })),
   }))
 
+  // AI Voice Receptionist — stored values for the form + code/env defaults used
+  // as placeholders (and the resolved effective enabled state).
+  const vrRow = (voiceReceptionistRow as VoiceReceptionistSettingsRow | null) ?? null
+  const vrEffective = resolveVoiceReceptionistSettings(vrRow)
+  const initialVoiceReceptionist = {
+    enabled: vrEffective.enabled,
+    greeting: vrRow?.greeting ?? '',
+    instructions: vrRow?.instructions ?? '',
+    voice_id: vrRow?.voice_id ?? '',
+    greeting_default: buildWelcomeGreeting(),
+    instructions_default: VOICE_RECEPTIONIST_PROMPT,
+    voice_id_default: process.env.VOICE_ELEVENLABS_VOICE_ID || '',
+  }
+
   return (
     <DialerAdminPanel
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -135,6 +160,7 @@ export default async function AdminDialerPage() {
       initialResponder={responderRow as any ?? null}
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       initialResponderCalls={(responderCalls ?? []) as any}
+      initialVoiceReceptionist={initialVoiceReceptionist}
     />
   )
 }

@@ -16,7 +16,8 @@ import {
   voiceConfigured,
 } from '@/lib/twilio-voice'
 import { buildIvrContext } from '@/lib/dialer-ivr-context'
-import { buildConversationRelayTwiml, buildWelcomeGreeting } from '@/lib/voice-receptionist'
+import { buildConversationRelayTwiml } from '@/lib/voice-receptionist'
+import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 import { conferenceRoomName } from '@/lib/twilio-conference'
 import { connectInboundToAgentViaConference, isAgentDndNow } from '@/lib/dialer-conference-connect'
 import { findOrCreateTxtContact } from '@/lib/dialer-lookup'
@@ -240,15 +241,22 @@ export async function POST(request: NextRequest) {
       (treeName === 'after_hours' || treeName === 'holiday') &&
       process.env.VOICE_WSS_URL
     ) {
-      return respond(
-        buildConversationRelayTwiml({
-          baseUrl,
-          wssUrl: process.env.VOICE_WSS_URL,
-          wsKey: process.env.VOICE_WS_SECRET || '',
-          voiceId: process.env.VOICE_ELEVENLABS_VOICE_ID || '',
-          greeting: buildWelcomeGreeting(),
-        })
-      )
+      // Respect the Admin on/off toggle + editable greeting/voice (Admin ->
+      // Dialer -> AI Receptionist). When the receptionist is turned OFF, do NOT
+      // connect to the AI — fall through to the normal after-hours/holiday IVR
+      // (which lands in voicemail) below.
+      const vr = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
+      if (vr.enabled) {
+        return respond(
+          buildConversationRelayTwiml({
+            baseUrl,
+            wssUrl: process.env.VOICE_WSS_URL,
+            wsKey: process.env.VOICE_WS_SECRET || '',
+            voiceId: vr.voiceId,
+            greeting: vr.greeting,
+          })
+        )
+      }
     }
 
     let tree = config.trees?.[treeName]

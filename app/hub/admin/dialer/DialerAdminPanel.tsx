@@ -51,6 +51,17 @@ type Settings = {
 
 type HubUser = { id: string; display_name: string }
 
+// AI Voice Receptionist — stored form values + code/env defaults (placeholders).
+type VoiceReceptionistInitial = {
+  enabled: boolean
+  greeting: string
+  instructions: string
+  voice_id: string
+  greeting_default: string
+  instructions_default: string
+  voice_id_default: string
+}
+
 const RESP_DAY_LABELS = [
   { num: 1, label: 'Mon' }, { num: 2, label: 'Tue' }, { num: 3, label: 'Wed' },
   { num: 4, label: 'Thu' }, { num: 5, label: 'Fri' }, { num: 6, label: 'Sat' },
@@ -64,6 +75,7 @@ export default function DialerAdminPanel({
   initialRingGroups,
   initialResponder,
   initialResponderCalls,
+  initialVoiceReceptionist,
 }: {
   initial: Settings
   hubUsers: HubUser[]
@@ -71,6 +83,7 @@ export default function DialerAdminPanel({
   initialRingGroups: RingGroup[]
   initialResponder: Omit<ResponderSettings, 'id' | 'company_id'> | null
   initialResponderCalls: ResponderCall[]
+  initialVoiceReceptionist: VoiceReceptionistInitial
 }) {
   const confirmDialog = useConfirm()
   const [s, setS] = useState<Settings>(initial)
@@ -92,6 +105,43 @@ export default function DialerAdminPanel({
   const [respSavedAt, setRespSavedAt] = useState<number | null>(null)
   const [respError, setRespError] = useState<string | null>(null)
   const [respCalls, setRespCalls] = useState<ResponderCall[]>(initialResponderCalls)
+
+  // AI Voice Receptionist — separate state + save from the main dialer settings.
+  const [vr, setVr] = useState({
+    enabled: initialVoiceReceptionist.enabled,
+    greeting: initialVoiceReceptionist.greeting,
+    instructions: initialVoiceReceptionist.instructions,
+    voice_id: initialVoiceReceptionist.voice_id,
+  })
+  const [vrSaving, setVrSaving] = useState(false)
+  const [vrSavedAt, setVrSavedAt] = useState<number | null>(null)
+  const [vrError, setVrError] = useState<string | null>(null)
+
+  async function saveVr() {
+    setVrSaving(true)
+    setVrError(null)
+    try {
+      const res = await fetch('/api/admin/voice-receptionist-settings', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          enabled: vr.enabled,
+          greeting: vr.greeting,
+          instructions: vr.instructions,
+          voice_id: vr.voice_id,
+        }),
+      })
+      if (!res.ok) {
+        const body = await res.json().catch(() => null)
+        throw new Error(body?.error ?? `Save failed (${res.status})`)
+      }
+      setVrSavedAt(Date.now())
+    } catch (err) {
+      setVrError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setVrSaving(false)
+    }
+  }
 
   async function saveResp() {
     setRespSaving(true)
@@ -266,7 +316,7 @@ export default function DialerAdminPanel({
   // Sub-section tabs. Inbound routing / IVR / ring groups / hours+holidays are
   // grouped; voicemail bundles greeting + notify + recording + dispositions;
   // extensions and the responder each stand alone.
-  const [dtab, setDtab] = useState<'inbound' | 'voicemail' | 'extensions' | 'responder'>('inbound')
+  const [dtab, setDtab] = useState<'inbound' | 'voicemail' | 'extensions' | 'responder' | 'ai_receptionist'>('inbound')
 
   return (
     <div className="space-y-6">
@@ -292,6 +342,7 @@ export default function DialerAdminPanel({
           ['voicemail', 'Voicemail'],
           ['extensions', 'Extensions'],
           ['responder', 'Responder'],
+          ['ai_receptionist', 'AI Receptionist'],
         ] as const).map(([key, label]) => (
           <button
             key={key}
@@ -894,8 +945,114 @@ export default function DialerAdminPanel({
       </section>
       )}
 
-      {/* Save — applies to every tab except Responder (which has its own Save). */}
-      {dtab !== 'responder' && (
+      {/* ── AI RECEPTIONIST ── */}
+      {dtab === 'ai_receptionist' && (
+      <section className="border border-white/10 rounded-lg p-4 space-y-4">
+        <div>
+          <h2 className="text-sm font-semibold text-white">AI Receptionist</h2>
+          <p className="text-xs text-white/50 mt-0.5">
+            When the team can&apos;t pick up, an AI voice assistant answers, takes a
+            detailed message, and files a lead so someone can follow up.
+          </p>
+        </div>
+
+        <div className="bg-sky-500/10 border border-sky-500/30 rounded-lg p-3 text-xs text-sky-200 leading-relaxed">
+          Leave any field blank to use the built-in default (shown as the
+          placeholder). The greeting is spoken the instant the call connects; the
+          instructions shape how the assistant behaves for the rest of the call.
+        </div>
+
+        {/* Enabled toggle */}
+        <div className="flex items-center justify-between border border-white/10 rounded-lg p-3">
+          <div>
+            <p className="text-sm font-medium text-white">Receptionist enabled</p>
+            <p className="text-xs text-white/50 mt-0.5">
+              When off, unanswered calls go to voicemail instead of the AI assistant.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={vr.enabled}
+            onClick={() => setVr(p => ({ ...p, enabled: !p.enabled }))}
+            className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors ${
+              vr.enabled ? 'bg-brand' : 'bg-white/20'
+            }`}
+          >
+            <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+              vr.enabled ? 'translate-x-4' : 'translate-x-0'
+            }`} />
+          </button>
+        </div>
+
+        {/* Greeting */}
+        <div>
+          <label className="text-xs font-medium text-white/70 block mb-1">Greeting</label>
+          <textarea
+            value={vr.greeting}
+            onChange={e => setVr(p => ({ ...p, greeting: e.target.value.slice(0, 1000) }))}
+            rows={3}
+            placeholder={initialVoiceReceptionist.greeting_default}
+            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+          />
+          <p className="text-xs text-white/40 mt-1">Spoken the moment the call connects. Leave blank to use the default.</p>
+        </div>
+
+        {/* Instructions */}
+        <div>
+          <label className="text-xs font-medium text-white/70 block mb-1">Instructions</label>
+          <textarea
+            value={vr.instructions}
+            onChange={e => setVr(p => ({ ...p, instructions: e.target.value.slice(0, 8000) }))}
+            rows={16}
+            placeholder={initialVoiceReceptionist.instructions_default}
+            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-y font-mono"
+          />
+          <p className="text-xs text-white/40 mt-1">
+            The behavior/prompt that shapes how the assistant talks and what it collects. Leave blank to use the default.
+          </p>
+        </div>
+
+        {/* Voice ID */}
+        <div>
+          <label className="text-xs font-medium text-white/70 block mb-1">Voice ID</label>
+          <input
+            type="text"
+            value={vr.voice_id}
+            onChange={e => setVr(p => ({ ...p, voice_id: e.target.value }))}
+            placeholder={initialVoiceReceptionist.voice_id_default || 'e.g. GGRMgbKfr7QscdcrvWga'}
+            className="w-full max-w-md bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <p className="text-xs text-white/40 mt-1">
+            The text-to-speech voice used for the spoken replies. Leave blank to use the server default.{' '}
+            <a
+              href="https://www.twilio.com/docs/voice/conversationrelay/voice-configuration"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-brand hover:underline"
+            >
+              Pick a voice
+            </a>
+          </p>
+        </div>
+
+        {/* Save */}
+        <div className="flex items-center gap-3">
+          <button
+            onClick={saveVr}
+            disabled={vrSaving}
+            className="px-4 py-2 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
+          >
+            {vrSaving ? 'Saving…' : 'Save AI Receptionist'}
+          </button>
+          {vrSavedAt && !vrError && <span className="text-xs text-emerald-300">Saved ✓</span>}
+          {vrError && <span className="text-xs text-red-400">{vrError}</span>}
+        </div>
+      </section>
+      )}
+
+      {/* Save — applies to every tab except Responder + AI Receptionist (each has its own Save). */}
+      {dtab !== 'responder' && dtab !== 'ai_receptionist' && (
         <div className="flex items-center gap-3">
           <button
             onClick={save}
