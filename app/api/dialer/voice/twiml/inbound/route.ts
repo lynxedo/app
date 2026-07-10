@@ -16,6 +16,7 @@ import {
   voiceConfigured,
 } from '@/lib/twilio-voice'
 import { buildIvrContext } from '@/lib/dialer-ivr-context'
+import { buildConversationRelayTwiml, buildWelcomeGreeting } from '@/lib/voice-receptionist'
 import { conferenceRoomName } from '@/lib/twilio-conference'
 import { connectInboundToAgentViaConference, isAgentDndNow } from '@/lib/dialer-conference-connect'
 import { findOrCreateTxtContact } from '@/lib/dialer-lookup'
@@ -224,6 +225,32 @@ export async function POST(request: NextRequest) {
     const businessHours = (settings.business_hours as BusinessHoursSchedule | null) || null
     const holidays = (settings.holidays as HolidayEntry[] | null) || null
     let treeName: IvrTreeName = pickIvrTree({ config, businessHours, holidays })
+
+    // ── AI Voice Receptionist (Phase 1a) — ADDITIVE, strictly gated ──────────
+    // When the picked IVR tree is after_hours or holiday AND the feature flag is
+    // on, hand the caller to the ConversationRelay AI receptionist (it takes a
+    // message and files a lead) INSTEAD of rendering the after-hours/holiday IVR
+    // (which would land in voicemail). With AI_RECEPTIONIST_ENABLED unset this
+    // whole block is skipped and routing is byte-for-byte the previous behavior.
+    // Only after_hours/holiday are affected — the default (business-hours),
+    // single-user, ring-group, and forwarded-line paths are untouched. Also
+    // requires VOICE_WSS_URL so we never emit a relay pointed at nothing.
+    if (
+      process.env.AI_RECEPTIONIST_ENABLED === 'true' &&
+      (treeName === 'after_hours' || treeName === 'holiday') &&
+      process.env.VOICE_WSS_URL
+    ) {
+      return respond(
+        buildConversationRelayTwiml({
+          baseUrl,
+          wssUrl: process.env.VOICE_WSS_URL,
+          wsKey: process.env.VOICE_WS_SECRET || '',
+          voiceId: process.env.VOICE_ELEVENLABS_VOICE_ID || '',
+          greeting: buildWelcomeGreeting(),
+        })
+      )
+    }
+
     let tree = config.trees?.[treeName]
     // Fallback if picked tree is missing or has no root (shouldn't normally happen
     // — pickIvrTree only returns non-default when those trees have root_node_id —
