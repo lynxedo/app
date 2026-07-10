@@ -167,8 +167,15 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   // for them instead of being reachable only by typing the URL.
   const canAccessPesticideRecords = isAdmin || (profileResult.data?.can_access_pesticide_records ?? false)
   const canAccessHub = profileResult.data?.can_access_hub ?? false
-  const canAccessCallLog = profileResult.data?.can_access_call_log ?? false
   const canAccessCallLog2 = profileResult.data?.can_access_call_log2 ?? false
+  // Call Log 2 was merged into the unified Call Log. Anyone who could see EITHER
+  // old page — or a dialer admin, or a super-admin — sees the merged Call Log,
+  // so OR the legacy grants into the single rail flag that gates its nav entry.
+  const canAccessCallLog =
+    isAdmin ||
+    (profileResult.data?.can_access_call_log ?? false) ||
+    canAccessCallLog2 ||
+    (profileResult.data?.can_admin_dialer ?? false)
   const canAccessLawn = profileResult.data?.can_access_lawn ?? false
   const canAccessTimesheet = profileResult.data?.can_access_timesheet ?? false
   const canAccessRouting = profileResult.data?.can_access_routing ?? false

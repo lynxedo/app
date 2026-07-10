@@ -73,6 +73,8 @@ export async function GET(request: Request) {
         .from('call_coaching_reviews')
         .select('call_id, override_grade, manager_notes, acknowledged, reviewed_at')
         .eq('call_source', 'unitel')
+        // Reviews are private per reviewer — only this manager's own review.
+        .eq('reviewed_by', user.id)
         .in('call_id', ids),
     ])
     const byId: Record<string, { overall_grade: string | null; must_listen: boolean | null; coaching_json: unknown }> = {}

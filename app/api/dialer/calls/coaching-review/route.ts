@@ -3,7 +3,9 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 // Manager coaching overrides. POST upserts the review for one call, keyed by
-// (call_source, call_id). The client always sends the full current state
+// (call_source, call_id, reviewed_by) — reviews are PRIVATE PER REVIEWER, so
+// each manager's override_grade / notes / reviewed flag are their own and don't
+// clobber another manager's. The client always sends the full current state
 // (override_grade, manager_notes, acknowledged), so a plain upsert is correct.
 // Gated by can_access_coaching (managers) — same gate as viewing coaching.
 const GRADES = new Set(['A', 'B', 'C', 'D', 'F', 'N/A'])
@@ -62,7 +64,7 @@ export async function POST(req: NextRequest) {
         reviewed_at: now,
         updated_at: now,
       },
-      { onConflict: 'call_source,call_id' }
+      { onConflict: 'call_source,call_id,reviewed_by' }
     )
     .select('call_source, call_id, override_grade, manager_notes, acknowledged, reviewed_at')
     .single()

@@ -1489,25 +1489,22 @@ function CallLogTab() {
   return (
     <>
       <Section title="What It Does">
-        <p>Call Log shows every recorded call processed by the Unitel system, with AI summaries, transcripts, and coaching feedback. New calls appear automatically within a few minutes of the call ending.</p>
+        <p>Call Log brings all of your calls together in one list — live calls placed and received through the Dialer alongside the older recorded calls from the previous phone system. Every row is tagged with its source (a small <strong className="text-white">Dialer</strong> or <strong className="text-white">Unitel</strong> pill) so you always know where a call came from. New Dialer calls appear on their own within a minute or two of the call ending.</p>
       </Section>
 
       <Section title="Browsing Calls">
-        <p><strong className="text-white">Filters</strong> — narrow the list by date range, phone number, or customer/rep name. All filters stack.</p>
-        <p><strong className="text-white">Must-Listen flag</strong> — calls the AI flagged as especially noteworthy (unusual situation, missed opportunity, coaching moment) are marked in the list.</p>
-        <p><strong className="text-white">Call type</strong> — each call is categorized: New Lead, Existing Customer, Vendor, Wrong Number, Voicemail, or Other.</p>
+        <p><strong className="text-white">Filters</strong> — narrow the list by date range, phone number, or a keyword found in the transcript, and (when more than one rep has calls) filter by rep. All filters stack; tap <strong className="text-white">Search</strong> to apply the date/phone/keyword filters or <strong className="text-white">Clear</strong> to reset.</p>
+        <p>The list is sorted newest first, with both sources interleaved by date.</p>
       </Section>
 
       <Section title="Call Detail & Audio">
-        <p>Click any call in the list to open the detail panel:</p>
+        <p>Click any call in the list to open its detail panel (on mobile the detail slides in — use <strong className="text-white">Back</strong> to return to the list):</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">Audio player</strong> — play the recording directly in the browser. Click the progress bar to seek.</li>
-          <li><strong className="text-white">AI summary</strong> — a short paragraph describing what happened on the call.</li>
-          <li><strong className="text-white">Action items</strong> — specific follow-ups the AI identified.</li>
-          <li><strong className="text-white">Coaching feedback</strong> — wins and areas for improvement.</li>
-          <li><strong className="text-white">Transcript</strong> — full speaker-labeled transcript, collapsible.</li>
+          <li><strong className="text-white">Audio player</strong> — play the recording directly in the browser. Click the progress bar to seek. Missed calls show the voicemail recording and its transcript instead.</li>
+          <li><strong className="text-white">AI summary</strong> — a short paragraph describing what happened on the call, plus any follow-up action items the AI picked out.</li>
+          <li><strong className="text-white">Transcript</strong> — the full speaker-labeled transcript, collapsible.</li>
         </ul>
-        <Note>Historical calls (before May 2026) have transcripts and basic info but no AI coaching grades — those only run on new calls going forward.</Note>
+        <Note>Older calls (from before AI transcription was turned on) still show basic info and audio, but may not have a summary or transcript.</Note>
       </Section>
     </>
   )

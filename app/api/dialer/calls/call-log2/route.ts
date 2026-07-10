@@ -139,6 +139,8 @@ export async function GET(request: NextRequest) {
       .from('call_coaching_reviews')
       .select('call_id, override_grade, manager_notes, acknowledged, reviewed_at')
       .eq('call_source', 'dialer')
+      // Reviews are private per reviewer — only this manager's own review.
+      .eq('reviewed_by', user.id)
       .in('call_id', callIds)
     const rByCall: Record<string, { override_grade: string | null; manager_notes: string | null; acknowledged: boolean }> = {}
     for (const r of reviews ?? []) {
