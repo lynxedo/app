@@ -4,6 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatDurationSec, formatPhone } from '@/lib/format'
 import { CoachingPanel, coachingGradeColor, COACHING_CATEGORIES, type CoachingData, type CoachingReview } from '@/components/hub/CoachingPanel'
+import AddToTrackerModal from '@/components/hub/tracker/AddToTrackerModal'
 
 // ---------------------------------------------------------------------------
 // Unified Call Log — merges TWO data sources into one interleaved, source-tagged
@@ -344,6 +345,14 @@ function UnitelCallDetail({ call, canViewCoaching }: { call: UnitelCall; canView
   const audioRef = useRef<HTMLAudioElement>(null)
   const [showTranscript, setShowTranscript] = useState(false)
   const dir = directionLabel(call.direction)
+  const [trackerOpen, setTrackerOpen] = useState(false)
+  const [trackerLeadId, setTrackerLeadId] = useState<string | null>(null)
+  const dirWord = call.direction === 'inbound' ? 'Inbound' : call.direction === 'outbound' ? 'Outbound' : 'Phone'
+  const leadNote = [
+    `${dirWord} phone call · ${formatDateTimeUnitel(call.call_datetime)}.`,
+    call.customer_summary ? `\n\n${call.customer_summary}` : '',
+    call.action_items?.length ? `\n\nAction items:\n${call.action_items.map((a) => `- ${a}`).join('\n')}` : '',
+  ].join('')
 
   return (
     <div className="p-5 space-y-5">
@@ -358,6 +367,11 @@ function UnitelCallDetail({ call, canViewCoaching }: { call: UnitelCall; canView
               <div className="text-sm text-gray-400">{formatPhone(call.phone) || '—'}</div>
             )}
           </div>
+          {trackerLeadId ? (
+            <a href="/hub/tracker" title="View in the Lead Tracker" className="shrink-0 text-xs px-2.5 py-1 rounded-md bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 whitespace-nowrap">✓ In tracker</a>
+          ) : (
+            <button onClick={() => setTrackerOpen(true)} title="Add this caller to the Lead Tracker" className="shrink-0 text-xs px-2.5 py-1 rounded-md bg-white/10 text-gray-200 hover:bg-white/20 whitespace-nowrap">+ Add to Lead Tracker</button>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
           <span className={`px-2 py-0.5 rounded text-xs font-medium ${dir.color}`}>{dir.label}</span>
@@ -372,6 +386,16 @@ function UnitelCallDetail({ call, canViewCoaching }: { call: UnitelCall; canView
           )}
         </div>
       </div>
+
+      {trackerOpen && (
+        <AddToTrackerModal
+          sourceType="call"
+          sourceId={call.id}
+          prefill={{ name: call.customer_name || undefined, phone: call.phone, note: leadNote }}
+          onClose={() => setTrackerOpen(false)}
+          onLinked={(id) => { setTrackerLeadId(id); setTrackerOpen(false) }}
+        />
+      )}
 
       {/* Audio player */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4">
@@ -507,6 +531,14 @@ function DialerCallDetail({ call, canViewCoaching }: { call: DialerCall; canView
   const sent = sentimentChip(winnerSentiment)
   const transcript = winner?.transcript_text || call.transcript
   const WINNING_ENGINE = 'deepgram_claude'
+  const [trackerOpen, setTrackerOpen] = useState(false)
+  const [trackerLeadId, setTrackerLeadId] = useState<string | null>(null)
+  const dirWord = call.direction === 'inbound' ? 'Inbound' : call.direction === 'outbound' ? 'Outbound' : 'Phone'
+  const leadNote = [
+    `${dirWord} phone call · ${formatDateTimeDialer(call.created_at)}.`,
+    summary ? `\n\n${summary}` : '',
+    actionItems.length ? `\n\nAction items:\n${actionItems.map((a) => `- ${a}`).join('\n')}` : '',
+  ].join('')
 
   return (
     <div className="p-5 space-y-5">
@@ -519,6 +551,11 @@ function DialerCallDetail({ call, canViewCoaching }: { call: DialerCall; canView
             </h2>
             {displayName && <div className="text-sm text-gray-400">{formatPhone(displayNumber) || '—'}</div>}
           </div>
+          {trackerLeadId ? (
+            <a href="/hub/tracker" title="View in the Lead Tracker" className="shrink-0 text-xs px-2.5 py-1 rounded-md bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 whitespace-nowrap">✓ In tracker</a>
+          ) : (
+            <button onClick={() => setTrackerOpen(true)} title="Add this caller to the Lead Tracker" className="shrink-0 text-xs px-2.5 py-1 rounded-md bg-white/10 text-gray-200 hover:bg-white/20 whitespace-nowrap">+ Add to Lead Tracker</button>
+          )}
         </div>
         <div className="flex flex-wrap items-center gap-2 text-sm text-gray-500">
           <span className={`px-2 py-0.5 rounded text-xs font-medium ${dir.color}`}>{dir.label}</span>
@@ -531,6 +568,16 @@ function DialerCallDetail({ call, canViewCoaching }: { call: DialerCall; canView
           {call.agent_name && <span className="text-gray-400">· {call.agent_name}</span>}
         </div>
       </div>
+
+      {trackerOpen && (
+        <AddToTrackerModal
+          sourceType="call"
+          sourceId={call.id}
+          prefill={{ name: displayName || undefined, phone: displayNumber, note: leadNote }}
+          onClose={() => setTrackerOpen(false)}
+          onLinked={(id) => { setTrackerLeadId(id); setTrackerOpen(false) }}
+        />
+      )}
 
       {/* Call recording audio */}
       {call.recording_storage_path && (
