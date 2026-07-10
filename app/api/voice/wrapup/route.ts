@@ -196,6 +196,31 @@ export async function POST(request: Request) {
   const summary = extracted?.summary || 'After-hours AI receptionist call (no summary extracted).'
   const urgency = extracted?.urgency || 'normal'
 
+  // Close out the `calls` row (inserted by /api/voice/brain at call start) —
+  // status, duration, transcript, summary. Unconditional: call-logging must
+  // happen regardless of VOICE_TEST_MODE, which only gates lead/notify writes.
+  if (body.callSid) {
+    const startedAt = body.startedAt ? new Date(body.startedAt) : null
+    const endedAt = body.endedAt ? new Date(body.endedAt) : new Date()
+    const durationSeconds =
+      startedAt && !isNaN(startedAt.getTime())
+        ? Math.max(0, Math.round((endedAt.getTime() - startedAt.getTime()) / 1000))
+        : null
+    await admin
+      .from('calls')
+      .update({
+        status: 'completed',
+        ended_at: endedAt.toISOString(),
+        duration_seconds: durationSeconds,
+        transcript: transcriptText || null,
+        ai_summary: summary,
+      })
+      .eq('twilio_call_sid', body.callSid)
+      .then(({ error }) => {
+        if (error) console.warn('[voice.wrapup] calls row close-out failed', error.message)
+      })
+  }
+
   // ── TEST MODE ──────────────────────────────────────────────────────────
   // When VOICE_TEST_MODE=true (staging, during testing), do NOT write to the
   // shared Lead Tracker / Queue / directory — staging + prod share ONE DB, so
