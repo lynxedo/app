@@ -76,6 +76,8 @@ type ExtractedLead = {
   urgency: 'low' | 'normal' | 'high' | 'emergency'
   summary: string | null
   wants_callback: boolean
+  /** Level 3 soft sell: caller explicitly agreed to move forward / get set up. */
+  soft_commitment: boolean
 }
 
 const URGENCY_VALUES: ExtractedLead['urgency'][] = ['low', 'normal', 'high', 'emergency']
@@ -116,8 +118,9 @@ async function extractLead(
     'Reply with ONLY a single JSON object and nothing else — no prose, no code fences. ' +
     'Use this exact shape: {"name": string|null, "callback_phone": string|null, "address_or_area": string|null, ' +
     '"service_wanted": string|null, "timeframe": string|null, "urgency": "low"|"normal"|"high"|"emergency", ' +
-    '"summary": string, "wants_callback": boolean}. ' +
+    '"summary": string, "wants_callback": boolean, "soft_commitment": boolean}. ' +
     'Set a field to null if the caller did not provide it. ' +
+    'soft_commitment is true ONLY if the caller explicitly agreed to move forward / get set up / have the team sign them up — not merely asking questions. ' +
     'urgency is "emergency" for broken/leaking irrigation, flooding, or anything the caller frames as urgent; ' +
     '"high" for an upset caller or a complaint; otherwise "normal" (or "low" if clearly not time-sensitive). ' +
     'summary is one or two plain sentences a teammate can read at a glance. Do not invent details.'
@@ -156,6 +159,7 @@ async function extractLead(
       urgency,
       summary: (parsed.summary ?? null) || null,
       wants_callback: parsed.wants_callback !== false, // default true
+      soft_commitment: parsed.soft_commitment === true,
     }
   } catch (err) {
     console.warn('[voice.wrapup] lead extraction failed', (err as Error).message)
@@ -208,6 +212,7 @@ export async function POST(request: Request) {
     if (service) facts.push(`Service: ${service}`)
     if (extracted?.timeframe) facts.push(`Timeframe: ${extracted.timeframe}`)
     facts.push(`Urgency: ${urgency}`)
+    if (extracted?.soft_commitment) facts.push('🔥 Soft commitment: said YES to moving forward')
     const dmBody =
       `🧪 TEST — AI Receptionist call (NOT saved to the Lead Tracker)\n` +
       `${urgentFlag ? '🔴 ' : ''}Caller: ${callerName}` +
@@ -335,6 +340,7 @@ export async function POST(request: Request) {
         .join(' · ')
       const bodyText =
         `${urgentFlag ? '🔴 ' : ''}☎️ After-hours AI call: ${callerName}` +
+        `${extracted?.soft_commitment ? '\n🔥 Soft commitment — said YES to moving forward' : ''}` +
         `${line2 ? `\n${line2}` : ''}` +
         `\n${summary}` +
         `\nOpen the Lead Tracker → /hub/tracker`

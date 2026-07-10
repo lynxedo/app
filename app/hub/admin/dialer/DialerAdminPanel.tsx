@@ -54,6 +54,8 @@ type HubUser = { id: string; display_name: string }
 // AI Voice Receptionist — stored form values + code/env defaults (placeholders).
 type VoiceReceptionistInitial = {
   enabled: boolean
+  level: number
+  plan_max_level: number
   greeting: string
   instructions: string
   voice_id: string
@@ -61,6 +63,16 @@ type VoiceReceptionistInitial = {
   instructions_default: string
   voice_id_default: string
 }
+
+// Capability ladder (Ben's product tiers). Level 4 exists in the UI but is not
+// built yet; the API rejects saving it. At SaaS time levels above the plan cap
+// render locked with an upgrade nudge.
+const VR_LEVELS: { level: number; name: string; blurb: string; comingSoon?: boolean }[] = [
+  { level: 1, name: 'Level 1 — Message taker', blurb: 'A friendly voicemail replacement: collects name, number, and reason, then promises a callback. Politely deflects all questions.' },
+  { level: 2, name: 'Level 2 — Conversational', blurb: 'Warm and human — brief small talk, answers approved basics (services, area, hours, refer-outs). Never states pricing.' },
+  { level: 3, name: 'Level 3 — Soft sell', blurb: 'Conversational plus: may state approved fixed pricing, asks qualifying questions, and captures a soft commitment. A human still confirms.' },
+  { level: 4, name: 'Level 4 — Full receptionist', blurb: 'Owns the call start to close — real quotes and live scheduling into Jobber within your guardrails.', comingSoon: true },
+]
 
 const RESP_DAY_LABELS = [
   { num: 1, label: 'Mon' }, { num: 2, label: 'Tue' }, { num: 3, label: 'Wed' },
@@ -109,6 +121,7 @@ export default function DialerAdminPanel({
   // AI Voice Receptionist — separate state + save from the main dialer settings.
   const [vr, setVr] = useState({
     enabled: initialVoiceReceptionist.enabled,
+    level: initialVoiceReceptionist.level,
     greeting: initialVoiceReceptionist.greeting,
     instructions: initialVoiceReceptionist.instructions,
     voice_id: initialVoiceReceptionist.voice_id,
@@ -126,6 +139,7 @@ export default function DialerAdminPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           enabled: vr.enabled,
+          level: vr.level,
           greeting: vr.greeting,
           instructions: vr.instructions,
           voice_id: vr.voice_id,
@@ -983,6 +997,44 @@ export default function DialerAdminPanel({
               vr.enabled ? 'translate-x-4' : 'translate-x-0'
             }`} />
           </button>
+        </div>
+
+        {/* Capability level */}
+        <div>
+          <label className="text-xs font-medium text-white/70 block mb-1">Capability level</label>
+          <div className="space-y-2">
+            {VR_LEVELS.map((l) => {
+              const overPlanCap = l.level > initialVoiceReceptionist.plan_max_level
+              const locked = Boolean(l.comingSoon) || overPlanCap
+              const selected = vr.level === l.level
+              return (
+                <button
+                  key={l.level}
+                  type="button"
+                  disabled={locked}
+                  onClick={() => setVr(p => ({ ...p, level: l.level }))}
+                  className={`w-full text-left border rounded-lg p-3 transition-colors ${
+                    selected
+                      ? 'border-brand bg-brand/10'
+                      : locked
+                        ? 'border-white/5 bg-white/[0.02] opacity-50 cursor-not-allowed'
+                        : 'border-white/10 hover:border-white/25'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-white">{l.name}</p>
+                    {selected && <span className="text-xs text-brand font-medium flex-shrink-0">Active</span>}
+                    {l.comingSoon && <span className="text-xs text-white/40 flex-shrink-0">Coming soon</span>}
+                    {!l.comingSoon && overPlanCap && <span className="text-xs text-amber-300/80 flex-shrink-0">Upgrade to unlock</span>}
+                  </div>
+                  <p className="text-xs text-white/50 mt-0.5">{l.blurb}</p>
+                </button>
+              )
+            })}
+          </div>
+          <p className="text-xs text-white/40 mt-1">
+            The level controls what the assistant is allowed to do on a call. Changes take effect on the next call.
+          </p>
         </div>
 
         {/* Greeting */}

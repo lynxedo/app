@@ -5,8 +5,9 @@ import DialerAdminPanel from './DialerAdminPanel'
 import type { IvrConfig } from './IvrEditor'
 import type { ExtensionRow } from './ExtensionsPanel'
 import type { RingGroup } from './RingGroupsPanel'
-import { VOICE_RECEPTIONIST_PROMPT, buildWelcomeGreeting } from '@/lib/voice-receptionist'
+import { buildVoiceReceptionistPrompt, buildWelcomeGreeting } from '@/lib/voice-receptionist'
 import {
+  getPlanMaxReceptionistLevel,
   resolveVoiceReceptionistSettings,
   type VoiceReceptionistSettingsRow,
 } from '@/lib/voice-receptionist-settings'
@@ -86,7 +87,7 @@ export default async function AdminDialerPage() {
       .limit(20),
     admin
       .from('voice_receptionist_settings')
-      .select('company_id, enabled, greeting, instructions, voice_id, updated_at, updated_by')
+      .select('company_id, enabled, level, greeting, instructions, voice_id, updated_at, updated_by')
       .eq('company_id', profile.company_id)
       .maybeSingle(),
   ])
@@ -136,16 +137,19 @@ export default async function AdminDialerPage() {
   }))
 
   // AI Voice Receptionist — stored values for the form + code/env defaults used
-  // as placeholders (and the resolved effective enabled state).
+  // as placeholders (and the resolved effective enabled state + level).
   const vrRow = (voiceReceptionistRow as VoiceReceptionistSettingsRow | null) ?? null
-  const vrEffective = resolveVoiceReceptionistSettings(vrRow)
+  const vrPlanMax = getPlanMaxReceptionistLevel(profile.company_id)
+  const vrEffective = resolveVoiceReceptionistSettings(vrRow, vrPlanMax)
   const initialVoiceReceptionist = {
     enabled: vrEffective.enabled,
+    level: vrEffective.level,
+    plan_max_level: vrPlanMax,
     greeting: vrRow?.greeting ?? '',
     instructions: vrRow?.instructions ?? '',
     voice_id: vrRow?.voice_id ?? '',
-    greeting_default: buildWelcomeGreeting(),
-    instructions_default: VOICE_RECEPTIONIST_PROMPT,
+    greeting_default: buildWelcomeGreeting(vrEffective.effectiveLevel),
+    instructions_default: buildVoiceReceptionistPrompt(vrEffective.effectiveLevel),
     voice_id_default: process.env.VOICE_ELEVENLABS_VOICE_ID || '',
   }
 
