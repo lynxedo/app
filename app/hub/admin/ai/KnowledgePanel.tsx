@@ -2,6 +2,7 @@
 
 import { useMemo, useState } from 'react'
 import { useConfirm } from '@/components/ui'
+import RichTextEditor from './RichTextEditor'
 
 type Doc = {
   id: string
@@ -52,6 +53,17 @@ function isRouter(slug: string) {
 const CORE_SLUGS = ['identity', 'customer_service']
 function isCore(slug: string) {
   return CORE_SLUGS.includes(slug)
+}
+
+// Derive an internal id from a human title so admins never see or type a "slug".
+function slugify(title: string): string {
+  const s = title
+    .toLowerCase()
+    .trim()
+    .replace(/[^a-z0-9]+/g, '_')
+    .replace(/^_+|_+$/g, '')
+    .slice(0, 60)
+  return s || 'doc'
 }
 const SURFACE_LABELS: { key: string; label: string; short: string }[] = [
   { key: 'guardian', label: 'Guardian', short: 'G' },
@@ -159,9 +171,6 @@ export default function KnowledgePanel({
                       </span>
                     ))}
                   </span>
-                  <span className="font-mono text-xs text-white/70 w-32 shrink-0 truncate">
-                    {d.slug}
-                  </span>
                   <span className="flex-1 text-sm truncate flex items-center gap-2">
                     {d.title}
                     {isRouter(d.slug) && (
@@ -213,11 +222,11 @@ function DocEditor({
   const isExisting = doc != null
   const isProtected = doc != null && isRouter(doc.slug)
 
-  const [slug, setSlug] = useState(doc?.slug ?? '')
   const [title, setTitle] = useState(doc?.title ?? '')
   const [body, setBody] = useState(doc?.body ?? '')
   const [audiences, setAudiences] = useState<string[]>(doc?.audiences ?? [])
-  const effectiveSlug = isExisting ? doc!.slug : slug.trim()
+  const [sourceMode, setSourceMode] = useState(false)
+  const effectiveSlug = isExisting ? doc!.slug : slugify(title)
   const core = isCore(effectiveSlug)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
@@ -253,11 +262,10 @@ function DocEditor({
       // Core docs (identity, customer_service) have fixed reach — don't send
       // audiences; for every other doc, "Used by" is the control.
       if (!core) payload.audiences = audiences
-      // Only include slug if creating, OR if changed and not router.
+      // New docs get an internal id auto-derived from the title; existing docs
+      // keep their id (never renamed from the UI).
       if (!isExisting) {
-        payload.slug = slug.trim()
-      } else if (!isProtected && slug.trim() !== doc!.slug) {
-        payload.slug = slug.trim()
+        payload.slug = slugify(title)
       }
 
       const url = isExisting
@@ -270,6 +278,9 @@ function DocEditor({
       })
       if (!res.ok) {
         const b = await res.json().catch(() => null)
+        if (res.status === 409) {
+          throw new Error('A doc with a similar title already exists — try a slightly different title.')
+        }
         throw new Error(b?.error ?? `Save failed (${res.status})`)
       }
       const result = await res.json()
@@ -329,40 +340,39 @@ function DocEditor({
         </div>
       )}
 
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-        <div>
-          <label className="block text-sm font-medium mb-1">Slug</label>
-          <input
-            value={slug}
-            onChange={e => setSlug(e.target.value)}
-            disabled={isProtected}
-            placeholder="e.g. pricing"
-            className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm w-full font-mono disabled:opacity-50"
-          />
-          <p className="text-xs text-white/40 mt-1">
-            Lowercase letters, numbers, hyphens, underscores. Used by Guardian to load the doc.
-          </p>
-        </div>
-        <div>
-          <label className="block text-sm font-medium mb-1">Title</label>
-          <input
-            value={title}
-            onChange={e => setTitle(e.target.value)}
-            placeholder="e.g. Pricing Reference"
-            className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm w-full"
-          />
-        </div>
+      <div>
+        <label className="block text-sm font-medium mb-1">Title</label>
+        <input
+          value={title}
+          onChange={e => setTitle(e.target.value)}
+          placeholder="e.g. Pricing Reference"
+          className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm w-full max-w-md"
+        />
       </div>
 
       <div>
-        <label className="block text-sm font-medium mb-1">Body</label>
-        <textarea
-          value={body}
-          onChange={e => setBody(e.target.value)}
-          rows={16}
-          spellCheck={true}
-          className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm w-full font-mono leading-relaxed"
-        />
+        <div className="flex items-center justify-between mb-1">
+          <label className="block text-sm font-medium">Body</label>
+          <button
+            type="button"
+            onClick={() => setSourceMode(m => !m)}
+            className="text-xs text-white/50 hover:text-white/80 underline"
+            title={sourceMode ? 'Switch to the rich text editor' : 'Edit the raw Markdown source'}
+          >
+            {sourceMode ? 'Rich text' : 'Markdown source'}
+          </button>
+        </div>
+        {sourceMode ? (
+          <textarea
+            value={body}
+            onChange={e => setBody(e.target.value)}
+            rows={16}
+            spellCheck={true}
+            className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm w-full font-mono leading-relaxed"
+          />
+        ) : (
+          <RichTextEditor value={body} onChange={setBody} />
+        )}
         <p className={`text-xs mt-1 ${tokenColor}`}>
           ~{tokens.toLocaleString()} tokens
         </p>
@@ -424,7 +434,7 @@ function DocEditor({
       <div className="flex items-center gap-2 flex-wrap">
         <button
           onClick={save}
-          disabled={saving || !slug.trim() || !title.trim()}
+          disabled={saving || !title.trim()}
           className="px-3 py-1.5 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
         >
           {saving ? 'Saving…' : isExisting ? 'Save' : 'Create'}
