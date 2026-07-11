@@ -36,14 +36,15 @@ export const MAX_IMPLEMENTED_LEVEL: ReceptionistLevel = 3
 
 export const RECEPTIONIST_LEVEL_LABELS: Record<ReceptionistLevel, { name: string; blurb: string }> = {
   1: { name: 'Message taker', blurb: 'A friendly voicemail replacement — collects the caller’s name, number, and reason, then promises a callback. Politely deflects all questions.' },
-  2: { name: 'Conversational', blurb: 'Warm and human — brief small talk, answers approved basics, and talks the company up. Promotes the free assessment. Never states pricing. Ends in a callback.' },
+  2: { name: 'Conversational', blurb: 'Warm and human — brief small talk, answers approved basics, and talks the company up. Promotes any free/no-obligation offer. Never states pricing. Ends in a callback.' },
   3: { name: 'Soft sell', blurb: 'Conversational plus: states approved fixed pricing, asks qualifying questions, and works an assumptive soft close. A human specialist still confirms and schedules.' },
   4: { name: 'Full receptionist', blurb: 'Owns the call start to close — real quotes and live scheduling into Jobber within your guardrails. Coming soon.' },
 }
 
-// Default persona name (Ben, July 11 2026 — "Amber"). Overridable per company
-// in Admin → AI → Receptionist (voice_receptionist_settings.receptionist_name).
-export const DEFAULT_RECEPTIONIST_NAME = 'Amber'
+// Default persona name — a neutral, SaaS-generic placeholder. Each company sets
+// its own in Admin → AI → Receptionist (voice_receptionist_settings.receptionist_name);
+// Heroes is seeded to "Amber".
+export const DEFAULT_RECEPTIONIST_NAME = 'Alex'
 
 /** Per-company / per-build knobs that shape the assembled prompt + greeting. */
 export type ReceptionistPromptOpts = {
@@ -93,9 +94,9 @@ const PROMPT_COLLECT = `What to collect — conversationally, ONE at a time — 
 // knowledge — never hardcode company specifics here.
 const SELL_COMPANY = `- When it helps the caller decide, naturally share what makes the company a great choice — the things in the company knowledge above (for example free assessments, strong reviews, or specialized expertise). Weave it into the conversation warmly; do NOT launch into a sales pitch or recite a list of features unprompted.`
 
-const SELL_FREE_ASSESSMENT = `- For lawn, fertilization, or weed-control interest, the in-person assessment is FREE — offer it as an easy, no-pressure next step and try to get them interested in scheduling one.`
+const SELL_FREE_ASSESSMENT = `- If the company knowledge mentions any free or no-obligation offer (a free assessment, quote, or consultation), offer it as an easy, no-pressure next step and try to get them interested.`
 
-const PROMPT_ESCALATION = `If the caller is upset, has a complaint, mentions an emergency (a broken sprinkler line, flooding, water running, etc.), or asks to speak to a person:
+const PROMPT_ESCALATION = `If the caller is upset, has a complaint, mentions an emergency or something urgent (a leak, flooding, a safety issue, property damage, etc.), or asks to speak to a person:
 - Lead with empathy and reassurance. Let them know you're writing everything down and a team member will follow up quickly.
 - Still get their name, callback number, and what's going on, and treat it as URGENT.`
 
@@ -142,10 +143,10 @@ ${SELL_FREE_ASSESSMENT}
 - Ask natural qualifying questions as the conversation allows — what's going on with their lawn or property, roughly how big the yard is, what they've tried before, how soon they want it handled, and for pet waste: how many dogs, the dogs' size, and how often they'd want service. Weave these in — don't interrogate.
 - Work toward a soft commitment. When their interest feels warm, use an assumptive close: "Based on what you've told me, that would be a great fit — I can get you set up to start, and our scheduling specialist will give you a quick call to lock in the day. Sound good?" If they agree, that's a real win — note it clearly and let them know a specialist will call to finalize. Never pressure; "let me think about it" is a fine answer.
 
-Per-service guidance:
-- Lawn / fertilization / weed control: lead with the FREE assessment — it's the easiest yes. Describe the programs at a high level, but do NOT quote program prices (they vary by yard size).
-- Irrigation: it starts with a $125 inspection — state that fee up front and explain what it covers (from the knowledge above). Stating it early is good; it helps confirm the caller is serious. Repairs are quoted separately, after the inspection.
-- Pet waste: once you know the number of dogs, their size, how often they want service, and the lot size, you may quote the per-visit price from the knowledge above.
+Working toward the soft close:
+- Lead with any free or low-commitment offer the company knowledge mentions (a free assessment, a free quote, an inspection) — it's the easiest yes.
+- You may name a specific price ONLY for something the knowledge marks as a fixed, published fee; state it naturally and early, since a clear price helps a serious caller move forward.
+- For anything the knowledge marks as variable (priced by size, requires measuring, etc.), don't quote it — a specialist confirms exact pricing.
 
 Pricing rules (follow exactly):
 - You may state a price ONLY if the company knowledge above explicitly marks it as a fixed, published fee that may be stated.
@@ -246,9 +247,9 @@ export function buildWelcomeGreeting(
       : "Our team isn't available right now"
 
   if (lvl === 1) {
-    return `Thanks for calling Heroes Lawn Care! You've reached ${name}, our virtual receptionist. ${availability}, but I can take your details and have someone call you back. To start, may I have your name?`
+    return `Thanks for calling! You've reached ${name}, our virtual receptionist. ${availability}, but I can take your details and have someone call you back. To start, may I have your name?`
   }
-  return `Thanks for calling Heroes Lawn Care! This is ${name}, our virtual receptionist. ${availability}, but I'd be happy to help you. How can I help today?`
+  return `Thanks for calling! This is ${name}, our virtual receptionist. ${availability}, but I'd be happy to help you. How can I help today?`
 }
 
 // ---------------------------------------------------------------------------
