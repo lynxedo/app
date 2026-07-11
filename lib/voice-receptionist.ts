@@ -96,6 +96,13 @@ const SELL_COMPANY = `- When it helps the caller decide, naturally share what ma
 
 const SELL_FREE_ASSESSMENT = `- If the company knowledge mentions any free or no-obligation offer (a free assessment, quote, or consultation), offer it as an easy, no-pressure next step and try to get them interested.`
 
+// Always-on voicemail escape hatch. Appended to the task by /api/voice/brain so
+// it applies whether a company uses the default instructions or custom ones, and
+// at every level. The voice WS service turns the [[VOICEMAIL]] marker into a
+// handoff that records a voicemail instead of continuing with the assistant.
+export const VOICEMAIL_ESCAPE_INSTRUCTION = `Leaving a voicemail instead:
+- If the caller would rather leave a voicemail, says they don't want to talk to an assistant, or asks for a specific person's voicemail — warmly agree. Say something brief like "Of course — I'll take you to voicemail now; go ahead right after the tone." Then, as the very last thing in that message, append the exact marker [[VOICEMAIL]] with nothing after it. Like [[END_CALL]], this marker is never spoken aloud — it sends the caller to the voicemail recording.`
+
 const PROMPT_ESCALATION = `If the caller is upset, has a complaint, mentions an emergency or something urgent (a leak, flooding, a safety issue, property damage, etc.), or asks to speak to a person:
 - Lead with empathy and reassurance. Let them know you're writing everything down and a team member will follow up quickly.
 - Still get their name, callback number, and what's going on, and treat it as URGENT.`
@@ -249,7 +256,7 @@ export function buildWelcomeGreeting(
   if (lvl === 1) {
     return `Thanks for calling! You've reached ${name}, our virtual receptionist. ${availability}, but I can take your details and have someone call you back. To start, may I have your name?`
   }
-  return `Thanks for calling! This is ${name}, our virtual receptionist. ${availability}, but I'd be happy to help you. How can I help today?`
+  return `Thanks for calling! This is ${name}, our virtual receptionist. ${availability}, but I'd be happy to help you. If you'd rather leave a voicemail, just let me know — otherwise, how can I help today?`
 }
 
 // ---------------------------------------------------------------------------

@@ -5,7 +5,7 @@ import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
 import { CLAUDE_MODEL } from '@/lib/anthropic'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
-import { buildCallContextNote } from '@/lib/voice-receptionist'
+import { buildCallContextNote, VOICEMAIL_ESCAPE_INSTRUCTION } from '@/lib/voice-receptionist'
 import { startCallRecording } from '@/lib/twilio-voice'
 import { findOrCreateTxtContact, lookupByPhone } from '@/lib/dialer-lookup'
 import { formatPhone } from '@/lib/format'
@@ -146,7 +146,7 @@ export async function POST(request: Request) {
 
   // Assemble the shared Guardian system prompt in 'voice' mode + the phone task
   // (the editable instructions, or the default) plus this call's context note.
-  const task = [settings.instructions, callContext].filter(Boolean).join('\n\n')
+  const task = [settings.instructions, VOICEMAIL_ESCAPE_INSTRUCTION, callContext].filter(Boolean).join('\n\n')
   const system = await buildGuardianSystem({
     companyId,
     knowledge: 'voice',

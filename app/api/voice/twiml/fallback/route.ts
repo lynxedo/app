@@ -53,6 +53,19 @@ export async function POST(request: NextRequest) {
     return twimlResponse('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>')
   }
 
+  // The caller chose to leave a voicemail (Amber handed off with [[VOICEMAIL]]).
+  // Record it through the standard voicemail pipeline, but with a friendly prompt
+  // — this is a deliberate choice by the caller, not a failure to connect.
+  if (endReason === 'caller_requested_voicemail') {
+    return twimlResponse(
+      twimlRecordVoicemail({
+        action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,
+        spokenFallback:
+          "Sure — go ahead and leave your message after the tone, and a team member will get back to you. Press pound when you're finished.",
+      })
+    )
+  }
+
   return twimlResponse(
     twimlRecordVoicemail({
       action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,
