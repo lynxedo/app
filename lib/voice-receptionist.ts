@@ -103,6 +103,20 @@ const SELL_FREE_ASSESSMENT = `- If the company knowledge mentions any free or no
 export const VOICEMAIL_ESCAPE_INSTRUCTION = `Leaving a voicemail instead:
 - If the caller would rather leave a voicemail, says they don't want to talk to an assistant, or asks for a specific person's voicemail — warmly agree. Say something brief like "Of course — I'll take you to voicemail now; go ahead right after the tone." Then, as the very last thing in that message, append the exact marker [[VOICEMAIL]] with nothing after it. Like [[END_CALL]], this marker is never spoken aloud — it sends the caller to the voicemail recording.`
 
+// Transfer availability is per-call (depends on business hours + admin config),
+// so the brain injects the right variant. When available, Amber can put the
+// caller on hold while we try to reach a live person; when not, she takes a
+// message. The [[TRANSFER]] marker is handled by the voice service + the CR
+// <Connect action> fallback route (which runs the configured transfer method).
+export function buildTransferInstruction(available: boolean): string {
+  if (available) {
+    return `Connecting to a live person:
+- A team member may be reachable right now. If the caller asks to speak to a person, or clearly needs a live human (not just a callback), warmly say something like "Let me see if someone's available — one moment." Then, as the very last thing in that message, append the exact marker [[TRANSFER]] with nothing after it. It is never spoken aloud; it puts the caller on hold while we try to reach someone. Only use it when they genuinely want a live person now — otherwise keep helping and take a message as usual.`
+  }
+  return `Connecting to a live person:
+- No team member is available to connect to right now. If the caller asks for a person, empathize and assure them a team member will follow up soon — offer to take a detailed message or send them to voicemail. Do NOT say you'll connect or transfer them right now, and never use a transfer marker.`
+}
+
 const PROMPT_ESCALATION = `If the caller is upset, has a complaint, mentions an emergency or something urgent (a leak, flooding, a safety issue, property damage, etc.), or asks to speak to a person:
 - Lead with empathy and reassurance. Let them know you're writing everything down and a team member will follow up quickly.
 - Still get their name, callback number, and what's going on, and treat it as URGENT.`

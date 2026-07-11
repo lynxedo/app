@@ -50,6 +50,8 @@ export async function GET() {
     instructions: row?.instructions ?? '',
     voice_id: row?.voice_id ?? '',
     recap_text_enabled: effective.recapTextEnabled,
+    transfer_method: effective.transferMethod,
+    transfer_user_ids: effective.transferUserIds,
     receptionist_name_default: DEFAULT_RECEPTIONIST_NAME,
     greeting_business_hours_default: buildWelcomeGreeting(effective.effectiveLevel, {
       context: 'business_hours',
@@ -102,6 +104,26 @@ export async function PATCH(req: NextRequest) {
   if ('instructions' in body) update.instructions = normalizeText(body.instructions)
   if ('voice_id' in body) update.voice_id = normalizeText(body.voice_id)
   if ('recap_text_enabled' in body) update.recap_text_enabled = Boolean(body.recap_text_enabled)
+  if ('transfer_method' in body) {
+    const m = String(body.transfer_method || 'off')
+    if (!['off', 'cell', 'softphone', 'dm'].includes(m)) {
+      return NextResponse.json({ error: 'invalid transfer method' }, { status: 400 })
+    }
+    // Only softphone is implemented so far; cell + Hub-DM are coming soon.
+    if (m === 'cell' || m === 'dm') {
+      return NextResponse.json(
+        { error: `The ${m === 'cell' ? 'cell' : 'Hub DM'} transfer method is coming soon` },
+        { status: 400 },
+      )
+    }
+    update.transfer_method = m
+  }
+  if ('transfer_user_ids' in body) {
+    const ids = Array.isArray(body.transfer_user_ids) ? body.transfer_user_ids : []
+    update.transfer_user_ids = ids.filter(
+      (x: unknown): x is string => typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x),
+    )
+  }
 
   const admin = createAdminClient()
   const { data, error } = await admin

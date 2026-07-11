@@ -5,8 +5,8 @@ import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
 import { CLAUDE_MODEL } from '@/lib/anthropic'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
-import { buildCallContextNote, VOICEMAIL_ESCAPE_INSTRUCTION } from '@/lib/voice-receptionist'
-import { startCallRecording } from '@/lib/twilio-voice'
+import { buildCallContextNote, buildTransferInstruction, VOICEMAIL_ESCAPE_INSTRUCTION } from '@/lib/voice-receptionist'
+import { startCallRecording, isWithinBusinessHours, BusinessHoursSchedule } from '@/lib/twilio-voice'
 import { findOrCreateTxtContact, lookupByPhone } from '@/lib/dialer-lookup'
 import { formatPhone } from '@/lib/format'
 
@@ -144,9 +144,33 @@ export async function POST(request: Request) {
     callerIsExisting,
   })
 
+  // Transfer availability: a live-person transfer is only offered when a method
+  // is configured, recipients exist, AND it's currently business hours.
+  let transferAvailable = false
+  if (settings.transferMethod !== 'off' && settings.transferUserIds.length > 0) {
+    try {
+      const { data: ds } = await admin
+        .from('dialer_settings')
+        .select('business_hours')
+        .eq('company_id', companyId)
+        .maybeSingle()
+      transferAvailable = isWithinBusinessHours((ds?.business_hours as BusinessHoursSchedule | null) ?? null)
+    } catch {
+      transferAvailable = false
+    }
+  }
+
   // Assemble the shared Guardian system prompt in 'voice' mode + the phone task
-  // (the editable instructions, or the default) plus this call's context note.
-  const task = [settings.instructions, VOICEMAIL_ESCAPE_INSTRUCTION, callContext].filter(Boolean).join('\n\n')
+  // (the editable instructions, or the default) plus the always-on escape hatch,
+  // the per-call transfer instruction, and this call's context note.
+  const task = [
+    settings.instructions,
+    VOICEMAIL_ESCAPE_INSTRUCTION,
+    buildTransferInstruction(transferAvailable),
+    callContext,
+  ]
+    .filter(Boolean)
+    .join('\n\n')
   const system = await buildGuardianSystem({
     companyId,
     knowledge: 'voice',

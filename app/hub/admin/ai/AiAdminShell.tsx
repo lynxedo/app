@@ -48,6 +48,8 @@ type VoiceReceptionistInitial = {
   instructions: string
   voice_id: string
   recap_text_enabled: boolean
+  transfer_method: string
+  transfer_user_ids: string[]
   receptionist_name_default: string
   greeting_business_hours_default: string
   greeting_after_hours_default: string
@@ -117,7 +119,7 @@ export default function AiAdminShell({
         />
       )}
       {tab === 'receptionist' && (
-        <ReceptionistPanel initialVoiceReceptionist={initialVoiceReceptionist} />
+        <ReceptionistPanel initialVoiceReceptionist={initialVoiceReceptionist} people={initialPeople} />
       )}
       {tab === 'knowledge' && <KnowledgePanel initialDocs={initialDocs} />}
     </div>
