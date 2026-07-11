@@ -124,6 +124,7 @@ export async function POST(request: Request) {
   const system = await buildGuardianSystem({
     companyId,
     knowledge: 'voice',
+    surface: 'receptionist',
     task: settings.instructions,
     admin,
   })

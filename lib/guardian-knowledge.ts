@@ -1,6 +1,24 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { CLAUDE_MODEL } from '@/lib/anthropic'
 
+// Which AI surfaces auto-include a knowledge doc in their system prompt.
+// 'guardian'    = the in-Hub @Guardian assistant + the Txt/Hub composer helpers
+// 'responder'   = the voicemail auto-text responder
+// 'receptionist'= the AI voice receptionist
+export type GuardianSurface = 'guardian' | 'responder' | 'receptionist'
+export const GUARDIAN_SURFACES: GuardianSurface[] = ['guardian', 'responder', 'receptionist']
+
+// Validate/normalize an incoming "Used by" audiences value from an admin request:
+// keep only valid surface names, de-duped, order-stable. Anything else → [].
+export function parseAudiences(input: unknown): GuardianSurface[] {
+  if (!Array.isArray(input)) return []
+  const out: GuardianSurface[] = []
+  for (const s of GUARDIAN_SURFACES) {
+    if (input.includes(s)) out.push(s)
+  }
+  return out
+}
+
 export type KnowledgeDoc = {
   id: string
   company_id: string
@@ -8,6 +26,10 @@ export type KnowledgeDoc = {
   title: string
   body: string
   always_include: boolean
+  // The AI surfaces that auto-include this doc. Empty = auto-included nowhere
+  // (still readable on demand by the Hub agent via read_knowledge_doc). Replaces
+  // the old all-or-nothing always_include as the per-surface "Used by" control.
+  audiences: string[]
   created_at: string
   updated_at: string
   updated_by: string | null
@@ -94,6 +116,31 @@ export async function getAlwaysIncludedDocs(
     .select('*')
     .eq('company_id', companyId)
     .eq('always_include', true)
+    .order('slug', { ascending: true })
+
+  if (error) throw error
+  return (data ?? []) as KnowledgeDoc[]
+}
+
+/**
+ * Docs that a given AI surface auto-includes in its system prompt — i.e. whose
+ * `audiences` array contains that surface. This is the per-surface "Used by"
+ * successor to getAlwaysIncludedDocs: buildGuardianSystem calls it with the
+ * surface making the request, so an admin can scope a doc to just some AIs.
+ * (The reserved `identity` doc is always injected separately, and the
+ * `customer_service` playbook is added by the customer-mode path — buildGuardianSystem
+ * excludes both from this list to avoid double-inclusion.)
+ */
+export async function getDocsForSurface(
+  supabase: SupabaseClient,
+  companyId: string,
+  surface: GuardianSurface
+): Promise<KnowledgeDoc[]> {
+  const { data, error } = await supabase
+    .from('guardian_knowledge_docs')
+    .select('*')
+    .eq('company_id', companyId)
+    .contains('audiences', [surface])
     .order('slug', { ascending: true })
 
   if (error) throw error

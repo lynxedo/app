@@ -10,6 +10,7 @@ type Doc = {
   title: string
   body: string
   always_include: boolean
+  audiences: string[]
   created_at: string
   updated_at: string
   updated_by: string | null
@@ -44,6 +45,19 @@ function formatTimestamp(iso: string): string {
 function isRouter(slug: string) {
   return slug === ROUTER_SLUG
 }
+
+// Reserved "core" docs whose reach is fixed by the brain, not by audiences:
+// `identity` is injected for every AI; `customer_service` is used whenever an AI
+// writes to a customer. Their "Used by" is shown as informational, not editable.
+const CORE_SLUGS = ['identity', 'customer_service']
+function isCore(slug: string) {
+  return CORE_SLUGS.includes(slug)
+}
+const SURFACE_LABELS: { key: string; label: string; short: string }[] = [
+  { key: 'guardian', label: 'Guardian', short: 'G' },
+  { key: 'responder', label: 'Auto Responder', short: 'R' },
+  { key: 'receptionist', label: 'AI Receptionist', short: 'Rc' },
+]
 
 export default function KnowledgePanel({
   initialDocs,
@@ -120,11 +134,31 @@ export default function KnowledgePanel({
                     selectedId === d.id ? 'bg-white/5' : ''
                   }`}
                 >
-                  {d.always_include ? (
-                    <span className="w-2 h-2 rounded-full bg-emerald-400" title="Always included" />
-                  ) : (
-                    <span className="w-2 h-2 rounded-full bg-white/20" title="On-demand" />
-                  )}
+                  <span
+                    className="flex items-center gap-0.5 shrink-0"
+                    title={
+                      isCore(d.slug)
+                        ? 'Core — always available to every AI'
+                        : `Used by: ${
+                            SURFACE_LABELS.filter(s => d.audiences?.includes(s.key))
+                              .map(s => s.label)
+                              .join(', ') || 'none (on-demand only)'
+                          }`
+                    }
+                  >
+                    {SURFACE_LABELS.map(s => (
+                      <span
+                        key={s.key}
+                        className={`text-[9px] font-semibold leading-none px-1 py-0.5 rounded ${
+                          isCore(d.slug) || d.audiences?.includes(s.key)
+                            ? 'bg-emerald-500/20 text-emerald-300'
+                            : 'bg-white/5 text-white/25'
+                        }`}
+                      >
+                        {s.short}
+                      </span>
+                    ))}
+                  </span>
                   <span className="font-mono text-xs text-white/70 w-32 shrink-0 truncate">
                     {d.slug}
                   </span>
@@ -182,7 +216,9 @@ function DocEditor({
   const [slug, setSlug] = useState(doc?.slug ?? '')
   const [title, setTitle] = useState(doc?.title ?? '')
   const [body, setBody] = useState(doc?.body ?? '')
-  const [alwaysInclude, setAlwaysInclude] = useState(doc?.always_include ?? false)
+  const [audiences, setAudiences] = useState<string[]>(doc?.audiences ?? [])
+  const effectiveSlug = isExisting ? doc!.slug : slug.trim()
+  const core = isCore(effectiveSlug)
   const [saving, setSaving] = useState(false)
   const [deleting, setDeleting] = useState(false)
   const [error, setError] = useState<string | null>(null)
@@ -213,8 +249,10 @@ function DocEditor({
       const payload: Record<string, unknown> = {
         title: title.trim(),
         body,
-        always_include: alwaysInclude,
       }
+      // Core docs (identity, customer_service) have fixed reach — don't send
+      // audiences; for every other doc, "Used by" is the control.
+      if (!core) payload.audiences = audiences
       // Only include slug if creating, OR if changed and not router.
       if (!isExisting) {
         payload.slug = slug.trim()
@@ -286,8 +324,8 @@ function DocEditor({
 
       {isProtected && (
         <div className="rounded-md border border-amber-700/50 bg-amber-900/20 text-amber-200 px-3 py-2 text-xs">
-          🔒 This is the router doc — Guardian's navigation entry point. It cannot be deleted or
-          renamed, but you can still edit the title, body, and always_include flag.
+          🔒 This is the router doc — Guardian&apos;s navigation entry point. It cannot be deleted or
+          renamed, but you can still edit its title, body, and Used-by settings.
         </div>
       )}
 
@@ -330,26 +368,50 @@ function DocEditor({
         </p>
       </div>
 
-      <div className="rounded-md border border-white/10 bg-black/20 p-3 space-y-1">
-        <label className="flex items-center gap-2 text-sm">
-          <input
-            type="checkbox"
-            checked={alwaysInclude}
-            onChange={e => setAlwaysInclude(e.target.checked)}
-            className="accent-emerald-500"
-          />
-          <span>Always include in Guardian's system prompt</span>
-        </label>
-        {alwaysInclude && (
-          <p className={`text-xs ${tokenColor}`}>
-            ~{tokens.toLocaleString()} tokens included on every reply · ≈ ${estDaily}/day at 100
-            replies/day.
-            {tokens > TOKEN_RED
-              ? ' This is large — consider splitting into sub-docs Guardian loads on demand.'
-              : tokens > TOKEN_AMBER
-              ? ' Watch the size — large always-included docs add up.'
-              : ''}
+      <div className="rounded-md border border-white/10 bg-black/20 p-3 space-y-2">
+        <div className="text-sm font-medium">Used by</div>
+        {core ? (
+          <p className="text-xs text-white/50">
+            This is a core doc — it&apos;s always available to the AIs
+            {effectiveSlug === 'identity'
+              ? ' (the company identity is included for every AI).'
+              : ' (the customer-service playbook is used whenever an AI writes to a customer).'}
           </p>
+        ) : (
+          <>
+            <p className="text-xs text-white/50">
+              Which AIs automatically include this doc in what they know. Leave all unchecked to keep
+              it on-demand only (the Hub assistant can still pull it up by name).
+            </p>
+            <div className="flex flex-wrap gap-4">
+              {SURFACE_LABELS.map(s => (
+                <label key={s.key} className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={audiences.includes(s.key)}
+                    onChange={() =>
+                      setAudiences(prev =>
+                        prev.includes(s.key) ? prev.filter(x => x !== s.key) : [...prev, s.key]
+                      )
+                    }
+                    className="accent-emerald-500"
+                  />
+                  <span>{s.label}</span>
+                </label>
+              ))}
+            </div>
+            {audiences.length > 0 && (
+              <p className={`text-xs ${tokenColor}`}>
+                ~{tokens.toLocaleString()} tokens added to each selected AI&apos;s prompt on every reply · ≈ $
+                {estDaily}/day at 100 replies/day.
+                {tokens > TOKEN_RED
+                  ? ' This is large — consider splitting into sub-docs the AI loads on demand.'
+                  : tokens > TOKEN_AMBER
+                  ? ' Watch the size — large always-included docs add up.'
+                  : ''}
+              </p>
+            )}
+          </>
         )}
       </div>
 

@@ -6,6 +6,7 @@ import {
   saveVersion,
   getVersionsForDoc,
   isRouterSlug,
+  parseAudiences,
   type KnowledgeDoc,
 } from '@/lib/guardian-knowledge'
 
@@ -90,7 +91,12 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
     }
   }
 
-  if ('always_include' in body) {
+  // "Used by" audiences are the source of truth; keep always_include synced.
+  if ('audiences' in body) {
+    const audiences = parseAudiences(body.audiences)
+    patch.audiences = audiences
+    patch.always_include = audiences.length > 0
+  } else if ('always_include' in body) {
     const ai = body.always_include === true
     if (ai !== existing.always_include) patch.always_include = ai
   }

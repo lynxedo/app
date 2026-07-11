@@ -158,7 +158,7 @@ export async function POST(
   const adminClient = createAdminClient()
   const [model, system] = await Promise.all([
     getGuardianModel(adminClient, companyId).catch(() => CLAUDE_MODEL),
-    buildGuardianSystem({ companyId, knowledge: 'voice', task: CATCH_UP_TASK, admin: adminClient }),
+    buildGuardianSystem({ companyId, knowledge: 'voice', surface: 'guardian', task: CATCH_UP_TASK, admin: adminClient }),
   ])
 
   const userMessage = `Communication history (oldest to newest):\n${digest}\n\n---\nCatch me up on this customer in 2–3 sentences.`
