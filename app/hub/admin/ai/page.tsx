@@ -2,8 +2,9 @@ import { redirect } from 'next/navigation'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKnowledgeDocs, getGuardianSettings } from '@/lib/guardian-knowledge'
-import { buildVoiceReceptionistPrompt, buildWelcomeGreeting } from '@/lib/voice-receptionist'
+import { DEFAULT_RECEPTIONIST_NAME, buildVoiceReceptionistPrompt, buildWelcomeGreeting } from '@/lib/voice-receptionist'
 import {
+  VOICE_RECEPTIONIST_COLUMNS,
   getPlanMaxReceptionistLevel,
   resolveVoiceReceptionistSettings,
   type VoiceReceptionistSettingsRow,
@@ -61,7 +62,7 @@ export default async function AdminAiPage() {
       .limit(20),
     admin
       .from('voice_receptionist_settings')
-      .select('company_id, enabled, level, greeting, instructions, voice_id, updated_at, updated_by')
+      .select(VOICE_RECEPTIONIST_COLUMNS)
       .eq('company_id', companyId)
       .maybeSingle(),
   ])
@@ -107,11 +108,25 @@ export default async function AdminAiPage() {
     enabled: vrEffective.enabled,
     level: vrEffective.level,
     plan_max_level: vrPlanMax,
-    greeting: vrRow?.greeting ?? '',
+    receptionist_name: vrRow?.receptionist_name ?? '',
+    greeting_business_hours: vrRow?.greeting_business_hours ?? '',
+    greeting_after_hours: vrRow?.greeting_after_hours ?? vrRow?.greeting ?? '',
     instructions: vrRow?.instructions ?? '',
     voice_id: vrRow?.voice_id ?? '',
-    greeting_default: buildWelcomeGreeting(vrEffective.effectiveLevel),
-    instructions_default: buildVoiceReceptionistPrompt(vrEffective.effectiveLevel),
+    recap_text_enabled: vrEffective.recapTextEnabled,
+    receptionist_name_default: DEFAULT_RECEPTIONIST_NAME,
+    greeting_business_hours_default: buildWelcomeGreeting(vrEffective.effectiveLevel, {
+      context: 'business_hours',
+      name: vrEffective.receptionistName,
+    }),
+    greeting_after_hours_default: buildWelcomeGreeting(vrEffective.effectiveLevel, {
+      context: 'after_hours',
+      name: vrEffective.receptionistName,
+    }),
+    instructions_default: buildVoiceReceptionistPrompt(vrEffective.effectiveLevel, {
+      name: vrEffective.receptionistName,
+      recapEnabled: vrEffective.recapTextEnabled,
+    }),
     voice_id_default: process.env.VOICE_ELEVENLABS_VOICE_ID || '',
   }
 

@@ -42,10 +42,15 @@ type VoiceReceptionistInitial = {
   enabled: boolean
   level: number
   plan_max_level: number
-  greeting: string
+  receptionist_name: string
+  greeting_business_hours: string
+  greeting_after_hours: string
   instructions: string
   voice_id: string
-  greeting_default: string
+  recap_text_enabled: boolean
+  receptionist_name_default: string
+  greeting_business_hours_default: string
+  greeting_after_hours_default: string
   instructions_default: string
   voice_id_default: string
 }

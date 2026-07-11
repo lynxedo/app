@@ -10,6 +10,8 @@ import {
 import { fanoutGuardianNotification, postGuardianToRoom } from '@/lib/guardian-post'
 import { sendHubPush } from '@/lib/hub-push'
 import { formatPhone } from '@/lib/format'
+import { sendDirectTxtToPhone } from '@/lib/txt-send'
+import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 
 // AI Voice Receptionist — "wrap-up" endpoint (Phase 1a).
 //
@@ -78,6 +80,8 @@ type ExtractedLead = {
   wants_callback: boolean
   /** Level 3 soft sell: caller explicitly agreed to move forward / get set up. */
   soft_commitment: boolean
+  /** Caller agreed to receive a recap text (SMS opt-in captured live on the call). */
+  recap_opt_in: boolean
 }
 
 const URGENCY_VALUES: ExtractedLead['urgency'][] = ['low', 'normal', 'high', 'emergency']
@@ -118,9 +122,10 @@ async function extractLead(
     'Reply with ONLY a single JSON object and nothing else — no prose, no code fences. ' +
     'Use this exact shape: {"name": string|null, "callback_phone": string|null, "address_or_area": string|null, ' +
     '"service_wanted": string|null, "timeframe": string|null, "urgency": "low"|"normal"|"high"|"emergency", ' +
-    '"summary": string, "wants_callback": boolean, "soft_commitment": boolean}. ' +
+    '"summary": string, "wants_callback": boolean, "soft_commitment": boolean, "recap_opt_in": boolean}. ' +
     'Set a field to null if the caller did not provide it. ' +
     'soft_commitment is true ONLY if the caller explicitly agreed to move forward / get set up / have the team sign them up — not merely asking questions. ' +
+    'recap_opt_in is true ONLY if the assistant offered to text a recap and the caller agreed (said yes / sure / that is fine). ' +
     'urgency is "emergency" for broken/leaking irrigation, flooding, or anything the caller frames as urgent; ' +
     '"high" for an upset caller or a complaint; otherwise "normal" (or "low" if clearly not time-sensitive). ' +
     'summary is one or two plain sentences a teammate can read at a glance. Do not invent details.'
@@ -160,6 +165,7 @@ async function extractLead(
       summary: (parsed.summary ?? null) || null,
       wants_callback: parsed.wants_callback !== false, // default true
       soft_commitment: parsed.soft_commitment === true,
+      recap_opt_in: parsed.recap_opt_in === true,
     }
   } catch (err) {
     console.warn('[voice.wrapup] lead extraction failed', (err as Error).message)
@@ -185,6 +191,9 @@ export async function POST(request: Request) {
   const transcriptText = renderTranscript(turns)
 
   const admin = createAdminClient()
+
+  // Per-company receptionist settings (recap-text toggle + persona name).
+  const vr = await getEffectiveVoiceReceptionistSettings(admin, companyId)
 
   // 1) Extract (best-effort; falls back to a minimal lead on failure).
   const extracted = await extractLead(transcriptText, fromNumber)
@@ -238,6 +247,10 @@ export async function POST(request: Request) {
     if (extracted?.timeframe) facts.push(`Timeframe: ${extracted.timeframe}`)
     facts.push(`Urgency: ${urgency}`)
     if (extracted?.soft_commitment) facts.push('🔥 Soft commitment: said YES to moving forward')
+    if (extracted?.recap_opt_in)
+      facts.push(
+        `Recap text: caller opted in${vr.recapTextEnabled ? ' (would send on the live line)' : ' (recap texts are turned off)'}`,
+      )
     const dmBody =
       `🧪 TEST — AI Receptionist call (NOT saved to the Lead Tracker)\n` +
       `${urgentFlag ? '🔴 ' : ''}Caller: ${callerName}` +
@@ -299,6 +312,8 @@ export async function POST(request: Request) {
   if (extracted?.timeframe) facts.push(`Timeframe: ${extracted.timeframe}`)
   facts.push(`Urgency: ${urgency}`)
   if (extracted) facts.push(`Wants callback: ${extracted.wants_callback ? 'yes' : 'no'}`)
+  if (extracted?.recap_opt_in)
+    facts.push(`Recap text: opted in${vr.recapTextEnabled ? ' (recap text sent)' : ' (recap texts off)'}`)
   if (facts.length) noteLines.push('', facts.join('\n'))
   if (transcriptText.trim()) noteLines.push('', '--- Transcript ---', transcriptText)
 
@@ -384,6 +399,32 @@ export async function POST(request: Request) {
       )
     } catch (e) {
       console.warn('[voice.wrapup] notify failed', (e as Error).message)
+    }
+
+    // Recap text — only when the receptionist has it enabled AND the caller
+    // opted in on the call. Reuses the standard Txt send (adds the signature +
+    // the first-message "Reply STOP to opt out" notice, lands in the unified Txt
+    // inbox). Best-effort — never fails the wrap-up.
+    try {
+      const recapPhone = fromNumber || callbackPhone
+      if (vr.recapTextEnabled && extracted?.recap_opt_in && recapPhone) {
+        const hi = first ? `Hi ${first}, ` : 'Hi, '
+        const svc = service ? ` about ${service}` : ''
+        const recapBody =
+          `${hi}thanks for calling Heroes Lawn Care! This is ${vr.receptionistName}, following up with a quick recap of your call${svc}. ` +
+          `A team member will reach out shortly to take care of everything for you.`
+        const res = await sendDirectTxtToPhone({
+          admin,
+          companyId,
+          userId: notifyUserIds()[0],
+          phone: recapPhone,
+          name: extracted?.name ?? null,
+          body: recapBody,
+        })
+        if (!res.ok) console.warn('[voice.wrapup] recap text failed', res.error)
+      }
+    } catch (e) {
+      console.warn('[voice.wrapup] recap text failed', (e as Error).message)
     }
   })
 

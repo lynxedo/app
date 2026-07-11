@@ -5,8 +5,10 @@ import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
 import { CLAUDE_MODEL } from '@/lib/anthropic'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
+import { buildCallContextNote } from '@/lib/voice-receptionist'
 import { startCallRecording } from '@/lib/twilio-voice'
-import { findOrCreateTxtContact } from '@/lib/dialer-lookup'
+import { findOrCreateTxtContact, lookupByPhone } from '@/lib/dialer-lookup'
+import { formatPhone } from '@/lib/format'
 
 // AI Voice Receptionist — "brain" endpoint (Phase 1a).
 //
@@ -119,13 +121,37 @@ export async function POST(request: Request) {
     }
   }
 
+  // Identify the caller (by the number they're calling from) so the assistant
+  // can greet an existing contact by name and confirm the callback number
+  // instead of asking for it. Local DB lookup only (no caller-ID/CNAM fetch) so
+  // it stays fast at call-connect time. Company-scoped — never cross-tenant.
+  let callerName: string | null = null
+  let callerIsExisting = false
+  if (body.from) {
+    try {
+      const match = await lookupByPhone(body.from, companyId)
+      if (match?.name && !match.nameIsCallerId) {
+        callerName = match.name
+        callerIsExisting = true
+      }
+    } catch (err) {
+      console.warn('[voice.brain] caller lookup failed', (err as Error).message)
+    }
+  }
+  const callContext = buildCallContextNote({
+    callerName,
+    callerPhone: body.from ? formatPhone(body.from) || body.from : null,
+    callerIsExisting,
+  })
+
   // Assemble the shared Guardian system prompt in 'voice' mode + the phone task
-  // (the editable instructions, or the VOICE_RECEPTIONIST_PROMPT default).
+  // (the editable instructions, or the default) plus this call's context note.
+  const task = [settings.instructions, callContext].filter(Boolean).join('\n\n')
   const system = await buildGuardianSystem({
     companyId,
     knowledge: 'voice',
     surface: 'receptionist',
-    task: settings.instructions,
+    task,
     admin,
   })
 

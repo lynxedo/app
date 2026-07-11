@@ -7,10 +7,15 @@ type VoiceReceptionistInitial = {
   enabled: boolean
   level: number
   plan_max_level: number
-  greeting: string
+  receptionist_name: string
+  greeting_business_hours: string
+  greeting_after_hours: string
   instructions: string
   voice_id: string
-  greeting_default: string
+  recap_text_enabled: boolean
+  receptionist_name_default: string
+  greeting_business_hours_default: string
+  greeting_after_hours_default: string
   instructions_default: string
   voice_id_default: string
 }
@@ -20,8 +25,8 @@ type VoiceReceptionistInitial = {
 // render locked with an upgrade nudge.
 const VR_LEVELS: { level: number; name: string; blurb: string; comingSoon?: boolean }[] = [
   { level: 1, name: 'Level 1 — Message taker', blurb: 'A friendly voicemail replacement: collects name, number, and reason, then promises a callback. Politely deflects all questions.' },
-  { level: 2, name: 'Level 2 — Conversational', blurb: 'Warm and human — brief small talk, answers approved basics (services, area, hours, refer-outs). Never states pricing.' },
-  { level: 3, name: 'Level 3 — Soft sell', blurb: 'Conversational plus: may state approved fixed pricing, asks qualifying questions, and captures a soft commitment. A human still confirms.' },
+  { level: 2, name: 'Level 2 — Conversational', blurb: 'Warm and human — brief small talk, answers approved basics, talks the company up, and offers the free assessment. Never states pricing.' },
+  { level: 3, name: 'Level 3 — Soft sell', blurb: 'Conversational plus: states approved fixed pricing, asks qualifying questions, and works an assumptive soft close. A human specialist still confirms.' },
   { level: 4, name: 'Level 4 — Full receptionist', blurb: 'Owns the call start to close — real quotes and live scheduling into Jobber within your guardrails.', comingSoon: true },
 ]
 
@@ -30,13 +35,16 @@ export default function ReceptionistPanel({
 }: {
   initialVoiceReceptionist: VoiceReceptionistInitial
 }) {
-  // AI Voice Receptionist — separate state + save from the main dialer settings.
+  // AI Voice Receptionist — separate state + save from the main AI settings.
   const [vr, setVr] = useState({
     enabled: initialVoiceReceptionist.enabled,
     level: initialVoiceReceptionist.level,
-    greeting: initialVoiceReceptionist.greeting,
+    receptionist_name: initialVoiceReceptionist.receptionist_name,
+    greeting_business_hours: initialVoiceReceptionist.greeting_business_hours,
+    greeting_after_hours: initialVoiceReceptionist.greeting_after_hours,
     instructions: initialVoiceReceptionist.instructions,
     voice_id: initialVoiceReceptionist.voice_id,
+    recap_text_enabled: initialVoiceReceptionist.recap_text_enabled,
   })
   const [vrSaving, setVrSaving] = useState(false)
   const [vrSavedAt, setVrSavedAt] = useState<number | null>(null)
@@ -52,9 +60,12 @@ export default function ReceptionistPanel({
         body: JSON.stringify({
           enabled: vr.enabled,
           level: vr.level,
-          greeting: vr.greeting,
+          receptionist_name: vr.receptionist_name,
+          greeting_business_hours: vr.greeting_business_hours,
+          greeting_after_hours: vr.greeting_after_hours,
           instructions: vr.instructions,
           voice_id: vr.voice_id,
+          recap_text_enabled: vr.recap_text_enabled,
         }),
       })
       if (!res.ok) {
@@ -81,7 +92,7 @@ export default function ReceptionistPanel({
 
         <div className="bg-sky-500/10 border border-sky-500/30 rounded-lg p-3 text-xs text-sky-200 leading-relaxed">
           Leave any field blank to use the built-in default (shown as the
-          placeholder). The greeting is spoken the instant the call connects; the
+          placeholder). A greeting is spoken the instant the call connects; the
           instructions shape how the assistant behaves for the rest of the call.
         </div>
 
@@ -146,14 +157,29 @@ export default function ReceptionistPanel({
           </p>
         </div>
 
-        {/* Greeting */}
+        {/* Receptionist name */}
+        <div>
+          <label className="text-xs font-medium text-white/70 block mb-1">Receptionist name</label>
+          <input
+            type="text"
+            value={vr.receptionist_name}
+            onChange={e => setVr(p => ({ ...p, receptionist_name: e.target.value.slice(0, 40) }))}
+            placeholder={initialVoiceReceptionist.receptionist_name_default || 'e.g. Amber'}
+            className="w-full max-w-md bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500"
+          />
+          <p className="text-xs text-white/40 mt-1">
+            The name the assistant gives callers (used in the default greetings and if a caller asks). Leave blank to use the default.
+          </p>
+        </div>
+
+        {/* Business-hours greeting */}
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-medium text-white/70">Greeting</label>
-            {!vr.greeting.trim() && initialVoiceReceptionist.greeting_default.trim() && (
+            <label className="text-xs font-medium text-white/70">Greeting — during business hours</label>
+            {!vr.greeting_business_hours.trim() && initialVoiceReceptionist.greeting_business_hours_default.trim() && (
               <button
                 type="button"
-                onClick={() => setVr(p => ({ ...p, greeting: initialVoiceReceptionist.greeting_default }))}
+                onClick={() => setVr(p => ({ ...p, greeting_business_hours: initialVoiceReceptionist.greeting_business_hours_default }))}
                 className="text-xs text-brand hover:underline"
               >
                 Load default to edit
@@ -161,13 +187,37 @@ export default function ReceptionistPanel({
             )}
           </div>
           <textarea
-            value={vr.greeting}
-            onChange={e => setVr(p => ({ ...p, greeting: e.target.value.slice(0, 1000) }))}
+            value={vr.greeting_business_hours}
+            onChange={e => setVr(p => ({ ...p, greeting_business_hours: e.target.value.slice(0, 1000) }))}
             rows={3}
             placeholder="Leave blank to use the recommended default greeting."
             className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
           />
-          <p className="text-xs text-white/40 mt-1">Spoken the moment the call connects. Blank uses the recommended default (it improves automatically). Click “Load default to edit” to write your own.</p>
+          <p className="text-xs text-white/40 mt-1">Spoken when a call comes in <strong>during</strong> your business hours (the team is busy with other customers). Blank uses the recommended default.</p>
+        </div>
+
+        {/* After-hours greeting */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-xs font-medium text-white/70">Greeting — after hours</label>
+            {!vr.greeting_after_hours.trim() && initialVoiceReceptionist.greeting_after_hours_default.trim() && (
+              <button
+                type="button"
+                onClick={() => setVr(p => ({ ...p, greeting_after_hours: initialVoiceReceptionist.greeting_after_hours_default }))}
+                className="text-xs text-brand hover:underline"
+              >
+                Load default to edit
+              </button>
+            )}
+          </div>
+          <textarea
+            value={vr.greeting_after_hours}
+            onChange={e => setVr(p => ({ ...p, greeting_after_hours: e.target.value.slice(0, 1000) }))}
+            rows={3}
+            placeholder="Leave blank to use the recommended default greeting."
+            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
+          />
+          <p className="text-xs text-white/40 mt-1">Spoken when a call comes in <strong>outside</strong> your business hours or on a holiday (the team isn&apos;t available). Blank uses the recommended default.</p>
         </div>
 
         {/* Instructions */}
@@ -192,8 +242,31 @@ export default function ReceptionistPanel({
             className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-y font-mono"
           />
           <p className="text-xs text-white/40 mt-1">
-            The behavior that shapes how the assistant talks and what it collects. Blank uses the recommended default. Click “Load default to edit” to write your own.
+            The behavior that shapes how the assistant talks and what it collects. Blank uses the recommended default (which follows the capability level above). Click “Load default to edit” to write your own.
           </p>
+        </div>
+
+        {/* Recap text toggle */}
+        <div className="flex items-center justify-between border border-white/10 rounded-lg p-3">
+          <div className="pr-3">
+            <p className="text-sm font-medium text-white">Send a recap text</p>
+            <p className="text-xs text-white/50 mt-0.5">
+              Near the end of the call, the assistant offers to text the caller a quick recap — a natural way to capture a text opt-in. When off, it won&apos;t ask or send.
+            </p>
+          </div>
+          <button
+            type="button"
+            role="switch"
+            aria-checked={vr.recap_text_enabled}
+            onClick={() => setVr(p => ({ ...p, recap_text_enabled: !p.recap_text_enabled }))}
+            className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors ${
+              vr.recap_text_enabled ? 'bg-brand' : 'bg-white/20'
+            }`}
+          >
+            <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
+              vr.recap_text_enabled ? 'translate-x-4' : 'translate-x-0'
+            }`} />
+          </button>
         </div>
 
         {/* Voice ID */}
