@@ -6,7 +6,7 @@ import { CLAUDE_MODEL } from '@/lib/anthropic'
 export const dynamic = 'force-dynamic'
 
 async function requireGuardianAdmin() {
-  const check = await requireAdminArea('guardian')
+  const check = await requireAdminArea('ai')
   if (!check.ok || !check.company_id || !check.user) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }

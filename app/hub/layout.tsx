@@ -141,6 +141,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     people: !!profileResult.data?.can_admin_people,
     hub: !!profileResult.data?.can_admin_hub,
     guardian: !!profileResult.data?.can_admin_guardian,
+    ai: !!profileResult.data?.can_admin_ai,
     txt: !!profileResult.data?.can_admin_txt,
     announcements: !!profileResult.data?.can_admin_announcements,
     file_tags: !!profileResult.data?.can_admin_file_tags,

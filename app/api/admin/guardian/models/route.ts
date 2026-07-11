@@ -11,7 +11,7 @@ type AnthropicModel = {
 }
 
 async function requireGuardianAdmin() {
-  const check = await requireAdminArea('guardian')
+  const check = await requireAdminArea('ai')
   if (!check.ok || !check.company_id) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }

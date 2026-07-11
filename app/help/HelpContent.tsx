@@ -745,7 +745,7 @@ function HubTab() {
         </ul>
         <p><strong className="text-white">Tier resolution:</strong> if you&apos;re a super-admin you always get Full. Otherwise, if the room you&apos;re asking in has &ldquo;Full access&rdquo; turned on, you get Full there regardless of your personal tier. Otherwise you get your personal tier.</p>
         <AdminOnly>
-          <p>Set tiers per-person under <strong className="text-white">/admin/guardian → People</strong>. Turn on per-room Full access under <strong className="text-white">/admin/guardian → Rooms</strong> — useful for an &ldquo;office&rdquo; or &ldquo;leadership&rdquo; room where anyone asking should get full capabilities. Every Guardian reply is recorded in <strong className="text-white">/admin/guardian → Audit</strong> (last 100 entries, click to expand the full question + answer + tools used + tokens). Only super-admins can change tiers; managers with Hub admin access can view them.</p>
+          <p>Set tiers per-person under <strong className="text-white">Admin → AI → Guardian →People</strong>. Turn on per-room Full access under <strong className="text-white">Admin → AI → Guardian →Rooms</strong> — useful for an &ldquo;office&rdquo; or &ldquo;leadership&rdquo; room where anyone asking should get full capabilities. Every Guardian reply is recorded in <strong className="text-white">Admin → AI → Guardian →Audit</strong> (last 100 entries, click to expand the full question + answer + tools used + tokens). Only super-admins can change tiers; managers with Hub admin access can view them.</p>
         </AdminOnly>
       </Section>
 

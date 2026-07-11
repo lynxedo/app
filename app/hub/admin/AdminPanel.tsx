@@ -24,6 +24,7 @@ type UserProfile = {
   can_admin_people: boolean
   can_admin_hub: boolean
   can_admin_guardian: boolean
+  can_admin_ai: boolean
   can_admin_txt: boolean
   can_admin_announcements: boolean
   can_admin_file_tags: boolean
@@ -130,7 +131,7 @@ const TOOL_GROUPS: { title: string; items: { key: keyof UserProfile; label: stri
 const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_admin_people', label: 'People' },
   { key: 'can_admin_hub', label: 'Hub' },
-  { key: 'can_admin_guardian', label: 'Guardian' },
+  { key: 'can_admin_ai', label: 'AI' },
   { key: 'can_admin_txt', label: 'Txt' },
   { key: 'can_admin_announcements', label: 'Announcements' },
   { key: 'can_admin_file_tags', label: 'File Tags' },
@@ -207,6 +208,7 @@ function defaultProfile(id: string, overrides: Partial<UserProfile> = {}): UserP
     can_admin_people: false,
     can_admin_hub: false,
     can_admin_guardian: false,
+    can_admin_ai: false,
     can_admin_txt: false,
     can_admin_announcements: false,
     can_admin_file_tags: false,
