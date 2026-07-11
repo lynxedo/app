@@ -2,9 +2,15 @@ import { NextRequest, NextResponse } from 'next/server'
 import {
   EMPTY_VOICE_TWIML,
   twimlRecordVoicemail,
+  twimlRingGroupSimultaneous,
   validateTwilioVoiceSignature,
   voiceConfigured,
 } from '@/lib/twilio-voice'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
+
+const HEROES_COMPANY_ID =
+  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 // AI Voice Receptionist — ConversationRelay <Connect action=...> fallback.
 //
@@ -51,6 +57,35 @@ export async function POST(request: NextRequest) {
   }
   if (endReason === 'assistant_complete') {
     return twimlResponse('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>')
+  }
+
+  // The caller wants a live person (Amber handed off with [[TRANSFER]]). Run the
+  // configured transfer method. This TwiML executes on the CALLER's leg, so a
+  // <Dial> here bridges them to whoever answers; <Dial action> falls through to
+  // voicemail on no-answer. (Cell + Hub-DM methods land in later steps; until
+  // then any non-softphone method falls back to a voicemail.)
+  if (endReason === 'transfer_requested') {
+    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+    const admin = createAdminClient()
+    const settings = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
+    const callerFrom = lower.from || ''
+    if (settings.transferMethod === 'softphone' && settings.transferUserIds.length > 0) {
+      return twimlResponse(
+        twimlRingGroupSimultaneous({
+          identities: settings.transferUserIds,
+          timeoutSec: 25,
+          actionUrl: `${baseUrl}/api/voice/twiml/transfer-result`,
+          callerId: callerFrom || undefined,
+        })
+      )
+    }
+    return twimlResponse(
+      twimlRecordVoicemail({
+        action: `${baseUrl}/api/dialer/voice/voicemail/complete`,
+        spokenFallback:
+          "I'm sorry, I couldn't reach anyone right now. Please leave a message after the tone and a team member will get right back to you. Press pound when finished.",
+      })
+    )
   }
 
   // The caller chose to leave a voicemail (Amber handed off with [[VOICEMAIL]]).

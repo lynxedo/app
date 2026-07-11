@@ -114,6 +114,8 @@ export default async function AdminAiPage() {
     instructions: vrRow?.instructions ?? '',
     voice_id: vrRow?.voice_id ?? '',
     recap_text_enabled: vrEffective.recapTextEnabled,
+    transfer_method: vrEffective.transferMethod,
+    transfer_user_ids: vrEffective.transferUserIds,
     receptionist_name_default: DEFAULT_RECEPTIONIST_NAME,
     greeting_business_hours_default: buildWelcomeGreeting(vrEffective.effectiveLevel, {
       context: 'business_hours',

@@ -13,6 +13,8 @@ type VoiceReceptionistInitial = {
   instructions: string
   voice_id: string
   recap_text_enabled: boolean
+  transfer_method: string
+  transfer_user_ids: string[]
   receptionist_name_default: string
   greeting_business_hours_default: string
   greeting_after_hours_default: string
@@ -30,10 +32,21 @@ const VR_LEVELS: { level: number; name: string; blurb: string; comingSoon?: bool
   { level: 4, name: 'Level 4 — Full receptionist', blurb: 'Owns the call start to close — real quotes and live scheduling into Jobber within your guardrails.', comingSoon: true },
 ]
 
+// Transfer methods. Softphone is implemented; cell + Hub DM are coming soon
+// (the API rejects saving them). Admin picks one; recipients are Hub users.
+const TRANSFER_METHODS: { value: string; name: string; blurb: string; comingSoon?: boolean }[] = [
+  { value: 'off', name: 'Off', blurb: 'No live transfer — Amber takes a message or offers voicemail.' },
+  { value: 'softphone', name: 'Ring the Dialer softphone', blurb: 'Rings the Dialer app for the selected people who are logged in; whoever answers first takes the call.' },
+  { value: 'cell', name: 'Ring a cell + press 1', blurb: 'Calls the selected people on their cell with a quick “press 1 to take it” screen.', comingSoon: true },
+  { value: 'dm', name: 'Hub DM (Yes / No)', blurb: 'Sends the selected people a Hub message + push; tapping Yes connects them.', comingSoon: true },
+]
+
 export default function ReceptionistPanel({
   initialVoiceReceptionist,
+  people,
 }: {
   initialVoiceReceptionist: VoiceReceptionistInitial
+  people: { id: string; display_name: string }[]
 }) {
   // Generic (SaaS-neutral) code/env defaults for each editable box. Editing a box
   // back to exactly its default saves as blank, so the field keeps tracking the
@@ -57,6 +70,8 @@ export default function ReceptionistPanel({
     greeting_after_hours: initialVoiceReceptionist.greeting_after_hours || DEFAULTS.greeting_after_hours,
     instructions: initialVoiceReceptionist.instructions || DEFAULTS.instructions,
     voice_id: initialVoiceReceptionist.voice_id || DEFAULTS.voice_id,
+    transfer_method: initialVoiceReceptionist.transfer_method || 'off',
+    transfer_user_ids: [...(initialVoiceReceptionist.transfer_user_ids || [])].sort(),
   })
 
   const [vr, setVr] = useState(buildForm)
@@ -88,6 +103,8 @@ export default function ReceptionistPanel({
           greeting_after_hours: asCustom(vr.greeting_after_hours, DEFAULTS.greeting_after_hours),
           instructions: asCustom(vr.instructions, DEFAULTS.instructions),
           voice_id: asCustom(vr.voice_id, DEFAULTS.voice_id),
+          transfer_method: vr.transfer_method,
+          transfer_user_ids: vr.transfer_user_ids,
         }),
       })
       if (!res.ok) {
@@ -304,6 +321,82 @@ export default function ReceptionistPanel({
               Pick a voice
             </a>
           </p>
+        </div>
+
+        {/* Transfer to a person */}
+        <div className="border border-white/10 rounded-lg p-3 space-y-3">
+          <div>
+            <p className="text-sm font-medium text-white">Transfer to a person</p>
+            <p className="text-xs text-white/50 mt-0.5">
+              During business hours, if a caller asks for a live person, the assistant can try to reach your team before falling back to a message. Choose how.
+            </p>
+          </div>
+          <div className="space-y-2">
+            {TRANSFER_METHODS.map((m) => {
+              const locked = Boolean(m.comingSoon)
+              const selected = vr.transfer_method === m.value
+              return (
+                <button
+                  key={m.value}
+                  type="button"
+                  disabled={locked}
+                  onClick={() => setVr(p => ({ ...p, transfer_method: m.value }))}
+                  className={`w-full text-left border rounded-lg p-2.5 transition-colors ${
+                    selected
+                      ? 'border-brand bg-brand/10'
+                      : locked
+                        ? 'border-white/5 bg-white/[0.02] opacity-50 cursor-not-allowed'
+                        : 'border-white/10 hover:border-white/25'
+                  }`}
+                >
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-sm font-medium text-white">{m.name}</p>
+                    {selected && <span className="text-xs text-brand font-medium flex-shrink-0">Active</span>}
+                    {m.comingSoon && <span className="text-xs text-white/40 flex-shrink-0">Coming soon</span>}
+                  </div>
+                  <p className="text-xs text-white/50 mt-0.5">{m.blurb}</p>
+                </button>
+              )
+            })}
+          </div>
+          {vr.transfer_method !== 'off' && (
+            <div>
+              <label className="text-xs font-medium text-white/70 block mb-1">Who can take transfers</label>
+              {people.length === 0 ? (
+                <p className="text-xs text-white/40">No Hub users found.</p>
+              ) : (
+                <div className="space-y-1 max-h-48 overflow-y-auto border border-white/10 rounded p-2">
+                  {people.map((u) => {
+                    const checked = vr.transfer_user_ids.includes(u.id)
+                    return (
+                      <label key={u.id} className="flex items-center gap-2 text-sm text-white/80 cursor-pointer py-0.5">
+                        <input
+                          type="checkbox"
+                          checked={checked}
+                          onChange={() =>
+                            setVr(p => ({
+                              ...p,
+                              transfer_user_ids: (checked
+                                ? p.transfer_user_ids.filter(id => id !== u.id)
+                                : [...p.transfer_user_ids, u.id]
+                              ).sort(),
+                            }))
+                          }
+                          className="accent-brand"
+                        />
+                        {u.display_name}
+                      </label>
+                    )
+                  })}
+                </div>
+              )}
+              <p className="text-xs text-white/40 mt-1">
+                {vr.transfer_method === 'softphone'
+                  ? 'Rings the Dialer softphone for the checked people who are logged in; whoever answers first is connected. If no one answers in ~25 seconds, the caller can leave a message.'
+                  : 'The checked people will be reached when a caller asks for a live person.'}
+              </p>
+            </div>
+          )}
         </div>
 
         {/* Save / Revert */}
