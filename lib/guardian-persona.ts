@@ -16,9 +16,10 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
-  getAlwaysIncludedDocs,
+  getDocsForSurface,
   getKnowledgeDoc,
   estimateTokens,
+  type GuardianSurface,
 } from '@/lib/guardian-knowledge'
 import { createAdminClient } from '@/lib/supabase/admin'
 
@@ -85,6 +86,11 @@ export type GuardianKnowledge = 'voice' | 'customer'
 export async function buildGuardianSystem(opts: {
   companyId: string
   knowledge: GuardianKnowledge
+  // Which AI surface is asking. Controls which knowledge docs auto-include (a
+  // doc is included only if its "Used by" audiences contains this surface). All
+  // docs default to every surface, so this changes nothing until an admin scopes
+  // a doc in Admin → AI → Knowledge.
+  surface: GuardianSurface
   task: string
   jobberSummary?: string | null
   admin?: SupabaseClient
@@ -105,17 +111,18 @@ export async function buildGuardianSystem(opts: {
     // non-fatal — proceed without the identity doc
   }
 
-  // Always-included KB docs — the company-wide knowledge Ben flags to travel
-  // everywhere. Same loader the Responder and @Guardian already use. The
-  // `identity` doc is excluded here because it was already placed first above.
+  // Surface-scoped KB docs — the company knowledge whose "Used by" audience
+  // includes this surface (successor to the all-or-nothing always_include list).
+  // `identity` (already placed first above) and `customer_service` (added by the
+  // customer-mode path below) are excluded here to avoid double-inclusion.
   try {
-    const docs = await getAlwaysIncludedDocs(admin, opts.companyId)
-    const rest = docs.filter((d) => d.slug !== 'identity')
+    const docs = await getDocsForSurface(admin, opts.companyId, opts.surface)
+    const rest = docs.filter((d) => d.slug !== 'identity' && d.slug !== 'customer_service')
     if (rest.length > 0) {
       sections.push(rest.map((d) => `## ${d.title}\n\n${d.body}`).join('\n\n---\n\n'))
     }
   } catch {
-    // non-fatal — proceed without the always-included docs
+    // non-fatal — proceed without the surface docs
   }
 
   // Customer-service playbook — only for surfaces that write to / advise on a

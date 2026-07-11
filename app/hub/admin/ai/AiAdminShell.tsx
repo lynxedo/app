@@ -32,6 +32,7 @@ type Doc = {
   title: string
   body: string
   always_include: boolean
+  audiences: string[]
   created_at: string
   updated_at: string
   updated_by: string | null

@@ -5,6 +5,7 @@ import {
   getKnowledgeDocs,
   saveVersion,
   isRouterSlug,
+  parseAudiences,
   type KnowledgeDoc,
 } from '@/lib/guardian-knowledge'
 
@@ -48,7 +49,11 @@ export async function POST(request: Request) {
   const slug = typeof body.slug === 'string' ? body.slug.trim() : ''
   const title = typeof body.title === 'string' ? body.title.trim() : ''
   const docBody = typeof body.body === 'string' ? body.body : ''
-  const alwaysInclude = body.always_include === true
+  // "Used by" audiences are the source of truth now; always_include is kept in
+  // sync (true when the doc is auto-included by at least one surface) for any
+  // legacy reader.
+  const audiences = parseAudiences(body.audiences)
+  const alwaysInclude = audiences.length > 0
 
   if (!slug) return NextResponse.json({ error: 'Slug is required' }, { status: 400 })
   if (!SLUG_RE.test(slug)) {
@@ -74,6 +79,7 @@ export async function POST(request: Request) {
       title,
       body: docBody,
       always_include: alwaysInclude,
+      audiences,
       updated_by: ctx.userId,
       updated_at: new Date().toISOString(),
     })

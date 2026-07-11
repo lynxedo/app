@@ -100,6 +100,7 @@ export async function generateAndSendResponderReply(opts: {
     systemPrompt = await buildGuardianSystem({
       companyId,
       knowledge: 'customer',
+      surface: 'responder',
       task: basePrompt,
     })
   } catch {

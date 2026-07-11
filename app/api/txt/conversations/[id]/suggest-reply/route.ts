@@ -194,6 +194,7 @@ export async function POST(
   const systemPrompt = await buildGuardianSystem({
     companyId,
     knowledge: 'customer',
+    surface: 'guardian',
     task: buildSuggestTask(tone),
     jobberSummary: jobberSummary ?? 'No Jobber record found for this contact.',
     admin: adminClient,

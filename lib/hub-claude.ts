@@ -160,6 +160,7 @@ async function buildSystemPrompt(
   return buildGuardianSystem({
     companyId,
     knowledge: 'customer',
+    surface: 'guardian',
     task: basePrompt,
   })
 }

@@ -146,6 +146,7 @@ export async function POST(
   const system = await buildGuardianSystem({
     companyId,
     knowledge: 'customer',
+    surface: 'guardian',
     task: POLISH_TASK,
     admin: adminClient,
   })
