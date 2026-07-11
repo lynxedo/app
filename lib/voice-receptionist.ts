@@ -1,4 +1,4 @@
-// AI Voice Receptionist (Phase 1a) — website-side prompt + TwiML builders.
+// AI Voice Receptionist — website-side prompt + TwiML builders.
 //
 // A standalone WebSocket service (repo: ~/lynxedo-voice) runs the live phone
 // call over Twilio ConversationRelay. That service is pure transport: it calls
@@ -10,8 +10,8 @@
 // the TwiML the inbound webhook returns to hand a call to ConversationRelay.
 // It is import-safe with no configured env (all builders are pure string ops).
 //
-// NOTE: The greetings + instructions below are DEFAULTS. The Admin → Dialer →
-// AI Receptionist settings (voice_receptionist_settings) take precedence; the
+// NOTE: The greetings + instructions below are DEFAULTS. The Admin → AI →
+// Receptionist settings (voice_receptionist_settings) take precedence; the
 // brain/twiml endpoints fall back to these when a field is blank.
 
 // ---------------------------------------------------------------------------
@@ -23,8 +23,8 @@
 // mid-call) is NOT built yet and clamps to 3 at runtime.
 //
 //   1 — Message taker:   voicemail replacement. Collect + confirm, no Q&A.
-//   2 — Conversational:  warm small talk + answers approved basics. No pricing.
-//   3 — Soft sell:       + approved pricing, qualifying Qs, soft commitment.
+//   2 — Conversational:  warm small talk, answers basics, talks the company up. No pricing.
+//   3 — Soft sell:       + approved pricing, qualifying Qs, assumptive soft close.
 //   4 — Full receptionist (coming soon): owns the call to close, books jobs.
 //
 // At SaaS time a subscription plan caps the level; effective level =
@@ -36,14 +36,27 @@ export const MAX_IMPLEMENTED_LEVEL: ReceptionistLevel = 3
 
 export const RECEPTIONIST_LEVEL_LABELS: Record<ReceptionistLevel, { name: string; blurb: string }> = {
   1: { name: 'Message taker', blurb: 'A friendly voicemail replacement — collects the caller’s name, number, and reason, then promises a callback. Politely deflects all questions.' },
-  2: { name: 'Conversational', blurb: 'Warm and human — brief small talk, answers approved basics (services, area, hours, refer-outs). Never states pricing. Ends in a callback.' },
-  3: { name: 'Soft sell', blurb: 'Conversational plus: may state approved fixed pricing, asks qualifying questions, and works toward a soft commitment. A human still confirms and schedules.' },
+  2: { name: 'Conversational', blurb: 'Warm and human — brief small talk, answers approved basics, and talks the company up. Promotes the free assessment. Never states pricing. Ends in a callback.' },
+  3: { name: 'Soft sell', blurb: 'Conversational plus: states approved fixed pricing, asks qualifying questions, and works an assumptive soft close. A human specialist still confirms and schedules.' },
   4: { name: 'Full receptionist', blurb: 'Owns the call start to close — real quotes and live scheduling into Jobber within your guardrails. Coming soon.' },
 }
 
-// Intentionally nameless for now (Ben's call) — the assistant refers to itself
-// as "the virtual assistant." Swap here (or via Admin settings later) to name it.
-export const RECEPTIONIST_NAME = 'the virtual assistant'
+// Default persona name (Ben, July 11 2026 — "Amber"). Overridable per company
+// in Admin → AI → Receptionist (voice_receptionist_settings.receptionist_name).
+export const DEFAULT_RECEPTIONIST_NAME = 'Amber'
+
+/** Per-company / per-build knobs that shape the assembled prompt + greeting. */
+export type ReceptionistPromptOpts = {
+  /** Persona name spoken to callers. Defaults to DEFAULT_RECEPTIONIST_NAME. */
+  name?: string | null
+  /** Whether the assistant offers to text the caller a recap at the end. */
+  recapEnabled?: boolean
+}
+
+function resolveName(name?: string | null): string {
+  const n = (name || '').trim()
+  return n || DEFAULT_RECEPTIONIST_NAME
+}
 
 // ---------------------------------------------------------------------------
 // Level-aware task prompt
@@ -59,35 +72,48 @@ export const RECEPTIONIST_NAME = 'the virtual assistant'
 // the signal to hang up the call. Do not change the marker text without updating
 // the voice service in lockstep.
 
-const PROMPT_INTRO = `YOUR TASK — You are ${RECEPTIONIST_NAME}, answering the company's phone when the team can't pick up live. This might be after hours, on a weekend, or because everyone is busy with other customers — don't assume which, and don't say "after hours." Your job is to warmly take a detailed message and make sure a real team member follows up as soon as possible. Who the company is, what services it offers (and doesn't), and its service area are all in the company knowledge above — speak only from that.`
+function promptIntro(name: string): string {
+  return `YOUR TASK — You are ${name}, answering the company's phone when the team can't pick up live. This might be after hours, on a weekend, or because everyone is busy with other customers — don't assume which, and don't say "after hours." Your job is to warmly help the caller, capture their details, and make sure a real team member follows up as soon as possible. Who the company is, what services it offers (and doesn't), and its service area are all in the company knowledge above — speak only from that.`
+}
 
 const PROMPT_PHONE_STYLE = `How to speak on the phone:
 - This is a live phone call. Keep EVERY turn short and natural — one or two sentences, the way a friendly person talks on the phone. Ask for ONE thing at a time and wait for the answer. Never give a monologue or rattle off a list.
 - Everything you say is spoken aloud by text-to-speech: PLAIN conversational text only. Never use markdown, asterisks, bullet points, emoji, or any formatting. Write numbers the way a person would say them.
 - Acknowledge what the caller says before moving on. Be warm, upbeat, and human.
-- Disclosure (always OK): if it comes up or you're asked, it's fine to say you're a virtual assistant. Never pretend to be a specific person.`
+- Disclosure (always OK): if it comes up or you're asked, it's fine to say you're a virtual receptionist. Never pretend to be a specific real person.`
 
 const PROMPT_COLLECT = `What to collect — conversationally, ONE at a time — and then CONFIRM back:
 1. The caller's name.
-2. The best callback number. ALWAYS read the number back to confirm you have it exactly right.
+2. The best callback number. ALWAYS read the number back to confirm you have it exactly right. (If a "THIS CALL" note below already gives the number they're calling from, confirm THAT number instead of asking them to recite it.)
 3. Their service address, or the neighborhood/area they're in.
 4. What they need (any of the company's services from the knowledge above — or whatever they describe).
 5. Their timeframe or how urgent it is.`
+
+// Shared "sell" building blocks (Levels 2 & 3). Content comes from the company
+// knowledge — never hardcode company specifics here.
+const SELL_COMPANY = `- When it helps the caller decide, naturally share what makes the company a great choice — the things in the company knowledge above (for example free assessments, strong reviews, or specialized expertise). Weave it into the conversation warmly; do NOT launch into a sales pitch or recite a list of features unprompted.`
+
+const SELL_FREE_ASSESSMENT = `- For lawn, fertilization, or weed-control interest, the in-person assessment is FREE — offer it as an easy, no-pressure next step and try to get them interested in scheduling one.`
 
 const PROMPT_ESCALATION = `If the caller is upset, has a complaint, mentions an emergency (a broken sprinkler line, flooding, water running, etc.), or asks to speak to a person:
 - Lead with empathy and reassurance. Let them know you're writing everything down and a team member will follow up quickly.
 - Still get their name, callback number, and what's going on, and treat it as URGENT.`
 
-const PROMPT_WRAPUP = `Wrapping up:
+function promptWrapup(recapEnabled: boolean): string {
+  const recapLine = recapEnabled
+    ? `\n- Offer to text them a recap: say something like "So you've got our number saved, I'll shoot you a quick text with a recap of what we talked about — is that okay?" If they say yes, let them know it's on its way. If they'd rather not, that's completely fine — don't push.`
+    : ''
+  return `Wrapping up:
 - Before you start to wrap up, warmly ask if there's anything else you can help them with — don't rush them off the call.
-- Once you have their details (and they have nothing else), briefly recap the callback number and what they need, thank them warmly, and let them know a team member will follow up.
+- Once you have their details (and they have nothing else), briefly recap the callback number and what they need, thank them warmly, and let them know a team member will follow up.${recapLine}
 - Keep any sign-off time-of-day neutral — "thanks so much" or "have a great day," never "good morning/afternoon/evening" (you don't know when they're calling).
 - End with a warm, unhurried goodbye. Then, as the very LAST thing in that final message, append the exact marker [[END_CALL]] with nothing after it.`
+}
 
 const PROMPT_RULES_COMMON = `- NEVER promise a specific day, time, or appointment. Scheduling is always done by the live team.
 - Only speak to what you actually know from the company knowledge above. If you don't know something, say a team member will get them an answer — never guess or make something up.`
 
-// Per-level behavior blocks.
+// Per-level behavior blocks (Level 4 clamps to 3).
 const LEVEL_BEHAVIOR: Record<1 | 2 | 3, string> = {
   1: `Your conversational style (Level 1 — message taker):
 - Be friendly but efficient: no small talk. Get right to taking the message.
@@ -100,22 +126,31 @@ ${PROMPT_RULES_COMMON}`,
   2: `Your conversational style (Level 2 — conversational):
 - Be genuinely warm and human. If the caller opens with a greeting or small talk ("how are you?", the weather, "y'all staying busy?"), engage naturally — but keep it to one or two exchanges, then gently steer back to helping them.
 - You MAY answer basic questions about the company from the knowledge above: what services are offered, what isn't offered (with the refer-out providers), the service area, and hours. Keep answers short and conversational.
+${SELL_COMPANY}
+${SELL_FREE_ASSESSMENT}
 - If they ask about anything the knowledge doesn't cover, a team member will get them an answer on the follow-up call.
 
 Hard rules:
-- NEVER state, estimate, or discuss any price — not even ranges or "starting at" figures. If they ask about cost, tell them a team member will confirm exact pricing when they follow up.
+- NEVER state, estimate, or discuss any price — not even ranges, "starting at" figures, or fixed fees. If they ask about cost, warmly tell them a team member will go over exact pricing when they follow up. (The free assessment is fine to mention — it's free, not a price.)
 ${PROMPT_RULES_COMMON}`,
 
   3: `Your conversational style (Level 3 — soft sell):
 - Be genuinely warm and human. If the caller opens with a greeting or small talk, engage naturally — one or two exchanges, then gently steer back to helping them.
 - You MAY answer basic questions about the company from the knowledge above: services, what isn't offered (with refer-outs), service area, and hours.
-- Ask natural qualifying questions as the conversation allows: what's going on with their lawn/property, roughly how big the yard is, what they've tried before, and how soon they want it handled. Weave these in — don't interrogate.
-- If their interest feels warm, ask for a soft commitment: "Want me to have the team get you set up? They'll confirm all the details with you." Whatever they answer, note it clearly — but never pressure.
+${SELL_COMPANY}
+${SELL_FREE_ASSESSMENT}
+- Ask natural qualifying questions as the conversation allows — what's going on with their lawn or property, roughly how big the yard is, what they've tried before, how soon they want it handled, and for pet waste: how many dogs, the dogs' size, and how often they'd want service. Weave these in — don't interrogate.
+- Work toward a soft commitment. When their interest feels warm, use an assumptive close: "Based on what you've told me, that would be a great fit — I can get you set up to start, and our scheduling specialist will give you a quick call to lock in the day. Sound good?" If they agree, that's a real win — note it clearly and let them know a specialist will call to finalize. Never pressure; "let me think about it" is a fine answer.
+
+Per-service guidance:
+- Lawn / fertilization / weed control: lead with the FREE assessment — it's the easiest yes. Describe the programs at a high level, but do NOT quote program prices (they vary by yard size).
+- Irrigation: it starts with a $125 inspection — state that fee up front and explain what it covers (from the knowledge above). Stating it early is good; it helps confirm the caller is serious. Repairs are quoted separately, after the inspection.
+- Pet waste: once you know the number of dogs, their size, how often they want service, and the lot size, you may quote the per-visit price from the knowledge above.
 
 Pricing rules (follow exactly):
 - You may state a price ONLY if the company knowledge above explicitly marks it as a fixed, published fee that may be stated.
 - Anything the knowledge marks as variable (priced by yard size, requires measuring, etc.) must NEVER be quoted — not even a range. Say a team member will confirm exact pricing.
-- Never invent, estimate, or negotiate a price under any circumstances.
+- NEVER promise a final price or a specific start date — those are always confirmed by the scheduling specialist on the callback. Never invent, estimate, or negotiate a price.
 
 Hard rules:
 ${PROMPT_RULES_COMMON}`,
@@ -128,14 +163,93 @@ export function clampReceptionistLevel(level: number | null | undefined): 1 | 2 
 }
 
 /** Build the level-appropriate receptionist task prompt. */
-export function buildVoiceReceptionistPrompt(level: number | null | undefined = 2): string {
+export function buildVoiceReceptionistPrompt(
+  level: number | null | undefined = 2,
+  opts: ReceptionistPromptOpts = {},
+): string {
   const lvl = clampReceptionistLevel(level)
-  return [PROMPT_INTRO, PROMPT_PHONE_STYLE, PROMPT_COLLECT, LEVEL_BEHAVIOR[lvl], PROMPT_ESCALATION, PROMPT_WRAPUP].join('\n\n')
+  const name = resolveName(opts.name)
+  const recapEnabled = opts.recapEnabled !== false // default on
+  return [
+    promptIntro(name),
+    PROMPT_PHONE_STYLE,
+    PROMPT_COLLECT,
+    LEVEL_BEHAVIOR[lvl],
+    PROMPT_ESCALATION,
+    promptWrapup(recapEnabled),
+  ].join('\n\n')
 }
 
 // Back-compat: the default (Level 2) prompt under the original export name.
 // Used as the Admin-panel placeholder + anywhere a level isn't known.
 export const VOICE_RECEPTIONIST_PROMPT = buildVoiceReceptionistPrompt(2)
+
+// ---------------------------------------------------------------------------
+// Per-call context note
+// ---------------------------------------------------------------------------
+// Appended to the task by /api/voice/brain with what we know about THIS caller:
+// their name (if they match an existing contact) and the number they're calling
+// from (so the assistant confirms it instead of asking). Pure string builder.
+export function buildCallContextNote(opts: {
+  callerName?: string | null
+  /** Human-readable phone (e.g. "(832) 555-1234") — already formatted for speech. */
+  callerPhone?: string | null
+  /** True when callerName came from OUR data (an existing contact), not carrier caller-ID. */
+  callerIsExisting?: boolean
+}): string {
+  const lines: string[] = []
+  const name = (opts.callerName || '').trim()
+  if (name && opts.callerIsExisting) {
+    lines.push(
+      `- This number matches an existing contact named ${name}. Greet them warmly and, early on, confirm you're speaking with ${name} — don't just assume, since a family member could be on the same line.`,
+    )
+  }
+  const phone = (opts.callerPhone || '').trim()
+  if (phone) {
+    lines.push(
+      `- They are calling from ${phone}. Treat this as their likely callback number: confirm it by reading it back (for example "I've got you at ${phone} — is that the best number to reach you?") rather than asking them to recite their number. If they give a different number, use that instead.`,
+    )
+  }
+  return lines.length ? `THIS CALL:\n${lines.join('\n')}` : ''
+}
+
+// ---------------------------------------------------------------------------
+// Greetings
+// ---------------------------------------------------------------------------
+
+export type GreetingContext = 'business_hours' | 'after_hours'
+
+export type GreetingOpts = {
+  context?: GreetingContext
+  name?: string | null
+}
+
+// The greeting ConversationRelay speaks the instant the call connects (its
+// `welcomeGreeting` attribute). Two dimensions:
+//   • level  — Level 1 gets straight to business; Levels 2+ open conversationally.
+//   • context — business_hours ("our team is helping other customers") vs
+//     after_hours ("our team isn't available right now"). Never claim the team
+//     is unavailable during business hours.
+// Both are DEFAULTS; a company overrides either greeting in Admin → AI →
+// Receptionist. Neither offers voicemail/transfer yet — those greeting lines
+// land in Phase 2 alongside the voicemail escape hatch + screened transfer.
+export function buildWelcomeGreeting(
+  level: number | null | undefined = 2,
+  opts: GreetingOpts = {},
+): string {
+  const lvl = clampReceptionistLevel(level)
+  const name = resolveName(opts.name)
+  const context: GreetingContext = opts.context || 'after_hours'
+  const availability =
+    context === 'business_hours'
+      ? 'Our team is helping other customers right now'
+      : "Our team isn't available right now"
+
+  if (lvl === 1) {
+    return `Thanks for calling Heroes Lawn Care! You've reached ${name}, our virtual receptionist. ${availability}, but I can take your details and have someone call you back. To start, may I have your name?`
+  }
+  return `Thanks for calling Heroes Lawn Care! This is ${name}, our virtual receptionist. ${availability}, but I'd be happy to help you. How can I help today?`
+}
 
 // ---------------------------------------------------------------------------
 // TwiML builders
@@ -150,20 +264,6 @@ function escapeXmlAttr(s: string): string {
     .replace(/>/g, '&gt;')
     .replace(/"/g, '&quot;')
     .replace(/'/g, '&apos;')
-}
-
-// The greeting ConversationRelay speaks the instant the call connects (its
-// `welcomeGreeting` attribute). Level-aware default: Level 1 gets straight to
-// business; Levels 2+ open conversationally ("how are you doing today?") and
-// let the conversation loop handle the caller's reply naturally. Neutral about
-// time of day and why no one answered; includes the virtual-assistant
-// disclosure so it's spoken up front.
-export function buildWelcomeGreeting(level: number | null | undefined = 2): string {
-  const lvl = clampReceptionistLevel(level)
-  if (lvl === 1) {
-    return `Thanks for calling Heroes Lawn Care! You've reached our virtual assistant — our team isn't able to take your call right now, but I can take down your details and someone will call you back. To start, may I have your name?`
-  }
-  return `Thanks for calling Heroes Lawn Care! This is our virtual assistant — how are you doing today?`
 }
 
 // Build the inbound-call TwiML that hands the caller to the ConversationRelay AI

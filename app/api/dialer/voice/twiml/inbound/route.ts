@@ -247,13 +247,15 @@ export async function POST(request: NextRequest) {
       // (which lands in voicemail) below.
       const vr = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
       if (vr.enabled) {
+        // This branch only fires on the after_hours/holiday IVR tree, so the
+        // team is genuinely unavailable — use the after-hours greeting.
         return respond(
           buildConversationRelayTwiml({
             baseUrl,
             wssUrl: process.env.VOICE_WSS_URL,
             wsKey: process.env.VOICE_WS_SECRET || '',
             voiceId: vr.voiceId,
-            greeting: vr.greeting,
+            greeting: vr.greetingAfterHours,
           })
         )
       }

@@ -2,11 +2,13 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
+  DEFAULT_RECEPTIONIST_NAME,
   MAX_IMPLEMENTED_LEVEL,
   buildVoiceReceptionistPrompt,
   buildWelcomeGreeting,
 } from '@/lib/voice-receptionist'
 import {
+  VOICE_RECEPTIONIST_COLUMNS,
   getPlanMaxReceptionistLevel,
   getVoiceReceptionistSettings,
   resolveVoiceReceptionistSettings,
@@ -42,11 +44,25 @@ export async function GET() {
     enabled: effective.enabled,
     level: effective.level,
     plan_max_level: planMaxLevel,
-    greeting: row?.greeting ?? '',
+    receptionist_name: row?.receptionist_name ?? '',
+    greeting_business_hours: row?.greeting_business_hours ?? '',
+    greeting_after_hours: row?.greeting_after_hours ?? row?.greeting ?? '',
     instructions: row?.instructions ?? '',
     voice_id: row?.voice_id ?? '',
-    greeting_default: buildWelcomeGreeting(effective.effectiveLevel),
-    instructions_default: buildVoiceReceptionistPrompt(effective.effectiveLevel),
+    recap_text_enabled: effective.recapTextEnabled,
+    receptionist_name_default: DEFAULT_RECEPTIONIST_NAME,
+    greeting_business_hours_default: buildWelcomeGreeting(effective.effectiveLevel, {
+      context: 'business_hours',
+      name: effective.receptionistName,
+    }),
+    greeting_after_hours_default: buildWelcomeGreeting(effective.effectiveLevel, {
+      context: 'after_hours',
+      name: effective.receptionistName,
+    }),
+    instructions_default: buildVoiceReceptionistPrompt(effective.effectiveLevel, {
+      name: effective.receptionistName,
+      recapEnabled: effective.recapTextEnabled,
+    }),
     voice_id_default: process.env.VOICE_ELEVENLABS_VOICE_ID || '',
     effective,
   })
@@ -79,15 +95,19 @@ export async function PATCH(req: NextRequest) {
     }
     update.level = lvl
   }
-  if ('greeting' in body) update.greeting = normalizeText(body.greeting)
+  if ('receptionist_name' in body) update.receptionist_name = normalizeText(body.receptionist_name)
+  if ('greeting_business_hours' in body) update.greeting_business_hours = normalizeText(body.greeting_business_hours)
+  if ('greeting_after_hours' in body) update.greeting_after_hours = normalizeText(body.greeting_after_hours)
+  if ('greeting' in body) update.greeting = normalizeText(body.greeting) // legacy single greeting
   if ('instructions' in body) update.instructions = normalizeText(body.instructions)
   if ('voice_id' in body) update.voice_id = normalizeText(body.voice_id)
+  if ('recap_text_enabled' in body) update.recap_text_enabled = Boolean(body.recap_text_enabled)
 
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('voice_receptionist_settings')
     .upsert(update, { onConflict: 'company_id' })
-    .select('company_id, enabled, level, greeting, instructions, voice_id, updated_at, updated_by')
+    .select(VOICE_RECEPTIONIST_COLUMNS)
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

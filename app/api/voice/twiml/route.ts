@@ -1,6 +1,8 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
+  BusinessHoursSchedule,
   EMPTY_VOICE_TWIML,
+  isWithinBusinessHours,
   twimlRecordVoicemail,
   validateTwilioVoiceSignature,
   voiceConfigured,
@@ -68,13 +70,24 @@ export async function POST(request: NextRequest) {
     )
   }
 
+  // Pick the greeting by context: during business hours the team is "helping
+  // other customers"; outside them they're "not available". Reuses the dialer's
+  // own business-hours schedule so the two stay consistent.
+  const { data: ds } = await admin
+    .from('dialer_settings')
+    .select('business_hours')
+    .eq('company_id', HEROES_COMPANY_ID)
+    .maybeSingle()
+  const inHours = isWithinBusinessHours((ds?.business_hours as BusinessHoursSchedule | null) ?? null)
+  const greeting = inHours ? settings.greetingBusinessHours : settings.greetingAfterHours
+
   return twimlResponse(
     buildConversationRelayTwiml({
       baseUrl,
       wssUrl: process.env.VOICE_WSS_URL || '',
       wsKey: process.env.VOICE_WS_SECRET || '',
       voiceId: settings.voiceId,
-      greeting: settings.greeting,
+      greeting,
     })
   )
 }
