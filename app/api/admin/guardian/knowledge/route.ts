@@ -15,7 +15,7 @@ const SLUG_MAX = 60
 const TITLE_MAX = 120
 
 async function requireGuardianAdmin() {
-  const check = await requireAdminArea('guardian')
+  const check = await requireAdminArea('ai')
   if (!check.ok || !check.company_id || !check.user) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }

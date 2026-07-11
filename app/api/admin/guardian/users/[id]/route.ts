@@ -10,7 +10,7 @@ export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const check = await requireAdminArea('guardian')
+  const check = await requireAdminArea('ai')
   if (!check.ok || !check.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }

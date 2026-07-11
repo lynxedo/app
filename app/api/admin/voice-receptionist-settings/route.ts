@@ -14,7 +14,7 @@ import {
 
 // Admin editor for the AI Voice Receptionist's greeting, behavior instructions
 // (prompt), voice, and on/off toggle. Gated identically to the Responder /
-// Dialer admin routes (requireAdminArea('dialer')). Mirrors that GET/upsert
+// AI admin routes (requireAdminArea('ai')). Mirrors that GET/upsert
 // shape; all reads/writes use the service-role admin client.
 
 // Trim a text input; treat an empty string as NULL so the call-time resolver
@@ -26,7 +26,7 @@ function normalizeText(v: unknown): string | null {
 }
 
 export async function GET() {
-  const auth = await requireAdminArea('dialer')
+  const auth = await requireAdminArea('ai')
   if (!auth.ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
 
   const admin = createAdminClient()
@@ -53,7 +53,7 @@ export async function GET() {
 }
 
 export async function PATCH(req: NextRequest) {
-  const auth = await requireAdminArea('dialer')
+  const auth = await requireAdminArea('ai')
   if (!auth.ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
 
   const body = await req.json().catch(() => ({} as Record<string, unknown>))

@@ -6,7 +6,6 @@ import { pickIvrTree } from '@/lib/ivr-routing'
 import ExtensionsPanel, { type ExtensionRow } from './ExtensionsPanel'
 import RingGroupsPanel, { type RingGroup } from './RingGroupsPanel'
 import { DEFAULT_DISPOSITIONS } from '@/lib/dialer-dispositions'
-import { type ResponderSettings, type ResponderCall, RESPONDER_DEFAULTS } from '@/lib/responder'
 import { useConfirm } from '@/components/ui'
 
 type DayKey = 'sun' | 'mon' | 'tue' | 'wed' | 'thu' | 'fri' | 'sat'
@@ -51,51 +50,16 @@ type Settings = {
 
 type HubUser = { id: string; display_name: string }
 
-// AI Voice Receptionist — stored form values + code/env defaults (placeholders).
-type VoiceReceptionistInitial = {
-  enabled: boolean
-  level: number
-  plan_max_level: number
-  greeting: string
-  instructions: string
-  voice_id: string
-  greeting_default: string
-  instructions_default: string
-  voice_id_default: string
-}
-
-// Capability ladder (Ben's product tiers). Level 4 exists in the UI but is not
-// built yet; the API rejects saving it. At SaaS time levels above the plan cap
-// render locked with an upgrade nudge.
-const VR_LEVELS: { level: number; name: string; blurb: string; comingSoon?: boolean }[] = [
-  { level: 1, name: 'Level 1 — Message taker', blurb: 'A friendly voicemail replacement: collects name, number, and reason, then promises a callback. Politely deflects all questions.' },
-  { level: 2, name: 'Level 2 — Conversational', blurb: 'Warm and human — brief small talk, answers approved basics (services, area, hours, refer-outs). Never states pricing.' },
-  { level: 3, name: 'Level 3 — Soft sell', blurb: 'Conversational plus: may state approved fixed pricing, asks qualifying questions, and captures a soft commitment. A human still confirms.' },
-  { level: 4, name: 'Level 4 — Full receptionist', blurb: 'Owns the call start to close — real quotes and live scheduling into Jobber within your guardrails.', comingSoon: true },
-]
-
-const RESP_DAY_LABELS = [
-  { num: 1, label: 'Mon' }, { num: 2, label: 'Tue' }, { num: 3, label: 'Wed' },
-  { num: 4, label: 'Thu' }, { num: 5, label: 'Fri' }, { num: 6, label: 'Sat' },
-  { num: 0, label: 'Sun' },
-]
-
 export default function DialerAdminPanel({
   initial,
   hubUsers,
   initialExtensions,
   initialRingGroups,
-  initialResponder,
-  initialResponderCalls,
-  initialVoiceReceptionist,
 }: {
   initial: Settings
   hubUsers: HubUser[]
   initialExtensions: ExtensionRow[]
   initialRingGroups: RingGroup[]
-  initialResponder: Omit<ResponderSettings, 'id' | 'company_id'> | null
-  initialResponderCalls: ResponderCall[]
-  initialVoiceReceptionist: VoiceReceptionistInitial
 }) {
   const confirmDialog = useConfirm()
   const [s, setS] = useState<Settings>(initial)
@@ -108,78 +72,6 @@ export default function DialerAdminPanel({
   const [uploadingConsent, setUploadingConsent] = useState(false)
   const fileInputRef = useRef<HTMLInputElement>(null)
   const consentFileInputRef = useRef<HTMLInputElement>(null)
-
-  // Responder — separate state + save from main dialer settings
-  const [resp, setResp] = useState<Omit<ResponderSettings, 'id' | 'company_id'>>(
-    initialResponder ?? RESPONDER_DEFAULTS
-  )
-  const [respSaving, setRespSaving] = useState(false)
-  const [respSavedAt, setRespSavedAt] = useState<number | null>(null)
-  const [respError, setRespError] = useState<string | null>(null)
-  const [respCalls, setRespCalls] = useState<ResponderCall[]>(initialResponderCalls)
-
-  // AI Voice Receptionist — separate state + save from the main dialer settings.
-  const [vr, setVr] = useState({
-    enabled: initialVoiceReceptionist.enabled,
-    level: initialVoiceReceptionist.level,
-    greeting: initialVoiceReceptionist.greeting,
-    instructions: initialVoiceReceptionist.instructions,
-    voice_id: initialVoiceReceptionist.voice_id,
-  })
-  const [vrSaving, setVrSaving] = useState(false)
-  const [vrSavedAt, setVrSavedAt] = useState<number | null>(null)
-  const [vrError, setVrError] = useState<string | null>(null)
-
-  async function saveVr() {
-    setVrSaving(true)
-    setVrError(null)
-    try {
-      const res = await fetch('/api/admin/voice-receptionist-settings', {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          enabled: vr.enabled,
-          level: vr.level,
-          greeting: vr.greeting,
-          instructions: vr.instructions,
-          voice_id: vr.voice_id,
-        }),
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        throw new Error(body?.error ?? `Save failed (${res.status})`)
-      }
-      setVrSavedAt(Date.now())
-    } catch (err) {
-      setVrError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setVrSaving(false)
-    }
-  }
-
-  async function saveResp() {
-    setRespSaving(true)
-    setRespError(null)
-    try {
-      const res = await fetch('/api/admin/responder-settings', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(resp),
-      })
-      if (!res.ok) {
-        const body = await res.json().catch(() => null)
-        throw new Error(body?.error ?? `Save failed (${res.status})`)
-      }
-      setRespSavedAt(Date.now())
-      // Refresh the activity log
-      const callsRes = await fetch('/api/admin/responder-calls')
-      if (callsRes.ok) setRespCalls(await callsRes.json())
-    } catch (err) {
-      setRespError(err instanceof Error ? err.message : String(err))
-    } finally {
-      setRespSaving(false)
-    }
-  }
 
   async function save() {
     setSaving(true)
@@ -330,14 +222,14 @@ export default function DialerAdminPanel({
   // Sub-section tabs. Inbound routing / IVR / ring groups / hours+holidays are
   // grouped; voicemail bundles greeting + notify + recording + dispositions;
   // extensions and the responder each stand alone.
-  const [dtab, setDtab] = useState<'inbound' | 'voicemail' | 'extensions' | 'responder' | 'ai_receptionist'>('inbound')
+  const [dtab, setDtab] = useState<'inbound' | 'voicemail' | 'extensions'>('inbound')
 
   return (
     <div className="space-y-6">
       <header>
         <h1 className="text-xl font-semibold">Dialer</h1>
         <p className="text-sm text-white/60 mt-1">
-          Inbound call routing, voicemail, extensions, and the auto-text responder.
+          Inbound call routing, voicemail, and extensions.
         </p>
       </header>
 
@@ -355,8 +247,6 @@ export default function DialerAdminPanel({
           ['inbound', 'Inbound & IVR'],
           ['voicemail', 'Voicemail'],
           ['extensions', 'Extensions'],
-          ['responder', 'Responder'],
-          ['ai_receptionist', 'AI Receptionist'],
         ] as const).map(([key, label]) => (
           <button
             key={key}
@@ -698,451 +588,22 @@ export default function DialerAdminPanel({
       />
       </>)}
 
-      {/* ── RESPONDER ── */}
-      {dtab === 'responder' && (
-      <section className="border border-white/10 rounded-lg p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">Responder</h2>
-          <p className="text-xs text-white/50 mt-0.5">Auto-text callers who reach voicemail</p>
-        </div>
-
-        {/* Mode selector */}
-        <div className="space-y-2">
-          <label className="text-xs font-medium text-white/70 block">Mode</label>
-          <div className="grid gap-2">
-            {[
-              { val: 'off', title: 'Off', desc: 'Normal IVR and agent routing. No auto-text.' },
-              { val: 'forwarded_line', title: 'Forwarded Line', desc: 'For the 888 today. Calls forwarded here skip ringing → straight to voicemail. Auto-text sent after the call.' },
-              { val: 'main_line', title: 'Main Line', desc: 'For after we port our local number. Calls ring the team normally; only unanswered calls get the voicemail + auto-text.' },
-            ].map(opt => (
-              <button
-                key={opt.val}
-                type="button"
-                onClick={() => setResp(p => ({ ...p, mode: opt.val as typeof p.mode }))}
-                className={`text-left rounded-lg border px-3 py-2 transition-colors ${
-                  resp.mode === opt.val
-                    ? 'border-brand bg-brand/15'
-                    : 'border-white/10 bg-white/5 hover:bg-white/10'
-                }`}
-              >
-                <div className="flex items-center gap-2">
-                  <span className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${resp.mode === opt.val ? 'border-brand' : 'border-white/30'}`}>
-                    {resp.mode === opt.val && <span className="w-1.5 h-1.5 rounded-full bg-brand" />}
-                  </span>
-                  <span className="text-sm font-medium text-white">{opt.title}</span>
-                </div>
-                <p className="text-xs text-white/50 mt-1 ml-[22px]">{opt.desc}</p>
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {resp.mode === 'forwarded_line' && (
-          <div className="space-y-2">
-            <label className="text-xs font-medium text-white/70 block">Ring before voicemail</label>
-            <p className="text-xs text-white/50">
-              Let the call ring first so a missed call appears in the Dialer and triggers a notification — even if the caller hangs up without leaving a voicemail. Set to Off to keep the current behavior (straight to voicemail, no ring).
-            </p>
-            <div className="flex gap-1.5 flex-wrap">
-              {[0, 1, 2, 3, 5, 10, 15, 20].map(sec => (
-                <button
-                  key={sec}
-                  type="button"
-                  onClick={() => setResp(p => ({ ...p, forwarded_line_ring_sec: sec }))}
-                  className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                    resp.forwarded_line_ring_sec === sec
-                      ? 'bg-brand text-white'
-                      : 'bg-white/10 text-white/60 hover:bg-white/20'
-                  }`}
-                >
-                  {sec === 0 ? 'Off' : `${sec}s`}
-                </button>
-              ))}
-            </div>
-          </div>
+      {/* Save */}
+      <div className="flex items-center gap-3">
+        <button
+          onClick={save}
+          disabled={saving}
+          className="px-4 py-2 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
+        >
+          {saving ? 'Saving…' : 'Save'}
+        </button>
+        {savedAt && !error && (
+          <span className="text-xs text-emerald-300">Saved ✓</span>
         )}
-
-        {resp.mode !== 'off' && (
-          <div className="bg-sky-500/10 border border-sky-500/30 rounded-lg p-3 text-xs text-sky-200 leading-relaxed">
-            Callers hear the <strong>voicemail greeting from your regular Dialer settings above</strong> — there's no separate greeting here. The auto-text is sent a moment after the call ends.
-          </div>
+        {error && (
+          <span className="text-xs text-red-400">{error}</span>
         )}
-
-        {/* AI personalized reply */}
-        <div className="border border-white/10 rounded-lg p-3 space-y-2">
-          <div className="flex items-center justify-between">
-            <div>
-              <p className="text-sm font-medium text-white">AI personalized reply</p>
-              <p className="text-xs text-white/50 mt-0.5">
-                After transcribing a voicemail, sends a second SMS that references what the caller actually said — feels human, not automated.
-              </p>
-            </div>
-            <button
-              type="button"
-              role="switch"
-              aria-checked={resp.ai_reply_enabled}
-              onClick={() => setResp(p => ({ ...p, ai_reply_enabled: !p.ai_reply_enabled }))}
-              className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors ${
-                resp.ai_reply_enabled ? 'bg-brand' : 'bg-white/20'
-              }`}
-            >
-              <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-                resp.ai_reply_enabled ? 'translate-x-4' : 'translate-x-0'
-              }`} />
-            </button>
-          </div>
-          {resp.ai_reply_enabled && (
-            <p className="text-xs text-amber-300/80">
-              Only fires when the caller leaves a voicemail. SMS #1 (the generic template above) sends at call time; this AI reply sends ~30–90s later once transcription completes.
-            </p>
-          )}
-        </div>
-
-        {/* Business days */}
-        <div className="space-y-2">
-          <label className="text-xs font-medium text-white/70 block">Business days</label>
-          <div className="flex gap-1.5 flex-wrap">
-            {RESP_DAY_LABELS.map(d => (
-              <button
-                key={d.num}
-                type="button"
-                onClick={() => setResp(p => ({
-                  ...p,
-                  business_days: p.business_days.includes(d.num)
-                    ? p.business_days.filter(x => x !== d.num)
-                    : [...p.business_days, d.num],
-                }))}
-                className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
-                  resp.business_days.includes(d.num)
-                    ? 'bg-brand text-white'
-                    : 'bg-white/10 text-white/60 hover:bg-white/20'
-                }`}
-              >
-                {d.label}
-              </button>
-            ))}
-          </div>
-        </div>
-
-        {/* Business hours */}
-        <div className="flex gap-4">
-          <div className="flex-1">
-            <label className="text-xs font-medium text-white/70 block mb-1">Opens</label>
-            <input
-              type="time"
-              value={resp.business_hours_start}
-              onChange={e => setResp(p => ({ ...p, business_hours_start: e.target.value }))}
-              className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-          <div className="flex-1">
-            <label className="text-xs font-medium text-white/70 block mb-1">Closes</label>
-            <input
-              type="time"
-              value={resp.business_hours_end}
-              onChange={e => setResp(p => ({ ...p, business_hours_end: e.target.value }))}
-              className="w-full bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-            />
-          </div>
-        </div>
-
-        {/* Templates — time-of-day × voicemail-or-not */}
-        <div className="space-y-4">
-          <p className="text-xs text-white/50">
-            Text messages vary by time of day and whether the caller left a voicemail. Variable: <code className="bg-white/10 px-1 rounded">{'{first_name}'}</code>
-          </p>
-
-          <div className="grid md:grid-cols-2 gap-4">
-            {/* Business hours column */}
-            <div className="space-y-3">
-              <p className="text-xs font-semibold text-white/80">Business hours</p>
-              <div>
-                <label className="text-xs font-medium text-white/60 block mb-1">Left a voicemail</label>
-                <textarea
-                  value={resp.business_hours_template}
-                  onChange={e => setResp(p => ({ ...p, business_hours_template: e.target.value.slice(0, 600) }))}
-                  rows={3}
-                  className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-white/60 block mb-1">No message left</label>
-                <textarea
-                  value={resp.business_hours_no_message_template}
-                  onChange={e => setResp(p => ({ ...p, business_hours_no_message_template: e.target.value.slice(0, 600) }))}
-                  rows={3}
-                  className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-                />
-              </div>
-            </div>
-
-            {/* After-hours column */}
-            <div className="space-y-3">
-              <p className="text-xs font-semibold text-white/80">After hours / weekends</p>
-              <div>
-                <label className="text-xs font-medium text-white/60 block mb-1">Left a voicemail</label>
-                <textarea
-                  value={resp.afterhours_template}
-                  onChange={e => setResp(p => ({ ...p, afterhours_template: e.target.value.slice(0, 600) }))}
-                  rows={3}
-                  className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-                />
-              </div>
-              <div>
-                <label className="text-xs font-medium text-white/60 block mb-1">No message left</label>
-                <textarea
-                  value={resp.afterhours_no_message_template}
-                  onChange={e => setResp(p => ({ ...p, afterhours_no_message_template: e.target.value.slice(0, 600) }))}
-                  rows={3}
-                  className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-                />
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Save */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={saveResp}
-            disabled={respSaving}
-            className="px-4 py-2 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
-          >
-            {respSaving ? 'Saving…' : 'Save Responder'}
-          </button>
-          {respSavedAt && !respError && <span className="text-xs text-emerald-300">Saved ✓</span>}
-          {respError && <span className="text-xs text-red-400">{respError}</span>}
-        </div>
-
-        {/* Recent activity */}
-        {respCalls.length > 0 && (
-          <div>
-            <h3 className="text-xs font-semibold text-white/60 uppercase tracking-wider mb-2">Recent Activity</h3>
-            <div className="overflow-x-auto">
-              <table className="w-full text-xs">
-                <thead>
-                  <tr className="border-b border-white/10 text-white/40">
-                    <th className="text-left pb-1.5 font-medium">Time</th>
-                    <th className="text-left pb-1.5 font-medium">From</th>
-                    <th className="text-left pb-1.5 font-medium">Texted</th>
-                    <th className="text-left pb-1.5 font-medium">VM</th>
-                    <th className="text-left pb-1.5 font-medium">Template</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {respCalls.map(c => (
-                    <tr key={c.id} className="border-b border-white/5 text-white/70">
-                      <td className="py-1.5 pr-3 whitespace-nowrap">
-                        {new Date(c.called_at).toLocaleString('en-US', {
-                          month: 'short', day: 'numeric',
-                          hour: 'numeric', minute: '2-digit', hour12: true,
-                          timeZone: 'America/Chicago',
-                        })}
-                      </td>
-                      <td className="py-1.5 pr-3 font-mono">{c.from_number || '—'}</td>
-                      <td className="py-1.5 pr-3">
-                        {c.text_sent ? <span className="text-emerald-300">✓</span> : <span className="text-white/30">—</span>}
-                      </td>
-                      <td className="py-1.5 pr-3">
-                        {c.has_voicemail ? <span className="text-sky-300">✓</span> : <span className="text-white/30">—</span>}
-                      </td>
-                      <td className="py-1.5 text-white/40">
-                        {c.error_message === 'do_not_text' ? 'opted out' : (c.template_used || '—')}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
-          </div>
-        )}
-      </section>
-      )}
-
-      {/* ── AI RECEPTIONIST ── */}
-      {dtab === 'ai_receptionist' && (
-      <section className="border border-white/10 rounded-lg p-4 space-y-4">
-        <div>
-          <h2 className="text-sm font-semibold text-white">AI Receptionist</h2>
-          <p className="text-xs text-white/50 mt-0.5">
-            When the team can&apos;t pick up, an AI voice assistant answers, takes a
-            detailed message, and files a lead so someone can follow up.
-          </p>
-        </div>
-
-        <div className="bg-sky-500/10 border border-sky-500/30 rounded-lg p-3 text-xs text-sky-200 leading-relaxed">
-          Leave any field blank to use the built-in default (shown as the
-          placeholder). The greeting is spoken the instant the call connects; the
-          instructions shape how the assistant behaves for the rest of the call.
-        </div>
-
-        {/* Enabled toggle */}
-        <div className="flex items-center justify-between border border-white/10 rounded-lg p-3">
-          <div>
-            <p className="text-sm font-medium text-white">Receptionist enabled</p>
-            <p className="text-xs text-white/50 mt-0.5">
-              When off, unanswered calls go to voicemail instead of the AI assistant.
-            </p>
-          </div>
-          <button
-            type="button"
-            role="switch"
-            aria-checked={vr.enabled}
-            onClick={() => setVr(p => ({ ...p, enabled: !p.enabled }))}
-            className={`relative inline-flex h-5 w-9 flex-shrink-0 rounded-full border-2 border-transparent transition-colors ${
-              vr.enabled ? 'bg-brand' : 'bg-white/20'
-            }`}
-          >
-            <span className={`pointer-events-none inline-block h-4 w-4 rounded-full bg-white shadow transition-transform ${
-              vr.enabled ? 'translate-x-4' : 'translate-x-0'
-            }`} />
-          </button>
-        </div>
-
-        {/* Capability level */}
-        <div>
-          <label className="text-xs font-medium text-white/70 block mb-1">Capability level</label>
-          <div className="space-y-2">
-            {VR_LEVELS.map((l) => {
-              const overPlanCap = l.level > initialVoiceReceptionist.plan_max_level
-              const locked = Boolean(l.comingSoon) || overPlanCap
-              const selected = vr.level === l.level
-              return (
-                <button
-                  key={l.level}
-                  type="button"
-                  disabled={locked}
-                  onClick={() => setVr(p => ({ ...p, level: l.level }))}
-                  className={`w-full text-left border rounded-lg p-3 transition-colors ${
-                    selected
-                      ? 'border-brand bg-brand/10'
-                      : locked
-                        ? 'border-white/5 bg-white/[0.02] opacity-50 cursor-not-allowed'
-                        : 'border-white/10 hover:border-white/25'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-2">
-                    <p className="text-sm font-medium text-white">{l.name}</p>
-                    {selected && <span className="text-xs text-brand font-medium flex-shrink-0">Active</span>}
-                    {l.comingSoon && <span className="text-xs text-white/40 flex-shrink-0">Coming soon</span>}
-                    {!l.comingSoon && overPlanCap && <span className="text-xs text-amber-300/80 flex-shrink-0">Upgrade to unlock</span>}
-                  </div>
-                  <p className="text-xs text-white/50 mt-0.5">{l.blurb}</p>
-                </button>
-              )
-            })}
-          </div>
-          <p className="text-xs text-white/40 mt-1">
-            The level controls what the assistant is allowed to do on a call. Changes take effect on the next call.
-          </p>
-        </div>
-
-        {/* Greeting */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-medium text-white/70">Greeting</label>
-            {!vr.greeting.trim() && initialVoiceReceptionist.greeting_default.trim() && (
-              <button
-                type="button"
-                onClick={() => setVr(p => ({ ...p, greeting: initialVoiceReceptionist.greeting_default }))}
-                className="text-xs text-brand hover:underline"
-              >
-                Load default to edit
-              </button>
-            )}
-          </div>
-          <textarea
-            value={vr.greeting}
-            onChange={e => setVr(p => ({ ...p, greeting: e.target.value.slice(0, 1000) }))}
-            rows={3}
-            placeholder="Leave blank to use the recommended default greeting."
-            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-none"
-          />
-          <p className="text-xs text-white/40 mt-1">Spoken the moment the call connects. Blank uses the recommended default (it improves automatically). Click “Load default to edit” to write your own.</p>
-        </div>
-
-        {/* Instructions */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-medium text-white/70">Instructions</label>
-            {!vr.instructions.trim() && initialVoiceReceptionist.instructions_default.trim() && (
-              <button
-                type="button"
-                onClick={() => setVr(p => ({ ...p, instructions: initialVoiceReceptionist.instructions_default }))}
-                className="text-xs text-brand hover:underline"
-              >
-                Load default to edit
-              </button>
-            )}
-          </div>
-          <textarea
-            value={vr.instructions}
-            onChange={e => setVr(p => ({ ...p, instructions: e.target.value.slice(0, 8000) }))}
-            rows={16}
-            placeholder="Leave blank to use the recommended default instructions."
-            className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500 resize-y font-mono"
-          />
-          <p className="text-xs text-white/40 mt-1">
-            The behavior that shapes how the assistant talks and what it collects. Blank uses the recommended default. Click “Load default to edit” to write your own.
-          </p>
-        </div>
-
-        {/* Voice ID */}
-        <div>
-          <label className="text-xs font-medium text-white/70 block mb-1">Voice ID</label>
-          <input
-            type="text"
-            value={vr.voice_id}
-            onChange={e => setVr(p => ({ ...p, voice_id: e.target.value }))}
-            placeholder={initialVoiceReceptionist.voice_id_default || 'e.g. GGRMgbKfr7QscdcrvWga'}
-            className="w-full max-w-md bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
-          <p className="text-xs text-white/40 mt-1">
-            The text-to-speech voice used for the spoken replies. Leave blank to use the server default.{' '}
-            <a
-              href="https://www.twilio.com/docs/voice/conversationrelay/voice-configuration"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-brand hover:underline"
-            >
-              Pick a voice
-            </a>
-          </p>
-        </div>
-
-        {/* Save */}
-        <div className="flex items-center gap-3">
-          <button
-            onClick={saveVr}
-            disabled={vrSaving}
-            className="px-4 py-2 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
-          >
-            {vrSaving ? 'Saving…' : 'Save AI Receptionist'}
-          </button>
-          {vrSavedAt && !vrError && <span className="text-xs text-emerald-300">Saved ✓</span>}
-          {vrError && <span className="text-xs text-red-400">{vrError}</span>}
-        </div>
-      </section>
-      )}
-
-      {/* Save — applies to every tab except Responder + AI Receptionist (each has its own Save). */}
-      {dtab !== 'responder' && dtab !== 'ai_receptionist' && (
-        <div className="flex items-center gap-3">
-          <button
-            onClick={save}
-            disabled={saving}
-            className="px-4 py-2 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
-          >
-            {saving ? 'Saving…' : 'Save'}
-          </button>
-          {savedAt && !error && (
-            <span className="text-xs text-emerald-300">Saved ✓</span>
-          )}
-          {error && (
-            <span className="text-xs text-red-400">{error}</span>
-          )}
-        </div>
-      )}
+      </div>
     </div>
   )
 }

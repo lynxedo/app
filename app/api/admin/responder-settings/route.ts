@@ -4,7 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { RESPONDER_REPLY_SYSTEM_DEFAULT } from '@/lib/responder-ai-prompt'
 
 export async function GET() {
-  const auth = await requireAdminArea('dialer')
+  const auth = await requireAdminArea('ai')
   if (!auth.ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
 
   const admin = createAdminClient()
@@ -23,7 +23,7 @@ export async function GET() {
 }
 
 export async function POST(req: NextRequest) {
-  const auth = await requireAdminArea('dialer')
+  const auth = await requireAdminArea('ai')
   if (!auth.ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
 
   const body = await req.json()

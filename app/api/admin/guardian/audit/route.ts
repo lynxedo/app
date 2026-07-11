@@ -8,7 +8,7 @@ const MAX_LIMIT = 200
 const DEFAULT_LIMIT = 100
 
 export async function GET(request: Request) {
-  const check = await requireAdminArea('guardian')
+  const check = await requireAdminArea('ai')
   if (!check.ok || !check.company_id) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }

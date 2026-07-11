@@ -3,7 +3,7 @@ import { requireAdminArea } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function GET() {
-  const auth = await requireAdminArea('dialer')
+  const auth = await requireAdminArea('ai')
   if (!auth.ok) return NextResponse.json({ error: 'Unauthorized' }, { status: 403 })
 
   const admin = createAdminClient()
