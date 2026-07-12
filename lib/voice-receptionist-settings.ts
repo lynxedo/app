@@ -12,10 +12,12 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import {
   DEFAULT_RECEPTIONIST_NAME,
+  DEFAULT_TITLE_SERVICE_MAP,
   buildVoiceReceptionistPrompt,
   buildWelcomeGreeting,
   clampReceptionistLevel,
   type ReceptionistLevel,
+  type TitleServiceRule,
 } from '@/lib/voice-receptionist'
 
 // How Amber reaches a live person for a business-hours transfer.
@@ -39,6 +41,7 @@ export type VoiceReceptionistSettingsRow = {
   transfer_method: string | null
   transfer_user_ids: string[] | null
   transfer_cell_numbers: Record<string, string> | null
+  title_service_map: TitleServiceRule[] | null
   updated_at: string
   updated_by: string | null
 }
@@ -46,7 +49,7 @@ export type VoiceReceptionistSettingsRow = {
 // Columns to select for the settings row (kept in one place so the page loader,
 // admin route, and call-time endpoints stay in sync).
 export const VOICE_RECEPTIONIST_COLUMNS =
-  'company_id, enabled, level, receptionist_name, greeting, greeting_business_hours, greeting_after_hours, instructions, voice_id, recap_text_enabled, transfer_method, transfer_user_ids, transfer_cell_numbers, updated_at, updated_by'
+  'company_id, enabled, level, receptionist_name, greeting, greeting_business_hours, greeting_after_hours, instructions, voice_id, recap_text_enabled, transfer_method, transfer_user_ids, transfer_cell_numbers, title_service_map, updated_at, updated_by'
 
 export type EffectiveVoiceReceptionistSettings = {
   enabled: boolean
@@ -72,6 +75,8 @@ export type EffectiveVoiceReceptionistSettings = {
   transferUserIds: string[]
   /** For the 'cell' method: map of Hub user id -> the E.164 cell to ring. */
   transferCellNumbers: Record<string, string>
+  /** Configurable rules mapping a Jobber visit-title code -> a spoken service phrase. */
+  titleServiceMap: TitleServiceRule[]
 }
 
 /**
@@ -158,7 +163,25 @@ export function resolveVoiceReceptionistSettings(
       : 'off'),
     transferUserIds: Array.isArray(row?.transfer_user_ids) ? row!.transfer_user_ids : [],
     transferCellNumbers: normalizeCellNumberMap(row?.transfer_cell_numbers),
+    titleServiceMap: normalizeTitleServiceMap(row?.title_service_map),
   }
+}
+
+/** Coerce the stored title_service_map jsonb into clean {match, say} rules,
+ *  dropping malformed entries. Falls back to the built-in default when the row
+ *  has no usable rules — so the receptionist always has a service vocabulary. */
+function normalizeTitleServiceMap(raw: unknown): TitleServiceRule[] {
+  if (!Array.isArray(raw)) return DEFAULT_TITLE_SERVICE_MAP
+  const rules = raw
+    .map((r) => {
+      const o = (r && typeof r === 'object' ? r : {}) as Record<string, unknown>
+      return {
+        match: typeof o.match === 'string' ? o.match.trim() : '',
+        say: typeof o.say === 'string' ? o.say.trim() : '',
+      }
+    })
+    .filter((r) => r.match && r.say)
+  return rules.length ? rules : DEFAULT_TITLE_SERVICE_MAP
 }
 
 /** Coerce the stored transfer_cell_numbers jsonb into a clean { userId: E.164 }
