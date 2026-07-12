@@ -1,9 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import {
   EMPTY_VOICE_TWIML,
+  twimlDialCellStep,
   twimlRecordVoicemail,
   twimlRingGroupSimultaneous,
   validateTwilioVoiceSignature,
+  voiceCallerId,
   voiceConfigured,
 } from '@/lib/twilio-voice'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -79,8 +81,8 @@ export async function POST(request: NextRequest) {
   // The caller wants a live person (Amber handed off with [[TRANSFER]]). Run the
   // configured transfer method. This TwiML executes on the CALLER's leg, so a
   // <Dial> here bridges them to whoever answers; <Dial action> falls through to
-  // voicemail on no-answer. (Cell + Hub-DM methods land in later steps; until
-  // then any non-softphone method falls back to a voicemail.)
+  // voicemail on no-answer. All three methods (softphone / cell / Hub-DM) are
+  // implemented below; a method with no reachable recipients falls to voicemail.
   if (endReason === 'transfer_requested') {
     const admin = createAdminClient()
     const settings = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
@@ -94,6 +96,49 @@ export async function POST(request: NextRequest) {
           callerId: callerFrom || undefined,
         })
       )
+    }
+
+    // Cell method: call the transfer-list users on their cell phones, ONE AT A
+    // TIME, each screened with a "press 1 to accept" whisper (so a recipient's
+    // voicemail can't auto-answer). We ring the first recipient who has a number
+    // on file; /api/voice/twiml/transfer-cell advances to the next on no-answer
+    // and drops the caller to voicemail once the list is exhausted. callerId is
+    // OUR Twilio number (this is an outbound PSTN leg).
+    if (settings.transferMethod === 'cell') {
+      const recipients = settings.transferUserIds
+        .map((uid) => ({ uid, cell: settings.transferCellNumbers[uid] }))
+        .filter((r) => Boolean(r.cell))
+      if (recipients.length > 0) {
+        const callSid = lower.callsid || ''
+        const { data: attempt } = await admin
+          .from('voice_transfer_attempts')
+          .insert({
+            company_id: HEROES_COMPANY_ID,
+            queue_name: `cell_${callSid || Date.now()}`,
+            caller_call_sid: callSid || null,
+            caller_from: callerFrom || null,
+            status: 'pending',
+            // Backstop expiry: ~30s per recipient we'll try + a buffer.
+            expires_at: new Date(Date.now() + recipients.length * 30_000 + 30_000).toISOString(),
+          })
+          .select('id')
+          .single()
+        if (attempt?.id) {
+          const first = recipients[0]
+          const screenUrl = `${baseUrl}/api/voice/transfer/cell-screen?a=${attempt.id}&u=${encodeURIComponent(first.uid)}`
+          const actionUrl = `${baseUrl}/api/voice/twiml/transfer-cell?a=${attempt.id}&i=1`
+          return twimlResponse(
+            twimlDialCellStep({
+              number: first.cell,
+              callerId: voiceCallerId() || undefined,
+              timeoutSec: 25,
+              actionUrl,
+              screenUrl,
+            }),
+          )
+        }
+      }
+      // No recipient has a number (or the attempt insert failed) → voicemail below.
     }
 
     // Hub-DM method: park the caller on hold, push + DM the transfer-list users a

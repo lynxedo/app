@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { toE164 } from '@/lib/phone'
 import {
   DEFAULT_RECEPTIONIST_NAME,
   MAX_IMPLEMENTED_LEVEL,
@@ -52,6 +53,7 @@ export async function GET() {
     recap_text_enabled: effective.recapTextEnabled,
     transfer_method: effective.transferMethod,
     transfer_user_ids: effective.transferUserIds,
+    transfer_cell_numbers: effective.transferCellNumbers,
     receptionist_name_default: DEFAULT_RECEPTIONIST_NAME,
     greeting_business_hours_default: buildWelcomeGreeting(effective.effectiveLevel, {
       context: 'business_hours',
@@ -109,10 +111,6 @@ export async function PATCH(req: NextRequest) {
     if (!['off', 'cell', 'softphone', 'dm'].includes(m)) {
       return NextResponse.json({ error: 'invalid transfer method' }, { status: 400 })
     }
-    // softphone + Hub-DM are implemented; cell is coming soon.
-    if (m === 'cell') {
-      return NextResponse.json({ error: 'The cell transfer method is coming soon' }, { status: 400 })
-    }
     update.transfer_method = m
   }
   if ('transfer_user_ids' in body) {
@@ -120,6 +118,22 @@ export async function PATCH(req: NextRequest) {
     update.transfer_user_ids = ids.filter(
       (x: unknown): x is string => typeof x === 'string' && /^[0-9a-f-]{36}$/i.test(x),
     )
+  }
+  // Per-recipient cell numbers for the 'cell' transfer method — a map of
+  // { hub_user_id: cell }. Keep only uuid keys whose value normalizes to a valid
+  // E.164 number; a blank/invalid entry is dropped (that recipient just isn't
+  // dialed). Never throws on junk input.
+  if ('transfer_cell_numbers' in body) {
+    const raw = body.transfer_cell_numbers
+    const clean: Record<string, string> = {}
+    if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+      for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+        if (!/^[0-9a-f-]{36}$/i.test(k)) continue
+        const e164 = typeof v === 'string' ? toE164(v) : null
+        if (e164) clean[k] = e164
+      }
+    }
+    update.transfer_cell_numbers = clean
   }
 
   const admin = createAdminClient()

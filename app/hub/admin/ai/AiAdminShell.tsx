@@ -50,6 +50,7 @@ type VoiceReceptionistInitial = {
   recap_text_enabled: boolean
   transfer_method: string
   transfer_user_ids: string[]
+  transfer_cell_numbers: Record<string, string>
   receptionist_name_default: string
   greeting_business_hours_default: string
   greeting_after_hours_default: string

@@ -103,6 +103,22 @@ const SELL_FREE_ASSESSMENT = `- If the company knowledge mentions any free or no
 export const VOICEMAIL_ESCAPE_INSTRUCTION = `Leaving a voicemail instead:
 - If the caller would rather leave a voicemail, says they don't want to talk to an assistant, or asks for a specific person's voicemail — warmly agree. Say something brief like "Of course — let me get you to our voicemail now, one moment." Then, as the very last thing in that message, append the exact marker [[VOICEMAIL]] with nothing after it. Like [[END_CALL]], this marker is never spoken aloud — it sends the caller to the voicemail recording.`
 
+// Customer-service handling (PRD §18). Appended by /api/voice/brain to EVERY
+// call's task — like the voicemail escape hatch — so it applies at every level
+// and even when a company uses fully custom instructions (it can't be edited
+// away). Amber's job on a service call is to TRIAGE and CAPTURE, never to change
+// anything herself: she may READ a caller's next scheduled visit (when the brain
+// supplies it in the THIS CALL note), but reschedules, billing, and complaints
+// are taken down and routed to a human. Level-safe: sharing a caller's own
+// appointment isn't a company/services/pricing question, so it doesn't conflict
+// with the Level 1 "deflect questions" style.
+export const CUSTOMER_SERVICE_INSTRUCTION = `Handling different kinds of calls:
+- First, get a feel for WHY they're calling — a new customer or someone wanting a quote, an existing customer with a service or schedule question, a complaint, or a billing question. You don't have to ask outright; listen and adapt. When it's unclear, just be helpful and take good notes.
+- Existing customer asking "when are you coming?": if a "THIS CALL" note gives their next scheduled visit, you may share it simply (for example, "it looks like you're on the schedule for Thursday the seventeenth"). If you don't have it, say a team member will confirm the exact day — never guess a date.
+- Reschedule, cancel, skip, or add-a-service requests: you cannot change the schedule yourself. Warmly take down exactly what they want, read it back to confirm, and let them know a team member will take care of it and follow up — never say it's done or promise a specific change will happen.
+- Billing or payment questions: do NOT read out balances, amounts owed, or specific charges, and never dispute a charge. Reassure them you'll pass it straight to the office team, and take a short message (what it's about, plus their callback number).
+- A complaint or an upset caller: lead with genuine empathy, let them know you're writing everything down and a manager will be notified right away, and capture every detail. Treat it as urgent.`
+
 // Transfer availability is per-call (depends on business hours + admin config),
 // so the brain injects the right variant. When available, Amber can put the
 // caller on hold while we try to reach a live person; when not, she takes a
@@ -218,6 +234,8 @@ export function buildCallContextNote(opts: {
   callerPhone?: string | null
   /** True when callerName came from OUR data (an existing contact), not carrier caller-ID. */
   callerIsExisting?: boolean
+  /** Existing customer's next scheduled visit, formatted for speech (e.g. "Thursday, July 17"). */
+  nextVisit?: string | null
 }): string {
   const lines: string[] = []
   const name = (opts.callerName || '').trim()
@@ -230,6 +248,12 @@ export function buildCallContextNote(opts: {
   if (phone) {
     lines.push(
       `- They are calling from ${phone}. Treat this as their likely callback number: confirm it by reading it back (for example "I've got you at ${phone} — is that the best number to reach you?") rather than asking them to recite their number. If they give a different number, use that instead.`,
+    )
+  }
+  const nextVisit = (opts.nextVisit || '').trim()
+  if (nextVisit) {
+    lines.push(
+      `- This existing customer's next scheduled visit on file is ${nextVisit}. If they ask when the team is coming, you may share this date plainly. If they want to change it, take the request for a team member — you cannot change the schedule yourself.`,
     )
   }
   return lines.length ? `THIS CALL:\n${lines.join('\n')}` : ''

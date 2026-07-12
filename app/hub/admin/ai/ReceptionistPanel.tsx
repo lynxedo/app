@@ -15,6 +15,7 @@ type VoiceReceptionistInitial = {
   recap_text_enabled: boolean
   transfer_method: string
   transfer_user_ids: string[]
+  transfer_cell_numbers: Record<string, string>
   receptionist_name_default: string
   greeting_business_hours_default: string
   greeting_after_hours_default: string
@@ -32,12 +33,12 @@ const VR_LEVELS: { level: number; name: string; blurb: string; comingSoon?: bool
   { level: 4, name: 'Level 4 — Full receptionist', blurb: 'Owns the call start to close — real quotes and live scheduling into Jobber within your guardrails.', comingSoon: true },
 ]
 
-// Transfer methods. Softphone is implemented; cell + Hub DM are coming soon
-// (the API rejects saving them). Admin picks one; recipients are Hub users.
+// Transfer methods. Admin picks one; recipients are Hub users (checkbox list).
+// The 'cell' method also needs a phone number per recipient (entered below).
 const TRANSFER_METHODS: { value: string; name: string; blurb: string; comingSoon?: boolean }[] = [
   { value: 'off', name: 'Off', blurb: 'No live transfer — Amber takes a message or offers voicemail.' },
   { value: 'softphone', name: 'Ring the Dialer softphone', blurb: 'Rings the Dialer app for the selected people who are logged in; whoever answers first takes the call.' },
-  { value: 'cell', name: 'Ring a cell + press 1', blurb: 'Calls the selected people on their cell with a quick “press 1 to take it” screen.', comingSoon: true },
+  { value: 'cell', name: 'Ring a cell + press 1', blurb: 'Calls the selected people on their cell, one at a time, with a quick “press 1 to take it” screen. Enter each person’s number below.' },
   { value: 'dm', name: 'Hub message (tap to take)', blurb: 'Pushes a Hub message to the selected people; the first to tap “Take the call” gets it — their Dialer rings and they answer.' },
 ]
 
@@ -72,6 +73,7 @@ export default function ReceptionistPanel({
     voice_id: initialVoiceReceptionist.voice_id || DEFAULTS.voice_id,
     transfer_method: initialVoiceReceptionist.transfer_method || 'off',
     transfer_user_ids: [...(initialVoiceReceptionist.transfer_user_ids || [])].sort(),
+    transfer_cell_numbers: { ...(initialVoiceReceptionist.transfer_cell_numbers || {}) },
   })
 
   const [vr, setVr] = useState(buildForm)
@@ -105,6 +107,7 @@ export default function ReceptionistPanel({
           voice_id: asCustom(vr.voice_id, DEFAULTS.voice_id),
           transfer_method: vr.transfer_method,
           transfer_user_ids: vr.transfer_user_ids,
+          transfer_cell_numbers: vr.transfer_cell_numbers,
         }),
       })
       if (!res.ok) {
@@ -119,6 +122,9 @@ export default function ReceptionistPanel({
       setVrSaving(false)
     }
   }
+
+  const setCell = (uid: string, value: string) =>
+    setVr(p => ({ ...p, transfer_cell_numbers: { ...p.transfer_cell_numbers, [uid]: value } }))
 
   const resetLink = (field: TextField) =>
     vr[field] !== DEFAULTS[field] ? (
@@ -393,8 +399,45 @@ export default function ReceptionistPanel({
               <p className="text-xs text-white/40 mt-1">
                 {vr.transfer_method === 'softphone'
                   ? 'Rings the Dialer softphone for the checked people who are logged in; whoever answers first is connected. If no one answers in ~25 seconds, the caller can leave a message.'
-                  : 'The checked people will be reached when a caller asks for a live person.'}
+                  : vr.transfer_method === 'cell'
+                    ? 'We call the checked people on their cell (below), one at a time, until someone presses 1 to take the call. If no one does, the caller can leave a message.'
+                    : 'The checked people will be reached when a caller asks for a live person.'}
               </p>
+
+              {/* Cell numbers — only for the 'cell' method. One field per checked
+                  recipient; a blank/invalid number just means that person isn't dialed. */}
+              {vr.transfer_method === 'cell' && (
+                <div className="mt-3">
+                  <label className="text-xs font-medium text-white/70 block mb-1">Cell numbers to ring</label>
+                  {vr.transfer_user_ids.length === 0 ? (
+                    <p className="text-xs text-white/40">Check the people above first, then enter their cell numbers here.</p>
+                  ) : (
+                    <div className="space-y-1.5 border border-white/10 rounded p-2">
+                      {vr.transfer_user_ids.map((uid) => {
+                        const person = people.find((p) => p.id === uid)
+                        return (
+                          <div key={uid} className="flex items-center gap-2">
+                            <span className="text-sm text-white/80 flex-1 min-w-0 truncate">
+                              {person?.display_name ?? 'User'}
+                            </span>
+                            <input
+                              type="tel"
+                              inputMode="tel"
+                              value={vr.transfer_cell_numbers[uid] ?? ''}
+                              onChange={(e) => setCell(uid, e.target.value)}
+                              placeholder="(832) 555-1234"
+                              className="w-44 bg-white/5 border border-white/10 rounded px-2.5 py-1 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                            />
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+                  <p className="text-xs text-white/40 mt-1">
+                    Enter a mobile number for each person who should get a cell transfer. Numbers save when you click Save below.
+                  </p>
+                </div>
+              )}
             </div>
           )}
         </div>

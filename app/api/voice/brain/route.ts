@@ -5,7 +5,12 @@ import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
 import { CLAUDE_MODEL } from '@/lib/anthropic'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
-import { buildCallContextNote, buildTransferInstruction, VOICEMAIL_ESCAPE_INSTRUCTION } from '@/lib/voice-receptionist'
+import {
+  buildCallContextNote,
+  buildTransferInstruction,
+  CUSTOMER_SERVICE_INSTRUCTION,
+  VOICEMAIL_ESCAPE_INSTRUCTION,
+} from '@/lib/voice-receptionist'
 import { startCallRecording, isWithinBusinessHours, BusinessHoursSchedule } from '@/lib/twilio-voice'
 import { findOrCreateTxtContact, lookupByPhone } from '@/lib/dialer-lookup'
 import { formatPhone } from '@/lib/format'
@@ -38,6 +43,47 @@ function bearerAuthorized(request: Request): boolean {
   const a = Buffer.from(token)
   const b = Buffer.from(secret)
   return a.length === b.length && crypto.timingSafeEqual(a, b)
+}
+
+// Look up an existing customer's next scheduled visit from the mirrored `visits`
+// table and format the date for speech (e.g. "Thursday, July 17"), or null when
+// there's nothing upcoming. Read-only + best-effort — never throws, so it can't
+// break call setup (PRD §18 read-only scheduling).
+async function getNextVisitLabel(
+  admin: ReturnType<typeof createAdminClient>,
+  companyId: string,
+  clientId: string,
+): Promise<string | null> {
+  try {
+    const todayCentral = new Intl.DateTimeFormat('en-CA', {
+      timeZone: 'America/Chicago',
+      year: 'numeric',
+      month: '2-digit',
+      day: '2-digit',
+    }).format(new Date())
+    const { data } = await admin
+      .from('visits')
+      .select('scheduled_date')
+      .eq('company_id', companyId)
+      .eq('client_id', clientId)
+      .is('deleted_at', null)
+      .is('completed_at', null)
+      .gte('scheduled_date', todayCentral)
+      .order('scheduled_date', { ascending: true })
+      .limit(1)
+    const scheduled = data?.[0]?.scheduled_date
+    if (!scheduled) return null
+    const d = new Date(`${scheduled}T12:00:00Z`)
+    if (isNaN(d.getTime())) return null
+    return new Intl.DateTimeFormat('en-US', {
+      timeZone: 'America/Chicago',
+      weekday: 'long',
+      month: 'long',
+      day: 'numeric',
+    }).format(d)
+  } catch {
+    return null
+  }
 }
 
 export async function POST(request: Request) {
@@ -127,12 +173,19 @@ export async function POST(request: Request) {
   // it stays fast at call-connect time. Company-scoped — never cross-tenant.
   let callerName: string | null = null
   let callerIsExisting = false
+  let nextVisit: string | null = null
   if (body.from) {
     try {
       const match = await lookupByPhone(body.from, companyId)
       if (match?.name && !match.nameIsCallerId) {
         callerName = match.name
         callerIsExisting = true
+      }
+      // Existing Jobber client → look up their next scheduled visit from the
+      // mirrored `visits` table so Amber can answer "when are you coming?"
+      // (read-only, PRD §18). Best-effort; never delays or breaks call setup.
+      if (match?.clientId) {
+        nextVisit = await getNextVisitLabel(admin, companyId, match.clientId)
       }
     } catch (err) {
       console.warn('[voice.brain] caller lookup failed', (err as Error).message)
@@ -142,12 +195,19 @@ export async function POST(request: Request) {
     callerName,
     callerPhone: body.from ? formatPhone(body.from) || body.from : null,
     callerIsExisting,
+    nextVisit,
   })
 
   // Transfer availability: a live-person transfer is only offered when a method
-  // is configured, recipients exist, AND it's currently business hours.
+  // is configured, reachable recipients exist, AND it's currently business
+  // hours. For the cell method "reachable" also means the recipient has a number
+  // on file — otherwise there's no one to ring.
+  const recipientsReady =
+    settings.transferMethod === 'cell'
+      ? settings.transferUserIds.some((id) => Boolean(settings.transferCellNumbers[id]))
+      : settings.transferUserIds.length > 0
   let transferAvailable = false
-  if (settings.transferMethod !== 'off' && settings.transferUserIds.length > 0) {
+  if (settings.transferMethod !== 'off' && recipientsReady) {
     try {
       const { data: ds } = await admin
         .from('dialer_settings')
@@ -166,6 +226,7 @@ export async function POST(request: Request) {
   const task = [
     settings.instructions,
     VOICEMAIL_ESCAPE_INSTRUCTION,
+    CUSTOMER_SERVICE_INSTRUCTION,
     buildTransferInstruction(transferAvailable),
     callContext,
   ]
