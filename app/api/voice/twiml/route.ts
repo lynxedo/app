@@ -9,7 +9,7 @@ import {
 } from '@/lib/twilio-voice'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildConversationRelayTwiml } from '@/lib/voice-receptionist'
-import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
+import { getCompanyVoicemailGreeting, getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 
 // Phase 1a is single-tenant (Heroes). Reuses the same company-id constant the
 // dialer/brain voice routes use.
@@ -61,9 +61,12 @@ export async function POST(request: NextRequest) {
   const settings = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
 
   if (!settings.enabled) {
+    const g = await getCompanyVoicemailGreeting(admin, HEROES_COMPANY_ID)
     return twimlResponse(
       twimlRecordVoicemail({
         action: `${baseUrl}/api/dialer/voice/voicemail/complete`,
+        greetingUrl: g.url,
+        greetingTts: g.tts,
         spokenFallback:
           "Thanks for calling. Please leave a message after the beep and we'll get back to you. Press pound when finished.",
       })
