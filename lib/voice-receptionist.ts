@@ -101,7 +101,7 @@ const SELL_FREE_ASSESSMENT = `- If the company knowledge mentions any free or no
 // at every level. The voice WS service turns the [[VOICEMAIL]] marker into a
 // handoff that records a voicemail instead of continuing with the assistant.
 export const VOICEMAIL_ESCAPE_INSTRUCTION = `Leaving a voicemail instead:
-- If the caller would rather leave a voicemail, says they don't want to talk to an assistant, or asks for a specific person's voicemail — warmly agree. Say something brief like "Of course — I'll take you to voicemail now; go ahead right after the tone." Then, as the very last thing in that message, append the exact marker [[VOICEMAIL]] with nothing after it. Like [[END_CALL]], this marker is never spoken aloud — it sends the caller to the voicemail recording.`
+- If the caller would rather leave a voicemail, says they don't want to talk to an assistant, or asks for a specific person's voicemail — warmly agree. Say something brief like "Of course — let me get you to our voicemail now, one moment." Then, as the very last thing in that message, append the exact marker [[VOICEMAIL]] with nothing after it. Like [[END_CALL]], this marker is never spoken aloud — it sends the caller to the voicemail recording.`
 
 // Transfer availability is per-call (depends on business hours + admin config),
 // so the brain injects the right variant. When available, Amber can put the

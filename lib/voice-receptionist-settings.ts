@@ -168,3 +168,26 @@ export async function getEffectiveVoiceReceptionistSettings(
   const row = await getVoiceReceptionistSettings(admin, companyId)
   return resolveVoiceReceptionistSettings(row, getPlanMaxReceptionistLevel(companyId))
 }
+
+/**
+ * The company's configured voicemail greeting (recorded audio takes priority
+ * over typed TTS), read from dialer_settings. Lets the receptionist's voicemail
+ * play the SAME greeting as a normal missed call instead of a robotic default.
+ */
+export async function getCompanyVoicemailGreeting(
+  admin: SupabaseClient,
+  companyId: string,
+): Promise<{ url: string | null; tts: string | null }> {
+  try {
+    const { data } = await admin
+      .from('dialer_settings')
+      .select('fallback_voicemail_url, fallback_voicemail_tts')
+      .eq('company_id', companyId)
+      .maybeSingle()
+    const url = typeof data?.fallback_voicemail_url === 'string' ? data.fallback_voicemail_url.trim() : ''
+    const tts = typeof data?.fallback_voicemail_tts === 'string' ? data.fallback_voicemail_tts.trim() : ''
+    return { url: url || null, tts: tts || null }
+  } catch {
+    return { url: null, tts: null }
+  }
+}

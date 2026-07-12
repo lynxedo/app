@@ -7,7 +7,7 @@ import {
   voiceConfigured,
 } from '@/lib/twilio-voice'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
+import { getCompanyVoicemailGreeting, getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -55,6 +55,20 @@ export async function POST(request: NextRequest) {
   } catch {
     endReason = ''
   }
+
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
+  // Voicemail using the company's NORMAL recorded greeting (the same one a
+  // missed call hears); only falls back to the spoken line if no greeting is set.
+  const voicemail = async (spokenFallback: string): Promise<string> => {
+    const g = await getCompanyVoicemailGreeting(createAdminClient(), HEROES_COMPANY_ID)
+    return twimlRecordVoicemail({
+      action: `${baseUrl}/api/dialer/voice/voicemail/complete`,
+      greetingUrl: g.url,
+      greetingTts: g.tts,
+      spokenFallback,
+    })
+  }
+
   if (endReason === 'assistant_complete') {
     return twimlResponse('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>')
   }
@@ -65,7 +79,6 @@ export async function POST(request: NextRequest) {
   // voicemail on no-answer. (Cell + Hub-DM methods land in later steps; until
   // then any non-softphone method falls back to a voicemail.)
   if (endReason === 'transfer_requested') {
-    const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
     const admin = createAdminClient()
     const settings = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
     const callerFrom = lower.from || ''
@@ -80,11 +93,9 @@ export async function POST(request: NextRequest) {
       )
     }
     return twimlResponse(
-      twimlRecordVoicemail({
-        action: `${baseUrl}/api/dialer/voice/voicemail/complete`,
-        spokenFallback:
-          "I'm sorry, I couldn't reach anyone right now. Please leave a message after the tone and a team member will get right back to you. Press pound when finished.",
-      })
+      await voicemail(
+        "I'm sorry, I couldn't reach anyone right now. Please leave a message after the tone and a team member will get right back to you. Press pound when finished.",
+      ),
     )
   }
 
@@ -93,20 +104,16 @@ export async function POST(request: NextRequest) {
   // — this is a deliberate choice by the caller, not a failure to connect.
   if (endReason === 'caller_requested_voicemail') {
     return twimlResponse(
-      twimlRecordVoicemail({
-        action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,
-        spokenFallback:
-          "Sure — go ahead and leave your message after the tone, and a team member will get back to you. Press pound when you're finished.",
-      })
+      await voicemail(
+        "Go ahead and leave your message after the tone, and a team member will get back to you. Press pound when you're finished.",
+      ),
     )
   }
 
   return twimlResponse(
-    twimlRecordVoicemail({
-      action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,
-      spokenFallback:
-        "Sorry, we had trouble connecting our assistant. Please leave a message after the beep and a team member will get back to you. Press pound when finished.",
-    })
+    await voicemail(
+      "Sorry, we had trouble connecting our assistant. Please leave a message after the beep and a team member will get back to you. Press pound when finished.",
+    ),
   )
 }
 

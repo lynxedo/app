@@ -5,6 +5,11 @@ import {
   validateTwilioVoiceSignature,
   voiceConfigured,
 } from '@/lib/twilio-voice'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getCompanyVoicemailGreeting } from '@/lib/voice-receptionist-settings'
+
+const HEROES_COMPANY_ID =
+  process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 // AI Voice Receptionist — transfer <Dial action> result.
 //
@@ -39,9 +44,12 @@ export async function POST(request: NextRequest) {
     return twimlResponse('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>')
   }
 
+  const g = await getCompanyVoicemailGreeting(createAdminClient(), HEROES_COMPANY_ID)
   return twimlResponse(
     twimlRecordVoicemail({
       action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,
+      greetingUrl: g.url,
+      greetingTts: g.tts,
       spokenFallback:
         "I'm sorry, no one was able to pick up right now. Please leave a message after the tone and a team member will get right back to you. Press pound when finished.",
     })
