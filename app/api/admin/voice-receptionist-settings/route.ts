@@ -109,12 +109,9 @@ export async function PATCH(req: NextRequest) {
     if (!['off', 'cell', 'softphone', 'dm'].includes(m)) {
       return NextResponse.json({ error: 'invalid transfer method' }, { status: 400 })
     }
-    // Only softphone is implemented so far; cell + Hub-DM are coming soon.
-    if (m === 'cell' || m === 'dm') {
-      return NextResponse.json(
-        { error: `The ${m === 'cell' ? 'cell' : 'Hub DM'} transfer method is coming soon` },
-        { status: 400 },
-      )
+    // softphone + Hub-DM are implemented; cell is coming soon.
+    if (m === 'cell') {
+      return NextResponse.json({ error: 'The cell transfer method is coming soon' }, { status: 400 })
     }
     update.transfer_method = m
   }
