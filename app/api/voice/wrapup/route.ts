@@ -69,6 +69,12 @@ type WrapupBody = {
   transcript?: TranscriptTurn[]
 }
 
+// What KIND of call this was — drives wrap-up routing (PRD §18). Sales leads go
+// to the Lead Tracker; everything else is routed to the office to work (no new
+// lead). When unsure the classifier returns 'sales_lead' so a potential lead is
+// never lost.
+type CallType = 'sales_lead' | 'complaint' | 'scheduling' | 'billing' | 'existing_customer' | 'other'
+
 type ExtractedLead = {
   name: string | null
   callback_phone: string | null
@@ -82,9 +88,21 @@ type ExtractedLead = {
   soft_commitment: boolean
   /** Caller agreed to receive a recap text (SMS opt-in captured live on the call). */
   recap_opt_in: boolean
+  /** Why they called — routes the wrap-up (sales lead vs service/complaint/billing). */
+  call_type: CallType
 }
 
 const URGENCY_VALUES: ExtractedLead['urgency'][] = ['low', 'normal', 'high', 'emergency']
+const CALL_TYPE_VALUES: CallType[] = ['sales_lead', 'complaint', 'scheduling', 'billing', 'existing_customer', 'other']
+
+// Framing for a non-sales (service) call in the office notification + queue.
+const SERVICE_CALL_META: Record<Exclude<CallType, 'sales_lead'>, { emoji: string; label: string }> = {
+  complaint: { emoji: '⚠️', label: 'Complaint' },
+  scheduling: { emoji: '📅', label: 'Scheduling request' },
+  billing: { emoji: '💳', label: 'Billing question' },
+  existing_customer: { emoji: '📇', label: 'Customer service call' },
+  other: { emoji: '☎️', label: 'Call for the office' },
+}
 
 function renderTranscript(turns: TranscriptTurn[]): string {
   return turns
@@ -118,12 +136,19 @@ async function extractLead(
 ): Promise<ExtractedLead | null> {
   if (!process.env.ANTHROPIC_API_KEY || !transcriptText.trim()) return null
   const system =
-    'You extract a structured lead from an after-hours phone call transcript for a lawn-care company. ' +
+    'You extract a structured summary from a phone call transcript for a lawn-care company. ' +
     'Reply with ONLY a single JSON object and nothing else — no prose, no code fences. ' +
     'Use this exact shape: {"name": string|null, "callback_phone": string|null, "address_or_area": string|null, ' +
     '"service_wanted": string|null, "timeframe": string|null, "urgency": "low"|"normal"|"high"|"emergency", ' +
-    '"summary": string, "wants_callback": boolean, "soft_commitment": boolean, "recap_opt_in": boolean}. ' +
+    '"summary": string, "wants_callback": boolean, "soft_commitment": boolean, "recap_opt_in": boolean, ' +
+    '"call_type": "sales_lead"|"complaint"|"scheduling"|"billing"|"existing_customer"|"other"}. ' +
     'Set a field to null if the caller did not provide it. ' +
+    'call_type classifies WHY they called: "sales_lead" = a new customer or anyone wanting a quote or to start service; ' +
+    '"complaint" = an unhappy caller complaining about service or a problem; ' +
+    '"scheduling" = an existing customer asking about, or wanting to change, their visit schedule; ' +
+    '"billing" = a question about a payment, invoice, or charge; ' +
+    '"existing_customer" = an existing customer with another service question; "other" = anything else. ' +
+    'When you are unsure, use "sales_lead" so a potential lead is never lost. ' +
     'soft_commitment is true ONLY if the caller explicitly agreed to move forward / get set up / have the team sign them up — not merely asking questions. ' +
     'recap_opt_in is true ONLY if the assistant offered to text a recap and the caller agreed (said yes / sure / that is fine). ' +
     'urgency is "emergency" for broken/leaking irrigation, flooding, or anything the caller frames as urgent; ' +
@@ -154,6 +179,9 @@ async function extractLead(
     const urgency = URGENCY_VALUES.includes(parsed.urgency as ExtractedLead['urgency'])
       ? (parsed.urgency as ExtractedLead['urgency'])
       : 'normal'
+    const call_type = CALL_TYPE_VALUES.includes(parsed.call_type as CallType)
+      ? (parsed.call_type as CallType)
+      : 'sales_lead'
 
     return {
       name: (parsed.name ?? null) || null,
@@ -166,6 +194,7 @@ async function extractLead(
       wants_callback: parsed.wants_callback !== false, // default true
       soft_commitment: parsed.soft_commitment === true,
       recap_opt_in: parsed.recap_opt_in === true,
+      call_type,
     }
   } catch (err) {
     console.warn('[voice.wrapup] lead extraction failed', (err as Error).message)
@@ -238,8 +267,10 @@ export async function POST(request: Request) {
   // flag off to resume full lead capture.
   if (process.env.VOICE_TEST_MODE === 'true') {
     const callerName = extracted?.name || 'Unknown caller'
-    const urgentFlag = urgency === 'emergency' || urgency === 'high'
+    const callType = extracted?.call_type || 'sales_lead'
+    const urgentFlag = urgency === 'emergency' || urgency === 'high' || callType === 'complaint'
     const facts: string[] = []
+    facts.push(`Call type: ${callType}`)
     if (extracted?.name) facts.push(`Name: ${extracted.name}`)
     if (callbackPhone) facts.push(`Callback: ${formatPhone(callbackPhone) || callbackPhone}`)
     if (extracted?.address_or_area) facts.push(`Address/area: ${extracted.address_or_area}`)
@@ -276,6 +307,63 @@ export async function POST(request: Request) {
       }
     })
     return NextResponse.json({ ok: true, testMode: true })
+  }
+
+  // ── SERVICE CALLS (PRD §18) ───────────────────────────────────────────────
+  // Not every call is a sales lead. Complaints, scheduling, and billing calls
+  // are from EXISTING customers and must NOT be filed as new leads — they're
+  // routed to the office to work (Hub Queue + notification), with complaints
+  // flagged urgent. When the classifier is unsure it returns 'sales_lead', which
+  // falls through to the normal lead path below (so a real lead is never lost).
+  const callType: CallType = extracted?.call_type || 'sales_lead'
+  if (callType !== 'sales_lead') {
+    const meta = SERVICE_CALL_META[callType]
+    const callerName = extracted?.name || 'Unknown caller'
+    const urgent = callType === 'complaint' || urgency === 'emergency' || urgency === 'high'
+    after(async () => {
+      // Hub Queue — land the caller like any inbound so the office can triage.
+      try {
+        const queuePhone = fromNumber || callbackPhone
+        if (queuePhone) {
+          const contactId = await findOrCreateContactByPhone(admin, companyId, queuePhone)
+          if (contactId) {
+            await ensureInboundQueueConversation(admin, {
+              companyId,
+              contactId,
+              preview: `${meta.emoji} ${meta.label} — ${callerName}`,
+              at: body.endedAt || undefined,
+            })
+          }
+        }
+      } catch (e) {
+        console.warn('[voice.wrapup] service queue ensure failed', (e as Error).message)
+      }
+
+      // Notify the office: room post + Guardian DM(s) + push. Urgent for complaints.
+      try {
+        const userIds = notifyUserIds()
+        const bodyText =
+          `${urgent ? '🔴 ' : ''}${meta.emoji} ${meta.label} from ${callerName}` +
+          `${callbackPhone ? ` (${formatPhone(callbackPhone) || callbackPhone})` : ''}` +
+          `\n${summary}` +
+          `\nWork it in the Hub Queue → /hub/txt`
+        await postGuardianToRoom(OFFICE_ROOM_ID, bodyText, { admin })
+        await fanoutGuardianNotification({ companyId, userIds, roomIds: [], body: bodyText, admin })
+        await sendHubPush(
+          userIds,
+          {
+            title: `${urgent ? '🔴 ' : `${meta.emoji} `}${meta.label}`,
+            body: `${callerName}: ${summary}`.slice(0, 120),
+            url: '/hub/txt',
+            type: 'lead',
+          },
+          { isDm: true },
+        )
+      } catch (e) {
+        console.warn('[voice.wrapup] service notify failed', (e as Error).message)
+      }
+    })
+    return NextResponse.json({ ok: true, callType })
   }
 
   // 2) Insert the lead (mirrors the Angi webhook shape).

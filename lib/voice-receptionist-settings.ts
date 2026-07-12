@@ -38,6 +38,7 @@ export type VoiceReceptionistSettingsRow = {
   recap_text_enabled: boolean | null
   transfer_method: string | null
   transfer_user_ids: string[] | null
+  transfer_cell_numbers: Record<string, string> | null
   updated_at: string
   updated_by: string | null
 }
@@ -45,7 +46,7 @@ export type VoiceReceptionistSettingsRow = {
 // Columns to select for the settings row (kept in one place so the page loader,
 // admin route, and call-time endpoints stay in sync).
 export const VOICE_RECEPTIONIST_COLUMNS =
-  'company_id, enabled, level, receptionist_name, greeting, greeting_business_hours, greeting_after_hours, instructions, voice_id, recap_text_enabled, transfer_method, transfer_user_ids, updated_at, updated_by'
+  'company_id, enabled, level, receptionist_name, greeting, greeting_business_hours, greeting_after_hours, instructions, voice_id, recap_text_enabled, transfer_method, transfer_user_ids, transfer_cell_numbers, updated_at, updated_by'
 
 export type EffectiveVoiceReceptionistSettings = {
   enabled: boolean
@@ -69,6 +70,8 @@ export type EffectiveVoiceReceptionistSettings = {
   transferMethod: TransferMethod
   /** Hub user ids that receive transfer attempts. */
   transferUserIds: string[]
+  /** For the 'cell' method: map of Hub user id -> the E.164 cell to ring. */
+  transferCellNumbers: Record<string, string>
 }
 
 /**
@@ -154,7 +157,19 @@ export function resolveVoiceReceptionistSettings(
       ? (row!.transfer_method as TransferMethod)
       : 'off'),
     transferUserIds: Array.isArray(row?.transfer_user_ids) ? row!.transfer_user_ids : [],
+    transferCellNumbers: normalizeCellNumberMap(row?.transfer_cell_numbers),
   }
+}
+
+/** Coerce the stored transfer_cell_numbers jsonb into a clean { userId: E.164 }
+ *  map — keep only string keys with non-empty string values. */
+function normalizeCellNumberMap(raw: unknown): Record<string, string> {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return {}
+  const out: Record<string, string> = {}
+  for (const [k, v] of Object.entries(raw as Record<string, unknown>)) {
+    if (typeof v === 'string' && v.trim()) out[k] = v.trim()
+  }
+  return out
 }
 
 /**

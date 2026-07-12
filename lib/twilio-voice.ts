@@ -807,6 +807,34 @@ export function twimlRingGroupSimultaneous(opts: {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial ${attrs.join(' ')}>${clients}</Dial></Response>`
 }
 
+// AI receptionist 'cell' transfer — dial ONE recipient's cell (PSTN) with a
+// per-callee "press 1 to accept" screen. `screenUrl` returns TwiML that runs on
+// the CALLEE's leg the moment they answer, BEFORE the legs are bridged
+// (Twilio's <Number url> screening): if they press 1 it connects, otherwise it
+// hangs up — so a recipient's own voicemail can't silently "answer" the
+// transfer. `actionUrl` is the sequencer that dials the next recipient (or drops
+// the caller to voicemail) when this one isn't taken. callerId MUST be a Twilio
+// number we own (this is an outbound PSTN leg), not the customer's number.
+export function twimlDialCellStep(opts: {
+  number: string
+  callerId?: string
+  timeoutSec: number
+  actionUrl: string
+  screenUrl: string
+}): string {
+  const attrs: string[] = []
+  if (opts.callerId) attrs.push(`callerId="${escapeXmlAttr(opts.callerId)}"`)
+  attrs.push(`timeout="${opts.timeoutSec}"`)
+  // answerOnBridge keeps the CALLER hearing ringback (not dead silence) while the
+  // recipient's "press 1" screen runs on their leg — without it the inbound leg
+  // reads as answered the instant the cell picks up, so the caller gets silence
+  // for the screen's duration on every recipient. (Twilio <Number> screening.)
+  attrs.push('answerOnBridge="true"')
+  attrs.push(`action="${escapeXmlAttr(opts.actionUrl)}"`)
+  attrs.push('method="POST"')
+  return `<?xml version="1.0" encoding="UTF-8"?><Response><Dial ${attrs.join(' ')}><Number url="${escapeXmlAttr(opts.screenUrl)}" method="POST">${escapeXmlText(opts.number)}</Number></Dial></Response>`
+}
+
 // Sequential ring: dial ONE member, with <Dial action=> pointing back at the
 // ring-group route with index incremented. That route checks DialCallStatus —
 // if answered, returns empty TwiML; if not, dials the next member, and so on
