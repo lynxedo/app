@@ -51,11 +51,13 @@ type VoiceReceptionistInitial = {
   transfer_method: string
   transfer_user_ids: string[]
   transfer_cell_numbers: Record<string, string>
+  title_service_map: { match: string; say: string }[]
   receptionist_name_default: string
   greeting_business_hours_default: string
   greeting_after_hours_default: string
   instructions_default: string
   voice_id_default: string
+  title_service_map_default: { match: string; say: string }[]
 }
 
 type SubTab = 'guardian' | 'responder' | 'receptionist' | 'knowledge'

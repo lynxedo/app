@@ -107,14 +107,15 @@ export const VOICEMAIL_ESCAPE_INSTRUCTION = `Leaving a voicemail instead:
 // call's task — like the voicemail escape hatch — so it applies at every level
 // and even when a company uses fully custom instructions (it can't be edited
 // away). Amber's job on a service call is to TRIAGE and CAPTURE, never to change
-// anything herself: she may READ a caller's next scheduled visit (when the brain
-// supplies it in the THIS CALL note), but reschedules, billing, and complaints
-// are taken down and routed to a human. Level-safe: sharing a caller's own
+// anything herself: she may look up a caller's next scheduled visit and its
+// service on request (via her account-lookup tool, which reads live from
+// Jobber), but reschedules, billing, and complaints are taken down and routed to
+// a human. Level-safe: sharing a caller's own
 // appointment isn't a company/services/pricing question, so it doesn't conflict
 // with the Level 1 "deflect questions" style.
 export const CUSTOMER_SERVICE_INSTRUCTION = `Handling different kinds of calls:
 - First, get a feel for WHY they're calling — a new customer or someone wanting a quote, an existing customer with a service or schedule question, a complaint, or a billing question. You don't have to ask outright; listen and adapt. When it's unclear, just be helpful and take good notes.
-- Existing customer asking "when are you coming?": if a "THIS CALL" note gives their next scheduled visit, you may share it simply (for example, "it looks like you're on the schedule for Thursday the seventeenth"). If you don't have it, say a team member will confirm the exact day — never guess a date.
+- Existing customer asking about their next visit, when the team is coming, or what service is scheduled: you can look this up. First tell them you're checking — a brief "sure, let me pull that up, one moment" — then use your account-lookup tool and share what it finds in plain, natural words (for example, "it looks like you're on the schedule for Thursday the seventeenth for a lawn treatment"). If the lookup finds nothing, let them know a team member will confirm — never guess a date or a service.
 - Reschedule, cancel, skip, or add-a-service requests: you cannot change the schedule yourself. Warmly take down exactly what they want, read it back to confirm, and let them know a team member will take care of it and follow up — never say it's done or promise a specific change will happen.
 - Billing or payment questions: do NOT read out balances, amounts owed, or specific charges, and never dispute a charge. Reassure them you'll pass it straight to the office team, and take a short message (what it's about, plus their callback number).
 - A complaint or an upset caller: lead with genuine empathy, let them know you're writing everything down and a manager will be notified right away, and capture every detail. Treat it as urgent.`
@@ -223,6 +224,49 @@ export function buildVoiceReceptionistPrompt(
 export const VOICE_RECEPTIONIST_PROMPT = buildVoiceReceptionistPrompt(2)
 
 // ---------------------------------------------------------------------------
+// Job-title → spoken service decoding
+// ---------------------------------------------------------------------------
+// Jobber visit titles are internal ops shorthand ("Hardin/RC1 RRR PHC 6.5k
+// $238 WoodlandsW", "Kenny/IR SVC Grand Lakes Estates"). This maps the service
+// CODE embedded in the title to a plain phrase the receptionist can say to a
+// customer. The map is editable per company in Admin → AI → Receptionist
+// (voice_receptionist_settings.title_service_map); this is the default seeded
+// for Heroes. Order matters — the first matching rule wins.
+export type TitleServiceRule = { match: string; say: string }
+
+export const DEFAULT_TITLE_SERVICE_MAP: TitleServiceRule[] = [
+  { match: 'RC', say: 'lawn treatment' },
+  { match: 'BP', say: 'lawn treatment' },
+  { match: 'WF', say: 'lawn treatment' },
+  { match: 'IR', say: 'sprinkler service call' },
+  { match: 'PW', say: 'pet waste pickup' },
+]
+
+// Find the spoken service phrase for a Jobber visit title. Tokenizes the title
+// on non-alphanumeric boundaries and matches a rule when a token IS the code, or
+// is the code immediately followed by digits — so "RC1"/"RC4" match "RC", but a
+// word like "IRRIGATION" does NOT match "IR". Returns null when nothing matches
+// (the caller then just hears the date, never an invented service).
+export function decodeServiceFromTitle(
+  title: string | null | undefined,
+  rules: TitleServiceRule[] = DEFAULT_TITLE_SERVICE_MAP,
+): string | null {
+  const t = (title || '').toUpperCase()
+  if (!t.trim()) return null
+  const tokens = t.split(/[^A-Z0-9]+/).filter(Boolean)
+  for (const rule of rules) {
+    const code = (rule.match || '').toUpperCase().trim()
+    const say = (rule.say || '').trim()
+    if (!code || !say) continue
+    const hit = tokens.some(
+      (tok) => tok === code || (tok.startsWith(code) && /[0-9]/.test(tok.charAt(code.length))),
+    )
+    if (hit) return say
+  }
+  return null
+}
+
+// ---------------------------------------------------------------------------
 // Per-call context note
 // ---------------------------------------------------------------------------
 // Appended to the task by /api/voice/brain with what we know about THIS caller:
@@ -234,8 +278,6 @@ export function buildCallContextNote(opts: {
   callerPhone?: string | null
   /** True when callerName came from OUR data (an existing contact), not carrier caller-ID. */
   callerIsExisting?: boolean
-  /** Existing customer's next scheduled visit, formatted for speech (e.g. "Thursday, July 17"). */
-  nextVisit?: string | null
 }): string {
   const lines: string[] = []
   const name = (opts.callerName || '').trim()
@@ -248,12 +290,6 @@ export function buildCallContextNote(opts: {
   if (phone) {
     lines.push(
       `- They are calling from ${phone}. Treat this as their likely callback number: confirm it by reading it back (for example "I've got you at ${phone} — is that the best number to reach you?") rather than asking them to recite their number. If they give a different number, use that instead.`,
-    )
-  }
-  const nextVisit = (opts.nextVisit || '').trim()
-  if (nextVisit) {
-    lines.push(
-      `- This existing customer's next scheduled visit on file is ${nextVisit}. If they ask when the team is coming, you may share this date plainly. If they want to change it, take the request for a team member — you cannot change the schedule yourself.`,
     )
   }
   return lines.length ? `THIS CALL:\n${lines.join('\n')}` : ''

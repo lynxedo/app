@@ -45,47 +45,6 @@ function bearerAuthorized(request: Request): boolean {
   return a.length === b.length && crypto.timingSafeEqual(a, b)
 }
 
-// Look up an existing customer's next scheduled visit from the mirrored `visits`
-// table and format the date for speech (e.g. "Thursday, July 17"), or null when
-// there's nothing upcoming. Read-only + best-effort — never throws, so it can't
-// break call setup (PRD §18 read-only scheduling).
-async function getNextVisitLabel(
-  admin: ReturnType<typeof createAdminClient>,
-  companyId: string,
-  clientId: string,
-): Promise<string | null> {
-  try {
-    const todayCentral = new Intl.DateTimeFormat('en-CA', {
-      timeZone: 'America/Chicago',
-      year: 'numeric',
-      month: '2-digit',
-      day: '2-digit',
-    }).format(new Date())
-    const { data } = await admin
-      .from('visits')
-      .select('scheduled_date')
-      .eq('company_id', companyId)
-      .eq('client_id', clientId)
-      .is('deleted_at', null)
-      .is('completed_at', null)
-      .gte('scheduled_date', todayCentral)
-      .order('scheduled_date', { ascending: true })
-      .limit(1)
-    const scheduled = data?.[0]?.scheduled_date
-    if (!scheduled) return null
-    const d = new Date(`${scheduled}T12:00:00Z`)
-    if (isNaN(d.getTime())) return null
-    return new Intl.DateTimeFormat('en-US', {
-      timeZone: 'America/Chicago',
-      weekday: 'long',
-      month: 'long',
-      day: 'numeric',
-    }).format(d)
-  } catch {
-    return null
-  }
-}
-
 export async function POST(request: Request) {
   if (!bearerAuthorized(request)) {
     return NextResponse.json({ error: 'unauthorized' }, { status: 401 })
@@ -173,7 +132,6 @@ export async function POST(request: Request) {
   // it stays fast at call-connect time. Company-scoped — never cross-tenant.
   let callerName: string | null = null
   let callerIsExisting = false
-  let nextVisit: string | null = null
   if (body.from) {
     try {
       const match = await lookupByPhone(body.from, companyId)
@@ -181,21 +139,19 @@ export async function POST(request: Request) {
         callerName = match.name
         callerIsExisting = true
       }
-      // Existing Jobber client → look up their next scheduled visit from the
-      // mirrored `visits` table so Amber can answer "when are you coming?"
-      // (read-only, PRD §18). Best-effort; never delays or breaks call setup.
-      if (match?.clientId) {
-        nextVisit = await getNextVisitLabel(admin, companyId, match.clientId)
-      }
     } catch (err) {
       console.warn('[voice.brain] caller lookup failed', (err as Error).message)
     }
   }
+  // NOTE: the caller's next visit / service is NOT fetched here. It's looked up
+  // LIVE from Jobber, on demand, only if the caller asks — via the account-lookup
+  // tool (POST /api/voice/lookup) the voice service exposes to the assistant. That
+  // keeps call setup fast (no Jobber round-trip before the greeting) and the data
+  // fresh; see Reference/PRDs/AI_RECEPTIONIST_PRD.md §18.
   const callContext = buildCallContextNote({
     callerName,
     callerPhone: body.from ? formatPhone(body.from) || body.from : null,
     callerIsExisting,
-    nextVisit,
   })
 
   // Transfer availability: a live-person transfer is only offered when a method

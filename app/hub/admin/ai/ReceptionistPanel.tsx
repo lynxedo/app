@@ -16,11 +16,13 @@ type VoiceReceptionistInitial = {
   transfer_method: string
   transfer_user_ids: string[]
   transfer_cell_numbers: Record<string, string>
+  title_service_map: { match: string; say: string }[]
   receptionist_name_default: string
   greeting_business_hours_default: string
   greeting_after_hours_default: string
   instructions_default: string
   voice_id_default: string
+  title_service_map_default: { match: string; say: string }[]
 }
 
 // Capability ladder (Ben's product tiers). Level 4 exists in the UI but is not
@@ -74,6 +76,7 @@ export default function ReceptionistPanel({
     transfer_method: initialVoiceReceptionist.transfer_method || 'off',
     transfer_user_ids: [...(initialVoiceReceptionist.transfer_user_ids || [])].sort(),
     transfer_cell_numbers: { ...(initialVoiceReceptionist.transfer_cell_numbers || {}) },
+    title_service_map: (initialVoiceReceptionist.title_service_map || []).map(r => ({ match: r.match, say: r.say })),
   })
 
   const [vr, setVr] = useState(buildForm)
@@ -108,6 +111,7 @@ export default function ReceptionistPanel({
           transfer_method: vr.transfer_method,
           transfer_user_ids: vr.transfer_user_ids,
           transfer_cell_numbers: vr.transfer_cell_numbers,
+          title_service_map: vr.title_service_map,
         }),
       })
       if (!res.ok) {
@@ -125,6 +129,17 @@ export default function ReceptionistPanel({
 
   const setCell = (uid: string, value: string) =>
     setVr(p => ({ ...p, transfer_cell_numbers: { ...p.transfer_cell_numbers, [uid]: value } }))
+
+  // Service-name map editing (Jobber title code → spoken phrase).
+  const setRule = (i: number, field: 'match' | 'say', value: string) =>
+    setVr(p => ({ ...p, title_service_map: p.title_service_map.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)) }))
+  const addRule = () => setVr(p => ({ ...p, title_service_map: [...p.title_service_map, { match: '', say: '' }] }))
+  const removeRule = (i: number) =>
+    setVr(p => ({ ...p, title_service_map: p.title_service_map.filter((_, idx) => idx !== i) }))
+  const resetMap = () =>
+    setVr(p => ({ ...p, title_service_map: (initialVoiceReceptionist.title_service_map_default || []).map(r => ({ ...r })) }))
+  const mapIsDefault =
+    JSON.stringify(vr.title_service_map) === JSON.stringify(initialVoiceReceptionist.title_service_map_default || [])
 
   const resetLink = (field: TextField) =>
     vr[field] !== DEFAULTS[field] ? (
@@ -277,6 +292,69 @@ export default function ReceptionistPanel({
           <p className="text-xs text-white/40 mt-1">
             The behavior that shapes how the assistant talks and what it collects. Service specifics like pricing come from your
             Knowledge docs; this is the behavior around them. “Reset to default” loads the generic template for the current level.
+          </p>
+        </div>
+
+        {/* Service-name map (Jobber title code → spoken phrase) */}
+        <div className="border border-white/10 rounded-lg p-3 space-y-2">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <p className="text-sm font-medium text-white">Service names for scheduled visits</p>
+              <p className="text-xs text-white/50 mt-0.5">
+                When a customer asks about their next visit, the assistant looks it up live in Jobber and reads the visit
+                title. Titles use internal codes, so map each code to what the assistant should say out loud. The first
+                matching code wins.
+              </p>
+            </div>
+            {!mapIsDefault && (
+              <button
+                type="button"
+                onClick={resetMap}
+                className="text-xs text-white/50 hover:text-white/80 hover:underline flex-shrink-0"
+              >
+                Reset to default
+              </button>
+            )}
+          </div>
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/40">
+              <span className="w-24">Title contains</span>
+              <span className="flex-1">Assistant says</span>
+              <span className="w-6" />
+            </div>
+            {vr.title_service_map.map((r, i) => (
+              <div key={i} className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={r.match}
+                  onChange={e => setRule(i, 'match', e.target.value.slice(0, 24))}
+                  placeholder="IR"
+                  className="w-24 bg-white/5 border border-white/10 rounded px-2.5 py-1 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <input
+                  type="text"
+                  value={r.say}
+                  onChange={e => setRule(i, 'say', e.target.value.slice(0, 80))}
+                  placeholder="sprinkler service call"
+                  className="flex-1 bg-white/5 border border-white/10 rounded px-2.5 py-1 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                />
+                <button
+                  type="button"
+                  onClick={() => removeRule(i)}
+                  aria-label="Remove"
+                  className="w-6 text-white/40 hover:text-red-400 text-lg leading-none"
+                >
+                  ×
+                </button>
+              </div>
+            ))}
+          </div>
+          <button type="button" onClick={addRule} className="text-xs text-brand hover:underline">
+            + Add a service
+          </button>
+          <p className="text-xs text-white/40">
+            A code matches as a whole word or a word followed by numbers — so “RC” matches “RC1”. If a visit title matches
+            nothing here, the assistant just gives the date and says a team member can confirm the service.
           </p>
         </div>
 

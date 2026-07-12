@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/phone'
 import {
   DEFAULT_RECEPTIONIST_NAME,
+  DEFAULT_TITLE_SERVICE_MAP,
   MAX_IMPLEMENTED_LEVEL,
   buildVoiceReceptionistPrompt,
   buildWelcomeGreeting,
@@ -54,6 +55,8 @@ export async function GET() {
     transfer_method: effective.transferMethod,
     transfer_user_ids: effective.transferUserIds,
     transfer_cell_numbers: effective.transferCellNumbers,
+    title_service_map: effective.titleServiceMap,
+    title_service_map_default: DEFAULT_TITLE_SERVICE_MAP,
     receptionist_name_default: DEFAULT_RECEPTIONIST_NAME,
     greeting_business_hours_default: buildWelcomeGreeting(effective.effectiveLevel, {
       context: 'business_hours',
@@ -134,6 +137,22 @@ export async function PATCH(req: NextRequest) {
       }
     }
     update.transfer_cell_numbers = clean
+  }
+  // Editable Jobber-title → spoken-service map. Keep only rows with both a code
+  // and a phrase; store NULL when empty so the resolver falls back to the code
+  // default (the receptionist always has a service vocabulary).
+  if ('title_service_map' in body) {
+    const raw = Array.isArray(body.title_service_map) ? body.title_service_map : []
+    const rules = raw
+      .map((r: unknown) => {
+        const o = (r && typeof r === 'object' ? r : {}) as Record<string, unknown>
+        return {
+          match: typeof o.match === 'string' ? o.match.trim() : '',
+          say: typeof o.say === 'string' ? o.say.trim() : '',
+        }
+      })
+      .filter((r: { match: string; say: string }) => r.match && r.say)
+    update.title_service_map = rules.length ? rules : null
   }
 
   const admin = createAdminClient()

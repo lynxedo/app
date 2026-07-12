@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKnowledgeDocs, getGuardianSettings } from '@/lib/guardian-knowledge'
-import { DEFAULT_RECEPTIONIST_NAME, buildVoiceReceptionistPrompt, buildWelcomeGreeting } from '@/lib/voice-receptionist'
+import { DEFAULT_RECEPTIONIST_NAME, DEFAULT_TITLE_SERVICE_MAP, buildVoiceReceptionistPrompt, buildWelcomeGreeting } from '@/lib/voice-receptionist'
 import {
   VOICE_RECEPTIONIST_COLUMNS,
   getPlanMaxReceptionistLevel,
@@ -117,6 +117,7 @@ export default async function AdminAiPage() {
     transfer_method: vrEffective.transferMethod,
     transfer_user_ids: vrEffective.transferUserIds,
     transfer_cell_numbers: vrEffective.transferCellNumbers,
+    title_service_map: vrEffective.titleServiceMap,
     receptionist_name_default: DEFAULT_RECEPTIONIST_NAME,
     greeting_business_hours_default: buildWelcomeGreeting(vrEffective.effectiveLevel, {
       context: 'business_hours',
@@ -131,6 +132,7 @@ export default async function AdminAiPage() {
       recapEnabled: vrEffective.recapTextEnabled,
     }),
     voice_id_default: process.env.VOICE_ELEVENLABS_VOICE_ID || '',
+    title_service_map_default: DEFAULT_TITLE_SERVICE_MAP,
   }
 
   return (
