@@ -41,7 +41,6 @@ const TRANSFER_METHODS: { value: string; name: string; blurb: string; comingSoon
   { value: 'off', name: 'Off', blurb: 'No live transfer — Amber takes a message or offers voicemail.' },
   { value: 'softphone', name: 'Ring the Dialer softphone', blurb: 'Rings the Dialer app for the selected people who are logged in; whoever answers first takes the call.' },
   { value: 'cell', name: 'Ring a cell + press 1', blurb: 'Calls the selected people on their cell, one at a time, with a quick “press 1 to take it” screen. Enter each person’s number below.' },
-  { value: 'dm', name: 'Hub message (tap to take)', blurb: 'Pushes a Hub message to the selected people; the first to tap “Take the call” gets it — their Dialer rings and they answer.' },
 ]
 
 export default function ReceptionistPanel({

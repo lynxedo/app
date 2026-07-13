@@ -110,7 +110,7 @@ export async function PATCH(req: NextRequest) {
   if ('recap_text_enabled' in body) update.recap_text_enabled = Boolean(body.recap_text_enabled)
   if ('transfer_method' in body) {
     const m = String(body.transfer_method || 'off')
-    if (!['off', 'cell', 'softphone', 'dm'].includes(m)) {
+    if (!['off', 'cell', 'softphone'].includes(m)) {
       return NextResponse.json({ error: 'invalid transfer method' }, { status: 400 })
     }
     update.transfer_method = m

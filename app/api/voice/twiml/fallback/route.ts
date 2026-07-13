@@ -10,9 +10,6 @@ import {
 } from '@/lib/twilio-voice'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getCompanyVoicemailGreeting, getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
-import { fanoutGuardianNotification } from '@/lib/guardian-post'
-import { sendHubPush } from '@/lib/hub-push'
-import { formatPhone } from '@/lib/format'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -139,54 +136,6 @@ export async function POST(request: NextRequest) {
         }
       }
       // No recipient has a number (or the attempt insert failed) → voicemail below.
-    }
-
-    // Hub-DM method: park the caller on hold, push + DM the transfer-list users a
-    // "Take the call" link; the first to tap it (see /api/voice/transfer/accept)
-    // gets their Dialer rung + bridged. Nobody accepts in time → the hold loop
-    // (/api/voice/transfer/hold) drops the caller to voicemail.
-    if (settings.transferMethod === 'dm' && settings.transferUserIds.length > 0) {
-      const callSid = lower.callsid || ''
-      const { data: attempt } = await admin
-        .from('voice_transfer_attempts')
-        .insert({
-          company_id: HEROES_COMPANY_ID,
-          queue_name: `tq_${callSid || Date.now()}`,
-          caller_call_sid: callSid || null,
-          caller_from: callerFrom || null,
-          status: 'pending',
-          expires_at: new Date(Date.now() + 40_000).toISOString(),
-        })
-        .select('id')
-        .single()
-      if (attempt?.id) {
-        const callerLabel = callerFrom ? formatPhone(callerFrom) || callerFrom : 'A caller'
-        const link = `${baseUrl}/hub/transfer/${attempt.id}`
-        try {
-          await fanoutGuardianNotification({
-            companyId: HEROES_COMPANY_ID,
-            userIds: settings.transferUserIds,
-            roomIds: [],
-            body: `📞 ${callerLabel} is on hold and wants to talk to a person. Tap to take the call: ${link}`,
-            admin,
-          })
-          await sendHubPush(
-            settings.transferUserIds,
-            {
-              title: '📞 Caller on hold — take the call?',
-              body: `${callerLabel} is waiting. Tap to connect.`,
-              url: `/hub/transfer/${attempt.id}`,
-              type: 'lead',
-            },
-            { isDm: true },
-          )
-        } catch (e) {
-          console.warn('[voice.fallback] transfer notify failed', (e as Error).message)
-        }
-        return twimlResponse(
-          `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${baseUrl}/api/voice/transfer/hold?a=${attempt.id}&amp;n=0</Redirect></Response>`,
-        )
-      }
     }
 
     return twimlResponse(
