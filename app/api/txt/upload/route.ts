@@ -7,15 +7,22 @@ import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 // mirroring the inbound webhook's R2 key layout so the public media route
 // (/api/txt/media/[...key]) serves both inbound + outbound from the same place.
 //
-// MMS spec: Twilio supports image/jpeg, image/png, image/gif (broadest US carrier
-// support). 5 MB cap per media per Twilio docs. We accept the same set + webp
-// because some carriers handle it; Twilio will return a clear error if rejected.
-
+// MMS spec (Twilio "Accepted content types for media"): images (jpeg/png/gif —
+// broadest US carrier support; webp handled by some), application/pdf, and video
+// (mp4/quicktime/mpeg/3gpp). 5 MB is Twilio's hard cap for the whole message.
+// Non-image files — especially video — have spotty carrier delivery and must be
+// small to fit 5 MB; Twilio returns a clear error if a carrier rejects, which the
+// send path logs.
 const ALLOWED_MIME = new Set([
   'image/jpeg',
   'image/png',
   'image/gif',
   'image/webp',
+  'application/pdf',
+  'video/mp4',
+  'video/quicktime',
+  'video/mpeg',
+  'video/3gpp',
 ])
 
 const MAX_BYTES = 5 * 1024 * 1024 // Twilio MMS hard cap
@@ -43,7 +50,7 @@ export async function POST(request: Request) {
   }
   if (!ALLOWED_MIME.has(file.type)) {
     return NextResponse.json(
-      { error: 'Only JPEG, PNG, GIF, and WebP images are supported for MMS' },
+      { error: 'Unsupported file type for text. Attach an image (JPEG, PNG, GIF), a PDF, or a short video (MP4/MOV).' },
       { status: 400 }
     )
   }

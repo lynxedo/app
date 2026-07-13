@@ -169,6 +169,17 @@ export function FileAttachment({ file, onOpenLightbox }: { file: FileItem; onOpe
     )
   }
 
+  if (file.mime_type.startsWith('audio/')) {
+    return (
+      <div className="mt-1.5 max-w-xs">
+        <div className="truncate text-xs text-gray-400 mb-1">{file.filename}</div>
+        <audio src={src} controls preload="metadata" className="w-full">
+          {file.filename}
+        </audio>
+      </div>
+    )
+  }
+
   if (file.mime_type === 'application/pdf' && onOpenLightbox) {
     return (
       <button

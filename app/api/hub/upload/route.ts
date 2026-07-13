@@ -35,19 +35,27 @@ export async function POST(request: Request) {
     'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
     'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
     'application/vnd.openxmlformats-officedocument.presentationml.presentation',
-    'text/plain', 'text/csv',
+    'text/plain', 'text/csv', 'text/html',
     'video/mp4', 'video/quicktime', 'video/webm', 'video/x-msvideo', 'video/mpeg', 'video/ogg',
+    'audio/mpeg', 'audio/mp4', 'audio/x-m4a', 'audio/wav', 'audio/x-wav', 'audio/webm', 'audio/ogg', 'audio/aac', 'audio/flac',
     'application/vnd.android.package-archive', // Android APK (app install file)
   ])
   // Browsers frequently report an empty or generic MIME for some files — most
-  // notably .apk, where the OS doesn't map the extension to a MIME type — so the
-  // MIME check alone would wrongly reject them. Fall back to an extension
-  // allowlist when the reported MIME isn't one we recognize.
+  // notably .apk (the OS doesn't map the extension to a MIME type) and some audio
+  // files — so the MIME check alone would wrongly reject them. Fall back to an
+  // extension allowlist when the reported MIME isn't one we recognize, and infer
+  // the stored content-type from the extension so playback/preview still works.
   const ext = (file.name.includes('.') ? file.name.split('.').pop()! : 'bin').toLowerCase()
-  const ALLOWED_EXT = new Set(['apk'])
+  const ALLOWED_EXT = new Set(['apk', 'mp3', 'm4a', 'wav', 'aac', 'flac', 'html', 'htm'])
+  const EXT_MIME: Record<string, string> = {
+    apk: 'application/vnd.android.package-archive',
+    mp3: 'audio/mpeg', m4a: 'audio/mp4', wav: 'audio/wav', aac: 'audio/aac', flac: 'audio/flac',
+    html: 'text/html', htm: 'text/html',
+  }
   if (!ALLOWED_TYPES.has(file.type) && !ALLOWED_EXT.has(ext)) {
     return NextResponse.json({ error: 'File type not allowed' }, { status: 400 })
   }
+  const resolvedMime = file.type || EXT_MIME[ext] || 'application/octet-stream'
 
   const { data: profile } = await supabase
     .from('user_profiles')
@@ -65,16 +73,17 @@ export async function POST(request: Request) {
     Bucket: process.env.CF_R2_BUCKET_NAME!,
     Key: key,
     Body: buffer,
-    // Use the real MIME when the browser provided one; otherwise infer apk so
-    // the phone recognizes the download as an installable package.
-    ContentType: file.type || (ext === 'apk' ? 'application/vnd.android.package-archive' : 'application/octet-stream'),
+    // Use the real MIME when the browser provided one; otherwise infer it from
+    // the extension (e.g. .apk → installable package, .mp3 → audio/mpeg) so the
+    // download / inline player behaves correctly.
+    ContentType: resolvedMime,
     ContentDisposition: `inline; filename="${encodeURIComponent(file.name)}"`,
   }))
 
   return NextResponse.json({
     storage_path: key,
     filename: file.name,
-    mime_type: file.type || (ext === 'apk' ? 'application/vnd.android.package-archive' : 'application/octet-stream'),
+    mime_type: resolvedMime,
     size_bytes: file.size,
     width_px,
     height_px,

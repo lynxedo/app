@@ -43,8 +43,11 @@ export async function GET(
 
   // In-app PDF preview reads bytes from this same origin — the lightbox's pdf.js
   // renderer can't read a cross-origin redirect to R2 (CORS). Stream the object
-  // directly instead of redirecting.
-  if (new URL(request.url).searchParams.get('inline') === 'pdf') {
+  // directly instead of redirecting. Gate strictly on the stored MIME being a
+  // PDF: this is the only branch that serves bytes inline from OUR origin, so we
+  // must never let it stream something like text/html here (that would run in the
+  // lynxedo.com origin). All other types fall through to the isolated R2 redirect.
+  if (new URL(request.url).searchParams.get('inline') === 'pdf' && file.mime_type === 'application/pdf') {
     const obj = await r2.send(new GetObjectCommand({
       Bucket: process.env.CF_R2_BUCKET_NAME!,
       Key: file.storage_path,
@@ -53,7 +56,7 @@ export async function GET(
     if (!bytes) return NextResponse.json({ error: 'Not found' }, { status: 404 })
     return new Response(new Uint8Array(bytes), {
       headers: {
-        'Content-Type': file.mime_type || 'application/pdf',
+        'Content-Type': 'application/pdf',
         'Content-Disposition': `inline; filename="${encodeURIComponent(file.filename)}"`,
         'Cache-Control': 'private, max-age=3600',
       },
