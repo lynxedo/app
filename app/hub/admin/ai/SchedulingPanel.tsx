@@ -484,7 +484,7 @@ export default function SchedulingPanel() {
                           {
                             v: 'direct' as SchedulingCommitment,
                             t: 'Book the appointment directly',
-                            d: 'Writes the real visit into Jobber — no human step. Turn on once you trust it.',
+                            d: 'Writes the booking straight into Jobber with no human step. Coming soon — for now these still file as a request to confirm.',
                           },
                         ] as const
                       ).map((opt) => (
