@@ -156,3 +156,98 @@ export function sanitizeSchedulableService(
     updated_at: new Date().toISOString(),
   }
 }
+
+// ── Availability engine (appointment mode) ──────────────────────────────────
+// Pure date/slot logic; the Jobber I/O lives in /api/voice/availability. The
+// scheduling timezone is Central for now (matches the rest of the voice stack) —
+// SaaS TODO: resolve per company.
+
+export const SCHEDULING_TZ = 'America/Chicago'
+
+/** Calendar date (YYYY-MM-DD) of an instant, in the scheduling timezone. */
+export function centralYmd(d: Date): string {
+  return new Intl.DateTimeFormat('en-CA', {
+    timeZone: SCHEDULING_TZ,
+    year: 'numeric',
+    month: '2-digit',
+    day: '2-digit',
+  }).format(d)
+}
+
+/** Add whole calendar days to a YYYY-MM-DD (anchored at noon UTC → DST-safe). */
+export function addDaysYmd(ymd: string, days: number): string {
+  const d = new Date(`${ymd}T12:00:00Z`)
+  d.setUTCDate(d.getUTCDate() + days)
+  return d.toISOString().slice(0, 10)
+}
+
+/** Day of week for a YYYY-MM-DD (0=Sun..6=Sat). */
+export function weekdayOfYmd(ymd: string): number {
+  return new Date(`${ymd}T12:00:00Z`).getUTCDay()
+}
+
+/** Speech-friendly label for a YYYY-MM-DD, e.g. "Thursday, July 17". */
+export function dateLabelForSpeech(ymd: string): string {
+  return new Intl.DateTimeFormat('en-US', {
+    timeZone: 'UTC',
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  }).format(new Date(`${ymd}T12:00:00Z`))
+}
+
+/** Candidate booking dates (earliest first): lead..horizon days out, limited to
+ *  the offered weekdays (empty offeredDays = any day). */
+export function candidateDays(opts: {
+  todayYmd: string
+  leadDays: number
+  horizonDays: number
+  offeredDays: number[]
+}): string[] {
+  const lead = Math.max(0, opts.leadDays)
+  const horizon = Math.max(lead, opts.horizonDays)
+  const out: string[] = []
+  for (let off = lead; off <= horizon; off++) {
+    const ymd = addDaysYmd(opts.todayYmd, off)
+    if (opts.offeredDays.length === 0 || opts.offeredDays.includes(weekdayOfYmd(ymd))) out.push(ymd)
+  }
+  return out
+}
+
+/** Earliest candidate day whose existing booking count is under the per-day cap. */
+export function firstOpenDay(
+  candidates: string[],
+  countByDay: Record<string, number>,
+  maxPerDay: number,
+): string | null {
+  for (const ymd of candidates) {
+    if ((countByDay[ymd] ?? 0) < maxPerDay) return ymd
+  }
+  return null
+}
+
+/** Match a caller's spoken service to a configured schedulable service (enabled
+ *  only): exact name → substring either direction → shared word. */
+export function matchSchedulableService(
+  services: SchedulableServiceRow[],
+  query: string,
+): SchedulableServiceRow | null {
+  const q = (query ?? '').trim().toLowerCase()
+  if (!q) return null
+  const enabled = services.filter((s) => s.enabled)
+  const exact = enabled.find((s) => s.line_item.toLowerCase() === q)
+  if (exact) return exact
+  const contains = enabled.find(
+    (s) => s.line_item.toLowerCase().includes(q) || q.includes(s.line_item.toLowerCase()),
+  )
+  if (contains) return contains
+  const qtokens = new Set(q.split(/\s+/).filter((w) => w.length > 2))
+  return (
+    enabled.find((s) =>
+      s.line_item
+        .toLowerCase()
+        .split(/\s+/)
+        .some((w) => w.length > 2 && qtokens.has(w)),
+    ) ?? null
+  )
+}
