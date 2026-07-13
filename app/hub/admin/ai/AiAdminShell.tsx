@@ -4,6 +4,7 @@ import { useState } from 'react'
 import GuardianPanel from './GuardianPanel'
 import ResponderPanel from './ResponderPanel'
 import ReceptionistPanel from './ReceptionistPanel'
+import SchedulingPanel from './SchedulingPanel'
 import KnowledgePanel from './KnowledgePanel'
 import { type ResponderSettings, type ResponderCall } from '@/lib/responder'
 
@@ -122,7 +123,10 @@ export default function AiAdminShell({
         />
       )}
       {tab === 'receptionist' && (
-        <ReceptionistPanel initialVoiceReceptionist={initialVoiceReceptionist} people={initialPeople} />
+        <div className="space-y-6">
+          <ReceptionistPanel initialVoiceReceptionist={initialVoiceReceptionist} people={initialPeople} />
+          <SchedulingPanel />
+        </div>
       )}
       {tab === 'knowledge' && <KnowledgePanel initialDocs={initialDocs} />}
     </div>
