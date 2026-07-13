@@ -5,10 +5,12 @@ import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
 import { CLAUDE_MODEL } from '@/lib/anthropic'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
+import { getSchedulingEnabled } from '@/lib/voice-scheduling'
 import {
   buildCallContextNote,
   buildTransferInstruction,
   CUSTOMER_SERVICE_INSTRUCTION,
+  SCHEDULING_INSTRUCTION,
   VOICEMAIL_ESCAPE_INSTRUCTION,
 } from '@/lib/voice-receptionist'
 import { startCallRecording, isWithinBusinessHours, BusinessHoursSchedule } from '@/lib/twilio-voice'
@@ -179,10 +181,18 @@ export async function POST(request: Request) {
   // Assemble the shared Guardian system prompt in 'voice' mode + the phone task
   // (the editable instructions, or the default) plus the always-on escape hatch,
   // the per-call transfer instruction, and this call's context note.
+  // Level-4 scheduling: only offer booking (and the booking tools) when the
+  // company is at Level 4 AND scheduling is enabled. Below that, canSchedule is
+  // false → no scheduling instruction, and the voice service withholds the
+  // find_availability / book_appointment tools.
+  const schedulingEnabled = await getSchedulingEnabled(admin, companyId)
+  const canSchedule = settings.level === 4 && schedulingEnabled
+
   const task = [
     settings.instructions,
     VOICEMAIL_ESCAPE_INSTRUCTION,
     CUSTOMER_SERVICE_INSTRUCTION,
+    canSchedule ? SCHEDULING_INSTRUCTION : null,
     buildTransferInstruction(transferAvailable),
     callContext,
   ]
@@ -210,6 +220,9 @@ export async function POST(request: Request) {
     system,
     greeting: settings.greeting,
     callSid: body.callSid ?? null,
+    // Voice service reads meta.canSchedule to decide whether to offer the
+    // find_availability / book_appointment tools this call.
+    meta: { canSchedule },
   })
 }
 

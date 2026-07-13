@@ -33,6 +33,12 @@ export type ReceptionistLevel = 1 | 2 | 3 | 4
 
 /** Highest level with implemented behavior. Level 4 clamps to this. */
 export const MAX_IMPLEMENTED_LEVEL: ReceptionistLevel = 3
+// Highest level an admin may SELECT. Level 4 (full receptionist) is Level 3's
+// soft-sell behavior PLUS live scheduling — the scheduling capability layers on
+// top (the brain appends SCHEDULING_INSTRUCTION + the voice service offers the
+// booking tools) rather than being a distinct base persona, so the prompt clamp
+// above stays at 3 while 4 remains selectable.
+export const MAX_SELECTABLE_LEVEL: ReceptionistLevel = 4
 
 export const RECEPTIONIST_LEVEL_LABELS: Record<ReceptionistLevel, { name: string; blurb: string }> = {
   1: { name: 'Message taker', blurb: 'A friendly voicemail replacement — collects the caller’s name, number, and reason, then promises a callback. Politely deflects all questions.' },
@@ -119,6 +125,19 @@ export const CUSTOMER_SERVICE_INSTRUCTION = `Handling different kinds of calls:
 - Reschedule, cancel, skip, or add-a-service requests: you cannot change the schedule yourself. Warmly take down exactly what they want, read it back to confirm, and let them know a team member will take care of it and follow up — never say it's done or promise a specific change will happen.
 - Billing or payment questions: do NOT read out balances, amounts owed, or specific charges, and never dispute a charge. Reassure them you'll pass it straight to the office team, and take a short message (what it's about, plus their callback number).
 - A complaint or an upset caller: lead with genuine empathy, let them know you're writing everything down and a manager will be notified right away, and capture every detail. Treat it as urgent.`
+
+// Level-4 scheduling playbook. Appended by /api/voice/brain ONLY when the
+// company is at Level 4 AND scheduling is enabled (canSchedule) — so it never
+// shows up (and the booking tools are never offered) below Level 4. Tells Amber
+// how to use her find_availability / book_appointment tools; the tools + the
+// availability/booking rules live on the website side.
+export const SCHEDULING_INSTRUCTION = `Booking an appointment (you can schedule on this call):
+- When a caller wants to book or schedule a service, first tell them you're checking — a brief "let me find the next opening for you, one moment" — then use your find_availability tool with the service they asked for.
+- The tool gives you the first open day and arrival window. Offer exactly what it returns, in warm natural words (for example, "the soonest we could come out is Thursday the seventeenth, with a morning arrival between eight and noon — would that work?"). Never invent or guess a day or time; only offer what the tool gives you.
+- If the caller agrees, use your book_appointment tool with the exact service, date, and window from the availability result. Then confirm warmly, let them know a specialist will lock in the exact timing, and that they'll get a confirmation.
+- If the tool says the service is a recurring sign-up, don't pick a specific time — just confirm they'd like to get started and that a specialist will set up the first visit.
+- If the tool says it's a new customer or that it can't book directly, collect their name and full address and let them know a specialist will call to confirm — do not promise a specific day or time.
+- Only offer to book the services your tools handle. For anything else, take a message as usual, and never promise a final price on the call.`
 
 // Transfer availability is per-call (depends on business hours + admin config),
 // so the brain injects the right variant. When available, Amber can put the

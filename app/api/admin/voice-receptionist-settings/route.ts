@@ -5,7 +5,7 @@ import { toE164 } from '@/lib/phone'
 import {
   DEFAULT_RECEPTIONIST_NAME,
   DEFAULT_TITLE_SERVICE_MAP,
-  MAX_IMPLEMENTED_LEVEL,
+  MAX_SELECTABLE_LEVEL,
   buildVoiceReceptionistPrompt,
   buildWelcomeGreeting,
 } from '@/lib/voice-receptionist'
@@ -92,9 +92,8 @@ export async function PATCH(req: NextRequest) {
     if (!Number.isInteger(lvl) || lvl < 1 || lvl > 4) {
       return NextResponse.json({ error: 'level must be 1–4' }, { status: 400 })
     }
-    // Level 4 (full receptionist / live scheduling) isn't built yet.
-    if (lvl > MAX_IMPLEMENTED_LEVEL) {
-      return NextResponse.json({ error: 'Level 4 is coming soon' }, { status: 400 })
+    if (lvl > MAX_SELECTABLE_LEVEL) {
+      return NextResponse.json({ error: `level must be 1–${MAX_SELECTABLE_LEVEL}` }, { status: 400 })
     }
     const cap = getPlanMaxReceptionistLevel(auth.company_id!)
     if (lvl > cap) {
