@@ -32,7 +32,7 @@ const VR_LEVELS: { level: number; name: string; blurb: string; comingSoon?: bool
   { level: 1, name: 'Level 1 — Message taker', blurb: 'A friendly voicemail replacement: collects name, number, and reason, then promises a callback. Politely deflects all questions.' },
   { level: 2, name: 'Level 2 — Conversational', blurb: 'Warm and human — brief small talk, answers approved basics, and talks the company up. Promotes any free/no-obligation offer. Never states pricing.' },
   { level: 3, name: 'Level 3 — Soft sell', blurb: 'Conversational plus: states approved fixed pricing, asks qualifying questions, and works an assumptive soft close. A human specialist still confirms.' },
-  { level: 4, name: 'Level 4 — Full receptionist', blurb: 'Owns the call start to close — real quotes and live scheduling into Jobber within your guardrails.', comingSoon: true },
+  { level: 4, name: 'Level 4 — Full receptionist', blurb: 'Everything in Level 3, plus live scheduling — checks availability and books appointments into Jobber. Turn on Scheduling below and add your services.' },
 ]
 
 // Transfer methods. Admin picks one; recipients are Hub users (checkbox list).

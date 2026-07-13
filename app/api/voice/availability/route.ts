@@ -206,9 +206,14 @@ export async function POST(request: Request) {
 
   const label = dateLabelForSpeech(openDay)
   const windowPhrase = formatWindows(svc.time_frames)
-  const answer = windowPhrase
-    ? `The first opening for ${svc.line_item} is ${label}, with ${windowPhrase}. If that works, confirm the details with the caller and then book it.`
-    : `The first opening for ${svc.line_item} is ${label}. If that works, confirm the details with the caller and then book it.`
+  const firstWin = svc.time_frames[0]
+  // Machine hint so the model books with exact args (not by re-parsing the spoken
+  // date). It's a bracketed directive the model acts on, not speech.
+  const bookHint = ` [When the caller agrees, call book_appointment with service="${svc.line_item}", date="${openDay}"${firstWin ? `, start="${firstWin.start}", end="${firstWin.end}"` : ''}.]`
+  const answer =
+    (windowPhrase
+      ? `The first opening for ${svc.line_item} is ${label}, with ${windowPhrase}. If that works, confirm the details with the caller and then book it.`
+      : `The first opening for ${svc.line_item} is ${label}. If that works, confirm the details with the caller and then book it.`) + bookHint
 
   return ok(answer, {
     available: true,

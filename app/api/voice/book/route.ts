@@ -140,11 +140,14 @@ export async function POST(request: Request) {
   if (svc.assigned_user_ids.length) schedule.teamMemberIdsToAssign = svc.assigned_user_ids
 
   const windowNote = startHHMM ? ` — caller offered a ${startHHMM}${endHHMM ? `–${endHHMM}` : ''} arrival window` : ''
+  // While the receptionist is in test mode (dark beta on the 888), tag the
+  // Request so test bookings are unmistakable and safe to bulk-delete.
+  const testMode = process.env.VOICE_TEST_MODE === 'true'
   const input = {
     clientId: jobberClientId,
-    title: svc.line_item,
+    title: `${testMode ? '[TEST] ' : ''}${svc.line_item}`,
     assessment: {
-      instructions: `Booked via the AI receptionist${windowNote}. Please confirm the exact time with the customer.`,
+      instructions: `${testMode ? '[TEST booking via the AI receptionist — safe to delete] ' : ''}Booked via the AI receptionist${windowNote}. Please confirm the exact time with the customer.`,
       schedule,
     },
   }
