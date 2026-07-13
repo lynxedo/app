@@ -229,7 +229,7 @@ export default function TxtConversationView({
   // media_urls on next sendMessage(). Each item is the storage_path returned
   // by /api/txt/upload (Twilio fetches via /api/txt/media/[...key]).
   const [pendingAttachments, setPendingAttachments] = useState<
-    { storage_path: string; filename: string; preview: string }[]
+    { storage_path: string; filename: string; preview: string; kind: 'image' | 'video' | 'pdf' | 'other' }[]
   >([])
   const [uploadingAttachment, setUploadingAttachment] = useState(false)
   // "Add to Board" — turn a customer text into a task card on a Hub board.
@@ -924,9 +924,15 @@ export default function TxtConversationView({
       }
       // Local object URL for the chip preview — never persisted, freed on send.
       const preview = URL.createObjectURL(file)
+      const mime: string = data.mime_type || file.type || ''
+      const kind: 'image' | 'video' | 'pdf' | 'other' =
+        mime.startsWith('image/') ? 'image'
+        : mime.startsWith('video/') ? 'video'
+        : mime === 'application/pdf' ? 'pdf'
+        : 'other'
       setPendingAttachments((prev) => [
         ...prev,
-        { storage_path: data.storage_path, filename: data.filename, preview },
+        { storage_path: data.storage_path, filename: data.filename, preview, kind },
       ])
     }
     setUploadingAttachment(false)
@@ -1120,6 +1126,7 @@ export default function TxtConversationView({
             storage_path: sp,
             filename: sp.split('/').pop() || 'attachment',
             preview: `/api/txt/media/${sp}`,
+            kind: mediaKind(sp),
           }))
         return [...prev, ...additions]
       })
@@ -1932,9 +1939,19 @@ export default function TxtConversationView({
                 <div
                   key={a.storage_path}
                   className="relative group rounded-md overflow-hidden bg-white/5 border border-white/10"
+                  title={a.filename}
                 >
-                  {/* eslint-disable-next-line @next/next/no-img-element */}
-                  <img src={a.preview} alt={a.filename} className="w-16 h-16 object-cover" />
+                  {a.kind === 'image' ? (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={a.preview} alt={a.filename} className="w-16 h-16 object-cover" />
+                  ) : a.kind === 'video' ? (
+                    <video src={a.preview} muted playsInline className="w-16 h-16 object-cover bg-black" />
+                  ) : (
+                    <div className="w-16 h-16 flex flex-col items-center justify-center gap-0.5 px-1 text-center">
+                      <span className="text-lg leading-none">{a.kind === 'pdf' ? '📄' : '📎'}</span>
+                      <span className="w-full truncate text-[9px] text-white/70">{a.filename}</span>
+                    </div>
+                  )}
                   <button
                     type="button"
                     onClick={() => removeAttachment(a.storage_path)}
@@ -1955,7 +1972,7 @@ export default function TxtConversationView({
           <input
             ref={fileInputRef}
             type="file"
-            accept="image/jpeg,image/png,image/gif,image/webp"
+            accept="image/jpeg,image/png,image/gif,image/webp,application/pdf,video/mp4,video/quicktime,video/mpeg,video/3gpp"
             multiple
             className="hidden"
             onChange={(e) => handleFilesSelected(e.target.files)}
