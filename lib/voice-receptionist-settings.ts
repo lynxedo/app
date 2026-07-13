@@ -24,8 +24,7 @@ import {
 //   off       — transfers disabled (take a message / voicemail only)
 //   softphone — ring the transfer-list users' Dialer softphones
 //   cell      — ring their cell (from user_profiles.phone) with a press-1 screen
-//   dm        — park the caller; Hub DM/push the users; whoever accepts is bridged
-export type TransferMethod = 'off' | 'cell' | 'softphone' | 'dm'
+export type TransferMethod = 'off' | 'cell' | 'softphone'
 
 export type VoiceReceptionistSettingsRow = {
   company_id: string
@@ -158,7 +157,7 @@ export function resolveVoiceReceptionistSettings(
       buildVoiceReceptionistPrompt(effectiveLevel, { name: receptionistName, recapEnabled: recapTextEnabled }),
     voiceId: row?.voice_id?.trim() || process.env.VOICE_ELEVENLABS_VOICE_ID || '',
     recapTextEnabled,
-    transferMethod: (['off', 'cell', 'softphone', 'dm'].includes(row?.transfer_method || '')
+    transferMethod: (['off', 'cell', 'softphone'].includes(row?.transfer_method || '')
       ? (row!.transfer_method as TransferMethod)
       : 'off'),
     transferUserIds: Array.isArray(row?.transfer_user_ids) ? row!.transfer_user_ids : [],
