@@ -1,9 +1,15 @@
 import { NextResponse } from 'next/server'
 import crypto from 'crypto'
+import { S3Client, PutObjectCommand } from '@aws-sdk/client-s3'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 import { fanoutGuardianNotification } from '@/lib/guardian-post'
 import { sendSms, toE164 } from '@/lib/twilio'
+import {
+  deleteTwilioRecording,
+  downloadTwilioRecording,
+} from '@/lib/twilio-voice'
+import { processVoicemail } from '@/lib/voicemail-transcribe'
 import {
   ensureInboundQueueConversation,
   findOrCreateContactByPhone,
@@ -19,6 +25,11 @@ export const dynamic = 'force-dynamic'
 // runs when the PRIMARY voice flow threw a fatal error mid-call, so every
 // request here doubles as a production incident signal.
 //
+// The recording is ingested into the normal voicemail pipeline (R2 copy +
+// voicemails row + async transcription) so it appears in the Dialer's
+// Voicemail tab and alert links open the in-app player — a raw Twilio
+// recording URL demands Twilio console credentials in the browser.
+//
 // Delivery is per Admin → Dialer "Fallback voicemail alerts":
 //   fallback_notify_method    'hub' (Guardian DM + push, default) | 'sms' | 'both'
 //   fallback_notify_user_ids  hub recipients; empty → voicemail_recipient_user_ids
@@ -32,6 +43,7 @@ export const dynamic = 'force-dynamic'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
+const APP_ORIGIN = process.env.NEXT_PUBLIC_APP_URL || 'https://lynxedo.com'
 
 function bearerAuthorized(request: Request): boolean {
   const secret = process.env.VOICE_SERVICE_SECRET || ''
@@ -54,6 +66,7 @@ export async function POST(request: Request) {
     to?: string
     callSid?: string
     recordingUrl?: string
+    recordingDuration?: string
     errorCode?: string
     errorUrl?: string
   }
@@ -67,6 +80,7 @@ export async function POST(request: Request) {
   if (!recordingUrl.startsWith('https://api.twilio.com/')) {
     return NextResponse.json({ error: 'recordingUrl required' }, { status: 400 })
   }
+  const recordingSid = recordingUrl.split('/').pop()?.replace(/\.(mp3|wav)$/, '') || ''
 
   const admin = createAdminClient()
   const fromNumber = typeof body.from === 'string' ? body.from : ''
@@ -76,6 +90,85 @@ export async function POST(request: Request) {
     dateStyle: 'medium',
     timeStyle: 'short',
   })
+  const durationSec = body.recordingDuration
+    ? parseInt(body.recordingDuration, 10) || null
+    : null
+
+  // ── Ingest into the normal voicemail pipeline (best-effort) ──────────────
+  // Mirrors /api/dialer/voice/voicemail/complete: R2 copy → voicemails row →
+  // async transcription → delete Twilio's copy. On any failure we still alert,
+  // pointing at the Twilio console instead of the in-app player.
+  let voicemailId: string | null = null
+  let contactId: string | null = null
+  try {
+    let callId: string | null = null
+    if (body.callSid) {
+      const { data: callRow } = await admin
+        .from('calls')
+        .select('id, contact_id')
+        .eq('twilio_call_sid', body.callSid)
+        .maybeSingle()
+      if (callRow) {
+        callId = callRow.id
+        contactId = callRow.contact_id
+      }
+    }
+    if (!contactId && fromNumber) {
+      const { data: contact } = await admin
+        .from('txt_contacts')
+        .select('id')
+        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('phone', fromNumber)
+        .maybeSingle()
+      contactId = contact?.id ?? null
+    }
+
+    if (recordingSid && process.env.CF_R2_ACCESS_KEY_ID && process.env.CF_R2_BUCKET_NAME) {
+      const media = await downloadTwilioRecording(recordingUrl)
+      if (media) {
+        const storageKey = `dialer/${HEROES_COMPANY_ID}/voicemail/${recordingSid}.mp3`
+        const r2 = new S3Client({
+          region: 'auto',
+          endpoint: `https://${process.env.CF_R2_ACCOUNT_ID}.r2.cloudflarestorage.com`,
+          credentials: {
+            accessKeyId: process.env.CF_R2_ACCESS_KEY_ID!,
+            secretAccessKey: process.env.CF_R2_SECRET_ACCESS_KEY!,
+          },
+        })
+        await r2.send(
+          new PutObjectCommand({
+            Bucket: process.env.CF_R2_BUCKET_NAME!,
+            Key: storageKey,
+            Body: Buffer.from(media.bytes),
+            ContentType: media.contentType || 'audio/mpeg',
+          })
+        )
+        const { data: voicemail } = await admin
+          .from('voicemails')
+          .insert({
+            company_id: HEROES_COMPANY_ID,
+            call_id: callId,
+            owner_user_id: null,
+            from_number: fromNumber || null,
+            contact_id: contactId,
+            twilio_recording_sid: recordingSid,
+            recording_storage_path: storageKey,
+            recording_duration_sec: durationSec,
+          })
+          .select('id')
+          .single()
+        if (voicemail) {
+          voicemailId = voicemail.id
+          deleteTwilioRecording(recordingSid).catch(() => {})
+          processVoicemail(voicemail.id).catch((err) => {
+            console.warn('[fallback-notify] transcription failed', voicemail.id, err)
+          })
+        }
+      }
+    }
+  } catch (e) {
+    console.warn('[fallback-notify] voicemail ingest failed', e)
+  }
 
   const { data: settings } = await admin
     .from('dialer_settings')
@@ -91,10 +184,13 @@ export async function POST(request: Request) {
       ? settings.fallback_notify_user_ids
       : settings?.voicemail_recipient_user_ids) ?? []
 
+  const listenLine = voicemailId
+    ? `Listen: ${APP_ORIGIN}/hub/dialer?vm=${voicemailId} (also in the Dialer → Voicemail tab; transcript follows shortly)`
+    : `Listen: the recording is in the Twilio Console → Monitor → Recordings (in-app ingest failed).`
   const message =
     `🛟 EMERGENCY fallback voicemail — the phone system errored on a live call and the Twilio-hosted backup answered.\n` +
     `Caller: ${caller} at ${when} (Central)\n` +
-    `Listen: ${recordingUrl}.mp3\n` +
+    `${listenLine}\n` +
     (body.errorCode ? `Twilio error ${body.errorCode}${body.errorUrl ? ` on ${body.errorUrl}` : ''}\n` : '') +
     `The main call flow failed on this call — worth investigating.`
 
@@ -113,7 +209,7 @@ export async function POST(request: Request) {
     sendHubPush(hubUserIds, {
       title: `🛟 Fallback voicemail — ${caller}`,
       body: 'Phone system errored on a live call; the backup took a message.',
-      url: '/hub/home',
+      url: voicemailId ? `/hub/dialer?vm=${voicemailId}` : '/hub/dialer',
       type: 'voicemail',
     }, { isDm: true }).catch((err) => {
       console.warn('[fallback-notify] push fan-out failed', err)
@@ -134,11 +230,12 @@ export async function POST(request: Request) {
   // triage it in the usual workflow. Best-effort — never fails the notify.
   try {
     if (fromNumber) {
-      const contactId = await findOrCreateContactByPhone(admin, HEROES_COMPANY_ID, fromNumber)
-      if (contactId) {
+      const queueContactId =
+        contactId ?? (await findOrCreateContactByPhone(admin, HEROES_COMPANY_ID, fromNumber))
+      if (queueContactId) {
         await ensureInboundQueueConversation(admin, {
           companyId: HEROES_COMPANY_ID,
-          contactId,
+          contactId: queueContactId,
           preview: '🛟 Emergency fallback voicemail',
         })
       }
@@ -151,7 +248,7 @@ export async function POST(request: Request) {
   if (dmsSent === 0 && smsSent === 0) {
     return NextResponse.json({ ok: false, error: 'no_delivery' }, { status: 500 })
   }
-  return NextResponse.json({ ok: true, dmsSent, smsSent })
+  return NextResponse.json({ ok: true, dmsSent, smsSent, voicemailId })
 }
 
 export async function GET() {
