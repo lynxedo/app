@@ -82,6 +82,9 @@ export default async function AdminDialerPage() {
     recording_pause_auto_resume_sec: row?.recording_pause_auto_resume_sec ?? 60,
     fallback_voicemail_tts: row?.fallback_voicemail_tts ?? '',
     disposition_options: Array.isArray(row?.disposition_options) ? (row!.disposition_options as string[]) : null,
+    fallback_notify_method: (row?.fallback_notify_method ?? 'hub') as 'hub' | 'sms' | 'both',
+    fallback_notify_user_ids: (row?.fallback_notify_user_ids ?? []) as string[],
+    fallback_notify_sms_numbers: (row?.fallback_notify_sms_numbers ?? []) as string[],
   }
 
   // Build the extension grid (every hub_user + their current extension).
