@@ -48,7 +48,10 @@ export async function GET(
       Bucket: process.env.CF_R2_BUCKET_NAME!,
       Key: key,
     }),
-    { expiresIn: 3600 }
+    // 24h presign: must outlive the redirect's edge-cache lifetime — Cloudflare
+    // extends our max-age to 4h, and a cached redirect with an expired presign
+    // 403s Twilio's <Play> fetch, killing the call ("application error").
+    { expiresIn: 86400 }
   )
 
   return NextResponse.redirect(signedUrl, {
