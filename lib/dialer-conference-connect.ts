@@ -261,6 +261,52 @@ export async function isAgentDndNow(
   }
 }
 
+// Batch variant of isAgentDndNow for the AI-receptionist transfer list: given a
+// set of user ids, return only those who may ring right now (drops locked/
+// deactivated, master DND + schedule, Hub presence DND, dialer DND + schedule —
+// the same checks the ring-group filter applies). Fails open (returns all ids)
+// on a DB error so a query hiccup never strands a caller mid-transfer.
+export async function filterNonDndUserIds(
+  admin: ReturnType<typeof createAdminClient>,
+  userIds: string[],
+): Promise<string[]> {
+  if (userIds.length === 0) return []
+  try {
+    const [{ data: profileRows }, { data: hubStatusRows }] = await Promise.all([
+      admin
+        .from('user_profiles')
+        .select('id, master_dnd_enabled, master_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule, locked_at, deactivated_at')
+        .in('id', userIds),
+      admin
+        .from('hub_users')
+        .select('id, status, status_until')
+        .in('id', userIds),
+    ])
+    const hubDndById = new Map<string, boolean>()
+    for (const u of hubStatusRows ?? []) {
+      const active = u.status === 'dnd' && (!u.status_until || new Date(u.status_until) > new Date())
+      hubDndById.set(u.id, active)
+    }
+    const dnd = new Set<string>()
+    for (const p of profileRows ?? []) {
+      const masterSched = (p.master_dnd_schedule || null) as DndSchedule | null
+      const dialerSched = (p.dialer_dnd_schedule || null) as DndSchedule | null
+      if (
+        Boolean(p.locked_at) || Boolean(p.deactivated_at) ||
+        Boolean(p.master_dnd_enabled) || isInDndSchedule(masterSched) ||
+        Boolean(hubDndById.get(p.id)) ||
+        Boolean(p.dialer_dnd_enabled) || isInDndSchedule(dialerSched)
+      ) {
+        dnd.add(p.id)
+      }
+    }
+    return userIds.filter((id) => !dnd.has(id))
+  } catch {
+    console.warn('[filterNonDndUserIds] DND check failed — allowing all recipients')
+    return userIds
+  }
+}
+
 function voicemailRedirectTwiml(baseUrl: string): string {
   return `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${baseUrl}/api/dialer/voice/twiml/voicemail</Redirect></Response>`
 }

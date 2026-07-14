@@ -9,6 +9,7 @@ import {
   voiceConfigured,
 } from '@/lib/twilio-voice'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { filterNonDndUserIds } from '@/lib/dialer-conference-connect'
 import { getCompanyVoicemailGreeting, getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 
 const HEROES_COMPANY_ID =
@@ -85,14 +86,19 @@ export async function POST(request: NextRequest) {
     const settings = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
     const callerFrom = lower.from || ''
     if (settings.transferMethod === 'softphone' && settings.transferUserIds.length > 0) {
-      return twimlResponse(
-        twimlRingGroupSimultaneous({
-          identities: settings.transferUserIds,
-          timeoutSec: 25,
-          actionUrl: `${baseUrl}/api/voice/twiml/transfer-result`,
-          callerId: callerFrom || undefined,
-        })
-      )
+      // Honor Do Not Disturb: ring only recipients who aren't DND right now
+      // (same checks as the dialer ring groups). Everyone DND → voicemail below.
+      const identities = await filterNonDndUserIds(admin, settings.transferUserIds)
+      if (identities.length > 0) {
+        return twimlResponse(
+          twimlRingGroupSimultaneous({
+            identities,
+            timeoutSec: 25,
+            actionUrl: `${baseUrl}/api/voice/twiml/transfer-result`,
+            callerId: callerFrom || undefined,
+          })
+        )
+      }
     }
 
     // Cell method: call the transfer-list users on their cell phones, ONE AT A
@@ -102,9 +108,12 @@ export async function POST(request: NextRequest) {
     // and drops the caller to voicemail once the list is exhausted. callerId is
     // OUR Twilio number (this is an outbound PSTN leg).
     if (settings.transferMethod === 'cell') {
-      const recipients = settings.transferUserIds
+      const withCell = settings.transferUserIds
         .map((uid) => ({ uid, cell: settings.transferCellNumbers[uid] }))
         .filter((r) => Boolean(r.cell))
+      // Honor Do Not Disturb here too — a DND recipient's cell shouldn't ring.
+      const notDnd = await filterNonDndUserIds(admin, withCell.map((r) => r.uid))
+      const recipients = withCell.filter((r) => notDnd.includes(r.uid))
       if (recipients.length > 0) {
         const callSid = lower.callsid || ''
         const { data: attempt } = await admin
