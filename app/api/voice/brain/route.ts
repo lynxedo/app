@@ -104,18 +104,46 @@ export async function POST(request: Request) {
         contactId = await findOrCreateTxtContact(companyId, body.from).catch(() => null)
       }
 
-      await admin.from('calls').insert({
-        company_id: companyId,
-        twilio_call_sid: callSid,
-        direction: 'inbound',
-        from_number: fromNumber,
-        to_number: toNumber,
-        status: 'in-progress',
-        answered_at: new Date().toISOString(),
-        contact_id: contactId,
-        handled_by: null,
-        call_type: 'ai_receptionist',
-      })
+      // Reconcile with any row the inbound webhook already created for this call.
+      // The 832 dialer path (app/api/dialer/voice/twiml/inbound) inserts a
+      // 'ringing' row BEFORE the call is handed to the receptionist (missed /
+      // after-hours / weekend → the voicemail route → Amber), whereas direct
+      // entry points (app/api/voice/twiml, the 888 line) insert nothing.
+      // Update-in-place when a row already exists, else insert — so a 832
+      // receptionist call is logged exactly once (no duplicate Call Log entry).
+      // On UPDATE we deliberately do NOT overwrite from_number/to_number: the
+      // inbound row already holds the real values, whereas brain's body copy can
+      // be 'unknown' if the relay omitted them.
+      const nowIso = new Date().toISOString()
+      const { data: existingCall } = await admin
+        .from('calls')
+        .select('id')
+        .eq('twilio_call_sid', callSid)
+        .limit(1)
+      if (existingCall && existingCall.length > 0) {
+        await admin
+          .from('calls')
+          .update({
+            status: 'in-progress',
+            answered_at: nowIso,
+            call_type: 'ai_receptionist',
+            ...(contactId ? { contact_id: contactId } : {}),
+          })
+          .eq('twilio_call_sid', callSid)
+      } else {
+        await admin.from('calls').insert({
+          company_id: companyId,
+          twilio_call_sid: callSid,
+          direction: 'inbound',
+          from_number: fromNumber,
+          to_number: toNumber,
+          status: 'in-progress',
+          answered_at: nowIso,
+          contact_id: contactId,
+          handled_by: null,
+          call_type: 'ai_receptionist',
+        })
+      }
 
       if (recordingEnabled) {
         const baseUrl = process.env.NEXT_PUBLIC_APP_URL || ''
