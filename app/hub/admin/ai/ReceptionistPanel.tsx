@@ -84,6 +84,13 @@ export default function ReceptionistPanel({
   const [vrSavedAt, setVrSavedAt] = useState<number | null>(null)
   const [vrError, setVrError] = useState<string | null>(null)
 
+  // Jobber service catalog for the "Load from Jobber" picker, loaded on demand.
+  const [svcCatalog, setSvcCatalog] = useState<string[]>([])
+  const [svcLoading, setSvcLoading] = useState(false)
+  const [svcLoaded, setSvcLoaded] = useState(false)
+  const [svcErr, setSvcErr] = useState<string | null>(null)
+  const [svcAddSel, setSvcAddSel] = useState('')
+
   const dirty = JSON.stringify(vr) !== JSON.stringify(loaded)
 
   type TextField = 'receptionist_name' | 'greeting_business_hours' | 'greeting_after_hours' | 'instructions' | 'voice_id'
@@ -129,7 +136,7 @@ export default function ReceptionistPanel({
   const setCell = (uid: string, value: string) =>
     setVr(p => ({ ...p, transfer_cell_numbers: { ...p.transfer_cell_numbers, [uid]: value } }))
 
-  // Service-name map editing (Jobber title code → spoken phrase).
+  // Service-naming rule editing (line-item match → spoken phrase).
   const setRule = (i: number, field: 'match' | 'say', value: string) =>
     setVr(p => ({ ...p, title_service_map: p.title_service_map.map((r, idx) => (idx === i ? { ...r, [field]: value } : r)) }))
   const addRule = () => setVr(p => ({ ...p, title_service_map: [...p.title_service_map, { match: '', say: '' }] }))
@@ -139,6 +146,29 @@ export default function ReceptionistPanel({
     setVr(p => ({ ...p, title_service_map: (initialVoiceReceptionist.title_service_map_default || []).map(r => ({ ...r })) }))
   const mapIsDefault =
     JSON.stringify(vr.title_service_map) === JSON.stringify(initialVoiceReceptionist.title_service_map_default || [])
+
+  // Pull the real Jobber service catalog (same source the Scheduling panel uses)
+  // so the admin can pick an actual service to name instead of typing it.
+  const loadServicesFromJobber = async () => {
+    setSvcLoading(true)
+    setSvcErr(null)
+    try {
+      const res = await fetch('/api/jobber/line-items')
+      const data = await res.json()
+      if (!res.ok || data.error) throw new Error(data.error ?? `Could not load services (${res.status})`)
+      setSvcCatalog((data.lineItems as string[]) ?? [])
+      setSvcLoaded(true)
+    } catch (e) {
+      setSvcErr(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSvcLoading(false)
+    }
+  }
+  const addRuleFromService = (name: string) => {
+    if (!name) return
+    setVr(p => ({ ...p, title_service_map: [...p.title_service_map, { match: name, say: '' }] }))
+    setSvcAddSel('')
+  }
 
   const resetLink = (field: TextField) =>
     vr[field] !== DEFAULTS[field] ? (
@@ -294,15 +324,16 @@ export default function ReceptionistPanel({
           </p>
         </div>
 
-        {/* Service-name map (Jobber title code → spoken phrase) */}
+        {/* Service naming — a line-item match → spoken phrase */}
         <div className="border border-white/10 rounded-lg p-3 space-y-2">
           <div className="flex items-start justify-between gap-2">
             <div>
               <p className="text-sm font-medium text-white">Service names for scheduled visits</p>
               <p className="text-xs text-white/50 mt-0.5">
-                When a customer asks about their next visit, the assistant looks it up live in Jobber and reads the visit
-                title. Titles use internal codes, so map each code to what the assistant should say out loud. The first
-                matching code wins.
+                When a customer asks about their next visit, the assistant looks it up live in Jobber and names the
+                service from the visit’s line items. Add a rule per service: when a line item matches the text on the
+                left, the assistant says the phrase on the right. On a visit with several line items it names the main
+                (highest-priced) one, so add-ons and discounts are ignored.
               </p>
             </div>
             {!mapIsDefault && (
@@ -315,9 +346,48 @@ export default function ReceptionistPanel({
               </button>
             )}
           </div>
-          <div className="space-y-1.5">
+
+          {/* Load the real Jobber service list, then pick one to add as a rule. */}
+          <div className="flex flex-wrap items-center gap-2 pt-0.5">
+            <button
+              type="button"
+              onClick={loadServicesFromJobber}
+              disabled={svcLoading}
+              className="px-3 py-1.5 border border-white/15 hover:border-white/30 disabled:opacity-50 rounded-lg text-xs font-medium text-white/80 whitespace-nowrap"
+            >
+              {svcLoading ? 'Loading…' : svcLoaded ? '↻ Reload from Jobber' : '↻ Load from Jobber'}
+            </button>
+            {svcLoaded && (
+              <>
+                <select
+                  value={svcAddSel}
+                  onChange={e => setSvcAddSel(e.target.value)}
+                  className="flex-1 min-w-0 bg-white/5 border border-white/10 rounded px-2.5 py-1 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+                >
+                  <option value="">— add one of your services —</option>
+                  {svcCatalog.map(li => (
+                    <option key={li} value={li}>
+                      {li}
+                    </option>
+                  ))}
+                </select>
+                <button
+                  type="button"
+                  onClick={() => addRuleFromService(svcAddSel)}
+                  disabled={!svcAddSel}
+                  className="px-3 py-1.5 rounded-lg bg-brand hover:bg-brand-light disabled:opacity-40 text-sm font-medium whitespace-nowrap"
+                >
+                  + Add
+                </button>
+              </>
+            )}
+          </div>
+          {svcErr && <p className="text-xs text-red-400">{svcErr}</p>}
+          {svcLoaded && <p className="text-xs text-emerald-300">{svcCatalog.length} services loaded</p>}
+
+          <div className="space-y-1.5 pt-1">
             <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-white/40">
-              <span className="w-24">Title contains</span>
+              <span className="w-40">When a line item matches</span>
               <span className="flex-1">Assistant says</span>
               <span className="w-6" />
             </div>
@@ -326,9 +396,9 @@ export default function ReceptionistPanel({
                 <input
                   type="text"
                   value={r.match}
-                  onChange={e => setRule(i, 'match', e.target.value.slice(0, 24))}
-                  placeholder="IR"
-                  className="w-24 bg-white/5 border border-white/10 rounded px-2.5 py-1 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500"
+                  onChange={e => setRule(i, 'match', e.target.value.slice(0, 60))}
+                  placeholder="Irrigation"
+                  className="w-40 bg-white/5 border border-white/10 rounded px-2.5 py-1 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500"
                 />
                 <input
                   type="text"
@@ -349,11 +419,12 @@ export default function ReceptionistPanel({
             ))}
           </div>
           <button type="button" onClick={addRule} className="text-xs text-brand hover:underline">
-            + Add a service
+            + Add a service manually
           </button>
           <p className="text-xs text-white/40">
-            A code matches as a whole word or a word followed by numbers — so “RC” matches “RC1”. If a visit title matches
-            nothing here, the assistant just gives the date and says a team member can confirm the service.
+            Matching is case-insensitive and matches whole words, so a short match like “IR” hits “IR - Irrigation” but
+            not “Repair.” Keep the match broad (e.g. “Pet Waste”) to cover every variant of a service. If a visit
+            matches nothing here, the assistant just gives the date and says a team member can confirm the service.
           </p>
         </div>
 

@@ -245,44 +245,77 @@ export const VOICE_RECEPTIONIST_PROMPT = buildVoiceReceptionistPrompt(2)
 // ---------------------------------------------------------------------------
 // Job-title → spoken service decoding
 // ---------------------------------------------------------------------------
-// Jobber visit titles are internal ops shorthand ("Hardin/RC1 RRR PHC 6.5k
-// $238 WoodlandsW", "Kenny/IR SVC Grand Lakes Estates"). This maps the service
-// CODE embedded in the title to a plain phrase the receptionist can say to a
-// customer. The map is editable per company in Admin → AI → Receptionist
-// (voice_receptionist_settings.title_service_map); this is the default seeded
-// for Heroes. Order matters — the first matching rule wins.
+// A service-naming rule maps a bit of text found on a customer's scheduled work
+// to a plain phrase the receptionist says out loud. `match` is generic and
+// convention-free: it can be a whole service name ("Pet Waste Removal Weekly"),
+// a word ("Irrigation"), or a short code a business happens to use ("IR").
+// Nothing about any one company's naming is assumed. Editable per company in
+// Admin → AI → Receptionist (voice_receptionist_settings.title_service_map).
+// Order matters — the first matching rule wins. The list below is a starter
+// default a business tunes to its own Jobber services.
 export type TitleServiceRule = { match: string; say: string }
 
 export const DEFAULT_TITLE_SERVICE_MAP: TitleServiceRule[] = [
-  { match: 'RC', say: 'lawn treatment' },
-  { match: 'BP', say: 'lawn treatment' },
   { match: 'WF', say: 'lawn treatment' },
   { match: 'IR', say: 'sprinkler service call' },
   { match: 'PW', say: 'pet waste pickup' },
+  { match: 'MO', say: 'mosquito treatment' },
 ]
 
-// Find the spoken service phrase for a Jobber visit title. Tokenizes the title
-// on non-alphanumeric boundaries and matches a rule when a token IS the code, or
-// is the code immediately followed by digits — so "RC1"/"RC4" match "RC", but a
-// word like "IRRIGATION" does NOT match "IR". Returns null when nothing matches
-// (the caller then just hears the date, never an invented service).
+// Does `text` (a line-item name, or a visit title) match a rule's `match`?
+// Generic and convention-free: case-insensitive, anchored on segment boundaries
+// (start/end or any non-alphanumeric char) with an optional trailing digit run.
+// So "IR" hits "IR - Irrigation" and "IR2" but NOT "Repair" or "Irrigation", and
+// a multi-word match like "Pet Waste" matches "PW - Pet Waste Removal Weekly".
+export function serviceRuleMatches(text: string | null | undefined, match: string): boolean {
+  const src = (text || '').toUpperCase()
+  const m = (match || '').trim().toUpperCase()
+  if (!src || !m) return false
+  const esc = m.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  return new RegExp(`(^|[^A-Z0-9])${esc}[0-9]*([^A-Z0-9]|$)`).test(src)
+}
+
+// First rule (in order) whose match hits `text` → its spoken phrase, else null.
+function sayForText(text: string | null | undefined, rules: TitleServiceRule[]): string | null {
+  for (const rule of rules) {
+    const code = (rule.match || '').trim()
+    const say = (rule.say || '').trim()
+    if (code && say && serviceRuleMatches(text, code)) return say
+  }
+  return null
+}
+
+// A line item off a Jobber visit/job — its name and total price.
+export type ServiceLineItem = { name?: string | null; totalPrice?: number | null }
+
+// Decode the spoken service from a visit's LINE ITEMS using the company's rules.
+// Line items are the real services on the job (universal to every Jobber account),
+// unlike the freeform visit title. Picks the HIGHEST-PRICED line item that matches
+// a rule — the "main service" — so add-ons, discounts, and fees are ignored on
+// their own. Returns the phrase + the line item it came from, or null when nothing
+// matches (the caller then hears just the date, never an invented service).
+export function decodeServiceFromLineItems(
+  items: ServiceLineItem[] | null | undefined,
+  rules: TitleServiceRule[] = DEFAULT_TITLE_SERVICE_MAP,
+): { say: string; lineItem: string } | null {
+  let best: { say: string; lineItem: string; price: number } | null = null
+  for (const it of items || []) {
+    const say = sayForText(it?.name, rules)
+    if (!say) continue
+    const price = typeof it?.totalPrice === 'number' ? it.totalPrice : 0
+    if (!best || price > best.price) best = { say, lineItem: (it?.name || '').trim(), price }
+  }
+  return best ? { say: best.say, lineItem: best.lineItem } : null
+}
+
+// Spoken service phrase for a Jobber visit TITLE. Kept as a backstop for the
+// line-item decode above — used only when a visit somehow carries no line items.
+// Same matcher, run against the single title string.
 export function decodeServiceFromTitle(
   title: string | null | undefined,
   rules: TitleServiceRule[] = DEFAULT_TITLE_SERVICE_MAP,
 ): string | null {
-  const t = (title || '').toUpperCase()
-  if (!t.trim()) return null
-  const tokens = t.split(/[^A-Z0-9]+/).filter(Boolean)
-  for (const rule of rules) {
-    const code = (rule.match || '').toUpperCase().trim()
-    const say = (rule.say || '').trim()
-    if (!code || !say) continue
-    const hit = tokens.some(
-      (tok) => tok === code || (tok.startsWith(code) && /[0-9]/.test(tok.charAt(code.length))),
-    )
-    if (hit) return say
-  }
-  return null
+  return sayForText(title, rules)
 }
 
 // ---------------------------------------------------------------------------
