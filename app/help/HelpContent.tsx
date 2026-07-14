@@ -1336,6 +1336,7 @@ function DialerTab() {
         <p>Tapping the caller name pre-fills the dialpad with their number so you can call back in one tap.</p>
         <p>Voicemail recipients (the people who get a push notification when a new voicemail lands) are configured in <strong className="text-white">Admin → Dialer</strong>. Push notifications respect each recipient&apos;s Do Not Disturb settings.</p>
         <p><strong className="text-white">AI transcript + summary</strong> — within about 15–30 seconds after a voicemail arrives, Deepgram transcribes the audio and Claude writes a one-sentence summary of what the caller said. The summary appears as a grey snippet below the caller name in the voicemail list so you can triage messages at a glance without playing them. The full transcript is visible in <strong className="text-white">Call Log 2</strong> when you click the matching call row.</p>
+        <p><strong className="text-white">Emergency fallback voicemail</strong> — if the phone system ever errors on a live call, a backup hosted at Twilio answers, apologizes for the technical issue, and records a message so the caller never hears a dead-end error. How your team is alerted when that happens (a Guardian Hub message by default, or a text) is configured in <strong className="text-white">Admin → Dialer → Fallback voicemail alerts</strong>. These alerts are rare by design — each one means a real call hit an error and is worth flagging to an admin.</p>
       </Section>
 
       <Section title="Ring anywhere in Hub">

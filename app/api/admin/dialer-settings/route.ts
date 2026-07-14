@@ -41,6 +41,9 @@ const ALLOWED_FIELDS = [
   'recording_pause_auto_resume_sec',
   'disposition_options',
   'fallback_voicemail_tts',
+  'fallback_notify_method',
+  'fallback_notify_user_ids',
+  'fallback_notify_sms_numbers',
 ] as const
 
 function sanitizeUuidArray(raw: unknown): string[] | null {
@@ -114,6 +117,39 @@ export async function POST(request: Request) {
       } else if (typeof v === 'string') {
         patch[k] = v.slice(0, 1000)
       }
+    } else if (k === 'fallback_notify_method') {
+      const v = body[k]
+      if (v !== 'hub' && v !== 'sms' && v !== 'both') {
+        return NextResponse.json(
+          { error: "fallback_notify_method must be 'hub', 'sms', or 'both'" },
+          { status: 400 },
+        )
+      }
+      patch[k] = v
+    } else if (k === 'fallback_notify_user_ids') {
+      const arr = sanitizeUuidArray(body[k])
+      if (arr === null) {
+        return NextResponse.json(
+          { error: `${k} must be an array of uuid strings` },
+          { status: 400 },
+        )
+      }
+      patch[k] = arr
+    } else if (k === 'fallback_notify_sms_numbers') {
+      const list = body[k]
+      if (!Array.isArray(list)) {
+        return NextResponse.json(
+          { error: `${k} must be an array of phone numbers` },
+          { status: 400 },
+        )
+      }
+      const cleaned: string[] = []
+      for (const v of list) {
+        if (typeof v !== 'string') continue
+        const digits = v.replace(/[^\d+]/g, '')
+        if (digits.length >= 10) cleaned.push(digits)
+      }
+      patch[k] = [...new Set(cleaned)].slice(0, 10)
     } else if (k === 'recording_pause_auto_resume_sec') {
       const n = Number(body[k])
       if (Number.isInteger(n) && n >= 10 && n <= 600) patch[k] = n

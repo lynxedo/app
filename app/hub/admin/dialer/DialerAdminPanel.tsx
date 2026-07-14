@@ -46,6 +46,11 @@ type Settings = {
   recording_pause_auto_resume_sec: number
   // After-call disposition options. null = use the built-in default set.
   disposition_options: string[] | null
+  // Emergency fallback voicemail alerts (Twilio-hosted backup answered a call
+  // because the main flow errored). 'hub' = Guardian DM + push (default).
+  fallback_notify_method: 'hub' | 'sms' | 'both'
+  fallback_notify_user_ids: string[]
+  fallback_notify_sms_numbers: string[]
 }
 
 type HubUser = { id: string; display_name: string }
@@ -95,6 +100,9 @@ export default function DialerAdminPanel({
           recording_consent_url: s.recording_consent_url,
           recording_pause_auto_resume_sec: s.recording_pause_auto_resume_sec,
           disposition_options: s.disposition_options,
+          fallback_notify_method: s.fallback_notify_method,
+          fallback_notify_user_ids: s.fallback_notify_user_ids,
+          fallback_notify_sms_numbers: s.fallback_notify_sms_numbers,
         }),
       })
       if (!res.ok) {
@@ -210,7 +218,7 @@ export default function DialerAdminPanel({
     [extensions]
   )
 
-  function toggleId(field: 'voicemail_recipient_user_ids', id: string) {
+  function toggleId(field: 'voicemail_recipient_user_ids' | 'fallback_notify_user_ids', id: string) {
     setS((prev) => {
       const set = new Set(prev[field])
       if (set.has(id)) set.delete(id)
@@ -390,6 +398,75 @@ export default function DialerAdminPanel({
           selected={s.voicemail_recipient_user_ids}
           onToggle={(id) => toggleId('voicemail_recipient_user_ids', id)}
         />
+      </section>
+
+      <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
+        <header>
+          <h2 className="font-semibold">Fallback voicemail alerts</h2>
+          <p className="text-xs text-white/50 mt-1">
+            If the phone system ever errors on a live call, a Twilio-hosted backup
+            answers, apologizes, and takes a voicemail so the caller never hears a
+            dead-end error. This controls how your team is alerted when that
+            backup catches a message. Rare by design — every alert means the main
+            call flow failed and is worth investigating.
+          </p>
+        </header>
+
+        <div>
+          <label className="block text-sm font-medium mb-1.5">Alert method</label>
+          <select
+            value={s.fallback_notify_method}
+            onChange={(e) =>
+              setS((prev) => ({
+                ...prev,
+                fallback_notify_method: e.target.value as Settings['fallback_notify_method'],
+              }))
+            }
+            className="bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
+          >
+            <option value="hub">Hub message (Guardian DM + push)</option>
+            <option value="sms">Text message</option>
+            <option value="both">Both</option>
+          </select>
+        </div>
+
+        {s.fallback_notify_method !== 'sms' && (
+          <div>
+            <RecipientGrid
+              empty="No users in this company yet."
+              items={hubUsers.map((u) => ({ id: u.id, label: u.display_name }))}
+              selected={s.fallback_notify_user_ids}
+              onToggle={(id) => toggleId('fallback_notify_user_ids', id)}
+            />
+            <p className="text-xs text-white/40 mt-1.5">
+              Leave everyone unchecked to alert the voicemail recipients above.
+            </p>
+          </div>
+        )}
+
+        {s.fallback_notify_method !== 'hub' && (
+          <div>
+            <label className="block text-sm font-medium mb-1.5">Text these numbers</label>
+            <input
+              type="text"
+              value={s.fallback_notify_sms_numbers.join(', ')}
+              onChange={(e) =>
+                setS((prev) => ({
+                  ...prev,
+                  fallback_notify_sms_numbers: e.target.value
+                    .split(',')
+                    .map((v) => v.trim())
+                    .filter(Boolean),
+                }))
+              }
+              placeholder="+12815551234, +18325556789"
+              className="w-full bg-white/5 border border-white/10 rounded px-3 py-2 text-sm text-white placeholder-white/30 focus:outline-none focus:ring-1 focus:ring-blue-500"
+            />
+            <p className="text-xs text-white/40 mt-1">
+              Comma-separated, with area code. Texts send from your business line.
+            </p>
+          </div>
+        )}
       </section>
       </>)}
 
