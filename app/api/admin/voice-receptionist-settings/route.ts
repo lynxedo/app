@@ -137,20 +137,22 @@ export async function PATCH(req: NextRequest) {
     }
     update.transfer_cell_numbers = clean
   }
-  // Editable Jobber-title → spoken-service map. Keep only rows with both a code
-  // and a phrase; store NULL when empty so the resolver falls back to the code
-  // default (the receptionist always has a service vocabulary).
+  // Editable service-naming map (a line-item match → spoken-service phrase; also
+  // used as a title backstop). Keep only rows with both a match and a phrase,
+  // trimmed + length-capped; store NULL when empty so the resolver falls back to
+  // the code default (the receptionist always has a service vocabulary).
   if ('title_service_map' in body) {
     const raw = Array.isArray(body.title_service_map) ? body.title_service_map : []
     const rules = raw
       .map((r: unknown) => {
         const o = (r && typeof r === 'object' ? r : {}) as Record<string, unknown>
         return {
-          match: typeof o.match === 'string' ? o.match.trim() : '',
-          say: typeof o.say === 'string' ? o.say.trim() : '',
+          match: typeof o.match === 'string' ? o.match.trim().slice(0, 120) : '',
+          say: typeof o.say === 'string' ? o.say.trim().slice(0, 200) : '',
         }
       })
       .filter((r: { match: string; say: string }) => r.match && r.say)
+      .slice(0, 50)
     update.title_service_map = rules.length ? rules : null
   }
 

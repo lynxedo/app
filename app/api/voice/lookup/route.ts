@@ -18,7 +18,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { lookupByPhone } from '@/lib/dialer-lookup'
 import { jobberGraphQLAdmin, companyJobberUserId } from '@/lib/jobber'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
-import { decodeServiceFromTitle } from '@/lib/voice-receptionist'
+import { decodeServiceFromTitle, decodeServiceFromLineItems } from '@/lib/voice-receptionist'
 
 export const dynamic = 'force-dynamic'
 
@@ -47,8 +47,15 @@ const NEXT_VISIT_QUERY = `
       jobs(first: 30) {
         nodes {
           id
+          lineItems(first: 20) { nodes { name totalPrice } }
           visits(first: 5, filter: { status: UPCOMING }) {
-            nodes { id title startAt completedAt }
+            nodes {
+              id
+              title
+              startAt
+              completedAt
+              lineItems(first: 20) { nodes { name totalPrice } }
+            }
           }
         }
       }
@@ -56,9 +63,21 @@ const NEXT_VISIT_QUERY = `
   }
 `
 
-type VisitLite = { id: string; title: string | null; startAt: string | null; completedAt: string | null }
+type LineItemLite = { name: string | null; totalPrice: number | null }
+type VisitLite = {
+  id: string
+  title: string | null
+  startAt: string | null
+  completedAt: string | null
+  lineItems?: { nodes?: LineItemLite[] } | null
+}
+type JobLite = {
+  id: string
+  lineItems?: { nodes?: LineItemLite[] } | null
+  visits?: { nodes?: VisitLite[] } | null
+}
 type NextVisitResp = {
-  data?: { client?: { jobs?: { nodes?: Array<{ visits?: { nodes?: VisitLite[] } } | null> } } }
+  data?: { client?: { jobs?: { nodes?: Array<JobLite | null> } } }
 }
 
 const CENTRAL = 'America/Chicago'
@@ -121,8 +140,10 @@ export async function POST(request: Request) {
     )
   }
 
-  // Live Jobber lookup for the caller's next upcoming visit.
+  // Live Jobber lookup for the caller's next upcoming visit (with its line items,
+  // and the parent job's line items as a fallback source for the service).
   let nextVisit: VisitLite | null = null
+  let nextVisitLineItems: LineItemLite[] = []
   try {
     const userId = await companyJobberUserId(companyId, '')
     if (!userId) throw new Error('no connected Jobber user for company')
@@ -131,14 +152,25 @@ export async function POST(request: Request) {
     })
     const today = centralDate(new Date())
     const upcoming = (resp.data?.client?.jobs?.nodes ?? [])
-      .flatMap((j) => j?.visits?.nodes ?? [])
-      .filter((v): v is VisitLite => Boolean(v && v.startAt && !v.completedAt))
+      // carry each visit alongside its parent job's line items
+      .flatMap((j) =>
+        (j?.visits?.nodes ?? []).map((v) => ({ v, jobLineItems: j?.lineItems?.nodes ?? [] })),
+      )
+      .filter(
+        (x): x is { v: VisitLite; jobLineItems: LineItemLite[] } =>
+          Boolean(x.v && x.v.startAt && !x.v.completedAt),
+      )
       // keep visits whose Central calendar date is today or later
-      .filter((v) => centralDate(new Date(v.startAt as string)) >= today)
-      .map((v) => ({ v, t: Date.parse(v.startAt as string) }))
+      .filter((x) => centralDate(new Date(x.v.startAt as string)) >= today)
+      .map((x) => ({ ...x, t: Date.parse(x.v.startAt as string) }))
       .filter((x) => Number.isFinite(x.t))
       .sort((a, b) => a.t - b.t)
-    nextVisit = upcoming.length ? upcoming[0].v : null
+    if (upcoming.length) {
+      nextVisit = upcoming[0].v
+      // Prefer the visit's own line items; fall back to the parent job's.
+      const visitItems = (nextVisit.lineItems?.nodes ?? []).filter(Boolean)
+      nextVisitLineItems = visitItems.length ? visitItems : upcoming[0].jobLineItems
+    }
   } catch (err) {
     console.error('[voice.lookup] Jobber query failed', err)
     return ok(
@@ -152,10 +184,14 @@ export async function POST(request: Request) {
     )
   }
 
-  // Decode the internal visit-title code into a customer-friendly service phrase
-  // using the company's configurable map (Admin → AI → Receptionist).
+  // Name the service from the visit's LINE ITEMS (the real services on the job),
+  // using the company's configurable rules (Admin → AI → Receptionist). Falls back
+  // to decoding the visit title only if the visit carries no recognizable line
+  // items. Null when nothing matches — the caller then just hears the date.
   const settings = await getEffectiveVoiceReceptionistSettings(admin, companyId)
-  const service = decodeServiceFromTitle(nextVisit.title, settings.titleServiceMap)
+  const service =
+    decodeServiceFromLineItems(nextVisitLineItems, settings.titleServiceMap)?.say ??
+    decodeServiceFromTitle(nextVisit.title, settings.titleServiceMap)
   const dateLabel = dateLabelForSpeech(nextVisit.startAt as string)
 
   const answer = service
