@@ -1,7 +1,9 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import {
+  BusinessHoursSchedule,
   EMPTY_VOICE_TWIML,
+  isWithinBusinessHours,
   twimlRecordVoicemail,
   validateTwilioVoiceSignature,
   voiceConfigured,
@@ -102,13 +104,25 @@ export async function POST(request: NextRequest) {
   ) {
     const vr = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
     if (vr.enabled) {
+      // Pick the greeting by context, mirroring /api/voice/twiml (the 888): during
+      // business hours the team is "helping other customers" (this is a missed
+      // call); outside them they're "not available" (after-hours / weekend).
+      // Reuses the SAME dialer business-hours schedule the IVR uses, so what Amber
+      // says matches whether the office is actually open.
+      const { data: ds } = await admin
+        .from('dialer_settings')
+        .select('business_hours')
+        .eq('company_id', HEROES_COMPANY_ID)
+        .maybeSingle()
+      const inHours = isWithinBusinessHours((ds?.business_hours as BusinessHoursSchedule | null) ?? null)
+      const greeting = inHours ? vr.greetingBusinessHours : vr.greetingAfterHours
       return twimlResponse(
         buildConversationRelayTwiml({
           baseUrl: process.env.NEXT_PUBLIC_APP_URL || reqUrl.origin,
           wssUrl: process.env.VOICE_WSS_URL,
           wsKey: process.env.VOICE_WS_SECRET || '',
           voiceId: vr.voiceId,
-          greeting: vr.greeting,
+          greeting,
         })
       )
     }
