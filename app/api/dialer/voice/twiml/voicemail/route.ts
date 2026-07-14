@@ -6,6 +6,8 @@ import {
   validateTwilioVoiceSignature,
   voiceConfigured,
 } from '@/lib/twilio-voice'
+import { buildConversationRelayTwiml } from '@/lib/voice-receptionist'
+import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -80,6 +82,36 @@ export async function POST(request: NextRequest) {
 
   if (answered) {
     return twimlResponse(EMPTY_VOICE_TWIML)
+  }
+
+  // ── AI Voice Receptionist hand-off (GA — replaces the COMPANY voicemail) ────
+  // Every unanswered call that would land in the general company voicemail box
+  // funnels through here: a missed business-hours call (ring group exhausted),
+  // an after-hours call, a weekend call, or an IVR "send to voicemail". When the
+  // receptionist is enabled (env flag + Admin toggle) we hand the caller to Amber
+  // (ConversationRelay) INSTEAD of recording a voicemail — she greets them,
+  // answers, and files a lead. A PERSONAL extension voicemail (owner set) is
+  // never intercepted; and if the flag is off or the admin has turned the
+  // receptionist off we fall straight through to the voicemail <Record> below —
+  // so this is fully reversible via AI_RECEPTIONIST_ENABLED. Mirrors the
+  // dedicated /api/voice/twiml entry point (the 888 beta line).
+  if (
+    !ownerUserId &&
+    process.env.AI_RECEPTIONIST_ENABLED === 'true' &&
+    process.env.VOICE_WSS_URL
+  ) {
+    const vr = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
+    if (vr.enabled) {
+      return twimlResponse(
+        buildConversationRelayTwiml({
+          baseUrl: process.env.NEXT_PUBLIC_APP_URL || reqUrl.origin,
+          wssUrl: process.env.VOICE_WSS_URL,
+          wsKey: process.env.VOICE_WS_SECRET || '',
+          voiceId: vr.voiceId,
+          greeting: vr.greeting,
+        })
+      )
+    }
   }
 
   // Resolve the greeting. Per-user only when an extension was dialed (owner set);
