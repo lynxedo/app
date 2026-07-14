@@ -15,6 +15,7 @@ import {
 } from '@/lib/voice-receptionist'
 import { startCallRecording, isWithinBusinessHours, BusinessHoursSchedule } from '@/lib/twilio-voice'
 import { findOrCreateTxtContact, lookupByPhone } from '@/lib/dialer-lookup'
+import { filterNonDndUserIds } from '@/lib/dialer-conference-connect'
 import { formatPhone } from '@/lib/format'
 
 // AI Voice Receptionist — "brain" endpoint (Phase 1a).
@@ -185,15 +186,17 @@ export async function POST(request: Request) {
   })
 
   // Transfer availability: a live-person transfer is only offered when a method
-  // is configured, reachable recipients exist, AND it's currently business
-  // hours. For the cell method "reachable" also means the recipient has a number
-  // on file — otherwise there's no one to ring.
-  const recipientsReady =
+  // is configured, reachable recipients exist, it's currently business hours,
+  // AND at least one recipient is not on Do Not Disturb. For the cell method
+  // "reachable" also means the recipient has a number on file — otherwise
+  // there's no one to ring. When everyone is DND, Amber gets the "no transfer"
+  // instruction and takes a message instead of promising a hand-off.
+  const candidateRecipientIds =
     settings.transferMethod === 'cell'
-      ? settings.transferUserIds.some((id) => Boolean(settings.transferCellNumbers[id]))
-      : settings.transferUserIds.length > 0
+      ? settings.transferUserIds.filter((id) => Boolean(settings.transferCellNumbers[id]))
+      : settings.transferUserIds
   let transferAvailable = false
-  if (settings.transferMethod !== 'off' && recipientsReady) {
+  if (settings.transferMethod !== 'off' && candidateRecipientIds.length > 0) {
     try {
       const { data: ds } = await admin
         .from('dialer_settings')
@@ -201,6 +204,10 @@ export async function POST(request: Request) {
         .eq('company_id', companyId)
         .maybeSingle()
       transferAvailable = isWithinBusinessHours((ds?.business_hours as BusinessHoursSchedule | null) ?? null)
+      if (transferAvailable) {
+        const notDnd = await filterNonDndUserIds(admin, candidateRecipientIds)
+        transferAvailable = notDnd.length > 0
+      }
     } catch {
       transferAvailable = false
     }

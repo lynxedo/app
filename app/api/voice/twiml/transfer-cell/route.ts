@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { filterNonDndUserIds } from '@/lib/dialer-conference-connect'
 import {
   getCompanyVoicemailGreeting,
   getEffectiveVoiceReceptionistSettings,
@@ -52,11 +53,15 @@ async function handle(req: NextRequest): Promise<NextResponse> {
   }
 
   // Advance to the next recipient with a number on file (stable order, rebuilt
-  // from settings each step).
+  // from settings each step). DND is re-checked per step — same as the ring
+  // groups — so a recipient flipping DND mid-sequence is skipped, and the list
+  // stays index-consistent with the fallback route's filtered entry list.
   const settings = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
-  const recipients = settings.transferUserIds
+  const withCell = settings.transferUserIds
     .map((uid) => ({ uid, cell: settings.transferCellNumbers[uid] }))
     .filter((r) => Boolean(r.cell))
+  const notDnd = await filterNonDndUserIds(admin, withCell.map((r) => r.uid))
+  const recipients = withCell.filter((r) => notDnd.includes(r.uid))
 
   if (settings.transferMethod === 'cell' && idx < recipients.length) {
     const next = recipients[idx]
