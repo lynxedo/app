@@ -5,6 +5,7 @@ import GuardianPanel from './GuardianPanel'
 import ResponderPanel from './ResponderPanel'
 import ReceptionistPanel from './ReceptionistPanel'
 import SchedulingPanel from './SchedulingPanel'
+import RoutingPanel from './RoutingPanel'
 import KnowledgePanel from './KnowledgePanel'
 import { type ResponderSettings, type ResponderCall } from '@/lib/responder'
 
@@ -126,6 +127,7 @@ export default function AiAdminShell({
         <div className="space-y-6">
           <ReceptionistPanel initialVoiceReceptionist={initialVoiceReceptionist} people={initialPeople} />
           <SchedulingPanel />
+          <RoutingPanel />
         </div>
       )}
       {tab === 'knowledge' && <KnowledgePanel initialDocs={initialDocs} />}
