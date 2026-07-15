@@ -1708,7 +1708,7 @@ function SettingsTab() {
       </Section>
 
       <Section title="Connecting Jobber &amp; other integrations">
-        <p>Connecting your outside tools — Jobber, QuickBooks, Gusto, Angi, Facebook &amp; Instagram, and more — now lives in one place: <Link href="/hub/admin/integrations" className="text-orange-400 hover:text-orange-300">Admin → Integrations</Link> (available to admins and anyone with the Integrations admin grant). Open a card, click <strong className="text-white">Connect</strong>, and follow the steps.</p>
+        <p>Connecting your outside tools — Jobber, QuickBooks, Gusto, OneStepGPS (fleet GPS), Angi, Facebook &amp; Instagram, and more — now lives in one place: <Link href="/hub/admin/integrations" className="text-orange-400 hover:text-orange-300">Admin → Integrations</Link> (available to admins and anyone with the Integrations admin grant). Open a card, click <strong className="text-white">Connect</strong>, and follow the steps.</p>
         <Note>⚠️ If visits aren&apos;t loading in the Route Optimizer, open Admin → Integrations and check that Jobber shows <span className="text-emerald-400 font-medium">Connected</span>. If not, reconnect — the OAuth token occasionally needs a refresh.</Note>
       </Section>
 

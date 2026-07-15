@@ -16,11 +16,12 @@ export type IntegrationGroup = 'lead_sources' | 'business_systems' | 'marketing'
 // oauth        → "Connect" redirects the subscriber through the provider's OAuth
 // domain       → DNS/domain verification handled in that module's own editor
 // webhook      → the source POSTs leads to a Lynxedo URL (+ key)
+// apikey       → the subscriber pastes their own API key (stored per-company)
 // coming_soon  → planned, not built yet
-export type ConnectionModel = 'oauth' | 'domain' | 'webhook' | 'coming_soon'
+export type ConnectionModel = 'oauth' | 'domain' | 'webhook' | 'apikey' | 'coming_soon'
 
 export type ProviderKey =
-  | 'jobber' | 'quickbooks' | 'gusto'
+  | 'jobber' | 'quickbooks' | 'gusto' | 'onestepgps'
   | 'angi' | 'google_lsa' | 'google_ads' | 'thumbtack' | 'networx' | 'zillow'
   | 'meta' | 'email'
 
@@ -90,6 +91,11 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     blurb: 'Payroll — match and sync your employee roster with Gusto.',
     connectHref: '/api/admin/gusto/connect',
     manageHref: '/hub/admin/timesheet', manageLabel: 'Match employees in Time Records',
+  },
+  {
+    key: 'onestepgps', name: 'OneStepGPS', group: 'business_systems', model: 'apikey',
+    blurb: 'Live fleet GPS — track your trucks on the map with day-by-day route history.',
+    manageHref: '/hub/admin/fleet', manageLabel: 'Fleet alert settings',
   },
 
   // ── Marketing ─────────────────────────────────────────────────────────────

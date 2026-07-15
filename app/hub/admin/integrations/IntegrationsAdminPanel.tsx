@@ -26,9 +26,11 @@ const STATUS_META: Record<IntegrationStatus, { label: string; cls: string }> = {
 export default function IntegrationsAdminPanel({
   statuses,
   webhookBase,
+  onestepgpsOwnKey,
 }: {
   statuses: Record<ProviderKey, StatusInfo>
   webhookBase: string
+  onestepgpsOwnKey: boolean
 }) {
   return (
     <div className="space-y-6">
@@ -56,6 +58,7 @@ export default function IntegrationsAdminPanel({
                   provider={p}
                   info={statuses[p.key] ?? { status: 'not_connected' }}
                   webhookBase={webhookBase}
+                  hasOwnKey={p.key === 'onestepgps' ? onestepgpsOwnKey : false}
                 />
               ))}
             </div>
@@ -81,16 +84,19 @@ function IntegrationCard({
   provider,
   info,
   webhookBase,
+  hasOwnKey,
 }: {
   provider: IntegrationProvider
   info: StatusInfo
   webhookBase: string
+  hasOwnKey: boolean
 }) {
   const router = useRouter()
   const toast = useToast()
   const confirmDialog = useConfirm()
   const [showSetup, setShowSetup] = useState(false)
   const [busy, setBusy] = useState(false)
+  const [apiKey, setApiKey] = useState('')
 
   const isConnected = info.status === 'connected'
   const isComingSoon = info.status === 'coming_soon'
@@ -111,6 +117,51 @@ function IntegrationCard({
       router.refresh()
     } catch {
       toast.error(`Couldn't disconnect ${provider.name}`)
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleSaveKey() {
+    if (!apiKey.trim()) return
+    setBusy(true)
+    try {
+      const res = await fetch('/api/admin/integrations/onestepgps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'save', api_key: apiKey.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Could not save the key')
+      toast.success(`${provider.name} connected`)
+      setApiKey('')
+      setShowSetup(false)
+      router.refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save the key')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function handleClearKey() {
+    const ok = await confirmDialog({
+      message: `Remove your ${provider.name} key? Your fleet map will stop working until you enter a key again.`,
+      danger: true,
+    })
+    if (!ok) return
+    setBusy(true)
+    try {
+      const res = await fetch('/api/admin/integrations/onestepgps', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ action: 'clear' }),
+      })
+      if (!res.ok) throw new Error()
+      toast.success('Key removed')
+      router.refresh()
+    } catch {
+      toast.error('Could not remove the key')
     } finally {
       setBusy(false)
     }
@@ -162,6 +213,13 @@ function IntegrationCard({
               {showSetup ? 'Hide setup' : 'Setup'}
             </button>
           )}
+
+          {/* API-key providers — reveal the key form */}
+          {provider.model === 'apikey' && (
+            <button onClick={() => setShowSetup(v => !v)} className={`${btn} bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border-blue-600/30`}>
+              {showSetup ? 'Close' : hasOwnKey ? 'Manage key' : 'Enter key'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -184,6 +242,34 @@ function IntegrationCard({
             Leads are authenticated with a secret key managed by Lynxedo. Per-account keys you generate
             yourself are coming with the next update.
           </p>
+        </div>
+      )}
+
+      {/* API-key (e.g. OneStepGPS) setup detail */}
+      {provider.model === 'apikey' && showSetup && (
+        <div className="mt-3 p-4 bg-gray-800/50 border border-gray-700 rounded-xl space-y-3">
+          <div>
+            <div className="text-xs text-gray-400 mb-1">Your {provider.name} API key</div>
+            <div className="flex items-center gap-2">
+              <input
+                type="password"
+                value={apiKey}
+                onChange={e => setApiKey(e.target.value)}
+                placeholder={hasOwnKey ? 'Enter a new key to replace the saved one' : 'Paste your API key'}
+                className="flex-1 min-w-0 bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+              />
+              <button onClick={handleSaveKey} disabled={busy || !apiKey.trim()} className={`${btn} bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border-blue-600/30`}>
+                {busy ? 'Checking…' : 'Save'}
+              </button>
+            </div>
+          </div>
+          {hasOwnKey && (
+            <div className="flex items-center justify-between gap-3">
+              <span className="text-xs text-emerald-400">Your key is saved and in use.</span>
+              <button onClick={handleClearKey} disabled={busy} className={`${btn} bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-700`}>Remove key</button>
+            </div>
+          )}
+          <p className="text-[11px] text-gray-500">Find your API key in OneStepGPS under your account settings. We verify it with OneStepGPS before saving.</p>
         </div>
       )}
     </div>
