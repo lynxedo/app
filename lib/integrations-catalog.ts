@@ -104,16 +104,3 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     manageHref: '/hub/admin/email', manageLabel: 'Manage in Email Marketing',
   },
 ]
-
-// Lynxedo's own platform services — same keys for every subscriber, never
-// entered here. Shown read-only so it's clear what runs under the hood.
-export const PLATFORM_SERVICES: { name: string; blurb: string }[] = [
-  { name: 'Twilio', blurb: 'Calls & text messaging' },
-  { name: 'Anthropic (Claude)', blurb: 'AI features & Guardian' },
-  { name: 'Deepgram', blurb: 'Call & voicemail transcription' },
-  { name: 'ElevenLabs', blurb: 'AI receptionist voice' },
-  { name: 'Mapbox', blurb: 'Maps & geocoding' },
-  { name: 'Cloudflare R2', blurb: 'File & media storage' },
-  { name: 'Push (Apple / Android / Web)', blurb: 'Mobile & desktop notifications' },
-  { name: 'Supabase', blurb: 'Database, authentication & storage' },
-]

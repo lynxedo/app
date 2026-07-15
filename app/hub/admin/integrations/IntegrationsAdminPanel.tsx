@@ -6,7 +6,6 @@ import { useRouter } from 'next/navigation'
 import { useToast, useConfirm } from '@/components/ui'
 import {
   INTEGRATION_PROVIDERS,
-  PLATFORM_SERVICES,
   GROUP_LABELS,
   GROUP_ORDER,
   type IntegrationProvider,
@@ -64,26 +63,6 @@ export default function IntegrationsAdminPanel({
         )
       })}
 
-      {/* Platform services — Lynxedo's own keys, informational only */}
-      <section className="bg-gray-900 border border-gray-800 rounded-2xl overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-800">
-          <h2 className="font-semibold text-lg">Platform services</h2>
-          <p className="text-xs text-gray-500 mt-0.5">
-            Included with Lynxedo and managed for you — nothing to set up.
-          </p>
-        </div>
-        <div className="px-6 py-4 grid grid-cols-1 sm:grid-cols-2 gap-x-6 gap-y-3">
-          {PLATFORM_SERVICES.map(s => (
-            <div key={s.name} className="flex items-center gap-3">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-none" />
-              <div className="min-w-0">
-                <span className="text-sm text-gray-200">{s.name}</span>
-                <span className="text-xs text-gray-500"> · {s.blurb}</span>
-              </div>
-            </div>
-          ))}
-        </div>
-      </section>
     </div>
   )
 }
