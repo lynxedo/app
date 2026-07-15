@@ -141,3 +141,38 @@ export function normalizeTransferMissBehavior(raw: unknown): TransferMissBehavio
     ? (raw as TransferMissBehavior)
     : 'offer_callback'
 }
+
+/**
+ * Match what the receptionist says the caller wants ("billing", "Kathryn", "the
+ * service department") to a directory entry. Enabled entries only. Tries, in
+ * order: exact label → label/query substring either way → shared word against
+ * the label → shared word against the "what they handle" description. Returns
+ * the best entry or null (the caller then gets a message taken instead of a
+ * transfer to the wrong place).
+ */
+export function matchRoutingEntry(
+  entries: RoutingEntryRow[],
+  query: string,
+): RoutingEntryRow | null {
+  const q = (query ?? '').trim().toLowerCase()
+  if (!q) return null
+  const enabled = entries.filter((e) => e.enabled)
+  if (!enabled.length) return null
+
+  const exact = enabled.find((e) => e.label.toLowerCase() === q)
+  if (exact) return exact
+
+  const sub = enabled.find((e) => {
+    const l = e.label.toLowerCase()
+    return l.includes(q) || q.includes(l)
+  })
+  if (sub) return sub
+
+  const words = (s: string) => new Set(s.toLowerCase().split(/[^a-z0-9]+/).filter((w) => w.length > 2))
+  const qWords = words(q)
+  const overlaps = (s: string) => [...words(s)].some((w) => qWords.has(w))
+
+  const byLabel = enabled.find((e) => overlaps(e.label))
+  if (byLabel) return byLabel
+  return enabled.find((e) => e.description && overlaps(e.description)) ?? null
+}

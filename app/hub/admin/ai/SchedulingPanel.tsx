@@ -219,10 +219,9 @@ export default function SchedulingPanel() {
         </p>
       </div>
 
-      <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200 leading-relaxed">
-        Live scheduling runs at <strong>Level&nbsp;4</strong> (coming soon) — you can set it up now and it activates when
-        Level&nbsp;4 turns on. Everything here starts <strong>off</strong>: the receptionist schedules nothing until you turn
-        on the switch and add a service.
+      <div className="bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/60 leading-relaxed">
+        Live scheduling is used at <strong>Level&nbsp;4</strong> and <strong>Level&nbsp;5</strong>. Everything here starts
+        <strong> off</strong>: the receptionist schedules nothing until you turn on the switch below and add a service.
       </div>
 
       {loading ? (
