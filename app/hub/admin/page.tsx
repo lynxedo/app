@@ -45,7 +45,7 @@ export default async function AdminPage() {
     can_admin_guardian: boolean; can_admin_ai: boolean; can_admin_txt: boolean; can_admin_announcements: boolean; can_admin_file_tags: boolean;
     can_admin_routing: boolean;
     can_admin_timesheet: boolean; can_admin_fleet: boolean; can_admin_daily_log: boolean;
-    can_admin_zone_sizer: boolean; can_admin_dialer: boolean; can_admin_contacts: boolean;
+    can_admin_zone_sizer: boolean; can_admin_dialer: boolean; can_admin_contacts: boolean; can_admin_integrations: boolean;
     can_access_marketing: boolean; can_admin_marketing: boolean;
     can_access_email: boolean; can_admin_email: boolean;
     can_access_forms: boolean; can_admin_forms: boolean; can_admin_products: boolean;
@@ -98,6 +98,7 @@ export default async function AdminPage() {
       can_admin_zone_sizer: r.can_admin_zone_sizer,
       can_admin_dialer: r.can_admin_dialer,
       can_admin_contacts: r.can_admin_contacts,
+      can_admin_integrations: r.can_admin_integrations,
       can_access_marketing: r.can_access_marketing,
       can_admin_marketing: r.can_admin_marketing,
       can_access_email: r.can_access_email,

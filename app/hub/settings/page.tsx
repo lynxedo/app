@@ -2,7 +2,6 @@ import { Suspense } from 'react'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { isJobberConnected } from '@/lib/jobber'
 import { getGrantedBoardSlugs } from '@/lib/scoreboards/access'
 import SettingsForm from './SettingsForm'
 
@@ -31,8 +30,6 @@ export default async function SettingsPage() {
       .is('room_id', null)
       .maybeSingle(),
   ])
-
-  const jobberConnected = await isJobberConnected(user.id)
 
   const hubProfile = {
     full_name: profileResult.data?.full_name ?? null,
@@ -119,7 +116,6 @@ export default async function SettingsPage() {
           userId={user.id}
           hubProfile={hubProfile}
           initialTheme={(profileResult.data?.hub_theme ?? 'midnight') as string}
-          jobberConnected={jobberConnected}
           landingPage={landingPage}
           notifPref={notifPref}
           railPermissions={railPermissions}
