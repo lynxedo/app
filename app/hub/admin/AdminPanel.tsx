@@ -35,6 +35,7 @@ type UserProfile = {
   can_admin_zone_sizer: boolean
   can_admin_dialer: boolean
   can_admin_contacts: boolean
+  can_admin_integrations: boolean
   can_access_marketing: boolean
   can_admin_marketing: boolean
   can_access_email: boolean
@@ -146,6 +147,7 @@ const ADMIN_GRANTS: { key: keyof UserProfile; label: string }[] = [
   { key: 'can_admin_forms', label: 'Form Builder' },
   { key: 'can_admin_marketing', label: 'Social Marketing' },
   { key: 'can_admin_email', label: 'Email Marketing' },
+  { key: 'can_admin_integrations', label: 'Integrations' },
 ]
 
 function getInitials(name: string | null, email: string): string {
@@ -219,6 +221,7 @@ function defaultProfile(id: string, overrides: Partial<UserProfile> = {}): UserP
     can_admin_zone_sizer: false,
     can_admin_dialer: false,
     can_admin_contacts: false,
+    can_admin_integrations: false,
     can_access_marketing: false,
     can_admin_marketing: false,
     can_access_email: false,

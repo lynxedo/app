@@ -154,6 +154,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     contacts: !!profileResult.data?.can_admin_contacts,
     products: !!profileResult.data?.can_admin_products,
     forms: !!profileResult.data?.can_admin_forms,
+    integrations: !!profileResult.data?.can_admin_integrations,
   }
   const initialTextSize = profileResult.data?.hub_text_size ?? 'default'
   const initialTheme = profileResult.data?.hub_theme ?? 'midnight'

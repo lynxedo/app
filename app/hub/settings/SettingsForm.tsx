@@ -32,7 +32,6 @@ interface Props {
   userId: string
   hubProfile: HubProfile
   initialTheme: string
-  jobberConnected: boolean
   landingPage: 'hub' | 'dashboard'
   notifPref: NotifPref
   railPermissions: RailPermissions
@@ -51,7 +50,7 @@ interface Props {
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
-type Tab = 'profile' | 'my-hub' | 'notifications' | 'integrations' | 'beta' | 'account'
+type Tab = 'profile' | 'my-hub' | 'notifications' | 'extension' | 'beta' | 'account'
 
 function getInitials(name: string | null, email: string): string {
   if (name) {
@@ -95,7 +94,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, initialTheme, jobberConnected, landingPage, notifPref, railPermissions, canAccessBeta = false, txtSignature, allowUserSignatures = true, companyDefaultSignature = null, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, initialTheme, landingPage, notifPref, railPermissions, canAccessBeta = false, txtSignature, allowUserSignatures = true, companyDefaultSignature = null, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
   const router = useRouter()
   const toast = useToast()
   const confirmDialog = useConfirm()
@@ -103,7 +102,7 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
   // settings tab lands there, and the browser back button moves between tabs),
   // mirroring the Help page.
   const searchParams = useSearchParams()
-  const ALL_TABS: Tab[] = ['profile', 'my-hub', 'notifications', 'integrations', ...(canAccessBeta ? ['beta' as const] : []), 'account']
+  const ALL_TABS: Tab[] = ['profile', 'my-hub', 'notifications', 'extension', ...(canAccessBeta ? ['beta' as const] : []), 'account']
   const initialTab = searchParams.get('tab') as Tab | null
   const [activeTab, setActiveTab] = useState<Tab>(
     initialTab && ALL_TABS.includes(initialTab) ? initialTab : 'profile'
@@ -164,8 +163,6 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
   const fileInputRef = useRef<HTMLInputElement>(null)
 
   // ── Jobber connection state (Integrations tab) ────────────────────────────
-  const [connected, setConnected] = useState(jobberConnected)
-  const [disconnecting, setDisconnecting] = useState(false)
 
   // ── Landing page preference ───────────────────────────────────────────────
   const [landing, setLanding] = useState<'hub' | 'dashboard'>(landingPage)
@@ -455,15 +452,6 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
     router.push('/login')
   }
 
-  const handleDisconnect = async () => {
-    if (!(await confirmDialog({ message: 'Disconnect Jobber? You will need to reconnect to load visits.', danger: true }))) return
-    setDisconnecting(true)
-    try {
-      const res = await fetch('/api/auth/jobber/disconnect', { method: 'POST' })
-      if (res.ok) setConnected(false)
-      else toast.error('Disconnect failed — try again.')
-    } finally { setDisconnecting(false) }
-  }
 
   const handleDeleteAccount = async () => {
     const ok = await confirmDialog({
@@ -526,7 +514,7 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
     { id: 'profile',       label: 'Profile' },
     { id: 'my-hub',        label: 'My Hub' },
     { id: 'notifications', label: 'Notifications' },
-    { id: 'integrations',  label: 'Integrations' },
+    { id: 'extension',     label: 'Browser Extension' },
     ...(canAccessBeta ? [{ id: 'beta' as const, label: 'Beta Features' }] : []),
     { id: 'account',       label: 'Account' },
   ]
@@ -933,38 +921,10 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
       </div>
       )}
 
-      {/* ── INTEGRATIONS TAB ────────────────────────────────────────────── */}
-      {activeTab === 'integrations' && <>
-
-      {/* Jobber Connection */}
-      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-        <h2 className="font-semibold text-lg mb-1">Jobber Connection</h2>
-        <p className="text-gray-400 text-sm mb-5">
-          Lynxedo reads your visits and writes appointment times via the Jobber API.
-        </p>
-        {connected ? (
-          <div className="flex items-center justify-between">
-            <span className="text-sm text-green-400 font-medium">● Connected</span>
-            <button onClick={handleDisconnect} disabled={disconnecting}
-              className="px-4 py-2 bg-red-600/20 hover:bg-red-600/30 disabled:opacity-50 text-red-300 rounded-lg text-sm font-medium transition-colors">
-              {disconnecting ? 'Disconnecting…' : 'Disconnect'}
-            </button>
-          </div>
-        ) : (
-          <a href="/api/auth/jobber"
-            className="inline-block px-4 py-2 bg-orange-500 hover:bg-orange-400 text-white rounded-lg text-sm font-medium transition-colors">
-            Connect Jobber →
-          </a>
-        )}
-        <p className="text-xs text-gray-500 mt-4">
-          Routing settings (depot, duration rules, drive speed) live in <a href="/hub/admin/routing" className="text-orange-400 hover:text-orange-300 underline">Admin → Routing</a>.
-        </p>
-      </section>
-
-      {/* Browser Extension tokens */}
-      <ExtensionTokensSection />
-
-      </>}
+      {/* ── BROWSER EXTENSION TAB ───────────────────────────────────────── */}
+      {activeTab === 'extension' && (
+        <ExtensionTokensSection />
+      )}
 
 
       {/* ── BETA FEATURES TAB ───────────────────────────────────────────── */}

@@ -469,7 +469,7 @@ function HubTab() {
           <li><strong className="text-white">💬 Hub</strong> — team conversations. Sidebar lists My Time Clock · Daily Log · Unread · Favorites · Rooms · DMs · My Tasks · Boards.</li>
           <li><strong className="text-white">📱 Txt</strong> — client SMS conversations (Captivated).</li>
           <li className="text-gray-300"><em>Then 4 user-configurable slots</em> (see &quot;My Hub&quot; below).</li>
-          <li><strong className="text-white">⚙️ Settings</strong> — your profile, notifications, integrations, and My Hub.</li>
+          <li><strong className="text-white">⚙️ Settings</strong> — your profile, notifications, browser extension, and My Hub.</li>
           <li><strong className="text-white">🛡️ Admin</strong> — only visible if you have admin access.</li>
           <li><strong className="text-white">👤 You</strong> (at the bottom) — your avatar with status dot. Opens the profile sidebar where you set Available / Busy / DND, change text size, and sign out.</li>
         </ul>
@@ -934,7 +934,7 @@ function RoutingTab() {
       </Section>
 
       <Section title="First-Time Setup">
-        <Step n={1}>Connect your Jobber account under <Link href="/settings" className="text-orange-400 hover:text-orange-300">Settings → Integrations</Link>. Click <strong className="text-white">Connect Jobber →</strong> and authorize.</Step>
+        <Step n={1}>Connect your Jobber account under <Link href="/hub/admin/integrations" className="text-orange-400 hover:text-orange-300">Admin → Integrations</Link>. Open the Jobber card, click <strong className="text-white">Connect</strong>, and authorize.</Step>
         <Step n={2}>An admin needs to configure the depot, duration rules, and routing defaults at <strong className="text-white">Admin → Routing</strong> (see Admin section below). This only happens once for the whole company.</Step>
         <Step n={3}>Head to the <Link href="/hub/routing" className="text-orange-400 hover:text-orange-300">Route Optimizer</Link> and build your first route.</Step>
       </Section>
@@ -1081,7 +1081,7 @@ function RoutingTab() {
         <div className="space-y-4">
           <div>
             <p className="text-white font-medium mb-1">Stops aren&apos;t loading</p>
-            <p>Check that Jobber is connected (Settings → Integrations shows ● Connected). If it is, try disconnecting and reconnecting — the OAuth token may have expired.</p>
+            <p>Check that Jobber is connected (Admin → Integrations shows Connected). If it is, try disconnecting and reconnecting — the OAuth token may have expired.</p>
           </div>
           <div>
             <p className="text-white font-medium mb-1">Drive times look like estimates, not real road times</p>
@@ -1678,7 +1678,7 @@ function SettingsTab() {
           <li><strong className="text-white">Profile</strong> — your name, photo, phone number, sign out</li>
           <li><strong className="text-white">My Hub</strong> — customize your icon rail and mobile bottom bar (show only what you use, in your order)</li>
           <li><strong className="text-white">Notifications</strong> — your notification level, the three Do&nbsp;Not&nbsp;Disturb tiers (Master / Hub / Calls), and your push devices</li>
-          <li><strong className="text-white">Integrations</strong> — your Jobber Connection</li>
+          <li><strong className="text-white">Browser Extension</strong> — connect the Lynxedo browser extension</li>
           <li><strong className="text-white">Account</strong> — default landing page, communications (signature, ring &amp; voicemail settings), change password, delete account</li>
         </ul>
       </Section>
@@ -1707,15 +1707,14 @@ function SettingsTab() {
         <Note>You can open the same editor any time from the <strong className="text-white">Apps&nbsp;▦</strong> button on the rail → <strong className="text-white">Customize</strong>.</Note>
       </Section>
 
-      <Section title="Integrations — Jobber Connection">
-        <p>Click <strong className="text-white">Connect Jobber →</strong> to authorize Lynxedo to read your visits and write appointment times. Once connected, status shows <span className="text-green-400 font-medium">● Connected</span>.</p>
-        <p>You can disconnect at any time — this revokes Lynxedo&apos;s access to your Jobber account until you reconnect.</p>
-        <Note>⚠️ If visits aren&apos;t loading in the Route Optimizer, try disconnecting and reconnecting. The OAuth token occasionally needs a refresh.</Note>
+      <Section title="Connecting Jobber &amp; other integrations">
+        <p>Connecting your outside tools — Jobber, QuickBooks, Gusto, Angi, Facebook &amp; Instagram, and more — now lives in one place: <Link href="/hub/admin/integrations" className="text-orange-400 hover:text-orange-300">Admin → Integrations</Link> (available to admins and anyone with the Integrations admin grant). Open a card, click <strong className="text-white">Connect</strong>, and follow the steps.</p>
+        <Note>⚠️ If visits aren&apos;t loading in the Route Optimizer, open Admin → Integrations and check that Jobber shows <span className="text-emerald-400 font-medium">Connected</span>. If not, reconnect — the OAuth token occasionally needs a refresh.</Note>
       </Section>
 
-      <Section title="Integrations — Browser Extension">
+      <Section title="Browser Extension">
         <p>The Lynxedo browser extension scans the web page you&apos;re on for contacts and lets you add them to your directory, add them to the Lead Tracker, text them, or dial them — without leaving the page. It also shows an <strong className="text-white">In Hub</strong> badge on anyone already in your directory, so you don&apos;t create duplicates. To connect it, just click <strong className="text-white">Sign in with Lynxedo</strong> in the extension — if you&apos;re already logged into Lynxedo in that browser it connects instantly; otherwise you log in once and you&apos;re set. No copying or pasting.</p>
-        <p><strong className="text-white">Advanced:</strong> you can also connect by generating a token under <strong className="text-white">Settings → Integrations → Browser Extension</strong> and pasting it into the extension&apos;s Advanced settings. Tokens are shown <strong className="text-white">only once</strong> and act as you, so treat them like a password. However you connected, each device shows up in this list — click <strong className="text-white">Revoke</strong> to cut off a lost or retired one immediately.</p>
+        <p><strong className="text-white">Advanced:</strong> you can also connect by generating a token under <strong className="text-white">Settings → Browser Extension</strong> and pasting it into the extension&apos;s Advanced settings. Tokens are shown <strong className="text-white">only once</strong> and act as you, so treat them like a password. However you connected, each device shows up in this list — click <strong className="text-white">Revoke</strong> to cut off a lost or retired one immediately.</p>
         <Note>Contacts added from the extension are textable by default, the same as leads and Jobber contacts — your company is responsible for having consent before texting.</Note>
       </Section>
 
