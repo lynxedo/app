@@ -1,5 +1,30 @@
+import { createAdminClient } from '@/lib/supabase/admin'
+
 const ENDPOINT = 'https://track.onestepgps.com/v3/api/public/device'
 const CACHE_TTL_MS = 20_000
+
+// Resolve the OneStepGPS API key for a company. A per-company key entered in
+// Admin → Integrations (stored on company_integrations, service-role only) wins;
+// otherwise fall back to the shared env key so the original single-tenant Fleet
+// setup (Heroes) is completely unchanged. Callers that pass no companyId (a few
+// internal ops paths) keep using the env key.
+export async function resolveOneStepGpsKey(companyId?: string): Promise<string | null> {
+  if (companyId) {
+    try {
+      const { data } = await createAdminClient()
+        .from('company_integrations')
+        .select('config, enabled')
+        .eq('company_id', companyId)
+        .eq('provider', 'onestepgps')
+        .maybeSingle()
+      const cfg = (data?.config ?? null) as { api_key?: string } | null
+      if (cfg?.api_key && data?.enabled !== false) return cfg.api_key
+    } catch {
+      // fall through to the env key
+    }
+  }
+  return process.env.ONESTEPGPS_API_KEY ?? null
+}
 
 export type FleetDriveStatus =
   | 'driving'
@@ -22,8 +47,10 @@ export type FleetDevice = {
 
 type CacheEntry = { fetchedAt: number; devices: FleetDevice[] }
 
-let cache: CacheEntry | null = null
-let inflight: Promise<FleetDevice[]> | null = null
+// Per-key caches — a company using its own OneStepGPS key never sees another
+// tenant's cached devices. Heroes (env key) is a single entry, same as before.
+const liveCache = new Map<string, CacheEntry>()
+const liveInflight = new Map<string, Promise<FleetDevice[]>>()
 
 // OneStepGPS's real drive_status enum, verified from live device history:
 // driving / idle / off / towing. It never emits "stopped" or "parked", and it
@@ -63,9 +90,7 @@ function normalizeDevice(raw: unknown): FleetDevice | null {
   }
 }
 
-async function fetchUpstream(): Promise<FleetDevice[]> {
-  const key = process.env.ONESTEPGPS_API_KEY
-  if (!key) throw new Error('ONESTEPGPS_API_KEY is not configured')
+async function fetchUpstream(key: string): Promise<FleetDevice[]> {
   const url = `${ENDPOINT}?api-key=${encodeURIComponent(key)}&latest_point=true`
   const res = await fetch(url, { cache: 'no-store', signal: AbortSignal.timeout(10000) })
   if (!res.ok) throw new Error(`OneStepGPS upstream ${res.status}`)
@@ -82,20 +107,25 @@ async function fetchUpstream(): Promise<FleetDevice[]> {
     .filter((d): d is FleetDevice => d !== null && d.id !== '')
 }
 
-export async function getFleetDevices(): Promise<FleetDevice[]> {
+export async function getFleetDevices(companyId?: string): Promise<FleetDevice[]> {
+  const key = await resolveOneStepGpsKey(companyId)
+  if (!key) throw new Error('ONESTEPGPS_API_KEY is not configured')
   const now = Date.now()
-  if (cache && now - cache.fetchedAt < CACHE_TTL_MS) return cache.devices
-  if (inflight) return inflight
-  inflight = (async () => {
+  const cached = liveCache.get(key)
+  if (cached && now - cached.fetchedAt < CACHE_TTL_MS) return cached.devices
+  const existing = liveInflight.get(key)
+  if (existing) return existing
+  const p = (async () => {
     try {
-      const devices = await fetchUpstream()
-      cache = { fetchedAt: Date.now(), devices }
+      const devices = await fetchUpstream(key)
+      liveCache.set(key, { fetchedAt: Date.now(), devices })
       return devices
     } finally {
-      inflight = null
+      liveInflight.delete(key)
     }
   })()
-  return inflight
+  liveInflight.set(key, p)
+  return p
 }
 
 // ---------------------------------------------------------------------------
@@ -215,12 +245,13 @@ export async function getDeviceHistory(
   deviceId: string,
   fromIso: string,
   toIso: string,
+  companyId?: string,
 ): Promise<FleetHistory> {
-  const cacheKey = `${deviceId}|${fromIso}|${toIso}`
+  const cacheKey = `${companyId ?? 'env'}|${deviceId}|${fromIso}|${toIso}`
   const cached = historyCache.get(cacheKey)
   if (cached && Date.now() - cached.fetchedAt < cached.ttlMs) return cached.data
 
-  const key = process.env.ONESTEPGPS_API_KEY
+  const key = await resolveOneStepGpsKey(companyId)
   if (!key) throw new Error('ONESTEPGPS_API_KEY is not configured')
 
   const points: FleetHistoryPoint[] = []

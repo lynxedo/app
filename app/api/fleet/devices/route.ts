@@ -13,7 +13,7 @@ export async function GET() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('can_access_fleet')
+    .select('can_access_fleet, company_id')
     .eq('id', user.id)
     .single()
   if (!profile?.can_access_fleet) {
@@ -21,7 +21,7 @@ export async function GET() {
   }
 
   try {
-    const devices = await getFleetDevices()
+    const devices = await getFleetDevices(profile.company_id ?? undefined)
     return NextResponse.json({ devices })
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

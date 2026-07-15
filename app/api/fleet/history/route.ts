@@ -37,7 +37,7 @@ export async function GET(request: Request) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('can_access_fleet')
+    .select('can_access_fleet, company_id')
     .eq('id', user.id)
     .single()
   if (!profile?.can_access_fleet) {
@@ -56,7 +56,7 @@ export async function GET(request: Request) {
 
   const { start, end } = localDayBounds(date)
   try {
-    const history = await getDeviceHistory(deviceId, start, end)
+    const history = await getDeviceHistory(deviceId, start, end, profile.company_id ?? undefined)
     return NextResponse.json(history)
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err)

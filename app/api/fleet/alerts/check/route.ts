@@ -58,7 +58,7 @@ export async function POST(request: Request) {
 
     let devices: FleetDevice[]
     try {
-      devices = await getFleetDevices()
+      devices = await getFleetDevices(settings.company_id)
     } catch (err) {
       console.error('[fleet-alerts] OneStepGPS fetch failed:', err)
       continue
