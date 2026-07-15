@@ -29,22 +29,27 @@
 //
 // At SaaS time a subscription plan caps the level; effective level =
 // min(admin-chosen, plan cap) — resolved in lib/voice-receptionist-settings.ts.
-export type ReceptionistLevel = 1 | 2 | 3 | 4
+export type ReceptionistLevel = 1 | 2 | 3 | 4 | 5
 
-/** Highest level with implemented behavior. Level 4 clamps to this. */
+/**
+ * Highest level with a distinct BASE persona prompt. Levels 4 and 5 don't get a
+ * new base persona — they reuse the Level-3 soft-sell base and LAYER extra
+ * capability on top (the brain appends instructions + the voice service offers
+ * extra tools):
+ *   Level 4 = base(3) + scheduling (SCHEDULING_INSTRUCTION + booking tools)
+ *   Level 5 = base(3) + scheduling + FRONTLINE (routing directory + route_call)
+ * So the base prompt always clamps to this; 4 and 5 add layers.
+ */
 export const MAX_IMPLEMENTED_LEVEL: ReceptionistLevel = 3
-// Highest level an admin may SELECT. Level 4 (full receptionist) is Level 3's
-// soft-sell behavior PLUS live scheduling — the scheduling capability layers on
-// top (the brain appends SCHEDULING_INSTRUCTION + the voice service offers the
-// booking tools) rather than being a distinct base persona, so the prompt clamp
-// above stays at 3 while 4 remains selectable.
-export const MAX_SELECTABLE_LEVEL: ReceptionistLevel = 4
+// Highest level an admin may SELECT.
+export const MAX_SELECTABLE_LEVEL: ReceptionistLevel = 5
 
 export const RECEPTIONIST_LEVEL_LABELS: Record<ReceptionistLevel, { name: string; blurb: string }> = {
   1: { name: 'Message taker', blurb: 'A friendly voicemail replacement — collects the caller’s name, number, and reason, then promises a callback. Politely deflects all questions.' },
   2: { name: 'Conversational', blurb: 'Warm and human — brief small talk, answers approved basics, and talks the company up. Promotes any free/no-obligation offer. Never states pricing. Ends in a callback.' },
   3: { name: 'Soft sell', blurb: 'Conversational plus: states approved fixed pricing, asks qualifying questions, and works an assumptive soft close. A human specialist still confirms and schedules.' },
-  4: { name: 'Full receptionist', blurb: 'Owns the call start to close — real quotes and live scheduling into Jobber within your guardrails. Coming soon.' },
+  4: { name: 'Full receptionist', blurb: 'Everything in Soft sell, plus live scheduling — checks availability and books appointments within your guardrails. Only answers missed / after-hours calls.' },
+  5: { name: 'Frontline receptionist', blurb: 'Answers EVERY call as your front desk (replaces a phone menu): greets, figures out who they need, and routes them to the right person or department — and can still sell and book like Level 4.' },
 }
 
 // Default persona name — a neutral, SaaS-generic placeholder. Each company sets
@@ -138,6 +143,38 @@ export const SCHEDULING_INSTRUCTION = `Booking an appointment (you can schedule 
 - If the tool says the service is a recurring sign-up, don't pick a specific time — just confirm they'd like to get started and that a specialist will set up the first visit.
 - If the tool says it's a new customer or that it can't book directly, collect their name and full address and let them know a specialist will call to confirm — do not promise a specific day or time.
 - Only offer to book the services your tools handle. For anything else, take a message as usual, and never promise a final price on the call.`
+
+// Level-5 FRONTLINE layer. Appended by /api/voice/brain ONLY when the company is
+// at Level 5 (frontline) AND the call arrived on a frontline-eligible line — so
+// it never changes behavior below Level 5. Reframes the persona from "answering
+// when the team can't pick up" to "the primary front-desk receptionist on every
+// call", and tells her how to route callers to the right person/department using
+// her route_call tool. She keeps all the Level 3/4 abilities (answer, sell, book).
+// The actual routing destinations come from the company's routing directory,
+// injected right after this by buildRoutingDirectoryNote().
+export const FRONTLINE_INSTRUCTION = `You are the primary front-desk receptionist:
+- You answer EVERY call — you are not a fallback or a voicemail. Do not say the team "can't pick up," "isn't available," or that they're "busy with other customers." You ARE the front desk. Greet the caller, find out how you can help, and either help them yourself or get them to the right person.
+- Your first job on any call is to figure out what they need: a new customer or someone wanting a quote (help them and sell, like usual), an existing customer with a question (help or take a message), or someone who needs a specific person or department (route them — see below).
+- Routing to a person or department: the "WHO YOU CAN ROUTE TO" list below is who's reachable and what each handles. When a caller asks for someone by name, asks for a department (billing, service, sales, a specific person), or clearly needs someone you can't help directly, use your route_call tool with the best-matching entry from that list. First say a brief, warm line like "Sure, let me get you over to Kathryn — one moment," then use the tool. If the tool confirms the connection, end that message with the exact marker [[TRANSFER]] as the very last thing (never spoken aloud — it puts the caller through). If the tool says no one's available, don't promise a transfer: offer to take a message or send them to voicemail.
+- Only route when the caller genuinely needs a specific person or something you can't handle. If you can help them yourself — answer a question, capture a lead, book a job — do that first. Routing is for when they need a human you can't substitute for.
+- If nothing in the routing list fits what they need, help them yourself and take a detailed message for the team; don't force a transfer to the wrong place.`
+
+// Renders the company's routing directory into the prompt so the assistant knows
+// who exists and what each handles. Only reachable (enabled) entries are passed
+// in; person destinations are pre-filtered for availability by the brain. Empty
+// list → a short note that there's no one to route to right now (she then just
+// helps + takes messages). Pure string builder.
+export type RoutingDirectoryNoteEntry = { label: string; kind: string; description: string }
+export function buildRoutingDirectoryNote(entries: RoutingDirectoryNoteEntry[]): string {
+  if (!entries.length) {
+    return `WHO YOU CAN ROUTE TO:\n- No one is set up to receive transfers right now. Help the caller yourself and take a detailed message for the team; do not offer to transfer or connect them to a person.`
+  }
+  const lines = entries.map((e) => {
+    const what = (e.description || '').trim()
+    return `- ${e.label}${what ? ` — ${what}` : ''}`
+  })
+  return `WHO YOU CAN ROUTE TO (use route_call with the matching name/label):\n${lines.join('\n')}`
+}
 
 // Transfer availability is per-call (depends on business hours + admin config),
 // so the brain injects the right variant. When available, Amber can put the
@@ -371,8 +408,17 @@ export function buildWelcomeGreeting(
   level: number | null | undefined = 2,
   opts: GreetingOpts = {},
 ): string {
-  const lvl = clampReceptionistLevel(level)
+  const rawLevel = typeof level === 'number' && Number.isFinite(level) ? Math.round(level) : 2
   const name = resolveName(opts.name)
+
+  // Level 5 (frontline) answers EVERY call as the front desk, so its greeting
+  // must NOT imply the team is unavailable — she's the one who's supposed to
+  // answer. A single greeting covers both business/after hours.
+  if (rawLevel >= 5) {
+    return `Thanks for calling! This is ${name}. How can I help you today?`
+  }
+
+  const lvl = clampReceptionistLevel(level)
   const context: GreetingContext = opts.context || 'after_hours'
   const availability =
     context === 'business_hours'

@@ -230,10 +230,10 @@ export default function RoutingPanel() {
         </p>
       </div>
 
-      <div className="bg-amber-500/10 border border-amber-500/30 rounded-lg p-3 text-xs text-amber-200 leading-relaxed">
-        The frontline receptionist answers <strong>every</strong> call at <strong>Level&nbsp;5</strong> (coming soon) — you
-        can set up routing now and it activates when Level&nbsp;5 turns on. Until then your calls ring exactly as they do
-        today.
+      <div className="bg-white/5 border border-white/10 rounded-lg p-3 text-xs text-white/60 leading-relaxed">
+        These are the people and departments the <strong>frontline receptionist</strong> (Level&nbsp;5) can send callers to.
+        When a caller asks for someone by name or a department, she matches what they say against the notes below and connects
+        them. Leave an entry off, or with no one available, and she takes a message instead.
       </div>
 
       {loading ? (

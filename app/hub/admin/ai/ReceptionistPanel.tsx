@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 
 // AI Voice Receptionist — stored form values + code/env defaults.
 type VoiceReceptionistInitial = {
@@ -25,14 +25,15 @@ type VoiceReceptionistInitial = {
   title_service_map_default: { match: string; say: string }[]
 }
 
-// Capability ladder (Ben's product tiers). Level 4 exists in the UI but is not
-// built yet; the API rejects saving it. At SaaS time levels above the plan cap
-// render locked with an upgrade nudge.
+// Capability ladder (Ben's product tiers). Levels 1–4 answer only missed /
+// after-hours calls; Level 5 (frontline) answers EVERY call as the front desk.
+// At SaaS time levels above the plan cap render locked with an upgrade nudge.
 const VR_LEVELS: { level: number; name: string; blurb: string; comingSoon?: boolean }[] = [
   { level: 1, name: 'Level 1 — Message taker', blurb: 'A friendly voicemail replacement: collects name, number, and reason, then promises a callback. Politely deflects all questions.' },
   { level: 2, name: 'Level 2 — Conversational', blurb: 'Warm and human — brief small talk, answers approved basics, and talks the company up. Promotes any free/no-obligation offer. Never states pricing.' },
   { level: 3, name: 'Level 3 — Soft sell', blurb: 'Conversational plus: states approved fixed pricing, asks qualifying questions, and works an assumptive soft close. A human specialist still confirms.' },
-  { level: 4, name: 'Level 4 — Full receptionist', blurb: 'Everything in Level 3, plus live scheduling — checks availability and books appointments into Jobber. Turn on Scheduling below and add your services.' },
+  { level: 4, name: 'Level 4 — Full receptionist', blurb: 'Everything in Level 3, plus live scheduling — checks availability and books appointments. Set up Scheduling below. Answers missed / after-hours calls only.' },
+  { level: 5, name: 'Level 5 — Frontline receptionist', blurb: 'Answers EVERY call as your front desk (replaces a phone menu): greets, figures out who they need, and routes them to the right person or department — and can still sell + book like Level 4. Set up Call routing below.' },
 ]
 
 // Transfer methods. Admin picks one; recipients are Hub users (checkbox list).
@@ -46,9 +47,13 @@ const TRANSFER_METHODS: { value: string; name: string; blurb: string; comingSoon
 export default function ReceptionistPanel({
   initialVoiceReceptionist,
   people,
+  onLevelChange,
 }: {
   initialVoiceReceptionist: VoiceReceptionistInitial
   people: { id: string; display_name: string }[]
+  // Notifies the parent shell of the currently-selected level so it can show
+  // only the sections that level uses (Scheduling at 4+, Call routing at 5).
+  onLevelChange?: (level: number) => void
 }) {
   // Generic (SaaS-neutral) code/env defaults for each editable box. Editing a box
   // back to exactly its default saves as blank, so the field keeps tracking the
@@ -92,6 +97,12 @@ export default function ReceptionistPanel({
   const [svcAddSel, setSvcAddSel] = useState('')
 
   const dirty = JSON.stringify(vr) !== JSON.stringify(loaded)
+
+  // Tell the shell which level is selected (on mount + whenever it changes) so
+  // it shows only the sections that level uses.
+  useEffect(() => {
+    onLevelChange?.(vr.level)
+  }, [vr.level, onLevelChange])
 
   type TextField = 'receptionist_name' | 'greeting_business_hours' | 'greeting_after_hours' | 'instructions' | 'voice_id'
 
@@ -477,7 +488,10 @@ export default function ReceptionistPanel({
           </p>
         </div>
 
-        {/* Transfer to a person */}
+        {/* Transfer to a person — a single live transfer. Applies to Levels 2–4;
+            Level 1 takes messages only, and Level 5 uses Call routing (a separate
+            section below) instead of this flat transfer. */}
+        {vr.level >= 2 && vr.level <= 4 && (
         <div className="border border-white/10 rounded-lg p-3 space-y-3">
           <div>
             <p className="text-sm font-medium text-white">Transfer to a person</p>
@@ -589,6 +603,7 @@ export default function ReceptionistPanel({
             </div>
           )}
         </div>
+        )}
 
         {/* Save / Revert */}
         <div className="flex items-center gap-3">

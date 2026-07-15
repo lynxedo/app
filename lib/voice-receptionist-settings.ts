@@ -87,7 +87,7 @@ export type EffectiveVoiceReceptionistSettings = {
  */
 export function getPlanMaxReceptionistLevel(_companyId: string): ReceptionistLevel {
   // TODO(SaaS): look up the company's subscription plan -> max level.
-  return 4
+  return 5
 }
 
 /**
@@ -136,13 +136,17 @@ export function resolveVoiceReceptionistSettings(
   const receptionistName = row?.receptionist_name?.trim() || DEFAULT_RECEPTIONIST_NAME
   const recapTextEnabled = row ? row.recap_text_enabled !== false : true
 
+  // Greeting defaults are built from the CHOSEN level (not the base-clamped one)
+  // so Level 5 gets its frontline greeting (buildWelcomeGreeting special-cases
+  // level >= 5). Level 4 still resolves to the Level-3 greeting (4 has no distinct
+  // greeting), unchanged from before.
   const greetingAfterHours =
     row?.greeting_after_hours?.trim() ||
     row?.greeting?.trim() || // legacy single-greeting column
-    buildWelcomeGreeting(effectiveLevel, { context: 'after_hours', name: receptionistName })
+    buildWelcomeGreeting(chosen, { context: 'after_hours', name: receptionistName })
   const greetingBusinessHours =
     row?.greeting_business_hours?.trim() ||
-    buildWelcomeGreeting(effectiveLevel, { context: 'business_hours', name: receptionistName })
+    buildWelcomeGreeting(chosen, { context: 'business_hours', name: receptionistName })
 
   return {
     enabled: row ? row.enabled : true,

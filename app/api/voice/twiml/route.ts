@@ -8,7 +8,7 @@ import {
   voiceConfigured,
 } from '@/lib/twilio-voice'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { buildConversationRelayTwiml } from '@/lib/voice-receptionist'
+import { buildConversationRelayTwiml, buildWelcomeGreeting } from '@/lib/voice-receptionist'
 import { getCompanyVoicemailGreeting, getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 
 // Phase 1a is single-tenant (Heroes). Reuses the same company-id constant the
@@ -82,7 +82,19 @@ export async function POST(request: NextRequest) {
     .eq('company_id', HEROES_COMPANY_ID)
     .maybeSingle()
   const inHours = isWithinBusinessHours((ds?.business_hours as BusinessHoursSchedule | null) ?? null)
-  const greeting = inHours ? settings.greetingBusinessHours : settings.greetingAfterHours
+
+  // Test-line override (mirrors /api/voice/brain): when the test number is called
+  // with VOICE_TEST_LEVEL=5, open with the FRONTLINE greeting (front-desk, no
+  // "team isn't available" line) so the welcome matches how the brain behaves on
+  // that call — without changing the company's stored level or the live line.
+  const toNumber = params.get('To') || ''
+  const testNumber = (process.env.VOICE_TEST_NUMBER || '').trim()
+  const testFrontline = Boolean(testNumber && toNumber === testNumber && Math.round(Number(process.env.VOICE_TEST_LEVEL)) === 5)
+  const greeting = testFrontline
+    ? buildWelcomeGreeting(5, { name: settings.receptionistName })
+    : inHours
+      ? settings.greetingBusinessHours
+      : settings.greetingAfterHours
 
   return twimlResponse(
     buildConversationRelayTwiml({

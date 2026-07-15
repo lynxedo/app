@@ -84,6 +84,10 @@ export default function AiAdminShell({
   initialVoiceReceptionist: VoiceReceptionistInitial
 }) {
   const [tab, setTab] = useState<SubTab>('guardian')
+  // Track the receptionist's selected level so we show only the settings that
+  // level uses: Scheduling appears at Level 4+, Call routing at Level 5. Seeded
+  // from the saved level; ReceptionistPanel reports changes as the admin picks.
+  const [rxLevel, setRxLevel] = useState<number>(initialVoiceReceptionist.level)
 
   return (
     <div className="space-y-6">
@@ -125,9 +129,16 @@ export default function AiAdminShell({
       )}
       {tab === 'receptionist' && (
         <div className="space-y-6">
-          <ReceptionistPanel initialVoiceReceptionist={initialVoiceReceptionist} people={initialPeople} />
-          <SchedulingPanel />
-          <RoutingPanel />
+          <ReceptionistPanel
+            initialVoiceReceptionist={initialVoiceReceptionist}
+            people={initialPeople}
+            onLevelChange={setRxLevel}
+          />
+          {/* Scheduling is only used at Level 4+ (booking); Call routing only at
+              Level 5 (frontline). Hide them otherwise so the page shows only what
+              the selected level actually uses. */}
+          {rxLevel >= 4 && <SchedulingPanel />}
+          {rxLevel >= 5 && <RoutingPanel />}
         </div>
       )}
       {tab === 'knowledge' && <KnowledgePanel initialDocs={initialDocs} />}

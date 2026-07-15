@@ -10,6 +10,7 @@ import {
 } from '@/lib/twilio-voice'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { filterNonDndUserIds } from '@/lib/dialer-conference-connect'
+import { buildIvrContext } from '@/lib/dialer-ivr-context'
 import { getCompanyVoicemailGreeting, getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 
 const HEROES_COMPANY_ID =
@@ -85,6 +86,89 @@ export async function POST(request: NextRequest) {
     const admin = createAdminClient()
     const settings = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
     const callerFrom = lower.from || ''
+    const callSid = lower.callsid || ''
+
+    // Level-5 frontline routing: if the assistant used her route_call tool, a
+    // SPECIFIC destination was recorded for this call (POST /api/voice/route).
+    // Dial that exact destination instead of the flat transfer list. Falls
+    // through to the flat method below if no recorded target is found.
+    if (callSid) {
+      const { data: routed } = await admin
+        .from('voice_transfer_attempts')
+        .select('id, route_dest_kind, route_dest_value, route_label')
+        .eq('caller_call_sid', callSid)
+        .eq('status', 'pending')
+        .not('route_dest_kind', 'is', null)
+        .gt('expires_at', new Date().toISOString())
+        .order('created_at', { ascending: false })
+        .limit(1)
+      const target = routed && routed[0]
+      if (target?.route_dest_kind) {
+        const kind = target.route_dest_kind as string
+        const value = (target.route_dest_value || '').trim()
+        const resultAction = `${baseUrl}/api/voice/twiml/transfer-result`
+        const unavailableVm =
+          "I'm sorry, they're not available right now. Please leave a message after the tone and they'll get right back to you. Press pound when finished."
+        // Mark the routing attempt consumed (best-effort).
+        await admin.from('voice_transfer_attempts').update({ status: 'connected' }).eq('id', target.id)
+
+        if (kind === 'voicemail') {
+          return twimlResponse(
+            await voicemail(
+              'Please leave a message after the tone and the right team member will get back to you. Press pound when finished.',
+            ),
+          )
+        }
+        if (kind === 'ring_group' && value) {
+          const rgUrl = `${baseUrl}/api/dialer/voice/twiml/ring-group?group=${encodeURIComponent(value)}&i=0`
+          return twimlResponse(
+            `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${rgUrl.replace(/&/g, '&amp;')}</Redirect></Response>`,
+          )
+        }
+        if (kind === 'cell' && value) {
+          // Outbound PSTN leg — our Twilio number is the caller ID; no-answer →
+          // voicemail via the transfer-result action.
+          const cid = voiceCallerId() || ''
+          const num = value.replace(/&/g, '&amp;').replace(/</g, '&lt;')
+          const dial = `<Dial answerOnBridge="true" timeout="25"${cid ? ` callerId="${cid}"` : ''} action="${resultAction}" method="POST"><Number>${num}</Number></Dial>`
+          return twimlResponse(`<?xml version="1.0" encoding="UTF-8"?><Response>${dial}</Response>`)
+        }
+        if (kind === 'user' && value) {
+          const notDnd = await filterNonDndUserIds(admin, [value])
+          if (notDnd.length > 0) {
+            return twimlResponse(
+              twimlRingGroupSimultaneous({
+                identities: notDnd,
+                timeoutSec: 25,
+                actionUrl: resultAction,
+                callerId: callerFrom || undefined,
+              }),
+            )
+          }
+          return twimlResponse(await voicemail(unavailableVm))
+        }
+        if (kind === 'extension' && value) {
+          const ctx = await buildIvrContext(admin, HEROES_COMPANY_ID)
+          const resolved = ctx.extensionResolver(value)
+          if (resolved) {
+            const notDnd = await filterNonDndUserIds(admin, [resolved.ownerUserId])
+            if (notDnd.length > 0) {
+              return twimlResponse(
+                twimlRingGroupSimultaneous({
+                  identities: [resolved.identity],
+                  timeoutSec: 25,
+                  actionUrl: resultAction,
+                  callerId: callerFrom || undefined,
+                }),
+              )
+            }
+          }
+          return twimlResponse(await voicemail(unavailableVm))
+        }
+        // Unknown/empty kind → fall through to the flat transfer method below.
+      }
+    }
+
     if (settings.transferMethod === 'softphone' && settings.transferUserIds.length > 0) {
       // Honor Do Not Disturb: ring only recipients who aren't DND right now
       // (same checks as the dialer ring groups). Everyone DND → voicemail below.

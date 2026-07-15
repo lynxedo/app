@@ -89,10 +89,7 @@ export async function PATCH(req: NextRequest) {
   if ('enabled' in body) update.enabled = Boolean(body.enabled)
   if ('level' in body) {
     const lvl = Number(body.level)
-    if (!Number.isInteger(lvl) || lvl < 1 || lvl > 4) {
-      return NextResponse.json({ error: 'level must be 1–4' }, { status: 400 })
-    }
-    if (lvl > MAX_SELECTABLE_LEVEL) {
+    if (!Number.isInteger(lvl) || lvl < 1 || lvl > MAX_SELECTABLE_LEVEL) {
       return NextResponse.json({ error: `level must be 1–${MAX_SELECTABLE_LEVEL}` }, { status: 400 })
     }
     const cap = getPlanMaxReceptionistLevel(auth.company_id!)

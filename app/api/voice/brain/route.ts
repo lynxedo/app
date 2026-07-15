@@ -8,11 +8,16 @@ import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-
 import { getSchedulingEnabled } from '@/lib/voice-scheduling'
 import {
   buildCallContextNote,
+  buildRoutingDirectoryNote,
   buildTransferInstruction,
+  buildWelcomeGreeting,
   CUSTOMER_SERVICE_INSTRUCTION,
+  FRONTLINE_INSTRUCTION,
   SCHEDULING_INSTRUCTION,
   VOICEMAIL_ESCAPE_INSTRUCTION,
+  type ReceptionistLevel,
 } from '@/lib/voice-receptionist'
+import { getRoutingDirectory } from '@/lib/voice-routing'
 import { startCallRecording, isWithinBusinessHours, BusinessHoursSchedule } from '@/lib/twilio-voice'
 import { findOrCreateTxtContact, lookupByPhone } from '@/lib/dialer-lookup'
 import { filterNonDndUserIds } from '@/lib/dialer-conference-connect'
@@ -220,15 +225,64 @@ export async function POST(request: Request) {
   // company is at Level 4 AND scheduling is enabled. Below that, canSchedule is
   // false → no scheduling instruction, and the voice service withholds the
   // find_availability / book_appointment tools.
+  // Effective level. A TEST-LINE OVERRIDE lets Level 5 (frontline) be exercised
+  // on the test number (env VOICE_TEST_NUMBER) at env VOICE_TEST_LEVEL WITHOUT
+  // changing the company's stored level — so the live main line is never touched
+  // by testing. When the override isn't set / doesn't match, the stored company
+  // level drives every call as usual.
+  let effLevel: ReceptionistLevel = settings.level
+  const testNumber = (process.env.VOICE_TEST_NUMBER || '').trim()
+  const testLevel = Math.round(Number(process.env.VOICE_TEST_LEVEL))
+  const isTestLine = Boolean(testNumber && body.to === testNumber && testLevel >= 1 && testLevel <= 5)
+  if (isTestLine) {
+    effLevel = testLevel as ReceptionistLevel
+  }
+
+  // Level-4 scheduling AND Level-5 frontline both layer on top of the Level-3
+  // base. canSchedule = Level 4 or 5 + scheduling enabled.
   const schedulingEnabled = await getSchedulingEnabled(admin, companyId)
-  const canSchedule = settings.level === 4 && schedulingEnabled
+  const canSchedule = (effLevel === 4 || effLevel === 5) && schedulingEnabled
+
+  // frontlineActive = Level 5 AND the call is on a frontline-eligible line:
+  // the test line (via the override above) OR any line once AI_FRONTLINE_ENABLED
+  // is set. This is the deliberate on-switch for the front desk — so merely
+  // SELECTING Level 5 in Admin can't turn the live main line into a frontline
+  // receptionist before it's explicitly enabled + tested. When Level 5 is chosen
+  // but not yet frontline-eligible, the call behaves as Level 4 (scheduling +
+  // base) with no routing layer.
+  const frontlineEligible = isTestLine || process.env.AI_FRONTLINE_ENABLED === 'true'
+  const frontlineActive = effLevel === 5 && frontlineEligible
+
+  // Frontline: inject the routing directory so Amber knows who she can send
+  // callers to. Drop 'user' (softphone) destinations whose owner is on Do Not
+  // Disturb right now, so she never offers a transfer to someone unavailable
+  // (ring groups do their own DND filtering downstream).
+  let routingNote = ''
+  if (frontlineActive) {
+    try {
+      const dir = (await getRoutingDirectory(admin, companyId)).filter((e) => e.enabled)
+      const userDestIds = dir.filter((e) => e.dest_kind === 'user').map((e) => e.dest_value).filter(Boolean)
+      const notDnd = userDestIds.length ? await filterNonDndUserIds(admin, userDestIds) : []
+      const reachable = dir.filter((e) => e.dest_kind !== 'user' || notDnd.includes(e.dest_value))
+      routingNote = buildRoutingDirectoryNote(
+        reachable.map((e) => ({ label: e.label, kind: e.kind, description: e.description })),
+      )
+    } catch (err) {
+      console.warn('[voice.brain] routing directory load failed', (err as Error).message)
+      routingNote = buildRoutingDirectoryNote([])
+    }
+  }
 
   const task = [
     settings.instructions,
     VOICEMAIL_ESCAPE_INSTRUCTION,
     CUSTOMER_SERVICE_INSTRUCTION,
     canSchedule ? SCHEDULING_INSTRUCTION : null,
-    buildTransferInstruction(transferAvailable),
+    // Level 5 replaces the flat transfer instruction with the frontline routing
+    // layer (route_call → the routing directory). Below Level 5, the usual
+    // single-transfer instruction applies.
+    frontlineActive ? FRONTLINE_INSTRUCTION : null,
+    frontlineActive ? routingNote : buildTransferInstruction(transferAvailable),
     callContext,
   ]
     .filter(Boolean)
@@ -249,15 +303,22 @@ export async function POST(request: Request) {
     // non-fatal — use CLAUDE_MODEL
   }
 
+  // At Level 5 the greeting must read as the front desk (never "the team isn't
+  // available"), so use the frontline default rather than the business/after-hours
+  // greeting. Below Level 5 the configured greeting stands.
+  const greeting = frontlineActive
+    ? buildWelcomeGreeting(5, { name: settings.receptionistName })
+    : settings.greeting
+
   return NextResponse.json({
     companyId,
     model,
     system,
-    greeting: settings.greeting,
+    greeting,
     callSid: body.callSid ?? null,
-    // Voice service reads meta.canSchedule to decide whether to offer the
-    // find_availability / book_appointment tools this call.
-    meta: { canSchedule },
+    // meta.canSchedule → offer the find_availability / book_appointment tools.
+    // meta.canRoute → offer the route_call tool (Level 5 frontline routing).
+    meta: { canSchedule, canRoute: frontlineActive },
   })
 }
 
