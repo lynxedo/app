@@ -11,6 +11,7 @@ import { sendHubPush } from '@/lib/hub-push'
 import { buildMessagePreview } from '@/lib/txt-preview'
 import { evaluateEventAutomations } from '@/lib/automations'
 import { enrichTxtContactName } from '@/lib/dialer-lookup'
+import { pauseEnrollmentsForInbound } from '@/lib/drip'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -348,6 +349,20 @@ async function processInboundSideEffects(args: {
   sid: string
 }) {
   const { supabase, conversationId, contactId, from, body, compliance, now } = args
+
+  // Drip auto-pause (Drip Marketing PRD §6): the instant a lead replies, stop
+  // their active drip enrollments so a human/Amber takes over — STOP → opted_out,
+  // any other inbound → replied. Best-effort; never block the inbound pipeline.
+  try {
+    await pauseEnrollmentsForInbound(supabase, {
+      companyId: HEROES_COMPANY_ID,
+      contactId,
+      phone: from,
+      isOptOut: compliance === 'stop',
+    })
+  } catch (err) {
+    console.warn('[txt:inbound] drip auto-pause failed', err)
+  }
 
   // Re-read whether the (possibly just-ingested) message has attachments for the push preview.
   const { data: msgRow } = await supabase
