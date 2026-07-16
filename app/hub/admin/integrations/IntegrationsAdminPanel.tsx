@@ -23,14 +23,18 @@ const STATUS_META: Record<IntegrationStatus, { label: string; cls: string }> = {
   coming_soon: { label: 'Coming soon', cls: 'bg-sky-500/10 text-sky-400 border-sky-500/25' },
 }
 
+type GoogleLsa = { connected: boolean; customerId: string | null; lsaEnabled: boolean }
+
 export default function IntegrationsAdminPanel({
   statuses,
   webhookBase,
   onestepgpsOwnKey,
+  googleLsa,
 }: {
   statuses: Record<ProviderKey, StatusInfo>
   webhookBase: string
   onestepgpsOwnKey: boolean
+  googleLsa: GoogleLsa
 }) {
   return (
     <div className="space-y-6">
@@ -59,6 +63,7 @@ export default function IntegrationsAdminPanel({
                   info={statuses[p.key] ?? { status: 'not_connected' }}
                   webhookBase={webhookBase}
                   hasOwnKey={p.key === 'onestepgps' ? onestepgpsOwnKey : false}
+                  googleLsa={p.key === 'google' ? googleLsa : null}
                 />
               ))}
             </div>
@@ -85,11 +90,13 @@ function IntegrationCard({
   info,
   webhookBase,
   hasOwnKey,
+  googleLsa,
 }: {
   provider: IntegrationProvider
   info: StatusInfo
   webhookBase: string
   hasOwnKey: boolean
+  googleLsa: GoogleLsa | null
 }) {
   const router = useRouter()
   const toast = useToast()
@@ -97,6 +104,7 @@ function IntegrationCard({
   const [showSetup, setShowSetup] = useState(false)
   const [busy, setBusy] = useState(false)
   const [apiKey, setApiKey] = useState('')
+  const [lsaCustomerId, setLsaCustomerId] = useState(googleLsa?.customerId ?? '')
 
   const isConnected = info.status === 'connected'
   const isComingSoon = info.status === 'coming_soon'
@@ -167,6 +175,26 @@ function IntegrationCard({
     }
   }
 
+  async function handleSaveLsa() {
+    setBusy(true)
+    try {
+      const res = await fetch('/api/admin/integrations/google', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ customer_id: lsaCustomerId.trim() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) throw new Error(data.error || 'Could not save')
+      toast.success('Local Services account saved')
+      setShowSetup(false)
+      router.refresh()
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : 'Could not save')
+    } finally {
+      setBusy(false)
+    }
+  }
+
   const copy = (text: string) => {
     navigator.clipboard?.writeText(text).then(
       () => toast.success('Copied'),
@@ -220,6 +248,13 @@ function IntegrationCard({
               {showSetup ? 'Close' : hasOwnKey ? 'Manage key' : 'Enter key'}
             </button>
           )}
+
+          {/* Google — reveal the Local Services lead-poll config (once connected) */}
+          {provider.key === 'google' && isConnected && (
+            <button onClick={() => setShowSetup(v => !v)} className={`${btn} bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-700`}>
+              {showSetup ? 'Close' : 'Local Services'}
+            </button>
+          )}
         </div>
       </div>
 
@@ -270,6 +305,31 @@ function IntegrationCard({
             </div>
           )}
           <p className="text-[11px] text-gray-500">Find your API key in OneStepGPS under your account settings. We verify it with OneStepGPS before saving.</p>
+        </div>
+      )}
+
+      {/* Google — Local Services (LSA) lead-poll config */}
+      {provider.key === 'google' && isConnected && showSetup && (
+        <div className="mt-3 p-4 bg-gray-800/50 border border-gray-700 rounded-xl space-y-3">
+          <div>
+            <div className="text-xs text-gray-400 mb-1">Google Local Services account ID</div>
+            <div className="flex items-center gap-2">
+              <input
+                value={lsaCustomerId}
+                onChange={e => setLsaCustomerId(e.target.value)}
+                placeholder="e.g. 123-456-7890"
+                className="flex-1 min-w-0 bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-100 placeholder-gray-600 focus:outline-none focus:border-blue-500"
+              />
+              <button onClick={handleSaveLsa} disabled={busy} className={`${btn} bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border-blue-600/30`}>
+                {busy ? 'Saving…' : 'Save'}
+              </button>
+            </div>
+          </div>
+          <p className="text-[11px] text-gray-500">
+            The 10-digit ID of the Google Ads / Local Services account to pull leads from. New Local Services Ads
+            leads then land in the Lead Tracker automatically, checked every few minutes.
+            {googleLsa?.customerId ? ` Currently pulling from ${googleLsa.customerId}.` : ''}
+          </p>
         </div>
       )}
     </div>
