@@ -110,9 +110,9 @@ async function sweepLeads(admin: Admin, c: CampaignRow, leadSource: string | nul
 
   let inserted = 0
   for (const part of chunk(enrollRows, 500)) {
-    // (campaign_id, lead_id) is uniquely indexed (where lead_id is not null), so
-    // ignoreDuplicates is safe: conflicting rows aren't returned, so data.length
-    // is the count actually enrolled this sweep.
+    // (campaign_id, lead_id) is a plain unique index (non-partial so PostgREST can
+    // use it as the ON CONFLICT target), so ignoreDuplicates is safe: conflicting
+    // rows aren't returned, so data.length is the count actually enrolled here.
     const { data } = await admin
       .from('drip_enrollments')
       .upsert(part, { onConflict: 'campaign_id,lead_id', ignoreDuplicates: true })

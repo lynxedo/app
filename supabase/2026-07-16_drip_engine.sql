@@ -63,9 +63,12 @@ create table if not exists public.drip_enrollments (
   completed_at       timestamptz,
   paused_reason      text
 );
--- A given lead enrolls in a given campaign once (partial: manual enrollments have null lead_id).
+-- A given lead enrolls in a given campaign once. Plain (NON-partial) unique index
+-- so PostgREST .upsert(onConflict:'campaign_id,lead_id') can target it — a partial
+-- index can't be an ON CONFLICT target. Postgres treats NULLs as distinct, so
+-- manual enrollments (lead_id null) still never collide.
 create unique index if not exists uniq_drip_enroll_campaign_lead
-  on public.drip_enrollments(campaign_id, lead_id) where lead_id is not null;
+  on public.drip_enrollments(campaign_id, lead_id);
 create index if not exists idx_drip_enroll_due on public.drip_enrollments(next_run_at) where status = 'active';
 create index if not exists idx_drip_enroll_campaign on public.drip_enrollments(campaign_id, status);
 create index if not exists idx_drip_enroll_phone on public.drip_enrollments(company_id, phone_digits) where status = 'active';
