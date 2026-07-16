@@ -52,15 +52,17 @@ type GoogleConn = {
 }
 
 // Long-stable fields only, so an API-version bump is unlikely to break the SELECT.
+// NOTE: contact_details is selected as the whole MESSAGE (verified against the v22
+// google_ads_field schema) — its consumer_name / phone_number / email are NOT
+// individually selectable via dotted paths. Google returns them nested under
+// contactDetails in the response (some leads are phone-only, some email-only).
 const LSA_FIELDS = [
   'local_services_lead.id',
   'local_services_lead.lead_type',
   'local_services_lead.lead_status',
   'local_services_lead.category_id',
   'local_services_lead.service_id',
-  'local_services_lead.contact_details.consumer_name',
-  'local_services_lead.contact_details.phone_number',
-  'local_services_lead.contact_details.email',
+  'local_services_lead.contact_details',
   'local_services_lead.creation_date_time',
   'local_services_lead.locale',
 ]
