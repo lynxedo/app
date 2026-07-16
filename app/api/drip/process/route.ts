@@ -29,12 +29,14 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient()
   const startedAt = Date.now()
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://lynxedo.com'
 
   const sweep = await runDripEnrollmentSweeps(admin)
   const adv = await advanceDripEnrollments(admin, {
     startedAt,
     maxMs: BATCH_MAX_MS,
     maxCount: PROCESS_MAX_PER_TICK,
+    baseUrl,
   })
 
   return NextResponse.json({
