@@ -85,6 +85,9 @@ export async function runDripEnrollmentSweeps(admin: Admin): Promise<{ enrolled:
     else if (c.trigger_type === 'lead_source') {
       const src = typeof c.trigger_config?.lead_source === 'string' ? c.trigger_config.lead_source : null
       if (src) enrolled += await sweepLeads(admin, c, src)
+    } else if (c.trigger_type === 'stage_changed') {
+      const stage = typeof c.trigger_config?.stage === 'string' ? c.trigger_config.stage : null
+      if (stage) enrolled += await sweepStageChanged(admin, c, stage)
     }
     // 'manual' enrolls via the UI, not a sweep.
     await admin.from('drip_campaigns').update({ last_swept_at: sweepStart }).eq('id', c.id)
@@ -107,14 +110,26 @@ async function sweepLeads(admin: Admin, c: CampaignRow, leadSource: string | nul
     return q.order('id', { ascending: true })
   })
 
-  const enrollRows = rows
+  return upsertEnrollments(admin, c.company_id, c.id, rows)
+}
+
+// Shared: turn lead rows into enrollment upserts at step 0 (idempotent via the
+// (campaign_id, lead_id) unique index — conflicts aren't returned, so data.length
+// is the count actually enrolled).
+async function upsertEnrollments(
+  admin: Admin,
+  companyId: string,
+  campaignId: string,
+  leadRows: Array<{ id: string; phone: string | null }>,
+): Promise<number> {
+  const enrollRows = leadRows
     .map((r) => {
       const e164 = toE164(r.phone || '')
       if (!e164) return null
       return {
-        company_id: c.company_id,
-        campaign_id: c.id,
-        lead_id: r.id as string,
+        company_id: companyId,
+        campaign_id: campaignId,
+        lead_id: r.id,
         phone: e164,
         phone_digits: e164.replace(/\D/g, '').slice(-10),
         current_step_index: 0,
@@ -124,12 +139,8 @@ async function sweepLeads(admin: Admin, c: CampaignRow, leadSource: string | nul
     })
     .filter(Boolean) as Record<string, unknown>[]
   if (!enrollRows.length) return 0
-
   let inserted = 0
   for (const part of chunk(enrollRows, 500)) {
-    // (campaign_id, lead_id) is a plain unique index (non-partial so PostgREST can
-    // use it as the ON CONFLICT target), so ignoreDuplicates is safe: conflicting
-    // rows aren't returned, so data.length is the count actually enrolled here.
     const { data } = await admin
       .from('drip_enrollments')
       .upsert(part, { onConflict: 'campaign_id,lead_id', ignoreDuplicates: true })
@@ -137,6 +148,58 @@ async function sweepLeads(admin: Admin, c: CampaignRow, leadSource: string | nul
     inserted += (data ?? []).length
   }
   return inserted
+}
+
+// Leads that ENTERED a stage since the last sweep (stage_changed campaigns).
+// Casts: stage_changed_at is an additive column applied with the deploy migration.
+async function sweepStageChanged(admin: Admin, c: CampaignRow, stageKey: string): Promise<number> {
+  const cutoff = c.last_swept_at || c.created_at
+  const rows = await fetchAllRows<any>(() =>
+    (admin.from('leads') as any)
+      .select('id, company_id, phone')
+      .eq('company_id', c.company_id)
+      .eq('stage', stageKey)
+      .not('phone', 'is', null)
+      .gt('stage_changed_at', cutoff)
+      .order('id', { ascending: true }),
+  )
+  return upsertEnrollments(admin, c.company_id, c.id, rows)
+}
+
+// Inline enroll when a human drags a lead into a stage (so a stage-triggered
+// campaign fires immediately, not on the next ≤2-min sweep). Idempotent.
+export async function enrollLeadInStageCampaigns(
+  admin: Admin,
+  opts: { companyId: string; leadId: string; stageKey: string },
+): Promise<{ enrolled: number }> {
+  const { data: campaigns } = await admin
+    .from('drip_campaigns')
+    .select('id, trigger_config')
+    .eq('company_id', opts.companyId)
+    .eq('status', 'active')
+    .eq('trigger_type', 'stage_changed')
+  const matching = (campaigns ?? []).filter((c: any) => c.trigger_config?.stage === opts.stageKey)
+  if (!matching.length) return { enrolled: 0 }
+  const { data: lead } = await (admin.from('leads') as any).select('id, phone').eq('id', opts.leadId).maybeSingle()
+  if (!lead) return { enrolled: 0 }
+  let enrolled = 0
+  for (const c of matching) enrolled += await upsertEnrollments(admin, opts.companyId, (c as any).id as string, [lead])
+  return { enrolled }
+}
+
+// Exit a lead's active/paused enrollments (e.g. they were won or lost) so nurturing stops.
+export async function exitEnrollmentsForLead(
+  admin: Admin,
+  opts: { companyId: string; leadId: string },
+): Promise<{ exited: number }> {
+  const { data } = await admin
+    .from('drip_enrollments')
+    .update({ status: 'exited', completed_at: new Date().toISOString() })
+    .eq('company_id', opts.companyId)
+    .eq('lead_id', opts.leadId)
+    .in('status', ['active', 'replied'])
+    .select('id')
+  return { exited: (data ?? []).length }
 }
 
 // ─── 2. Advancement (the state machine) ──────────────────────────────────────
@@ -591,10 +654,10 @@ async function logSend(
 export async function pauseEnrollmentsForInbound(
   admin: Admin,
   opts: { companyId: string; contactId?: string | null; phone?: string | null; isOptOut: boolean },
-): Promise<{ paused: number }> {
+): Promise<{ paused: number; enrollmentIds: string[] }> {
   const digits = opts.phone ? opts.phone.replace(/\D/g, '').slice(-10) : null
   const contactId = opts.contactId && /^[0-9a-f-]{36}$/i.test(opts.contactId) ? opts.contactId : null
-  if (!contactId && !digits) return { paused: 0 }
+  if (!contactId && !digits) return { paused: 0, enrollmentIds: [] }
 
   const patch: Record<string, unknown> = {
     status: opts.isOptOut ? 'opted_out' : 'replied',
@@ -609,7 +672,8 @@ export async function pauseEnrollmentsForInbound(
   else q = q.eq('phone_digits', digits as string)
 
   const { data } = await q.select('id')
-  return { paused: (data ?? []).length }
+  const ids = (data ?? []).map((r: any) => r.id as string)
+  return { paused: ids.length, enrollmentIds: ids }
 }
 
 // ─── helpers ──────────────────────────────────────────────────────────────────
