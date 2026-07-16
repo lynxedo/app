@@ -29,6 +29,12 @@ type Admin = ReturnType<typeof createAdminClient>
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
+// Staging sandbox switch (NEVER set on prod): run the whole state machine but
+// don't actually send — every "send" is logged with a TEST marker so a lead
+// still enrolls and flows through the monitor with zero real texts. Mirrors the
+// AI receptionist's VOICE_TEST_MODE.
+const DRIP_TEST_MODE = process.env.DRIP_TEST_MODE === 'true'
+
 type CampaignRow = {
   id: string
   company_id: string
@@ -285,15 +291,23 @@ export async function advanceDripEnrollments(
         continue
       }
 
-      const res = await sendDirectTxtToPhone({
-        admin,
-        companyId: e.company_id,
-        userId: s.send_as_user_id,
-        phone: e.phone || '',
-        name: person?.name ?? null,
-        body: body || '',
-        templateId,
-      })
+      // DRIP_TEST_MODE (staging sandbox): skip the real Twilio send and fake a
+      // success so the enrollment advances and shows in the monitor — nothing is
+      // texted to anyone.
+      let res: Awaited<ReturnType<typeof sendDirectTxtToPhone>>
+      if (DRIP_TEST_MODE) {
+        res = { ok: true, twilio_sid: 'TEST' }
+      } else {
+        res = await sendDirectTxtToPhone({
+          admin,
+          companyId: e.company_id,
+          userId: s.send_as_user_id,
+          phone: e.phone || '',
+          name: person?.name ?? null,
+          body: body || '',
+          templateId,
+        })
+      }
 
       await logSend(admin, e, idx, 'sms', res.ok ? 'sent' : 'failed', {
         body: body || null,
