@@ -11,6 +11,7 @@ import { getTxtConvPermissions } from '@/lib/txt-permissions'
 import { resolveFromNumber } from '@/lib/txt-numbers'
 import { buildMessagePreview } from '@/lib/txt-preview'
 import { twilioMediaUrls } from '@/lib/txt-media-sign'
+import { seizeAmberThreadForHuman } from '@/lib/amber-text'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -89,6 +90,11 @@ export async function POST(
   }
 
   const admin = createAdminClient()
+
+  // Amber-over-text seize: a real teammate replying takes over the thread, so
+  // Amber goes silent. No-op unless Amber is actively driving this conversation.
+  // Best-effort (never throws) so it can't affect the send.
+  await seizeAmberThreadForHuman(admin, { conversationId, userId: user.id })
 
   const directContact = isGroup
     ? null

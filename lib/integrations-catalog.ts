@@ -23,7 +23,7 @@ export type ConnectionModel = 'oauth' | 'domain' | 'webhook' | 'apikey' | 'comin
 export type ProviderKey =
   | 'jobber' | 'quickbooks' | 'gusto' | 'onestepgps'
   | 'angi' | 'google' | 'thumbtack' | 'networx' | 'zillow'
-  | 'meta' | 'email'
+  | 'meta' | 'email' | 'voicedrop'
 
 export type IntegrationStatus =
   | 'connected' | 'action_needed' | 'not_connected' | 'error' | 'coming_soon'
@@ -105,5 +105,10 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     key: 'email', name: 'Email sending domain', group: 'marketing', model: 'domain',
     blurb: 'Verify the domain your marketing email is sent from (deliverability).',
     manageHref: '/hub/admin/email', manageLabel: 'Manage in Email Marketing',
+  },
+  {
+    key: 'voicedrop', name: 'Ringless Voicemail (VoiceDrop)', group: 'marketing', model: 'apikey',
+    blurb: 'Drop pre-recorded voicemails to leads without ringing their phone — used as a channel in Drip Marketing.',
+    manageHref: '/hub/marketing/drip', manageLabel: 'Manage in Drip Marketing',
   },
 ]

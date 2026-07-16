@@ -2,8 +2,19 @@
 
 import { useState } from 'react'
 
-type Stage = { id: string; key: string; label: string; color: string; sort_order: number }
+type Stage = { id: string; key: string; label: string; color: string; sort_order: number; system_role?: string | null }
 type ColType = 'text' | 'number' | 'date' | 'dropdown' | 'checkbox' | 'phone'
+
+// Optional pipeline semantics — powers the Board / Needs-me cockpit views (won/lost
+// = terminal columns) and the drip stage_changed trigger. One stage per role.
+const SYSTEM_ROLE_OPTIONS: { value: string; label: string }[] = [
+  { value: '', label: 'No role' },
+  { value: 'new', label: 'New' },
+  { value: 'responded', label: 'Responded' },
+  { value: 'quoted', label: 'Quoted' },
+  { value: 'won', label: 'Won' },
+  { value: 'lost', label: 'Lost' },
+]
 type CustomColumnDef = { id: string; name: string; type: ColType; options: string[]; sort_order: number }
 type StatusStageRule = { status: string; stage: string }
 
@@ -173,6 +184,23 @@ function StageManager({ stages, onChange }: { stages: Stage[]; onChange: (s: Sta
     })
   }
 
+  async function setRole(id: string, role: string) {
+    const value = role || null
+    const res = await fetch(`/api/tracker/stages/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ system_role: value }),
+    })
+    if (res.ok) {
+      // The server MOVES a role off any other stage — mirror that locally.
+      onChange(stages.map(s => {
+        if (s.id === id) return { ...s, system_role: value }
+        if (value && s.system_role === value) return { ...s, system_role: null }
+        return s
+      }))
+    }
+  }
+
   async function reorder(id: string, dir: -1 | 1) {
     const idx = stages.findIndex(s => s.id === id)
     if (idx < 0) return
@@ -215,7 +243,7 @@ function StageManager({ stages, onChange }: { stages: Stage[]; onChange: (s: Sta
     <div className="bg-gray-900 border border-gray-800 rounded-2xl p-5">
       <h3 className="font-semibold text-white mb-1">Stages</h3>
       <p className="text-xs text-gray-500 mb-4">
-        Add, rename, recolor, or remove pipeline stages. Click the color swatch to change it. Double-click a label to rename. Deleting a stage moves its leads to another stage.
+        Add, rename, recolor, or remove pipeline stages. Click the color swatch to change it. Double-click a label to rename. Deleting a stage moves its leads to another stage. Tag a stage with a <span className="text-gray-400">pipeline role</span> (New / Responded / Quoted / Won / Lost) to power the Board &amp; Needs-me views and drip triggers — one stage per role.
       </p>
 
       <div className="space-y-2 mb-4">
@@ -265,6 +293,14 @@ function StageManager({ stages, onChange }: { stages: Stage[]; onChange: (s: Sta
                 className="opacity-0 group-hover:opacity-100 text-gray-500 hover:text-white transition-all text-xs px-1"
                 title="Rename"
               >✏</button>
+              <select
+                value={stage.system_role ?? ''}
+                onChange={e => setRole(stage.id, e.target.value)}
+                title="Pipeline role — powers the Board & Needs-me views and drip triggers (one stage per role)"
+                className="bg-gray-800 border border-gray-700 rounded-md px-1.5 py-0.5 text-xs text-gray-300 focus:outline-none focus:border-indigo-500 max-w-[7.5rem] shrink-0"
+              >
+                {SYSTEM_ROLE_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
               <button
                 onClick={() => reorder(stage.id, -1)}
                 disabled={i === 0}
