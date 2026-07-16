@@ -67,20 +67,22 @@ const LSA_FIELDS = [
   'local_services_lead.locale',
 ]
 
-// GAQL wants "YYYY-MM-DD HH:MM:SS".
-function gaqlTimestamp(d: Date): string {
-  return d.toISOString().slice(0, 19).replace('T', ' ')
+// GAQL filters creation_date_time as a DATE — it must be 'YYYY-MM-DD' (a full
+// timestamp 400s with INVALID_DATE_FORMAT). So the cursor is used day-granular
+// with >= ; leads.external_lead_id dedup skips leads already ingested that day.
+function gaqlDate(d: Date): string {
+  return d.toISOString().slice(0, 10)
 }
 
 function buildQuery(sinceCursor: string | null): string {
-  // First run (no cursor): bound to the last 7 days so we don't flood the Lead
-  // Tracker with the account's entire lead history. After that, the stored
-  // cursor (a real creation_date_time from the API) drives an exact "> cursor".
-  const since = sinceCursor || gaqlTimestamp(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
+  // First run (no cursor): last 7 days so we don't flood the Lead Tracker with
+  // the account's whole history. Otherwise the cursor's DATE; same-day re-fetches
+  // are harmless (deduped). Slicing to 10 chars turns any timestamp into 'YYYY-MM-DD'.
+  const since = sinceCursor ? sinceCursor.slice(0, 10) : gaqlDate(new Date(Date.now() - 7 * 24 * 60 * 60 * 1000))
   return (
     `SELECT ${LSA_FIELDS.join(', ')} ` +
     `FROM local_services_lead ` +
-    `WHERE local_services_lead.creation_date_time > '${since}' ` +
+    `WHERE local_services_lead.creation_date_time >= '${since}' ` +
     `ORDER BY local_services_lead.creation_date_time ASC LIMIT 200`
   )
 }
