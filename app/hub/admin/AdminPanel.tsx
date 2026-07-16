@@ -40,6 +40,7 @@ type UserProfile = {
   can_admin_marketing: boolean
   can_access_email: boolean
   can_admin_email: boolean
+  can_manage_drip: boolean
   can_access_forms: boolean
   can_admin_forms: boolean
   can_admin_products: boolean
@@ -115,6 +116,7 @@ const TOOL_GROUPS: { title: string; items: { key: keyof UserProfile; label: stri
       { key: 'can_access_pricer', label: 'Pricer' },
       { key: 'can_access_marketing', label: 'Social Marketing' },
       { key: 'can_access_email', label: 'Email Marketing' },
+      { key: 'can_manage_drip', label: 'Drip Marketing' },
     ],
   },
   {
@@ -226,6 +228,7 @@ function defaultProfile(id: string, overrides: Partial<UserProfile> = {}): UserP
     can_admin_marketing: false,
     can_access_email: false,
     can_admin_email: false,
+    can_manage_drip: false,
     can_access_forms: true,
     can_admin_forms: false,
     can_admin_products: false,

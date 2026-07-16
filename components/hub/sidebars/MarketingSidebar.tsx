@@ -40,6 +40,7 @@ export default function MarketingSidebar({
   isAdmin,
   canAccessMarketing,
   canAccessEmail,
+  canManageDrip,
   canAdminMarketing,
   canAdminEmail,
   onClose,
@@ -48,6 +49,7 @@ export default function MarketingSidebar({
   isAdmin?: boolean
   canAccessMarketing?: boolean
   canAccessEmail?: boolean
+  canManageDrip?: boolean
   canAdminMarketing?: boolean
   canAdminEmail?: boolean
   onClose?: () => void
@@ -91,12 +93,16 @@ export default function MarketingSidebar({
               onClose={onClose}
             />
           )}
-          {/* Txt marketing — planned next, mirrors the Email engine over SMS. */}
-          <div className="flex items-center gap-2 px-2 py-2 md:py-1.5 rounded-lg text-lg md:text-sm text-white/35 cursor-default" title="Coming soon">
-            <span className="flex-none text-base leading-none">💬</span>
-            <span className="truncate flex-1">Txt</span>
-            <span className="flex-none text-[10px] uppercase tracking-wide text-white/30 border border-white/15 rounded px-1.5 py-0.5">soon</span>
-          </div>
+          {/* Drip — speed-to-lead nurture over SMS (the Email engine's sibling). */}
+          {canManageDrip && (
+            <Row
+              href="/hub/marketing/drip"
+              label="Drip"
+              icon="💧"
+              active={pathname === '/hub/marketing/drip' || pathname.startsWith('/hub/marketing/drip/')}
+              onClose={onClose}
+            />
+          )}
         </div>
       </div>
 
