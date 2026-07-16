@@ -22,7 +22,7 @@ export type ConnectionModel = 'oauth' | 'domain' | 'webhook' | 'apikey' | 'comin
 
 export type ProviderKey =
   | 'jobber' | 'quickbooks' | 'gusto' | 'onestepgps'
-  | 'angi' | 'google_lsa' | 'google_ads' | 'thumbtack' | 'networx' | 'zillow'
+  | 'angi' | 'google' | 'thumbtack' | 'networx' | 'zillow'
   | 'meta' | 'email'
 
 export type IntegrationStatus =
@@ -55,12 +55,9 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     blurb: 'Auto-import Angi leads straight into the Lead Tracker the moment they arrive.',
   },
   {
-    key: 'google_lsa', name: 'Google Local Services Ads', group: 'lead_sources', model: 'coming_soon',
-    blurb: 'Pull LSA leads — including the phone number — via the Google Ads API.',
-  },
-  {
-    key: 'google_ads', name: 'Google Ads', group: 'lead_sources', model: 'coming_soon',
-    blurb: 'Import Google Ads lead-form submissions and campaign data.',
+    key: 'google', name: 'Google Ads & Local Services', group: 'lead_sources', model: 'oauth',
+    blurb: 'Connect your Google account to pull Local Services Ads leads — including the phone number — plus Google Ads lead-form and campaign data.',
+    connectHref: '/api/auth/google', disconnectHref: '/api/auth/google/disconnect',
   },
   {
     key: 'thumbtack', name: 'Thumbtack', group: 'lead_sources', model: 'coming_soon',
