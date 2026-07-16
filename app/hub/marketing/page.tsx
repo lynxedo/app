@@ -22,14 +22,15 @@ export default async function HubMarketingPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('can_access_marketing, can_access_email, role')
+    .select('can_access_marketing, can_access_email, can_manage_drip, role')
     .eq('id', user.id)
     .single()
 
   const isAdmin = profile?.role === 'admin'
   const canSocial = isAdmin || !!profile?.can_access_marketing
   const canEmail = isAdmin || !!profile?.can_access_email
-  if (!canSocial && !canEmail) redirect('/hub')
+  const canDrip = isAdmin || !!profile?.can_manage_drip
+  if (!canSocial && !canEmail && !canDrip) redirect('/hub')
 
   const channels: Channel[] = []
   if (canEmail) {
@@ -39,6 +40,16 @@ export default async function HubMarketingPage() {
       description: 'Campaigns, templates, segments, and drip automations.',
       href: '/hub/marketing/email',
       icon: '📧',
+      available: true,
+    })
+  }
+  if (canDrip) {
+    channels.push({
+      id: 'drip',
+      title: 'Drip',
+      description: 'Text new leads instantly, then follow up automatically until they reply.',
+      href: '/hub/marketing/drip',
+      icon: '💧',
       available: true,
     })
   }
@@ -76,14 +87,6 @@ export default async function HubMarketingPage() {
             </Link>
           ))}
 
-          {/* Txt marketing — planned next (drip/blast campaigns over SMS). */}
-          <div className="flex items-start gap-3 rounded-xl border border-dashed border-gray-800 bg-gray-950 px-4 py-4 opacity-70">
-            <div className="text-2xl leading-none">💬</div>
-            <div className="min-w-0">
-              <div className="font-semibold text-gray-400">Txt <span className="ml-1 text-[10px] uppercase tracking-wide text-gray-600 border border-gray-700 rounded px-1.5 py-0.5">coming soon</span></div>
-              <div className="text-sm text-gray-600 mt-0.5">Drip &amp; blast campaigns over SMS — the same engine as Email.</div>
-            </div>
-          </div>
         </div>
       </div>
     </div>

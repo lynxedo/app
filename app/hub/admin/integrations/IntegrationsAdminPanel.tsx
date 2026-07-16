@@ -28,12 +28,13 @@ type GoogleLsa = { connected: boolean; customerId: string | null; lsaEnabled: bo
 export default function IntegrationsAdminPanel({
   statuses,
   webhookBase,
-  onestepgpsOwnKey,
+  ownKeys,
   googleLsa,
 }: {
   statuses: Record<ProviderKey, StatusInfo>
   webhookBase: string
-  onestepgpsOwnKey: boolean
+  // Which API-key providers have a per-company key saved (OneStepGPS, VoiceDrop…).
+  ownKeys: Partial<Record<ProviderKey, boolean>>
   googleLsa: GoogleLsa
 }) {
   return (
@@ -62,7 +63,7 @@ export default function IntegrationsAdminPanel({
                   provider={p}
                   info={statuses[p.key] ?? { status: 'not_connected' }}
                   webhookBase={webhookBase}
-                  hasOwnKey={p.key === 'onestepgps' ? onestepgpsOwnKey : false}
+                  hasOwnKey={ownKeys[p.key] ?? false}
                   googleLsa={p.key === 'google' ? googleLsa : null}
                 />
               ))}
@@ -134,7 +135,7 @@ function IntegrationCard({
     if (!apiKey.trim()) return
     setBusy(true)
     try {
-      const res = await fetch('/api/admin/integrations/onestepgps', {
+      const res = await fetch(`/api/admin/integrations/${provider.key}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'save', api_key: apiKey.trim() }),
@@ -154,13 +155,13 @@ function IntegrationCard({
 
   async function handleClearKey() {
     const ok = await confirmDialog({
-      message: `Remove your ${provider.name} key? Your fleet map will stop working until you enter a key again.`,
+      message: `Remove your ${provider.name} key? Features that rely on it will stop working until you enter a key again.`,
       danger: true,
     })
     if (!ok) return
     setBusy(true)
     try {
-      const res = await fetch('/api/admin/integrations/onestepgps', {
+      const res = await fetch(`/api/admin/integrations/${provider.key}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ action: 'clear' }),
@@ -304,7 +305,7 @@ function IntegrationCard({
               <button onClick={handleClearKey} disabled={busy} className={`${btn} bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-700`}>Remove key</button>
             </div>
           )}
-          <p className="text-[11px] text-gray-500">Find your API key in OneStepGPS under your account settings. We verify it with OneStepGPS before saving.</p>
+          <p className="text-[11px] text-gray-500">Find your API key in your {provider.name} account settings. We verify it with {provider.name} before saving.</p>
         </div>
       )}
 

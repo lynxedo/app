@@ -78,6 +78,7 @@ export default function HubShell({
   canAccessMarketing,
   canAdminMarketing,
   canAccessEmail,
+  canManageDrip,
   canAdminEmail,
   canAccessForms,
   canAccessDailyLogV2,
@@ -145,6 +146,7 @@ export default function HubShell({
   canAccessMarketing?: boolean
   canAdminMarketing?: boolean
   canAccessEmail?: boolean
+  canManageDrip?: boolean
   canAdminEmail?: boolean
   canAccessForms?: boolean
   canAccessDailyLogV2?: boolean
@@ -723,6 +725,7 @@ export default function HubShell({
     canAccessTxt: !!canAccessTxt,
     canAccessMarketing: !!canAccessMarketing,
     canAccessEmail: !!canAccessEmail,
+    canManageDrip: !!canManageDrip,
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
     canAccessScoreboards: !!canAccessScoreboards,
@@ -768,6 +771,7 @@ export default function HubShell({
             isAdmin={!!isAdmin}
             canAccessMarketing={!!canAccessMarketing}
             canAccessEmail={!!canAccessEmail}
+            canManageDrip={!!canManageDrip}
             canAdminMarketing={!!canAdminMarketing}
             canAdminEmail={!!canAdminEmail}
             onClose={closeMobileDrawer}

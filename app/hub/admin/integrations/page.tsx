@@ -26,7 +26,7 @@ export default async function AdminIntegrationsPage() {
   const companyId = profile.company_id
   const admin = createAdminClient()
 
-  const [jobber, qbo, gusto, meta, email, onestep, google] = await Promise.all([
+  const [jobber, qbo, gusto, meta, email, onestep, google, voicedrop] = await Promise.all([
     admin.from('jobber_tokens').select('id').eq('company_id', companyId).limit(1).maybeSingle(),
     admin.from('qbo_tokens').select('id').limit(1).maybeSingle(), // QBO is a single global connection today
     admin.from('gusto_connections').select('company_id').eq('company_id', companyId).maybeSingle(),
@@ -34,6 +34,7 @@ export default async function AdminIntegrationsPage() {
     admin.from('email_sending_identities').select('id, domain_verified').eq('company_id', companyId),
     admin.from('company_integrations').select('config').eq('company_id', companyId).eq('provider', 'onestepgps').maybeSingle(),
     admin.from('google_connections').select('company_id, google_email, customer_id, lsa_enabled').eq('company_id', companyId).maybeSingle(),
+    admin.from('company_integrations').select('config').eq('company_id', companyId).eq('provider', 'voicedrop').maybeSingle(),
   ])
 
   const gustoConfigured = !!(process.env.GUSTO_CLIENT_ID && process.env.GUSTO_CLIENT_SECRET)
@@ -56,6 +57,10 @@ export default async function AdminIntegrationsPage() {
   const oneStepOwnKey = !!((onestep.data?.config ?? null) as { api_key?: string } | null)?.api_key
   const oneStepEnvKey = !!process.env.ONESTEPGPS_API_KEY
   const fleetEnvCompany = process.env.FLEET_GPS_COMPANY_ID ?? '00000000-0000-0000-0000-000000000002'
+  // VoiceDrop (ringless voicemail): a per-company key entered here is the only
+  // "connected" signal — the env key is just a resolver fallback (dev), never
+  // tied to a hardcoded company. See lib/voicedrop.ts.
+  const voiceDropOwnKey = !!((voicedrop.data?.config ?? null) as { api_key?: string } | null)?.api_key
 
   const statuses: Record<ProviderKey, { status: IntegrationStatus; detail?: string }> = {
     jobber: jobber.data ? { status: 'connected' } : { status: 'not_connected' },
@@ -85,9 +90,19 @@ export default async function AdminIntegrationsPage() {
     thumbtack: { status: 'coming_soon' },
     networx: { status: 'coming_soon' },
     zillow: { status: 'coming_soon' },
+    voicedrop: voiceDropOwnKey
+      ? { status: 'connected', detail: 'Your VoiceDrop account' }
+      : { status: 'not_connected' },
   }
 
   const webhookBase = process.env.NEXT_PUBLIC_APP_URL ?? 'https://lynxedo.com'
 
-  return <IntegrationsAdminPanel statuses={statuses} webhookBase={webhookBase} onestepgpsOwnKey={oneStepOwnKey} googleLsa={googleLsa} />
+  return (
+    <IntegrationsAdminPanel
+      statuses={statuses}
+      webhookBase={webhookBase}
+      ownKeys={{ onestepgps: oneStepOwnKey, voicedrop: voiceDropOwnKey }}
+      googleLsa={googleLsa}
+    />
+  )
 }

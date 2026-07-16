@@ -206,7 +206,7 @@ export async function renderAndSendEmail(opts: {
   subject: string
   bodyHtml: string
   unsubCampaignId?: string | null
-  tagValue: 'campaign' | 'automation'
+  tagValue: 'campaign' | 'automation' | 'drip'
 }): Promise<ResendSendResult> {
   const merge = { first_name: opts.firstName, last_name: opts.lastName, email: opts.email }
   const subject = renderMergeFields(opts.subject || '', merge)

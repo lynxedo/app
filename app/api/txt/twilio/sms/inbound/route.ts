@@ -11,6 +11,8 @@ import { sendHubPush } from '@/lib/hub-push'
 import { buildMessagePreview } from '@/lib/txt-preview'
 import { evaluateEventAutomations } from '@/lib/automations'
 import { enrichTxtContactName } from '@/lib/dialer-lookup'
+import { pauseEnrollmentsForInbound } from '@/lib/drip'
+import { maybeEnqueueAmberTurn } from '@/lib/amber-text'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -348,6 +350,77 @@ async function processInboundSideEffects(args: {
   sid: string
 }) {
   const { supabase, conversationId, contactId, from, body, compliance, now } = args
+
+  // Drip auto-pause (Drip Marketing PRD §6): the instant a lead replies, stop
+  // their active drip enrollments so a human/Amber takes over — STOP → opted_out,
+  // any other inbound → replied. Best-effort; never block the inbound pipeline.
+  let pausedEnrollmentIds: string[] = []
+  try {
+    const pauseRes = await pauseEnrollmentsForInbound(supabase, {
+      companyId: HEROES_COMPANY_ID,
+      contactId,
+      phone: from,
+      isOptOut: compliance === 'stop',
+    })
+    pausedEnrollmentIds = pauseRes.enrollmentIds
+  } catch (err) {
+    console.warn('[txt:inbound] drip auto-pause failed', err)
+  }
+
+  // A drip lead replying (not STOP): slide their card to the "Responded" stage and,
+  // if Amber-over-text is enabled for the line, hand her the thread. Both best-effort
+  // and no-ops until an admin tags stage roles / turns Amber's dial on.
+  if (compliance !== 'stop' && pausedEnrollmentIds.length > 0) {
+    try {
+      const { data: respStage } = await (supabase.from('tracker_stages') as any)
+        .select('key')
+        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('system_role', 'responded')
+        .maybeSingle()
+      if (respStage?.key) {
+        const { data: enrolls } = await supabase
+          .from('drip_enrollments')
+          .select('lead_id')
+          .in('id', pausedEnrollmentIds)
+        const leadIds = (enrolls ?? []).map((r: any) => r.lead_id).filter(Boolean) as string[]
+        if (leadIds.length) {
+          const { data: termStages } = await (supabase.from('tracker_stages') as any)
+            .select('key')
+            .eq('company_id', HEROES_COMPANY_ID)
+            .in('system_role', ['won', 'lost'])
+          const termKeys = new Set((termStages ?? []).map((s: any) => s.key as string))
+          const { data: leadsNow } = await (supabase.from('leads') as any)
+            .select('id, stage')
+            .in('id', leadIds)
+            .eq('company_id', HEROES_COMPANY_ID)
+          // Never drag a card backward out of Responded / Won / Lost.
+          const moveIds = (leadsNow ?? [])
+            .filter((l: any) => l.stage !== respStage.key && !termKeys.has(l.stage))
+            .map((l: any) => l.id as string)
+          if (moveIds.length) {
+            await (supabase.from('leads') as any)
+              .update({ stage: respStage.key, stage_changed_at: now })
+              .in('id', moveIds)
+              .eq('company_id', HEROES_COMPANY_ID)
+          }
+        }
+      }
+    } catch (err) {
+      console.warn('[txt:inbound] drip auto-move failed', err)
+    }
+    try {
+      await maybeEnqueueAmberTurn(supabase, {
+        companyId: HEROES_COMPANY_ID,
+        conversationId,
+        contactId,
+        phone: from,
+        phoneNumberId: null, // per-line dial resolved inside; null fails closed (dark) until wired
+        enrollmentId: pausedEnrollmentIds[0] ?? null,
+      })
+    } catch (err) {
+      console.warn('[txt:inbound] amber enqueue failed', err)
+    }
+  }
 
   // Re-read whether the (possibly just-ingested) message has attachments for the push preview.
   const { data: msgRow } = await supabase

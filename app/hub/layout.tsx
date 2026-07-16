@@ -200,6 +200,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessMarketing = profileResult.data?.can_access_marketing ?? false
   const canAdminMarketing = profileResult.data?.can_admin_marketing ?? false
   const canAccessEmail = isAdmin || (profileResult.data?.can_access_email ?? false)
+  const canManageDrip = isAdmin || (profileResult.data?.can_manage_drip ?? false)
   const canAdminEmail = profileResult.data?.can_admin_email ?? false
   const canAccessForms = profileResult.data?.can_access_forms ?? true
   const canAccessDailyLogV2 = profileResult.data?.can_access_daily_log_v2 ?? false
@@ -252,6 +253,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     canAccessTimesheet: !!canAccessTimesheet,
     canAccessMarketing: !!canAccessMarketing,
     canAccessEmail: !!canAccessEmail,
+    canManageDrip: !!canManageDrip,
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
     canAccessScoreboards: !!canAccessScoreboards,
@@ -365,6 +367,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessMarketing={canAccessMarketing}
         canAdminMarketing={canAdminMarketing}
         canAccessEmail={canAccessEmail}
+        canManageDrip={canManageDrip}
         canAdminEmail={canAdminEmail}
         canAccessForms={canAccessForms}
         canAccessDailyLogV2={canAccessDailyLogV2}

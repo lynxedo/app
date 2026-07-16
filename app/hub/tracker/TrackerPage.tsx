@@ -6,9 +6,23 @@ import { compareValues, cycleSort, type SortState } from '@/lib/tracker-sort'
 import { useToast } from '@/components/ui'
 import { useUnsavedGuard } from '@/hooks/use-unsaved-guard'
 import { formatPhone, formatCurrency as fmtCurrency } from '@/lib/format'
+import type { LeadDrip, DripStatus } from '@/lib/tracker/leads'
+import TableView from './leads/TableView'
+import BoardView from './leads/BoardView'
+import NeedsMeView from './leads/NeedsMeView'
 
 // ── Types ────────────────────────────────────────
-type Stage = { id: string; key: string; label: string; color: string; sort_order: number }
+export type Stage = { id: string; key: string; label: string; color: string; sort_order: number; system_role?: string | null }
+
+// A pipeline stage plus the leads currently in it — the shape the Table/Board
+// views iterate over (also used for the trailing "Other" catch-all group).
+export type StageGroup = { id: string; key: string; label: string; color: string; sort_order: number; system_role?: string | null; leads: Lead[] }
+
+// A lead's most-relevant drip enrollment is typed in lib/tracker/leads.ts (the
+// server loader that computes it) and re-exported here for the view components.
+export type { LeadDrip, DripStatus }
+
+export type TrackerView = 'table' | 'board' | 'needs_me'
 
 type CustomColumnDef = {
   id: string
@@ -29,7 +43,7 @@ type LeadAttempt = {
   contact_types: ContactTypes
 }
 
-type Lead = {
+export type Lead = {
   id: string
   first_name: string | null
   last_name: string | null
@@ -48,6 +62,8 @@ type Lead = {
   service_address: string | null
   latest_note: { note: string; created_by: string; created_at: string } | null
   custom_values?: Record<string, string | null>
+  stage_changed_at?: string | null
+  drip?: LeadDrip | null
 }
 
 type Note = {
@@ -58,7 +74,7 @@ type Note = {
   created_at: string
 }
 
-type TrackerSettings = {
+export type TrackerSettings = {
   status_options: string[]
   service_options: string[]
   lead_source_options: string[]
@@ -69,7 +85,7 @@ type TrackerSettings = {
   status_colors?: Record<string, string>
 }
 
-type CurrentUser = { email: string; name: string; isAdmin: boolean }
+export type CurrentUser = { email: string; name: string; isAdmin: boolean }
 
 // ── Suggested contact types by attempt # (highlighted, not pre-checked) ───────────
 const EXPECTED_CONTACT_TYPES: Record<number, ContactTypes> = {
@@ -635,7 +651,7 @@ function AttemptNotesCell({ value, onSave, inputCls, lightMode }: {
 }
 
 // ── Lead row ─────────────────────────────────────
-type AnyColWithMeta = (ColumnDef | { id: string; label: string; defaultWidth: number; isCustom: true; colDef: CustomColumnDef }) & { width: number; hidden: boolean }
+export type AnyColWithMeta = (ColumnDef | { id: string; label: string; defaultWidth: number; isCustom: true; colDef: CustomColumnDef }) & { width: number; hidden: boolean }
 
 function LeadRow({
   lead, opts, checked, onToggle, onUpdate, onCustomUpdate, onOpenNotes, onEdit,
@@ -785,7 +801,7 @@ function GroupCheckbox({ leads, selectedIds, onToggleGroupAll }: {
 }
 
 // ── Group section ─────────────────────────────────
-function GroupSection({
+export function GroupSection({
   group, collapsed, onToggle, opts, selectedIds, onToggleSelect, onToggleGroupAll,
   onUpdate, onCustomUpdate, onOpenNotes, onEdit, stageColor, lightMode, columns,
   onColumnResize, onColumnReorder, sort, onToggleSort, onSetSort, onAttemptNoteSaved,
@@ -1294,50 +1310,28 @@ export default function TrackerPage({
     } : l))
   }, [currentUser.name])
 
-  // Shared horizontal scroll
-  const hScrollRef = useRef<HTMLDivElement>(null)
-  const trackRef = useRef<HTMLDivElement>(null)
-  const [hMetrics, setHMetrics] = useState({ left: 0, client: 0, scroll: 0, track: 0 })
-  const contentWidth = visibleColumns.reduce((sum, c) => sum + c.width, 0) + 56 + 56 + 24
-  const measureScroll = useCallback(() => {
-    const r = hScrollRef.current
-    if (r) setHMetrics({ left: r.scrollLeft, client: r.clientWidth, scroll: r.scrollWidth, track: trackRef.current?.clientWidth ?? 0 })
-  }, [])
-  const onRealScroll = useCallback(() => {
-    const r = hScrollRef.current
-    if (r) setHMetrics(m => ({ ...m, left: r.scrollLeft }))
-  }, [])
-  const maxScroll = Math.max(0, hMetrics.scroll - hMetrics.client)
-  const hOverflow = maxScroll > 1
-  const thumbW = hMetrics.scroll > 0 && hMetrics.track > 0 ? Math.max(48, hMetrics.track * (hMetrics.client / hMetrics.scroll)) : 48
-  const thumbLeft = maxScroll > 0 ? (hMetrics.track - thumbW) * (hMetrics.left / maxScroll) : 0
-
-  useEffect(() => {
-    const r = hScrollRef.current
-    if (!r) return
-    measureScroll()
-    const ro = new ResizeObserver(measureScroll)
-    ro.observe(r)
-    if (trackRef.current) ro.observe(trackRef.current)
-    return () => ro.disconnect()
-  }, [contentWidth, loading, hOverflow, measureScroll])
-
-  const nudge = (dir: number) => hScrollRef.current?.scrollBy({ left: dir * Math.max(240, hMetrics.client * 0.8), behavior: 'smooth' })
-  const onThumbDrag = (e: React.MouseEvent) => {
-    e.preventDefault()
-    const startX = e.clientX; const startLeft = hMetrics.left; const denom = hMetrics.track - thumbW
-    function onMove(ev: MouseEvent) {
-      if (denom <= 0) return
-      const next = startLeft + (ev.clientX - startX) * (maxScroll / denom)
-      if (hScrollRef.current) hScrollRef.current.scrollLeft = Math.max(0, Math.min(maxScroll, next))
-    }
-    function onUp() { window.removeEventListener('mousemove', onMove); window.removeEventListener('mouseup', onUp) }
-    window.addEventListener('mousemove', onMove); window.addEventListener('mouseup', onUp)
-  }
-
   useEffect(() => {
     const stored = localStorage.getItem('tracker-light-mode')
     if (stored === '1') setLightMode(true)
+  }, [])
+
+  // ── View switcher (Table / Board / Needs me) ────────────────────────────────
+  // Persisted per-browser (like tracker-light-mode) and reflected in the URL as
+  // ?view= so a cockpit view is shareable. URL wins over localStorage on load.
+  const [view, setView] = useState<TrackerView>('table')
+  useEffect(() => {
+    const fromUrl = new URLSearchParams(window.location.search).get('view')
+    const stored = localStorage.getItem('tracker-view')
+    const initial = (fromUrl || stored || 'table') as TrackerView
+    if (initial === 'table' || initial === 'board' || initial === 'needs_me') setView(initial)
+  }, [])
+  const changeView = useCallback((next: TrackerView) => {
+    setView(next)
+    localStorage.setItem('tracker-view', next)
+    const url = new URL(window.location.href)
+    if (next === 'table') url.searchParams.delete('view')
+    else url.searchParams.set('view', next)
+    window.history.replaceState(null, '', url.toString())
   }, [])
 
   function toggleLightMode() { const next = !lightMode; setLightMode(next); localStorage.setItem('tracker-light-mode', next ? '1' : '0') }
@@ -1390,6 +1384,26 @@ export default function TrackerPage({
       if (!res.ok) throw new Error(String(res.status))
       setLeads(prev => prev.map(l => l.id === leadId ? { ...l, custom_values: { ...l.custom_values, [columnId]: value } } : l))
     } catch { toast.error("Couldn't save that change. Please try again.") }
+  }
+
+  // Board drag-drop: optimistically move the card, PATCH via the existing
+  // stage-move endpoint, revert + toast on failure. TrackerPage stays the single
+  // state owner (the drip stage_changed_at stamp / auto-move lands server-side).
+  async function moveLeadStage(id: string, stageKey: string) {
+    const prevStage = leads.find(l => l.id === id)?.stage ?? null
+    if (prevStage === stageKey) return
+    setLeads(prev => prev.map(l => l.id === id ? { ...l, stage: stageKey } : l))
+    try {
+      const res = await fetch(`/api/tracker/leads/${id}`, {
+        method: 'PATCH', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ stage: stageKey }),
+      })
+      if (!res.ok) throw new Error(String(res.status))
+      const updated = await res.json()
+      setLeads(prev => prev.map(l => l.id === id ? { ...l, ...updated } : l))
+    } catch {
+      setLeads(prev => prev.map(l => l.id === id ? { ...l, stage: prevStage } : l))
+      toast.error("Couldn't move that lead. Please try again.")
+    }
   }
 
   function toggleGroup(key: string) {
@@ -1469,6 +1483,7 @@ export default function TrackerPage({
   const notesLead = notesLeadId ? leads.find(l => l.id === notesLeadId) ?? null : null
   const editLead = editLeadId ? leads.find(l => l.id === editLeadId) ?? null : null
   const totalLeads = leads.length
+  const needsMeCount = leads.filter(l => l.drip?.status === 'replied').length
 
   return (
     <div className="flex flex-1 overflow-hidden">
@@ -1490,6 +1505,25 @@ export default function TrackerPage({
             <h1 className="text-base font-semibold text-white">Lead Tracker</h1>
           </div>
           <div className="px-4 pb-2.5 flex items-center gap-2 flex-wrap">
+            <div className="flex items-center rounded-lg border border-gray-700 bg-gray-800 p-0.5 shrink-0">
+              {([
+                { id: 'table' as TrackerView, label: 'Table' },
+                { id: 'board' as TrackerView, label: 'Board' },
+                { id: 'needs_me' as TrackerView, label: 'Needs me' },
+              ]).map(v => (
+                <button key={v.id} onClick={() => changeView(v.id)}
+                  className={`flex items-center gap-1.5 text-sm font-medium px-3 py-1 rounded-md transition-colors ${
+                    view === v.id ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                  }`}>
+                  {v.label}
+                  {v.id === 'needs_me' && needsMeCount > 0 && (
+                    <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-full leading-none ${
+                      view === v.id ? 'bg-white/20 text-white' : 'bg-emerald-500/20 text-emerald-300'
+                    }`}>{needsMeCount}</span>
+                  )}
+                </button>
+              ))}
+            </div>
             <input type="text" placeholder="Search name, phone, email…" value={search} onChange={e => setSearch(e.target.value)}
               className="flex-1 min-w-48 max-w-xs bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500" />
             <select value={stageFilter} onChange={e => setStageFilter(e.target.value)}
@@ -1509,6 +1543,7 @@ export default function TrackerPage({
             </select>
             <span className="text-xs text-gray-600 px-1">{totalLeads} lead{totalLeads !== 1 ? 's' : ''}</span>
             <div className="flex-1" />
+            {view === 'table' && (
             <div className="relative">
               <button onClick={() => setColumnsMenuOpen(o => !o)}
                 className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">
@@ -1537,6 +1572,7 @@ export default function TrackerPage({
                 </>
               )}
             </div>
+            )}
             {currentUser.isAdmin && (
               <Link href="/hub/tracker/settings"
                 className="bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-sm font-medium px-3 py-1.5 rounded-lg transition-colors whitespace-nowrap">
@@ -1558,46 +1594,54 @@ export default function TrackerPage({
           </div>
         </div>
 
-        {loading ? (
-          <div className="flex items-center justify-center py-20 text-gray-600 text-sm">Loading leads…</div>
-        ) : (
-          <div ref={hScrollRef} onScroll={onRealScroll} className="tracker-no-sb overflow-x-auto">
-            <div className="space-y-3 p-3 pb-5" style={{ minWidth: contentWidth }}>
-              {groupedLeads.map(group => (
-                <GroupSection key={group.key} group={group}
-                  collapsed={collapsedGroups.has(group.key)} onToggle={() => toggleGroup(group.key)}
-                  opts={opts} selectedIds={selectedIds}
-                  onToggleSelect={toggleSelect} onToggleGroupAll={toggleGroupAll}
-                  onUpdate={updateLead} onCustomUpdate={updateCustomValue}
-                  onOpenNotes={id => { setNotesLeadId(id); setEditLeadId(null); setNewLeadOpen(false) }}
-                  onEdit={id => { setEditLeadId(id); setNotesLeadId(null); setNewLeadOpen(false) }}
-                  stageColor={group.color}
-                  lightMode={lightMode} columns={visibleColumns}
-                  onColumnResize={handleColumnResize} onColumnReorder={handleColumnReorder}
-                  sort={sort}
-                  onToggleSort={id => setSort(s => cycleSort(s, id))}
-                  onSetSort={(id, dir) => setSort(dir ? { key: id, dir } : null)}
-                  onAttemptNoteSaved={handleAttemptNoteSaved} />
-              ))}
-            </div>
-          </div>
+        {view === 'table' && (
+          <TableView
+            loading={loading}
+            groups={groupedLeads}
+            columns={visibleColumns}
+            opts={opts}
+            collapsedGroups={collapsedGroups}
+            selectedIds={selectedIds}
+            lightMode={lightMode}
+            sort={sort}
+            onToggleGroup={toggleGroup}
+            onToggleSelect={toggleSelect}
+            onToggleGroupAll={toggleGroupAll}
+            onUpdate={updateLead}
+            onCustomUpdate={updateCustomValue}
+            onOpenNotes={id => { setNotesLeadId(id); setEditLeadId(null); setNewLeadOpen(false) }}
+            onEdit={id => { setEditLeadId(id); setNotesLeadId(null); setNewLeadOpen(false) }}
+            onColumnResize={handleColumnResize}
+            onColumnReorder={handleColumnReorder}
+            onToggleSort={id => setSort(s => cycleSort(s, id))}
+            onSetSort={(id, dir) => setSort(dir ? { key: id, dir } : null)}
+            onAttemptNoteSaved={handleAttemptNoteSaved}
+          />
         )}
 
-        {!loading && hOverflow && (
-          <div className="sticky bottom-0 z-20 flex items-center gap-2 px-3 py-1.5 bg-gray-950/95 backdrop-blur border-t border-gray-800">
-            <button onClick={() => nudge(-1)} className="shrink-0 w-7 h-6 flex items-center justify-center rounded-md bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs" aria-label="Scroll left">◀</button>
-            <div ref={trackRef} onClick={e => {
-              const rect = e.currentTarget.getBoundingClientRect(); const denom = hMetrics.track - thumbW
-              if (denom <= 0) return
-              const next = ((e.clientX - rect.left - thumbW / 2) / denom) * maxScroll
-              if (hScrollRef.current) hScrollRef.current.scrollLeft = Math.max(0, Math.min(maxScroll, next))
-            }} className="relative flex-1 h-2.5 rounded-full bg-gray-800 cursor-pointer">
-              <div onMouseDown={onThumbDrag} onClick={e => e.stopPropagation()}
-                className="absolute top-0 h-2.5 rounded-full bg-indigo-500 hover:bg-indigo-400 cursor-grab active:cursor-grabbing transition-colors"
-                style={{ width: thumbW, left: thumbLeft }} />
-            </div>
-            <button onClick={() => nudge(1)} className="shrink-0 w-7 h-6 flex items-center justify-center rounded-md bg-gray-800 hover:bg-gray-700 border border-gray-700 text-gray-300 text-xs" aria-label="Scroll right">▶</button>
-          </div>
+        {view === 'board' && (
+          loading
+            ? <div className="flex items-center justify-center py-20 text-gray-600 text-sm">Loading leads…</div>
+            : <BoardView
+                groups={groupedLeads}
+                stages={stages}
+                lightMode={lightMode}
+                onMoveStage={moveLeadStage}
+                onEdit={id => { setEditLeadId(id); setNotesLeadId(null); setNewLeadOpen(false) }}
+                onOpenNotes={id => { setNotesLeadId(id); setEditLeadId(null); setNewLeadOpen(false) }}
+              />
+        )}
+
+        {view === 'needs_me' && (
+          loading
+            ? <div className="flex items-center justify-center py-20 text-gray-600 text-sm">Loading leads…</div>
+            : <NeedsMeView
+                leads={sortedLeads}
+                stages={stages}
+                lightMode={lightMode}
+                onEdit={id => { setEditLeadId(id); setNotesLeadId(null); setNewLeadOpen(false) }}
+                onOpenNotes={id => { setNotesLeadId(id); setEditLeadId(null); setNewLeadOpen(false) }}
+              />
         )}
       </div>
 

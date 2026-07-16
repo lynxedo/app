@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { seizeAmberThreadForHuman } from '@/lib/amber-text'
 
 // POST /api/txt/conversations/[id]/assign
 // Body: { assigned_to: string|null }
@@ -57,6 +58,11 @@ export async function POST(
   }
 
   const admin = createAdminClient()
+
+  // Amber-over-text seize: a human claiming/assigning the thread takes it over,
+  // so Amber goes silent. No-op unless Amber is actively driving it. Best-effort.
+  await seizeAmberThreadForHuman(admin, { conversationId: id, userId: user.id })
+
   const newStatus = assignTo ? 'assigned' : 'unassigned'
 
   // Drop the prior owner row (if any). Members keep their seat — handing
