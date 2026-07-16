@@ -33,7 +33,7 @@ export default async function AdminIntegrationsPage() {
     admin.from('social_accounts').select('id, active').eq('company_id', companyId),
     admin.from('email_sending_identities').select('id, domain_verified').eq('company_id', companyId),
     admin.from('company_integrations').select('config').eq('company_id', companyId).eq('provider', 'onestepgps').maybeSingle(),
-    admin.from('google_connections').select('company_id, google_email').eq('company_id', companyId).maybeSingle(),
+    admin.from('google_connections').select('company_id, google_email, customer_id, lsa_enabled').eq('company_id', companyId).maybeSingle(),
   ])
 
   const gustoConfigured = !!(process.env.GUSTO_CLIENT_ID && process.env.GUSTO_CLIENT_SECRET)
@@ -41,7 +41,13 @@ export default async function AdminIntegrationsPage() {
   // Google (Ads + Local Services): one connection per company drives both. The
   // platform OAuth client must be wired (env) before the Connect button works.
   const googleConfigured = !!(process.env.GOOGLE_ADS_CLIENT_ID && process.env.GOOGLE_ADS_CLIENT_SECRET)
-  const googleEmail = (google.data as { google_email?: string | null } | null)?.google_email ?? null
+  const googleData = google.data as { google_email?: string | null; customer_id?: string | null; lsa_enabled?: boolean | null } | null
+  const googleEmail = googleData?.google_email ?? null
+  const googleLsa = {
+    connected: !!google.data,
+    customerId: googleData?.customer_id ?? null,
+    lsaEnabled: googleData?.lsa_enabled !== false,
+  }
   const metaActive = (meta.data ?? []).filter((a: { active?: boolean | null }) => a.active).length
   const emailRows = (email.data ?? []) as { domain_verified?: boolean | null }[]
   const emailVerified = emailRows.some(e => e.domain_verified)
@@ -83,5 +89,5 @@ export default async function AdminIntegrationsPage() {
 
   const webhookBase = process.env.NEXT_PUBLIC_APP_URL ?? 'https://lynxedo.com'
 
-  return <IntegrationsAdminPanel statuses={statuses} webhookBase={webhookBase} onestepgpsOwnKey={oneStepOwnKey} />
+  return <IntegrationsAdminPanel statuses={statuses} webhookBase={webhookBase} onestepgpsOwnKey={oneStepOwnKey} googleLsa={googleLsa} />
 }
