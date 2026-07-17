@@ -9,7 +9,6 @@ import SidebarShell from './SidebarShell'
 const BOARDS: { id: string; title: string; href: string; icon: string }[] = [
   { id: 'leads', title: 'Lead Tracker', href: '/hub/tracker/leads', icon: '🎯' },
   { id: 'recurring', title: 'Recurring Services', href: '/hub/tracker/recurring', icon: '🔁' },
-  { id: 'route-capacity', title: 'Route Capacity', href: '/hub/tracker/route-capacity', icon: '🚐' },
 ]
 
 function BoardRow({

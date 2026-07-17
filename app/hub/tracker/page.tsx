@@ -2,8 +2,8 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 
-// Each entry is a "board" inside the Tracker section (Lead Tracker, Recurring,
-// Route Capacity). Lynxedo owns leads directly — there is no Monday.com sync.
+// Each entry is a "board" inside the Tracker section (Lead Tracker, Recurring
+// Services). Lynxedo owns leads directly — there is no Monday.com sync.
 type TrackerBoard = {
   id: string
   title: string
@@ -26,13 +26,6 @@ const BOARDS: TrackerBoard[] = [
     description: 'Recurring customers — programs, retention, and annual value.',
     href: '/hub/tracker/recurring',
     icon: '🔁',
-  },
-  {
-    id: 'route-capacity',
-    title: 'Route Capacity',
-    description: 'Recurring jobs by route — production time, drive time, and capacity.',
-    href: '/hub/tracker/route-capacity',
-    icon: '🚐',
   },
 ]
 
