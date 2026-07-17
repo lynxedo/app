@@ -64,6 +64,17 @@ export async function GET() {
     users.sort((a, b) => a.display_name.localeCompare(b.display_name))
   }
 
+  // Include company bot users (e.g. Amber) — they have no user_profiles row, so the
+  // block above skips them, but drip can send as them, so the picker must list them.
+  const { data: bots } = await (admin as any)
+    .from('hub_users')
+    .select('id, display_name')
+    .eq('company_id', access.companyId)
+    .eq('is_bot', true)
+  for (const b of (bots ?? []) as { id: string; display_name: string | null }[]) {
+    if (!users.some((u) => u.id === b.id)) users.push({ id: b.id, display_name: b.display_name || 'Assistant' })
+  }
+
   const email_identities = await listSendingIdentities(admin, access.companyId)
 
   return NextResponse.json({ settings: merged, users, email_identities })
@@ -96,7 +107,19 @@ export async function PUT(request: Request) {
         .eq('id', uid)
         .eq('company_id', access.companyId)
         .maybeSingle()
-      update.send_as_user_id = p ? uid : null
+      let valid = !!p
+      if (!valid) {
+        // Also allow a company bot user (e.g. Amber) — bots have no user_profiles row.
+        const { data: bot } = await (admin as any)
+          .from('hub_users')
+          .select('id')
+          .eq('id', uid)
+          .eq('company_id', access.companyId)
+          .eq('is_bot', true)
+          .maybeSingle()
+        valid = !!bot
+      }
+      update.send_as_user_id = valid ? uid : null
     } else {
       update.send_as_user_id = null
     }
