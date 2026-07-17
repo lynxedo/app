@@ -457,7 +457,6 @@ function HubTab() {
         <p><strong className="text-white">My Time Clock card</strong> — if you have timesheet access and an employee record, a clock-in card appears near the top of Home. Tap <strong className="text-white">Clock In</strong> to start your shift (Lynxedo just records the time — no location prompt). Once you&apos;re clocked in the card shows the time you started and how long you&apos;ve been on the clock; tap <strong className="text-white">Clock Out</strong> when you finish. The card mirrors what the Timesheet page does, just one tap from the landing screen so you don&apos;t have to navigate every morning.</p>
         <p><strong className="text-white">Resume where you left off</strong> — when you close and reopen Hub within 14 hours, you&apos;ll land on the last room or DM you were viewing instead of always going back to the General room. Tap a push notification and you still jump straight to that message.</p>
         <p><strong className="text-white">Auto-return to Home after long gaps</strong> — if it&apos;s been more than 14 hours since you last opened Hub, the next time you open it you&apos;ll land on Home instead. The idea: after an overnight gap you probably want to see the announcements and clock in first, not jump straight into whatever room you closed yesterday.</p>
-        <Note>Don&apos;t want to land on Home? You can change your default landing page under <strong className="text-white">Settings → Account → Default landing page</strong> (Hub or Dashboard).</Note>
       </Section>
 
       <Section title="Navigation — rail + sidebars">
@@ -1683,13 +1682,13 @@ function SettingsTab() {
   return (
     <>
       <Section title="Settings Overview">
-        <p>The <Link href="/settings" className="text-orange-400 hover:text-orange-300">Settings</Link> page has five tabs:</p>
+        <p>The <Link href="/settings" className="text-orange-400 hover:text-orange-300">Settings</Link> page has a sidebar with these sections:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Profile</strong> — your name, photo, phone number, sign out</li>
-          <li><strong className="text-white">My Hub</strong> — customize your icon rail and mobile bottom bar (show only what you use, in your order)</li>
+          <li><strong className="text-white">My Hub</strong> — your theme, plus customize your icon rail and mobile bottom bar (show only what you use, in your order)</li>
           <li><strong className="text-white">Notifications</strong> — your notification level, the three Do&nbsp;Not&nbsp;Disturb tiers (Master / Hub / Calls), and your push devices</li>
           <li><strong className="text-white">Browser Extension</strong> — connect the Lynxedo browser extension</li>
-          <li><strong className="text-white">Account</strong> — default landing page, communications (signature, ring &amp; voicemail settings), change password, delete account</li>
+          <li><strong className="text-white">Account</strong> — communications (signature, ring &amp; voicemail settings), change password, delete account</li>
         </ul>
       </Section>
 
@@ -1726,14 +1725,6 @@ function SettingsTab() {
         <p>The Lynxedo browser extension scans the web page you&apos;re on for contacts and lets you add them to your directory, add them to the Lead Tracker, text them, or dial them — without leaving the page. It also shows an <strong className="text-white">In Hub</strong> badge on anyone already in your directory, so you don&apos;t create duplicates. To connect it, just click <strong className="text-white">Sign in with Lynxedo</strong> in the extension — if you&apos;re already logged into Lynxedo in that browser it connects instantly; otherwise you log in once and you&apos;re set. No copying or pasting.</p>
         <p><strong className="text-white">Advanced:</strong> you can also connect by generating a token under <strong className="text-white">Settings → Browser Extension</strong> and pasting it into the extension&apos;s Advanced settings. Tokens are shown <strong className="text-white">only once</strong> and act as you, so treat them like a password. However you connected, each device shows up in this list — click <strong className="text-white">Revoke</strong> to cut off a lost or retired one immediately.</p>
         <Note>Contacts added from the extension are textable by default, the same as leads and Jobber contacts — your company is responsible for having consent before texting.</Note>
-      </Section>
-
-      <Section title="Account — Default Landing Page">
-        <p>Where you land after signing in:</p>
-        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-white">Hub</strong> — opens Hub Home (announcements and your rooms)</li>
-          <li><strong className="text-white">Dashboard</strong> — opens the tool tile launcher</li>
-        </ul>
       </Section>
 
       <Section title="Account — Delete Account">

@@ -384,6 +384,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         initialHubDndEnabled={initialHubDndEnabled}
         initialDialerDndEnabled={initialDialerDndEnabled}
         betaFlags={betaFlags}
+        canAccessBeta={canAccessBeta}
       >
         {children}
       </HubShell>

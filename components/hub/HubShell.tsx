@@ -95,6 +95,7 @@ export default function HubShell({
   initialHubDndEnabled = false,
   initialDialerDndEnabled = false,
   betaFlags = {},
+  canAccessBeta = false,
   children,
 }: {
   rooms: Room[]
@@ -166,6 +167,9 @@ export default function HubShell({
   initialDialerDndEnabled?: boolean
   /** Resolved beta flag map (featureKey → on) for this user; see lib/beta-flags.ts. */
   betaFlags?: Record<string, boolean>
+  /** Whether the Beta Features settings section is available (admins + the
+   *  can_access_beta grant) — gates the Settings sidebar's Beta row. */
+  canAccessBeta?: boolean
   children: React.ReactNode
 }) {
   const pathname = usePathname() ?? ''
@@ -783,7 +787,7 @@ export default function HubShell({
       case 'admin':
         return <AdminSidebar grants={grants} isSuperAdmin={isSuperAdmin} onClose={closeMobileDrawer} {...collapseProps} />
       case 'settings':
-        return <SettingsSidebar onClose={closeMobileDrawer} {...collapseProps} />
+        return <SettingsSidebar onClose={closeMobileDrawer} canAccessBeta={!!canAccessBeta} {...collapseProps} />
       case 'profile':
         return (
           <ProfileSidebar
