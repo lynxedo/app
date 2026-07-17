@@ -254,7 +254,7 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
   )
 }
 
-export default function Scoreboard4View({ meta }: { meta: ScoreboardMeta }) {
+export default function Scoreboard4View({ meta, businessName = 'Heroes Lawn Care' }: { meta: ScoreboardMeta; businessName?: string }) {
   const [snapshotId, setSnapshotId] = useState<string | null>(null)
   const { data, error, reload } = useScoreboardData<Payload>(meta.slug, snapshotId)
 
@@ -267,7 +267,7 @@ export default function Scoreboard4View({ meta }: { meta: ScoreboardMeta }) {
             <h1 className="text-xl font-bold tracking-tight text-sky-50">{meta.title}</h1>
             {meta.badge && <span className="rounded-full bg-amber-400/15 px-2 py-0.5 text-[11px] font-semibold text-amber-400">{meta.badge}</span>}
           </div>
-          <div className="text-[13px] text-amber-300">Heroes Lawn Care · Pet Waste KPIs</div>
+          <div className="text-[13px] text-amber-300">{businessName} · Pet Waste KPIs</div>
         </div>
       </header>
 

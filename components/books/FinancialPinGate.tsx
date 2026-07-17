@@ -5,9 +5,11 @@ import { useState, useRef, useEffect } from 'react'
 interface Props {
   defaultUnlocked: boolean
   children: React.ReactNode
+  /** Company display name shown on the PIN screen. Defaults to the current Heroes value. */
+  businessName?: string
 }
 
-export default function FinancialPinGate({ defaultUnlocked, children }: Props) {
+export default function FinancialPinGate({ defaultUnlocked, children, businessName = 'Heroes Lawn Care' }: Props) {
   const [unlocked, setUnlocked] = useState(defaultUnlocked)
   const [visible, setVisible] = useState(!defaultUnlocked)
   const [pin, setPin] = useState('')
@@ -62,7 +64,7 @@ export default function FinancialPinGate({ defaultUnlocked, children }: Props) {
         >
           <div className="w-full max-w-sm mx-4 bg-gray-900 border border-gray-800 rounded-2xl p-8 shadow-2xl">
             <div className="text-center mb-8">
-              <div className="text-3xl font-bold text-white mb-1">Heroes Lawn Care</div>
+              <div className="text-3xl font-bold text-white mb-1">{businessName}</div>
               <div className="text-gray-400 text-sm">Financial Access Required</div>
             </div>
 

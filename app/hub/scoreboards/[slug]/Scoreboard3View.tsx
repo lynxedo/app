@@ -213,7 +213,7 @@ function Dashboard({ data, meta }: { data: Payload; meta: ScoreboardMeta }) {
   )
 }
 
-export default function Scoreboard3View({ meta }: { meta: ScoreboardMeta }) {
+export default function Scoreboard3View({ meta, businessName = 'Heroes Lawn Care' }: { meta: ScoreboardMeta; businessName?: string }) {
   const [snapshotId, setSnapshotId] = useState<string | null>(null)
   const { data, error, reload } = useScoreboardData<Payload>(meta.slug, snapshotId)
 
@@ -226,7 +226,7 @@ export default function Scoreboard3View({ meta }: { meta: ScoreboardMeta }) {
             <h1 className="text-xl font-bold tracking-tight text-sky-50">{meta.title}</h1>
             {meta.badge && <span className="rounded-full bg-sky-400/15 px-2 py-0.5 text-[11px] font-semibold text-sky-400">{meta.badge}</span>}
           </div>
-          <div className="text-[13px] text-sky-300">Heroes Lawn Care · Irrigation KPIs</div>
+          <div className="text-[13px] text-sky-300">{businessName} · Irrigation KPIs</div>
         </div>
       </header>
 

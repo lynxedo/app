@@ -2,6 +2,7 @@ import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getScoreboard, canSeeBoard } from '@/lib/scoreboards/registry'
 import { getGrantedBoardSlugs } from '@/lib/scoreboards/access'
+import { getBusinessProfile } from '@/lib/business-profile'
 import Scoreboard1View from './Scoreboard1View'
 import Scoreboard2View from './Scoreboard2View'
 import Scoreboard3View from './Scoreboard3View'
@@ -26,7 +27,7 @@ export default async function ScoreboardPage({ params }: { params: Promise<{ slu
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_access_scoreboards')
+    .select('role, can_access_scoreboards, company_id')
     .eq('id', user.id)
     .single()
 
@@ -44,23 +45,25 @@ export default async function ScoreboardPage({ params }: { params: Promise<{ slu
   // EXCEPT the coaching board, which is gated on can_access_coaching alone.
   if (!canSeeBoard(perms, board.slug)) redirect('/hub')
 
+  const { businessName } = await getBusinessProfile(admin, profile?.company_id ?? null)
+
   switch (board.slug) {
     case '1':
-      return <Scoreboard1View meta={board} />
+      return <Scoreboard1View meta={board} businessName={businessName} />
     case '2':
-      return <Scoreboard2View meta={board} />
+      return <Scoreboard2View meta={board} businessName={businessName} />
     case '3':
-      return <Scoreboard3View meta={board} />
+      return <Scoreboard3View meta={board} businessName={businessName} />
     case '4':
-      return <Scoreboard4View meta={board} />
+      return <Scoreboard4View meta={board} businessName={businessName} />
     case '5':
-      return <Scoreboard5View meta={board} />
+      return <Scoreboard5View meta={board} businessName={businessName} />
     case '6':
       return <Scoreboard6View meta={board} />
     case '7':
-      return <Scoreboard7View meta={board} />
+      return <Scoreboard7View meta={board} businessName={businessName} />
     case '8':
-      return <Scoreboard8View meta={board} />
+      return <Scoreboard8View meta={board} businessName={businessName} />
     default:
       notFound()
   }

@@ -74,8 +74,18 @@ export default function CallContactCard({
     try {
       const id = await startConversation()
       if (!id) { flash('Could not send'); return }
+      // Business name comes from the per-company business profile; fall back to
+      // the current Heroes value on any error so the text is never left blank.
+      let businessName = 'Heroes Lawn Care'
+      try {
+        const bp = await fetch('/api/hub/business-profile')
+        if (bp.ok) {
+          const j = await bp.json()
+          if (typeof j?.businessName === 'string' && j.businessName.trim()) businessName = j.businessName.trim()
+        }
+      } catch { /* keep the Heroes fallback */ }
       const greeting = firstName ? `Hi ${firstName}, ` : ''
-      const text = `${greeting}this is Heroes Lawn Care — I'm on my way, about ${eta} minutes out. See you soon!`
+      const text = `${greeting}this is ${businessName} — I'm on my way, about ${eta} minutes out. See you soon!`
       const res = await fetch(`/api/txt/conversations/${id}/send`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

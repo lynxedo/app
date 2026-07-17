@@ -1,5 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getBusinessProfile } from '@/lib/business-profile'
 import PricerView from './PricerView'
 
 export const metadata = { title: 'Pricer' }
@@ -15,12 +17,14 @@ export default async function PricerPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_access_pricer')
+    .select('role, can_access_pricer, company_id')
     .eq('id', user.id)
     .single()
 
   const isAdmin = profile?.role === 'admin'
   if (!isAdmin && !profile?.can_access_pricer) redirect('/hub')
 
-  return <PricerView />
+  const { businessName } = await getBusinessProfile(createAdminClient(), profile?.company_id ?? null)
+
+  return <PricerView businessName={businessName} />
 }

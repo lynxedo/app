@@ -2,18 +2,22 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendDirectTxtToPhone } from '@/lib/txt-send'
+import { getBusinessProfile } from '@/lib/business-profile'
 
 // System default — used when daily_log_settings.on_my_way_template is NULL.
-// Configurable per-company under /hub/admin/daily-log.
-const DEFAULT_TEMPLATE = "Hi {first_name}, this is {tech_name} from Heroes Lawn Care. I'm on my way — should be there in about {eta} minutes."
+// Configurable per-company under /hub/admin/daily-log. The business name comes
+// from the per-company business profile (defaults to "Heroes Lawn Care"), so the
+// rendered text is unchanged for Heroes and correct for a future tenant.
+const defaultOnMyWayTemplate = (businessName: string) =>
+  `Hi {first_name}, this is {tech_name} from ${businessName}. I'm on my way — should be there in about {eta} minutes.`
 
 function renderTemplate(
   template: string,
-  ctx: { first_name: string; tech_name: string; eta: number },
+  ctx: { first_name: string; tech_name: string; eta: number; short_name: string },
 ): string {
   return template
     .replace(/\{first_name\}/g, ctx.first_name || 'there')
-    .replace(/\{tech_name\}/g, ctx.tech_name || 'Heroes')
+    .replace(/\{tech_name\}/g, ctx.tech_name || ctx.short_name)
     .replace(/\{eta\}/g, String(ctx.eta))
 }
 
@@ -98,7 +102,8 @@ export async function POST(
     .eq('company_id', profile.company_id)
     .maybeSingle()
 
-  const template = settings?.on_my_way_template?.trim() || DEFAULT_TEMPLATE
+  const { businessName, shortName } = await getBusinessProfile(admin, profile.company_id)
+  const template = settings?.on_my_way_template?.trim() || defaultOnMyWayTemplate(businessName)
 
   const { data: hubUser } = await admin
     .from('hub_users')
@@ -109,7 +114,7 @@ export async function POST(
 
   const firstName = stop.client_name.trim().split(/\s+/)[0] || ''
 
-  const message = renderTemplate(template, { first_name: firstName, tech_name: techName, eta })
+  const message = renderTemplate(template, { first_name: firstName, tech_name: techName, eta, short_name: shortName })
 
   // Send via the Twilio Txt stack so the message lands in the unified thread
   // (owned by the tech) and any customer reply routes back to the Txt inbox.

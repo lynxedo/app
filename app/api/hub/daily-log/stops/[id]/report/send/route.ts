@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendDirectTxtToPhone } from '@/lib/txt-send'
+import { getBusinessProfile } from '@/lib/business-profile'
 
 function buildReportMessage(args: {
   firstName: string
@@ -9,6 +10,7 @@ function buildReportMessage(args: {
   additionalServices: string[]
   issuesFound: string[]
   notes: string | null
+  businessName: string
 }): string {
   const lines: string[] = [`Hi ${args.firstName || 'there'}, thanks for letting us service your property today!`]
 
@@ -30,7 +32,7 @@ function buildReportMessage(args: {
     lines.push('', `Notes: ${args.notes}`)
   }
 
-  lines.push('', '— Heroes Lawn Care')
+  lines.push('', `— ${args.businessName}`)
   return lines.join('\n')
 }
 
@@ -108,6 +110,8 @@ export async function POST(
     return NextResponse.json({ error: 'No report found for this stop. Save the report first.' }, { status: 422 })
   }
 
+  const { businessName } = await getBusinessProfile(admin, profile.company_id)
+
   const firstName = stop.client_name.trim().split(/\s+/)[0] || ''
   const message = buildReportMessage({
     firstName,
@@ -115,6 +119,7 @@ export async function POST(
     additionalServices: (report.additional_services ?? []) as string[],
     issuesFound: (report.issues_found ?? []) as string[],
     notes: report.notes,
+    businessName,
   })
 
   // Send via the Twilio Txt stack (unified thread + inbound replies route back
