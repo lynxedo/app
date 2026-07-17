@@ -655,7 +655,7 @@ export default function HubAdminPanel({
             {/* Claude enabled toggle */}
             <button
               onClick={() => toggleClaudeEnabled(room.id, !room.claude_enabled)}
-              title={room.claude_enabled ? 'Guardian ON — click to disable' : 'Guardian OFF — click to enable'}
+              title={room.claude_enabled ? 'Hub Bot ON — click to disable' : 'Hub Bot OFF — click to enable'}
               className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
                 room.claude_enabled
                   ? 'bg-brand/20 text-[#6FB3E8] hover:bg-brand/30'
@@ -663,7 +663,7 @@ export default function HubAdminPanel({
               }`}
             >
               <span>✦</span>
-              <span>{room.claude_enabled ? 'Guardian ON' : 'Guardian OFF'}</span>
+              <span>{room.claude_enabled ? 'Hub Bot ON' : 'Hub Bot OFF'}</span>
             </button>
             <button
               onClick={() => { setRenamingId(room.id); setRenameVal(room.name) }}
@@ -879,7 +879,7 @@ export default function HubAdminPanel({
           {/* Guardian Access per user */}
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
             <h2 className="font-semibold text-white mb-1">Hub Bot Access — Per User</h2>
-            <p className="text-xs text-gray-500 mb-4">Controls who can use @Guardian in rooms and DMs. Room must also have Guardian enabled.</p>
+            <p className="text-xs text-gray-500 mb-4">Controls who can use the hub bot in rooms and DMs. The room must also have the hub bot enabled.</p>
             {hubUsersList.length > 8 && (
               <input
                 value={guardianUserSearch}
