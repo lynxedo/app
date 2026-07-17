@@ -17,7 +17,7 @@ export async function PATCH(
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_timesheet')
+    .select('role, can_admin_timesheet, company_id')
     .eq('id', user.id)
     .single()
   if (profile?.role !== 'admin' && !profile?.can_admin_timesheet) {
@@ -41,6 +41,15 @@ export async function PATCH(
     .single()
 
   if (!editReq) {
+    return NextResponse.json({ error: 'Edit request not found or already resolved' }, { status: 404 })
+  }
+
+  // Track 1 — edit requests carry their employee's company_id (set at insert):
+  // verify it matches the caller's company before approving/applying, since the
+  // recompute below runs service-role (bypasses RLS). Cross-company gets the
+  // same 404 as not-found.
+  if (!profile?.company_id) return NextResponse.json({ error: 'No company' }, { status: 403 })
+  if (editReq.company_id !== profile.company_id) {
     return NextResponse.json({ error: 'Edit request not found or already resolved' }, { status: 404 })
   }
 

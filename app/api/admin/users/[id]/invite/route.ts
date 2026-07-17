@@ -4,7 +4,9 @@ import { requireAdminArea } from '@/lib/admin-auth'
 
 async function requireAdmin() {
   const check = await requireAdminArea('people')
-  return check.ok && check.user ? { id: check.user.id } : null
+  return check.ok && check.user
+    ? { id: check.user.id, company_id: check.company_id }
+    : null
 }
 
 export async function POST(
@@ -13,9 +15,22 @@ export async function POST(
 ) {
   const adminUser = await requireAdmin()
   if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  // Track 1 — the admin client below bypasses RLS; a caller with no company can't invite anyone.
+  if (!adminUser.company_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { id } = await params
   const admin = createAdminClient()
+
+  // Track 1 — verify the target belongs to the caller's company before re-inviting;
+  // a cross-company id answers exactly like a missing user.
+  const { data: targetProfile } = await admin
+    .from('user_profiles')
+    .select('company_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (!targetProfile || targetProfile.company_id !== adminUser.company_id) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  }
 
   // Look up the user's email
   const { data: { user }, error: lookupError } = await admin.auth.admin.getUserById(id)

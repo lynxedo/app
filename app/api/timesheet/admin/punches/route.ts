@@ -46,7 +46,7 @@ export async function POST(req: NextRequest) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_timesheet')
+    .select('role, can_admin_timesheet, company_id')
     .eq('id', user.id)
     .single()
   if (profile?.role !== 'admin' && !profile?.can_admin_timesheet) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -59,6 +59,18 @@ export async function POST(req: NextRequest) {
   }
 
   const admin = createAdminClient()
+
+  // Track 1 — the admin client bypasses RLS: verify the target employee belongs
+  // to the caller's company before inserting a punch for them.
+  if (!profile?.company_id) return NextResponse.json({ error: 'No company' }, { status: 403 })
+  const { data: targetEmployee } = await admin
+    .from('employees')
+    .select('id')
+    .eq('id', employee_id)
+    .eq('company_id', profile.company_id)
+    .single()
+  if (!targetEmployee) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
   const { data, error } = await admin
     .from('time_punches')
     .insert({ employee_id, punch_type, punched_at, note: note || null, edited_by: user.id })
@@ -84,7 +96,7 @@ export async function DELETE(req: NextRequest) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_timesheet')
+    .select('role, can_admin_timesheet, company_id')
     .eq('id', user.id)
     .single()
   if (profile?.role !== 'admin' && !profile?.can_admin_timesheet) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -105,6 +117,18 @@ export async function DELETE(req: NextRequest) {
     .select('employee_id, punched_at')
     .eq('id', id)
     .single()
+  if (!target) return NextResponse.json({ error: 'Punch not found' }, { status: 404 })
+
+  // Track 1 — the admin client bypasses RLS: the punch's employee must belong to
+  // the caller's company (cross-company gets the same 404 as not-found).
+  if (!profile?.company_id) return NextResponse.json({ error: 'No company' }, { status: 403 })
+  const { data: targetEmployee } = await admin
+    .from('employees')
+    .select('id')
+    .eq('id', target.employee_id)
+    .eq('company_id', profile.company_id)
+    .single()
+  if (!targetEmployee) return NextResponse.json({ error: 'Punch not found' }, { status: 404 })
 
   const { data: deleted, error } = await admin
     .from('time_punches')

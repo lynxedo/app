@@ -16,6 +16,17 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   if (!profile?.company_id) return NextResponse.json({ error: 'No company' }, { status: 403 })
 
+  // Track 1 — verify the lead belongs to the caller's company before writing
+  // (session-client read: RLS hides foreign leads, so null → 404).
+  const { data: lead } = await supabase
+    .from('leads')
+    .select('company_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (!lead || lead.company_id !== profile.company_id) {
+    return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
+  }
+
   const { column_id, value } = await request.json()
   if (!column_id) return NextResponse.json({ error: 'column_id required' }, { status: 400 })
 

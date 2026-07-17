@@ -31,6 +31,18 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ ke
   updates.updated_at = new Date().toISOString()
 
   const admin = createAdminClient()
+  // Track 1 — beta_features.company_id: null = platform-global (today's admins manage
+  // those), otherwise the row must belong to the caller's company. Restricting
+  // GLOBAL-row edits to a true platform super-admin is a Track 6 follow-up.
+  const { data: existing } = await admin
+    .from('beta_features')
+    .select('key, company_id')
+    .eq('key', key)
+    .maybeSingle()
+  if (!existing || (existing.company_id !== null && existing.company_id !== gate.companyId)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
   const { data, error } = await admin
     .from('beta_features')
     .update(updates)
@@ -47,6 +59,18 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
 
   const { key } = await params
   const admin = createAdminClient()
+  // Track 1 — same scope rule as PATCH: global (null company) rows stay manageable
+  // today; another company's row answers like a missing key. (Track 6 follow-up:
+  // restrict global-row deletes to a true platform super-admin.)
+  const { data: existing } = await admin
+    .from('beta_features')
+    .select('key, company_id')
+    .eq('key', key)
+    .maybeSingle()
+  if (!existing || (existing.company_id !== null && existing.company_id !== gate.companyId)) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
   const { error } = await admin.from('beta_features').delete().eq('key', key)
   if (error) return NextResponse.json({ error: error.message }, { status: 400 })
   return NextResponse.json({ ok: true })

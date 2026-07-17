@@ -1,11 +1,12 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireCompany } from '@/lib/company-auth'
 
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  // Track 1 — resolve the caller's company; the admin client below bypasses RLS
+  const auth = await requireCompany()
+  if ('error' in auth) return auth.error
+  const { companyId, userId } = auth
 
   const admin = createAdminClient()
 
@@ -13,13 +14,14 @@ export async function GET() {
     admin
       .from('rooms')
       .select('id, name, description, is_private')
+      .eq('company_id', companyId) // Track 1 — only the caller's company's rooms
       .eq('is_private', false)
       .is('archived_at', null)
       .order('name'),
     admin
       .from('room_members')
       .select('room_id')
-      .eq('user_id', user.id),
+      .eq('user_id', userId),
   ])
 
   const memberRoomIds = new Set((memberships ?? []).map(m => m.room_id))

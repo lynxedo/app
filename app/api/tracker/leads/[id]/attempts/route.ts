@@ -32,6 +32,17 @@ export async function PUT(request: Request, { params }: { params: Promise<{ id: 
 
   if (!profile?.company_id) return NextResponse.json({ error: 'No company' }, { status: 403 })
 
+  // Track 1 — verify the lead belongs to the caller's company before writing
+  // (session-client read: RLS hides foreign leads, so null → 404).
+  const { data: lead } = await supabase
+    .from('leads')
+    .select('company_id')
+    .eq('id', id)
+    .maybeSingle()
+  if (!lead || lead.company_id !== profile.company_id) {
+    return NextResponse.json({ error: 'Lead not found' }, { status: 404 })
+  }
+
   const { attempt_number, attempted_date, notes, contact_types } = await request.json()
   if (!attempt_number || attempt_number < 1 || attempt_number > 5) {
     return NextResponse.json({ error: 'attempt_number must be 1–5' }, { status: 400 })

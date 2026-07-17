@@ -52,13 +52,24 @@ async function ensureProvisioned(
 export async function GET() {
   const user = await requireAdmin()
   if (!user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  // Track 1 — the service-role RPC below is company-blind; a caller with no company gets nothing.
+  if (!user.company_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const admin = createAdminClient()
   const { data: rows, error } = await admin.rpc('get_admin_users')
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
+  // Track 1 — get_admin_users() returns EVERY company's users (no company filter in the
+  // RPC, and no company_id column in its result), so scope to the caller's company here.
+  const { data: companyProfiles, error: companyError } = await admin
+    .from('user_profiles')
+    .select('id')
+    .eq('company_id', user.company_id)
+  if (companyError) return NextResponse.json({ error: companyError.message }, { status: 500 })
+  const companyUserIds = new Set((companyProfiles ?? []).map((p) => p.id))
+
   return NextResponse.json({
-    users: (rows ?? []).map((r: {
+    users: (rows ?? []).filter((r: { id: string }) => companyUserIds.has(r.id)).map((r: {
       id: string; email: string; created_at: string; last_sign_in_at: string | null;
       role: string; can_access_routing: boolean; can_access_lawn: boolean;
       can_access_call_log: boolean; can_access_responder: boolean; can_access_timesheet: boolean;
@@ -94,6 +105,9 @@ export async function GET() {
 export async function POST(request: Request) {
   const adminUser = await requireAdmin()
   if (!adminUser) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  // Track 1 — without a company, ensureProvisioned would silently no-op and leave an
+  // orphaned companyless auth user; refuse instead.
+  if (!adminUser.company_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { email, full_name, display_name, deferred } = await request.json()
   if (!email) return NextResponse.json({ error: 'Email required' }, { status: 400 })

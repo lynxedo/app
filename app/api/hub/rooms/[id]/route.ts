@@ -10,7 +10,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, company_id')
     .eq('id', user.id)
     .single()
   if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -30,6 +30,13 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ id
   }
 
   const admin = createAdminClient()
+
+  // Track 1 — the admin client bypasses RLS; 404 unless the room is in the caller's company
+  const { data: room } = await admin.from('rooms').select('company_id').eq('id', id).maybeSingle()
+  if (!room || room.company_id !== profile.company_id) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
   const { error } = await admin.from('rooms').update(updates).eq('id', id)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   return NextResponse.json({ ok: true })

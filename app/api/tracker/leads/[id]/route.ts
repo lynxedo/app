@@ -1,26 +1,18 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { enrollLeadInStageCampaigns, exitEnrollmentsForLead } from '@/lib/drip'
+import { requireCompany } from '@/lib/company-auth'
 
 // TR2 — keys a client must never set via PATCH (identity / provenance / mirror).
 const IMMUTABLE = ['id', 'company_id', 'monday_item_id', 'source', 'created_at']
-
-async function callerCompanyId(supabase: Awaited<ReturnType<typeof createClient>>, userId: string) {
-  const { data } = await supabase.from('user_profiles').select('company_id').eq('id', userId).single()
-  return data?.company_id ?? null
-}
 
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const companyId = await callerCompanyId(supabase, user.id)
-  if (!companyId) return NextResponse.json({ error: 'No company' }, { status: 403 })
+  const auth = await requireCompany()
+  if ('error' in auth) return auth.error
+  const { companyId, supabase } = auth // reuse the helper's RLS session client
 
   const { id } = await params
   const body = await request.json()
@@ -68,12 +60,9 @@ export async function DELETE(
   _request: Request,
   { params }: { params: Promise<{ id: string }> }
 ) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const companyId = await callerCompanyId(supabase, user.id)
-  if (!companyId) return NextResponse.json({ error: 'No company' }, { status: 403 })
+  const auth = await requireCompany()
+  if ('error' in auth) return auth.error
+  const { companyId, supabase } = auth // reuse the helper's RLS session client
 
   const { id } = await params
   const { error } = await supabase
