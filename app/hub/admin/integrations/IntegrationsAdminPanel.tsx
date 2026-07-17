@@ -4,6 +4,7 @@ import { useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { useToast, useConfirm } from '@/components/ui'
+import HubApiKeysSection from './HubApiKeysSection'
 import {
   INTEGRATION_PROVIDERS,
   GROUP_LABELS,
@@ -72,6 +73,10 @@ export default function IntegrationsAdminPanel({
         )
       })}
 
+      {/* Inbound automation keys — the reverse direction from the provider cards
+          above (an outside service pushing INTO the Hub). Kept as its own clearly
+          separated block, not mixed into the connect cards. */}
+      <HubApiKeysSection />
     </div>
   )
 }

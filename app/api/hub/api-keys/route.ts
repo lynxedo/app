@@ -1,20 +1,17 @@
 import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import bcrypt from 'bcrypt'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireAdminArea } from '@/lib/admin-auth'
 
+// Inbound Hub automation keys (hub_api_keys). Managed from Admin → Integrations,
+// so this gate must match that page: super-admin OR the can_admin_integrations
+// grant (via requireAdminArea('integrations')). Previously super-admin-only,
+// which 403'd a delegated Integrations admin on save.
 export async function GET() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('role, company_id')
-    .eq('id', user.id)
-    .single()
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+  const check = await requireAdminArea('integrations')
+  if (!check.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!check.ok || !check.company_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const admin = createAdminClient()
   const { data, error } = await admin
@@ -23,7 +20,7 @@ export async function GET() {
       id, name, key_prefix, created_at, last_used_at, revoked_at,
       created_by_user:hub_users!created_by (display_name)
     `)
-    .eq('company_id', profile.company_id)
+    .eq('company_id', check.company_id)
     .order('created_at', { ascending: false })
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
@@ -41,16 +38,9 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
-
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('role, company_id')
-    .eq('id', user.id)
-    .single()
-  if (profile?.role !== 'admin') return NextResponse.json({ error: 'Admin only' }, { status: 403 })
+  const check = await requireAdminArea('integrations')
+  if (!check.user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  if (!check.ok || !check.company_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const body = await request.json()
   const name = body.name?.trim()
@@ -72,7 +62,7 @@ export async function POST(request: Request) {
   // Create hub_users row for the bot
   const { error: hubErr } = await admin.from('hub_users').insert({
     id: authUser.user.id,
-    company_id: profile.company_id,
+    company_id: check.company_id,
     display_name: name,
     is_bot: true,
     status: 'available',
@@ -90,11 +80,11 @@ export async function POST(request: Request) {
   const { data: key, error: keyErr } = await admin
     .from('hub_api_keys')
     .insert({
-      company_id: profile.company_id,
+      company_id: check.company_id,
       name,
       key_hash: keyHash,
       key_prefix: keyPrefix,
-      created_by: user.id,
+      created_by: check.user.id,
       bot_user_id: authUser.user.id,
     })
     .select('id, name, key_prefix, created_at')
