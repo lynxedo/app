@@ -12,6 +12,7 @@ import { sendHubPush } from '@/lib/hub-push'
 import { formatPhone } from '@/lib/format'
 import { sendDirectTxtToPhone } from '@/lib/txt-send'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
+import { getBusinessProfile } from '@/lib/business-profile'
 
 // AI Voice Receptionist — "wrap-up" endpoint (Phase 1a).
 //
@@ -479,8 +480,9 @@ export async function POST(request: Request) {
       if (vr.recapTextEnabled && extracted?.recap_opt_in && recapPhone) {
         const hi = first ? `Hi ${first}, ` : 'Hi, '
         const svc = service ? ` about ${service}` : ''
+        const { businessName } = await getBusinessProfile(admin, companyId)
         const recapBody =
-          `${hi}thanks for calling Heroes Lawn Care! This is ${vr.receptionistName}, following up with a quick recap of your call${svc}. ` +
+          `${hi}thanks for calling ${businessName}! This is ${vr.receptionistName}, following up with a quick recap of your call${svc}. ` +
           `A team member will reach out shortly to take care of everything for you.`
         const res = await sendDirectTxtToPhone({
           admin,

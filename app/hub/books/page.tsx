@@ -44,7 +44,7 @@ export default async function BooksPage() {
     return (
       <main className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center gap-6 p-8">
         <div className="text-center">
-          <h1 className="text-2xl font-bold mb-2">Heroes Lawn Care — Financial Dashboard</h1>
+          <h1 className="text-2xl font-bold mb-2">Books — Financial Dashboard</h1>
           <p className="text-gray-400 mb-6">Connect your QuickBooks account to get started.</p>
           <a
             href="/api/qbo/auth"
@@ -62,7 +62,7 @@ export default async function BooksPage() {
   if (!plData) {
     return (
       <main className="min-h-screen bg-gray-950 text-white flex flex-col items-center justify-center gap-4 p-8">
-        <h1 className="text-2xl font-bold">Heroes Lawn Care — Financial Dashboard</h1>
+        <h1 className="text-2xl font-bold">Books — Financial Dashboard</h1>
         <p className="text-red-400">Failed to load QuickBooks data. Check the PM2 logs.</p>
         <RefreshButton />
       </main>

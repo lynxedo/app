@@ -151,7 +151,7 @@ function DormantAddon({ name, tag, hint }: { name: string; tag: string; hint: st
   )
 }
 
-export default function PricerView() {
+export default function PricerView({ businessName = 'Heroes Lawn Care' }: { businessName?: string }) {
   const [programs, setPrograms] = useState<Program[]>([])
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
@@ -201,7 +201,7 @@ export default function PricerView() {
 
       <header>
         <h1>🌿 Fertilizer Force Pricing</h1>
-        <p>Heroes Lawn Care · {versionLabel ? `${versionLabel} ` : ''}Program Pricing</p>
+        <p>{businessName} · {versionLabel ? `${versionLabel} ` : ''}Program Pricing</p>
       </header>
 
       <div className="input-bar">
@@ -310,7 +310,7 @@ export default function PricerView() {
       </main>
 
       <footer>
-        Prices are annual totals and subject to site confirmation. Heroes Lawn Care · Internal quoting tool
+        Prices are annual totals and subject to site confirmation. {businessName} · Internal quoting tool
       </footer>
     </div>
   )

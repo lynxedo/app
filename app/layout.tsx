@@ -19,7 +19,7 @@ export const metadata: Metadata = {
     template: '%s | Lynxedo',
     default: 'Lynxedo',
   },
-  description: "Field service operations for Heroes Lawn Care",
+  description: "Field service operations platform",
 };
 
 // viewport-fit=cover is required for env(safe-area-inset-*) to return
