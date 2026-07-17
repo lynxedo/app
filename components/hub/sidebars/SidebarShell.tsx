@@ -11,6 +11,9 @@ export type SidebarItem = {
   onClose?: () => void
   external?: boolean
   badge?: string | number
+  /** When provided, overrides the pathname-based active state — used for
+   *  query-param tabs (e.g. Settings) where the path is identical per section. */
+  active?: boolean
 }
 
 export function SidebarHeader({
@@ -77,9 +80,10 @@ export function SidebarLinkRow({
   prefixMatch,
   external,
   onClose,
+  active,
 }: SidebarItem) {
   const pathname = usePathname() ?? ''
-  const isActive = !external && (prefixMatch ? pathname.startsWith(href) : pathname === href)
+  const isActive = active ?? (!external && (prefixMatch ? pathname.startsWith(href) : pathname === href))
   const className = `flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded-lg text-lg md:text-sm transition-colors ${
     isActive
       ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30'

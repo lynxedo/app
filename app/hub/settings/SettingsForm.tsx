@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useRef, useCallback, useEffect } from 'react'
+import { useState, useRef, useCallback } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import ReactCrop, { type Crop, centerCrop, makeAspectCrop } from 'react-image-crop'
 import 'react-image-crop/dist/ReactCrop.css'
@@ -32,7 +32,6 @@ interface Props {
   userId: string
   hubProfile: HubProfile
   initialTheme: string
-  landingPage: 'hub' | 'dashboard'
   notifPref: NotifPref
   railPermissions: RailPermissions
   /** Admin → People "Beta Features" grant (admins always). Gates the Beta tab. */
@@ -94,26 +93,18 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, initialTheme, landingPage, notifPref, railPermissions, canAccessBeta = false, txtSignature, allowUserSignatures = true, companyDefaultSignature = null, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, initialTheme, notifPref, railPermissions, canAccessBeta = false, txtSignature, allowUserSignatures = true, companyDefaultSignature = null, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
   const router = useRouter()
   const toast = useToast()
   const confirmDialog = useConfirm()
-  // SET-deeplink — tabs are deep-linkable via ?tab= (so a link to a specific
-  // settings tab lands there, and the browser back button moves between tabs),
-  // mirroring the Help page.
+  // SET-nav — the Settings left sidebar (components/hub/sidebars/SettingsSidebar)
+  // is the single navigation: it links to /hub/settings?tab=<id>, and the visible
+  // section is derived from the URL here (reactive to client-side navigation), so
+  // there is no in-page tab bar. ?tab= stays deep-linkable and back-button aware.
   const searchParams = useSearchParams()
   const ALL_TABS: Tab[] = ['profile', 'my-hub', 'notifications', 'extension', ...(canAccessBeta ? ['beta' as const] : []), 'account']
-  const initialTab = searchParams.get('tab') as Tab | null
-  const [activeTab, setActiveTab] = useState<Tab>(
-    initialTab && ALL_TABS.includes(initialTab) ? initialTab : 'profile'
-  )
-
-  useEffect(() => {
-    const url = new URL(window.location.href)
-    if (activeTab === 'profile') url.searchParams.delete('tab')
-    else url.searchParams.set('tab', activeTab)
-    router.replace(url.pathname + url.search, { scroll: false })
-  }, [activeTab, router])
+  const tabParam = searchParams.get('tab') as Tab | null
+  const activeTab: Tab = tabParam && ALL_TABS.includes(tabParam) ? tabParam : 'profile'
 
   // ── Theme picker (My Hub tab) — mirrors the dot picker in the profile sidebar
   // but with names/categories. Saves via /api/profile and live-applies by
@@ -161,39 +152,6 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
   const [uploadErr, setUploadErr] = useState<string | null>(null)
   const imgRef = useRef<HTMLImageElement>(null)
   const fileInputRef = useRef<HTMLInputElement>(null)
-
-  // ── Jobber connection state (Integrations tab) ────────────────────────────
-
-  // ── Landing page preference ───────────────────────────────────────────────
-  const [landing, setLanding] = useState<'hub' | 'dashboard'>(landingPage)
-  const [landingSave, setLandingSave] = useState<SaveState>('idle')
-  const [landingErr, setLandingErr] = useState<string | null>(null)
-  const saveLanding = async (next: 'hub' | 'dashboard') => {
-    const previous = landing
-    setLanding(next)
-    setLandingSave('saving')
-    setLandingErr(null)
-    try {
-      const res = await fetch('/api/profile', {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ landing_page: next }),
-      })
-      if (!res.ok) {
-        const d = await res.json()
-        setLanding(previous)
-        setLandingErr(d.error ?? 'Save failed')
-        setLandingSave('error')
-        return
-      }
-      setLandingSave('saved')
-      setTimeout(() => setLandingSave('idle'), 2000)
-    } catch (e) {
-      setLanding(previous)
-      setLandingErr(e instanceof Error ? e.message : 'Network error')
-      setLandingSave('error')
-    }
-  }
 
   // ── Notification prefs (global) ────────────────────────────────────────────
   const [notifLevel, setNotifLevel] = useState<'all' | 'mentions' | 'muted'>(notifPref.level)
@@ -510,36 +468,10 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
   const inputCls = 'w-full bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500'
   const numInputCls = 'bg-gray-950 border border-gray-800 rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-orange-500 w-24 text-center'
 
-  const tabs: { id: Tab; label: string }[] = [
-    { id: 'profile',       label: 'Profile' },
-    { id: 'my-hub',        label: 'My Hub' },
-    { id: 'notifications', label: 'Notifications' },
-    { id: 'extension',     label: 'Browser Extension' },
-    ...(canAccessBeta ? [{ id: 'beta' as const, label: 'Beta Features' }] : []),
-    { id: 'account',       label: 'Account' },
-  ]
-
   const initials = getInitials(hubName || null, email)
 
   return (
     <div>
-      {/* Tab bar */}
-      <div className="flex gap-1 mb-8 bg-gray-900 border border-gray-800 rounded-xl p-1 max-md:ml-12 overflow-x-auto">
-        {tabs.map(tab => (
-          <button
-            key={tab.id}
-            onClick={() => setActiveTab(tab.id)}
-            className={`flex-none whitespace-nowrap md:flex-1 py-2 px-3 rounded-lg text-sm font-medium transition-colors ${
-              activeTab === tab.id
-                ? 'bg-gray-800 text-white'
-                : 'text-gray-500 hover:text-gray-300'
-            }`}
-          >
-            {tab.label}
-          </button>
-        ))}
-      </div>
-
       <div className="space-y-6">
 
       {/* ── PROFILE TAB ─────────────────────────────────────────────────── */}
@@ -933,38 +865,6 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
       {/* ACCOUNT TAB */}
       {activeTab === 'account' && (
       <>
-      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-        <h2 className="font-semibold text-lg mb-1">Default landing page</h2>
-        <p className="text-gray-400 text-sm mb-5">Where you land after signing in.</p>
-        <div className="space-y-2">
-          {([
-            { value: 'hub' as const, title: 'Hub', desc: 'Open Hub Home — announcements and your rooms.' },
-            { value: 'dashboard' as const, title: 'Dashboard', desc: 'Open the tool tile launcher.' },
-          ]).map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => saveLanding(opt.value)}
-              disabled={landingSave === 'saving'}
-              className={`w-full text-left p-4 rounded-xl border transition-colors ${
-                landing === opt.value
-                  ? 'bg-blue-600/10 border-blue-500/50'
-                  : 'bg-gray-950 border-gray-800 hover:border-gray-700'
-              } disabled:opacity-60`}
-            >
-              <div className="flex items-center gap-3">
-                <span className={`w-4 h-4 rounded-full border-2 flex-none ${landing === opt.value ? 'border-blue-400 bg-blue-400' : 'border-gray-600'}`} />
-                <div>
-                  <div className="font-medium text-white">{opt.title}</div>
-                  <div className="text-xs text-gray-400 mt-0.5">{opt.desc}</div>
-                </div>
-              </div>
-            </button>
-          ))}
-          {landingErr && <p className="text-red-400 text-sm mt-2">{landingErr}</p>}
-          {landingSave === 'saved' && <p className="text-green-400 text-xs mt-2">Saved.</p>}
-        </div>
-      </section>
-
       {/* Communications */}
       <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
         <h2 className="font-semibold text-lg mb-1">Communications</h2>
