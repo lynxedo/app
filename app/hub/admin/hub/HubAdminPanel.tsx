@@ -86,6 +86,23 @@ const DURATION_OPTIONS = [
   { label: '2 weeks', hours: 336 },
 ]
 
+// Collapsible section header — groups the Rooms admin list (Public / Private /
+// Archived) into tidy, foldable sections instead of one long flat list.
+function Collapsible({ title, count, defaultOpen = true, children }: { title: string; count?: number; defaultOpen?: boolean; children: React.ReactNode }) {
+  const [open, setOpen] = useState(defaultOpen)
+  return (
+    <div>
+      <button type="button" onClick={() => setOpen(o => !o)} className="w-full flex items-center gap-2 mb-3 text-left">
+        <svg className={`w-3 h-3 text-gray-500 transition-transform ${open ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={3}>
+          <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+        </svg>
+        <h2 className="font-semibold text-white">{title}{count !== undefined && <span className="text-gray-500 font-normal"> ({count})</span>}</h2>
+      </button>
+      {open && children}
+    </div>
+  )
+}
+
 export default function HubAdminPanel({
   initialRooms,
   hubUsers,
@@ -127,6 +144,8 @@ export default function HubAdminPanel({
   const [members, setMembers] = useState<{ user_id: string; display_name: string; role: string }[]>([])
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [addUserId, setAddUserId] = useState('')
+  // Filter box for the Guardian Access per-user list (Members tab).
+  const [guardianUserSearch, setGuardianUserSearch] = useState('')
 
   // Announcement composer
   const [annType, setAnnType] = useState<AnnType>('announcement')
@@ -651,6 +670,79 @@ export default function HubAdminPanel({
   const activeRooms = rooms.filter(r => !r.archived_at)
   const archivedRooms = rooms.filter(r => r.archived_at)
   const selectedRoom = membersRoomId ? rooms.find(r => r.id === membersRoomId) : null
+  const publicRooms = activeRooms.filter(r => !r.is_private)
+  const privateRooms = activeRooms.filter(r => r.is_private)
+  const filteredGuardianUsers = hubUsersList.filter(u =>
+    u.display_name.toLowerCase().includes(guardianUserSearch.trim().toLowerCase())
+  )
+
+  // One active-room row — shared by the Public and Private groups.
+  const roomRow = (room: Room) => (
+    <div key={room.id} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center gap-3">
+      <span className="text-gray-500 text-sm flex-none">{room.is_private ? '🔒' : '#'}</span>
+      {renamingId === room.id ? (
+        <input
+          autoFocus
+          value={renameVal}
+          onChange={e => setRenameVal(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter') renameRoom(room.id); if (e.key === 'Escape') setRenamingId(null) }}
+          className="flex-1 bg-gray-800 border border-brand rounded-lg px-3 py-1.5 text-sm text-white outline-none"
+        />
+      ) : (
+        <div className="flex-1 min-w-0">
+          <span className="text-sm text-white font-medium">{room.name}</span>
+          {room.description && <span className="text-xs text-gray-500 ml-2">{room.description}</span>}
+        </div>
+      )}
+      <div className="flex items-center gap-2 flex-none">
+        {renamingId === room.id ? (
+          <>
+            <button onClick={() => renameRoom(room.id)} className="text-xs text-green-400 hover:text-green-300 px-2 py-1">Save</button>
+            <button onClick={() => setRenamingId(null)} className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1">Cancel</button>
+          </>
+        ) : (
+          <>
+            {/* Claude enabled toggle */}
+            <button
+              onClick={() => toggleClaudeEnabled(room.id, !room.claude_enabled)}
+              title={room.claude_enabled ? 'Guardian ON — click to disable' : 'Guardian OFF — click to enable'}
+              className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
+                room.claude_enabled
+                  ? 'bg-brand/20 text-[#6FB3E8] hover:bg-brand/30'
+                  : 'text-gray-600 hover:text-gray-400 hover:bg-gray-800'
+              }`}
+            >
+              <span>✦</span>
+              <span>{room.claude_enabled ? 'Guardian ON' : 'Guardian OFF'}</span>
+            </button>
+            <button
+              onClick={() => { setRenamingId(room.id); setRenameVal(room.name) }}
+              className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-800 transition-colors"
+            >
+              Rename
+            </button>
+            <button
+              onClick={() => toggleRoomPrivate(room.id, !room.is_private)}
+              className={`text-xs px-2 py-1 rounded hover:bg-gray-800 transition-colors ${
+                room.is_private
+                  ? 'text-purple-400/70 hover:text-purple-300'
+                  : 'text-gray-400 hover:text-white'
+              }`}
+              title={room.is_private ? 'Make public' : 'Make private'}
+            >
+              {room.is_private ? 'Make Public' : 'Make Private'}
+            </button>
+            <button
+              onClick={() => archiveRoom(room.id, true)}
+              className="text-xs text-yellow-500/70 hover:text-yellow-400 px-2 py-1 rounded hover:bg-gray-800 transition-colors"
+            >
+              Archive
+            </button>
+          </>
+        )}
+      </div>
+    </div>
+  )
 
   return (
     <div>
@@ -721,84 +813,25 @@ export default function HubAdminPanel({
             </div>
           </div>
 
-          {/* Active rooms */}
-          <div>
-            <h2 className="font-semibold text-white mb-3">Active Rooms ({activeRooms.length})</h2>
+          {/* Public rooms */}
+          <Collapsible title="Public rooms" count={publicRooms.length}>
             <div className="space-y-2">
-              {activeRooms.map(room => (
-                <div key={room.id} className="bg-gray-900 border border-gray-800 rounded-xl px-4 py-3 flex items-center gap-3">
-                  <span className="text-gray-500 text-sm flex-none">{room.is_private ? '🔒' : '#'}</span>
-                  {renamingId === room.id ? (
-                    <input
-                      autoFocus
-                      value={renameVal}
-                      onChange={e => setRenameVal(e.target.value)}
-                      onKeyDown={e => { if (e.key === 'Enter') renameRoom(room.id); if (e.key === 'Escape') setRenamingId(null) }}
-                      className="flex-1 bg-gray-800 border border-brand rounded-lg px-3 py-1.5 text-sm text-white outline-none"
-                    />
-                  ) : (
-                    <div className="flex-1 min-w-0">
-                      <span className="text-sm text-white font-medium">{room.name}</span>
-                      {room.description && <span className="text-xs text-gray-500 ml-2">{room.description}</span>}
-                    </div>
-                  )}
-                  <div className="flex items-center gap-2 flex-none">
-                    {renamingId === room.id ? (
-                      <>
-                        <button onClick={() => renameRoom(room.id)} className="text-xs text-green-400 hover:text-green-300 px-2 py-1">Save</button>
-                        <button onClick={() => setRenamingId(null)} className="text-xs text-gray-500 hover:text-gray-300 px-2 py-1">Cancel</button>
-                      </>
-                    ) : (
-                      <>
-                        {/* Claude enabled toggle */}
-                        <button
-                          onClick={() => toggleClaudeEnabled(room.id, !room.claude_enabled)}
-                          title={room.claude_enabled ? 'Guardian ON — click to disable' : 'Guardian OFF — click to enable'}
-                          className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
-                            room.claude_enabled
-                              ? 'bg-brand/20 text-[#6FB3E8] hover:bg-brand/30'
-                              : 'text-gray-600 hover:text-gray-400 hover:bg-gray-800'
-                          }`}
-                        >
-                          <span>✦</span>
-                          <span>{room.claude_enabled ? 'Guardian ON' : 'Guardian OFF'}</span>
-                        </button>
-                        <button
-                          onClick={() => { setRenamingId(room.id); setRenameVal(room.name) }}
-                          className="text-xs text-gray-400 hover:text-white px-2 py-1 rounded hover:bg-gray-800 transition-colors"
-                        >
-                          Rename
-                        </button>
-                        <button
-                          onClick={() => toggleRoomPrivate(room.id, !room.is_private)}
-                          className={`text-xs px-2 py-1 rounded hover:bg-gray-800 transition-colors ${
-                            room.is_private
-                              ? 'text-purple-400/70 hover:text-purple-300'
-                              : 'text-gray-400 hover:text-white'
-                          }`}
-                          title={room.is_private ? 'Make public' : 'Make private'}
-                        >
-                          {room.is_private ? 'Make Public' : 'Make Private'}
-                        </button>
-                        <button
-                          onClick={() => archiveRoom(room.id, true)}
-                          className="text-xs text-yellow-500/70 hover:text-yellow-400 px-2 py-1 rounded hover:bg-gray-800 transition-colors"
-                        >
-                          Archive
-                        </button>
-                      </>
-                    )}
-                  </div>
-                </div>
-              ))}
-              {activeRooms.length === 0 && <p className="text-sm text-gray-500 px-1">No active rooms.</p>}
+              {publicRooms.map(room => roomRow(room))}
+              {publicRooms.length === 0 && <p className="text-sm text-gray-500 px-1">No public rooms.</p>}
             </div>
-          </div>
+          </Collapsible>
+
+          {/* Private rooms */}
+          <Collapsible title="Private rooms" count={privateRooms.length}>
+            <div className="space-y-2">
+              {privateRooms.map(room => roomRow(room))}
+              {privateRooms.length === 0 && <p className="text-sm text-gray-500 px-1">No private rooms.</p>}
+            </div>
+          </Collapsible>
 
           {/* Archived rooms */}
           {archivedRooms.length > 0 && (
-            <div>
-              <h2 className="font-semibold text-gray-500 mb-3">Archived Rooms ({archivedRooms.length})</h2>
+            <Collapsible title="Archived rooms" count={archivedRooms.length} defaultOpen={false}>
               <div className="space-y-2">
                 {archivedRooms.map(room => (
                   <div key={room.id} className="bg-gray-900/50 border border-gray-800/50 rounded-xl px-4 py-3 flex items-center gap-3 opacity-60">
@@ -813,7 +846,7 @@ export default function HubAdminPanel({
                   </div>
                 ))}
               </div>
-            </div>
+            </Collapsible>
           )}
         </div>
       )}
@@ -827,20 +860,17 @@ export default function HubAdminPanel({
             {activeRooms.length === 0 ? (
               <p className="text-sm text-gray-500">No active rooms.</p>
             ) : (
-              <div className="space-y-2 mb-6">
-                {activeRooms.map(room => (
-                  <button
-                    key={room.id}
-                    onClick={() => loadMembers(room.id)}
-                    className={`w-full text-left px-4 py-3 rounded-xl text-sm transition-colors flex items-center gap-2 ${
-                      membersRoomId === room.id ? 'bg-brand/20 border border-brand/40 text-white' : 'bg-gray-800 border border-gray-700 text-gray-300 hover:bg-gray-750 hover:text-white'
-                    }`}
-                  >
-                    <span className="text-gray-500 text-xs">{room.is_private ? '🔒' : '#'}</span>
-                    <span className="font-medium">{room.name}</span>
-                    {room.is_private && <span className="ml-auto text-xs text-purple-400/70">private</span>}
-                  </button>
-                ))}
+              <div className="mb-6">
+                <select
+                  value={membersRoomId ?? ''}
+                  onChange={e => { if (e.target.value) loadMembers(e.target.value) }}
+                  className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2.5 text-sm text-white outline-none focus:border-brand"
+                >
+                  <option value="">Select a room…</option>
+                  {activeRooms.map(room => (
+                    <option key={room.id} value={room.id}>{room.is_private ? '🔒 ' : '# '}{room.name}</option>
+                  ))}
+                </select>
               </div>
             )}
 
@@ -901,8 +931,16 @@ export default function HubAdminPanel({
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
             <h2 className="font-semibold text-white mb-1">Guardian Access — Per User</h2>
             <p className="text-xs text-gray-500 mb-4">Controls who can use @Guardian in rooms and DMs. Room must also have Guardian enabled.</p>
+            {hubUsersList.length > 8 && (
+              <input
+                value={guardianUserSearch}
+                onChange={e => setGuardianUserSearch(e.target.value)}
+                placeholder="Search people…"
+                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-brand mb-3"
+              />
+            )}
             <div className="space-y-2">
-              {hubUsersList.map(u => (
+              {filteredGuardianUsers.map(u => (
                 <div key={u.id} className="flex items-center justify-between bg-gray-800 rounded-xl px-4 py-2.5">
                   <div className="flex items-center gap-2.5">
                     <div className="w-7 h-7 rounded-full bg-gray-600 flex items-center justify-center text-xs font-bold text-white flex-none">
@@ -923,6 +961,7 @@ export default function HubAdminPanel({
                   </button>
                 </div>
               ))}
+              {filteredGuardianUsers.length === 0 && <p className="text-sm text-gray-500 px-1">No people match your search.</p>}
             </div>
           </div>
         </div>
