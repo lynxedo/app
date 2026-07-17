@@ -8,8 +8,10 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('user_profiles').select('role, company_id').eq('id', user.id).single()
   const isAdmin = profile?.role === 'admin'
+
+  const admin = createAdminClient()
 
   if (!isAdmin) {
     // RLS on rooms enforces: same company AND (NOT is_private OR is_room_member).
@@ -17,10 +19,15 @@ export async function GET(_req: Request, { params }: { params: Promise<{ id: str
     // If it doesn't, return 404 so private-room existence doesn't leak.
     const { data: room } = await supabase.from('rooms').select('id').eq('id', id).maybeSingle()
     if (!room) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  } else {
+    // Track 1 — the admin branch bypasses RLS; 404 unless the room is in the caller's company
+    const { data: room } = await admin.from('rooms').select('company_id').eq('id', id).maybeSingle()
+    if (!room || room.company_id !== profile?.company_id) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
   }
 
   // Fetch member list via admin client — room_members RLS only returns own row.
-  const admin = createAdminClient()
   const { data, error } = await admin
     .from('room_members')
     .select('user_id, role, joined_at, hub_users!user_id (id, display_name, avatar_url)')
@@ -47,7 +54,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('user_profiles').select('role, company_id').eq('id', user.id).single()
   if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { user_id } = await request.json()
@@ -55,6 +62,19 @@ export async function POST(request: Request, { params }: { params: Promise<{ id:
 
   // Use admin client — room_members RLS only allows own rows
   const admin = createAdminClient()
+
+  // Track 1 — the admin client bypasses RLS; 404 unless the room is in the caller's company
+  const { data: room } = await admin.from('rooms').select('company_id').eq('id', id).maybeSingle()
+  if (!room || room.company_id !== profile.company_id) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
+  // Track 1 — the user being added must belong to the caller's company too
+  const { data: target } = await admin.from('user_profiles').select('company_id').eq('id', user_id).maybeSingle()
+  if (!target || target.company_id !== profile.company_id) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  }
+
   const { error } = await admin
     .from('room_members')
     .upsert({ room_id: id, user_id, role: 'member' }, { onConflict: 'room_id,user_id' })
@@ -69,13 +89,20 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ i
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { data: profile } = await supabase.from('user_profiles').select('role').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('user_profiles').select('role, company_id').eq('id', user.id).single()
   if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { user_id } = await request.json()
   if (!user_id) return NextResponse.json({ error: 'user_id required' }, { status: 400 })
 
   const admin = createAdminClient()
+
+  // Track 1 — the admin client bypasses RLS; 404 unless the room is in the caller's company
+  const { data: room } = await admin.from('rooms').select('company_id').eq('id', id).maybeSingle()
+  if (!room || room.company_id !== profile.company_id) {
+    return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  }
+
   const { error } = await admin
     .from('room_members')
     .delete()

@@ -14,6 +14,8 @@ export async function POST(
 ) {
   const check = await requireAdminArea('people')
   if (!check.ok || !check.user) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  // Track 1 — the admin client below bypasses RLS; a caller with no company can't manage anyone.
+  if (!check.company_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const { id } = await params
   const { action } = await request.json()
@@ -27,10 +29,14 @@ export async function POST(
   const admin = createAdminClient()
   const { data: target } = await admin
     .from('user_profiles')
-    .select('id, role, locked_at, deactivated_at')
+    .select('id, role, locked_at, deactivated_at, company_id')
     .eq('id', id)
     .single()
   if (!target) return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  // Track 1 — cross-company target: answer exactly like a missing user (don't leak existence).
+  if (target.company_id !== check.company_id) {
+    return NextResponse.json({ error: 'User not found' }, { status: 404 })
+  }
   if (target.role === 'admin' && !check.isSuperAdmin) {
     return NextResponse.json({ error: 'Only full admins can lock or deactivate an admin' }, { status: 403 })
   }

@@ -9,15 +9,18 @@ export async function GET() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role')
+    .select('role, company_id')
     .eq('id', user.id)
     .single()
   if (profile?.role !== 'admin') return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  // Track 1 — the admin client bypasses RLS; scope the list to the caller's company
+  if (!profile.company_id) return NextResponse.json({ error: 'No company' }, { status: 403 })
 
   const admin = createAdminClient()
   const { data, error } = await admin
     .from('rooms')
     .select('id, name, description, is_private, archived_at, created_at')
+    .eq('company_id', profile.company_id)
     .order('name')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

@@ -135,6 +135,8 @@ export async function GET(req: NextRequest) {
   const { data: dbEmployees } = await admin
     .from('employees')
     .select('id, gusto_uuid, first_name, last_name, preferred_name, email, department, job_title, pay_type, hourly_rate')
+    // Track 1 — the admin client bypasses RLS: list only this company's roster.
+    .eq('company_id', auth.companyId)
     .eq('is_active', true)
     .order('first_name')
 
@@ -187,6 +189,26 @@ export async function POST(req: NextRequest) {
   if (!Array.isArray(changes)) return NextResponse.json({ error: 'changes array required' }, { status: 400 })
 
   const admin = createAdminClient()
+
+  // Track 1 — the admin client bypasses RLS: every employee_id in the request
+  // must belong to the caller's company; any foreign or unknown id rejects the
+  // whole request with a bare 404 (leaks nothing).
+  if (changes.length > 0) {
+    const requestedIds = Array.from(new Set(changes.map((c) => c?.employee_id)))
+    if (requestedIds.some((v) => typeof v !== 'string')) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+    const { data: companyEmployees } = await admin
+      .from('employees')
+      .select('id')
+      .eq('company_id', auth.companyId)
+      .in('id', requestedIds)
+    const companyIds = new Set((companyEmployees ?? []).map((e) => e.id))
+    if (!requestedIds.every((id) => companyIds.has(id))) {
+      return NextResponse.json({ error: 'Not found' }, { status: 404 })
+    }
+  }
+
   const gustoAuth = await getGustoAuth(admin, auth.companyId)
   if (!gustoAuth) return NextResponse.json({ error: 'Gusto is not connected' }, { status: 400 })
 

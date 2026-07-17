@@ -18,7 +18,7 @@ export async function PATCH(req: NextRequest) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_timesheet')
+    .select('role, can_admin_timesheet, company_id')
     .eq('id', user.id)
     .single()
   if (profile?.role !== 'admin' && !profile?.can_admin_timesheet) {
@@ -38,6 +38,17 @@ export async function PATCH(req: NextRequest) {
   if (validationError) return NextResponse.json({ error: validationError }, { status: 400 })
 
   const admin = createAdminClient()
+
+  // Track 1 — the admin client bypasses RLS: verify the target employee belongs
+  // to the caller's company before reading or writing any punches.
+  if (!profile?.company_id) return NextResponse.json({ error: 'No company' }, { status: 403 })
+  const { data: targetEmployee } = await admin
+    .from('employees')
+    .select('id')
+    .eq('id', employee_id)
+    .eq('company_id', profile.company_id)
+    .single()
+  if (!targetEmployee) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
   // Load the day's existing punches to update in place (preserves ids + audit).
   // Central calendar day, not UTC (TS4).

@@ -15,7 +15,7 @@ export async function PATCH(
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_timesheet')
+    .select('role, can_admin_timesheet, company_id')
     .eq('id', user.id)
     .single()
   if (profile?.role !== 'admin' && !profile?.can_admin_timesheet) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -30,11 +30,24 @@ export async function PATCH(
   // Fetch original punch to save audit trail
   const { data: original } = await supabase
     .from('time_punches')
-    .select('punched_at, original_punched_at')
+    .select('punched_at, original_punched_at, employee_id')
     .eq('id', id)
     .single()
 
   if (!original) return NextResponse.json({ error: 'Punch not found' }, { status: 404 })
+
+  // Track 1 — verify the punch's employee belongs to the caller's company before
+  // mutating (the recompute below runs service-role, bypassing RLS). A
+  // cross-company punch gets the same 404 as not-found.
+  if (!profile?.company_id) return NextResponse.json({ error: 'No company' }, { status: 403 })
+  const admin = createAdminClient()
+  const { data: targetEmployee } = await admin
+    .from('employees')
+    .select('id')
+    .eq('id', original.employee_id)
+    .eq('company_id', profile.company_id)
+    .single()
+  if (!targetEmployee) return NextResponse.json({ error: 'Punch not found' }, { status: 404 })
 
   const { data, error } = await supabase
     .from('time_punches')
@@ -61,7 +74,7 @@ export async function PATCH(
     // Recompute the derived entry from the day's punches (source of truth).
     // Central calendar day, not UTC (TS4).
     const date = centralDate(punch.punched_at)
-    await recomputeDayEntry(createAdminClient(), punch.employee_id, date)
+    await recomputeDayEntry(admin, punch.employee_id, date)
   }
 
   return NextResponse.json({ punch: data })

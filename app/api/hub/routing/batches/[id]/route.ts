@@ -1,34 +1,20 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { requireCompany } from '@/lib/company-auth'
 
 // Session 73.2 — single holding-area batch: delete (un-hold its stops) or mark
 // a send channel complete. Both verify the batch belongs to the caller's company
 // before mutating via the admin client.
 
-async function resolveCompany(request: Request) {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return { error: NextResponse.json({ error: 'Unauthorized' }, { status: 401 }) }
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('company_id')
-    .eq('id', user.id)
-    .single()
-  if (!profile?.company_id) {
-    return { error: NextResponse.json({ error: 'Profile not found' }, { status: 404 }) }
-  }
-  return { companyId: profile.company_id as string }
-}
-
 // DELETE — remove a batch. Its stops reappear on the live map/list client-side.
 export async function DELETE(
-  request: Request,
+  _request: Request,
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params
-  const { companyId, error } = await resolveCompany(request)
-  if (error) return error
+  const auth = await requireCompany()
+  if ('error' in auth) return auth.error
+  const { companyId } = auth
 
   const admin = createAdminClient()
   const { error: delErr } = await admin
@@ -46,8 +32,9 @@ export async function PATCH(
   context: { params: Promise<{ id: string }> },
 ) {
   const { id } = await context.params
-  const { companyId, error } = await resolveCompany(request)
-  if (error) return error
+  const auth = await requireCompany()
+  if ('error' in auth) return auth.error
+  const { companyId } = auth
 
   let body: { channel?: string }
   try {
