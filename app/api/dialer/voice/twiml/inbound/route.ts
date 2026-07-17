@@ -314,16 +314,17 @@ export async function POST(request: NextRequest) {
     return twimlResponse(callerTwiml)
   }
 
-  // No route configured — go straight to general voicemail. Settings already
-  // fetched above, so we can use `settings` directly.
-  return respond(
-    twimlRecordVoicemail({
-      action: `${process.env.NEXT_PUBLIC_APP_URL}/api/dialer/voice/voicemail/complete`,
-      greetingUrl: settings?.fallback_voicemail_url || null,
-      greetingTts: settings?.fallback_voicemail_tts || null,
-      spokenFallback:
-        "Thanks for calling. Please leave a message after the beep and we'll get back to you. Press pound when finished.",
-    })
+  // No route user available — either none is configured, or the configured user
+  // is DND right now. Redirect to the general-voicemail RENDER route rather than
+  // recording a voicemail inline: that route is the single choke point that hands
+  // an unanswered company call to the AI receptionist (Amber) when she's enabled,
+  // and falls back to the identical company voicemail recording (same
+  // fallback_voicemail_url / _tts greeting) when she's off. This is what fixes
+  // "turning on DND sends callers straight to voicemail instead of Amber" — the
+  // conference no-answer path (via=conf) already reaches Amber this way; the
+  // DND-skip and no-route paths now do too.
+  return twimlResponse(
+    `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${voicemailRender}</Redirect></Response>`
   )
 }
 
