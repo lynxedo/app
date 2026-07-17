@@ -394,6 +394,14 @@ export async function advanceDripEnrollments(
           body: body || null, to: e.phone, providerRef: res.twilio_sid ?? null, error: res.ok ? null : res.error ?? null,
         })
         if (res.ok) sent++
+        // Amber sent the drip → archive the thread so it stays out of the active inbox
+        // while nurturing. When the lead replies, sms/inbound reopens it to 'unassigned'
+        // (the manager Queue) so a human picks it up. No-op in DRIP_TEST_MODE (no real
+        // conversation was created) and on a failed send.
+        const convId = (res as any).conversation_id ?? null
+        if (res.ok && convId) {
+          await admin.from('txt_conversations').update({ status: 'archived', archived_by: null }).eq('id', convId)
+        }
         // Stamp the resolved contact so reply-pause can match even a contact this send just created.
         const contactId = (res as any).contact_id ?? e.contact_id ?? null
         await advanceStep(admin, e, idx, stepList, contactId)
