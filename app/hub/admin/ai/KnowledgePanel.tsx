@@ -66,7 +66,7 @@ function slugify(title: string): string {
   return s || 'doc'
 }
 const SURFACE_LABELS: { key: string; label: string; short: string }[] = [
-  { key: 'guardian', label: 'Guardian', short: 'G' },
+  { key: 'guardian', label: 'Hub Bot', short: 'HB' },
   { key: 'responder', label: 'Auto Responder', short: 'R' },
   { key: 'receptionist', label: 'AI Receptionist', short: 'Rc' },
 ]
@@ -134,7 +134,7 @@ export default function KnowledgePanel({
       <div className="rounded-lg border border-white/10 bg-white/5">
         {docs.length === 0 ? (
           <p className="px-4 py-6 text-sm text-white/50">
-            No docs yet. Create the first one to give Guardian some context.
+            No docs yet. Create the first one to give the Hub Bot some context.
           </p>
         ) : (
           <ul className="divide-y divide-white/10">
@@ -335,7 +335,7 @@ function DocEditor({
 
       {isProtected && (
         <div className="rounded-md border border-amber-700/50 bg-amber-900/20 text-amber-200 px-3 py-2 text-xs">
-          🔒 This is the router doc — Guardian&apos;s navigation entry point. It cannot be deleted or
+          🔒 This is the router doc — the Hub Bot&apos;s navigation entry point. It cannot be deleted or
           renamed, but you can still edit its title, body, and Used-by settings.
         </div>
       )}

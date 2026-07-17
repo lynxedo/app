@@ -8,8 +8,7 @@ import { markActive } from '@/lib/hub-activity'
 import { bridgeHubMessageToChatSynx } from '@/lib/chat-synx'
 import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
 import { matchMentionedUsers } from '@/lib/hub-mentions'
-
-const CLAUDE_BOT_ID = '00000000-0000-0000-0001-000000000001'
+import { GUARDIAN_HUB_USER_ID as CLAUDE_BOT_ID } from '@/lib/guardian-post'
 
 const CLAUDE_SYSTEM_PROMPT = `You are the Heroes Lawn Care team assistant, built into the company's internal messaging app (Hub).
 Heroes Lawn Care is a lawn care and landscaping company in the Houston/Cypress, TX area.

@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { useAutoSave } from '@/components/admin'
 
 type Settings = {
@@ -70,11 +70,17 @@ export default function GuardianPanel({
   initialPeople,
   initialRooms,
   isSuperAdmin,
+  botId,
+  initialBotName,
+  initialBotAvatarUrl,
 }: {
   initialSettings: Settings
   initialPeople: Person[]
   initialRooms: Room[]
   isSuperAdmin: boolean
+  botId: string
+  initialBotName: string
+  initialBotAvatarUrl: string | null
 }) {
   const [tab, setTab] = useState<Tab>('settings')
   const [settings, setSettings] = useState<Settings>(initialSettings)
@@ -92,6 +98,68 @@ export default function GuardianPanel({
   const [auditLoading, setAuditLoading] = useState(false)
   const [auditError, setAuditError] = useState<string | null>(null)
   const [auditIncludeTest, setAuditIncludeTest] = useState(false)
+
+  // Bot identity (name + avatar). The name is an explicit-save field (renaming
+  // is deliberate); the avatar uploads immediately on file pick.
+  const [botName, setBotName] = useState(initialBotName)
+  const [savedBotName, setSavedBotName] = useState(initialBotName)
+  const [savingBotName, setSavingBotName] = useState(false)
+  const [botNameSaved, setBotNameSaved] = useState(false)
+  const [botAvatarUrl, setBotAvatarUrl] = useState<string | null>(initialBotAvatarUrl)
+  const [botAvatarBust, setBotAvatarBust] = useState(0)
+  const [uploadingAvatar, setUploadingAvatar] = useState(false)
+  const [avatarErr, setAvatarErr] = useState<string | null>(null)
+  const botAvatarInputRef = useRef<HTMLInputElement>(null)
+
+  async function saveBotName() {
+    const name = botName.trim()
+    if (!name || name === savedBotName) return
+    setSavingBotName(true)
+    setError(null)
+    try {
+      const res = await fetch('/api/admin/guardian/bot-identity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ display_name: name }),
+      })
+      if (!res.ok) {
+        const b = await res.json().catch(() => null)
+        throw new Error(b?.error ?? `Save failed (${res.status})`)
+      }
+      setSavedBotName(name)
+      setBotName(name)
+      setBotNameSaved(true)
+      setTimeout(() => setBotNameSaved(false), 2000)
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e))
+    } finally {
+      setSavingBotName(false)
+    }
+  }
+
+  async function onPickBotAvatar(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    e.target.value = '' // allow re-picking the same file
+    if (!file) return
+    setUploadingAvatar(true)
+    setAvatarErr(null)
+    try {
+      const form = new FormData()
+      form.append('file', file)
+      const res = await fetch('/api/admin/guardian/bot-identity', { method: 'POST', body: form })
+      if (!res.ok) {
+        const b = await res.json().catch(() => null)
+        throw new Error(b?.error ?? `Upload failed (${res.status})`)
+      }
+      const body = await res.json()
+      setBotAvatarUrl(body.avatar_url ?? 'set')
+      setBotAvatarBust(Date.now())
+    } catch (err) {
+      setAvatarErr(err instanceof Error ? err.message : String(err))
+    } finally {
+      setUploadingAvatar(false)
+    }
+  }
 
   // Fetch models when Settings tab opens.
   useEffect(() => {
@@ -200,9 +268,76 @@ export default function GuardianPanel({
         <div className="space-y-4">
           <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
             <div>
-              <h2 className="font-semibold">Guardian model</h2>
+              <h2 className="font-semibold">Bot identity</h2>
               <p className="text-xs text-white/50 mt-1">
-                The Claude model Guardian uses for every reply. List is fetched live from Anthropic.
+                The name and avatar your Hub Bot uses in chat, DMs, and notifications.
+              </p>
+            </div>
+
+            {/* Avatar */}
+            <div className="flex items-center gap-4">
+              <div className="w-16 h-16 rounded-full overflow-hidden bg-white/10 ring-1 ring-inset ring-white/15 flex-none">
+                {/* eslint-disable-next-line @next/next/no-img-element */}
+                <img
+                  key={botAvatarBust}
+                  src={botAvatarUrl ? `/api/profile/avatar/${botId}?t=${botAvatarBust}` : '/bot-avatar.svg'}
+                  alt=""
+                  className="w-full h-full object-cover"
+                />
+              </div>
+              <div className="space-y-1">
+                <button
+                  type="button"
+                  onClick={() => botAvatarInputRef.current?.click()}
+                  disabled={uploadingAvatar}
+                  className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/15 disabled:opacity-50 text-sm"
+                >
+                  {uploadingAvatar ? 'Uploading…' : botAvatarUrl ? 'Change avatar' : 'Upload avatar'}
+                </button>
+                <p className="text-xs text-white/40">JPG, PNG, WebP, or GIF · under 5&nbsp;MB.</p>
+                {avatarErr && <p className="text-xs text-red-300">{avatarErr}</p>}
+                <input
+                  ref={botAvatarInputRef}
+                  type="file"
+                  accept="image/jpeg,image/png,image/webp,image/gif"
+                  className="hidden"
+                  onChange={onPickBotAvatar}
+                />
+              </div>
+            </div>
+
+            {/* Name */}
+            <div>
+              <label className="block text-sm font-medium mb-1">Name</label>
+              <div className="flex items-center gap-3">
+                <input
+                  type="text"
+                  value={botName}
+                  onChange={e => setBotName(e.target.value)}
+                  maxLength={40}
+                  className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm min-w-[16rem]"
+                />
+                <button
+                  onClick={saveBotName}
+                  disabled={savingBotName || botName.trim() === '' || botName.trim() === savedBotName}
+                  className="px-3 py-1.5 rounded bg-white/10 hover:bg-white/15 disabled:opacity-50 text-sm"
+                >
+                  {savingBotName ? 'Saving…' : 'Save name'}
+                </button>
+                {botNameSaved && <span className="text-xs text-emerald-300">Saved ✓</span>}
+                {botName.trim() !== savedBotName && !botNameSaved && (
+                  <span className="text-xs text-amber-300">● Unsaved</span>
+                )}
+              </div>
+              <p className="text-xs text-white/40 mt-1">Shown as the sender name in chat and notifications.</p>
+            </div>
+          </section>
+
+          <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
+            <div>
+              <h2 className="font-semibold">Hub Bot model</h2>
+              <p className="text-xs text-white/50 mt-1">
+                The Claude model the Hub Bot uses for every reply. List is fetched live from Anthropic.
               </p>
             </div>
 
@@ -270,7 +405,7 @@ export default function GuardianPanel({
             <div>
               <h2 className="font-semibold">Tool list cache</h2>
               <p className="text-xs text-white/50 mt-1">
-                Guardian caches the MCP tool list in memory for 1 hour. If you change the MCP server's tools, click here so the next Guardian call picks them up.
+                The Hub Bot caches the MCP tool list in memory for 1 hour. If you change the MCP server's tools, click here so the next reply picks them up.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -402,7 +537,7 @@ function PeopleTab({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="font-semibold">Guardian tiers by person</h2>
+        <h2 className="font-semibold">Hub Bot tiers by person</h2>
         <p className="text-xs text-white/50 mt-1">
           <span className="text-white/70">Basic:</span> read-only Jobber/Captivated lookups + knowledge base.{' '}
           <span className="text-white/70">Manager:</span> + scheduling, visit edits, notes.{' '}
@@ -497,9 +632,9 @@ function RoomsTab({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="font-semibold">Per-room Guardian access</h2>
+        <h2 className="font-semibold">Per-room Hub Bot access</h2>
         <p className="text-xs text-white/50 mt-1">
-          Turn on <span className="text-emerald-300">Full access</span> for a room and Guardian
+          Turn on <span className="text-emerald-300">Full access</span> for a room and the Hub Bot
           gets full-tier capabilities for anyone asking inside that room — regardless of their
           personal tier. Useful for an &ldquo;office&rdquo; or &ldquo;leadership&rdquo; room.
         </p>
@@ -566,7 +701,7 @@ function AuditTab({
         <div>
           <h2 className="font-semibold">Audit log</h2>
           <p className="text-xs text-white/50 mt-1">
-            Last 100 Guardian replies. Click a row to expand and see the full question + answer.
+            Last 100 Hub Bot replies. Click a row to expand and see the full question + answer.
           </p>
         </div>
         <label className="flex items-center gap-2 text-sm">

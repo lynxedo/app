@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { fetchNewLsaLeads, googleAdsConfigured, type LsaLead } from '@/lib/google-ads'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
 import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
+import { GUARDIAN_HUB_USER_ID as GUARDIAN_BOT_ID } from '@/lib/guardian-post'
 
 // Google Local Services Ads (LSA) lead poller.
 //
@@ -20,7 +21,6 @@ export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
 export const maxDuration = 120
 
-const GUARDIAN_BOT_ID = '00000000-0000-0000-0001-000000000001'
 const OFFICE_ROOM_ID = 'cebac7e5-caf8-400c-a15d-5eb9d81e1967'
 // Matches the existing Lead Tracker "Lead Source" dropdown option so the cell
 // shows selected (same trick as the Angi webhook's 'Angi Lead').

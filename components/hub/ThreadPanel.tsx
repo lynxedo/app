@@ -93,7 +93,10 @@ function Avatar({ sender }: { sender: Sender | null }) {
   const [imgError, setImgError] = useState(false)
   if (!sender) return <div className="w-7 h-7 rounded-full bg-gray-700 flex-none" />
   const initials = sender.display_name.slice(0, 2).toUpperCase()
-  if (sender.avatar_url && !imgError) {
+  // Bots with no uploaded avatar still route through the serve endpoint, which
+  // returns the brand-neutral default bot avatar; on any error we fall back to
+  // initials below.
+  if ((sender.avatar_url || sender.is_bot) && !imgError) {
     return <img src={`/api/profile/avatar/${sender.id}`} alt="" className="w-7 h-7 rounded-full flex-none object-cover" onError={() => setImgError(true)} />
   }
   return (

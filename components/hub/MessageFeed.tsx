@@ -95,7 +95,10 @@ function Avatar({ sender }: { sender: Sender | null }) {
       {initials}
     </div>
   )
-  if (sender.avatar_url && !imgError) {
+  // Bots with no uploaded avatar still route through the serve endpoint, which
+  // returns the brand-neutral default bot avatar; on any error we fall back to
+  // initials below.
+  if ((sender.avatar_url || sender.is_bot) && !imgError) {
     return <img src={`/api/profile/avatar/${sender.id}`} alt="" className="w-8 h-8 rounded-full flex-none object-cover ring-1 ring-inset ring-white/10" onError={() => setImgError(true)} />
   }
   return initialsEl

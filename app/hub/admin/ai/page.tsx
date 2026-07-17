@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKnowledgeDocs, getGuardianSettings } from '@/lib/guardian-knowledge'
+import { GUARDIAN_HUB_USER_ID } from '@/lib/guardian-post'
 import { DEFAULT_RECEPTIONIST_NAME, DEFAULT_TITLE_SERVICE_MAP, buildVoiceReceptionistPrompt, buildWelcomeGreeting } from '@/lib/voice-receptionist'
 import {
   VOICE_RECEPTIONIST_COLUMNS,
@@ -31,6 +32,7 @@ export default async function AdminAiPage() {
     { data: responderRow },
     { data: responderCalls },
     { data: voiceReceptionistRow },
+    { data: botRow },
   ] = await Promise.all([
     getKnowledgeDocs(admin, companyId),
     getGuardianSettings(admin, companyId),
@@ -63,6 +65,13 @@ export default async function AdminAiPage() {
     admin
       .from('voice_receptionist_settings')
       .select(VOICE_RECEPTIONIST_COLUMNS)
+      .eq('company_id', companyId)
+      .maybeSingle(),
+    // The Hub Bot's own hub_users row — its editable name + avatar.
+    admin
+      .from('hub_users')
+      .select('display_name, avatar_url')
+      .eq('id', GUARDIAN_HUB_USER_ID)
       .eq('company_id', companyId)
       .maybeSingle(),
   ])
@@ -98,6 +107,14 @@ export default async function AdminAiPage() {
     is_private: boolean
     guardian_full_access: boolean
   }>
+
+  // Hub Bot identity — editable name + avatar (default name "Guardian").
+  const bot = (botRow as { display_name: string | null; avatar_url: string | null } | null) ?? null
+  const initialBot = {
+    id: GUARDIAN_HUB_USER_ID,
+    display_name: bot?.display_name ?? 'Guardian',
+    avatar_url: bot?.avatar_url ?? null,
+  }
 
   // AI Voice Receptionist — stored values for the form + code/env defaults used
   // as placeholders (and the resolved effective enabled state + level).
@@ -147,6 +164,7 @@ export default async function AdminAiPage() {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       initialResponderCalls={(responderCalls ?? []) as any}
       initialVoiceReceptionist={initialVoiceReceptionist}
+      initialBot={initialBot}
     />
   )
 }

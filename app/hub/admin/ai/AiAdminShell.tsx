@@ -64,6 +64,12 @@ type VoiceReceptionistInitial = {
 
 type SubTab = 'guardian' | 'responder' | 'receptionist' | 'knowledge'
 
+type BotIdentity = {
+  id: string
+  display_name: string
+  avatar_url: string | null
+}
+
 export default function AiAdminShell({
   isSuperAdmin,
   initialSettings,
@@ -73,6 +79,7 @@ export default function AiAdminShell({
   initialResponder,
   initialResponderCalls,
   initialVoiceReceptionist,
+  initialBot,
 }: {
   isSuperAdmin: boolean
   initialSettings: Settings
@@ -82,6 +89,7 @@ export default function AiAdminShell({
   initialResponder: Omit<ResponderSettings, 'id' | 'company_id'> | null
   initialResponderCalls: ResponderCall[]
   initialVoiceReceptionist: VoiceReceptionistInitial
+  initialBot: BotIdentity
 }) {
   const [tab, setTab] = useState<SubTab>('guardian')
   // Track the receptionist's selected level so we show only the settings that
@@ -94,13 +102,13 @@ export default function AiAdminShell({
       <header>
         <h1 className="text-xl font-semibold">AI</h1>
         <p className="text-sm text-white/60 mt-1">
-          Guardian, the auto-text responder, the AI voice receptionist, and the shared knowledge base.
+          The Hub Bot, the auto-text responder, the AI voice receptionist, and the shared knowledge base.
         </p>
       </header>
 
       <div className="flex gap-1 border-b border-gray-800 flex-wrap">
         <SubTabButton active={tab === 'guardian'} onClick={() => setTab('guardian')}>
-          Guardian
+          Hub Bot
         </SubTabButton>
         <SubTabButton active={tab === 'responder'} onClick={() => setTab('responder')}>
           Auto Responder
@@ -119,6 +127,9 @@ export default function AiAdminShell({
           initialPeople={initialPeople}
           initialRooms={initialRooms}
           isSuperAdmin={isSuperAdmin}
+          botId={initialBot.id}
+          initialBotName={initialBot.display_name}
+          initialBotAvatarUrl={initialBot.avatar_url}
         />
       )}
       {tab === 'responder' && (

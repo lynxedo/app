@@ -27,12 +27,21 @@ export async function GET(
   const admin = createAdminClient()
   const { data: hubUser } = await admin
     .from('hub_users')
-    .select('avatar_url')
+    .select('avatar_url, is_bot')
     .eq('id', userId)
     .single()
 
   const key = hubUser?.avatar_url
-  if (!key) return NextResponse.json({ error: 'No avatar' }, { status: 404 })
+  if (!key) {
+    // A bot with no uploaded avatar falls back to the product's brand-neutral
+    // default bot avatar (not initials), so every tenant's bot shows a proper
+    // icon out of the box. Humans still 404 → the caller renders initials.
+    if (hubUser?.is_bot) {
+      const base = process.env.NEXT_PUBLIC_APP_URL || 'https://lynxedo.com'
+      return NextResponse.redirect(new URL('/bot-avatar.svg', base))
+    }
+    return NextResponse.json({ error: 'No avatar' }, { status: 404 })
+  }
   // Legacy Google/OAuth profile picture — redirect directly
   if (key.startsWith('http')) return NextResponse.redirect(key)
 
