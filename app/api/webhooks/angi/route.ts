@@ -3,6 +3,7 @@ import crypto from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
 import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
+import { GUARDIAN_HUB_USER_ID as GUARDIAN_BOT_ID } from '@/lib/guardian-post'
 
 // Angi "Standard Lead API" webhook.
 //
@@ -18,8 +19,7 @@ import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
 export const runtime = 'nodejs'
 
 const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
-// Guardian/Claude bot (posts system messages) + the Hub "office" room.
-const GUARDIAN_BOT_ID = '00000000-0000-0000-0001-000000000001'
+// GUARDIAN_BOT_ID (imported above) posts system messages into the Hub "office" room.
 const OFFICE_ROOM_ID = 'cebac7e5-caf8-400c-a15d-5eb9d81e1967'
 
 function safeEqual(a: string, b: string): boolean {

@@ -1,0 +1,22 @@
+<svg width="128" height="128" viewBox="0 0 128 128" xmlns="http://www.w3.org/2000/svg" role="img" aria-label="Bot avatar">
+  <defs>
+    <linearGradient id="botBg" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#5b6b86"/>
+      <stop offset="1" stop-color="#3d4a63"/>
+    </linearGradient>
+  </defs>
+  <rect width="128" height="128" fill="url(#botBg)"/>
+  <!-- antenna -->
+  <line x1="64" y1="24" x2="64" y2="40" stroke="#eef2f8" stroke-width="4" stroke-linecap="round"/>
+  <circle cx="64" cy="21" r="5" fill="#eef2f8"/>
+  <!-- side ears -->
+  <rect x="27" y="57" width="6" height="16" rx="3" fill="#eef2f8"/>
+  <rect x="95" y="57" width="6" height="16" rx="3" fill="#eef2f8"/>
+  <!-- head -->
+  <rect x="33" y="41" width="62" height="50" rx="15" fill="#eef2f8"/>
+  <!-- eyes -->
+  <circle cx="52" cy="63" r="7" fill="#3d4a63"/>
+  <circle cx="76" cy="63" r="7" fill="#3d4a63"/>
+  <!-- mouth -->
+  <rect x="51" y="76" width="26" height="5" rx="2.5" fill="#3d4a63"/>
+</svg>
