@@ -22,7 +22,8 @@ import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-
 //      carrying the summary + full transcript, and mirror to the contacts directory.
 //   3. Surface the caller in the Hub Queue like any inbound (find-or-create
 //      contact + unassigned conversation).
-//   4. Notify the office (room post + Guardian DM + push) so it's worked ASAP.
+//   4. Notify the office with a single post in the Hub "office" room so it's
+//      worked ASAP (no Guardian DM / push — the room post is the one surface).
 //
 // Steps 3–4 are best-effort side effects (via after()) — a failure there must
 // never fail the wrap-up. Auth: Authorization: Bearer <VOICE_SERVICE_SECRET>.
@@ -143,12 +144,13 @@ async function extractLead(
     '"summary": string, "wants_callback": boolean, "soft_commitment": boolean, "recap_opt_in": boolean, ' +
     '"call_type": "sales_lead"|"complaint"|"scheduling"|"billing"|"existing_customer"|"other"}. ' +
     'Set a field to null if the caller did not provide it. ' +
-    'call_type classifies WHY they called: "sales_lead" = a new customer or anyone wanting a quote or to start service; ' +
+    'call_type classifies WHY they called: "sales_lead" = a new customer, or anyone wanting a quote or to start a service the company actually offers; ' +
     '"complaint" = an unhappy caller complaining about service or a problem; ' +
     '"scheduling" = an existing customer asking about, or wanting to change, their visit schedule; ' +
     '"billing" = a question about a payment, invoice, or charge; ' +
     '"existing_customer" = an existing customer with another service question; "other" = anything else. ' +
-    'When you are unsure, use "sales_lead" so a potential lead is never lost. ' +
+    'A caller asking only about a service the company does NOT offer (for example, the assistant explained they do not provide it, or referred the caller to a different company) is NOT a sales_lead — use "other". ' +
+    'When you are unsure whether it is a genuine sales lead, use "sales_lead" so a potential lead is never lost. ' +
     'soft_commitment is true ONLY if the caller explicitly agreed to move forward / get set up / have the team sign them up — not merely asking questions. ' +
     'recap_opt_in is true ONLY if the assistant offered to text a recap and the caller agreed (said yes / sure / that is fine). ' +
     'urgency is "emergency" for broken/leaking irrigation, flooding, or anything the caller frames as urgent; ' +
@@ -339,26 +341,16 @@ export async function POST(request: Request) {
         console.warn('[voice.wrapup] service queue ensure failed', (e as Error).message)
       }
 
-      // Notify the office: room post + Guardian DM(s) + push. Urgent for complaints.
+      // Notify the office with a single post in the "office" room (no Guardian
+      // DM, no push — per Ben, the room post is the one surface). Complaints get
+      // the 🔴 urgent flag inline.
       try {
-        const userIds = notifyUserIds()
         const bodyText =
           `${urgent ? '🔴 ' : ''}${meta.emoji} ${meta.label} from ${callerName}` +
           `${callbackPhone ? ` (${formatPhone(callbackPhone) || callbackPhone})` : ''}` +
           `\n${summary}` +
           `\nWork it in the Hub Queue → /hub/txt`
         await postGuardianToRoom(OFFICE_ROOM_ID, bodyText, { admin })
-        await fanoutGuardianNotification({ companyId, userIds, roomIds: [], body: bodyText, admin })
-        await sendHubPush(
-          userIds,
-          {
-            title: `${urgent ? '🔴 ' : `${meta.emoji} `}${meta.label}`,
-            body: `${callerName}: ${summary}`.slice(0, 120),
-            url: '/hub/txt',
-            type: 'lead',
-          },
-          { isDm: true },
-        )
       } catch (e) {
         console.warn('[voice.wrapup] service notify failed', (e as Error).message)
       }
@@ -455,9 +447,9 @@ export async function POST(request: Request) {
       console.warn('[voice.wrapup] queue ensure failed', (e as Error).message)
     }
 
-    // Notify the office: room post + Guardian DM(s) + push.
+    // Notify the office with a single post in the "office" room (no Guardian
+    // DM, no push — per Ben, the room post is the one surface).
     try {
-      const userIds = notifyUserIds()
       const line2 = [
         callbackPhone && `Callback: ${formatPhone(callbackPhone) || callbackPhone}`,
         service && `Service: ${service}`,
@@ -474,17 +466,6 @@ export async function POST(request: Request) {
         `\nOpen the Lead Tracker → /hub/tracker`
 
       await postGuardianToRoom(OFFICE_ROOM_ID, bodyText, { admin })
-      await fanoutGuardianNotification({ companyId, userIds, roomIds: [], body: bodyText, admin })
-      await sendHubPush(
-        userIds,
-        {
-          title: `${urgentFlag ? '🔴 ' : '☎️ '}After-hours AI call`,
-          body: `${callerName}: ${service || summary}`.slice(0, 120),
-          url: '/hub/tracker',
-          type: 'lead',
-        },
-        { isDm: true }
-      )
     } catch (e) {
       console.warn('[voice.wrapup] notify failed', (e as Error).message)
     }
