@@ -1,5 +1,11 @@
 import { createServerClient } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
+import {
+  SUBDOMAIN_ROUTING_ENABLED,
+  CROSS_SUBDOMAIN_COOKIE_DOMAIN,
+  tenantSlugFromHost,
+  tenantHostname,
+} from '@/lib/tenant-host'
 
 // Fail-fast guard (Phase 5, after the 2026-06-14 Supabase Auth outage). Every request
 // hits getUser() + a profile fetch here; when auth degrades those hang on retries and
@@ -34,7 +40,12 @@ export async function proxy(request: NextRequest) {
           cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({ request })
           cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
+            supabaseResponse.cookies.set(name, value, {
+              ...options,
+              // Track 2: share the session across *.lynxedo.com so it survives the
+              // apex -> {slug}.lynxedo.com redirect. Off (undefined) => host-only, as today.
+              ...(CROSS_SUBDOMAIN_COOKIE_DOMAIN ? { domain: CROSS_SUBDOMAIN_COOKIE_DOMAIN } : {}),
+            })
           )
         },
       },
@@ -63,7 +74,7 @@ export async function proxy(request: NextRequest) {
     const profileResult = await withTimeout(
       supabase
         .from('user_profiles')
-        .select('role, company_id, landing_page, can_access_routing, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, can_access_dialer, can_access_marketing, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing, companies(google_domain)')
+        .select('role, company_id, landing_page, can_access_routing, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, can_access_dialer, can_access_marketing, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing, companies(google_domain, subdomain_slug)')
         .eq('id', user.id)
         .single()
         .then(({ data }) => ({ data, degraded: false })),
@@ -99,6 +110,33 @@ export async function proxy(request: NextRequest) {
       url.pathname = '/welcome'
       url.search = ''
       return NextResponse.redirect(url)
+    }
+
+    // Subdomain tenant routing (Track 2). DARK until NEXT_PUBLIC_SUBDOMAIN_ROUTING_ENABLED=true.
+    // The authenticated user's company_id + RLS remain the security boundary; the host is a
+    // UX/routing guard only. Keep the user on their own {slug}.lynxedo.com: if they land on
+    // the apex, a reserved host, or someone else's tenant subdomain, bounce them to their own,
+    // preserving the requested path. Companies without a subdomain_slug are never redirected
+    // (nothing to route to), so this is a no-op for any tenant not yet given a slug.
+    if (SUBDOMAIN_ROUTING_ENABLED) {
+      const host = request.headers.get('host')
+      const hostSlug = tenantSlugFromHost(host)
+      const companiesRel = (profile as unknown as {
+        companies?:
+          | { subdomain_slug?: string | null }
+          | { subdomain_slug?: string | null }[]
+          | null
+      }).companies
+      const mySlug =
+        (Array.isArray(companiesRel) ? companiesRel[0]?.subdomain_slug : companiesRel?.subdomain_slug) ?? null
+
+      if (mySlug && hostSlug !== mySlug) {
+        const url = request.nextUrl.clone()
+        url.protocol = 'https:'
+        url.hostname = tenantHostname(host, mySlug)
+        url.port = ''
+        return NextResponse.redirect(url)
+      }
     }
 
     // Redirect logged-in users away from login to their preferred landing page
