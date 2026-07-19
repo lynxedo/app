@@ -1,6 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
+import { jobberGraphQL } from '@/lib/jobber'
 
 const JOBBER_CLIENT_ID = process.env.JOBBER_CLIENT_ID!
 const JOBBER_CLIENT_SECRET = process.env.JOBBER_CLIENT_SECRET!
@@ -80,6 +81,33 @@ export async function GET(request: Request) {
   if (dbError) {
     console.error('Failed to store Jobber tokens:', dbError)
     return NextResponse.redirect(`${APP_URL}/hub/routing?error=db_error`)
+  }
+
+  // Multi-tenant Track 3 — capture the Jobber accountId so the webhook route can
+  // map incoming events to the right company. Best-effort: a failure here must
+  // NEVER break the OAuth connect flow, so we log and continue. The token we just
+  // stored is readable by jobberGraphQL (same user session).
+  // ⚠ The webhook delivers accountId possibly base64-encoded; we store whatever
+  // GraphQL `{ account { id } }` returns. The orchestrator MUST confirm this
+  // stored format matches the webhook's `evt.accountId` before enforcement —
+  // see supabase/2026-07-19_jobber_account_mapping.sql.
+  try {
+    const acct = await jobberGraphQL<{ data?: { account?: { id?: string } } }>(
+      user.id,
+      '{ account { id } }'
+    )
+    const accountId = acct?.data?.account?.id
+    if (accountId) {
+      const { error: acctErr } = await supabase
+        .from('jobber_tokens')
+        .update({ account_id: accountId })
+        .eq('user_id', user.id)
+      if (acctErr) console.error('Jobber callback: failed to store account_id:', acctErr)
+    } else {
+      console.warn('Jobber callback: GraphQL returned no account id, skipping account_id capture')
+    }
+  } catch (e) {
+    console.error('Jobber callback: account_id capture failed (non-fatal):', e)
   }
 
   // Clear CSRF cookie

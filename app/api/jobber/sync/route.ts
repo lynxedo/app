@@ -3,7 +3,9 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { runInitialJobberSync, runDeltaJobberSync } from '@/lib/jobber-sync'
 
-const COMPANY_ID = '00000000-0000-0000-0000-000000000002'
+// Admin-triggered / nightly-cron sync for a single tenant. Env-overridable but
+// defaults to Heroes Lawn Care so the single-tenant path stays unchanged.
+const COMPANY_ID = process.env.JOBBER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 async function isAuthorized(req: NextRequest): Promise<boolean> {
   // Cron secret auth (nightly delta cron, Session 68). Accept both the

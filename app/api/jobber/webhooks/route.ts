@@ -1,14 +1,20 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import crypto from 'crypto'
-import { processJobberWebhookEvent } from '@/lib/jobber-sync'
+import { processJobberWebhookEvent, resolveCompanyByJobberAccountId } from '@/lib/jobber-sync'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
 
-// Single-tenant: Heroes Lawn Care. When Lynxedo onboards more companies, map the
-// webhook's base64 accountId → company_id here instead.
-const COMPANY_ID = '00000000-0000-0000-0000-000000000002'
-const EXPECTED_ACCOUNT_ID = process.env.JOBBER_ACCOUNT_ID
+// Multi-tenant Track 3 — the fallback company when an event's Jobber accountId
+// can't be mapped to a tenant (unknown/unmapped account, or Heroes before its
+// accountId is backfilled). Env-overridable but defaults to Heroes Lawn Care so
+// the single-tenant path stays byte-identical during the SaaS transition.
+// ⚠ TRANSITION-ONLY: once every tenant's accountId is mapped in jobber_tokens,
+// an unmapped/absent accountId should be REJECTED (ack-and-drop) rather than
+// silently attributed to Heroes. DO NOT reject yet — the fallback is what keeps
+// Heroes' events flowing while account mapping is backfilled.
+const HEROES_FALLBACK_COMPANY_ID =
+  process.env.JOBBER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 /**
  * Jobber signs each webhook with HMAC-SHA256 over the raw body, keyed by the
@@ -51,10 +57,30 @@ export async function POST(req: NextRequest) {
     return new NextResponse('ok', { status: 200 })
   }
 
-  // Reject events from unexpected Jobber accounts (ack so Jobber doesn't retry).
-  if (EXPECTED_ACCOUNT_ID && evt.accountId && evt.accountId !== EXPECTED_ACCOUNT_ID) {
-    console.warn('[jobber-webhook] unexpected accountId, ignoring:', evt.accountId)
-    return new NextResponse('ok', { status: 200 })
+  // TEMP (Track 3 rollout): log the raw accountId so the orchestrator can capture
+  // Heroes' real value for the migration backfill and confirm its format matches
+  // what the OAuth `{ account { id } }` query stores. REMOVE once backfilled.
+  console.log('[jobber-webhook] accountId=', evt.accountId)
+
+  // Route the event to the right tenant by its Jobber accountId. If the account
+  // is mapped, use its company; otherwise (unmapped account, or accountId absent)
+  // fall back to the Heroes default and warn loudly. The fallback keeps Heroes
+  // safe during the single-tenant phase and while account mapping is backfilled.
+  // ⚠ Once all tenants are mapped, an unknown/absent accountId should be rejected
+  // (ack-and-drop) instead of attributed to Heroes — see HEROES_FALLBACK_COMPANY_ID.
+  let companyId = HEROES_FALLBACK_COMPANY_ID
+  if (evt.accountId) {
+    const mapped = await resolveCompanyByJobberAccountId(evt.accountId)
+    if (mapped) {
+      companyId = mapped
+    } else {
+      console.warn(
+        '[jobber-webhook] no company mapped for accountId, falling back to Heroes default:',
+        evt.accountId
+      )
+    }
+  } else {
+    console.warn('[jobber-webhook] event has no accountId, falling back to Heroes default')
   }
 
   // `occuredAt` is the legacy spelling on apps created before 2023-12-08.
@@ -67,7 +93,7 @@ export async function POST(req: NextRequest) {
   const topic = evt.topic
   const itemId = evt.itemId
   after(() =>
-    processJobberWebhookEvent({ topic, itemId, companyId: COMPANY_ID, occurredAt })
+    processJobberWebhookEvent({ topic, itemId, companyId, occurredAt })
       .catch(err => console.error('[jobber-webhook]', topic, itemId, err))
   )
 

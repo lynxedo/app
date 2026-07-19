@@ -2,7 +2,9 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 
-const COMPANY_ID = '00000000-0000-0000-0000-000000000002'
+// Env-overridable but defaults to Heroes Lawn Care so the single-tenant path
+// stays unchanged. Mirrors app/api/jobber/sync/route.ts.
+const COMPANY_ID = process.env.JOBBER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
