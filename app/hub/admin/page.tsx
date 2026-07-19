@@ -34,7 +34,21 @@ export default async function AdminPage() {
         .eq('company_id', company.company_id)
     : { data: [] }
 
-  const usersWithProfiles = (rows ?? []).map((r: {
+  // Multi-tenant isolation: get_admin_users() is a SECURITY-DEFINER RPC with NO company
+  // filter (and no company_id in its result), so it returns EVERY company's users. Scope
+  // the roster to the caller's company — same guard as GET /api/admin/users. Without this,
+  // once a 2nd tenant exists every company's People list leaks into every other's.
+  const companyUserIds = new Set<string>()
+  if (company?.company_id) {
+    const { data: companyProfiles } = await admin
+      .from('user_profiles')
+      .select('id')
+      .eq('company_id', company.company_id)
+    for (const p of companyProfiles ?? []) companyUserIds.add(p.id)
+  }
+  const scopedRows = (rows ?? []).filter((r: { id: string }) => companyUserIds.has(r.id))
+
+  const usersWithProfiles = scopedRows.map((r: {
     id: string; email: string; created_at: string; last_sign_in_at: string | null;
     role: string; can_access_routing: boolean; can_access_lawn: boolean;
     can_access_call_log: boolean; can_access_responder: boolean; can_access_timesheet: boolean;
