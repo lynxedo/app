@@ -10,9 +10,11 @@ import {
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildConversationRelayTwiml, buildWelcomeGreeting } from '@/lib/voice-receptionist'
 import { getCompanyVoicemailGreeting, getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
+import { resolveCompanyByTwilioNumber } from '@/lib/txt-company'
 
-// Phase 1a is single-tenant (Heroes). Reuses the same company-id constant the
-// dialer/brain voice routes use.
+// Env-pinned fallback company (single-tenant default). Multi-tenant Track 3
+// resolves the real company per inbound `To` below; this only applies when the
+// destination number isn't in txt_phone_numbers — preserving today's behavior.
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
@@ -54,14 +56,26 @@ export async function POST(request: NextRequest) {
 
   const baseUrl = process.env.NEXT_PUBLIC_APP_URL || new URL(request.url).origin
 
+  // Multi-tenant Track 3 — resolve the owning company from the destination
+  // number (`To`) via txt_phone_numbers before any per-company fetch. Not found
+  // → fall back to the env-pinned default AND warn, so an unlisted number can
+  // never misroute or drop the call. For Heroes (its numbers are in the table)
+  // this resolves to the SAME company id the env pin produced.
+  const toNumber = params.get('To') || ''
+  const resolvedCompany = toNumber ? await resolveCompanyByTwilioNumber(toNumber) : null
+  if (toNumber && !resolvedCompany) {
+    console.warn('[voice:twiml] no company mapping for To — using env default', { toNumber })
+  }
+  const companyId = resolvedCompany?.companyId || HEROES_COMPANY_ID
+
   // Load the company's editable receptionist settings (Admin -> Dialer -> AI
   // Receptionist). When the admin has turned the receptionist OFF, do NOT hand
   // the caller to the AI — fall back to the standard voicemail flow instead.
   const admin = createAdminClient()
-  const settings = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
+  const settings = await getEffectiveVoiceReceptionistSettings(admin, companyId)
 
   if (!settings.enabled) {
-    const g = await getCompanyVoicemailGreeting(admin, HEROES_COMPANY_ID)
+    const g = await getCompanyVoicemailGreeting(admin, companyId)
     return twimlResponse(
       twimlRecordVoicemail({
         action: `${baseUrl}/api/dialer/voice/voicemail/complete`,
@@ -79,7 +93,7 @@ export async function POST(request: NextRequest) {
   const { data: ds } = await admin
     .from('dialer_settings')
     .select('business_hours')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .maybeSingle()
   const inHours = isWithinBusinessHours((ds?.business_hours as BusinessHoursSchedule | null) ?? null)
 
@@ -87,7 +101,7 @@ export async function POST(request: NextRequest) {
   // with VOICE_TEST_LEVEL=5, open with the FRONTLINE greeting (front-desk, no
   // "team isn't available" line) so the welcome matches how the brain behaves on
   // that call — without changing the company's stored level or the live line.
-  const toNumber = params.get('To') || ''
+  // (`toNumber` is resolved once above and reused here.)
   const testNumber = (process.env.VOICE_TEST_NUMBER || '').trim()
   const testFrontline = Boolean(testNumber && toNumber === testNumber && Math.round(Number(process.env.VOICE_TEST_LEVEL)) === 5)
   const greeting = testFrontline

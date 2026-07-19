@@ -13,7 +13,11 @@ import { evaluateEventAutomations } from '@/lib/automations'
 import { enrichTxtContactName } from '@/lib/dialer-lookup'
 import { pauseEnrollmentsForInbound } from '@/lib/drip'
 import { maybeEnqueueAmberTurn } from '@/lib/amber-text'
+import { resolveCompanyByTwilioNumber } from '@/lib/txt-company'
 
+// Env-pinned fallback company (single-tenant default). Multi-tenant Track 3
+// resolves the real company per inbound `To` below; this only applies when the
+// destination number isn't in txt_phone_numbers — preserving today's behavior.
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
@@ -134,6 +138,23 @@ export async function POST(req: NextRequest) {
 
   const supabase = createAdminClient()
 
+  // Multi-tenant Track 3 — resolve the owning company from the destination
+  // number (`To`) via txt_phone_numbers. Found → that company + its phone-number
+  // id (reused below instead of a duplicate id-only lookup). Not found → fall
+  // back to the env-pinned default AND warn, so an unlisted number can never
+  // drop the message. For Heroes (its numbers are in the table) this resolves to
+  // the SAME company id the env pin produced, so behavior is byte-identical.
+  const resolved = to ? await resolveCompanyByTwilioNumber(to) : null
+  if (to && !resolved) {
+    console.warn('[txt:inbound] no company mapping for To — using env default', { to })
+  }
+  const companyId = resolved?.companyId || HEROES_COMPANY_ID
+  // Our local txt_phone_numbers row id for the inbound line (stamped on the
+  // conversation + messages to route outbound replies back through it). null is
+  // fine — old/single-number setups still work via the env-default fallback in
+  // sendSms.
+  const toNumberId: string | null = resolved?.phoneNumberId || null
+
   // Dedupe by twilio_sid (Twilio retries on 5xx)
   const { data: existing } = await supabase
     .from('txt_messages')
@@ -149,7 +170,7 @@ export async function POST(req: NextRequest) {
   const { data: existingContact } = await supabase
     .from('txt_contacts')
     .select('id, name')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .eq('phone', from)
     .maybeSingle()
 
@@ -157,11 +178,11 @@ export async function POST(req: NextRequest) {
   if (!contactId) {
     // Resolve a real name from the Jobber clients/contacts mirror; fall back
     // to the phone-number placeholder only when nothing matches.
-    const jobberName = await enrichTxtContactName(HEROES_COMPANY_ID, from)
+    const jobberName = await enrichTxtContactName(companyId, from)
     const { data: created, error: createErr } = await supabase
       .from('txt_contacts')
       .insert({
-        company_id: HEROES_COMPANY_ID,
+        company_id: companyId,
         phone: from,
         phone_digits: from.replace(/\D/g, '').slice(-10),
         name: jobberName || from,
@@ -178,21 +199,7 @@ export async function POST(req: NextRequest) {
     // Existing contact still has the phone-as-name placeholder — enrich it
     // from the Jobber mirror (persists the name itself; a few indexed queries,
     // never throws). Awaited so the push title below picks up the real name.
-    await enrichTxtContactName(HEROES_COMPANY_ID, from)
-  }
-
-  // Session 54: look up our local txt_phone_numbers row matching the inbound
-  // `To` so we can stamp it on the conversation (and use it to route outbound
-  // replies back through the right number). null is fine — old/single-number
-  // setups still work via the env-default fallback in sendSms.
-  let toNumberId: string | null = null
-  if (to) {
-    const { data: numberRow } = await supabase
-      .from('txt_phone_numbers')
-      .select('id')
-      .eq('twilio_number', to)
-      .maybeSingle()
-    toNumberId = numberRow?.id || null
+    await enrichTxtContactName(companyId, from)
   }
 
   // Find or create direct conversation; reopen archived → unassigned.
@@ -201,7 +208,7 @@ export async function POST(req: NextRequest) {
   const { data: existingConv } = await supabase
     .from('txt_conversations')
     .select('id, status, phone_number_id')
-    .eq('company_id', HEROES_COMPANY_ID)
+    .eq('company_id', companyId)
     .eq('contact_id', contactId)
     .eq('kind', 'direct')
     .maybeSingle()
@@ -229,7 +236,7 @@ export async function POST(req: NextRequest) {
     const { data: createdConv, error: convErr } = await supabase
       .from('txt_conversations')
       .insert({
-        company_id: HEROES_COMPANY_ID,
+        company_id: companyId,
         contact_id: contactId,
         status: 'unassigned',
         kind: 'direct',
@@ -254,7 +261,7 @@ export async function POST(req: NextRequest) {
   const { data: insertedMsg, error: insertErr } = await supabase
     .from('txt_messages')
     .insert({
-      company_id: HEROES_COMPANY_ID,
+      company_id: companyId,
       conversation_id: conversationId,
       contact_id: contactId,
       direction: 'inbound',
@@ -318,7 +325,7 @@ export async function POST(req: NextRequest) {
           const url = params[`MediaUrl${i}`]
           const type = params[`MediaContentType${i}`] || 'application/octet-stream'
           if (!url) continue
-          const r2Key = await ingestMediaToR2(url, type, HEROES_COMPANY_ID)
+          const r2Key = await ingestMediaToR2(url, type, companyId)
           if (r2Key) mediaUrls.push(r2Key)
         }
         if (mediaUrls.length > 0) {
@@ -326,7 +333,7 @@ export async function POST(req: NextRequest) {
         }
       }
       await processInboundSideEffects({
-        supabase, conversationId, contactId, from, body, compliance, now, sid,
+        supabase, companyId, conversationId, contactId, from, body, compliance, now, sid,
       })
     } catch (err) {
       console.warn('[txt:inbound] background processing failed', err)
@@ -341,6 +348,7 @@ export async function POST(req: NextRequest) {
 // broadcast) extracted so the webhook can return to Twilio immediately and run these after.
 async function processInboundSideEffects(args: {
   supabase: ReturnType<typeof createAdminClient>
+  companyId: string
   conversationId: string
   contactId: string
   from: string
@@ -349,7 +357,7 @@ async function processInboundSideEffects(args: {
   now: string
   sid: string
 }) {
-  const { supabase, conversationId, contactId, from, body, compliance, now } = args
+  const { supabase, companyId, conversationId, contactId, from, body, compliance, now } = args
 
   // Drip auto-pause (Drip Marketing PRD §6): the instant a lead replies, stop
   // their active drip enrollments so a human/Amber takes over — STOP → opted_out,
@@ -357,7 +365,7 @@ async function processInboundSideEffects(args: {
   let pausedEnrollmentIds: string[] = []
   try {
     const pauseRes = await pauseEnrollmentsForInbound(supabase, {
-      companyId: HEROES_COMPANY_ID,
+      companyId,
       contactId,
       phone: from,
       isOptOut: compliance === 'stop',
@@ -374,7 +382,7 @@ async function processInboundSideEffects(args: {
     try {
       const { data: respStage } = await (supabase.from('tracker_stages') as any)
         .select('key')
-        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('company_id', companyId)
         .eq('system_role', 'responded')
         .maybeSingle()
       if (respStage?.key) {
@@ -386,13 +394,13 @@ async function processInboundSideEffects(args: {
         if (leadIds.length) {
           const { data: termStages } = await (supabase.from('tracker_stages') as any)
             .select('key')
-            .eq('company_id', HEROES_COMPANY_ID)
+            .eq('company_id', companyId)
             .in('system_role', ['won', 'lost'])
           const termKeys = new Set((termStages ?? []).map((s: any) => s.key as string))
           const { data: leadsNow } = await (supabase.from('leads') as any)
             .select('id, stage')
             .in('id', leadIds)
-            .eq('company_id', HEROES_COMPANY_ID)
+            .eq('company_id', companyId)
           // Never drag a card backward out of Responded / Won / Lost.
           const moveIds = (leadsNow ?? [])
             .filter((l: any) => l.stage !== respStage.key && !termKeys.has(l.stage))
@@ -401,7 +409,7 @@ async function processInboundSideEffects(args: {
             await (supabase.from('leads') as any)
               .update({ stage: respStage.key, stage_changed_at: now })
               .in('id', moveIds)
-              .eq('company_id', HEROES_COMPANY_ID)
+              .eq('company_id', companyId)
           }
         }
       }
@@ -410,7 +418,7 @@ async function processInboundSideEffects(args: {
     }
     try {
       await maybeEnqueueAmberTurn(supabase, {
-        companyId: HEROES_COMPANY_ID,
+        companyId,
         conversationId,
         contactId,
         phone: from,
@@ -438,7 +446,7 @@ async function processInboundSideEffects(args: {
   // can still be dropped when the callback finishes first.
   if (!compliance) {
     await evaluateEventAutomations({
-      companyId: HEROES_COMPANY_ID,
+      companyId,
       source: 'txt_inbound',
       vars: {
         from: from ?? '',
@@ -475,7 +483,7 @@ async function processInboundSideEffects(args: {
       const { data: txtSettings } = await supabase
         .from('txt_settings')
         .select('responder_notify_user_ids')
-        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('company_id', companyId)
         .maybeSingle()
       const notifyIds: string[] = (txtSettings as { responder_notify_user_ids?: string[] } | null)?.responder_notify_user_ids ?? []
       if (notifyIds.length > 0) {
@@ -485,7 +493,7 @@ async function processInboundSideEffects(args: {
         const { data: managers } = await supabase
           .from('user_profiles')
           .select('id, role, can_admin_txt, can_assign_txt_threads')
-          .eq('company_id', HEROES_COMPANY_ID)
+          .eq('company_id', companyId)
         recipients = (managers ?? [])
           .filter(
             (m) =>
@@ -500,7 +508,7 @@ async function processInboundSideEffects(args: {
       const { data: managers } = await supabase
         .from('user_profiles')
         .select('id, role, can_admin_txt, can_assign_txt_threads')
-        .eq('company_id', HEROES_COMPANY_ID)
+        .eq('company_id', companyId)
       recipients = (managers ?? [])
         .filter(
           (m) =>
@@ -561,7 +569,7 @@ async function processInboundSideEffects(args: {
 
   // Broadcast for realtime UI updates
   try {
-    const channel = supabase.channel(`txt:${HEROES_COMPANY_ID}`)
+    const channel = supabase.channel(`txt:${companyId}`)
     await channel.subscribe()
     await channel.send({
       type: 'broadcast',

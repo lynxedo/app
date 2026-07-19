@@ -21,8 +21,12 @@ import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-
 import { conferenceRoomName } from '@/lib/twilio-conference'
 import { connectInboundToAgentViaConference, isAgentDndNow } from '@/lib/dialer-conference-connect'
 import { findOrCreateTxtContact } from '@/lib/dialer-lookup'
+import { resolveCompanyByTwilioNumber } from '@/lib/txt-company'
 import type { ResponderMode } from '@/lib/responder'
 
+// Env-pinned fallback company (single-tenant default). Multi-tenant Track 3
+// resolves the real company per inbound `To` below; this only applies when the
+// destination number isn't in txt_phone_numbers — preserving today's behavior.
 const HEROES_COMPANY_ID =
   process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
@@ -64,6 +68,17 @@ export async function POST(request: NextRequest) {
   const toNumber = params.get('To') || ''
   const callSid = params.get('CallSid') || ''
 
+  // Multi-tenant Track 3 — resolve the owning company from the destination
+  // number (`To`) via txt_phone_numbers before any per-company fetch. Not found
+  // → fall back to the env-pinned default AND warn, so an unlisted number can
+  // never misroute or drop the call. For Heroes (its numbers are in the table)
+  // this resolves to the SAME company id the env pin produced.
+  const resolvedCompany = toNumber ? await resolveCompanyByTwilioNumber(toNumber) : null
+  if (toNumber && !resolvedCompany) {
+    console.warn('[dialer:inbound] no company mapping for To — using env default', { toNumber })
+  }
+  const companyId = resolvedCompany?.companyId || HEROES_COMPANY_ID
+
   // Log the inbound call up front. Status updates land later via /voice/status
   // (Twilio's separate Status Callback on the parent call) and the voicemail
   // render route (Dial action).
@@ -77,12 +92,12 @@ export async function POST(request: NextRequest) {
     admin
       .from('dialer_settings')
       .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays, recording_enabled, recording_consent_notice, recording_consent_enabled, recording_consent_url, fallback_voicemail_url, fallback_voicemail_tts')
-      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('company_id', companyId)
       .single(),
     admin
       .from('responder_settings')
       .select('mode, forwarded_line_ring_sec')
-      .eq('company_id', HEROES_COMPANY_ID)
+      .eq('company_id', companyId)
       .maybeSingle(),
   ])
 
@@ -110,11 +125,11 @@ export async function POST(request: NextRequest) {
     // contact_id NULL, which dropped the call from the contact's timeline and
     // per-contact call history.
     if (fromNumber) {
-      contactId = await findOrCreateTxtContact(HEROES_COMPANY_ID, fromNumber)
+      contactId = await findOrCreateTxtContact(companyId, fromNumber)
     }
 
     await admin.from('calls').insert({
-      company_id: HEROES_COMPANY_ID,
+      company_id: companyId,
       twilio_call_sid: callSid || null,
       direction: 'inbound',
       from_number: fromNumber || 'unknown',
@@ -245,7 +260,7 @@ export async function POST(request: NextRequest) {
       // Dialer -> AI Receptionist). When the receptionist is turned OFF, do NOT
       // connect to the AI — fall through to the normal after-hours/holiday IVR
       // (which lands in voicemail) below.
-      const vr = await getEffectiveVoiceReceptionistSettings(admin, HEROES_COMPANY_ID)
+      const vr = await getEffectiveVoiceReceptionistSettings(admin, companyId)
       if (vr.enabled) {
         // This branch only fires on the after_hours/holiday IVR tree, so the
         // team is genuinely unavailable — use the after-hours greeting.
@@ -270,7 +285,7 @@ export async function POST(request: NextRequest) {
       tree = config.trees?.default
     }
     if (tree?.root_node_id && tree.nodes?.[tree.root_node_id]) {
-      const ctx = await buildIvrContext(admin, HEROES_COMPANY_ID)
+      const ctx = await buildIvrContext(admin, companyId)
       const gatherActionUrlFor = (t: IvrTreeName, n: string, r: number) =>
         `${baseUrl}/api/dialer/voice/twiml/ivr?tree=${encodeURIComponent(t)}&node=${encodeURIComponent(n)}&r=${r}`
       return respond(
