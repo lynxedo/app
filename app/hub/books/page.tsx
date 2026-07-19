@@ -1,5 +1,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { loadPLData } from '@/lib/qbo-pl'
+import { resolveSessionCompanyId } from '@/lib/company-auth'
+import { QBO_FALLBACK_COMPANY_ID } from '@/lib/qbo'
 
 // This is a live QBO-backed financial dashboard — it must render per-request, not
 // be statically prerendered at build. Without this, `next build` tried to
@@ -15,12 +17,13 @@ import CostTrendChart from '@/components/books/CostTrendChart'
 import OverheadChart from '@/components/books/OverheadChart'
 import RefreshButton from '@/components/books/RefreshButton'
 
-async function isQBOConnected(): Promise<boolean> {
+async function isQBOConnected(companyId: string): Promise<boolean> {
   try {
     const supabase = createAdminClient()
     const { data } = await supabase
       .from('qbo_tokens')
       .select('id')
+      .eq('company_id', companyId)
       .limit(1)
       .single()
     return !!data
@@ -29,16 +32,19 @@ async function isQBOConnected(): Promise<boolean> {
   }
 }
 
-async function fetchPLData(): Promise<PLData | null> {
+async function fetchPLData(companyId: string): Promise<PLData | null> {
   try {
-    return await loadPLData()
+    return await loadPLData(companyId)
   } catch {
     return null
   }
 }
 
 export default async function BooksPage() {
-  const connected = await isQBOConnected()
+  // Scope every QBO read to the caller's company (Books sits under the Hub
+  // session; Heroes falls back to itself if the session can't be resolved).
+  const companyId = await resolveSessionCompanyId(QBO_FALLBACK_COMPANY_ID)
+  const connected = await isQBOConnected(companyId)
 
   if (!connected) {
     return (
@@ -57,7 +63,7 @@ export default async function BooksPage() {
     )
   }
 
-  const plData = await fetchPLData()
+  const plData = await fetchPLData(companyId)
 
   if (!plData) {
     return (

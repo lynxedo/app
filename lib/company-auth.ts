@@ -47,3 +47,32 @@ export async function requireCompany(): Promise<CompanyCaller | { error: NextRes
 
   return { userId: user.id, companyId: profile.company_id, role: profile.role ?? null, supabase }
 }
+
+/**
+ * Lenient company resolver for surfaces that already run under the Hub session
+ * but must NOT hard-fail if the session lookup hiccups — specifically the
+ * PIN-gated Books / QuickBooks dashboard (which sits inside /hub, so the session
+ * is normally present, but is additionally PIN-gated and must never 500 Heroes'
+ * live financials over a transient auth read).
+ *
+ * Resolves the caller's company_id from the Hub session; on any miss returns the
+ * supplied `fallback` (never throws). Normal Hub API routes should keep using
+ * requireCompany() / requireAdminArea(), which fail closed.
+ */
+export async function resolveSessionCompanyId(fallback: string): Promise<string> {
+  try {
+    const supabase = await createClient()
+    const { data: { user } } = await supabase.auth.getUser()
+    if (user) {
+      const { data: profile } = await supabase
+        .from('user_profiles')
+        .select('company_id')
+        .eq('id', user.id)
+        .single()
+      if (profile?.company_id) return profile.company_id
+    }
+  } catch {
+    // fall through to the fallback
+  }
+  return fallback
+}

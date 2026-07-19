@@ -3,6 +3,13 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 const ALGORITHM = 'aes-256-cbc'
 
+// Multi-tenant fallback for the PIN-gated Books/QBO surface. Callers should pass
+// the caller's real company_id (resolved from the Hub session). This is only the
+// last-resort default when a company genuinely can't be resolved (mirrors the
+// DIALER_COMPANY_ID pattern; Heroes Lawn Care is the only live QBO tenant).
+export const QBO_FALLBACK_COMPANY_ID =
+  process.env.QBO_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
+
 function getKey() {
   return Buffer.from(process.env.QBO_TOKEN_ENCRYPTION_KEY!, 'hex')
 }
@@ -109,11 +116,15 @@ export async function refreshAccessToken(refreshToken: string): Promise<{
   return res.json()
 }
 
-export async function getQBOToken(): Promise<{ accessToken: string; realmId: string }> {
+export async function getQBOToken(companyId: string): Promise<{ accessToken: string; realmId: string }> {
   const supabase = createAdminClient()
   const { data, error } = await supabase
     .from('qbo_tokens')
     .select('*')
+    // Company-scoped: a tenant may only ever read its OWN QuickBooks token.
+    // order/limit(1) remain only as an in-company tiebreak (UNIQUE(company_id)
+    // makes this at most one row today).
+    .eq('company_id', companyId)
     .order('updated_at', { ascending: false })
     .limit(1)
     .single()
@@ -150,9 +161,10 @@ export async function getQBOToken(): Promise<{ accessToken: string; realmId: str
 
 export async function qboFetch(
   path: string,
-  options: RequestInit = {}
+  options: RequestInit = {},
+  companyId: string
 ): Promise<Response> {
-  const { accessToken, realmId } = await getQBOToken()
+  const { accessToken, realmId } = await getQBOToken(companyId)
   const base = 'https://quickbooks.api.intuit.com'
   const url = `${base}/v3/company/${realmId}${path}`
 
