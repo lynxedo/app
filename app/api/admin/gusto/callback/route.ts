@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { GUSTO_TOKEN_URL, fetchGustoCompanyUuid } from '@/lib/gusto'
+import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 const BACK = `${APP_URL}/hub/admin/timesheet`
@@ -71,6 +72,10 @@ export async function GET(request: Request) {
     return NextResponse.redirect(`${BACK}?gusto=db_error`)
   }
 
-  cookieStore.delete('gusto_oauth_state')
+  cookieStore.set('gusto_oauth_state', '', {
+    path: '/',
+    maxAge: 0,
+    ...(CROSS_SUBDOMAIN_COOKIE_DOMAIN ? { domain: CROSS_SUBDOMAIN_COOKIE_DOMAIN } : {}),
+  })
   return NextResponse.redirect(`${BACK}?gusto=connected`)
 }

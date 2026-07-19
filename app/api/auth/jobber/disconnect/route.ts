@@ -1,26 +1,33 @@
 import { NextResponse } from 'next/server'
-import { createClient } from '@/lib/supabase/server'
+import { requireAdminArea } from '@/lib/admin-auth'
+import { createAdminClient } from '@/lib/supabase/admin'
 
 /**
  * POST /api/auth/jobber/disconnect
- * Deletes the user's Jobber token row. Next call to anything that needs
- * Jobber access (load visits, optimize, send to Jobber) will fail until
- * the user re-connects via /api/auth/jobber.
+ * Disconnects the CALLER'S COMPANY from Jobber by deleting every jobber_tokens
+ * row for that company — not just the caller's own row.
  *
- * Note: Jobber doesn't expose a token revocation endpoint in their public
- * API. Deleting our copy of the token is the only thing we can do here —
- * the OAuth grant on Jobber's side technically still exists but is unusable
- * without our refresh token. Reconnecting issues a fresh grant.
+ * Jobber is a company-level integration (any admin's token serves the whole
+ * company), so the old per-user delete left other admins' rows behind: the
+ * Integrations card kept reading "connected" and could never be reset, even
+ * after the tokens went dead. Service-role client because we delete rows owned
+ * by other users in the company (RLS would block that from a user client).
+ *
+ * Gated to integration admins to match the Admin → Integrations page. Jobber
+ * exposes no token-revocation endpoint, so deleting our copy is all we can do;
+ * the OAuth grant on Jobber's side is unusable without our refresh token, and a
+ * Reconnect issues a fresh grant.
  */
 export async function POST() {
-  const supabase = await createClient()
-  const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+  const check = await requireAdminArea('integrations')
+  if (!check.ok) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!check.company_id) return NextResponse.json({ error: 'No company' }, { status: 403 })
 
-  const { error } = await supabase
+  const admin = createAdminClient()
+  const { error } = await admin
     .from('jobber_tokens')
     .delete()
-    .eq('user_id', user.id)
+    .eq('company_id', check.company_id)
 
   if (error) {
     return NextResponse.json({ error: error.message }, { status: 500 })

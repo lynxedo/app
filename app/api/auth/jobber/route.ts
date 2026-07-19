@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { randomBytes } from 'crypto'
+import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
 
 const JOBBER_CLIENT_ID = process.env.JOBBER_CLIENT_ID!
 const JOBBER_AUTH_URL = 'https://api.getjobber.com/api/oauth/authorize'
@@ -23,8 +24,12 @@ export async function GET() {
   cookieStore.set('jobber_oauth_state', state, {
     httpOnly: true,
     secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax', // sent on the top-level GET redirect back from Jobber
     maxAge: 600,
     path: '/',
+    // Share across *.lynxedo.com so the state survives when the connect starts on
+    // {slug}.lynxedo.com but Jobber returns to the apex callback (undefined = host-only).
+    ...(CROSS_SUBDOMAIN_COOKIE_DOMAIN ? { domain: CROSS_SUBDOMAIN_COOKIE_DOMAIN } : {}),
   })
 
   const params = new URLSearchParams({

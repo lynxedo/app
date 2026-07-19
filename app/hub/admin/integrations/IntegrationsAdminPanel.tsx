@@ -220,10 +220,13 @@ function IntegrationCard({
         <div className="flex items-center gap-2 flex-wrap justify-end">
           <StatusChip {...info} />
 
-          {/* Connect (OAuth start) — when a start route exists and we're not connected */}
-          {!isComingSoon && provider.connectHref && !isConnected && (
-            <a href={provider.connectHref} className={`${btn} bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border-blue-600/30`}>
-              Connect
+          {/* Connect / Reconnect (OAuth start) — always available when a start route
+              exists. Showing "Reconnect" while connected is essential: a token can go
+              dead (expired/revoked refresh token) while the row still reads "connected",
+              and without this the only button was Disconnect — leaving no way to re-auth. */}
+          {!isComingSoon && provider.connectHref && (
+            <a href={provider.connectHref} className={`${btn} ${isConnected ? 'bg-gray-800 hover:bg-gray-700 text-gray-300 border-gray-700' : 'bg-blue-600/20 hover:bg-blue-600/30 text-blue-300 border-blue-600/30'}`}>
+              {isConnected ? 'Reconnect' : 'Connect'}
             </a>
           )}
 

@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { exchangeGoogleCode, fetchGoogleEmail } from '@/lib/google-oauth'
+import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
 
 export const dynamic = 'force-dynamic'
 
@@ -27,7 +28,11 @@ export async function GET(request: Request) {
   if (!storedState || storedState !== state) {
     return NextResponse.redirect(`${DONE}?google=invalid_state`)
   }
-  cookieStore.delete('google_oauth_state')
+  cookieStore.set('google_oauth_state', '', {
+    path: '/',
+    maxAge: 0,
+    ...(CROSS_SUBDOMAIN_COOKIE_DOMAIN ? { domain: CROSS_SUBDOMAIN_COOKIE_DOMAIN } : {}),
+  })
 
   const check = await requireAdminArea('integrations')
   if (!check.ok || !check.user || !check.company_id) {

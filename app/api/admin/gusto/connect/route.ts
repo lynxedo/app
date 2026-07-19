@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { cookies } from 'next/headers'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { GUSTO_AUTHORIZE_URL } from '@/lib/gusto'
+import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
 
 const APP_URL = process.env.NEXT_PUBLIC_APP_URL ?? 'http://localhost:3000'
 
@@ -24,6 +25,8 @@ export async function GET() {
     sameSite: 'lax',
     maxAge: 600,
     path: '/',
+    // Share across *.lynxedo.com so the state survives the subdomain→apex callback hop.
+    ...(CROSS_SUBDOMAIN_COOKIE_DOMAIN ? { domain: CROSS_SUBDOMAIN_COOKIE_DOMAIN } : {}),
   })
 
   const url = new URL(GUSTO_AUTHORIZE_URL)

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { encrypt, exchangeAuthCode, QBO_FALLBACK_COMPANY_ID } from '@/lib/qbo'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
 
 export async function GET(request: NextRequest) {
   const { searchParams } = request.nextUrl
@@ -56,6 +57,10 @@ export async function GET(request: NextRequest) {
   }
 
   const redirect = NextResponse.redirect(new URL('/books', process.env.NEXT_PUBLIC_APP_URL!))
-  redirect.cookies.delete('qbo_oauth_state')
+  redirect.cookies.set('qbo_oauth_state', '', {
+    path: '/',
+    maxAge: 0,
+    ...(CROSS_SUBDOMAIN_COOKIE_DOMAIN ? { domain: CROSS_SUBDOMAIN_COOKIE_DOMAIN } : {}),
+  })
   return redirect
 }
