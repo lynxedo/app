@@ -56,20 +56,13 @@ export async function GET() {
   if (!user.company_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
   const admin = createAdminClient()
-  const { data: rows, error } = await admin.rpc('get_admin_users')
+  // get_admin_users(p_company_id) filters to the caller's company at the source
+  // (SECURITY DEFINER), so cross-company users can never leak into the result.
+  const { data: rows, error } = await admin.rpc('get_admin_users', { p_company_id: user.company_id })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Track 1 — get_admin_users() returns EVERY company's users (no company filter in the
-  // RPC, and no company_id column in its result), so scope to the caller's company here.
-  const { data: companyProfiles, error: companyError } = await admin
-    .from('user_profiles')
-    .select('id')
-    .eq('company_id', user.company_id)
-  if (companyError) return NextResponse.json({ error: companyError.message }, { status: 500 })
-  const companyUserIds = new Set((companyProfiles ?? []).map((p) => p.id))
-
   return NextResponse.json({
-    users: (rows ?? []).filter((r: { id: string }) => companyUserIds.has(r.id)).map((r: {
+    users: (rows ?? []).map((r: {
       id: string; email: string; created_at: string; last_sign_in_at: string | null;
       role: string; can_access_routing: boolean; can_access_lawn: boolean;
       can_access_call_log: boolean; can_access_responder: boolean; can_access_timesheet: boolean;

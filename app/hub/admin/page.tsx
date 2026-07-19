@@ -12,43 +12,32 @@ export default async function AdminPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_people')
+    .select('role, can_admin_people, company_id')
     .eq('id', user.id)
     .single()
   const isSuperAdmin = profile?.role === 'admin'
   if (!isSuperAdmin && !profile?.can_admin_people) redirect('/dashboard')
+  const companyId = profile?.company_id ?? null
 
   const admin = createAdminClient()
 
-  const [{ data: rows }, { data: company }] = await Promise.all([
-    admin.rpc('get_admin_users'),
-    supabase.from('user_profiles').select('company_id').eq('id', user.id).single(),
-  ])
+  // Multi-tenant isolation: get_admin_users(p_company_id) is a SECURITY-DEFINER RPC that
+  // filters to the caller's company at the source, so cross-company users can never leak
+  // into the roster. The host/subdomain never governs this — company_id does.
+  const { data: rows } = companyId
+    ? await admin.rpc('get_admin_users', { p_company_id: companyId })
+    : { data: [] }
 
   // ALL roster rows (linked + unlinked, active + inactive) — the panel needs
   // them for the per-user Employee Roster toggle and the no-login section.
-  const { data: employeeRows } = company?.company_id
+  const { data: employeeRows } = companyId
     ? await admin
         .from('employees')
         .select('id, first_name, last_name, preferred_name, department, job_title, pay_type, hourly_rate, email, user_id, is_active')
-        .eq('company_id', company.company_id)
+        .eq('company_id', companyId)
     : { data: [] }
 
-  // Multi-tenant isolation: get_admin_users() is a SECURITY-DEFINER RPC with NO company
-  // filter (and no company_id in its result), so it returns EVERY company's users. Scope
-  // the roster to the caller's company — same guard as GET /api/admin/users. Without this,
-  // once a 2nd tenant exists every company's People list leaks into every other's.
-  const companyUserIds = new Set<string>()
-  if (company?.company_id) {
-    const { data: companyProfiles } = await admin
-      .from('user_profiles')
-      .select('id')
-      .eq('company_id', company.company_id)
-    for (const p of companyProfiles ?? []) companyUserIds.add(p.id)
-  }
-  const scopedRows = (rows ?? []).filter((r: { id: string }) => companyUserIds.has(r.id))
-
-  const usersWithProfiles = scopedRows.map((r: {
+  const usersWithProfiles = (rows ?? []).map((r: {
     id: string; email: string; created_at: string; last_sign_in_at: string | null;
     role: string; can_access_routing: boolean; can_access_lawn: boolean;
     can_access_call_log: boolean; can_access_responder: boolean; can_access_timesheet: boolean;
