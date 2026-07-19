@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { checkPinCookie } from '@/lib/check-pin-cookie'
+import { resolveSessionCompanyId } from '@/lib/company-auth'
+import { QBO_FALLBACK_COMPANY_ID } from '@/lib/qbo'
 
 const SCOPES = 'com.intuit.quickbooks.accounting'
 
@@ -7,7 +9,15 @@ export async function GET(request: NextRequest) {
   const denied = await checkPinCookie(request)
   if (denied) return denied
 
-  const state = crypto.randomUUID()
+  // Which tenant is connecting? Books runs under the Hub session, so this is a
+  // real resolution (Heroes falls back to itself). We carry the company_id in
+  // the OAuth `state` so the callback writes the token to the RIGHT company.
+  // The company_id is integrity-protected: the callback rejects the flow unless
+  // the returned `state` exactly equals the httpOnly cookie set below, so a
+  // tampered company_id can't survive the round-trip. (Company UUIDs are not
+  // secret; only the random half provides CSRF protection.)
+  const companyId = await resolveSessionCompanyId(QBO_FALLBACK_COMPANY_ID)
+  const state = `${crypto.randomUUID()}.${companyId}`
   const params = new URLSearchParams({
     client_id: process.env.QBO_CLIENT_ID!,
     response_type: 'code',

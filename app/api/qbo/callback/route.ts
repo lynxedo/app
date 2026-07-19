@@ -1,5 +1,5 @@
 import { NextRequest, NextResponse } from 'next/server'
-import { encrypt, exchangeAuthCode } from '@/lib/qbo'
+import { encrypt, exchangeAuthCode, QBO_FALLBACK_COMPANY_ID } from '@/lib/qbo'
 import { createAdminClient } from '@/lib/supabase/admin'
 
 export async function GET(request: NextRequest) {
@@ -17,6 +17,13 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: 'Invalid state parameter' }, { status: 400 })
   }
 
+  // Which tenant initiated this connect? The company_id was encoded into `state`
+  // at kickoff as `${random}.${companyId}` and is integrity-protected by the
+  // exact-equality check against the cookie above (a tampered value would fail
+  // that check). Fall back to Heroes for any legacy/malformed state so we still
+  // write a company_id on the row.
+  const companyId = state.split('.').slice(1).join('.') || QBO_FALLBACK_COMPANY_ID
+
   let tokens: { access_token: string; refresh_token: string; expires_in: number }
   try {
     tokens = await exchangeAuthCode(code)
@@ -27,15 +34,20 @@ export async function GET(request: NextRequest) {
   const expiresAt = new Date(Date.now() + tokens.expires_in * 1000).toISOString()
 
   const supabase = createAdminClient()
+  // One QBO connection per company: upsert on company_id so re-connecting a
+  // company (even to a different realm) updates its single row rather than
+  // creating a second. Requires UNIQUE(company_id) — see the 2026-07-19
+  // qbo_tokens company-scope migration.
   const { error } = await supabase.from('qbo_tokens').upsert(
     {
+      company_id: companyId,
       realm_id: realmId,
       access_token: encrypt(tokens.access_token),
       refresh_token: encrypt(tokens.refresh_token),
       expires_at: expiresAt,
       updated_at: new Date().toISOString(),
     },
-    { onConflict: 'realm_id' }
+    { onConflict: 'company_id' }
   )
 
   if (error) {

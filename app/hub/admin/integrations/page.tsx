@@ -28,7 +28,7 @@ export default async function AdminIntegrationsPage() {
 
   const [jobber, qbo, gusto, meta, email, onestep, google, voicedrop] = await Promise.all([
     admin.from('jobber_tokens').select('id').eq('company_id', companyId).limit(1).maybeSingle(),
-    admin.from('qbo_tokens').select('id').limit(1).maybeSingle(), // QBO is a single global connection today
+    admin.from('qbo_tokens').select('id').eq('company_id', companyId).maybeSingle(), // QBO is now company-scoped (Track 3)
     admin.from('gusto_connections').select('company_id').eq('company_id', companyId).maybeSingle(),
     admin.from('social_accounts').select('id, active').eq('company_id', companyId),
     admin.from('email_sending_identities').select('id, domain_verified').eq('company_id', companyId),

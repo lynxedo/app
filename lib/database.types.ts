@@ -5618,6 +5618,7 @@ export type Database = {
       qbo_tokens: {
         Row: {
           access_token: string
+          company_id: string
           expires_at: string
           id: string
           realm_id: string
@@ -5626,6 +5627,7 @@ export type Database = {
         }
         Insert: {
           access_token: string
+          company_id?: string
           expires_at: string
           id?: string
           realm_id: string
@@ -5634,13 +5636,22 @@ export type Database = {
         }
         Update: {
           access_token?: string
+          company_id?: string
           expires_at?: string
           id?: string
           realm_id?: string
           refresh_token?: string
           updated_at?: string | null
         }
-        Relationships: []
+        Relationships: [
+          {
+            foreignKeyName: "qbo_tokens_company_id_fkey"
+            columns: ["company_id"]
+            isOneToOne: true
+            referencedRelation: "companies"
+            referencedColumns: ["id"]
+          },
+        ]
       }
       reactions: {
         Row: {

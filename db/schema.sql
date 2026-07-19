@@ -1246,7 +1246,8 @@ CREATE TABLE public.qbo_tokens (
   access_token text NOT NULL,
   refresh_token text NOT NULL,
   expires_at timestamp with time zone NOT NULL,
-  updated_at timestamp with time zone DEFAULT now()
+  updated_at timestamp with time zone DEFAULT now(),
+  company_id uuid NOT NULL DEFAULT '00000000-0000-0000-0000-000000000002'::uuid
 );
 
 CREATE TABLE public.reactions (
@@ -2182,7 +2183,9 @@ ALTER TABLE push_subscriptions ADD CONSTRAINT push_subscriptions_pkey PRIMARY KE
 ALTER TABLE push_subscriptions ADD CONSTRAINT push_subscriptions_company_id_fkey FOREIGN KEY (company_id) REFERENCES companies(id);
 ALTER TABLE push_subscriptions ADD CONSTRAINT push_subscriptions_user_id_fkey FOREIGN KEY (user_id) REFERENCES hub_users(id) ON DELETE CASCADE;
 ALTER TABLE qbo_tokens ADD CONSTRAINT qbo_tokens_realm_id_key UNIQUE (realm_id);
+ALTER TABLE qbo_tokens ADD CONSTRAINT qbo_tokens_company_id_key UNIQUE (company_id);
 ALTER TABLE qbo_tokens ADD CONSTRAINT qbo_tokens_pkey PRIMARY KEY (id);
+ALTER TABLE qbo_tokens ADD CONSTRAINT qbo_tokens_company_id_fkey FOREIGN KEY (company_id) REFERENCES companies(id);
 ALTER TABLE reactions ADD CONSTRAINT reactions_pkey PRIMARY KEY (message_id, user_id, emoji);
 ALTER TABLE reactions ADD CONSTRAINT reactions_message_id_fkey FOREIGN KEY (message_id) REFERENCES messages(id) ON DELETE CASCADE;
 ALTER TABLE reactions ADD CONSTRAINT reactions_user_id_fkey FOREIGN KEY (user_id) REFERENCES hub_users(id) ON DELETE CASCADE;
@@ -2643,6 +2646,8 @@ CREATE UNIQUE INDEX push_subscriptions_pkey ON public.push_subscriptions USING b
 CREATE UNIQUE INDEX push_subscriptions_user_id_endpoint_key ON public.push_subscriptions USING btree (user_id, endpoint);
 CREATE UNIQUE INDEX qbo_tokens_pkey ON public.qbo_tokens USING btree (id);
 CREATE UNIQUE INDEX qbo_tokens_realm_id_key ON public.qbo_tokens USING btree (realm_id);
+CREATE UNIQUE INDEX qbo_tokens_company_id_key ON public.qbo_tokens USING btree (company_id);
+CREATE INDEX qbo_tokens_company_id_idx ON public.qbo_tokens USING btree (company_id);
 CREATE INDEX idx_reactions_user_id ON public.reactions USING btree (user_id);
 CREATE UNIQUE INDEX reactions_pkey ON public.reactions USING btree (message_id, user_id, emoji);
 CREATE UNIQUE INDEX recurring_program_definitions_line_item_name_key ON public.recurring_program_definitions USING btree (line_item_name);

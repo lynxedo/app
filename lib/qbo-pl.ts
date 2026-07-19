@@ -50,13 +50,15 @@ function extractMonthlyValues(rows: any[], rowName: string, numMonths: number): 
   return Array(numMonths).fill(0)
 }
 
-export async function loadPLData(): Promise<PLData> {
+export async function loadPLData(companyId: string): Promise<PLData> {
   const now = new Date()
   const startDate = `${now.getFullYear()}-01-01`
   const endDate = `${now.getFullYear()}-12-31`
 
   const res = await qboFetch(
-    `/reports/ProfitAndLoss?start_date=${startDate}&end_date=${endDate}&summarize_columns_by=Month`
+    `/reports/ProfitAndLoss?start_date=${startDate}&end_date=${endDate}&summarize_columns_by=Month`,
+    {},
+    companyId
   )
   const raw = await res.json()
 
