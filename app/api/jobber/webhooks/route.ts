@@ -57,11 +57,6 @@ export async function POST(req: NextRequest) {
     return new NextResponse('ok', { status: 200 })
   }
 
-  // TEMP (Track 3 rollout): log the raw accountId so the orchestrator can capture
-  // Heroes' real value for the migration backfill and confirm its format matches
-  // what the OAuth `{ account { id } }` query stores. REMOVE once backfilled.
-  console.log('[jobber-webhook] accountId=', evt.accountId)
-
   // Route the event to the right tenant by its Jobber accountId. If the account
   // is mapped, use its company; otherwise (unmapped account, or accountId absent)
   // fall back to the Heroes default and warn loudly. The fallback keeps Heroes
