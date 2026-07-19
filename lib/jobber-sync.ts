@@ -20,9 +20,37 @@ import { postGuardianToUserDm } from '@/lib/guardian-post'
 import { createPesticideRecordFromJobberVisit } from '@/lib/pesticide'
 import { syncClientsToDirectory, type DirectoryClientInput } from '@/lib/contacts-directory'
 
-const COMPANY_ID = '00000000-0000-0000-0000-000000000002' // Heroes Lawn Care
-
 // ── Helpers ──────────────────────────────────────────────────────────────────
+
+/**
+ * Multi-tenant Track 3 — resolve a Lynxedo company from a Jobber accountId.
+ *
+ * Maps the `accountId` Jobber puts on each webhook (and the id captured at OAuth)
+ * to a company via jobber_tokens.account_id → company_id. Returns null if the
+ * account isn't mapped yet (unknown/unmapped tenant, or Heroes before backfill),
+ * so callers can decide the fallback. Uses the admin (service-role) client
+ * because webhooks have no authenticated user session.
+ *
+ * ⚠ The webhook's accountId may be base64-encoded; this compares whatever is
+ * stored in account_id verbatim. The orchestrator must confirm the stored
+ * format (from the OAuth `{ account { id } }` query) matches the webhook's
+ * `evt.accountId` before this lookup can succeed — see the migration
+ * supabase/2026-07-19_jobber_account_mapping.sql.
+ */
+export async function resolveCompanyByJobberAccountId(
+  accountId: string
+): Promise<string | null> {
+  if (!accountId) return null
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('jobber_tokens')
+    .select('company_id')
+    .eq('account_id', accountId)
+    .limit(1)
+    .maybeSingle()
+  if (error || !data) return null
+  return (data.company_id as string) ?? null
+}
 
 function sleep(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
