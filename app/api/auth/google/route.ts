@@ -3,6 +3,7 @@ import { cookies } from 'next/headers'
 import { randomBytes } from 'crypto'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { buildGoogleAuthUrl, googleOAuthConfigured } from '@/lib/google-oauth'
+import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
 
 export const dynamic = 'force-dynamic'
 
@@ -30,6 +31,8 @@ export async function GET() {
     sameSite: 'lax', // sent on the top-level GET redirect back from Google
     maxAge: 600,
     path: '/',
+    // Share across *.lynxedo.com so the state survives the subdomain→apex callback hop.
+    ...(CROSS_SUBDOMAIN_COOKIE_DOMAIN ? { domain: CROSS_SUBDOMAIN_COOKIE_DOMAIN } : {}),
   })
 
   return NextResponse.redirect(buildGoogleAuthUrl(state))

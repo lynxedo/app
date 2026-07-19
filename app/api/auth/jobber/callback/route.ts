@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { cookies } from 'next/headers'
 import { jobberGraphQL } from '@/lib/jobber'
+import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
 
 const JOBBER_CLIENT_ID = process.env.JOBBER_CLIENT_ID!
 const JOBBER_CLIENT_SECRET = process.env.JOBBER_CLIENT_SECRET!
@@ -64,19 +65,28 @@ export async function GET(request: Request) {
   const expiresIn = typeof tokens.expires_in === 'number' ? tokens.expires_in : 3600
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
 
+  // Resolve the connecting user's company so the token is owned by the RIGHT tenant
+  // rather than the schema DEFAULT (Heroes). Critical for multi-tenant: webhook
+  // routing keys off jobber_tokens.company_id (via account_id → company), so a new
+  // tenant whose token defaulted to Heroes would have its Jobber events misattributed.
+  const { data: connectingProfile } = await supabase
+    .from('user_profiles')
+    .select('company_id')
+    .eq('id', user.id)
+    .single()
+
   // Store tokens in Supabase (upsert so reconnect works)
+  const tokenRow: Record<string, unknown> = {
+    user_id: user.id,
+    access_token: tokens.access_token,
+    refresh_token: tokens.refresh_token,
+    expires_at: expiresAt,
+    updated_at: new Date().toISOString(),
+  }
+  if (connectingProfile?.company_id) tokenRow.company_id = connectingProfile.company_id
   const { error: dbError } = await supabase
     .from('jobber_tokens')
-    .upsert(
-      {
-        user_id: user.id,
-        access_token: tokens.access_token,
-        refresh_token: tokens.refresh_token,
-        expires_at: expiresAt,
-        updated_at: new Date().toISOString(),
-      },
-      { onConflict: 'user_id' }
-    )
+    .upsert(tokenRow, { onConflict: 'user_id' })
 
   if (dbError) {
     console.error('Failed to store Jobber tokens:', dbError)
@@ -111,7 +121,13 @@ export async function GET(request: Request) {
   }
 
   // Clear CSRF cookie
-  cookieStore.delete('jobber_oauth_state')
+  // Clear the state cookie with the SAME domain it was set with, or the domained
+  // cookie won't match and would linger (harmless — single-use, 10-min TTL — but tidy).
+  cookieStore.set('jobber_oauth_state', '', {
+    path: '/',
+    maxAge: 0,
+    ...(CROSS_SUBDOMAIN_COOKIE_DOMAIN ? { domain: CROSS_SUBDOMAIN_COOKIE_DOMAIN } : {}),
+  })
 
   return NextResponse.redirect(`${APP_URL}/hub/routing?jobber=connected`)
 }

@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { checkPinCookie } from '@/lib/check-pin-cookie'
 import { resolveSessionCompanyId } from '@/lib/company-auth'
 import { QBO_FALLBACK_COMPANY_ID } from '@/lib/qbo'
+import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
 
 const SCOPES = 'com.intuit.quickbooks.accounting'
 
@@ -34,6 +35,8 @@ export async function GET(request: NextRequest) {
     sameSite: 'lax',
     maxAge: 10 * 60,
     path: '/',
+    // Share across *.lynxedo.com so the state survives the subdomain→apex callback hop.
+    ...(CROSS_SUBDOMAIN_COOKIE_DOMAIN ? { domain: CROSS_SUBDOMAIN_COOKIE_DOMAIN } : {}),
   })
   return response
 }
