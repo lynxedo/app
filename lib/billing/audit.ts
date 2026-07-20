@@ -16,6 +16,7 @@ export type PlatformAction =
   | 'clear_override'
   | 'sync_stripe'
   | 'inspect_tenant'
+  | 'create_company'
 
 // Insert one audit row. Best-effort: any failure (DB error or unexpected throw) is
 // swallowed so the caller's primary action always proceeds. targetCompanyId is null for

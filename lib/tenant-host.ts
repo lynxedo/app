@@ -23,7 +23,7 @@ export const CROSS_SUBDOMAIN_COOKIE_DOMAIN: string | undefined =
 const ROOT_DOMAIN = 'lynxedo.com'
 
 // Subdomains that are infrastructure / environment hosts, NOT tenants.
-const RESERVED_SUBDOMAINS = new Set([
+export const RESERVED_SUBDOMAINS = new Set([
   'www', 'staging', 'mcp', 'lawn', 'routing', 'sandbox', 'relay', 'voice', 'app', 'api',
 ])
 

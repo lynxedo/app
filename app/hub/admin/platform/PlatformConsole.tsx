@@ -485,13 +485,46 @@ function Toggle({
 function TenantsTable({ tenants: initialTenants, features }: { tenants: TenantSummary[]; features: BillingCatalogFeature[] }) {
   const [tenants, setTenants] = useState<TenantSummary[]>(initialTenants)
   const [expanded, setExpanded] = useState<string | null>(null)
+  const [showAdd, setShowAdd] = useState(false)
+  // The slug of the most recently added tenant — drives the DNS-reminder note that
+  // stays visible until the next add (there is no live signal for whether DNS exists yet).
+  const [lastAddedSlug, setLastAddedSlug] = useState<string | null>(null)
 
   function setActive(companyId: string, active: boolean) {
     setTenants((prev) => prev.map((t) => (t.company_id === companyId ? { ...t, is_active: active } : t)))
   }
 
+  function handleAdded(t: TenantSummary) {
+    setTenants((prev) => [t, ...prev])
+    setLastAddedSlug(t.subdomain_slug)
+    setShowAdd(false)
+  }
+
   return (
     <div className="space-y-3">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-xs text-gray-500">
+          Every tenant company on the platform. Add a new subscriber, then manage each plan, suspension, and price
+          overrides below.
+        </p>
+        <button
+          onClick={() => setShowAdd((v) => !v)}
+          className="shrink-0 rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500"
+        >
+          {showAdd ? 'Cancel' : '+ Add subscriber'}
+        </button>
+      </div>
+
+      {showAdd && <AddSubscriberForm onAdded={handleAdded} onClose={() => setShowAdd(false)} />}
+
+      {lastAddedSlug && (
+        <div className="rounded-xl border border-amber-500/40 bg-amber-500/10 px-4 py-3 text-sm text-amber-200">
+          <span className="font-semibold">⚠ Next step:</span> the subdomain{' '}
+          <code className="rounded bg-black/30 px-1 py-0.5 text-amber-100">{lastAddedSlug}.lynxedo.com</code> must have
+          its DNS wired before this tenant can log in on production — ask your developer to add it.
+        </div>
+      )}
+
       <div className="overflow-x-auto rounded-xl border border-white/10">
         <table className="w-full text-sm">
           <thead>
@@ -580,6 +613,158 @@ function TenantsTable({ tenants: initialTenants, features }: { tenants: TenantSu
 
       <AuditSection />
     </div>
+  )
+}
+
+// "+ Add subscriber" — creates a brand-new tenant company and invites its owner (who
+// is elevated to a full company admin) via POST /api/platform/tenants. On success the
+// caller prepends the returned tenant and shows the DNS-wiring reminder.
+const SLUG_RE = /^[a-z0-9-]{2,40}$/
+function AddSubscriberForm({
+  onAdded,
+  onClose,
+}: {
+  onAdded: (t: TenantSummary) => void
+  onClose: () => void
+}) {
+  const toast = useToast()
+  const [name, setName] = useState('')
+  const [slug, setSlug] = useState('')
+  const [email, setEmail] = useState('')
+  const [ownerName, setOwnerName] = useState('')
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  const slugInvalid = slug.length > 0 && !SLUG_RE.test(slug)
+
+  async function submit() {
+    setError(null)
+    const trimmedName = name.trim()
+    const trimmedSlug = slug.trim().toLowerCase()
+    const trimmedEmail = email.trim()
+    if (!trimmedName || !trimmedSlug || !trimmedEmail) {
+      setError('Company name, subdomain, and owner email are required.')
+      return
+    }
+    if (!SLUG_RE.test(trimmedSlug)) {
+      setError('Subdomain must be 2–40 characters: lowercase letters, numbers, and hyphens only.')
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await fetch('/api/platform/tenants', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          name: trimmedName,
+          subdomain_slug: trimmedSlug,
+          owner_email: trimmedEmail,
+          owner_name: ownerName.trim() || undefined,
+        }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        setError(j.error || 'Could not add subscriber.')
+        return
+      }
+      const c = j.company as { id: string; name: string; subdomain_slug: string | null; is_active: boolean }
+      onAdded({
+        company_id: c.id,
+        name: c.name,
+        subdomain_slug: c.subdomain_slug,
+        is_active: c.is_active,
+        subscription: null,
+        active_module_count: 0,
+      })
+      toast.success(`${c.name} added — owner invite sent to ${trimmedEmail}`)
+    } catch {
+      setError('Could not add subscriber.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+      <h3 className="mb-3 text-sm font-semibold text-gray-200">New subscriber</h3>
+      <div className="grid gap-3 sm:grid-cols-2">
+        <Field label="Company name">
+          <input
+            value={name}
+            onChange={(e) => setName(e.target.value)}
+            placeholder="Acme Lawn Care"
+            className="w-full rounded-lg border border-white/10 bg-gray-900 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-600 focus:border-sky-500/60"
+          />
+        </Field>
+        <Field label="Subdomain" hint=".lynxedo.com">
+          <div className="flex items-center rounded-lg border border-white/10 bg-gray-900 px-3">
+            <input
+              value={slug}
+              onChange={(e) => setSlug(e.target.value)}
+              placeholder="acme"
+              className="w-full bg-transparent py-2 text-sm text-white outline-none placeholder:text-gray-600"
+            />
+            <span className="whitespace-nowrap text-xs text-gray-500">.lynxedo.com</span>
+          </div>
+          {slugInvalid && (
+            <span className="mt-1 block text-[11px] text-red-400">
+              2–40 chars; lowercase letters, numbers, hyphens only.
+            </span>
+          )}
+        </Field>
+        <Field label="Owner email">
+          <input
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+            type="email"
+            placeholder="owner@acme.com"
+            className="w-full rounded-lg border border-white/10 bg-gray-900 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-600 focus:border-sky-500/60"
+          />
+        </Field>
+        <Field label="Owner name" hint="optional">
+          <input
+            value={ownerName}
+            onChange={(e) => setOwnerName(e.target.value)}
+            placeholder="Jane Doe"
+            className="w-full rounded-lg border border-white/10 bg-gray-900 px-3 py-2 text-sm text-white outline-none placeholder:text-gray-600 focus:border-sky-500/60"
+          />
+        </Field>
+      </div>
+
+      {error && <p className="mt-3 text-sm text-red-400">{error}</p>}
+
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          onClick={submit}
+          disabled={busy}
+          className="rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
+        >
+          {busy ? 'Adding…' : 'Add subscriber'}
+        </button>
+        <button
+          onClick={onClose}
+          disabled={busy}
+          className="rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-white/5 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+      </div>
+      <p className="mt-3 text-xs text-gray-500">
+        Creates the company and emails the owner a magic-link invite. They land as a full admin of the new tenant.
+      </p>
+    </div>
+  )
+}
+
+function Field({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <label className="block">
+      <span className="mb-1 block text-[11px] font-medium uppercase tracking-wide text-gray-500">
+        {label}
+        {hint && <span className="ml-1 lowercase text-gray-600">{hint}</span>}
+      </span>
+      {children}
+    </label>
   )
 }
 
