@@ -23,7 +23,7 @@ export type ConnectionModel = 'oauth' | 'domain' | 'webhook' | 'apikey' | 'comin
 export type ProviderKey =
   | 'jobber' | 'quickbooks' | 'gusto' | 'onestepgps'
   | 'angi' | 'google' | 'thumbtack' | 'networx' | 'zillow'
-  | 'meta' | 'email' | 'voicedrop'
+  | 'meta' | 'email' | 'voicedrop' | 'shared_inbox'
 
 export type IntegrationStatus =
   | 'connected' | 'action_needed' | 'not_connected' | 'error' | 'coming_soon'
@@ -93,6 +93,12 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     key: 'onestepgps', name: 'OneStepGPS', group: 'business_systems', model: 'apikey',
     blurb: 'Live fleet GPS — track your trucks on the map with day-by-day route history.',
     manageHref: '/hub/admin/fleet', manageLabel: 'Fleet alert settings',
+  },
+  {
+    key: 'shared_inbox', name: 'Shared Inbox (Email)', group: 'business_systems', model: 'oauth',
+    blurb: 'Connect the shared team mailbox so your team can triage and reply to customer email inside the Hub.',
+    connectHref: '/api/auth/nylas?type=shared', disconnectHref: '/api/auth/nylas/disconnect',
+    manageHref: '/hub/email', manageLabel: 'Open the Inbox',
   },
 
   // ── Marketing ─────────────────────────────────────────────────────────────

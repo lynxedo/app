@@ -62,6 +62,7 @@ const TABS = [
   { id: 'zone-sizer',   icon: '💧', label: 'Zone Sizer' },
   { id: 'dialer',       icon: '☎️', label: 'Dialer' },
   { id: 'txt',          icon: '🗨️', label: 'Txt' },
+  { id: 'inbox',        icon: '📥', label: 'Inbox' },
   { id: 'contacts',     icon: '👤', label: 'Contacts' },
   { id: 'call-log',     icon: '📞', label: 'Call Log' },
   { id: 'marketing',    icon: '📣', label: 'Marketing' },
@@ -98,6 +99,7 @@ const TAB_BODY: Record<TabId, () => ReactNode> = {
   'zone-sizer': ZoneSizerTab,
   'dialer': DialerTab,
   'txt': TxtTab,
+  'inbox': InboxTab,
   'contacts': ContactsTab,
   'call-log': CallLogTab,
   'marketing': MarketingTab,
@@ -375,6 +377,7 @@ export default function HelpContent() {
             {activeTab === 'zone-sizer' && <ZoneSizerTab />}
             {activeTab === 'dialer'     && <DialerTab />}
             {activeTab === 'txt'        && <TxtTab />}
+            {activeTab === 'inbox'      && <InboxTab />}
             {activeTab === 'contacts'   && <ContactsTab />}
             {activeTab === 'call-log'   && <CallLogTab />}
             {activeTab === 'marketing'  && <MarketingTab />}
@@ -1298,6 +1301,58 @@ function TxtTab() {
 // ──────────────────────────────────────────────────────────────────────────
 // DIALER
 // ──────────────────────────────────────────────────────────────────────────
+
+function InboxTab() {
+  return (
+    <>
+      <Section title="What It Does">
+        <p>The <strong className="text-white">Inbox</strong> is a shared team email inbox inside Hub — modeled on <strong className="text-white">Txt</strong>, but for the company&apos;s email address. Customer emails land in one queue that the whole office can triage: <strong className="text-white">claim</strong> a thread, <strong className="text-white">assign</strong> it to a teammate, reply (with AI help), and <strong className="text-white">close</strong> it out — so nothing falls through the cracks. You can also connect your own personal work email to read it here alongside the shared inbox.</p>
+        <Note>Everyone replies <strong className="text-white">as the shared mailbox</strong>, signed with your name — so the customer&apos;s reply always comes back to the team queue, never to one person&apos;s private inbox.</Note>
+      </Section>
+
+      <Section title="Who can see it">
+        <p>Access is granted by an admin in <strong className="text-white">Admin → People</strong>:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Shared Inbox</strong> — full access: the whole queue, all tabs, folders, and the manager oversight view. Give this to office/managers.</li>
+          <li><strong className="text-white">Inbox — Compose only</strong> — a lighter grant that lets someone start a new outbound email as the shared mailbox.</li>
+          <li><strong className="text-white">Technicians</strong> don&apos;t need any grant — a manager <em>shares</em> a specific conversation with them, and they see only that thread (not the rest of the inbox).</li>
+        </ul>
+      </Section>
+
+      <Section title="The conversation list">
+        <p>The Inbox sidebar lists threads under these tabs (for full-access users):</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Mine</strong> — threads assigned to you or shared with you.</li>
+          <li><strong className="text-white">All</strong> — every open thread in the shared inbox.</li>
+          <li><strong className="text-white">Unassigned</strong> — the triage queue: emails no one has claimed yet. Keep this trending to zero.</li>
+          <li><strong className="text-white">Needs reply</strong> — any open thread where the customer wrote last, oldest first. This is the crack-catcher.</li>
+          <li><strong className="text-white">Closed</strong> — resolved threads. A closed thread pops back open automatically if the customer replies.</li>
+        </ul>
+        <p>Use the <strong className="text-white">folder</strong> dropdown to view a specific mailbox folder, the <strong className="text-white">search</strong> box to find a thread, and the account switch (if you&apos;ve connected a personal mailbox) to flip between <strong className="text-white">Shared</strong> and your <strong className="text-white">Personal</strong> mail.</p>
+      </Section>
+
+      <Section title="Handling an email">
+        <Step n={1}>Open a thread from the list. If it&apos;s unclaimed, tap <strong className="text-white">Claim</strong> to take it — or <strong className="text-white">Assign</strong> it to a teammate.</Step>
+        <Step n={2}>Type your reply and tap <strong className="text-white">Send</strong>. It goes out as the shared mailbox with your signature (set yours in <strong className="text-white">Settings → Account → Email Inbox</strong>).</Step>
+        <Step n={3}>When it&apos;s handled, tap <strong className="text-white">Close</strong>. If the customer writes back, it reopens into the queue automatically.</Step>
+        <p className="mt-3"><strong className="text-white">AI help:</strong> tap <strong className="text-white">Suggest Reply</strong> to draft a response from the conversation, or <strong className="text-white">✨ Polish</strong> to clean up wording in a draft you&apos;ve started — the same helpers you know from Txt.</p>
+        <p className="mt-3"><strong className="text-white">Internal notes</strong> (managers) let the team leave context on a thread that the customer never sees.</p>
+      </Section>
+
+      <Section title="Sharing a thread with a technician">
+        <p>Need a field tech to see one specific email? Open the thread and use <strong className="text-white">Share</strong> to hand it to them. They&apos;ll see <em>only that conversation</em> (and its replies) — not the rest of the inbox. A separate new email from the same customer stays private to the office until you share that one too.</p>
+      </Section>
+
+      <Section title="Manager oversight">
+        <p>Full-access users get an <strong className="text-white">oversight</strong> view: how many threads are <strong className="text-white">Unassigned</strong>, how many are <strong className="text-white">awaiting a reply</strong> (oldest first), and each teammate&apos;s open workload — so a manager can rebalance and make sure nothing sits.</p>
+      </Section>
+
+      <Section title="Connect your personal work email">
+        <p>Go to <strong className="text-white">Settings → Account → Email Inbox</strong> and tap <strong className="text-white">Connect my email</strong> to add your own Gmail or Outlook. It shows up in your Inbox alongside the shared mailbox, and <em>only you</em> can see your personal mail. Disconnect anytime from the same place.</p>
+      </Section>
+    </>
+  )
+}
 
 function DialerTab() {
   return (
