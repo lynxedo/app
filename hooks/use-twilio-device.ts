@@ -782,9 +782,16 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     if (audio.isOutputSelectionSupported) {
       let outId: string | null = null
       try { outId = localStorage.getItem(AUDIO_OUTPUT_KEY) } catch { /* ignore */ }
-      if (outId && outId !== 'default' && audio.availableOutputDevices.has(outId)) {
-        try { await audio.speakerDevices.set(outId) } catch { /* ignore */ }
-      }
+      // Re-point call audio at the saved speaker ONLY if it still exists. If the
+      // saved device is gone (headset unplugged, Bluetooth dropped, or a stale
+      // OS device id) — or nothing is saved — fall back to the system default
+      // EXPLICITLY. Skipping the set instead (the old behavior) left the SDK
+      // pinned to the missing device, so call audio played to nothing and the
+      // agent heard silence until a full reload. Resetting to default here makes
+      // it self-heal on the very next call.
+      const outTarget =
+        outId && outId !== 'default' && audio.availableOutputDevices.has(outId) ? outId : 'default'
+      try { await audio.speakerDevices.set(outTarget) } catch { /* ignore */ }
     }
     // Headset mode: drop echo-cancellation (the main cause of the "hollow"
     // sound) for fuller audio, but KEEP noise-suppression on so office
