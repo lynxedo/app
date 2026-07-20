@@ -50,6 +50,7 @@ function AdminRow({
 export default function AdminSidebar({
   grants,
   isSuperAdmin,
+  isPlatformAdmin,
   onClose,
   onDesktopCollapse,
 }: {
@@ -73,6 +74,7 @@ export default function AdminSidebar({
     integrations?: boolean
   }
   isSuperAdmin: boolean
+  isPlatformAdmin?: boolean
   onClose?: () => void
   onDesktopCollapse?: () => void
 }) {
@@ -165,6 +167,19 @@ export default function AdminSidebar({
             </svg>
           }
           label="Beta"
+          onClose={onClose}
+        />
+      )}
+      {isPlatformAdmin && (
+        <AdminRow
+          href="/hub/admin/platform"
+          icon={
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <circle cx="12" cy="12" r="9" strokeLinecap="round" strokeLinejoin="round" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3.5 9.5h17M3.5 14.5h17M12 3c2.6 2.7 2.6 15.3 0 18M12 3c-2.6 2.7-2.6 15.3 0 18" />
+            </svg>
+          }
+          label="Platform"
           onClose={onClose}
         />
       )}
