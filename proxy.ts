@@ -6,6 +6,8 @@ import {
   tenantSlugFromHost,
   tenantHostname,
 } from '@/lib/tenant-host'
+import { moduleForPath, isBillableModuleEntitled } from '@/lib/billing/entitlements'
+import { getBillingMode } from '@/lib/billing/catalog'
 
 // Fail-fast guard (Phase 5, after the 2026-06-14 Supabase Auth outage). Every request
 // hits getUser() + a profile fetch here; when auth degrades those hang on retries and
@@ -174,6 +176,27 @@ export async function proxy(request: NextRequest) {
         if ((pathname === route || pathname.startsWith(route + '/')) && !profile[permKey]) {
           const url = request.nextUrl.clone()
           url.pathname = route.startsWith('/hub/') ? '/hub' : '/dashboard'
+          return NextResponse.redirect(url)
+        }
+      }
+
+      // Track 5 (M3) — company-level module gating (fail-open). For a billable module
+      // route, block access when the company has a gating-active subscription that does
+      // NOT include this module. Runs AFTER the per-user check above, so it only queries
+      // for a route the user already has the grant for. A company with no active
+      // subscription (every existing tenant, incl. Heroes) is never gated → redirect
+      // to the Billing page so they can subscribe.
+      const billableModule = moduleForPath(pathname)
+      if (billableModule && profile.company_id) {
+        const entitled = await isBillableModuleEntitled(
+          supabase,
+          profile.company_id as string,
+          getBillingMode(),
+          billableModule,
+        )
+        if (!entitled) {
+          const url = request.nextUrl.clone()
+          url.pathname = '/hub/billing'
           return NextResponse.redirect(url)
         }
       }

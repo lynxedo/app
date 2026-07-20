@@ -5,6 +5,8 @@ import path from 'path'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getCurrentUser, getCurrentProfile } from '@/lib/supabase/current-user'
+import { getCompanyEntitlements } from '@/lib/billing/entitlements'
+import { getBillingMode } from '@/lib/billing/catalog'
 import HubShell from '@/components/hub/HubShell'
 import { HubMessagesProvider } from '@/components/hub/HubMessagesProvider'
 import PushInit from '@/components/hub/PushInit'
@@ -224,6 +226,13 @@ export default async function HubLayout({ children }: { children: React.ReactNod
           .map(r => r.board_slug as string)
       : []
   const canAccessScoreboards = isAdmin || (rawCanAccessScoreboards && scoreboardSlugs.length > 0)
+  // Track 5 (M3) — company-level module entitlements, applied in FRONT of the per-user
+  // flags below when passing them to the shell. FAILS OPEN: a company with no gating-active
+  // subscription (every existing tenant, incl. Heroes) yields entitled === null, so
+  // moduleOn() is true for everything and nothing is gated. Only a company put on a real
+  // subscription is masked down to its included + paid modules.
+  const billingEntitlements = await getCompanyEntitlements(admin, companyId, getBillingMode())
+  const moduleOn = (fk: string) => billingEntitlements.entitled === null || billingEntitlements.entitled.has(fk)
   // Session 58.5: per-user opt-out. Defaults true server-side so any user
   // with can_access_dialer gets Hub-wide ringing on first login.
   const dialerGlobalRing = profileResult.data?.dialer_global_ring ?? true
@@ -355,29 +364,29 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         initialIsClockedIn={initialIsClockedIn}
         initialLayout={initialLayout}
         canAccessTracker={canAccessTracker}
-        canAccessCallLog={canAccessCallLog}
-        canAccessCallLog2={canAccessCallLog2}
-        canAccessLawn={canAccessLawn}
+        canAccessCallLog={canAccessCallLog && moduleOn('dialer')}
+        canAccessCallLog2={canAccessCallLog2 && moduleOn('dialer')}
+        canAccessLawn={canAccessLawn && moduleOn('lawn_size')}
         canAccessTimesheet={canAccessTimesheet}
-        canAccessRouting={canAccessRouting}
-        canAccessBooks={canAccessBooks}
-        canAccessFleet={canAccessFleet}
-        canAccessZoneSizer={canAccessZoneSizer}
-        canAccessDialer={canAccessDialer}
-        canAccessTxt={canAccessTxt}
-        canManageTxt={canManageTxt}
-        canAccessUnifiedInbox={canAccessUnifiedInbox}
-        canAccessMarketing={canAccessMarketing}
-        canAdminMarketing={canAdminMarketing}
-        canAccessEmail={canAccessEmail}
-        canManageDrip={canManageDrip}
-        canAdminEmail={canAdminEmail}
+        canAccessRouting={canAccessRouting && moduleOn('routing')}
+        canAccessBooks={canAccessBooks && moduleOn('books')}
+        canAccessFleet={canAccessFleet && moduleOn('fleet')}
+        canAccessZoneSizer={canAccessZoneSizer && moduleOn('lawn_size')}
+        canAccessDialer={canAccessDialer && moduleOn('dialer')}
+        canAccessTxt={canAccessTxt && moduleOn('txt')}
+        canManageTxt={canManageTxt && moduleOn('txt')}
+        canAccessUnifiedInbox={canAccessUnifiedInbox && moduleOn('dialer')}
+        canAccessMarketing={canAccessMarketing && moduleOn('social')}
+        canAdminMarketing={canAdminMarketing && moduleOn('social')}
+        canAccessEmail={canAccessEmail && moduleOn('email')}
+        canManageDrip={canManageDrip && moduleOn('drip')}
+        canAdminEmail={canAdminEmail && moduleOn('email')}
         canAccessForms={canAccessForms}
-        canAccessDailyLogV2={canAccessDailyLogV2}
-        canAccessScoreboards={canAccessScoreboards}
+        canAccessDailyLogV2={canAccessDailyLogV2 && moduleOn('daily_log')}
+        canAccessScoreboards={canAccessScoreboards && moduleOn('scoreboards')}
         canAccessFiles={canAccessFiles}
-        canAccessPesticideRecords={canAccessPesticideRecords}
-        canAccessPricer={canAccessPricer}
+        canAccessPesticideRecords={canAccessPesticideRecords && moduleOn('pricer')}
+        canAccessPricer={canAccessPricer && moduleOn('pricer')}
         canAccessHub={canAccessHub}
         scoreboardSlugs={scoreboardSlugs}
         companyId={companyId}
