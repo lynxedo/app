@@ -14,8 +14,19 @@ import { GUARDIAN_HUB_USER_ID as GUARDIAN_BOT_ID } from '@/lib/guardian-post'
 // a `leads` row (Lead Tracker) + first note + unified contacts directory + an
 // office-room alert. Ingest only — no texting in v1 (drip is a later phase).
 //
-// Idempotent: reuses Angi's mechanism — the Google lead id is stored in
-// leads.external_lead_id with a `glsa_` prefix (can't collide with Angi ids).
+// Dedup is durable: every processed Google lead id is recorded in
+// `lsa_seen_leads` (keyed on company_id + google_lead_id). That ledger is the
+// source of truth — NOT the leads row. Google's GAQL cursor is day-granular
+// (creation_date_time must be a DATE), so the poll re-fetches the same day's
+// leads every 5 min; before, dedup keyed only on the leads row, so DELETING a
+// junk lead erased that memory and the next poll re-inserted + re-announced it
+// (a "resurrection loop"). The ledger survives lead deletion, killing the loop.
+//
+// Phone-call leads are SKIPPED by default: an LSA phone-call lead is a live call
+// that already rings the business line and shows up in the Dialer/call log, so a
+// tracker card + office post is just a redundant echo. Set
+// GLSA_INGEST_PHONE_CALL_LEADS=true to ingest them anyway. Message/booking leads
+// (which carry a name) are always ingested.
 
 export const runtime = 'nodejs'
 export const dynamic = 'force-dynamic'
@@ -25,6 +36,10 @@ const OFFICE_ROOM_ID = 'cebac7e5-caf8-400c-a15d-5eb9d81e1967'
 // Matches the existing Lead Tracker "Lead Source" dropdown option so the cell
 // shows selected (same trick as the Angi webhook's 'Angi Lead').
 const LEAD_SOURCE = process.env.GLSA_LEAD_SOURCE || 'Google (GBP / LSA)'
+// Phone-call LSA leads are live calls already captured by the Dialer/call log,
+// so by default we don't create a tracker card or office post for them.
+// Reversible without a deploy: set GLSA_INGEST_PHONE_CALL_LEADS=true.
+const INGEST_PHONE_CALL_LEADS = process.env.GLSA_INGEST_PHONE_CALL_LEADS === 'true'
 
 function authed(req: Request): boolean {
   const secret = process.env.CRON_SECRET
@@ -59,6 +74,32 @@ function buildNote(lead: LsaLead): string {
   meta.push(`Google lead ID: ${lead.id}`)
   if (meta.length) lines.push('', meta.join(' · '))
   return lines.join('\n')
+}
+
+// Record a processed Google lead in the durable ledger. Best-effort + idempotent
+// (ignores the PK conflict) — the ledger is what stops the resurrection loop, but
+// a write hiccup must never break ingest (the leads unique constraint still guards).
+async function recordSeen(
+  admin: ReturnType<typeof createAdminClient>,
+  companyId: string,
+  lead: LsaLead,
+  disposition: 'created' | 'skipped_phone_call' | 'preexisting',
+  leadId: string | null,
+): Promise<void> {
+  try {
+    await admin.from('lsa_seen_leads').upsert(
+      {
+        company_id: companyId,
+        google_lead_id: lead.id,
+        lead_id: leadId,
+        disposition,
+        lead_type: lead.leadType,
+      },
+      { onConflict: 'company_id,google_lead_id', ignoreDuplicates: true },
+    )
+  } catch (e) {
+    console.error('[lsa-poll] recordSeen failed:', (e as Error).message)
+  }
 }
 
 // GET = health/config probe (used by the post-deploy live check).
@@ -96,16 +137,39 @@ export async function POST(req: Request) {
     }
 
     let created = 0
+    let skippedCalls = 0
     for (const lead of fetched.leads) {
       const externalId = `glsa_${lead.id}`
 
+      // Durable dedup: already processed this Google lead? (survives lead deletion)
+      const { data: seen } = await admin
+        .from('lsa_seen_leads')
+        .select('google_lead_id')
+        .eq('company_id', companyId)
+        .eq('google_lead_id', lead.id)
+        .maybeSingle()
+      if (seen) continue
+
+      // Secondary guard: a leads row may already exist (a pre-ledger lead, or a
+      // crash between insert and ledger-write). Backfill the ledger and move on —
+      // never re-announce an existing lead.
       const { data: dup } = await admin
         .from('leads')
         .select('id')
         .eq('company_id', companyId)
         .eq('external_lead_id', externalId)
         .maybeSingle()
-      if (dup) continue
+      if (dup) {
+        await recordSeen(admin, companyId, lead, 'preexisting', dup.id)
+        continue
+      }
+
+      // Skip phone-call leads (live calls already in the Dialer) unless re-enabled.
+      if (!INGEST_PHONE_CALL_LEADS && (lead.leadType || '').toUpperCase() === 'PHONE_CALL') {
+        await recordSeen(admin, companyId, lead, 'skipped_phone_call', null)
+        skippedCalls++
+        continue
+      }
 
       const { first, last } = splitName(lead.consumerName)
       const phone = formatPhone(lead.phone)
@@ -135,6 +199,9 @@ export async function POST(req: Request) {
 
       created++
       totalNew++
+
+      // Record durable memory immediately so a later deletion can't resurrect it.
+      await recordSeen(admin, companyId, lead, 'created', row.id)
 
       await admin.from('lead_notes').insert({
         lead_id: row.id,
@@ -190,7 +257,7 @@ export async function POST(req: Request) {
         .eq('company_id', companyId)
     }
 
-    results.push({ companyId, fetched: fetched.leads.length, created })
+    results.push({ companyId, fetched: fetched.leads.length, created, skippedCalls })
   }
 
   return NextResponse.json({ ok: true, totalNew, results })
