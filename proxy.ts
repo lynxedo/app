@@ -74,7 +74,7 @@ export async function proxy(request: NextRequest) {
     const profileResult = await withTimeout(
       supabase
         .from('user_profiles')
-        .select('role, company_id, landing_page, can_access_routing, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, can_access_dialer, can_access_marketing, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing, companies(google_domain, subdomain_slug)')
+        .select('role, is_platform_admin, company_id, landing_page, can_access_routing, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_responder, can_access_timesheet, can_access_tracker, can_access_hub, can_access_books, can_access_dialer, can_access_marketing, can_admin_people, can_admin_hub, can_admin_guardian, can_admin_txt, can_admin_announcements, can_admin_file_tags, can_admin_routing, can_admin_timesheet, can_admin_fleet, can_admin_daily_log, can_admin_zone_sizer, can_admin_dialer, can_admin_contacts, can_admin_marketing, companies(google_domain, subdomain_slug)')
         .eq('id', user.id)
         .single()
         .then(({ data }) => ({ data, degraded: false })),
@@ -181,6 +181,16 @@ export async function proxy(request: NextRequest) {
       // Admin gate: super-admins (role=admin) get everything. Managers (role=manager) need
       // at least one can_admin_* flag for /hub/admin overall, and the specific flag for each subpath.
       if (pathname === '/hub/admin' || pathname.startsWith('/hub/admin/')) {
+        // Platform super-admin console (cross-company): gated on is_platform_admin,
+        // NOT the company-scoped role==='admin'. A company admin without the platform
+        // capability is redirected out even though they otherwise pass the admin gate.
+        if (pathname === '/hub/admin/platform' || pathname.startsWith('/hub/admin/platform/')) {
+          if (!profile.is_platform_admin) {
+            const url = request.nextUrl.clone()
+            url.pathname = '/hub/home'
+            return NextResponse.redirect(url)
+          }
+        }
         const isSuperAdmin = profile.role === 'admin'
         const adminFlagMap: Record<string, keyof typeof profile> = {
           '/hub/admin/hub': 'can_admin_hub',

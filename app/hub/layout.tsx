@@ -137,6 +137,8 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     .sort((a, b) => a.name.localeCompare(b.name))
 
   const isAdmin = profileResult.data?.role === 'admin'
+  // Platform super-admin (cross-company) — distinct from the company-scoped role==='admin'.
+  const isPlatformAdmin = profileResult.data?.is_platform_admin === true
   const adminGrants = {
     people: !!profileResult.data?.can_admin_people,
     hub: !!profileResult.data?.can_admin_hub,
@@ -344,6 +346,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         currentUserDisplayName={meResult.data?.display_name ?? undefined}
         currentUserAvatarUrl={meResult.data?.avatar_url ?? null}
         isAdmin={isAdmin}
+        isPlatformAdmin={isPlatformAdmin}
         adminGrants={adminGrants}
         initialActiveAnnouncements={initialActiveAnnouncements}
         initialTextSize={initialTextSize}

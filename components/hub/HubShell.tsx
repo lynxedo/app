@@ -55,6 +55,7 @@ export default function HubShell({
   currentUserDisplayName,
   currentUserAvatarUrl,
   isAdmin,
+  isPlatformAdmin,
   adminGrants,
   initialActiveAnnouncements,
   initialTextSize,
@@ -106,6 +107,7 @@ export default function HubShell({
   currentUserDisplayName?: string
   currentUserAvatarUrl?: string | null
   isAdmin?: boolean
+  isPlatformAdmin?: boolean
   adminGrants?: {
     people: boolean
     hub: boolean
@@ -785,7 +787,7 @@ export default function HubShell({
       case 'activity':
         return <ActivitySidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'admin':
-        return <AdminSidebar grants={grants} isSuperAdmin={isSuperAdmin} onClose={closeMobileDrawer} {...collapseProps} />
+        return <AdminSidebar grants={grants} isSuperAdmin={isSuperAdmin} isPlatformAdmin={isPlatformAdmin} onClose={closeMobileDrawer} {...collapseProps} />
       case 'settings':
         return <SettingsSidebar onClose={closeMobileDrawer} canAccessBeta={!!canAccessBeta} {...collapseProps} />
       case 'profile':
