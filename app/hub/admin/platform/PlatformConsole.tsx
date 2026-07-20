@@ -54,6 +54,29 @@ export default function PlatformConsole({
 }) {
   const [tab, setTab] = useState<'pricing' | 'tenants'>('pricing')
   const [features, setFeatures] = useState<BillingCatalogFeature[]>(initialFeatures)
+  const toast = useToast()
+  const [syncing, setSyncing] = useState(false)
+
+  // Push the catalog's prices to Stripe (creates/refreshes the Product + Price per
+  // billable feature). Stripe Prices are immutable, so a changed amount mints a new
+  // Price and archives the old one — run this after editing prices.
+  async function syncStripe() {
+    setSyncing(true)
+    try {
+      const res = await fetch('/api/platform/pricing/sync-stripe', { method: 'POST' })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(j.error || 'Sync failed')
+        return
+      }
+      const r = j.result || {}
+      toast.success(`Synced ${r.synced ?? 0} price${r.synced === 1 ? '' : 's'} to Stripe (${r.mode ?? ''} mode)${r.skipped ? ` · ${r.skipped} skipped` : ''}`)
+    } catch {
+      toast.error('Sync failed')
+    } finally {
+      setSyncing(false)
+    }
+  }
 
   // One shared save path for the pricing editor. Sends { feature_key, ...patch };
   // on success it folds the returned row back into local state so derived UI (the
@@ -106,11 +129,20 @@ export default function PlatformConsole({
 
       {tab === 'pricing' ? (
         <div className="space-y-8">
-          <p className="text-sm text-gray-400">
-            The master price sheet. Every price here is a <span className="text-gray-200">placeholder</span> until you
-            set it — nothing is charged and no Stripe products are created until the billing wiring step (M2). Changes
-            auto-save.
-          </p>
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <p className="max-w-2xl text-sm text-gray-400">
+              The master price sheet. Set the base fee and each module&apos;s price — changes auto-save. After editing
+              prices, click <span className="text-gray-200">Sync to Stripe</span> to push them (a new Stripe price is
+              created and the old one archived, since Stripe prices are immutable).
+            </p>
+            <button
+              onClick={syncStripe}
+              disabled={syncing}
+              className="shrink-0 rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
+            >
+              {syncing ? 'Syncing…' : 'Sync to Stripe'}
+            </button>
+          </div>
 
           {/* Base subscription */}
           <PricingGroup title="Base subscription">
