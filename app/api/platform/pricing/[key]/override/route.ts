@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requirePlatformAdmin } from '@/lib/platform-auth'
 import { upsertCompanyOverride, clearCompanyOverride } from '@/lib/billing/catalog'
+import { logPlatformAction } from '@/lib/billing/audit'
 
 // Per-subscriber pricing overrides for one catalog feature (cross-company, platform
 // super-admin only). Writes use the service-role admin client — company_billing_overrides
@@ -30,6 +31,11 @@ export async function PUT(request: Request, { params }: { params: Promise<{ key:
       included_in_base_override: body.included_in_base_override ?? null,
       price_cents_override: body.price_cents_override ?? null,
     })
+    await logPlatformAction(admin, gate.userId, 'set_override', companyId, {
+      feature_key: key,
+      included_in_base_override: body.included_in_base_override ?? null,
+      price_cents_override: body.price_cents_override ?? null,
+    })
     return NextResponse.json({ override })
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 })
@@ -50,6 +56,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ k
   const admin = createAdminClient()
   try {
     await clearCompanyOverride(admin, key, companyId)
+    await logPlatformAction(admin, gate.userId, 'clear_override', companyId, { feature_key: key })
     return NextResponse.json({ ok: true })
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 400 })

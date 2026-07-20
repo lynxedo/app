@@ -1,8 +1,31 @@
 'use client'
 
-import { useEffect, useRef, useState, type ReactNode } from 'react'
+import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useToast } from '@/components/ui'
 import type { BillingCatalogFeature, BillingMode, TenantSummary, SubscriptionStatus } from '@/lib/billing/types'
+
+// ── local response types for the enriched Tenants tab (built against the M4 endpoints) ──
+type TenantDetail = {
+  company: { id: string; name: string; subdomain_slug: string | null; is_active: boolean }
+  subscription: {
+    status: SubscriptionStatus
+    trial_ends_at: string | null
+    current_period_end: string | null
+    cancel_at_period_end: boolean
+  } | null
+  modules: { feature_key: string; active: boolean }[]
+  overrides: { feature_key: string; included_in_base_override: boolean | null; price_cents_override: number | null }[]
+}
+
+type AuditEvent = {
+  id: string
+  action: string
+  target_company_id: string | null
+  detail: unknown
+  created_at: string
+  actor_user_id: string | null
+  company_name: string | null
+}
 
 // Admin → Platform (super-admin, gated on is_platform_admin). Two tabs:
 //   • Pricing  — the master price-sheet editor over billing_catalog. Each field
@@ -41,6 +64,21 @@ function fmtDate(iso: string | null | undefined): string {
   const d = new Date(iso)
   if (Number.isNaN(d.getTime())) return '—'
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })
+}
+// Short relative timestamp for the activity feed ("5m", "2h", "3d", else a date).
+function fmtRelative(iso: string | null | undefined): string {
+  if (!iso) return '—'
+  const d = new Date(iso)
+  if (Number.isNaN(d.getTime())) return '—'
+  const secs = Math.round((Date.now() - d.getTime()) / 1000)
+  if (secs < 60) return 'just now'
+  const mins = Math.round(secs / 60)
+  if (mins < 60) return `${mins}m ago`
+  const hrs = Math.round(mins / 60)
+  if (hrs < 24) return `${hrs}h ago`
+  const days = Math.round(hrs / 24)
+  if (days < 7) return `${days}d ago`
+  return fmtDate(iso)
 }
 
 export default function PlatformConsole({
@@ -178,7 +216,7 @@ export default function PlatformConsole({
           ))}
         </div>
       ) : (
-        <TenantsTable tenants={tenants} />
+        <TenantsTable tenants={tenants} features={features} />
       )}
     </div>
   )
@@ -241,6 +279,15 @@ function FeatureRow({ feature, onSave }: { feature: BillingCatalogFeature; onSav
   // Base fee is always charged; only a true add-on that is folded into the base
   // has its price de-emphasized.
   const dimPrice = !feature.is_base && feature.included_in_base
+
+  // Live margin off the current edits (price/cost are dollar strings in state):
+  // dollars = price − cost_basis, % = (price − cost) / price. Undefined when the
+  // cost basis is blank or the price is 0.
+  const priceCents = dollarsToCents(price) ?? 0
+  const costCents = dollarsToCents(cost)
+  const showMargin = costCents != null && priceCents > 0
+  const marginCents = showMargin ? priceCents - costCents : 0
+  const marginPct = showMargin ? Math.round((marginCents / priceCents) * 100) : 0
 
   async function runSave(patch: Record<string, unknown>, revert?: () => void) {
     if (savedTimer.current) clearTimeout(savedTimer.current)
@@ -315,6 +362,24 @@ function FeatureRow({ feature, onSave }: { feature: BillingCatalogFeature; onSav
           }}
         />
 
+        {/* Margin (read-only, derived from price − cost basis) */}
+        <div className="text-[11px] text-gray-400" title="Margin = price − cost basis">
+          Margin
+          <div className="mt-1 flex h-[38px] items-center rounded-lg border border-white/10 bg-white/[0.02] px-2">
+            {showMargin ? (
+              <span className="text-sm">
+                <span className={marginCents < 0 ? 'text-red-400' : 'text-gray-200'}>
+                  {marginCents < 0 ? '−$' : '$'}
+                  {centsToDollars(Math.abs(marginCents))}
+                </span>{' '}
+                <span className="text-gray-500">({marginPct}%)</span>
+              </span>
+            ) : (
+              <span className="text-sm text-gray-600">—</span>
+            )}
+          </div>
+        </div>
+
         {/* Active */}
         <Toggle label="Active" checked={feature.active} onChange={(v) => runSave({ active: v })} />
 
@@ -388,7 +453,14 @@ function Toggle({
   )
 }
 
-function TenantsTable({ tenants }: { tenants: TenantSummary[] }) {
+function TenantsTable({ tenants: initialTenants, features }: { tenants: TenantSummary[]; features: BillingCatalogFeature[] }) {
+  const [tenants, setTenants] = useState<TenantSummary[]>(initialTenants)
+  const [expanded, setExpanded] = useState<string | null>(null)
+
+  function setActive(companyId: string, active: boolean) {
+    setTenants((prev) => prev.map((t) => (t.company_id === companyId ? { ...t, is_active: active } : t)))
+  }
+
   return (
     <div className="space-y-3">
       <div className="overflow-x-auto rounded-xl border border-white/10">
@@ -411,42 +483,421 @@ function TenantsTable({ tenants }: { tenants: TenantSummary[] }) {
                 </td>
               </tr>
             ) : (
-              tenants.map((t) => (
-                <tr key={t.company_id} className="border-b border-white/5 last:border-0">
-                  <td className="px-3 py-2 text-gray-200">{t.name}</td>
-                  <td className="px-3 py-2 text-gray-400">
-                    {t.subdomain_slug ? (
-                      <code className="text-xs">{t.subdomain_slug}</code>
-                    ) : (
-                      <span className="text-gray-600">—</span>
+              tenants.map((t) => {
+                const isOpen = expanded === t.company_id
+                return (
+                  <Fragment key={t.company_id}>
+                    <tr
+                      onClick={() => setExpanded(isOpen ? null : t.company_id)}
+                      className="cursor-pointer border-b border-white/5 last:border-0 hover:bg-white/[0.03]"
+                    >
+                      <td className="px-3 py-2 text-gray-200">
+                        <span className="flex items-center gap-2">
+                          <span
+                            className={`inline-block text-gray-500 transition-transform ${isOpen ? 'rotate-90' : ''}`}
+                            aria-hidden
+                          >
+                            ▶
+                          </span>
+                          {t.name}
+                        </span>
+                      </td>
+                      <td className="px-3 py-2 text-gray-400">
+                        {t.subdomain_slug ? (
+                          <code className="text-xs">{t.subdomain_slug}</code>
+                        ) : (
+                          <span className="text-gray-600">—</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {t.is_active ? (
+                          <span className="text-emerald-400">Active</span>
+                        ) : (
+                          <span className="text-red-400">Suspended</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2">
+                        {t.subscription ? (
+                          <StatusPill status={t.subscription.status} />
+                        ) : (
+                          <span className="italic text-gray-600">No billing yet</span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-gray-400">{fmtDate(t.subscription?.trial_ends_at)}</td>
+                      <td className="px-3 py-2 text-right text-gray-200">{t.active_module_count}</td>
+                    </tr>
+                    {isOpen && (
+                      <tr className="border-b border-white/5 last:border-0 bg-black/20">
+                        <td colSpan={6} className="px-3 py-4">
+                          <TenantDetailPanel
+                            companyId={t.company_id}
+                            features={features}
+                            onActiveChange={(active) => setActive(t.company_id, active)}
+                          />
+                        </td>
+                      </tr>
                     )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {t.is_active ? (
-                      <span className="text-emerald-400">Active</span>
-                    ) : (
-                      <span className="text-gray-500">Inactive</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2">
-                    {t.subscription ? (
-                      <StatusPill status={t.subscription.status} />
-                    ) : (
-                      <span className="italic text-gray-600">No billing yet</span>
-                    )}
-                  </td>
-                  <td className="px-3 py-2 text-gray-400">{fmtDate(t.subscription?.trial_ends_at)}</td>
-                  <td className="px-3 py-2 text-right text-gray-200">{t.active_module_count}</td>
-                </tr>
-              ))
+                  </Fragment>
+                )
+              })
             )}
           </tbody>
         </table>
       </div>
       <p className="text-xs text-gray-500">
         Companies with no subscription row are fully entitled — billing gating fails open — until you put them on a
-        plan.
+        plan. Click a tenant to manage its plan, suspension, and per-feature price overrides.
       </p>
+
+      <AuditSection />
+    </div>
+  )
+}
+
+// Lazy-loaded per-tenant detail: subscription snapshot, active modules, a
+// suspend/activate control, and the per-feature price-override editor.
+function TenantDetailPanel({
+  companyId,
+  features,
+  onActiveChange,
+}: {
+  companyId: string
+  features: BillingCatalogFeature[]
+  onActiveChange: (active: boolean) => void
+}) {
+  const toast = useToast()
+  const [detail, setDetail] = useState<TenantDetail | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [error, setError] = useState<string | null>(null)
+  const [busy, setBusy] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    setError(null)
+    fetch(`/api/platform/tenants/${companyId}`)
+      .then(async (r) => {
+        const j = await r.json().catch(() => ({}))
+        if (!r.ok) throw new Error(j.error || 'Could not load tenant.')
+        return j as TenantDetail
+      })
+      .then((j) => {
+        if (!cancelled) setDetail(j)
+      })
+      .catch((e: unknown) => {
+        if (!cancelled) setError((e as Error).message)
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [companyId])
+
+  async function toggleActive() {
+    if (!detail) return
+    const next = !detail.company.is_active
+    if (!next && !window.confirm(`Suspend ${detail.company.name}? They will lose access until reactivated.`)) return
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/platform/tenants/${companyId}/active`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ active: next }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(j.error || 'Could not update tenant.')
+        return
+      }
+      const isActive = Boolean(j.is_active)
+      setDetail((d) => (d ? { ...d, company: { ...d.company, is_active: isActive } } : d))
+      onActiveChange(isActive)
+      toast.success(isActive ? 'Tenant activated' : 'Tenant suspended')
+    } catch {
+      toast.error('Could not update tenant.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  if (loading) return <p className="text-sm text-gray-500">Loading…</p>
+  if (error) return <p className="text-sm text-red-400">{error}</p>
+  if (!detail) return null
+
+  const labelFor = (key: string) => features.find((f) => f.feature_key === key)?.label ?? key
+  const activeModules = detail.modules.filter((m) => m.active)
+  const billable = features.filter((f) => !f.is_base && !f.included_in_base)
+  const overrideByKey = new Map(detail.overrides.map((o) => [o.feature_key, o]))
+
+  return (
+    <div className="space-y-5">
+      {/* Subscription + suspend/activate */}
+      <div className="flex flex-wrap items-start justify-between gap-4">
+        <div className="space-y-2">
+          <div className="flex items-center gap-2">
+            {detail.subscription ? (
+              <StatusPill status={detail.subscription.status} />
+            ) : (
+              <span className="text-sm italic text-gray-600">No billing yet</span>
+            )}
+            {detail.subscription?.cancel_at_period_end && (
+              <span className="rounded-full bg-red-500/15 px-2 py-0.5 text-[11px] font-medium text-red-300">
+                Cancels at period end
+              </span>
+            )}
+          </div>
+          {detail.subscription && (
+            <div className="flex flex-wrap gap-x-6 gap-y-1 text-xs text-gray-400">
+              <span>
+                Trial ends: <span className="text-gray-200">{fmtDate(detail.subscription.trial_ends_at)}</span>
+              </span>
+              <span>
+                Renews on: <span className="text-gray-200">{fmtDate(detail.subscription.current_period_end)}</span>
+              </span>
+            </div>
+          )}
+        </div>
+        <button
+          onClick={toggleActive}
+          disabled={busy}
+          className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
+            detail.company.is_active
+              ? 'bg-red-500/90 text-white hover:bg-red-500'
+              : 'bg-emerald-500/90 text-white hover:bg-emerald-500'
+          }`}
+        >
+          {busy ? 'Saving…' : detail.company.is_active ? 'Suspend' : 'Activate'}
+        </button>
+      </div>
+
+      {/* Active modules */}
+      <div>
+        <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">Active modules</h3>
+        {activeModules.length === 0 ? (
+          <p className="text-sm text-gray-500">No active modules.</p>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {activeModules.map((m) => (
+              <span
+                key={m.feature_key}
+                className="rounded-full bg-white/[0.06] px-2 py-0.5 text-[11px] text-gray-300"
+              >
+                {labelFor(m.feature_key)}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {/* Per-feature price overrides */}
+      <div>
+        <h3 className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-gray-500">
+          Price overrides for this tenant
+        </h3>
+        {billable.length === 0 ? (
+          <p className="text-sm text-gray-500">No billable add-ons to override.</p>
+        ) : (
+          <div className="space-y-1.5">
+            {billable.map((f) => (
+              <TenantOverrideRow
+                key={f.feature_key}
+                companyId={companyId}
+                feature={f}
+                initial={overrideByKey.get(f.feature_key)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
+// One compact override row: tri-state "included in base for this tenant" +
+// a price-override field (blank = inherit the catalog default). Save/Clear.
+function TenantOverrideRow({
+  companyId,
+  feature,
+  initial,
+}: {
+  companyId: string
+  feature: BillingCatalogFeature
+  initial: TenantDetail['overrides'][number] | undefined
+}) {
+  const toast = useToast()
+  const [inc, setInc] = useState<'inherit' | 'yes' | 'no'>(
+    initial == null || initial.included_in_base_override == null
+      ? 'inherit'
+      : initial.included_in_base_override
+        ? 'yes'
+        : 'no',
+  )
+  const [price, setPrice] = useState(centsToDollars(initial?.price_cents_override))
+  const [busy, setBusy] = useState(false)
+
+  async function save() {
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/platform/pricing/${feature.feature_key}/override`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          included_in_base_override: inc === 'inherit' ? null : inc === 'yes',
+          price_cents_override: dollarsToCents(price),
+        }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(j.error || 'Could not save override.')
+        return
+      }
+      toast.success(`Override saved for ${feature.label}`)
+    } catch {
+      toast.error('Could not save override.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  async function clear() {
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/platform/pricing/${feature.feature_key}/override`, {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ company_id: companyId }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(j.error || 'Could not clear override.')
+        return
+      }
+      setInc('inherit')
+      setPrice('')
+      toast.success(`Override cleared for ${feature.label}`)
+    } catch {
+      toast.error('Could not clear override.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-2 rounded-lg border border-white/10 bg-white/[0.02] px-3 py-2">
+      <span className="min-w-[150px] flex-1 text-sm text-gray-200">{feature.label}</span>
+
+      <label className="flex items-center gap-1.5 text-[11px] text-gray-400">
+        In base
+        <select
+          value={inc}
+          onChange={(e) => setInc(e.target.value as 'inherit' | 'yes' | 'no')}
+          className="rounded-md border border-white/10 bg-gray-900 px-2 py-1 text-xs text-white outline-none"
+        >
+          <option value="inherit">Inherit</option>
+          <option value="yes">Yes</option>
+          <option value="no">No</option>
+        </select>
+      </label>
+
+      <label className="flex items-center gap-1.5 text-[11px] text-gray-400">
+        Price
+        <span className="flex items-center rounded-md border border-white/10 bg-gray-900 px-2">
+          <span className="text-xs text-gray-500">$</span>
+          <input
+            value={price}
+            onChange={(e) => setPrice(e.target.value)}
+            inputMode="decimal"
+            placeholder="inherit"
+            className="w-16 bg-transparent px-1 py-1 text-xs text-white outline-none placeholder:text-gray-600"
+          />
+        </span>
+      </label>
+
+      <div className="flex items-center gap-1.5">
+        <button
+          onClick={save}
+          disabled={busy}
+          className="rounded-md bg-sky-500/90 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
+        >
+          Save
+        </button>
+        <button
+          onClick={clear}
+          disabled={busy}
+          className="rounded-md border border-white/10 px-2.5 py-1 text-xs font-medium text-gray-300 transition-colors hover:bg-white/5 disabled:opacity-50"
+        >
+          Clear
+        </button>
+      </div>
+    </div>
+  )
+}
+
+// Collapsible, read-only recent-activity feed (lazy-fetched on first open).
+function AuditSection() {
+  const [open, setOpen] = useState(false)
+  const [events, setEvents] = useState<AuditEvent[] | null>(null)
+  const [loading, setLoading] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+
+  async function toggle() {
+    const next = !open
+    setOpen(next)
+    if (next && events == null && !loading) {
+      setLoading(true)
+      setError(null)
+      try {
+        const res = await fetch('/api/platform/audit')
+        const j = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(j.error || 'Could not load activity.')
+        setEvents((j.events || []) as AuditEvent[])
+      } catch (e: unknown) {
+        setError((e as Error).message)
+      } finally {
+        setLoading(false)
+      }
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-white/10">
+      <button
+        onClick={toggle}
+        className="flex w-full items-center justify-between px-3 py-2.5 text-sm font-medium text-gray-200"
+      >
+        <span>Recent activity</span>
+        <span className={`text-gray-500 transition-transform ${open ? 'rotate-90' : ''}`} aria-hidden>
+          ▶
+        </span>
+      </button>
+      {open && (
+        <div className="border-t border-white/10 px-3 py-3">
+          {loading ? (
+            <p className="text-sm text-gray-500">Loading…</p>
+          ) : error ? (
+            <p className="text-sm text-red-400">{error}</p>
+          ) : !events || events.length === 0 ? (
+            <p className="text-sm text-gray-500">No activity yet.</p>
+          ) : (
+            <ul className="space-y-1.5">
+              {events.map((ev) => (
+                <li key={ev.id} className="flex flex-wrap items-baseline justify-between gap-x-3 text-sm">
+                  <span className="text-gray-200">
+                    {ev.action.replace(/_/g, ' ')}
+                    {(ev.company_name || ev.target_company_id) && (
+                      <span className="text-gray-400"> · {ev.company_name || ev.target_company_id}</span>
+                    )}
+                  </span>
+                  <span className="text-[11px] text-gray-500">{fmtRelative(ev.created_at)}</span>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+      )}
     </div>
   )
 }

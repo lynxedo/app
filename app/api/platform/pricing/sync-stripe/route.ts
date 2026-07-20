@@ -3,6 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requirePlatformAdmin } from '@/lib/platform-auth'
 import { syncCatalogToStripe } from '@/lib/billing/provisioning'
 import { stripeConfigured } from '@/lib/billing/stripe'
+import { logPlatformAction } from '@/lib/billing/audit'
 
 // Platform super-admin action: mirror the billing catalog into Stripe (Products +
 // recurring Prices) for the current env's mode. Cross-company — gated by the platform
@@ -16,8 +17,10 @@ export async function POST() {
     return NextResponse.json({ error: 'stripe_not_configured' }, { status: 503 })
   }
 
+  const admin = createAdminClient()
   try {
-    const result = await syncCatalogToStripe(createAdminClient())
+    const result = await syncCatalogToStripe(admin)
+    await logPlatformAction(admin, gate.userId, 'sync_stripe', null, result)
     return NextResponse.json({ result })
   } catch (e) {
     return NextResponse.json({ error: (e as Error).message }, { status: 500 })
