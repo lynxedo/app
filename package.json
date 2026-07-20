@@ -36,6 +36,7 @@
     "react-dom": "19.2.4",
     "react-image-crop": "^11.0.7",
     "react-map-gl": "^8.1.1",
+    "stripe": "^22.3.2",
     "tiptap-markdown": "^0.8.10",
     "web-push": "^3.6.7"
   },

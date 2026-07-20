@@ -84,6 +84,19 @@ export default function AdminSidebar({
       {show(grants.people) && (
         <AdminRow href="/hub/admin" iconId="people" label="People" exact onClose={onClose} />
       )}
+      {isSuperAdmin && (
+        <AdminRow
+          href="/hub/billing"
+          icon={
+            <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <rect x="3" y="5" width="18" height="14" rx="2" strokeLinecap="round" strokeLinejoin="round" />
+              <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h18" />
+            </svg>
+          }
+          label="Billing"
+          onClose={onClose}
+        />
+      )}
       {show(grants.hub) && (
         <AdminRow href="/hub/admin/hub" iconId="hub" label="Hub" onClose={onClose} />
       )}
