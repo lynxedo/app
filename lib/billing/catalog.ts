@@ -38,6 +38,7 @@ const CATALOG_EDITABLE = new Set([
   'category',
   'included_in_base',
   'default_price_cents',
+  'unit_price_cents',
   'cost_basis_cents',
   'gate_flags',
   'sort_order',

@@ -169,9 +169,10 @@ export default function PlatformConsole({
         <div className="space-y-8">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <p className="max-w-2xl text-sm text-gray-400">
-              The master price sheet. Set the base fee and each module&apos;s price — changes auto-save. After editing
-              prices, click <span className="text-gray-200">Sync to Stripe</span> to push them (a new Stripe price is
-              created and the old one archived, since Stripe prices are immutable).
+              The master price sheet. Set the base fee, each module&apos;s price, and the per-unit rate for
+              usage-based modules — changes auto-save. After changing a base price or a per-unit rate, click{' '}
+              <span className="text-gray-200">Sync to Stripe</span> to push it (a new Stripe price is created and the
+              old one archived, since Stripe prices are immutable).
             </p>
             <button
               onClick={syncStripe}
@@ -263,6 +264,7 @@ function FeatureRow({ feature, onSave }: { feature: BillingCatalogFeature; onSav
   const [label, setLabel] = useState(feature.label)
   const [price, setPrice] = useState(centsToDollars(feature.default_price_cents))
   const [cost, setCost] = useState(centsToDollars(feature.cost_basis_cents))
+  const [unitPrice, setUnitPrice] = useState(centsToDollars(feature.unit_price_cents))
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
@@ -323,7 +325,17 @@ function FeatureRow({ feature, onSave }: { feature: BillingCatalogFeature; onSav
             }}
             className="w-full rounded-md bg-transparent text-sm font-semibold text-white outline-none focus:bg-gray-900 focus:px-2 focus:py-1"
           />
-          <code className="mt-0.5 block text-[11px] text-gray-500">{feature.feature_key}</code>
+          <div className="mt-0.5 flex flex-wrap items-center gap-2">
+            <code className="text-[11px] text-gray-500">{feature.feature_key}</code>
+            {feature.metered && (
+              <span
+                className="rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] font-medium uppercase tracking-wide text-violet-300"
+                title="Usage-based module: a flat base price plus a per-unit rate billed in arrears"
+              >
+                Usage-based
+              </span>
+            )}
+          </div>
         </div>
 
         {/* Included in base (not shown for the base row itself) */}
@@ -379,6 +391,23 @@ function FeatureRow({ feature, onSave }: { feature: BillingCatalogFeature; onSav
             )}
           </div>
         </div>
+
+        {/* Per-unit rate (metered modules only) — the flat Price above still applies;
+            this is the usage rate billed in arrears (e.g. $0.05 per minute). */}
+        {feature.metered && (
+          <MoneyField
+            label={`Per ${feature.usage_unit || 'unit'}`}
+            value={unitPrice}
+            placeholder="—"
+            title="Usage rate billed per unit, in arrears"
+            onChange={(v) => {
+              setUnitPrice(v)
+              scheduleSave('unitPrice', { unit_price_cents: dollarsToCents(v) }, () =>
+                setUnitPrice(centsToDollars(feature.unit_price_cents)),
+              )
+            }}
+          />
+        )}
 
         {/* Active */}
         <Toggle label="Active" checked={feature.active} onChange={(v) => runSave({ active: v })} />
