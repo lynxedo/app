@@ -101,6 +101,9 @@ export default function BillingView({
     .filter((f) => checked.has(f.feature_key))
     .reduce((sum, f) => sum + (f.default_price_cents ?? 0), 0)
   const totalCents = basePriceCents + modulesTotalCents
+  // Whether any selected add-on bills metered usage on top of its flat fee — the estimate
+  // below sums BASE fees only (usage is billed in arrears and can't be totaled up-front).
+  const hasMeteredUsage = billableAddOns.some((f) => checked.has(f.feature_key) && f.metered)
 
   const status: SubscriptionStatus = subscription?.status ?? 'none'
   const hasPlan = subscription != null && status !== 'none'
@@ -304,7 +307,20 @@ export default function BillingView({
           <div className="text-2xl font-bold text-white">
             {fmtMoney(totalCents)}
             <span className="text-sm font-normal text-gray-500">/mo</span>
+            {hasMeteredUsage && (
+              <span
+                className="ml-1.5 align-middle text-xs font-normal text-gray-400"
+                title="Usage-based charges are billed separately in arrears and aren't included in this estimate."
+              >
+                + usage
+              </span>
+            )}
           </div>
+          {hasMeteredUsage && (
+            <p className="mt-1 text-[11px] text-gray-500">
+              Base fees only — metered usage is billed separately in arrears.
+            </p>
+          )}
         </div>
         <button
           type="button"
@@ -362,9 +378,14 @@ function ModuleRow({
           )}
         </div>
       </div>
-      <div className="text-sm font-semibold text-white">
+      <div className="text-right text-sm font-semibold text-white">
         {fmtMoney(feature.default_price_cents)}
         <span className="text-xs font-normal text-gray-500">/mo</span>
+        {feature.metered && feature.unit_price_cents != null && (
+          <div className="text-[11px] font-normal text-gray-400">
+            + {fmtMoney(feature.unit_price_cents)} per {feature.usage_unit || 'unit'}
+          </div>
+        )}
       </div>
     </label>
   )

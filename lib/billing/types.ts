@@ -32,6 +32,18 @@ export type BillingCatalogFeature = {
   stripe_product_id: string | null
   stripe_price_id_test: string | null
   stripe_price_id_live: string | null
+  // Usage-based (metered) billing (M4.5). When `metered` is true the feature bills a
+  // flat base price (default_price_cents, above) PLUS per-unit usage reported to a
+  // Stripe Billing Meter. `unit_price_cents` is the per-unit rate; the meter + metered
+  // price ids are wired by syncCatalogToStripe. stripe_meter_id is account-wide; the
+  // metered price id is per-mode (test/live).
+  metered: boolean
+  meter_event_name: string | null
+  usage_unit: string | null
+  unit_price_cents: number | null
+  stripe_meter_id: string | null
+  stripe_metered_price_id_test: string | null
+  stripe_metered_price_id_live: string | null
   sort_order: number
   active: boolean
   retired_at: string | null

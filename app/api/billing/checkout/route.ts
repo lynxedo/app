@@ -32,6 +32,8 @@ export async function POST(request: Request) {
 
   const mode = getBillingMode()
   const priceCol = mode === 'live' ? 'stripe_price_id_live' : 'stripe_price_id_test'
+  const meteredPriceCol =
+    mode === 'live' ? 'stripe_metered_price_id_live' : 'stripe_metered_price_id_test'
   const admin = createAdminClient()
 
   // Base plan — always the first line item.
@@ -53,7 +55,8 @@ export async function POST(request: Request) {
   }
 
   const baseFeatureKey = (baseRow as any).feature_key as string
-  const lineItems: Array<{ price: string; quantity: number }> = [{ price: basePriceId, quantity: 1 }]
+  // Metered prices take NO quantity (Stripe rejects it), so quantity is optional here.
+  const lineItems: Array<{ price: string; quantity?: number }> = [{ price: basePriceId, quantity: 1 }]
   const missing: string[] = []
 
   // Requested modules — must be active, non-base, and have a price id for this mode.
@@ -61,7 +64,7 @@ export async function POST(request: Request) {
   for (const key of uniqueRequested) {
     const { data: feat } = await admin
       .from('billing_catalog')
-      .select(`feature_key, is_base, active, ${priceCol}`)
+      .select(`feature_key, is_base, active, metered, ${priceCol}, ${meteredPriceCol}`)
       .eq('feature_key', key)
       .maybeSingle()
     const priceId: string | null = feat ? (feat as any)[priceCol] : null
@@ -69,7 +72,13 @@ export async function POST(request: Request) {
       missing.push(key)
       continue
     }
+    // Flat base price for the module.
     lineItems.push({ price: priceId, quantity: 1 })
+    // Metered module → ALSO add its usage price (no quantity), so it bills flat + usage.
+    const meteredPriceId: string | null = (feat as any)[meteredPriceCol] ?? null
+    if ((feat as any).metered === true && meteredPriceId) {
+      lineItems.push({ price: meteredPriceId })
+    }
   }
 
   try {
