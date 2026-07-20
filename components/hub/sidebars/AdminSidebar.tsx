@@ -51,6 +51,7 @@ export default function AdminSidebar({
   grants,
   isSuperAdmin,
   isPlatformAdmin,
+  billingEnabled,
   onClose,
   onDesktopCollapse,
 }: {
@@ -75,6 +76,7 @@ export default function AdminSidebar({
   }
   isSuperAdmin: boolean
   isPlatformAdmin?: boolean
+  billingEnabled?: boolean
   onClose?: () => void
   onDesktopCollapse?: () => void
 }) {
@@ -84,7 +86,7 @@ export default function AdminSidebar({
       {show(grants.people) && (
         <AdminRow href="/hub/admin" iconId="people" label="People" exact onClose={onClose} />
       )}
-      {isSuperAdmin && (
+      {isSuperAdmin && billingEnabled && (
         <AdminRow
           href="/hub/billing"
           icon={

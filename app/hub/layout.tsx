@@ -141,6 +141,9 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const isAdmin = profileResult.data?.role === 'admin'
   // Platform super-admin (cross-company) — distinct from the company-scoped role==='admin'.
   const isPlatformAdmin = profileResult.data?.is_platform_admin === true
+  // Customer Billing surface is shown only where Stripe is configured (staging has the
+  // test key; prod stays hidden until go-live). Platform console is NOT gated on this.
+  const billingEnabled = !!process.env.STRIPE_SECRET_KEY
   const adminGrants = {
     people: !!profileResult.data?.can_admin_people,
     hub: !!profileResult.data?.can_admin_hub,
@@ -356,6 +359,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         currentUserAvatarUrl={meResult.data?.avatar_url ?? null}
         isAdmin={isAdmin}
         isPlatformAdmin={isPlatformAdmin}
+        billingEnabled={billingEnabled}
         adminGrants={adminGrants}
         initialActiveAnnouncements={initialActiveAnnouncements}
         initialTextSize={initialTextSize}
