@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { listCatalog, getBillingMode } from '@/lib/billing/catalog'
 import type { CompanySubscription } from '@/lib/billing/types'
+import { stripeConfigured } from '@/lib/billing/stripe'
 import BillingView from './BillingView'
 
 export const metadata = { title: 'Billing' }
@@ -32,6 +33,9 @@ export default async function BillingPage() {
 
   // Billing management is limited to a company's admin/owner.
   if (!profile?.company_id || profile.role !== 'admin') redirect('/hub')
+  // Billing is dormant until Stripe is configured for this env (no key on prod until
+  // go-live) — hide the customer-facing page so no one hits a dead Checkout.
+  if (!stripeConfigured()) redirect('/hub')
 
   const companyId = profile.company_id as string
   const admin = createAdminClient()
