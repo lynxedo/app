@@ -152,28 +152,33 @@ export async function sendInboxReply(
 
   const now = new Date().toISOString()
 
-  // Mirror the outbound message locally.
+  // Mirror the outbound message locally. UPSERT (not insert) on the provider-message unique key:
+  // if a concurrent sync already ingested this just-sent message, an insert would hit 23505 and
+  // wrongly report a send failure for mail that actually went out. Upsert makes it idempotent.
   const { data: inserted, error: insertErr } = await admin
     .from('inbox_messages')
-    .insert({
-      company_id: thread.company_id,
-      thread_id: threadId,
-      account_id: account.id,
-      provider_message_id: sent.providerMessageId,
-      direction: 'outbound',
-      from_name: displayName,
-      from_email: account.email_address,
-      to_recipients: [recipient],
-      cc_recipients: cc,
-      bcc_recipients: bcc,
-      subject,
-      snippet: htmlToSnippet(composed),
-      body_html: composed,
-      message_date: now,
-      unread: false,
-      has_attachments: false,
-      sent_by_user_id: userId,
-    })
+    .upsert(
+      {
+        company_id: thread.company_id,
+        thread_id: threadId,
+        account_id: account.id,
+        provider_message_id: sent.providerMessageId,
+        direction: 'outbound',
+        from_name: displayName,
+        from_email: account.email_address,
+        to_recipients: [recipient],
+        cc_recipients: cc,
+        bcc_recipients: bcc,
+        subject,
+        snippet: htmlToSnippet(composed),
+        body_html: composed,
+        message_date: now,
+        unread: false,
+        has_attachments: false,
+        sent_by_user_id: userId,
+      },
+      { onConflict: 'account_id,provider_message_id' }
+    )
     .select('id')
     .single()
 
@@ -273,8 +278,10 @@ export async function sendInboxNew(
         snippet: htmlToSnippet(composed),
         last_message_at: now,
         last_message_direction: 'outbound',
-        from_name: account.display_name,
-        from_email: account.email_address,
+        // The conversation's "who" is the recipient (the customer), not our own mailbox —
+        // the sidebar renders from_name/from_email as the other party.
+        from_name: to[0]?.name ?? null,
+        from_email: to[0]?.email ?? null,
         participants: to,
         is_shared: isShared,
         owner_user_id: isShared ? null : account.owner_user_id,

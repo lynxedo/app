@@ -60,10 +60,14 @@ export async function syncAccount(admin: SupabaseClient, account: InboxAccount):
       )
     }
 
-    // 2) One bounded page of threads from the saved cursor.
-    const { threads, nextCursor } = await provider.listThreads({
+    // 2) Always pull the NEWEST page each run. Nylas returns threads ordered by most-recent
+    // activity, so a poller must start fresh every time — resuming from a saved page_token walks
+    // DEEPER into history and would miss newly-arrived mail (a real speed-to-reply bug). A thread
+    // older than this page resurfaces here the moment it gets new activity, and upsert idempotency
+    // keeps everything current. (Backfilling dormant old threads is out of scope for v1 polling;
+    // a Graph/Gmail webhook feed replaces this later.)
+    const { threads } = await provider.listThreads({
       limit: THREAD_PAGE_LIMIT,
-      pageToken: account.sync_cursor || undefined,
     })
 
     for (const t of threads) {
@@ -98,7 +102,7 @@ export async function syncAccount(admin: SupabaseClient, account: InboxAccount):
             .from('txt_contacts')
             .select('id')
             .eq('company_id', account.company_id)
-            .ilike('email', fromEmail)
+            .ilike('email', fromEmail.replace(/([%_\\])/g, '\\$1'))
             .limit(1)
             .maybeSingle()
           if (c?.id) contactId = c.id as string
@@ -183,11 +187,11 @@ export async function syncAccount(admin: SupabaseClient, account: InboxAccount):
       }
     }
 
-    // 3) Advance the cursor. null (page walk exhausted) → next run restarts from the
-    //    newest threads, picking up fresh inbound.
+    // 3) Stamp the sweep. We always re-pull the newest page (see above), so there is no forward
+    //    cursor to persist; sync_cursor is left for a future webhook/delta implementation.
     await admin
       .from('inbox_accounts')
-      .update({ sync_cursor: nextCursor, last_synced_at: nowIso, last_error: null, updated_at: nowIso })
+      .update({ last_synced_at: nowIso, last_error: null, updated_at: nowIso })
       .eq('id', account.id)
 
     return { threads: threadCount, messages: messageCount }

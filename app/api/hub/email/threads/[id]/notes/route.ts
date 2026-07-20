@@ -55,5 +55,13 @@ export async function POST(
     actor_user_id: user.id,
   })
 
-  return NextResponse.json({ ok: true, note })
+  // Resolve the author's display name so the just-added note renders it immediately
+  // (the list reads created_by_name; without this it shows "Someone" until reload).
+  const [{ data: hu }, { data: up }] = await Promise.all([
+    admin.from('hub_users').select('display_name').eq('id', user.id).maybeSingle(),
+    admin.from('user_profiles').select('full_name').eq('id', user.id).maybeSingle(),
+  ])
+  const createdByName = hu?.display_name || up?.full_name || null
+
+  return NextResponse.json({ ok: true, note: { ...note, created_by_name: createdByName } })
 }

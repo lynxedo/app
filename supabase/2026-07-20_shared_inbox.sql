@@ -211,13 +211,15 @@ using (
   and exists (select 1 from public.inbox_threads t where t.id = inbox_messages.thread_id)
 );
 
--- inbox_thread_members: readable for threads you can see (own membership implies thread visibility).
+-- inbox_thread_members: a user reads only their OWN membership rows via RLS.
+-- (MUST be self-contained — referencing inbox_threads here caused mutual RLS recursion with the
+-- inbox_threads policy, which references inbox_thread_members: "infinite recursion detected".
+-- Fixed via migration shared_inbox_fix_members_rls_recursion 2026-07-20.) The API lists ALL members
+-- of a thread with the service-role admin client after gating access, so full visibility isn't needed here.
 alter table public.inbox_thread_members enable row level security;
 drop policy if exists inbox_thread_members_select on public.inbox_thread_members;
 create policy inbox_thread_members_select on public.inbox_thread_members for select to authenticated
-using (
-  exists (select 1 from public.inbox_threads t where t.id = inbox_thread_members.thread_id)
-);
+using ( user_id = auth.uid() );
 
 -- inbox_notes: internal — full-access users (managers/office) + the author only (NOT techs).
 alter table public.inbox_notes enable row level security;

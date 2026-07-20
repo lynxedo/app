@@ -36,6 +36,16 @@ export async function POST(
     .maybeSingle()
   if (!thread) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  // Only share within this thread's company (blocks a bogus membership row + cross-company push).
+  const { data: target } = await admin
+    .from('user_profiles')
+    .select('company_id')
+    .eq('id', targetUserId)
+    .maybeSingle()
+  if (!target || target.company_id !== thread.company_id) {
+    return NextResponse.json({ error: 'Invalid user' }, { status: 400 })
+  }
+
   const { error } = await admin.from('inbox_thread_members').insert({
     thread_id: id,
     user_id: targetUserId,

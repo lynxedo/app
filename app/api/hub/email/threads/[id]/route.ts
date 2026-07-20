@@ -53,6 +53,12 @@ export async function GET(
   const permissions = await getInboxThreadPermissions(supabase, id, user.id)
   if (!permissions.canView) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  // The members list is read with the admin client: the inbox_thread_members RLS policy is
+  // own-row-only (to avoid mutual recursion with the inbox_threads policy), so the cookie
+  // client would return only the caller's own row. Access is already gated above (canView),
+  // so returning the full member list for this thread is safe.
+  const admin = createAdminClient()
+
   const [messagesRes, membersRes, notesRes, eventsRes] = await Promise.all([
     supabase
       .from('inbox_messages')
@@ -61,7 +67,7 @@ export async function GET(
       )
       .eq('thread_id', id)
       .order('message_date', { ascending: true }),
-    supabase
+    admin
       .from('inbox_thread_members')
       .select('user_id, role, added_by, added_at')
       .eq('thread_id', id),
@@ -83,7 +89,6 @@ export async function GET(
   const notes = (notesRes.data ?? []) as Array<{ created_by: string | null; [k: string]: unknown }>
   const events = (eventsRes.data ?? []) as Array<{ actor_user_id: string | null; target_user_id: string | null; [k: string]: unknown }>
 
-  const admin = createAdminClient()
   const names = await displayNamesFor(admin, [
     thread.assigned_to_user_id,
     ...members.map((m) => m.user_id),
@@ -96,7 +101,7 @@ export async function GET(
     thread: { ...thread, assignee_name: thread.assigned_to_user_id ? names[thread.assigned_to_user_id] || null : null },
     messages: messagesRes.data ?? [],
     members: members.map((m) => ({ ...m, display_name: names[m.user_id] || null })),
-    notes: notes.map((n) => ({ ...n, author_name: n.created_by ? names[n.created_by] || null : null })),
+    notes: notes.map((n) => ({ ...n, created_by_name: n.created_by ? names[n.created_by] || null : null })),
     events: events.map((e) => ({
       ...e,
       actor_name: e.actor_user_id ? names[e.actor_user_id] || null : null,

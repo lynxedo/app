@@ -38,6 +38,7 @@ export type RailId =
 const RAIL_BY_PREFIX: Array<[string, RailId]> = [
   ['/hub/home', 'hub'],          // landing page treated as hub-adjacent
   ['/hub/txt', 'txt2'],          // Twilio-backed texting ("Txt") — gated by canAccessTxt
+  ['/hub/email', 'email-inbox'], // Shared team Inbox (hlc105) — distinct from /hub/marketing/email
   ['/hub/contacts', 'contacts'], // shared Contacts tool (linked from Txt + Dialer)
   ['/hub/activity', 'activity'],
   ['/hub/admin', 'admin'],

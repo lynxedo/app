@@ -38,6 +38,19 @@ export async function POST(
     .maybeSingle()
   if (!thread) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 
+  // Never seat/assign/notify a user outside this thread's company (RLS would block their read
+  // anyway, but this stops a bogus membership row, a cross-company push, and name disclosure).
+  if (targetUserId) {
+    const { data: target } = await admin
+      .from('user_profiles')
+      .select('company_id')
+      .eq('id', targetUserId)
+      .maybeSingle()
+    if (!target || target.company_id !== thread.company_id) {
+      return NextResponse.json({ error: 'Invalid user' }, { status: 400 })
+    }
+  }
+
   // Owner is single-seat: drop the prior owner row, then seat the new owner.
   await admin.from('inbox_thread_members').delete().eq('thread_id', id).eq('role', 'owner')
 

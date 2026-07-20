@@ -652,11 +652,13 @@ function MessageCard({
       {expanded && (
         <div className="px-3 pb-3">
           {message.body_html ? (
-            // Untrusted external HTML — locked-down iframe, no scripts, no
-            // same-origin access. Fixed height + internal scroll (v1).
+            // Untrusted external HTML — locked-down iframe: NO allow-scripts / allow-same-origin
+            // (so no XSS, no parent access). allow-popups(+escape) lets target=_blank links in the
+            // email open in a real new tab without granting the frame any script/DOM power.
+            // Fixed height + internal scroll (v1).
             <iframe
               title="Email message"
-              sandbox=""
+              sandbox="allow-popups allow-popups-to-escape-sandbox"
               srcDoc={message.body_html}
               className="w-full h-[420px] rounded-md bg-white border border-white/10"
             />
