@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import EmailOversightPanel from '@/components/hub/email/EmailOversightPanel'
+import { LIGHT_SURFACE_STYLE } from '@/components/hub/email/emailFormat'
 
 /**
  * Hub Inbox landing (server component). Full-access users (admins /
@@ -44,7 +45,10 @@ export default async function HubEmailPage() {
   // The email MAIN pane is deliberately light-themed (real-email-client look)
   // regardless of the user's Hub theme — only the sidebar keeps the Hub theme.
   return (
-    <div className="email-light-surface flex-1 flex flex-col items-center px-6 py-8 overflow-y-auto bg-gray-100 text-gray-900">
+    <div
+      className="email-light-surface flex-1 flex flex-col items-center px-6 py-8 overflow-y-auto bg-gray-100 text-gray-900"
+      style={LIGHT_SURFACE_STYLE}
+    >
       {isFull ? (
         <EmailOversightPanel />
       ) : (

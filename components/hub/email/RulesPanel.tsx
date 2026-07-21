@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from 'react'
 import { Spinner } from '@/components/ui'
+import { LIGHT_SURFACE_STYLE } from './emailFormat'
 import type { InboxRule, RuleAction, RuleCondition } from '@/lib/inbox/rules'
 
 /**
@@ -258,7 +259,7 @@ export default function RulesPanel({ open, onClose }: { open: boolean; onClose: 
   return (
     <div className="fixed inset-0 z-50 flex justify-end">
       <div className="absolute inset-0 bg-black/40" onClick={onClose} />
-      <div className="email-light-surface relative h-full w-full max-w-xl bg-white text-gray-900 shadow-2xl flex flex-col">
+      <div className="email-light-surface relative h-full w-full max-w-xl bg-white text-gray-900 shadow-2xl flex flex-col" style={LIGHT_SURFACE_STYLE}>
         {/* Header */}
         <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200">
           <div>

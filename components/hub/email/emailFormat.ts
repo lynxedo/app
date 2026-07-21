@@ -3,10 +3,38 @@
 // display name, initials). Date/currency/duration display live in @/lib/format;
 // these are inbox-specific.
 
+import type { CSSProperties } from 'react'
+
 export type MailDirection = 'inbound' | 'outbound' | null
 export type ThreadStatus = 'open' | 'assigned' | 'closed'
 export type AccountType = 'shared' | 'personal'
 export type Scope = 'mine' | 'all' | 'unassigned' | 'closed' | 'needs_reply'
+
+/**
+ * The Hub theme remaps the entire Tailwind --color-* palette per theme, so
+ * bg-white / bg-gray-* / text-gray-* render DARK under a dark/inverted theme.
+ * The email MAIN pane must always be a real light "email client" surface, so we
+ * re-declare the palette to true light values on each main-pane root. Applied
+ * INLINE (not via a CSS class) because Tailwind's build purges a bare custom
+ * class rule — inline styles can't be purged and always win. Cast to
+ * React.CSSProperties at the call site (custom-property keys). Sidebar/list are
+ * intentionally NOT given this — they keep the user's chosen theme.
+ */
+export const LIGHT_SURFACE_STYLE = {
+  colorScheme: 'light',
+  '--color-white': '#fff',
+  '--color-gray-50': '#f9fafb',
+  '--color-gray-100': '#f3f4f6',
+  '--color-gray-200': '#e5e7eb',
+  '--color-gray-300': '#d1d5db',
+  '--color-gray-400': '#9ca3af',
+  '--color-gray-500': '#6b7280',
+  '--color-gray-600': '#4b5563',
+  '--color-gray-700': '#374151',
+  '--color-gray-800': '#1f2937',
+  '--color-gray-900': '#111827',
+  '--color-gray-950': '#030712',
+} as CSSProperties
 
 /** An account row from GET /api/hub/email/accounts. */
 export type InboxAccount = {
