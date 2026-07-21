@@ -31,6 +31,7 @@ import {
 } from '@/lib/dialer-call-notification'
 import { DEFAULT_DISPOSITIONS } from '@/lib/dialer-dispositions'
 import IncomingCall from './IncomingCall'
+import CallWaiting from './CallWaiting'
 import PipDialer from './PipDialer'
 import CallDisposition from './CallDisposition'
 
@@ -72,12 +73,18 @@ export default function DialerProvider({ children }: { children: ReactNode }) {
 
   // ── Session 6: after-call disposition options + prompt ────────────────────
   const [dispoOptions, setDispoOptions] = useState<string[]>([...DEFAULT_DISPOSITIONS])
+  const [dispositionsEnabled, setDispositionsEnabled] = useState(true)
   const [endedCall, setEndedCall] = useState<{ contactName: string | null } | null>(null)
 
   useEffect(() => {
     fetch('/api/dialer/settings/dispositions')
       .then((r) => (r.ok ? r.json() : null))
-      .then((d) => { if (Array.isArray(d?.options) && d.options.length) setDispoOptions(d.options) })
+      .then((d) => {
+        if (!d) return
+        if (Array.isArray(d.options) && d.options.length) setDispoOptions(d.options)
+        // Company-wide on/off. Default on unless explicitly turned off in admin.
+        if (d.enabled === false) setDispositionsEnabled(false)
+      })
       .catch(() => {})
   }, [])
 
@@ -148,7 +155,14 @@ export default function DialerProvider({ children }: { children: ReactNode }) {
             onReject={device.rejectIncoming}
           />
         )}
-        {endedCall && dispoOptions.length > 0 && (
+        {device.waitingFrom && (
+          <CallWaiting
+            from={device.waitingFrom}
+            contact={device.waitingContactMatch}
+            onDismiss={device.dismissWaiting}
+          />
+        )}
+        {dispositionsEnabled && endedCall && dispoOptions.length > 0 && (
           <CallDisposition
             options={dispoOptions}
             contactName={endedCall.contactName}

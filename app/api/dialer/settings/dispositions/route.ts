@@ -25,9 +25,14 @@ export async function GET() {
   const admin = createAdminClient()
   const { data: row } = await admin
     .from('dialer_settings')
-    .select('disposition_options')
+    .select('disposition_options, dispositions_enabled')
     .eq('company_id', profile.company_id || HEROES_COMPANY_ID)
     .maybeSingle()
 
-  return NextResponse.json({ options: resolveDispositions(row?.disposition_options) })
+  return NextResponse.json({
+    options: resolveDispositions(row?.disposition_options),
+    // Default ON: only an explicit `false` hides the after-call prompt, so a
+    // company that never set the flag (null row) keeps today's behavior.
+    enabled: row?.dispositions_enabled !== false,
+  })
 }

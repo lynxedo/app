@@ -129,6 +129,12 @@ export type UseTwilioDevice = {
   incomingFrom: string | null
   acceptIncoming: () => void
   rejectIncoming: () => void
+  // Call waiting (web/desktop): a second inbound call arriving while already on
+  // one. Surfaced as a SILENT banner (no ringtone). `waitingContactMatch` is the
+  // screen-pop for that caller; `dismissWaiting` rejects it. null = no 2nd call.
+  waitingFrom: string | null
+  waitingContactMatch: DialerLookupMatch | null
+  dismissWaiting: () => void
   // Outbound. Optional extras travel through the Twilio Voice JS SDK's
   // `device.connect({ params })` as form fields on the TwiML outbound
   // webhook — used by Session 57 click-to-call to stamp the resulting
@@ -232,6 +238,12 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   const deviceRef = useRef<DeviceType | null>(null)
   const incomingCallRef = useRef<Call | null>(null)
   const activeCallRef = useRef<Call | null>(null)
+  // Call waiting (web/desktop): a SECOND inbound call that arrives while already
+  // on a call. Presented as a SILENT on-screen notice (no ringtone, and the main
+  // `state` is left on 'in-call' so the active-call UI isn't disturbed).
+  const waitingCallRef = useRef<Call | null>(null)
+  const [waitingFrom, setWaitingFrom] = useState<string | null>(null)
+  const [waitingContactMatch, setWaitingContactMatch] = useState<DialerLookupMatch | null>(null)
 
   // Native (Capacitor) call state. The native Twilio Voice SDK drives the call
   // through CallKit/PushKit — there's no JS Call object — so we mirror its
@@ -574,6 +586,12 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         // tweak; ignored elsewhere). 32 kbps is ample for speech and well
         // within the SDK's 6k–510k bounds.
         maxAverageBitrate: 32000,
+        // Call waiting: raise `incoming` even when already on a call. The SDK
+        // default is false (a 2nd call is silently rejected as busy). We accept
+        // it so the user gets a SILENT on-screen notice of the second caller —
+        // the ringtone is muted while busy (see the `incoming` handler below).
+        // Web/desktop only; native takes its own branch above and is unaffected.
+        allowIncomingWhileBusy: true,
       })
 
       device.on('registered', () => setState('ready'))
@@ -591,8 +609,34 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         }
       })
       device.on('incoming', (call: Call) => {
-        incomingCallRef.current = call
         const from = call.parameters?.From || 'Unknown'
+        // ── Call waiting ──────────────────────────────────────────────────────
+        // Already on a call → present the second call as a SILENT notice: mute
+        // the ringtone and DON'T touch `state` (setting it to 'incoming' would
+        // blow away the active-call UI). The user sees a "call waiting" banner
+        // and can finish the current call or dismiss it.
+        if (activeCallRef.current) {
+          device.audio?.incoming(false) // silence ONLY the incoming ringtone
+          waitingCallRef.current = call
+          setWaitingFrom(from)
+          const clearWaiting = () => {
+            if (waitingCallRef.current === call) {
+              waitingCallRef.current = null
+              setWaitingFrom(null)
+            }
+            // Restore the ring for the NEXT call once we're no longer busy.
+            device.audio?.incoming(!activeCallRef.current)
+          }
+          call.on('accept', clearWaiting)
+          call.on('disconnect', clearWaiting)
+          call.on('cancel', clearWaiting)
+          call.on('reject', clearWaiting)
+          return
+        }
+        // Not busy → normal audible incoming. Ensure the ring is on (self-heals
+        // if a prior waiting call left it muted).
+        device.audio?.incoming(true)
+        incomingCallRef.current = call
         setIncomingFrom(from)
         setState('incoming')
         call.on('accept', () => {
@@ -737,6 +781,28 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     return () => { cancelled = true }
   }, [remoteNumber])
 
+  // Screen-pop lookup for the SILENT call-waiting banner's caller — independent
+  // of `contactMatch`, which stays pinned to the active call the user is on.
+  const waitingLookedUpRef = useRef<string | null>(null)
+  useEffect(() => {
+    if (!waitingFrom) {
+      setWaitingContactMatch(null)
+      waitingLookedUpRef.current = null
+      return
+    }
+    if (waitingLookedUpRef.current === waitingFrom) return
+    waitingLookedUpRef.current = waitingFrom
+    setWaitingContactMatch(null)
+    const digits = waitingFrom.replace(/\D/g, '')
+    if (digits.length < 10) return
+    let cancelled = false
+    fetch(`/api/dialer/lookup?phone=${encodeURIComponent(waitingFrom)}`)
+      .then((r) => (r.ok ? r.json() : null))
+      .then((d) => { if (!cancelled && d?.match) setWaitingContactMatch(d.match) })
+      .catch(() => { /* degrade to raw number */ })
+    return () => { cancelled = true }
+  }, [waitingFrom])
+
   // ── Web audio device selection (mic + speaker picker) ────────────────────
   // Lists come straight from navigator.enumerateDevices (independent of SDK
   // refresh timing); selection is applied through the Twilio AudioHelper.
@@ -870,6 +936,18 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       return
     }
     incomingCallRef.current?.reject()
+  }, [])
+
+  // Dismiss the silent "call waiting" notice: reject the second call (it rolls to
+  // voicemail / the next person) and clear the banner. Web/desktop only — the
+  // waiting surface never populates on native.
+  const dismissWaiting = useCallback(() => {
+    const call = waitingCallRef.current
+    waitingCallRef.current = null
+    setWaitingFrom(null)
+    try { call?.reject() } catch { /* already gone */ }
+    // Ensure the ring is back on for the next call if we're no longer busy.
+    deviceRef.current?.audio?.incoming(!activeCallRef.current)
   }, [])
 
   const placeCall = useCallback(async (
@@ -1063,6 +1141,9 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     incomingFrom,
     acceptIncoming,
     rejectIncoming,
+    waitingFrom,
+    waitingContactMatch,
+    dismissWaiting,
     placeCall,
     inCallWith,
     callStartedAt,

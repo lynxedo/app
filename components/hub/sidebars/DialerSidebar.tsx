@@ -31,6 +31,7 @@ type VoicemailRow = {
   recording_duration_sec: number | null
   heard_at: string | null
   heard_by: string | null
+  follow_up_status: 'resolved' | 'follow_up' | null
   owner_user_id: string | null
   call_id: string | null
   transcript: string | null
@@ -189,6 +190,19 @@ export default function DialerSidebar({
     loadUnheardCount()
   }
 
+  // Follow-up marker: ✓ 'resolved' (taken care of) / 🚩 'follow_up' (needs
+  // follow-up) / null (clear). Optimistic — mirrors markHeard.
+  async function markFollowUp(id: string, status: 'resolved' | 'follow_up' | null) {
+    setVoicemails((prev) =>
+      prev.map((v) => (v.id === id ? { ...v, follow_up_status: status } : v)),
+    )
+    await fetch(`/api/dialer/voicemails/${id}`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ followUp: status }),
+    }).catch(() => {})
+  }
+
   async function deleteVm(id: string) {
     if (!(await confirmDialog({ message: 'Delete this voicemail?', danger: true }))) return
     await fetch(`/api/dialer/voicemails/${id}`, { method: 'DELETE' })
@@ -280,6 +294,7 @@ export default function DialerSidebar({
               onStop={() => setPlayingId(null)}
               onDelete={deleteVm}
               onMarkHeard={markHeard}
+              onMarkFollowUp={markFollowUp}
               canText={canText}
               textingPhone={textingPhone}
               onCall={startCall}
@@ -403,6 +418,7 @@ function VoicemailList({
   onStop,
   onDelete,
   onMarkHeard,
+  onMarkFollowUp,
   canText,
   textingPhone,
   onCall,
@@ -415,6 +431,7 @@ function VoicemailList({
   onStop: () => void
   onDelete: (id: string) => void
   onMarkHeard: (id: string, heard: boolean) => void
+  onMarkFollowUp: (id: string, status: 'resolved' | 'follow_up' | null) => void
   canText: boolean
   textingPhone: string | null
   onCall: (phone: string) => void
@@ -515,6 +532,36 @@ function VoicemailList({
                   className="px-2 py-1 rounded text-xs text-white/60 hover:bg-white/5 hover:text-white"
                 >
                   {v.heard_at ? 'Mark unheard' : 'Mark heard'}
+                </button>
+                {/* Follow-up markers: ✓ taken care of / 🚩 needs follow-up.
+                    Tapping the active one clears it. */}
+                <button
+                  type="button"
+                  onClick={() => onMarkFollowUp(v.id, v.follow_up_status === 'resolved' ? null : 'resolved')}
+                  className={`px-2 py-1 rounded text-xs leading-none ${
+                    v.follow_up_status === 'resolved'
+                      ? 'bg-emerald-600/40 text-emerald-100 ring-1 ring-emerald-400/40'
+                      : 'text-white/40 hover:bg-white/5 hover:text-white'
+                  }`}
+                  title={v.follow_up_status === 'resolved' ? 'Taken care of — tap to clear' : 'Mark taken care of'}
+                  aria-label="Mark taken care of"
+                  aria-pressed={v.follow_up_status === 'resolved'}
+                >
+                  ✓
+                </button>
+                <button
+                  type="button"
+                  onClick={() => onMarkFollowUp(v.id, v.follow_up_status === 'follow_up' ? null : 'follow_up')}
+                  className={`px-2 py-1 rounded text-xs leading-none ${
+                    v.follow_up_status === 'follow_up'
+                      ? 'bg-amber-600/40 text-amber-100 ring-1 ring-amber-400/40'
+                      : 'text-white/40 hover:bg-white/5 hover:text-white grayscale opacity-70 hover:opacity-100 hover:grayscale-0'
+                  }`}
+                  title={v.follow_up_status === 'follow_up' ? 'Flagged for follow-up — tap to clear' : 'Flag for follow-up'}
+                  aria-label="Flag for follow-up"
+                  aria-pressed={v.follow_up_status === 'follow_up'}
+                >
+                  🚩
                 </button>
                 <button
                   type="button"

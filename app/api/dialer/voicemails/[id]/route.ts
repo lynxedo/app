@@ -4,8 +4,11 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 export const dynamic = 'force-dynamic'
 
-// PATCH /api/dialer/voicemails/[id]  — mark heard / unheard
-// Body: { heard: boolean }
+// PATCH /api/dialer/voicemails/[id]  — mark heard / unheard and/or set the
+// follow-up marker.
+// Body: { heard?: boolean; followUp?: 'resolved' | 'follow_up' | null }
+//   followUp: 'resolved' = ✓ taken care of, 'follow_up' = 🚩 needs follow-up,
+//   null = clear the marker.
 export async function PATCH(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -24,12 +27,21 @@ export async function PATCH(
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  let body: { heard?: boolean }
+  let body: { heard?: boolean; followUp?: 'resolved' | 'follow_up' | null }
   try { body = await request.json() } catch {
     return NextResponse.json({ error: 'Invalid JSON' }, { status: 400 })
   }
 
-  // Look up the hub_users.id for this auth user (for heard_by stamp).
+  // Validate the follow-up marker up front (null = clear).
+  if ('followUp' in body && body.followUp !== null
+    && body.followUp !== 'resolved' && body.followUp !== 'follow_up') {
+    return NextResponse.json(
+      { error: "followUp must be 'resolved', 'follow_up', or null" },
+      { status: 400 },
+    )
+  }
+
+  // Look up the hub_users.id for this auth user (for heard_by / follow_up_by).
   const admin = createAdminClient()
   const { data: hubUser } = await admin
     .from('hub_users')
@@ -38,9 +50,22 @@ export async function PATCH(
     .eq('company_id', profile.company_id)
     .maybeSingle()
 
-  const patch = body.heard
-    ? { heard_at: new Date().toISOString(), heard_by: hubUser?.id ?? null }
-    : { heard_at: null, heard_by: null }
+  // Build the patch conditionally so a heard-toggle never clobbers the follow-up
+  // marker (and vice versa) — only fields present in the body are written.
+  const patch: Record<string, unknown> = {}
+  if ('heard' in body) {
+    Object.assign(patch, body.heard
+      ? { heard_at: new Date().toISOString(), heard_by: hubUser?.id ?? null }
+      : { heard_at: null, heard_by: null })
+  }
+  if ('followUp' in body) {
+    Object.assign(patch, body.followUp
+      ? { follow_up_status: body.followUp, follow_up_by: hubUser?.id ?? null, follow_up_at: new Date().toISOString() }
+      : { follow_up_status: null, follow_up_by: null, follow_up_at: null })
+  }
+  if (Object.keys(patch).length === 0) {
+    return NextResponse.json({ error: 'Nothing to update' }, { status: 400 })
+  }
 
   const { data, error } = await admin
     .from('voicemails')
@@ -48,7 +73,7 @@ export async function PATCH(
     .eq('id', id)
     .eq('company_id', profile.company_id)
     .is('deleted_at', null)
-    .select('id, heard_at, heard_by')
+    .select('id, heard_at, heard_by, follow_up_status, follow_up_by, follow_up_at')
     .maybeSingle()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
