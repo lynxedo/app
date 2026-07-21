@@ -94,8 +94,6 @@ export default function TxtV2Sidebar({
   canManage,
   canCall = false,
   canAccessUnifiedInbox = false,
-  betaBroadcasts = false,
-  betaGroups = false,
   currentUserId,
   companyId,
 }: {
@@ -108,14 +106,6 @@ export default function TxtV2Sidebar({
   /** Unified inbox: rows carry cross-channel activity → show the activity icon,
    *  the Missed/Voicemails filters, and fold calls/VMs into the unread dot. */
   canAccessUnifiedInbox?: boolean
-  /** Txt Broadcasts is a Beta feature (txt_broadcasts flag). Show the Broadcast
-   *  composer button + Broadcasts page link only when this user has the beta on
-   *  (AND is a manager). Resolved server-side in HubShell from betaFlags. */
-  betaBroadcasts?: boolean
-  /** Group texting is a Beta feature (txt_groups flag) — true Group MMS on our
-   *  long code (everyone sees everyone, like a native phone group text). Shows
-   *  the + Group button for any Txt user with the beta on. */
-  betaGroups?: boolean
   currentUserId: string
   companyId: string
 }) {
@@ -464,39 +454,28 @@ export default function TxtV2Sidebar({
         >
           + Add contact
         </button>
-        {/* Group + Broadcast are both Beta features (txt_groups / txt_broadcasts
-            flags, resolved in HubShell). This block renders nothing unless the
-            user has at least one beta on. Layout adapts to 1 or 2 buttons. */}
-        {(betaGroups || (canManage && betaBroadcasts)) && (
-          <div
-            className={`grid ${
-              betaGroups && canManage && betaBroadcasts
-                ? 'grid-cols-2'
-                : 'grid-cols-1'
-            } gap-2`}
+        {/* + Group for any Txt user; 📣 Broadcast is manager-only (broadcasts
+            can hit hundreds of customers). Layout adapts to 1 or 2 buttons. */}
+        <div className={`grid ${canManage ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+          <button
+            type="button"
+            onClick={() => setGroupOpen(true)}
+            className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
+            title="New group conversation"
           >
-            {betaGroups && (
-              <button
-                type="button"
-                onClick={() => setGroupOpen(true)}
-                className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
-                title="New group conversation"
-              >
-                + Group
-              </button>
-            )}
-            {canManage && betaBroadcasts && (
-              <button
-                type="button"
-                onClick={() => setBroadcastOpen(true)}
-                className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
-                title="Send 1-to-many broadcast"
-              >
-                📣 Broadcast
-              </button>
-            )}
-          </div>
-        )}
+            + Group
+          </button>
+          {canManage && (
+            <button
+              type="button"
+              onClick={() => setBroadcastOpen(true)}
+              className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
+              title="Send 1-to-many broadcast"
+            >
+              📣 Broadcast
+            </button>
+          )}
+        </div>
         <input
           type="text"
           value={search}
@@ -804,7 +783,7 @@ export default function TxtV2Sidebar({
       )}
 
       <div className="px-3 py-2 border-t border-white/5 flex items-center justify-between">
-        {canManage && betaBroadcasts ? (
+        {canManage ? (
           <Link
             href="/hub/txt/broadcasts"
             onClick={onClose}

@@ -4,7 +4,6 @@ import { sendSms, twilioConfigured } from '@/lib/twilio'
 import { resolveFromNumber } from '@/lib/txt-numbers'
 import { buildMessagePreview } from '@/lib/txt-preview'
 import { renderTemplate } from '@/lib/txt-templates'
-import { isBetaFeatureAvailable } from '@/lib/beta-flags'
 
 // Called by VPS cron every minute:
 //   curl -s -X POST https://staging.lynxedo.com/api/txt/broadcasts/process \
@@ -29,15 +28,6 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient()
-
-  // Broadcasts are a Beta feature (txt_broadcasts). The drainer isn't tied to a
-  // user, so it gates on the admin availability flag (kill-switch) rather than
-  // per-user opt-in: force the feature off in Admin → Beta and the queue stops
-  // draining. Creation is separately opt-in (the create route), so only an
-  // opted-in manager can queue anything in the first place.
-  if (!(await isBetaFeatureAvailable(admin, 'txt_broadcasts'))) {
-    return NextResponse.json({ processed: 0, message: 'broadcasts unavailable' })
-  }
 
   const startedAt = Date.now()
 

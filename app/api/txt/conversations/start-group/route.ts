@@ -9,7 +9,6 @@ import {
   twilioConvDelete,
   twilioConfigured,
 } from '@/lib/twilio'
-import { userHasBetaFeature } from '@/lib/beta-flags'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -36,8 +35,6 @@ function isTollFree(e164: string): boolean {
 //
 // Constraints (Twilio Group MMS): +1 long codes only (toll-free excluded),
 // max 10 total participants → us + up to 9 contacts, US/Canada mobiles.
-//
-// Gated by the txt_groups Beta feature (Settings → Beta Features).
 export async function POST(request: Request) {
   const supabase = await createClient()
   const {
@@ -47,7 +44,7 @@ export async function POST(request: Request) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_access_txt, can_admin_txt, can_assign_txt_threads, can_access_beta, company_id')
+    .select('role, can_access_txt, can_admin_txt, can_assign_txt_threads')
     .eq('id', user.id)
     .single()
   const isTxtUser =
@@ -60,18 +57,6 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient()
-
-  // Group texting is a Beta feature (txt_groups): available + this user opted in.
-  const hasGroupsBeta = await userHasBetaFeature(admin, user.id, 'txt_groups', {
-    canAccessBeta: profile?.role === 'admin' || profile?.can_access_beta === true,
-    companyId: profile?.company_id ?? null,
-  })
-  if (!hasGroupsBeta) {
-    return NextResponse.json(
-      { error: 'Group texting is in beta — enable it in Settings → Beta Features.' },
-      { status: 403 }
-    )
-  }
 
   const body = await request.json().catch(() => ({}))
   const contactIds: string[] = Array.isArray(body.contact_ids) ? body.contact_ids : []
