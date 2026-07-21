@@ -136,11 +136,13 @@ export async function POST(request: NextRequest) {
         if (kind === 'user' && value) {
           const notDnd = await filterNonDndUserIds(admin, [value])
           if (notDnd.length > 0) {
+            // Single known target → attribute the call to them on answer (?u=).
+            const action = notDnd.length === 1 ? `${resultAction}?u=${encodeURIComponent(notDnd[0])}` : resultAction
             return twimlResponse(
               twimlRingGroupSimultaneous({
                 identities: notDnd,
                 timeoutSec: 25,
-                actionUrl: resultAction,
+                actionUrl: action,
                 callerId: callerFrom || undefined,
               }),
             )
@@ -153,11 +155,13 @@ export async function POST(request: NextRequest) {
           if (resolved) {
             const notDnd = await filterNonDndUserIds(admin, [resolved.ownerUserId])
             if (notDnd.length > 0) {
+              // Single known target → attribute the call to them on answer (?u=).
+              const action = `${resultAction}?u=${encodeURIComponent(resolved.ownerUserId)}`
               return twimlResponse(
                 twimlRingGroupSimultaneous({
                   identities: [resolved.identity],
                   timeoutSec: 25,
-                  actionUrl: resultAction,
+                  actionUrl: action,
                   callerId: callerFrom || undefined,
                 }),
               )
@@ -174,11 +178,16 @@ export async function POST(request: NextRequest) {
       // (same checks as the dialer ring groups). Everyone DND → voicemail below.
       const identities = await filterNonDndUserIds(admin, settings.transferUserIds)
       if (identities.length > 0) {
+        // Single known recipient → attribute the call to them on answer (?u=).
+        const action =
+          identities.length === 1
+            ? `${baseUrl}/api/voice/twiml/transfer-result?u=${encodeURIComponent(identities[0])}`
+            : `${baseUrl}/api/voice/twiml/transfer-result`
         return twimlResponse(
           twimlRingGroupSimultaneous({
             identities,
             timeoutSec: 25,
-            actionUrl: `${baseUrl}/api/voice/twiml/transfer-result`,
+            actionUrl: action,
             callerId: callerFrom || undefined,
           })
         )

@@ -48,13 +48,25 @@ async function handle(req: NextRequest): Promise<NextResponse> {
       .update({ status: 'connected', accepted_by: uid })
       .eq('id', attemptId)
       .eq('status', 'pending')
-      .select('id')
+      .select('id, caller_call_sid')
       .maybeSingle()
     if (!claimed) {
       // Someone/something else already took (or ended) it.
       return xml(
         '<?xml version="1.0" encoding="UTF-8"?><Response><Say voice="alice">Sorry, that call was just taken. Goodbye.</Say><Hangup/></Response>',
       )
+    }
+    // Attribute this AI-receptionist call to the recipient who accepted it, so the
+    // Call Log shows "{Name} · via Amber" instead of just "Amber". Best-effort.
+    if (uid && claimed.caller_call_sid) {
+      try {
+        await admin
+          .from('calls')
+          .update({ transferred_to_user_id: uid })
+          .eq('twilio_call_sid', claimed.caller_call_sid)
+      } catch (err) {
+        console.error('[voice.cell-accept] attribute transfer failed', err)
+      }
     }
   } catch {
     return xml(HANGUP)

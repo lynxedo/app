@@ -32,7 +32,9 @@ export async function POST(request: NextRequest) {
   for (const [k, v] of params.entries()) paramObj[k] = v
 
   const signature = request.headers.get('x-twilio-signature')
-  const url = `${process.env.NEXT_PUBLIC_APP_URL}/api/voice/twiml/transfer-result`
+  // Include the request's query string (?u=<userId>) so the signed URL Twilio
+  // computed matches ours — the action URL now carries the transfer target.
+  const url = `${process.env.NEXT_PUBLIC_APP_URL}/api/voice/twiml/transfer-result${new URL(request.url).search}`
   if (voiceConfigured()) {
     if (!validateTwilioVoiceSignature(url, paramObj, signature)) {
       return twimlResponse(EMPTY_VOICE_TWIML, 403)
@@ -41,6 +43,22 @@ export async function POST(request: NextRequest) {
 
   const status = (params.get('DialCallStatus') || '').toLowerCase()
   if (status === 'completed' || status === 'answered') {
+    // The transfer connected to a live person. If a single known user was the
+    // target (?u=), record them as who took this AI-receptionist call so the Call
+    // Log shows "{Name} · via Amber" instead of just "Amber". Best-effort — never
+    // block the clean hangup. CallSid here is the caller leg = calls.twilio_call_sid.
+    const uid = new URL(request.url).searchParams.get('u') || ''
+    const callSid = params.get('CallSid') || ''
+    if (/^[0-9a-f-]{36}$/i.test(uid) && callSid) {
+      try {
+        await createAdminClient()
+          .from('calls')
+          .update({ transferred_to_user_id: uid })
+          .eq('twilio_call_sid', callSid)
+      } catch (err) {
+        console.error('[voice.transfer-result] attribute transfer failed', err)
+      }
+    }
     return twimlResponse('<?xml version="1.0" encoding="UTF-8"?><Response><Hangup/></Response>')
   }
 

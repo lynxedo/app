@@ -97,6 +97,8 @@ type DialerCall = {
   call_type: string | null
   action_items: string[] | null
   agent_name: string | null
+  transferred_to_user_id: string | null
+  ai_routed_by: string | null
   coaching_grade: string | null
   coaching_must_listen: boolean | null
   coaching_json: CoachingData | null
@@ -118,6 +120,7 @@ type MergedCall = {
   phone: string | null
   displayName: string | null
   repName: string | null
+  viaAmber: string | null
   durationSec: number | null
   sentiment: string | null
   status: { label: string; color: string } | null
@@ -269,6 +272,7 @@ function normalizeUnitel(c: UnitelCall): MergedCall {
     phone: c.phone ?? null,
     displayName: c.customer_name || null,
     repName: c.rep_name || null,
+    viaAmber: null,
     durationSec: c.duration_seconds ?? null,
     sentiment: c.sentiment ?? null,
     status: null,
@@ -292,6 +296,7 @@ function normalizeDialer(c: DialerCall): MergedCall {
     phone: displayNumber ?? null,
     displayName: c.contact?.name || null,
     repName: c.agent_name || null,
+    viaAmber: c.ai_routed_by || null,
     durationSec: c.recording_duration_seconds || c.duration_seconds || null,
     sentiment: winnerSentiment ?? null,
     status: statusLabel(c),
@@ -332,6 +337,7 @@ function CallRow({ call, selected, onClick, canViewCoaching }: { call: MergedCal
           <span className={`px-1.5 py-0.5 rounded text-xs font-bold border ${coachingGradeColor(call.coachingGrade)}`}>{call.coachingGrade}</span>
         )}
         {call.repName && <span className="text-gray-600">· {call.repName}</span>}
+        {call.viaAmber && <span className="text-gray-600">· via {call.viaAmber}</span>}
       </div>
       <div className="text-xs text-gray-600 mt-0.5">{call.dateDisplay}</div>
     </button>
@@ -569,6 +575,7 @@ function DialerCallDetail({ call, canViewCoaching }: { call: DialerCall; canView
           {sent && <span className={`px-2 py-0.5 rounded text-xs font-medium ${sent.color}`}>{sent.label}</span>}
           {callType && <span className="px-2 py-0.5 rounded text-xs bg-gray-800 text-gray-300">{callType}</span>}
           {call.agent_name && <span className="text-gray-400">· {call.agent_name}</span>}
+          {call.ai_routed_by && <span className="text-gray-400">· via {call.ai_routed_by}</span>}
         </div>
       </div>
 
