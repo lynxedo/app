@@ -46,6 +46,8 @@ type Settings = {
   recording_pause_auto_resume_sec: number
   // After-call disposition options. null = use the built-in default set.
   disposition_options: string[] | null
+  // Master on/off for the after-call disposition prompt. Default on.
+  dispositions_enabled: boolean
   // Emergency fallback voicemail alerts (Twilio-hosted backup answered a call
   // because the main flow errored). 'hub' = Guardian DM + push (default).
   fallback_notify_method: 'hub' | 'sms' | 'both'
@@ -100,6 +102,7 @@ export default function DialerAdminPanel({
           recording_consent_url: s.recording_consent_url,
           recording_pause_auto_resume_sec: s.recording_pause_auto_resume_sec,
           disposition_options: s.disposition_options,
+          dispositions_enabled: s.dispositions_enabled,
           fallback_notify_method: s.fallback_notify_method,
           fallback_notify_user_ids: s.fallback_notify_user_ids,
           fallback_notify_sms_numbers: s.fallback_notify_sms_numbers,
@@ -660,6 +663,8 @@ export default function DialerAdminPanel({
       </section>
 
       <DispositionsSection
+        enabled={s.dispositions_enabled}
+        onToggleEnabled={(v) => setS((prev) => ({ ...prev, dispositions_enabled: v }))}
         options={s.disposition_options}
         onChange={(next) => setS((prev) => ({ ...prev, disposition_options: next }))}
       />
@@ -953,9 +958,13 @@ function CurrentTreePreview({
 
 
 function DispositionsSection({
+  enabled,
+  onToggleEnabled,
   options,
   onChange,
 }: {
+  enabled: boolean
+  onToggleEnabled: (v: boolean) => void
   options: string[] | null
   onChange: (next: string[] | null) => void
 }) {
@@ -970,15 +979,32 @@ function DispositionsSection({
 
   return (
     <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
-      <header>
-        <h2 className="font-semibold">Call dispositions</h2>
-        <p className="text-xs text-white/50 mt-1">
-          The quick outcome buttons shown when a call ends (logged to Call Log 2).
-          Leave the default set or customize the list.
-        </p>
+      <header className="flex items-start justify-between gap-4">
+        <div>
+          <h2 className="font-semibold">Call dispositions</h2>
+          <p className="text-xs text-white/50 mt-1">
+            The quick outcome buttons shown when a call ends (logged to Call Log 2).
+            Turn the prompt off entirely, or leave it on and customize the list.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label="Enable call dispositions"
+          onClick={() => onToggleEnabled(!enabled)}
+          className={`relative w-10 h-6 rounded-full transition-colors flex-none mt-0.5 ${enabled ? 'bg-brand' : 'bg-white/20'}`}
+        >
+          <span className={`absolute top-1 w-4 h-4 rounded-full bg-white transition-transform ${enabled ? 'translate-x-5' : 'translate-x-1'}`} />
+        </button>
       </header>
 
-      {usingDefault ? (
+      {!enabled ? (
+        <p className="text-xs text-white/40">
+          The after-call &ldquo;how did it go?&rdquo; prompt is off — no disposition is asked for
+          when a call ends. Turn it back on to prompt again.
+        </p>
+      ) : usingDefault ? (
         <div className="space-y-3">
           <div className="flex flex-wrap gap-1.5">
             {DEFAULT_DISPOSITIONS.map((d) => (

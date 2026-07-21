@@ -7,6 +7,7 @@ import Dialpad from '@/components/hub/dialer/Dialpad'
 import ActiveCall from '@/components/hub/dialer/ActiveCall'
 import AudioDevicePicker from '@/components/hub/dialer/AudioDevicePicker'
 import IncomingCall from '@/components/hub/dialer/IncomingCall'
+import CallWaiting from '@/components/hub/dialer/CallWaiting'
 import { useDialerContext, usePipControls } from '@/components/hub/dialer/DialerProvider'
 import { formatPhone } from '@/lib/format'
 
@@ -249,6 +250,15 @@ export default function DialerPanel({
           contact={device.contactMatch}
           onAccept={device.acceptIncoming}
           onReject={device.rejectIncoming}
+        />
+      )}
+      {/* Silent call-waiting notice — only on the fallback (no-provider) path, so
+          it isn't double-rendered when DialerProvider is mounted at shell level. */}
+      {!ctxDevice && device.waitingFrom && (
+        <CallWaiting
+          from={device.waitingFrom}
+          contact={device.waitingContactMatch}
+          onDismiss={device.dismissWaiting}
         />
       )}
     </div>

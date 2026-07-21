@@ -510,7 +510,8 @@ CREATE TABLE public.dialer_settings (
   disposition_options jsonb,
   fallback_voicemail_tts text,
   recording_consent_enabled boolean NOT NULL DEFAULT true,
-  recording_consent_url text
+  recording_consent_url text,
+  dispositions_enabled boolean NOT NULL DEFAULT true
 );
 
 CREATE TABLE public.employees (
@@ -1847,7 +1848,10 @@ CREATE TABLE public.voicemails (
   deleted_by uuid,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   ai_reply_body text,
-  ai_reply_sent_at timestamp with time zone
+  ai_reply_sent_at timestamp with time zone,
+  follow_up_status text CHECK (follow_up_status IN ('resolved', 'follow_up')),
+  follow_up_by uuid,
+  follow_up_at timestamp with time zone
 );
 
 CREATE TABLE public.zone_sizer_settings (

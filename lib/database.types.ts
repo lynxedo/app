@@ -2291,6 +2291,7 @@ export type Database = {
           created_at: string
           default_caller_id_number: string | null
           disposition_options: Json | null
+          dispositions_enabled: boolean
           fallback_voicemail_tts: string | null
           fallback_voicemail_url: string | null
           holidays: Json
@@ -2313,6 +2314,7 @@ export type Database = {
           created_at?: string
           default_caller_id_number?: string | null
           disposition_options?: Json | null
+          dispositions_enabled?: boolean
           fallback_voicemail_tts?: string | null
           fallback_voicemail_url?: string | null
           holidays?: Json
@@ -2335,6 +2337,7 @@ export type Database = {
           created_at?: string
           default_caller_id_number?: string | null
           disposition_options?: Json | null
+          dispositions_enabled?: boolean
           fallback_voicemail_tts?: string | null
           fallback_voicemail_url?: string | null
           holidays?: Json
@@ -8120,6 +8123,9 @@ export type Database = {
           created_at: string
           deleted_at: string | null
           deleted_by: string | null
+          follow_up_at: string | null
+          follow_up_by: string | null
+          follow_up_status: string | null
           from_number: string | null
           heard_at: string | null
           heard_by: string | null
@@ -8140,6 +8146,9 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           deleted_by?: string | null
+          follow_up_at?: string | null
+          follow_up_by?: string | null
+          follow_up_status?: string | null
           from_number?: string | null
           heard_at?: string | null
           heard_by?: string | null
@@ -8160,6 +8169,9 @@ export type Database = {
           created_at?: string
           deleted_at?: string | null
           deleted_by?: string | null
+          follow_up_at?: string | null
+          follow_up_by?: string | null
+          follow_up_status?: string | null
           from_number?: string | null
           heard_at?: string | null
           heard_by?: string | null

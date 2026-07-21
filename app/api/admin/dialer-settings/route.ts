@@ -40,6 +40,7 @@ const ALLOWED_FIELDS = [
   'recording_consent_url',
   'recording_pause_auto_resume_sec',
   'disposition_options',
+  'dispositions_enabled',
   'fallback_voicemail_tts',
   'fallback_notify_method',
   'fallback_notify_user_ids',
@@ -106,6 +107,8 @@ export async function POST(request: Request) {
         patch[k] = v.slice(0, 500)
       }
     } else if (k === 'recording_consent_enabled') {
+      patch[k] = Boolean(body[k])
+    } else if (k === 'dispositions_enabled') {
       patch[k] = Boolean(body[k])
     } else if (k === 'recording_consent_url') {
       const v = body[k]

@@ -58,6 +58,7 @@ export async function GET(request: Request) {
       recording_duration_sec,
       heard_at,
       heard_by,
+      follow_up_status,
       owner_user_id,
       call_id,
       transcript,
