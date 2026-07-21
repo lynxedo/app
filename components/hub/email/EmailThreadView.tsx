@@ -181,7 +181,7 @@ export default function EmailThreadView({
 
   if (loading) {
     return (
-      <div className="flex-1 flex items-center justify-center bg-gray-100">
+      <div className="email-light-surface flex-1 flex items-center justify-center bg-gray-100">
         <Spinner size={8} />
       </div>
     )
@@ -189,7 +189,7 @@ export default function EmailThreadView({
 
   if (notFound || !detail) {
     return (
-      <div className="flex-1 flex flex-col bg-gray-100 text-gray-900">
+      <div className="email-light-surface flex-1 flex flex-col bg-gray-100 text-gray-900">
         <div className="md:hidden px-4 py-3 border-b border-gray-200 bg-white">
           <Link href="/hub/email" className="text-sm text-gray-500 hover:text-gray-900">
             ‹ Inbox
@@ -232,7 +232,7 @@ export default function EmailThreadView({
   )
 
   return (
-    <div className="flex-1 flex flex-col min-h-0 bg-gray-100 text-gray-900">
+    <div className="email-light-surface flex-1 flex flex-col min-h-0 bg-gray-100 text-gray-900">
       {/* Header */}
       <div data-hide-on-keyboard className="px-4 py-3 border-b border-gray-200 bg-white max-md:pl-14">
         <div className="flex items-start justify-between gap-2">

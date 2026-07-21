@@ -128,7 +128,7 @@ export default function EmailComposeView({ emailSignature = '' }: { emailSignatu
   const labelCls = 'text-xs text-gray-500 block mb-1'
 
   return (
-    <div className="flex-1 min-h-0 overflow-y-auto bg-gray-100 text-gray-900">
+    <div className="email-light-surface flex-1 min-h-0 overflow-y-auto bg-gray-100 text-gray-900">
       <div className="max-w-3xl mx-auto w-full sm:px-6 sm:py-6">
         <div className="bg-white sm:rounded-xl sm:border sm:border-gray-200 sm:shadow-sm flex flex-col min-h-[100dvh] sm:min-h-0">
           {/* Header */}
