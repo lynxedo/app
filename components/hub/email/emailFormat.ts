@@ -71,6 +71,9 @@ export type EmailThread = {
   has_attachments: boolean
   mine: boolean
   folder: string | null
+  /** The connected mailbox this thread lives on. Returned by GET /threads/{id};
+   *  used to default the "forward from" mailbox. Optional on list responses. */
+  account_id?: string | null
   /** Optional — number of messages in the thread (used for the expand chevron).
    *  Older API responses may omit it; treat missing as "unknown, maybe multi". */
   message_count?: number | null
@@ -128,6 +131,9 @@ export type EmailMessage = {
   from_name: string | null
   from_email: string | null
   to_recipients: MailRecipient[]
+  /** Cc recipients on the message (returned by GET /threads/{id}). Used to seed
+   *  Reply-All + to render the quoted-message header. */
+  cc_recipients?: MailRecipient[] | null
   subject: string | null
   body_html: string | null
   body_text?: string | null
@@ -351,4 +357,67 @@ export function finalizeEmailHtml(html: string): string {
     )
     .replace(/<p><\/p>/g, '<p><br></p>')
   return `<div style="font-family:Arial, Helvetica, sans-serif;font-size:14px;line-height:1.5;color:#111827;">${styled}</div>`
+}
+
+// ── Reply / Reply-All / Forward composer helpers ────────────────────────────
+
+/** "Name <email>" (or just whichever half is present) — the composer's To/From
+ *  display lines and the outbound quote header. */
+export function formatWho(name: string | null | undefined, email: string | null | undefined): string {
+  const n = (name || '').trim()
+  const e = (email || '').trim()
+  if (n && e) return `${n} <${e}>`
+  return n || e || 'Unknown sender'
+}
+
+/** Comma-joined "email" list (bare addresses only — parseRecipients() takes each
+ *  comma-separated token as a literal address, so names aren't embedded here).
+ *  Used for the quote header's "To:" line and to prefill editable Cc inputs. */
+export function formatRecipientList(list: MailRecipient[] | null | undefined): string {
+  return (list || [])
+    .map((r) => (r.email || '').trim())
+    .filter(Boolean)
+    .join(', ')
+}
+
+/**
+ * Outlook-style "From / Date / To / Subject" quote header (HTML block) for the
+ * reply/reply-all/forward outbound body. Plain known fields rendered as escaped
+ * HTML text — safe to concatenate directly into bodyHtml (unlike the quoted
+ * message's own body, which must stay inside the sandboxed iframe / go out
+ * verbatim, never through this escaping path).
+ */
+export function buildForwardQuoteHeaderHtml(message: {
+  from_name: string | null
+  from_email: string | null
+  message_date: string | null
+  to_recipients: MailRecipient[] | null | undefined
+  subject: string | null
+}): string {
+  const to = formatRecipientList(message.to_recipients)
+  const lines = [
+    `From: ${formatWho(message.from_name, message.from_email)}`,
+    `Date: ${messageTime(message.message_date) || 'Unknown'}`,
+    ...(to ? [`To: ${to}`] : []),
+    `Subject: ${message.subject || '(no subject)'}`,
+  ]
+  const rows = lines.map((l) => `<div>${plainToHtml(l)}</div>`).join('')
+  return `<div style="color:#6b7280;font-size:12px;line-height:1.6;margin:16px 0 4px;">${rows}</div>`
+}
+
+/** "Fwd:"-normalize a subject for the forward composer (avoids double "Fwd:").
+ *  Display + outbound — the compose route sends the subject verbatim. */
+export function fwdSubject(subject: string | null | undefined): string {
+  const base = (subject || '').trim()
+  if (/^fwd\s*:/i.test(base)) return base
+  return base ? `Fwd: ${base}` : 'Fwd:'
+}
+
+/** Display-only "Re:"-normalize for the reply/reply-all composer's read-only
+ *  subject line (the real outgoing subject is always computed server-side in
+ *  sendInboxReply, which doesn't take a subject param — this is label text only). */
+export function reSubjectDisplay(subject: string | null | undefined): string {
+  const base = (subject || '').trim()
+  if (/^re\s*:/i.test(base)) return base
+  return base ? `Re: ${base}` : 'Re:'
 }

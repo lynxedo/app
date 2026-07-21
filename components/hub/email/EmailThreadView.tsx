@@ -1,39 +1,24 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Spinner, useToast } from '@/components/ui'
 import AssignMenu from './AssignMenu'
 import ShareMenu from './ShareMenu'
-import EmailRichTextEditor, { type EmailEditorHandle } from './EmailRichTextEditor'
-import EmailAttachments from './EmailAttachments'
+import EmailReplyComposer from './EmailReplyComposer'
 import {
   messageTime,
   participantName,
   firstName,
   fileSize,
-  plainToHtml,
-  signatureToHtml,
-  htmlToPlainText,
-  textToHtmlParagraphs,
-  buildQuoteHeader,
-  extractDraftText,
-  extractQuotedTailHtml,
-  finalizeEmailHtml,
   attachmentMeta,
   LIGHT_SURFACE_STYLE,
   type ThreadDetail,
   type EmailMessage,
-  type OutgoingAttachment,
 } from './emailFormat'
 
-type SuggestTone = 'professional' | 'friendly' | 'brief'
-const SUGGEST_TONES: { value: SuggestTone; label: string }[] = [
-  { value: 'professional', label: 'Professional' },
-  { value: 'friendly', label: 'Friendly' },
-  { value: 'brief', label: 'Brief' },
-]
+type ComposerMode = 'reply' | 'reply-all' | 'forward'
 
 /**
  * Full email thread view. Loads its own data from GET /api/hub/email/threads/{id}
@@ -73,6 +58,18 @@ export default function EmailThreadView({
   const [showNotes, setShowNotes] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
+
+  // Reply / Reply All / Forward — set to switch the whole main pane into a
+  // full-window composer (not a split view). null = the normal reader.
+  const [composerMode, setComposerMode] = useState<ComposerMode | null>(null)
+  // Switching threads always drops back to the reader — adjusted during render
+  // (React's recommended pattern for resetting state on a prop change) rather
+  // than a useEffect, which would cause an extra render pass.
+  const [composerModeForThread, setComposerModeForThread] = useState(threadId)
+  if (threadId !== composerModeForThread) {
+    setComposerModeForThread(threadId)
+    setComposerMode(null)
+  }
 
   // Which messages are expanded (default: the most recent).
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
@@ -234,6 +231,21 @@ export default function EmailThreadView({
 
   return (
     <div className="email-light-surface flex-1 flex flex-col min-h-0 bg-gray-100 text-gray-900" style={LIGHT_SURFACE_STYLE}>
+      {composerMode ? (
+        <EmailReplyComposer
+          mode={composerMode}
+          threadId={threadId}
+          thread={thread}
+          messages={messages}
+          emailSignature={emailSignature}
+          onCancel={() => setComposerMode(null)}
+          onReplySent={async () => {
+            setComposerMode(null)
+            await load()
+          }}
+        />
+      ) : (
+        <>
       {/* Header */}
       <div data-hide-on-keyboard className="px-4 py-3 border-b border-gray-200 bg-white max-md:pl-14">
         <div className="flex items-start justify-between gap-2">
@@ -258,6 +270,33 @@ export default function EmailThreadView({
 
         {/* Action bar */}
         <div className="flex items-center gap-1.5 flex-wrap mt-2">
+          {permissions.canReply && !isClosed && (
+            <button
+              type="button"
+              onClick={() => setComposerMode('reply')}
+              className="text-xs px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium"
+            >
+              ↩ Reply
+            </button>
+          )}
+          {permissions.canReply && !isClosed && (
+            <button
+              type="button"
+              onClick={() => setComposerMode('reply-all')}
+              className="text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 hover:bg-gray-50 text-gray-700"
+            >
+              ↩↩ Reply All
+            </button>
+          )}
+          {permissions.canReply && (
+            <button
+              type="button"
+              onClick={() => setComposerMode('forward')}
+              className="text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 hover:bg-gray-50 text-gray-700"
+            >
+              ➜ Forward
+            </button>
+          )}
           {permissions.canClaim && !isClosed && thread.assigned_to_user_id !== currentUserId && (
             <button
               type="button"
@@ -405,318 +444,16 @@ export default function EmailThreadView({
         )}
       </div>
 
-      {/* Composer */}
-      {permissions.canReply && !isClosed && (
-        <ReplyComposer
-          threadId={threadId}
-          messages={messages}
-          replyToName={participantName(thread.from_name, thread.from_email)}
-          emailSignature={emailSignature}
-          onSent={load}
-        />
-      )}
-
-      {/* Non-repliers / closed threads get a quiet footer instead of a composer. */}
+      {/* Quiet footer when no reply action is visible in the action bar at all. */}
       {(!permissions.canReply || isClosed) && (
         <div className="border-t border-gray-200 px-4 py-3 bg-white text-xs text-gray-500">
           {isClosed
-            ? 'This thread is closed. Reopen it to reply.'
+            ? 'This thread is closed. Reopen it to reply — you can still Forward.'
             : 'You can view this thread but not reply.'}
         </div>
       )}
-    </div>
-  )
-}
-
-/**
- * Rich reply composer — real-email-client behavior. Pre-loads (top to bottom):
- * an empty typing area (cursor at top), the user's signature, then the quoted
- * message being replied to ("On {date}, {who} wrote:" + a styled blockquote).
- * Sends { bodyHtml, body, attachments } to POST /threads/{id}/send.
- */
-function ReplyComposer({
-  threadId,
-  messages,
-  replyToName,
-  emailSignature,
-  onSent,
-}: {
-  threadId: string
-  messages: EmailMessage[]
-  replyToName: string
-  emailSignature: string
-  onSent: () => Promise<void> | void
-}) {
-  const editorRef = useRef<EmailEditorHandle>(null)
-  // True while WE are rewriting the document (prefill / AI apply) — so onChange
-  // knows the edit didn't come from the user's keyboard.
-  const programmatic = useRef(false)
-
-  const sigHtml = signatureToHtml(emailSignature)
-  const sigText = htmlToPlainText(sigHtml)
-
-  const latestInbound = [...messages].reverse().find((m) => m.direction === 'inbound') || null
-
-  const buildPrefill = useCallback((): string => {
-    const sig = sigHtml ? `<p></p>${sigHtml}` : ''
-    if (!latestInbound) return `<p></p>${sig}`
-    const header = buildQuoteHeader(
-      latestInbound.from_name,
-      latestInbound.from_email,
-      latestInbound.message_date
-    )
-    let inner = latestInbound.body_html || ''
-    // Very large HTML bodies make the editor crawl — quote the text instead.
-    if (!inner || inner.length > 150000) {
-      inner = textToHtmlParagraphs(latestInbound.body_text || latestInbound.snippet || '')
-    }
-    return `<p></p>${sig}<p></p><p>${plainToHtml(header)}</p><blockquote>${inner}</blockquote>`
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestInbound?.id, sigHtml])
-
-  const [initialHtml] = useState(buildPrefill)
-  const [draftText, setDraftText] = useState('')
-  const [attachments, setAttachments] = useState<OutgoingAttachment[]>([])
-  const [sending, setSending] = useState(false)
-  const [sendError, setSendError] = useState('')
-
-  // AI helpers.
-  const [suggestOpen, setSuggestOpen] = useState(false)
-  const [suggestLoading, setSuggestLoading] = useState(false)
-  const [polishLoading, setPolishLoading] = useState(false)
-  const [polishUndo, setPolishUndo] = useState<string | null>(null)
-
-  function applyContent(html: string, focusStart = true) {
-    programmatic.current = true
-    editorRef.current?.setContent(html, { focusStart })
-    programmatic.current = false
-  }
-
-  function onEditorChange(_html: string, text: string) {
-    setDraftText(extractDraftText(text, sigText))
-    if (!programmatic.current) setPolishUndo(null)
-  }
-
-  // When a NEW inbound arrives and the user hasn't typed anything yet, re-prefill
-  // so the quote tracks the message they'll actually be answering.
-  const quotedIdRef = useRef<string | null>(latestInbound?.id || null)
-  useEffect(() => {
-    const id = latestInbound?.id || null
-    if (id === quotedIdRef.current) return
-    quotedIdRef.current = id
-    if (!draftText.trim()) applyContent(buildPrefill(), false)
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [latestInbound?.id])
-
-  const canSend = !sending && (draftText.trim().length > 0 || attachments.length > 0)
-
-  async function sendReply() {
-    if (!canSend) return
-    const html = editorRef.current?.getHTML() || ''
-    const text = editorRef.current?.getText() || ''
-    setSending(true)
-    setSendError('')
-    try {
-      const res = await fetch(`/api/hub/email/threads/${threadId}/send`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          bodyHtml: finalizeEmailHtml(html),
-          // Legacy plain-text fallback for the API.
-          body: text,
-          attachments,
-        }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok || data.ok === false || data.error) {
-        setSendError(data.error || 'Send failed — try again')
-        return
-      }
-      setAttachments([])
-      setPolishUndo(null)
-      await onSent()
-      // Reset to a fresh prefill (same latest inbound — we just answered it).
-      applyContent(buildPrefill(), false)
-      setDraftText('')
-    } catch {
-      setSendError('Send failed — try again')
-    } finally {
-      setSending(false)
-    }
-  }
-
-  /** Rebuild the document with new top-area HTML, keeping signature + quote. */
-  function rebuildWithTop(topHtml: string) {
-    const tail = extractQuotedTailHtml(editorRef.current?.getHTML() || '')
-    const sig = sigHtml ? `<p></p>${sigHtml}` : ''
-    applyContent(`${topHtml}${sig}${tail ? `<p></p>${tail}` : ''}`)
-  }
-
-  async function runSuggestReply(tone: SuggestTone) {
-    setSuggestOpen(false)
-    if (suggestLoading) return
-    setSuggestLoading(true)
-    setSendError('')
-    try {
-      const res = await fetch(`/api/hub/email/threads/${threadId}/suggest-reply`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ tone }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok || data.error || !data.reply) {
-        setSendError(data.error || "Couldn't generate a suggestion — try again")
-        return
-      }
-      const reply: string = data.reply
-      if (draftText.trim().length > 5) {
-        const ok =
-          typeof window !== 'undefined' &&
-          window.confirm('Replace your current draft with the suggestion?')
-        if (!ok) return
-      }
-      setPolishUndo(null)
-      rebuildWithTop(textToHtmlParagraphs(reply))
-    } catch {
-      setSendError("Couldn't generate a suggestion — try again")
-    } finally {
-      setSuggestLoading(false)
-    }
-  }
-
-  async function runPolish() {
-    const draft = draftText.trim()
-    if (polishLoading || !draft) return
-    setPolishLoading(true)
-    setSendError('')
-    try {
-      const res = await fetch(`/api/hub/email/threads/${threadId}/refine-draft`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ draft }),
-      })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok || data.error || !data.refined) {
-        setSendError(data.error || "Couldn't polish the draft — try again")
-        return
-      }
-      const refined: string = data.refined
-      if (refined.trim() === draft) return
-      const previous = editorRef.current?.getHTML() || ''
-      rebuildWithTop(textToHtmlParagraphs(refined))
-      setPolishUndo(previous)
-    } catch {
-      setSendError("Couldn't polish the draft — try again")
-    } finally {
-      setPolishLoading(false)
-    }
-  }
-
-  function undoPolish() {
-    if (polishUndo === null) return
-    applyContent(polishUndo)
-    setPolishUndo(null)
-  }
-
-  return (
-    <div className="border-t border-gray-200 px-3 py-2.5 bg-white">
-      <div className="max-w-3xl mx-auto w-full">
-        <div className="flex items-center justify-between gap-2 mb-1 px-0.5">
-          <span className="text-[11px] text-gray-400 truncate">
-            Replying to {replyToName} · sends as the mailbox
-          </span>
-          {polishUndo !== null && (
-            <span className="text-[11px] text-gray-400 flex-none">
-              ✨ Polished ·{' '}
-              <button
-                type="button"
-                onClick={undoPolish}
-                className="underline hover:text-gray-700"
-              >
-                undo
-              </button>
-            </span>
-          )}
-        </div>
-        {sendError && <div className="text-xs text-red-600 mb-1 px-0.5">{sendError}</div>}
-
-        <EmailRichTextEditor
-          ref={editorRef}
-          initialHtml={initialHtml}
-          onChange={onEditorChange}
-          disabled={sending}
-          minHeightClass="min-h-[110px]"
-          maxHeightClass="max-h-[38vh]"
-        />
-
-        <div className="flex items-center justify-between gap-2 mt-2 flex-wrap">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <EmailAttachments
-              attachments={attachments}
-              onAdd={(a) => setAttachments((prev) => [...prev, a])}
-              onRemove={(id) => setAttachments((prev) => prev.filter((x) => x.id !== id))}
-              disabled={sending}
-            />
-            {/* Suggest Reply */}
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setSuggestOpen((v) => !v)}
-                disabled={suggestLoading || messages.length === 0}
-                className="text-xs px-2 py-1 rounded-md border border-violet-200 bg-violet-50 text-violet-700 hover:bg-violet-100 disabled:opacity-60 inline-flex items-center gap-1"
-                title="Suggest a reply"
-              >
-                {suggestLoading ? (
-                  <span className="inline-block w-3 h-3 border-2 border-violet-500 border-t-transparent rounded-full animate-spin" />
-                ) : (
-                  <span aria-hidden>✨</span>
-                )}
-                <span className="hidden sm:inline">Suggest</span>
-              </button>
-              {suggestOpen && !suggestLoading && (
-                <div className="absolute left-0 bottom-full mb-1 w-44 bg-white border border-gray-200 rounded-md shadow-lg z-50">
-                  <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-gray-400 border-b border-gray-100">
-                    Tone
-                  </div>
-                  {SUGGEST_TONES.map((t) => (
-                    <button
-                      key={t.value}
-                      type="button"
-                      onClick={() => runSuggestReply(t.value)}
-                      className="block w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50"
-                    >
-                      {t.label}
-                    </button>
-                  ))}
-                </div>
-              )}
-            </div>
-            {/* Polish */}
-            <button
-              type="button"
-              onClick={runPolish}
-              disabled={polishLoading || !draftText.trim()}
-              className="text-xs px-2 py-1 rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 inline-flex items-center gap-1"
-              title="Polish the wording of your draft"
-            >
-              {polishLoading ? (
-                <span className="inline-block w-3 h-3 border-2 border-gray-400 border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <span aria-hidden>✨</span>
-              )}
-              <span className="hidden sm:inline">Polish</span>
-            </button>
-          </div>
-          <button
-            type="button"
-            onClick={sendReply}
-            disabled={!canSend}
-            className="text-sm px-4 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium disabled:opacity-50"
-          >
-            {sending ? 'Sending…' : 'Send'}
-          </button>
-        </div>
-      </div>
+        </>
+      )}
     </div>
   )
 }
@@ -742,31 +479,44 @@ function MessageCard({
 
   return (
     <div
-      className={`rounded-lg border overflow-hidden shadow-sm ${
-        isOutbound ? 'border-emerald-200 bg-emerald-50/60' : 'border-gray-200 bg-white'
+      className={`rounded-lg border overflow-hidden transition-shadow ${
+        expanded
+          ? `shadow-sm ${isOutbound ? 'border-emerald-200 bg-emerald-50/60' : 'border-gray-200 bg-white'}`
+          : `${isOutbound ? 'border-emerald-100 bg-emerald-50/25' : 'border-gray-100 bg-gray-50/60'}`
       }`}
     >
       <button
         type="button"
         onClick={onToggle}
-        className="w-full text-left px-3 py-2 flex items-start justify-between gap-2 hover:bg-gray-50/70"
+        aria-expanded={expanded}
+        className="w-full text-left px-3 py-2 flex items-start gap-2 hover:bg-gray-100/70 cursor-pointer"
       >
-        <div className="min-w-0">
-          <div className="text-sm font-medium truncate text-gray-900">
-            {isOutbound && <span className="text-emerald-600">↩ </span>}
-            {who}
-            {message.from_email && !isOutbound && (
-              <span className="text-gray-400 font-normal"> · {message.from_email}</span>
+        <span
+          aria-hidden
+          className={`flex-none text-gray-300 text-[10px] pt-1 transition-transform duration-150 ${
+            expanded ? 'rotate-90 text-gray-400' : ''
+          }`}
+        >
+          ▶
+        </span>
+        <div className="min-w-0 flex-1 flex items-start justify-between gap-2">
+          <div className="min-w-0">
+            <div className="text-sm font-medium truncate text-gray-900">
+              {isOutbound && <span className="text-emerald-600">↩ </span>}
+              {who}
+              {message.from_email && !isOutbound && (
+                <span className="text-gray-400 font-normal"> · {message.from_email}</span>
+              )}
+            </div>
+            {toLine && <div className="text-[11px] text-gray-400 truncate">to {toLine}</div>}
+            {!expanded && message.snippet && (
+              <div className="text-[11px] text-gray-400 truncate mt-0.5">{message.snippet}</div>
             )}
           </div>
-          {toLine && <div className="text-[11px] text-gray-400 truncate">to {toLine}</div>}
-          {!expanded && message.snippet && (
-            <div className="text-[11px] text-gray-400 truncate mt-0.5">{message.snippet}</div>
-          )}
+          <span className="text-[10px] text-gray-400 flex-none whitespace-nowrap">
+            {messageTime(message.message_date)}
+          </span>
         </div>
-        <span className="text-[10px] text-gray-400 flex-none whitespace-nowrap">
-          {messageTime(message.message_date)}
-        </span>
       </button>
 
       {expanded && (
