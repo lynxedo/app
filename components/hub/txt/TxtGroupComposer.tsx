@@ -3,7 +3,7 @@
 import { useState } from 'react'
 import TxtContactMultiPicker from './TxtContactMultiPicker'
 
-// New group conversation modal (Beta: txt_groups). Picks 2–9 contacts,
+// New group conversation modal. Picks 2–9 contacts,
 // optional friendly name. POSTs /api/txt/conversations/start-group; on success
 // navigates to the new conversation page. Backed by TRUE Group MMS (projected
 // address on our long code) — everyone in the group sees everyone's messages

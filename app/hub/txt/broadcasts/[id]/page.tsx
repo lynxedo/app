@@ -1,8 +1,6 @@
 import Link from 'next/link'
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { createAdminClient } from '@/lib/supabase/admin'
-import { userHasBetaFeature } from '@/lib/beta-flags'
 import { formatPhone } from '@/lib/format'
 
 function formatTime(iso: string | null) {
@@ -28,24 +26,17 @@ export default async function TxtBroadcastDetailPage({
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  // Broadcasts are a manager-only Beta feature (txt_broadcasts). Gate the page
-  // the same way as the sidebar link + create route, so a direct URL can't reach
-  // it without the beta on.
+  // Broadcasts are manager-only. Gate the page the same way as the sidebar
+  // link + create route, so a direct URL can't reach it without the powers.
   const { data: gate } = await supabase
     .from('user_profiles')
-    .select('role, can_access_txt, can_admin_txt, can_assign_txt_threads, can_access_beta, company_id')
+    .select('role, can_access_txt, can_admin_txt, can_assign_txt_threads')
     .eq('id', user.id)
     .single()
   if (!gate?.can_access_txt) redirect('/hub')
   const isManager =
     gate?.role === 'admin' || gate?.can_admin_txt === true || gate?.can_assign_txt_threads === true
-  const hasBroadcastBeta =
-    isManager &&
-    (await userHasBetaFeature(createAdminClient(), user.id, 'txt_broadcasts', {
-      canAccessBeta: gate?.role === 'admin' || gate?.can_access_beta === true,
-      companyId: gate?.company_id ?? null,
-    }))
-  if (!hasBroadcastBeta) redirect('/hub/txt')
+  if (!isManager) redirect('/hub/txt')
 
   const { id } = await params
 

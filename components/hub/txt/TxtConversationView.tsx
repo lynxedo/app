@@ -4,7 +4,6 @@ import { useEffect, useLayoutEffect, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import ContactModal, { type ContactForModal } from './ContactModal'
 import AddToTrackerModal from '@/components/hub/tracker/AddToTrackerModal'
-import { useBetaFlag } from '@/components/hub/BetaFlagsContext'
 import PopoutButton from '@/components/hub/popout/PopoutButton'
 import TemplatePicker, { filterTemplates, type PickerTemplate } from './TemplatePicker'
 import EmojiPicker from '@/components/hub/EmojiPicker'
@@ -221,8 +220,6 @@ export default function TxtConversationView({
   const [addContactOpen, setAddContactOpen] = useState(false)
   const [trackerOpen, setTrackerOpen] = useState(false)
   const [trackerLeadId, setTrackerLeadId] = useState<string | null>(null)
-  // Beta-ring gate — the Add-to-Lead-Tracker button is dark until the user opts in.
-  const canAddToTracker = useBetaFlag('add_to_lead_tracker')
   const [numbers, setNumbers] = useState<PhoneNumberOption[]>([])
   const [numberPickerOpen, setNumberPickerOpen] = useState(false)
   // Pending MMS attachments — staged client-side via the 📎 button, sent in
@@ -1336,9 +1333,9 @@ export default function TxtConversationView({
               <span className="hidden sm:inline">+ Add to Contacts</span>
             </button>
           )}
-          {/* Add this person to the Lead Tracker (Beta). Shows on a 1:1 with a
-              contact once opted in; flips to a "In tracker" link after linking. */}
-          {canAddToTracker && !isGroup && conversation.contact &&
+          {/* Add this person to the Lead Tracker. Shows on a 1:1 with a
+              contact; flips to a "In tracker" link after linking. */}
+          {!isGroup && conversation.contact &&
             (trackerLeadId ? (
               <a
                 href="/hub/tracker"

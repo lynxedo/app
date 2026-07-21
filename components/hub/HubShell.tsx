@@ -769,8 +769,6 @@ export default function HubShell({
             canManage={!!canManageTxt}
             canCall={!!canAccessDialer}
             canAccessUnifiedInbox={!!canAccessUnifiedInbox}
-            betaBroadcasts={!!betaFlags.txt_broadcasts}
-            betaGroups={!!betaFlags.txt_groups}
             currentUserId={currentUserId}
             companyId={companyId || ''}
           />
@@ -1148,14 +1146,12 @@ export default function HubShell({
   // ConversationPopoutProvider owns the floating message-thread window (txt / DM
   // / room) for everyone — like the dialer PiP, but for text. Wrapped outermost
   // so the pop-out survives navigation across every Hub page.
-  // Gated behind the conversation_popout beta flag — the pop-out button hides
-  // for anyone not opted in (or once the beta is force-off in Admin → Beta).
   // BetaFlagsProvider exposes the resolved beta flag map to every client
-  // component under the shell (useBetaFlag('<key>')), so Beta-ring entry points
-  // like "Add to Lead Tracker" stay dark until the user opts in.
+  // component under the shell (useBetaFlag('<key>')), so future Beta-ring entry
+  // points can stay dark until the user opts in.
   return (
     <BetaFlagsProvider flags={betaFlags}>
-      <ConversationPopoutProvider enabled={!!betaFlags.conversation_popout}>{withDialer}</ConversationPopoutProvider>
+      <ConversationPopoutProvider>{withDialer}</ConversationPopoutProvider>
     </BetaFlagsProvider>
   )
 }

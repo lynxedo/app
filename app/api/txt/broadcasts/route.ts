@@ -1,7 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { userHasBetaFeature } from '@/lib/beta-flags'
 
 const HEROES_COMPANY_ID =
   process.env.TXT_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
@@ -58,7 +57,7 @@ export async function POST(request: Request) {
   // Manager-only: broadcasts can hit hundreds of customers; not a one-tap action.
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_txt, can_assign_txt_threads, can_access_beta, company_id')
+    .select('role, can_admin_txt, can_assign_txt_threads')
     .eq('id', user.id)
     .single()
   const isManager =
@@ -70,20 +69,6 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient()
-
-  // Broadcasts are a Beta feature (txt_broadcasts): gate creation on this user
-  // having the beta on (admin availability + their opt-in) — mirrors the Txt
-  // sidebar's Broadcast button, which is shown from the same flag.
-  const hasBroadcastBeta = await userHasBetaFeature(admin, user.id, 'txt_broadcasts', {
-    canAccessBeta: profile?.role === 'admin' || profile?.can_access_beta === true,
-    companyId: profile?.company_id ?? null,
-  })
-  if (!hasBroadcastBeta) {
-    return NextResponse.json(
-      { error: 'Broadcasts are in beta — enable it in Settings → Beta Features.' },
-      { status: 403 }
-    )
-  }
 
   // "Send from" (optional): the chosen line must be one of this company's
   // numbers. Stored on the broadcast; the drainer sends every recipient from it.
