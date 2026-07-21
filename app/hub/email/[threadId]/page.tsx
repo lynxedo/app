@@ -27,7 +27,7 @@ export default async function HubEmailThreadPage({
 
   const { data: prof } = await admin
     .from('user_profiles')
-    .select('role, can_access_shared_inbox, can_compose_shared_email, company_id')
+    .select('role, can_access_shared_inbox, can_compose_shared_email, email_signature, company_id')
     .eq('id', user.id)
     .maybeSingle()
 
@@ -52,6 +52,7 @@ export default async function HubEmailThreadPage({
       threadId={threadId}
       currentUserId={user.id}
       companyId={prof?.company_id || ''}
+      emailSignature={(prof?.email_signature as string | null) || ''}
     />
   )
 }

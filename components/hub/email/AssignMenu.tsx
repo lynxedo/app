@@ -66,16 +66,20 @@ export default function AssignMenu({
   }
 
   return (
+    // left-0 (not right-0): the trigger sits near the LEFT edge of the main pane,
+    // and the Hub shell clips the pane with overflow-hidden — a right-aligned menu
+    // extended past that edge and looked like it slid under the sidebar. z-50 keeps
+    // it above the message stream + iframes. Light theme to match the email pane.
     <div
       ref={ref}
-      className="absolute right-0 mt-1 w-56 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-40 max-h-80 overflow-y-auto"
+      className="absolute left-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-md shadow-xl z-50 max-h-80 overflow-y-auto"
     >
       {loading ? (
         <div className="py-6 text-center"><Spinner size={5} /></div>
       ) : (
         <>
           {users.length === 0 && (
-            <div className="px-3 py-2 text-xs text-white/40">No teammates</div>
+            <div className="px-3 py-2 text-xs text-gray-400">No teammates</div>
           )}
           {users.map((u) => (
             <button
@@ -83,12 +87,12 @@ export default function AssignMenu({
               type="button"
               disabled={busy}
               onClick={() => assign(u.id)}
-              className={`block w-full text-left px-3 py-2 text-sm hover:bg-white/5 disabled:opacity-50 ${
-                u.id === currentAssigneeId ? 'text-[var(--t-tint-success)]' : ''
+              className={`block w-full text-left px-3 py-2 text-sm hover:bg-gray-50 disabled:opacity-50 ${
+                u.id === currentAssigneeId ? 'text-emerald-600 font-medium' : 'text-gray-700'
               }`}
             >
               {u.display_name}
-              {u.id === currentAssigneeId && <span className="text-[10px] text-white/40"> · current</span>}
+              {u.id === currentAssigneeId && <span className="text-[10px] text-gray-400"> · current</span>}
             </button>
           ))}
           {currentAssigneeId && (
@@ -96,7 +100,7 @@ export default function AssignMenu({
               type="button"
               disabled={busy}
               onClick={() => assign(null)}
-              className="block w-full text-left px-3 py-2 text-sm text-[var(--t-tint-orange)] hover:bg-white/5 border-t border-white/10 disabled:opacity-50"
+              className="block w-full text-left px-3 py-2 text-sm text-orange-600 hover:bg-gray-50 border-t border-gray-100 disabled:opacity-50"
             >
               Unassign
             </button>

@@ -75,12 +75,14 @@ export default function ShareMenu({
   }
 
   return (
+    // left-0 + z-50 for the same reason as AssignMenu — the main pane's
+    // overflow-hidden clipped a right-aligned menu at the sidebar boundary.
     <div
       ref={ref}
-      className="absolute right-0 mt-1 w-60 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-40 flex flex-col max-h-80"
+      className="absolute left-0 top-full mt-1 w-60 bg-white border border-gray-200 rounded-md shadow-xl z-50 flex flex-col max-h-80"
     >
-      <div className="px-3 py-2 border-b border-white/10">
-        <div className="text-[10px] uppercase tracking-wide text-white/40 mb-1">
+      <div className="px-3 py-2 border-b border-gray-100">
+        <div className="text-[10px] uppercase tracking-wide text-gray-400 mb-1">
           Share this thread with
         </div>
         <input
@@ -88,7 +90,7 @@ export default function ShareMenu({
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search teammates…"
-          className="w-full px-2 py-1 rounded bg-white/5 border border-white/10 text-xs placeholder-white/30"
+          className="w-full px-2 py-1 rounded bg-white border border-gray-300 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400"
           autoFocus
         />
       </div>
@@ -96,7 +98,7 @@ export default function ShareMenu({
         {loading ? (
           <div className="py-6 text-center"><Spinner size={5} /></div>
         ) : candidates.length === 0 ? (
-          <div className="px-3 py-3 text-xs text-white/40">
+          <div className="px-3 py-3 text-xs text-gray-400">
             {users.length === 0 ? 'No teammates' : 'Everyone already has access'}
           </div>
         ) : (
@@ -106,7 +108,7 @@ export default function ShareMenu({
               type="button"
               disabled={busy}
               onClick={() => share(u.id)}
-              className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5 disabled:opacity-50"
+              className="block w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
             >
               {u.display_name}
             </button>

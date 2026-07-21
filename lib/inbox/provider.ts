@@ -22,6 +22,11 @@ export interface MailProvider {
   listFolders(): Promise<MailFolder[]>
   moveMessageToFolder(messageId: string, folderId: string): Promise<void>
   setMessageFlags(messageId: string, flags: { unread?: boolean; starred?: boolean }): Promise<void>
+  /** Stream an attachment's raw bytes (provider ids). The route proxies these to the client. */
+  downloadAttachment(
+    attachmentId: string,
+    providerMessageId: string
+  ): Promise<{ body: ReadableStream<Uint8Array> | null; contentType: string | null; contentLength: string | null }>
 }
 
 // The minimal shape of an inbox_accounts row the factory needs.

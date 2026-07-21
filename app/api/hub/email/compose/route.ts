@@ -3,11 +3,22 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireCompany } from '@/lib/company-auth'
 import { getInboxUserFlags } from '@/lib/inbox/permissions'
 import { getSharedAccount, getPersonalAccount, getInboxAccountById } from '@/lib/inbox/accounts'
-import { sendInboxNew } from '@/lib/inbox/send'
+import { sendInboxNew, parseAttachmentMetas } from '@/lib/inbox/send'
 import type { MailParticipant } from '@/lib/inbox/types'
 
 export const dynamic = 'force-dynamic'
+// Attachment sends fetch bytes from R2 + push them to Nylas as multipart — allow beyond the default budget.
+export const maxDuration = 180
 
+// POST /api/hub/email/compose — start a NEW outbound email.
+// Body: {
+//   account?: 'shared' | 'personal' | <accountId>,
+//   to: [{ name?, email }], cc?: [...], bcc?: [...],
+//   subject?: string,
+//   bodyHtml?: string,                       // rich HTML (composer already embedded the signature)
+//   body?: string,                           // legacy plain body (server appends the signature)
+//   attachments?: [{ id, filename, contentType, size }],  // from POST /api/hub/email/attachments
+// }
 export async function POST(request: Request) {
   const auth = await requireCompany()
   if ('error' in auth) return auth.error
@@ -19,11 +30,14 @@ export async function POST(request: Request) {
     ? body.to.filter((p: MailParticipant) => p && typeof p.email === 'string' && p.email)
     : []
   const cc: MailParticipant[] = Array.isArray(body.cc) ? body.cc : []
+  const bcc: MailParticipant[] = Array.isArray(body.bcc) ? body.bcc : []
   const subject: string = typeof body.subject === 'string' ? body.subject : ''
   const bodyHtml: string = typeof body.bodyHtml === 'string' ? body.bodyHtml.trim() : ''
+  const bodyText: string = typeof body.body === 'string' ? body.body.trim() : ''
+  const attachments = parseAttachmentMetas(body.attachments)
 
   if (to.length === 0) return NextResponse.json({ error: 'At least one recipient is required' }, { status: 400 })
-  if (!bodyHtml) return NextResponse.json({ error: 'Empty message' }, { status: 400 })
+  if (!bodyHtml && !bodyText) return NextResponse.json({ error: 'Empty message' }, { status: 400 })
 
   const admin = createAdminClient()
 
@@ -57,10 +71,13 @@ export async function POST(request: Request) {
     userId,
     to,
     cc,
+    bcc,
     subject,
     bodyHtml,
+    bodyText,
+    attachments,
   })
 
-  if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: 502 })
-  return NextResponse.json({ ok: true, messageId: result.messageId })
+  if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status || 502 })
+  return NextResponse.json({ ok: true, messageId: result.messageId, threadId: result.threadId ?? null })
 }

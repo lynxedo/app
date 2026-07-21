@@ -2,9 +2,22 @@
 //
 // Both paths ALWAYS send AS the connected mailbox (account.email_address). That's
 // inherent to Nylas — the grant IS the mailbox, so there's no per-user "from".
-// The sender's identity is carried in the appended signature ("-- \n{name}"),
-// which is how replies still come back to the shared queue rather than to a
-// personal address (PRD Decision D).
+//
+// Body contract (matches the composer):
+//   • `bodyHtml` — full rich HTML from the composer. The composer already embedded
+//     the sender's signature, so the server does NOT append one. We only wrap it in
+//     a minimal font-default div for email-client compatibility.
+//   • `bodyText` (the API routes' legacy `body` field) — plain/legacy body. Kept
+//     byte-compatible with the original behavior: the server appends the sender's
+//     signature ("-- \n{name}") exactly as before.
+//   bodyHtml wins when both are present.
+//
+// Attachments: the routes pass `{ id, filename, contentType, size }` metas where
+// `id` is the R2 outbox key minted by POST /api/hub/email/attachments. We validate
+// the key's company prefix (no cross-company fetch), load the bytes from R2,
+// enforce a 20 MB total cap (Nylas caps ~25 MB), send multipart, mirror the
+// attachment meta onto the inbox_messages row, then best-effort delete the R2
+// staging objects.
 //
 // Writes go through the service-role admin client; the ROUTE is responsible for
 // the per-action permission check (getInboxThreadPermissions) before calling in.
@@ -12,13 +25,44 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { getMailProvider } from './provider'
 import type { InboxAccount } from './accounts'
-import type { MailParticipant } from './types'
+import type { MailAttachment, MailParticipant, OutboundAttachmentFile } from './types'
+import { r2GetBuffer, r2Delete } from '@/lib/r2'
 
-export type SendResult = { ok: true; messageId: string } | { ok: false; error: string }
+export type SendResult =
+  | { ok: true; messageId: string; threadId?: string }
+  // `status` lets the route surface the right HTTP code (413 attachment cap, 400 bad ref) instead of a blanket 502.
+  | { ok: false; error: string; status?: number }
 
-// Strip HTML to a short plain-text snippet for the sidebar/search denorm.
-function htmlToSnippet(html: string, max = 200): string {
-  const text = html
+// What the API routes accept per attachment (the upload route's response, echoed back).
+export type OutboundAttachmentMeta = {
+  id: string // R2 outbox key: inbox/{company_id}/outbox/{uuid}/{filename}
+  filename?: string
+  contentType?: string
+  size?: number
+}
+
+const MAX_TOTAL_ATTACHMENT_BYTES = 20 * 1024 * 1024 // Nylas hard cap is ~25 MB; leave headroom for encoding.
+
+// Parse the attachments[] the composer echoes back from POST /api/hub/email/attachments.
+// Only the id is trusted for fetching (and re-validated against the company prefix below).
+// Shared by the compose + reply routes (route files can't export helpers).
+export function parseAttachmentMetas(raw: unknown): OutboundAttachmentMeta[] {
+  if (!Array.isArray(raw)) return []
+  return raw
+    .filter((a): a is Record<string, unknown> => !!a && typeof a === 'object')
+    .filter((a) => typeof a.id === 'string' && (a.id as string).length > 0)
+    .slice(0, 20)
+    .map((a) => ({
+      id: a.id as string,
+      filename: typeof a.filename === 'string' ? a.filename : undefined,
+      contentType: typeof a.contentType === 'string' ? a.contentType : undefined,
+      size: typeof a.size === 'number' ? a.size : undefined,
+    }))
+}
+
+// Strip HTML to plain text (used for the snippet + body_text mirror columns).
+function htmlToText(html: string): string {
+  return html
     .replace(/<style[\s\S]*?<\/style>/gi, ' ')
     .replace(/<script[\s\S]*?<\/script>/gi, ' ')
     .replace(/<[^>]+>/g, ' ')
@@ -28,6 +72,11 @@ function htmlToSnippet(html: string, max = 200): string {
     .replace(/&gt;/gi, '>')
     .replace(/\s+/g, ' ')
     .trim()
+}
+
+// Short plain-text snippet for the sidebar/search denorm.
+function htmlToSnippet(html: string, max = 200): string {
+  const text = htmlToText(html)
   return text.length > max ? text.slice(0, max - 1) + '…' : text
 }
 
@@ -55,14 +104,96 @@ async function resolveSender(
   return { displayName, signatureHtml }
 }
 
-// Append the sender's signature block. Uses the standard "-- " delimiter so mail
-// clients recognize it as a signature. Falls back to "{name}, Heroes Lawn Care"
-// when the user hasn't set a personal signature.
+// LEGACY path only: append the sender's signature block. Uses the standard "-- "
+// delimiter so mail clients recognize it as a signature. Falls back to
+// "{name}, Heroes Lawn Care" when the user hasn't set a personal signature.
+// The rich `bodyHtml` path never calls this — the composer embeds the signature.
 // TODO(multi-tenant): replace the hardcoded "Heroes Lawn Care" fallback with the
 // tenant's business profile name once business_profiles is wired here.
 function composeBody(bodyHtml: string, displayName: string, signatureHtml: string): string {
   const sig = signatureHtml || `${displayName}, Heroes Lawn Care`
   return `${bodyHtml}<br><br>-- <br>${sig}`
+}
+
+// Minimal email-client-compatible wrapper for composer HTML (font default only —
+// the composer owns everything else, including the signature).
+function wrapHtmlBody(html: string): string {
+  return `<div style="font-family: Arial, Helvetica, sans-serif; font-size: 14px; line-height: 1.5;">${html}</div>`
+}
+
+// Pick + finalize the outgoing HTML body per the contract above. Null → nothing to send.
+function buildOutboundBody(
+  params: { bodyHtml?: string | null; bodyText?: string | null },
+  displayName: string,
+  signatureHtml: string
+): string | null {
+  const rich = (params.bodyHtml || '').trim()
+  if (rich) return wrapHtmlBody(rich)
+  const legacy = (params.bodyText || '').trim()
+  if (legacy) return composeBody(legacy, displayName, signatureHtml)
+  return null
+}
+
+// Validate + load outbound attachments from the R2 outbox. Fails closed on any
+// key outside this company's outbox prefix (no cross-company fetch).
+async function loadOutboundAttachments(
+  companyId: string,
+  metas: OutboundAttachmentMeta[]
+): Promise<
+  | { ok: true; files: OutboundAttachmentFile[]; keys: string[] }
+  | { ok: false; error: string; status: number }
+> {
+  const prefix = `inbox/${companyId}/outbox/`
+  const files: OutboundAttachmentFile[] = []
+  const keys: string[] = []
+  let total = 0
+  for (const meta of metas) {
+    const key = typeof meta?.id === 'string' ? meta.id : ''
+    if (!key.startsWith(prefix) || key.includes('..')) {
+      return { ok: false, error: 'Invalid attachment reference', status: 400 }
+    }
+    let content: Buffer
+    try {
+      content = await r2GetBuffer(key)
+    } catch {
+      return { ok: false, error: `Attachment not found: ${meta.filename || 'file'}`, status: 400 }
+    }
+    total += content.length
+    if (total > MAX_TOTAL_ATTACHMENT_BYTES) {
+      return { ok: false, error: 'Attachments exceed the 20 MB total limit', status: 413 }
+    }
+    files.push({
+      filename: (meta.filename || key.split('/').pop() || 'attachment').slice(0, 255),
+      contentType: meta.contentType || 'application/octet-stream',
+      content,
+    })
+    keys.push(key)
+  }
+  return { ok: true, files, keys }
+}
+
+// Attachment meta to mirror onto inbox_messages.attachments. Prefer the provider's
+// ids from the send response (they make the download route work immediately); fall
+// back to the upload metas — the next sync overwrites with provider ids anyway.
+function mirrorAttachments(
+  sentAttachments: MailAttachment[] | undefined,
+  metas: OutboundAttachmentMeta[]
+): Array<{ id: string; filename?: string; contentType?: string; size?: number }> {
+  if (sentAttachments && sentAttachments.length > 0) {
+    return sentAttachments.map((a) => ({ id: a.id, filename: a.filename, contentType: a.contentType, size: a.size }))
+  }
+  return metas.map((m) => ({ id: m.id, filename: m.filename, contentType: m.contentType, size: m.size }))
+}
+
+// Best-effort cleanup of the R2 outbox staging objects after a successful send.
+async function cleanupOutboxKeys(keys: string[]): Promise<void> {
+  for (const key of keys) {
+    try {
+      await r2Delete(key)
+    } catch {
+      /* best-effort — orphaned staging objects are harmless */
+    }
+  }
 }
 
 /**
@@ -76,7 +207,9 @@ export async function sendInboxReply(
     account: InboxAccount
     threadId: string
     userId: string
-    bodyHtml: string
+    bodyHtml?: string | null // rich HTML (composer-signed) — no server signature
+    bodyText?: string | null // legacy plain body — server appends the signature
+    attachments?: OutboundAttachmentMeta[]
     cc?: MailParticipant[]
     bcc?: MailParticipant[]
   }
@@ -84,6 +217,7 @@ export async function sendInboxReply(
   const { account, threadId, userId } = params
   const cc = params.cc || []
   const bcc = params.bcc || []
+  const attachmentMetas = params.attachments || []
 
   // Load the thread for subject + fallback recipient.
   const { data: thread } = await admin
@@ -129,11 +263,16 @@ export async function sendInboxReply(
   if (!recipient?.email) return { ok: false, error: 'Could not determine a recipient for this thread' }
 
   const { displayName, signatureHtml } = await resolveSender(admin, userId)
-  const composed = composeBody(params.bodyHtml, displayName, signatureHtml)
+  const composed = buildOutboundBody(params, displayName, signatureHtml)
+  if (!composed) return { ok: false, error: 'Empty message', status: 400 }
   const subject = reSubject(thread.subject)
 
+  // Load staged attachments from R2 (validates the company prefix + 20 MB cap).
+  const loaded = await loadOutboundAttachments(thread.company_id as string, attachmentMetas)
+  if (!loaded.ok) return loaded
+
   // Send via the transport (Nylas). Any provider error → soft failure.
-  let sent: { providerMessageId: string; providerThreadId: string | null }
+  let sent: { providerMessageId: string; providerThreadId: string | null; attachments?: MailAttachment[] }
   try {
     sent = await getMailProvider(account).sendMessage({
       to: [recipient],
@@ -143,6 +282,7 @@ export async function sendInboxReply(
       bodyHtml: composed,
       replyToMessageId,
       trackReplies: true,
+      attachments: loaded.files,
     })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
@@ -151,6 +291,8 @@ export async function sendInboxReply(
   }
 
   const now = new Date().toISOString()
+  const hasAttachments = loaded.files.length > 0
+  const mirroredAttachments = hasAttachments ? mirrorAttachments(sent.attachments, attachmentMetas) : []
 
   // Mirror the outbound message locally. UPSERT (not insert) on the provider-message unique key:
   // if a concurrent sync already ingested this just-sent message, an insert would hit 23505 and
@@ -172,9 +314,11 @@ export async function sendInboxReply(
         subject,
         snippet: htmlToSnippet(composed),
         body_html: composed,
+        body_text: htmlToText(composed),
         message_date: now,
         unread: false,
-        has_attachments: false,
+        has_attachments: hasAttachments,
+        attachments: mirroredAttachments,
         sent_by_user_id: userId,
       },
       { onConflict: 'account_id,provider_message_id' }
@@ -208,6 +352,8 @@ export async function sendInboxReply(
     detail: { message_id: inserted.id },
   })
 
+  await cleanupOutboxKeys(loaded.keys)
+
   return { ok: true, messageId: inserted.id }
 }
 
@@ -226,21 +372,29 @@ export async function sendInboxNew(
     cc?: MailParticipant[]
     bcc?: MailParticipant[]
     subject: string
-    bodyHtml: string
+    bodyHtml?: string | null // rich HTML (composer-signed) — no server signature
+    bodyText?: string | null // legacy plain body — server appends the signature
+    attachments?: OutboundAttachmentMeta[]
   }
 ): Promise<SendResult> {
   const { account, userId } = params
   const to = params.to || []
   const cc = params.cc || []
   const bcc = params.bcc || []
+  const attachmentMetas = params.attachments || []
 
   if (to.length === 0 || !to[0]?.email) return { ok: false, error: 'At least one recipient is required' }
 
   const { displayName, signatureHtml } = await resolveSender(admin, userId)
-  const composed = composeBody(params.bodyHtml, displayName, signatureHtml)
+  const composed = buildOutboundBody(params, displayName, signatureHtml)
+  if (!composed) return { ok: false, error: 'Empty message', status: 400 }
   const subject = (params.subject || '').trim() || '(no subject)'
 
-  let sent: { providerMessageId: string; providerThreadId: string | null }
+  // Load staged attachments from R2 (validates the company prefix + 20 MB cap).
+  const loaded = await loadOutboundAttachments(account.company_id, attachmentMetas)
+  if (!loaded.ok) return loaded
+
+  let sent: { providerMessageId: string; providerThreadId: string | null; attachments?: MailAttachment[] }
   try {
     sent = await getMailProvider(account).sendMessage({
       to,
@@ -249,6 +403,7 @@ export async function sendInboxNew(
       subject,
       bodyHtml: composed,
       trackReplies: true,
+      attachments: loaded.files,
     })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
@@ -257,9 +412,12 @@ export async function sendInboxNew(
   }
 
   const now = new Date().toISOString()
+  const hasAttachments = loaded.files.length > 0
+  const mirroredAttachments = hasAttachments ? mirrorAttachments(sent.attachments, attachmentMetas) : []
 
   // No provider thread id → nothing to key a local row on; let sync materialize it.
   if (!sent.providerThreadId) {
+    await cleanupOutboxKeys(loaded.keys)
     return { ok: true, messageId: sent.providerMessageId }
   }
 
@@ -288,6 +446,7 @@ export async function sendInboxNew(
         assigned_to_user_id: isShared ? userId : null,
         status: isShared ? 'assigned' : 'open',
         unread: false,
+        has_attachments: hasAttachments,
         updated_at: now,
       },
       { onConflict: 'account_id,provider_thread_id' }
@@ -298,6 +457,7 @@ export async function sendInboxNew(
   if (threadErr || !threadRow) {
     console.error('[inbox:send] thread upsert failed', threadErr?.message)
     // Message still sent; the sync will reconcile.
+    await cleanupOutboxKeys(loaded.keys)
     return { ok: true, messageId: sent.providerMessageId }
   }
 
@@ -312,25 +472,33 @@ export async function sendInboxNew(
       })
   }
 
-  await admin.from('inbox_messages').insert({
-    company_id: account.company_id,
-    thread_id: threadRow.id,
-    account_id: account.id,
-    provider_message_id: sent.providerMessageId,
-    direction: 'outbound',
-    from_name: displayName,
-    from_email: account.email_address,
-    to_recipients: to,
-    cc_recipients: cc,
-    bcc_recipients: bcc,
-    subject,
-    snippet: htmlToSnippet(composed),
-    body_html: composed,
-    message_date: now,
-    unread: false,
-    has_attachments: false,
-    sent_by_user_id: userId,
-  })
+  await admin.from('inbox_messages').upsert(
+    {
+      company_id: account.company_id,
+      thread_id: threadRow.id,
+      account_id: account.id,
+      provider_message_id: sent.providerMessageId,
+      direction: 'outbound',
+      from_name: displayName,
+      from_email: account.email_address,
+      to_recipients: to,
+      cc_recipients: cc,
+      bcc_recipients: bcc,
+      subject,
+      snippet: htmlToSnippet(composed),
+      body_html: composed,
+      body_text: htmlToText(composed),
+      message_date: now,
+      unread: false,
+      has_attachments: hasAttachments,
+      attachments: mirroredAttachments,
+      sent_by_user_id: userId,
+    },
+    { onConflict: 'account_id,provider_message_id' }
+  )
 
-  return { ok: true, messageId: sent.providerMessageId }
+  await cleanupOutboxKeys(loaded.keys)
+
+  // threadId lets the composer land the sender directly in the new thread.
+  return { ok: true, messageId: sent.providerMessageId, threadId: threadRow.id }
 }

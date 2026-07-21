@@ -16,6 +16,8 @@ import DndScheduleEditor from '@/components/hub/DndScheduleEditor'
 import type { DndSchedule } from '@/lib/dnd-schedule'
 import { useToast, useConfirm } from '@/components/ui'
 import { THEMES, THEME_IDS, THEME_CATEGORIES } from '@/lib/themes'
+import EmailRichTextEditor from '@/components/hub/email/EmailRichTextEditor'
+import { signatureToHtml } from '@/components/hub/email/emailFormat'
 
 interface HubProfile {
   full_name: string | null
@@ -965,13 +967,15 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
         <p className="text-gray-400 text-sm mb-5">Your signature for the Hub Inbox, plus your own personal work email.</p>
         <div>
           <label className="block text-xs text-gray-400 mb-1.5">Email signature</label>
-          <textarea
-            value={emailSig}
-            onChange={e => setEmailSig(e.target.value)}
-            placeholder={'Ben Simpson\nHeroes Lawn Care\n(281) 555-0105'}
-            rows={4}
-            maxLength={4000}
-            className={inputCls + ' resize-none'}
+          {/* Rich signature editor (bold / italic / underline / link). Saves HTML
+              into the same email_signature column — legacy plain-text values are
+              converted on load via signatureToHtml. */}
+          <EmailRichTextEditor
+            variant="mini"
+            initialHtml={signatureToHtml(emailSignature)}
+            onChange={(html, text) => setEmailSig(text.trim() ? html : '')}
+            minHeightClass="min-h-[90px]"
+            maxHeightClass="max-h-[240px]"
           />
           <p className="text-xs text-gray-500 mt-1.5">
             Appended to emails you send from the shared inbox, signed with your name. Leave blank to use a simple default.

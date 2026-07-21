@@ -60,6 +60,8 @@ type NylasFolder = {
 }
 
 const TIMEOUT_MS = 20000
+// Multipart sends carry attachment bytes (up to ~20 MB) — give them a much longer budget.
+const ATTACHMENT_SEND_TIMEOUT_MS = 120000
 
 function authHeaders(): HeadersInit {
   return {
@@ -213,6 +215,10 @@ export class NylasProvider implements MailProvider {
     if (opts.pageToken) q.set('page_token', opts.pageToken)
     if (opts.folderId) q.set('in', opts.folderId)
     if (typeof opts.unread === 'boolean') q.set('unread', String(opts.unread))
+    // Unix seconds; bounds the backfill window (Nylas v3 threads filter).
+    if (typeof opts.latestMessageAfter === 'number' && Number.isFinite(opts.latestMessageAfter)) {
+      q.set('latest_message_after', String(Math.floor(opts.latestMessageAfter)))
+    }
     const { data, nextCursor } = await nylasFetch<NylasThread[]>(this.g(`/threads?${q.toString()}`))
     return { threads: (data || []).map(mapThread), nextCursor }
   }
@@ -243,11 +249,102 @@ export class NylasProvider implements MailProvider {
       ...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),
       tracking_options: { opens: false, thread_replies: !!input.trackReplies, links: false, label: '' },
     }
-    const { data } = await nylasFetch<{ id: string; thread_id?: string | null }>(this.g('/messages/send'), {
-      method: 'POST',
-      body: JSON.stringify(body),
+
+    type SendData = {
+      id: string
+      thread_id?: string | null
+      attachments?: Array<{ id: string; filename?: string; content_type?: string; size?: number }>
+    }
+    const mapSent = (data: SendData): SendMessageResult => ({
+      providerMessageId: data.id,
+      providerThreadId: data.thread_id ?? null,
+      attachments: (data.attachments || []).map((a) => ({
+        id: a.id,
+        filename: a.filename,
+        contentType: a.content_type,
+        size: a.size,
+      })),
     })
-    return { providerMessageId: data.id, providerThreadId: data.thread_id ?? null }
+
+    const files = input.attachments || []
+    if (files.length === 0) {
+      const { data } = await nylasFetch<SendData>(this.g('/messages/send'), {
+        method: 'POST',
+        body: JSON.stringify(body),
+      })
+      return mapSent(data)
+    }
+
+    // Attachment send: Nylas v3 requires multipart/form-data when total attachments
+    // exceed 3 MB; we use multipart for EVERY attachment send so there's one code path.
+    // Parts: `message` = the JSON payload, then one `file{N}` part per attachment.
+    // Cannot go through nylasFetch — it forces Content-Type: application/json, which
+    // would break the multipart boundary. Do NOT set Content-Type here (fetch adds it).
+    const form = new FormData()
+    form.append('message', JSON.stringify(body))
+    files.forEach((att, i) => {
+      const blob = new Blob([new Uint8Array(att.content)], {
+        type: att.contentType || 'application/octet-stream',
+      })
+      form.append(`file${i}`, blob, att.filename || `attachment-${i}`)
+    })
+
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), ATTACHMENT_SEND_TIMEOUT_MS)
+    try {
+      const res = await fetch(`${nylasApiUri()}${this.g('/messages/send')}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${nylasApiKey() || ''}`, Accept: 'application/json' },
+        body: form,
+        signal: controller.signal,
+        cache: 'no-store',
+      })
+      const text = await res.text()
+      let json: unknown = null
+      try {
+        json = text ? JSON.parse(text) : null
+      } catch {
+        /* non-JSON error body */
+      }
+      if (!res.ok) {
+        const msg =
+          (json as { error?: { message?: string }; message?: string } | null)?.error?.message ||
+          (json as { message?: string } | null)?.message ||
+          `Nylas ${res.status}`
+        throw new Error(`Nylas ${res.status}: ${msg}`)
+      }
+      const data = ((json || {}) as { data?: SendData }).data
+      if (!data?.id) throw new Error('Nylas send returned no message id')
+      return mapSent(data)
+    } finally {
+      clearTimeout(timer)
+    }
+  }
+
+  // Proxy-stream an attachment's bytes. The caller owns auth + Content-Disposition;
+  // this never exposes a Nylas URL (the API key stays server-side).
+  async downloadAttachment(
+    attachmentId: string,
+    providerMessageId: string
+  ): Promise<{ body: ReadableStream<Uint8Array> | null; contentType: string | null; contentLength: string | null }> {
+    if (!nylasApiKey()) throw new Error('Nylas not configured (NYLAS_API_KEY missing)')
+    const q = new URLSearchParams({ message_id: providerMessageId })
+    const res = await fetch(
+      `${nylasApiUri()}${this.g(`/attachments/${encodeURIComponent(attachmentId)}/download?${q.toString()}`)}`,
+      {
+        headers: { Authorization: `Bearer ${nylasApiKey() || ''}`, Accept: '*/*' },
+        cache: 'no-store',
+      }
+    )
+    if (!res.ok) {
+      const text = await res.text().catch(() => '')
+      throw new Error(`Nylas ${res.status}: ${text.slice(0, 200) || 'attachment download failed'}`)
+    }
+    return {
+      body: res.body as ReadableStream<Uint8Array> | null,
+      contentType: res.headers.get('content-type'),
+      contentLength: res.headers.get('content-length'),
+    }
   }
 
   async listFolders(): Promise<MailFolder[]> {

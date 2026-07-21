@@ -110,8 +110,11 @@ export async function PUT(request: Request) {
     if (email_signature !== null && typeof email_signature !== 'string') {
       return NextResponse.json({ error: 'email_signature must be a string or null' }, { status: 400 })
     }
-    if (typeof email_signature === 'string' && email_signature.length > 4000) {
-      return NextResponse.json({ error: 'email_signature too long (max 4000 chars)' }, { status: 400 })
+    // The Inbox signature editor stores HTML now (bold/links/formatting), which is
+    // far more verbose than the old plain-text signature — 20k gives comfortable
+    // room for a formatted block signature while still bounding abuse.
+    if (typeof email_signature === 'string' && email_signature.length > 20000) {
+      return NextResponse.json({ error: 'email_signature too long (max 20000 chars)' }, { status: 400 })
     }
     profileUpdates.email_signature = email_signature ? email_signature : null
   }

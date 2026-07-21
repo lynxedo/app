@@ -14,7 +14,8 @@ import {
  * Manager oversight dashboard for the shared inbox (full-access only). Surfaces
  * the "nothing falls through" signals: how many threads are unassigned, how many
  * are awaiting a reply, an oldest-first aging list, and a per-rep workload count.
- * Read-only — every row links into the thread.
+ * Read-only — every row links into the thread. LIGHT-themed like the rest of the
+ * email main pane.
  */
 export default function EmailOversightPanel() {
   const router = useRouter()
@@ -94,15 +95,15 @@ export default function EmailOversightPanel() {
   return (
     <div className="w-full max-w-3xl text-left space-y-4">
       <div>
-        <h1 className="text-lg font-semibold">Inbox oversight</h1>
-        <p className="text-sm text-white/50">
+        <h1 className="text-lg font-semibold text-gray-900">Inbox oversight</h1>
+        <p className="text-sm text-gray-500">
           Make sure nothing falls through — pick a conversation from the sidebar, or
           jump straight to what needs attention below.
         </p>
       </div>
 
       {error && (
-        <div className="rounded-lg border border-red-400/20 bg-red-500/10 px-4 py-3 text-sm text-[var(--t-tint-danger)]">
+        <div className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
           {error}
         </div>
       )}
@@ -119,44 +120,44 @@ export default function EmailOversightPanel() {
       </div>
 
       {/* Aging list */}
-      <div className="rounded-lg border border-white/10 bg-white/[0.03] overflow-hidden">
-        <div className="px-4 py-2.5 border-b border-white/10 text-sm font-medium">
-          Needs a reply <span className="text-white/40">· oldest first</span>
+      <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+        <div className="px-4 py-2.5 border-b border-gray-200 text-sm font-medium text-gray-900">
+          Needs a reply <span className="text-gray-400 font-normal">· oldest first</span>
         </div>
         {aging.length === 0 ? (
-          <div className="px-4 py-6 text-sm text-white/45 text-center">
+          <div className="px-4 py-6 text-sm text-gray-400 text-center">
             Nothing is waiting on a reply. 🎉
           </div>
         ) : (
-          <ul className="divide-y divide-white/10">
+          <ul className="divide-y divide-gray-100">
             {aging.map((t) => (
               <li key={t.id}>
                 <button
                   type="button"
                   onClick={() => router.push(`/hub/email/${t.id}`)}
-                  className="w-full text-left px-4 py-2.5 hover:bg-white/5 flex items-center justify-between gap-3"
+                  className="w-full text-left px-4 py-2.5 hover:bg-gray-50 flex items-center justify-between gap-3"
                 >
                   <div className="min-w-0">
-                    <div className="text-sm font-medium truncate">
+                    <div className="text-sm font-medium truncate text-gray-900">
                       {t.subject || '(no subject)'}
                     </div>
-                    <div className="text-xs text-white/45 truncate">
+                    <div className="text-xs text-gray-500 truncate">
                       {participantName(t.from_name, t.from_email)}
                       {t.snippet ? ` — ${t.snippet}` : ''}
                     </div>
                   </div>
                   <div className="flex items-center gap-2 flex-none">
                     {t.assigned_to_user_id && t.assignee_name ? (
-                      <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-500/15 text-[var(--t-tint-success)]">
+                      <span className="text-[11px] px-2 py-0.5 rounded-md bg-emerald-50 border border-emerald-200 text-emerald-700">
                         {firstName(t.assignee_name)}
                       </span>
                     ) : (
-                      <span className="text-[11px] px-2 py-0.5 rounded-md bg-orange-500/20 text-[var(--t-tint-orange)]">
+                      <span className="text-[11px] px-2 py-0.5 rounded-md bg-orange-50 border border-orange-200 text-orange-700">
                         Unassigned
                       </span>
                     )}
                     <span
-                      className="text-[11px] text-white/50 whitespace-nowrap"
+                      className="text-[11px] text-gray-400 whitespace-nowrap"
                       title="Waiting since the last inbound message"
                     >
                       {waitedFor(t.last_message_at)}
@@ -171,18 +172,18 @@ export default function EmailOversightPanel() {
 
       {/* Per-rep workload */}
       {workload.length > 0 && (
-        <div className="rounded-lg border border-white/10 bg-white/[0.03] overflow-hidden">
-          <div className="px-4 py-2.5 border-b border-white/10 text-sm font-medium">
-            Workload <span className="text-white/40">· open threads per person</span>
+        <div className="rounded-lg border border-gray-200 bg-white shadow-sm overflow-hidden">
+          <div className="px-4 py-2.5 border-b border-gray-200 text-sm font-medium text-gray-900">
+            Workload <span className="text-gray-400 font-normal">· open threads per person</span>
           </div>
-          <ul className="divide-y divide-white/10">
+          <ul className="divide-y divide-gray-100">
             {workload.map(([name, count]) => (
               <li
                 key={name}
                 className="px-4 py-2 flex items-center justify-between text-sm"
               >
-                <span className="truncate">{name}</span>
-                <span className="text-white/50">
+                <span className="truncate text-gray-800">{name}</span>
+                <span className="text-gray-500">
                   {count} open
                 </span>
               </li>
@@ -205,14 +206,14 @@ function Kpi({
 }) {
   const toneCls =
     tone === 'warn' && value > 0
-      ? 'text-[var(--t-tint-orange)]'
+      ? 'text-orange-600'
       : tone === 'ok'
-      ? 'text-[var(--t-tint-success)]'
-      : 'text-white'
+      ? 'text-emerald-600'
+      : 'text-gray-900'
   return (
-    <div className="rounded-lg border border-white/10 bg-white/[0.03] px-4 py-3">
+    <div className="rounded-lg border border-gray-200 bg-white shadow-sm px-4 py-3">
       <div className={`text-2xl font-semibold ${toneCls}`}>{value}</div>
-      <div className="text-xs text-white/50 mt-0.5">{label}</div>
+      <div className="text-xs text-gray-500 mt-0.5">{label}</div>
     </div>
   )
 }

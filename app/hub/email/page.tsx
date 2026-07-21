@@ -41,15 +41,17 @@ export default async function HubEmailPage() {
   }
   if (!ok) redirect('/hub')
 
+  // The email MAIN pane is deliberately light-themed (real-email-client look)
+  // regardless of the user's Hub theme — only the sidebar keeps the Hub theme.
   return (
-    <div className="flex-1 flex flex-col items-center px-6 py-8 overflow-y-auto">
+    <div className="flex-1 flex flex-col items-center px-6 py-8 overflow-y-auto bg-gray-100 text-gray-900">
       {isFull ? (
         <EmailOversightPanel />
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center text-center">
           <div className="text-5xl mb-3">📥</div>
-          <h1 className="text-xl font-medium mb-2">Inbox</h1>
-          <p className="text-sm text-white/50 max-w-md">
+          <h1 className="text-xl font-medium mb-2 text-gray-900">Inbox</h1>
+          <p className="text-sm text-gray-500 max-w-md">
             Pick a conversation from the sidebar to read and reply.
           </p>
         </div>

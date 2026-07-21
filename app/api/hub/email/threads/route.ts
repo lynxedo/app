@@ -10,6 +10,11 @@ export const dynamic = 'force-dynamic'
 type Scope = 'mine' | 'all' | 'unassigned' | 'closed' | 'needs_reply'
 const SCOPES: Scope[] = ['mine', 'all', 'unassigned', 'closed', 'needs_reply']
 
+// Folders that are noise in the queue tabs (mirrored folder display names).
+// Applied only when NO explicit folder param is given; a null folder is includable
+// (threads synced before folder mirroring, or provider oddities, stay visible).
+const QUEUE_EXCLUDED_FOLDERS = ['Sent Items', 'Drafts', 'Deleted Items', 'Junk Email', 'Outbox']
+
 // Resolve display names (hub_users.display_name → user_profiles.full_name) for a
 // set of user ids. inbox_threads.assigned_to_user_id references auth.users, which
 // has no PostgREST FK to hub_users, so we map names in a separate admin lookup.
@@ -81,10 +86,13 @@ export async function GET(req: Request) {
   }
 
   // Reads go through the COOKIE client so the technician thread-scoped RLS applies.
+  // message_count rides along as an embedded count on the inbox_messages FK
+  // (inbox_messages RLS mirrors thread visibility, so the count matches what the
+  // caller could open).
   let q = supabase
     .from('inbox_threads')
     .select(
-      'id, subject, snippet, last_message_at, last_message_direction, from_name, from_email, participants, assigned_to_user_id, status, is_shared, unread, folder, provider_folder_ids, has_attachments, contact_id'
+      'id, subject, snippet, last_message_at, last_message_direction, from_name, from_email, participants, assigned_to_user_id, status, is_shared, unread, folder, provider_folder_ids, has_attachments, contact_id, message_count:inbox_messages(count)'
     )
     .eq('account_id', account.id)
 
@@ -118,7 +126,17 @@ export async function GET(req: Request) {
     }
   }
 
-  if (folder) q = q.contains('provider_folder_ids', [folder])
+  if (folder) {
+    // Explicit folder view: exactly that folder (param = provider folder id, per
+    // the folders route's provider_folder_id).
+    q = q.contains('provider_folder_ids', [folder])
+  } else {
+    // Queue tabs (mine/all/unassigned/needs_reply/closed): hide Sent/Drafts/Deleted/
+    // Junk/Outbox threads so outbound-only + junk mail doesn't pollute the queue.
+    // `not.in` alone would also drop NULL folders (SQL null semantics) → OR is.null.
+    const list = QUEUE_EXCLUDED_FOLDERS.map((f) => `"${f}"`).join(',')
+    q = q.or(`folder.is.null,folder.not.in.(${list})`)
+  }
 
   if (search) {
     const pat = ilikeSearchPattern(search)
@@ -135,6 +153,7 @@ export async function GET(req: Request) {
   const threads = (data ?? []) as Array<{
     id: string
     assigned_to_user_id: string | null
+    message_count?: Array<{ count: number }> | null
     [k: string]: unknown
   }>
 
@@ -143,6 +162,8 @@ export async function GET(req: Request) {
 
   const enriched = threads.map((t) => ({
     ...t,
+    // Flatten the embedded count ([{ count }] → number).
+    message_count: t.message_count?.[0]?.count ?? 0,
     assignee_name: t.assigned_to_user_id ? names[t.assigned_to_user_id] || null : null,
     mine: isPersonal || t.assigned_to_user_id === userId || mySet.has(t.id),
   }))

@@ -3,12 +3,21 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getInboxThreadPermissions } from '@/lib/inbox/permissions'
 import { getInboxAccountById } from '@/lib/inbox/accounts'
-import { sendInboxReply } from '@/lib/inbox/send'
+import { sendInboxReply, parseAttachmentMetas } from '@/lib/inbox/send'
 import { sendHubPush } from '@/lib/hub-push'
 import type { MailParticipant } from '@/lib/inbox/types'
 
 export const dynamic = 'force-dynamic'
+// Attachment sends fetch bytes from R2 + push them to Nylas as multipart — allow beyond the default budget.
+export const maxDuration = 180
 
+// POST /api/hub/email/threads/[id]/send — reply on an existing thread.
+// Body: {
+//   bodyHtml?: string,                      // rich HTML (composer already embedded the signature)
+//   body?: string,                          // legacy plain body (server appends the signature)
+//   attachments?: [{ id, filename, contentType, size }],  // from POST /api/hub/email/attachments
+//   cc?: [{ name?, email }], bcc?: [...],
+// }
 export async function POST(
   request: Request,
   { params }: { params: Promise<{ id: string }> }
@@ -22,9 +31,11 @@ export async function POST(
   const { id } = await params
   const body = await request.json().catch(() => ({}))
   const bodyHtml: string = typeof body.bodyHtml === 'string' ? body.bodyHtml.trim() : ''
+  const bodyText: string = typeof body.body === 'string' ? body.body.trim() : ''
+  const attachments = parseAttachmentMetas(body.attachments)
   const cc: MailParticipant[] = Array.isArray(body.cc) ? body.cc : []
   const bcc: MailParticipant[] = Array.isArray(body.bcc) ? body.bcc : []
-  if (!bodyHtml) return NextResponse.json({ error: 'Empty message' }, { status: 400 })
+  if (!bodyHtml && !bodyText) return NextResponse.json({ error: 'Empty message' }, { status: 400 })
 
   const perms = await getInboxThreadPermissions(supabase, id, user.id)
   if (!perms.canReply) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -47,11 +58,13 @@ export async function POST(
     threadId: id,
     userId: user.id,
     bodyHtml,
+    bodyText,
+    attachments,
     cc,
     bcc,
   })
 
-  if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: 502 })
+  if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status || 502 })
 
   const companyId = threadRow.company_id
   after(async () => {

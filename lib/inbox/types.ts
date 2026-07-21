@@ -62,11 +62,20 @@ export type ListThreadsOptions = {
   pageToken?: string
   folderId?: string // Nylas `in`
   unread?: boolean
+  /** Only threads whose latest message is after this unix timestamp (seconds). Nylas `latest_message_after`. Used by backfill. */
+  latestMessageAfter?: number
 }
 
 export type ListThreadsResult = {
   threads: MailThread[]
   nextCursor: string | null
+}
+
+// A fully-loaded outbound attachment (bytes in memory, ready for a multipart send).
+export type OutboundAttachmentFile = {
+  filename: string
+  contentType: string
+  content: Buffer
 }
 
 export type SendMessageInput = {
@@ -77,11 +86,15 @@ export type SendMessageInput = {
   bodyHtml: string
   replyToMessageId?: string
   trackReplies?: boolean
+  /** When present, the send goes out as multipart/form-data with one part per file. */
+  attachments?: OutboundAttachmentFile[]
 }
 
 export type SendMessageResult = {
   providerMessageId: string
   providerThreadId: string | null
+  /** Provider-assigned attachment metadata when the send response includes it (used for the local mirror). */
+  attachments?: MailAttachment[]
 }
 
 // Result of exchanging an OAuth code for a Nylas grant.

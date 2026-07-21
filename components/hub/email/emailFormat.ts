@@ -43,6 +43,9 @@ export type EmailThread = {
   has_attachments: boolean
   mine: boolean
   folder: string | null
+  /** Optional — number of messages in the thread (used for the expand chevron).
+   *  Older API responses may omit it; treat missing as "unknown, maybe multi". */
+  message_count?: number | null
 }
 
 /** A folder row from GET /api/hub/email/folders. */
@@ -56,6 +59,40 @@ export type MailFolder = {
 
 export type MailRecipient = { name?: string | null; email: string }
 
+/** Attachment metadata as stored on inbox_messages.attachments (jsonb). Key
+ *  spelling can be snake_case (older rows) or camelCase (attachments API) —
+ *  normalize through attachmentMeta() before rendering. */
+export type MessageAttachment = {
+  id: string
+  filename?: string | null
+  content_type?: string | null
+  contentType?: string | null
+  size?: number | null
+}
+
+/** Normalize either attachment key spelling into one display shape. */
+export function attachmentMeta(a: MessageAttachment): {
+  id: string
+  filename: string
+  contentType: string
+  size: number
+} {
+  return {
+    id: a.id,
+    filename: (a.filename || '').trim() || 'attachment',
+    contentType: a.contentType || a.content_type || '',
+    size: typeof a.size === 'number' ? a.size : 0,
+  }
+}
+
+/** An attachment staged for an outgoing send (POST /api/hub/email/attachments). */
+export type OutgoingAttachment = {
+  id: string
+  filename: string
+  contentType: string
+  size: number
+}
+
 /** A message inside a thread (GET /api/hub/email/threads/{id}). */
 export type EmailMessage = {
   id: string
@@ -65,11 +102,12 @@ export type EmailMessage = {
   to_recipients: MailRecipient[]
   subject: string | null
   body_html: string | null
+  body_text?: string | null
   snippet: string | null
   message_date: string | null
   sent_by_user_id: string | null
   has_attachments: boolean
-  attachments: Array<{ id: string; filename: string; content_type: string; size: number }>
+  attachments: MessageAttachment[]
 }
 
 export type ThreadMember = {
@@ -184,4 +222,105 @@ export function fileSize(bytes: number | null | undefined): string {
   if (b < 1024) return `${b} B`
   if (b < 1024 * 1024) return `${(b / 1024).toFixed(0)} KB`
   return `${(b / (1024 * 1024)).toFixed(1)} MB`
+}
+
+// ── Rich composer helpers ────────────────────────────────────────────────────
+
+/** Multi-paragraph plain text → simple HTML (blank line = new <p>). */
+export function textToHtmlParagraphs(text: string): string {
+  const blocks = (text || '').replace(/\r\n/g, '\n').split(/\n{2,}/)
+  const html = blocks
+    .map((b) => b.trim())
+    .filter(Boolean)
+    .map((b) => `<p>${plainToHtml(b)}</p>`)
+    .join('')
+  return html || '<p></p>'
+}
+
+/** A stored signature may be legacy plain text or HTML (new settings editor). */
+export function signatureToHtml(sig: string | null | undefined): string {
+  const s = (sig || '').trim()
+  if (!s) return ''
+  if (/<[a-z][^>]*>/i.test(s)) return s
+  return `<p>${plainToHtml(s)}</p>`
+}
+
+/** Rough HTML → plain text (keeps line breaks; used for draft extraction). */
+export function htmlToPlainText(html: string): string {
+  return (html || '')
+    .replace(/<style[\s\S]*?<\/style>/gi, ' ')
+    .replace(/<script[\s\S]*?<\/script>/gi, ' ')
+    .replace(/<br\s*\/?>/gi, '\n')
+    .replace(/<\/(p|div|li|h[1-6]|blockquote|tr)>/gi, '\n')
+    .replace(/<[^>]+>/g, '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/\n{3,}/g, '\n\n')
+    .trim()
+}
+
+/** The "On {date}, {who} wrote:" line above a quoted reply. */
+export function buildQuoteHeader(
+  name: string | null | undefined,
+  email: string | null | undefined,
+  dateIso: string | null | undefined
+): string {
+  const d = dateIso ? new Date(dateIso) : null
+  const when =
+    d && !isNaN(d.getTime())
+      ? d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) +
+        ' at ' +
+        d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit', hour12: true })
+      : ''
+  const who = (name || '').trim()
+  const addr = (email || '').trim()
+  const whoPart = who && addr ? `${who} <${addr}>` : who || addr || 'they'
+  return when ? `On ${when}, ${whoPart} wrote:` : `${whoPart} wrote:`
+}
+
+/** Matches the quote-header line in the editor's PLAIN TEXT (getText). */
+const QUOTE_HEADER_TEXT_RE = /(^|\n)On [^\n]{0,300} wrote:/
+
+/**
+ * The user's actual draft = editor text minus the quoted tail and minus their
+ * pre-loaded signature. Whitespace-normalized (used for send gating + the AI
+ * Suggest/Polish plumbing, not for the outgoing HTML).
+ */
+export function extractDraftText(fullText: string, signatureText: string): string {
+  let top = fullText || ''
+  const idx = top.search(QUOTE_HEADER_TEXT_RE)
+  if (idx >= 0) top = top.slice(0, idx)
+  const norm = (s: string) => s.replace(/\s+/g, ' ').trim()
+  const nt = norm(top)
+  const ns = norm(signatureText || '')
+  if (ns && nt.endsWith(ns)) return nt.slice(0, nt.length - ns.length).trim()
+  return nt
+}
+
+/**
+ * Everything from the quote-header paragraph onward in the editor's HTML —
+ * used to preserve the quoted section when AI Suggest/Polish rebuilds the top.
+ */
+export function extractQuotedTailHtml(html: string): string {
+  const m = (html || '').match(/<p[^>]*>On [\s\S]{0,400}? wrote:<\/p>\s*<blockquote[\s\S]*$/)
+  return m ? m[0] : ''
+}
+
+/**
+ * Final outgoing HTML: inline-style the blockquotes (recipients' mail clients
+ * don't get our editor CSS), keep empty paragraphs visible, and wrap in a
+ * sane default font stack.
+ */
+export function finalizeEmailHtml(html: string): string {
+  const styled = (html || '')
+    .replace(
+      /<blockquote>/g,
+      '<blockquote style="border-left:3px solid #d1d5db;margin:8px 0 8px 4px;padding-left:12px;color:#6b7280;">'
+    )
+    .replace(/<p><\/p>/g, '<p><br></p>')
+  return `<div style="font-family:Arial, Helvetica, sans-serif;font-size:14px;line-height:1.5;color:#111827;">${styled}</div>`
 }
