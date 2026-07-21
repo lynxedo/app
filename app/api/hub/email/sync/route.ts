@@ -48,7 +48,9 @@ export async function POST(request: NextRequest) {
   const backfill = body?.backfill === true
   const backfillOpts = {
     days: clampInt(body?.days, 90, 1, 3650),
-    maxPages: clampInt(body?.maxPages, 10, 1, 50),
+    // Header-only backfill is light (one listThreads call per page, no per-thread
+    // body fetch), so a deep run is fine — a busy year is a few hundred pages.
+    maxPages: clampInt(body?.maxPages, 40, 1, 600),
   }
 
   const runCompany = (companyId: string) =>

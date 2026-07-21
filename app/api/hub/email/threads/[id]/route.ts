@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getInboxThreadPermissions } from '@/lib/inbox/permissions'
+import { hydrateThreadMessages } from '@/lib/inbox/sync'
 
 export const dynamic = 'force-dynamic'
 
@@ -89,6 +90,29 @@ export async function GET(
   const notes = (notesRes.data ?? []) as Array<{ created_by: string | null; [k: string]: unknown }>
   const events = (eventsRes.data ?? []) as Array<{ actor_user_id: string | null; target_user_id: string | null; [k: string]: unknown }>
 
+  // Lazy body hydration: a 12-month backfill mirrors thread HEADERS only, so an
+  // older thread opened for the first time has no message rows yet. Fetch + mirror
+  // its bodies on demand (once), then re-read. Best-effort — a provider hiccup just
+  // yields an empty thread the next open can retry.
+  let messages = messagesRes.data ?? []
+  if (messages.length === 0 && thread.provider_thread_id) {
+    try {
+      const written = await hydrateThreadMessages(admin, thread.id, thread.account_id, thread.provider_thread_id)
+      if (written > 0) {
+        const reread = await supabase
+          .from('inbox_messages')
+          .select(
+            'id, provider_message_id, direction, from_name, from_email, to_recipients, cc_recipients, bcc_recipients, subject, snippet, body_html, body_text, message_date, unread, has_attachments, attachments, sent_by_user_id, provider_folder_ids, created_at'
+          )
+          .eq('thread_id', id)
+          .order('message_date', { ascending: true })
+        messages = reread.data ?? messages
+      }
+    } catch (e) {
+      console.warn('[inbox] lazy hydrate failed:', e instanceof Error ? e.message : e)
+    }
+  }
+
   const names = await displayNamesFor(admin, [
     thread.assigned_to_user_id,
     ...members.map((m) => m.user_id),
@@ -99,7 +123,7 @@ export async function GET(
 
   return NextResponse.json({
     thread: { ...thread, assignee_name: thread.assigned_to_user_id ? names[thread.assigned_to_user_id] || null : null },
-    messages: messagesRes.data ?? [],
+    messages,
     members: members.map((m) => ({ ...m, display_name: names[m.user_id] || null })),
     notes: notes.map((n) => ({ ...n, created_by_name: n.created_by ? names[n.created_by] || null : null })),
     events: events.map((e) => ({

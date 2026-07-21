@@ -71,6 +71,20 @@ function authHeaders(): HeadersInit {
   }
 }
 
+// Typed Nylas error so callers (esp. the backfill pager) can recognize a 429 and
+// honor the provider's Retry-After. `.message` keeps the original `Nylas {status}: …`
+// text so existing catch-and-record callers are unchanged.
+export class NylasError extends Error {
+  status: number
+  retryAfterMs: number | null
+  constructor(status: number, message: string, retryAfterMs: number | null) {
+    super(`Nylas ${status}: ${message}`)
+    this.name = 'NylasError'
+    this.status = status
+    this.retryAfterMs = retryAfterMs
+  }
+}
+
 async function nylasFetch<T>(path: string, init?: RequestInit): Promise<{ data: T; nextCursor: string | null }> {
   if (!nylasApiKey()) throw new Error('Nylas not configured (NYLAS_API_KEY missing)')
   const controller = new AbortController()
@@ -95,7 +109,9 @@ async function nylasFetch<T>(path: string, init?: RequestInit): Promise<{ data: 
         (json as { message?: string } | null)?.message ||
         text ||
         `Nylas ${res.status}`
-      throw new Error(`Nylas ${res.status}: ${msg}`)
+      const ra = res.headers.get('retry-after')
+      const raSec = ra && Number.isFinite(Number(ra)) ? Number(ra) : null
+      throw new NylasError(res.status, msg, raSec != null ? raSec * 1000 : null)
     }
     const body = (json || {}) as { data?: T; next_cursor?: string | null }
     return { data: body.data as T, nextCursor: body.next_cursor ?? null }
