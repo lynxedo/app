@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { DEFAULT_RECEPTIONIST_NAME } from '@/lib/voice-receptionist'
 
 // GET /api/dialer/calls/call-log2
 // Returns ALL Twilio calls (not just recorded ones), with joined voicemails and
@@ -112,7 +113,25 @@ export async function GET(request: NextRequest) {
       if (row.display_name) nameById[row.id] = row.display_name
     }
   }
-  const agentName = (c: { direction?: string | null; handled_by?: string | null; initiated_by?: string | null }) => {
+  // AI-receptionist ("Amber") calls are answered by the AI, not the routed human,
+  // so attribute them to the configured receptionist persona instead of handled_by
+  // (the inbound webhook stamps handled_by with the human route user before the call
+  // is ever handed to Amber). call_type='ai_receptionist' is the durable marker:
+  // ConversationRelay calls are never recorded/transcribed, so the coaching pipeline
+  // never overwrites it. Resolved once — this route is single-company scoped.
+  let receptionistName = ''
+  if ((calls ?? []).some(c => c.call_type === 'ai_receptionist')) {
+    const { data: vr } = await admin
+      .from('voice_receptionist_settings')
+      .select('receptionist_name')
+      .eq('company_id', companyId)
+      .maybeSingle()
+    receptionistName =
+      (vr as { receptionist_name?: string | null } | null)?.receptionist_name?.trim() ||
+      DEFAULT_RECEPTIONIST_NAME
+  }
+  const agentName = (c: { direction?: string | null; handled_by?: string | null; initiated_by?: string | null; call_type?: string | null }) => {
+    if (c.call_type === 'ai_receptionist') return receptionistName || null
     const id = (c.direction === 'inbound' ? c.handled_by : c.initiated_by) || c.handled_by || c.initiated_by
     return id ? nameById[id] ?? null : null
   }
