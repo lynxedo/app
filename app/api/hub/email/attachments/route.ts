@@ -40,10 +40,10 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'File storage not configured' }, { status: 501 })
   }
 
-  // Gate: shared-inbox access OR compose grant OR a connected personal mailbox.
+  // Gate: shared-inbox access (Manager or Standard user) OR compose grant OR a connected personal mailbox.
   const admin = createAdminClient()
   const flags = await getInboxUserFlags(supabase, userId)
-  let allowed = flags.isFullAccess || flags.canCompose
+  let allowed = flags.hasAccess || flags.canCompose
   if (!allowed) {
     const personal = await getPersonalAccount(admin, companyId, userId)
     allowed = !!personal

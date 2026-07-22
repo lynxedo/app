@@ -1,13 +1,20 @@
 // Shared-inbox permission tiers (mirrors lib/txt-permissions.ts).
-// Full access = admin OR can_access_shared_inbox (managers/office see the whole shared queue).
-// Thread-scoped = techs who were shared / assigned a specific thread (enforced in DB by RLS; re-checked here).
+// Two roles (PRD Redesign 2026-07-22):
+//   • Manager  = admin OR can_manage_shared_inbox — sees All + the unassigned Queue; can claim/assign/close/share.
+//   • Standard = can_access_shared_inbox (only) — may open the inbox; sees ONLY threads assigned/shared to them
+//                (enforced in DB by RLS; re-checked here).
+// The DB RLS "sees-everything" clause keys off can_manage_shared_inbox, so a Standard user is naturally
+// restricted to their assignee/member threads.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 
 export type InboxUserFlags = {
   role: string
-  isFullAccess: boolean
+  isManager: boolean // admin OR can_manage_shared_inbox — All + Queue, RLS sees everything
+  hasAccess: boolean // isManager OR can_access_shared_inbox — may enter the shared inbox (own threads)
   canCompose: boolean // may start a NEW outbound as the shared mailbox
+  /** @deprecated alias for isManager, kept so existing call sites (getInboxThreadPermissions) compile. */
+  isFullAccess: boolean
 }
 
 export type InboxThreadPermissions = InboxUserFlags & {
@@ -30,12 +37,14 @@ export type InboxThreadPermissions = InboxUserFlags & {
 export async function getInboxUserFlags(supabase: SupabaseClient, userId: string): Promise<InboxUserFlags> {
   const { data } = await supabase
     .from('user_profiles')
-    .select('role, can_access_shared_inbox, can_compose_shared_email')
+    .select('role, can_manage_shared_inbox, can_access_shared_inbox, can_compose_shared_email')
     .eq('id', userId)
     .maybeSingle()
   const role = (data?.role as string) || 'user'
-  const isFullAccess = role === 'admin' || !!data?.can_access_shared_inbox
-  return { role, isFullAccess, canCompose: isFullAccess || !!data?.can_compose_shared_email }
+  const isManager = role === 'admin' || !!data?.can_manage_shared_inbox
+  const hasAccess = isManager || !!data?.can_access_shared_inbox
+  const canCompose = hasAccess || !!data?.can_compose_shared_email
+  return { role, isManager, hasAccess, canCompose, isFullAccess: isManager }
 }
 
 export async function getInboxThreadPermissions(

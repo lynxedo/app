@@ -209,8 +209,12 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessEmail = isAdmin || (profileResult.data?.can_access_email ?? false)
   const canManageDrip = isAdmin || (profileResult.data?.can_manage_drip ?? false)
   const canAdminEmail = profileResult.data?.can_admin_email ?? false
-  // Shared Inbox (Hub Email) — full access = admin OR the grant; compose = lighter tech grant.
-  const canAccessSharedInbox = isAdmin || (profileResult.data?.can_access_shared_inbox ?? false)
+  // Shared Inbox (Hub Email) — may enter = admin OR Manager grant OR Standard-user access grant;
+  // compose = lighter grant that also admits someone to reach the inbox.
+  const canAccessSharedInbox =
+    isAdmin ||
+    (profileResult.data?.can_manage_shared_inbox ?? false) ||
+    (profileResult.data?.can_access_shared_inbox ?? false)
   const canComposeSharedEmail = isAdmin || (profileResult.data?.can_compose_shared_email ?? false)
   const canAccessForms = profileResult.data?.can_access_forms ?? true
   const canAccessDailyLogV2 = profileResult.data?.can_access_daily_log_v2 ?? false

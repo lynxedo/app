@@ -83,15 +83,17 @@ export async function getPersonalAccount(
   return (data as InboxAccount) || null
 }
 
-// Every mailbox this user may act on: the shared account (only if full access) + their own personal account.
+// Every mailbox this user may act on: the shared account (if they may enter the shared inbox at all —
+// Manager OR Standard user) + their own personal account. A Standard user's thread visibility inside the
+// shared account is then narrowed to assignee/member rows by RLS.
 export async function listAccessibleAccounts(
   admin: SupabaseClient,
   companyId: string,
   userId: string,
-  fullAccess: boolean
+  hasSharedAccess: boolean
 ): Promise<InboxAccount[]> {
   const out: InboxAccount[] = []
-  if (fullAccess) {
+  if (hasSharedAccess) {
     const shared = await getSharedAccount(admin, companyId)
     if (shared) out.push(shared)
   }

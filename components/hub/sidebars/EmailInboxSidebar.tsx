@@ -5,7 +5,7 @@ import Link from 'next/link'
 import { usePathname, useRouter } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
 import { createClient } from '@/lib/supabase/client'
-import { Spinner, EmptyState } from '@/components/ui'
+import { Spinner, EmptyState, useToast } from '@/components/ui'
 import RulesPanel from '@/components/hub/email/RulesPanel'
 import {
   relativeTime,
@@ -14,6 +14,7 @@ import {
   firstName,
   type AccountType,
   type Scope,
+  type Lens,
   type InboxAccount,
   type EmailThread,
   type EmailMessage,
@@ -48,6 +49,12 @@ function isSystemFolder(f: MailFolder): boolean {
  * then lists threads for the current account + scope + folder + search. Realtime
  * refresh via the company `inbox:{companyId}` broadcast channel + a 30s poll.
  *
+ * Views (PRD Redesign 2026-07-22), Txt-style:
+ *   • Primary tabs — Manager: Mine · All · Closed;  Standard user: Mine · Closed.
+ *   • Secondary lens — All · Unread · Needs replied (a within-list filter).
+ *   • Managers also get a pinned "Queued" (unassigned) section they can claim from,
+ *     shown inside both Mine and All (not a separate tab).
+ *
  * Prop signature (for the orchestrator wiring this into HubShell):
  *   <EmailInboxSidebar currentUserId={id} companyId={id}
  *      onClose?={fn} onDesktopCollapse?={fn} />
@@ -65,22 +72,26 @@ export default function EmailInboxSidebar({
 }) {
   const pathname = usePathname() || ''
   const router = useRouter()
+  const toast = useToast()
 
   // Accounts / access.
   const [accounts, setAccounts] = useState<InboxAccount[]>([])
-  const [isFullAccess, setIsFullAccess] = useState(false)
+  const [isManager, setIsManager] = useState(false)
   const [canCompose, setCanCompose] = useState(false)
   const [accountsLoaded, setAccountsLoaded] = useState(false)
   const [account, setAccount] = useState<AccountType>('shared')
 
   // List state.
   const [threads, setThreads] = useState<EmailThread[]>([])
+  const [queue, setQueue] = useState<EmailThread[]>([]) // manager-only unassigned Queue
   const [loading, setLoading] = useState(false)
   const [scope, setScope] = useState<Scope>('mine')
+  const [lens, setLens] = useState<Lens>('all') // secondary within-list filter
   const [folder, setFolder] = useState('') // '' = Inbox / default
   const [folders, setFolders] = useState<MailFolder[]>([])
   const [search, setSearch] = useState('')
   const [debouncedSearch, setDebouncedSearch] = useState('')
+  const [claiming, setClaiming] = useState<string | null>(null)
 
   // Gear menu + Rules.
   const [gearOpen, setGearOpen] = useState(false)
@@ -125,17 +136,16 @@ export default function EmailInboxSidebar({
       .then((data) => {
         if (cancelled) return
         const accts: InboxAccount[] = data.accounts || []
-        const full = !!data.flags?.isFullAccess
+        const mgr = !!data.flags?.isManager
         setAccounts(accts)
-        setIsFullAccess(full)
+        setIsManager(mgr)
         setCanCompose(!!data.flags?.canCompose)
         const sharedExists = accts.some((a) => a.account_type === 'shared')
         const personalExists = accts.some((a) => a.account_type === 'personal')
-        const defaultAccount: AccountType =
-          full && sharedExists ? 'shared' : personalExists ? 'personal' : 'shared'
+        // Everyone who can reach the shared box lands there; else their personal box.
+        const defaultAccount: AccountType = sharedExists ? 'shared' : personalExists ? 'personal' : 'shared'
         setAccount(defaultAccount)
-        // Full-access managers land on their own queue; techs/personal on "mine".
-        setScope(defaultAccount === 'shared' && full ? 'mine' : 'mine')
+        setScope('mine')
       })
       .catch(() => {
         if (!cancelled) {
@@ -150,11 +160,11 @@ export default function EmailInboxSidebar({
     }
   }, [])
 
-  // Reset scope when the account changes (personal + shared-tech only have one).
+  // Reset scope when the account changes (personal + shared-standard only have "mine").
   useEffect(() => {
     if (account === 'personal') setScope('mine')
-    else if (account === 'shared' && !isFullAccess) setScope('mine')
-  }, [account, isFullAccess])
+    else if (account === 'shared' && !isManager) setScope('mine')
+  }, [account, isManager])
 
   // Debounce the search box (250ms).
   useEffect(() => {
@@ -190,22 +200,30 @@ export default function EmailInboxSidebar({
     }
   }, [account, accountsLoaded])
 
+  // Managers see the pinned unassigned Queue on the live Inbox view (not on Closed / a folder view).
+  const showQueue = isManager && account === 'shared' && folder === '' && scope !== 'closed'
+
   const load = useCallback(async () => {
     if (!accountsLoaded) return
     setLoading(true)
     const params = new URLSearchParams({ scope, account, limit: '100' })
     if (folder) params.set('folder', folder)
     if (debouncedSearch) params.set('search', debouncedSearch)
+    const reqs: Promise<Response>[] = [fetch(`/api/hub/email/threads?${params.toString()}`)]
+    if (showQueue) {
+      const qp = new URLSearchParams({ scope: 'unassigned', account, limit: '100' })
+      if (debouncedSearch) qp.set('search', debouncedSearch)
+      reqs.push(fetch(`/api/hub/email/threads?${qp.toString()}`))
+    }
     try {
-      const res = await fetch(`/api/hub/email/threads?${params.toString()}`)
-      if (res.ok) {
-        const data = await res.json()
-        setThreads(data.threads || [])
-      }
+      const [mainRes, queueRes] = await Promise.all(reqs)
+      if (mainRes.ok) setThreads((await mainRes.json()).threads || [])
+      if (showQueue && queueRes?.ok) setQueue((await queueRes.json()).threads || [])
+      else if (!showQueue) setQueue([])
     } finally {
       setLoading(false)
     }
-  }, [scope, account, folder, debouncedSearch, accountsLoaded])
+  }, [scope, account, folder, debouncedSearch, accountsLoaded, showQueue])
 
   useEffect(() => {
     load()
@@ -243,6 +261,8 @@ export default function EmailInboxSidebar({
 
   function isUnread(t: EmailThread): boolean {
     if (t.status === 'closed') return false
+    // Only light the dot / count the "Unread" lens for MY threads — in the shared
+    // "All" view, lighting every teammate's unread would bury my own (Txt behavior).
     if (!t.mine) return false
     if (pathname === `/hub/email/${t.id}`) return false
     if (t.last_message_direction !== 'inbound') return false
@@ -257,6 +277,45 @@ export default function EmailInboxSidebar({
 
   const needsReply = (t: EmailThread) =>
     t.status !== 'closed' && t.last_message_direction === 'inbound'
+
+  // Secondary within-list lens (All · Unread · Needs replied), Txt-style.
+  const passesLens = useCallback(
+    (t: EmailThread) => {
+      if (lens === 'unread') return isUnread(t)
+      if (lens === 'needs_reply') return needsReply(t)
+      return true
+    },
+    // isUnread/needsReply close over `reads`/`pathname`; recompute when those change.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [lens, reads, pathname]
+  )
+
+  // In the "All" scope the unassigned threads also come back in the main list —
+  // drop them so they only appear once (in the pinned Queue above).
+  const filteredThreads = threads
+    .filter((t) => !(showQueue && scope === 'all' && t.status === 'open' && !t.assigned_to_user_id))
+    .filter(passesLens)
+  const filteredQueue = queue.filter(passesLens)
+
+  async function claim(id: string, e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    if (claiming) return
+    setClaiming(id)
+    try {
+      const res = await fetch(`/api/hub/email/threads/${id}/claim`, { method: 'POST' })
+      if (res.ok) {
+        toast.success('Claimed')
+        load()
+      } else {
+        toast.error("Couldn't claim conversation")
+      }
+    } catch {
+      toast.error("Couldn't claim conversation")
+    } finally {
+      setClaiming(null)
+    }
+  }
 
   // Lazily fetch the thread's messages for the chevron preview. A ref mirrors
   // the cache so the callback stays stable AND the fetch never runs inside a
@@ -294,24 +353,32 @@ export default function EmailInboxSidebar({
       })
   }, [])
 
-  // Which scope tabs to show for the current account + access level.
+  // Which primary tabs to show for the current account + role.
   const tabs: { id: Scope; label: string }[] =
-    account === 'shared' && isFullAccess
+    account === 'personal'
+      ? [{ id: 'mine', label: 'Inbox' }]
+      : isManager
       ? [
           { id: 'mine', label: 'Mine' },
           { id: 'all', label: 'All' },
-          { id: 'unassigned', label: 'Unassigned' },
-          { id: 'needs_reply', label: 'Needs reply' },
           { id: 'closed', label: 'Closed' },
         ]
-      : account === 'shared'
-      ? [{ id: 'mine', label: 'Shared with me' }]
-      : [{ id: 'mine', label: 'Inbox' }]
+      : [
+          { id: 'mine', label: 'Mine' },
+          { id: 'closed', label: 'Closed' },
+        ]
 
   const showAccountToggle = hasShared && hasPersonal
-  // Non-Inbox folders are reference/filing views — the workflow tabs only make
-  // sense on the live Inbox queue.
+  // Non-Inbox folders are reference/filing views — the workflow tabs + lens only
+  // make sense on the live Inbox queue.
   const showTabs = folder === ''
+  const showLens = folder === '' && scope !== 'closed'
+
+  const lenses: { id: Lens; label: string }[] = [
+    { id: 'all', label: 'All' },
+    { id: 'unread', label: 'Unread' },
+    { id: 'needs_reply', label: 'Needs reply' },
+  ]
 
   const gearMenu = (
     <div className="relative" ref={gearRef}>
@@ -335,7 +402,7 @@ export default function EmailInboxSidebar({
         <div className="absolute right-0 top-full mt-1 w-44 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-50 overflow-hidden">
           {/* Rules are manager/office-only (the API is requireAdminArea-gated); don't
               show the entry to users who'd only get a 403. */}
-          {isFullAccess && (
+          {isManager && (
             <button
               type="button"
               onClick={() => {
@@ -354,13 +421,47 @@ export default function EmailInboxSidebar({
               onClose?.()
               router.push('/hub/settings?tab=account')
             }}
-            className={`block w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5 ${isFullAccess ? 'border-t border-white/10' : ''}`}
+            className={`block w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5 ${isManager ? 'border-t border-white/10' : ''}`}
           >
             Inbox settings
           </button>
         </div>
       )}
     </div>
+  )
+
+  // A compact queue row (no chevron/preview) with an inline Claim button.
+  const queueRow = (t: EmailThread) => (
+    <li key={`q-${t.id}`} className="border-l-2 border-orange-400/50">
+      <div className="flex items-center gap-1 hover:bg-white/5">
+        <Link
+          href={`/hub/email/${t.id}`}
+          onClick={() => {
+            markRead(t.id)
+            onClose?.()
+          }}
+          className="flex-1 min-w-0 py-2 pl-3 pr-1"
+        >
+          <div className="flex items-center justify-between gap-2">
+            <span className="text-sm font-medium truncate">
+              {participantName(t.from_name, t.from_email)}
+            </span>
+            <span className="text-[10px] text-white/40 flex-none">{relativeTime(t.last_message_at)}</span>
+          </div>
+          <div className="text-[13px] text-white/70 truncate mt-0.5">{t.subject || '(no subject)'}</div>
+          <div className="text-[11px] text-white/40 truncate mt-0.5">{t.snippet || ''}</div>
+        </Link>
+        <button
+          type="button"
+          onClick={(e) => claim(t.id, e)}
+          disabled={claiming === t.id}
+          className="flex-none mr-2 px-2 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[11px] font-medium disabled:opacity-50"
+          title="Claim for yourself"
+        >
+          {claiming === t.id ? '…' : 'Claim'}
+        </button>
+      </div>
+    </li>
   )
 
   return (
@@ -431,7 +532,7 @@ export default function EmailInboxSidebar({
               setExpandedId(null)
               // A filing folder shows everything in it; the Inbox queue returns
               // to the personal default.
-              if (account === 'shared' && isFullAccess) setScope(v ? 'all' : 'mine')
+              if (account === 'shared' && isManager) setScope(v ? 'all' : 'mine')
             }}
             className="w-full px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white/80"
           >
@@ -446,7 +547,7 @@ export default function EmailInboxSidebar({
           </select>
         )}
 
-        {/* Workflow tabs — Inbox only; wrap cleanly instead of overlapping at
+        {/* Primary tabs — Inbox only; wrap cleanly instead of overlapping at
             narrow sidebar widths. */}
         {showTabs && tabs.length > 1 && (
           <div className="flex flex-wrap gap-1">
@@ -470,16 +571,45 @@ export default function EmailInboxSidebar({
             {tabs[0].label}
           </div>
         )}
+
+        {/* Secondary within-list lens — All · Unread · Needs reply. */}
+        {showLens && (
+          <div className="flex gap-1">
+            {lenses.map((l) => (
+              <button
+                key={l.id}
+                onClick={() => setLens(l.id)}
+                className={`flex-1 px-2 py-[3px] rounded-md text-[11px] whitespace-nowrap transition ${
+                  lens === l.id
+                    ? 'bg-white/10 text-white font-medium'
+                    : 'text-white/40 hover:text-white/70'
+                }`}
+              >
+                {l.label}
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
-        {(!accountsLoaded || (loading && threads.length === 0)) && (
+        {(!accountsLoaded || (loading && threads.length === 0 && queue.length === 0)) && (
           <div className="py-12 text-center">
             <Spinner size={6} />
           </div>
         )}
 
-        {accountsLoaded && !loading && threads.length === 0 && (
+        {/* Pinned unassigned Queue (managers only) — claim/open to work it. */}
+        {showQueue && filteredQueue.length > 0 && (
+          <div>
+            <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-orange-300/80 font-medium">
+              Queued · {filteredQueue.length}
+            </div>
+            <ul className="border-b border-white/10 pb-1">{filteredQueue.map(queueRow)}</ul>
+          </div>
+        )}
+
+        {accountsLoaded && !loading && filteredThreads.length === 0 && filteredQueue.length === 0 && (
           <EmptyState
             title={
               debouncedSearch
@@ -488,9 +618,9 @@ export default function EmailInboxSidebar({
                 ? 'Nothing in this folder.'
                 : scope === 'closed'
                 ? 'No closed threads.'
-                : scope === 'unassigned'
-                ? 'Nothing waiting to be claimed.'
-                : scope === 'needs_reply'
+                : lens === 'unread'
+                ? 'Nothing unread. 🎉'
+                : lens === 'needs_reply'
                 ? 'Nothing needs a reply. 🎉'
                 : account === 'personal'
                 ? 'Your personal inbox is empty.'
@@ -500,7 +630,7 @@ export default function EmailInboxSidebar({
         )}
 
         <ul>
-          {threads.map((t) => {
+          {filteredThreads.map((t) => {
             const active = pathname === `/hub/email/${t.id}`
             const unread = isUnread(t)
             // Render the chevron when the thread is known multi-message, or when
@@ -603,7 +733,7 @@ export default function EmailInboxSidebar({
                             {initials(t.assignee_name)}
                           </span>
                         ) : (
-                          <span className="text-[10px] text-orange-300/80">open</span>
+                          <span className="text-[10px] text-orange-300/80">unclaimed</span>
                         )}
                       </span>
                     </div>

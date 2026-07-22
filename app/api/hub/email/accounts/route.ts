@@ -18,10 +18,12 @@ export async function GET() {
   // from user_profiles — read via admin for reliability regardless of RLS timing.
   const admin = createAdminClient()
   const flags = await getInboxUserFlags(admin, userId)
-  const accounts = await listAccessibleAccounts(admin, companyId, userId, flags.isFullAccess)
+  // Include the shared mailbox for anyone who may enter the inbox (Standard users too);
+  // RLS then limits a Standard user to threads assigned/shared to them.
+  const accounts = await listAccessibleAccounts(admin, companyId, userId, flags.hasAccess)
 
   return NextResponse.json({
     accounts: accounts.map(toSafeAccount),
-    flags: { isFullAccess: flags.isFullAccess, canCompose: flags.canCompose },
+    flags: { isManager: flags.isManager, hasAccess: flags.hasAccess, canCompose: flags.canCompose },
   })
 }

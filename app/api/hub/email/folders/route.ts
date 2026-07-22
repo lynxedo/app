@@ -38,6 +38,7 @@ export async function GET(request: Request) {
     .from('inbox_folders')
     .select('id, provider_folder_id, name, parent_provider_folder_id, system_folder, unread_count, total_count')
     .eq('account_id', account.id)
+    .eq('hidden', false) // admins can hide folders from the picker (still synced)
     .order('system_folder', { ascending: true, nullsFirst: false })
     .order('name', { ascending: true })
   if (error) {

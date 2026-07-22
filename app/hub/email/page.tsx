@@ -4,11 +4,11 @@ import EmailOversightPanel from '@/components/hub/email/EmailOversightPanel'
 import { LIGHT_SURFACE_STYLE } from '@/components/hub/email/emailFormat'
 
 /**
- * Hub Inbox landing (server component). Full-access users (admins /
- * can_access_shared_inbox) see the manager oversight dashboard; anyone else with
- * a foothold (compose right, a personal mailbox, or a thread shared to them) gets
- * a simple "pick a conversation" empty state. The thread list itself lives in the
- * sidebar mounted by the Hub shell — it is NOT rendered here.
+ * Hub Inbox landing (server component). Managers (admins / can_manage_shared_inbox)
+ * see the oversight dashboard; anyone else who may enter (Standard-user access,
+ * compose right, a personal mailbox, or a thread shared to them) gets a simple
+ * "pick a conversation" empty state. The thread list itself lives in the sidebar
+ * mounted by the Hub shell — it is NOT rendered here.
  */
 export default async function HubEmailPage() {
   const supabase = await createClient()
@@ -22,12 +22,12 @@ export default async function HubEmailPage() {
 
   const { data: prof } = await admin
     .from('user_profiles')
-    .select('role, can_access_shared_inbox, can_compose_shared_email, company_id')
+    .select('role, can_manage_shared_inbox, can_access_shared_inbox, can_compose_shared_email, company_id')
     .eq('id', user.id)
     .maybeSingle()
 
-  const isFull = prof?.role === 'admin' || prof?.can_access_shared_inbox
-  let ok = isFull || prof?.can_compose_shared_email
+  const isManager = prof?.role === 'admin' || !!prof?.can_manage_shared_inbox
+  let ok = isManager || prof?.can_access_shared_inbox || prof?.can_compose_shared_email
   if (!ok) {
     const { count: pa } = await admin
       .from('inbox_accounts')
@@ -49,7 +49,7 @@ export default async function HubEmailPage() {
       className="email-light-surface flex-1 flex flex-col items-center px-6 py-8 overflow-y-auto bg-gray-100 text-gray-900"
       style={LIGHT_SURFACE_STYLE}
     >
-      {isFull ? (
+      {isManager ? (
         <EmailOversightPanel />
       ) : (
         <div className="flex-1 flex flex-col items-center justify-center text-center">

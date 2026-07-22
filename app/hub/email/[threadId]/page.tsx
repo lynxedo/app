@@ -27,11 +27,11 @@ export default async function HubEmailThreadPage({
 
   const { data: prof } = await admin
     .from('user_profiles')
-    .select('role, can_access_shared_inbox, can_compose_shared_email, email_signature, company_id')
+    .select('role, can_manage_shared_inbox, can_access_shared_inbox, can_compose_shared_email, email_signature, company_id')
     .eq('id', user.id)
     .maybeSingle()
 
-  const isFull = prof?.role === 'admin' || prof?.can_access_shared_inbox
+  const isFull = prof?.role === 'admin' || prof?.can_manage_shared_inbox || prof?.can_access_shared_inbox
   let ok = isFull || prof?.can_compose_shared_email
   if (!ok) {
     const { count: pa } = await admin

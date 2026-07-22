@@ -8,7 +8,10 @@ import type { CSSProperties } from 'react'
 export type MailDirection = 'inbound' | 'outbound' | null
 export type ThreadStatus = 'open' | 'assigned' | 'closed'
 export type AccountType = 'shared' | 'personal'
-export type Scope = 'mine' | 'all' | 'unassigned' | 'closed' | 'needs_reply'
+// Primary tab scope. 'unassigned' backs the manager Queue fetch (not a tab).
+export type Scope = 'mine' | 'all' | 'unassigned' | 'closed'
+// Secondary within-list lens (Txt-style): All · Unread · Needs replied.
+export type Lens = 'all' | 'unread' | 'needs_reply'
 
 /**
  * The Hub theme remaps the entire Tailwind --color-* palette per theme, so
@@ -50,7 +53,8 @@ export type InboxAccount = {
 
 /** Feature flags returned alongside the accounts list. */
 export type AccountFlags = {
-  isFullAccess: boolean
+  isManager: boolean // sees All + the unassigned Queue; can claim/assign/close/share
+  hasAccess: boolean // may enter the shared inbox (Standard user sees only their threads)
   canCompose: boolean
 }
 

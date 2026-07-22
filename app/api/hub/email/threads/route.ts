@@ -7,12 +7,16 @@ import { ilikeSearchPattern } from '@/lib/search'
 
 export const dynamic = 'force-dynamic'
 
+// API scopes. The sidebar's primary tabs are only mine/all/closed; 'unassigned' backs
+// the manager Queue fetch and 'needs_reply' backs the manager Oversight panel (neither is
+// a sidebar tab — "Needs reply" in the sidebar is a client-side lens instead).
 type Scope = 'mine' | 'all' | 'unassigned' | 'closed' | 'needs_reply'
 const SCOPES: Scope[] = ['mine', 'all', 'unassigned', 'closed', 'needs_reply']
 
-// Folders that are noise in the queue tabs (mirrored folder display names).
-// Applied only when NO explicit folder param is given; a null folder is includable
-// (threads synced before folder mirroring, or provider oddities, stay visible).
+// Fallback folder exclusion used ONLY when the account's Inbox system folder can't be
+// identified yet (fresh mailbox / provider oddity) — hides Sent/Drafts/etc so the queue
+// isn't polluted. A null folder stays visible. The normal path filters by true Inbox-folder
+// membership instead (an Outlook mirror), so replied threads never drop out.
 const QUEUE_EXCLUDED_FOLDERS = ['Sent Items', 'Drafts', 'Deleted Items', 'Junk Email', 'Outbox']
 
 // Resolve display names (hub_users.display_name → user_profiles.full_name) for a
@@ -69,9 +73,24 @@ export async function GET(req: Request) {
   const flags = await getInboxUserFlags(supabase, userId)
   const isPersonal = account.account_type === 'personal'
 
-  // Queue scopes are shared-inbox-only, and unassigned/needs_reply are manager views.
-  if (!isPersonal && (scope === 'unassigned' || scope === 'needs_reply') && !flags.isFullAccess) {
+  // The unassigned Queue + the needs-reply oversight feed are manager-only views.
+  if (!isPersonal && (scope === 'unassigned' || scope === 'needs_reply') && !flags.isManager) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  }
+
+  // Resolve the account's Inbox system folder id so the default view is a true Outlook
+  // Inbox mirror (a thread shows if ANY of its messages is still in Inbox — replied threads
+  // stay, archived threads drop). Falls back to the folder-name exclusion when unresolved.
+  let inboxFolderId: string | null = null
+  {
+    const { data: inb } = await admin
+      .from('inbox_folders')
+      .select('provider_folder_id')
+      .eq('account_id', account.id)
+      .eq('system_folder', 'inbox')
+      .limit(1)
+      .maybeSingle()
+    inboxFolderId = (inb?.provider_folder_id as string) || null
   }
 
   // My membership thread ids (shared account only) — used for the `mine` scope and
@@ -115,8 +134,11 @@ export async function GET(req: Request) {
         break
       case 'closed':
         q = q.eq('status', 'closed')
+        // Standard users see only the threads THEY closed; managers see all closed.
+        if (!flags.isManager) q = q.eq('closed_by_user_id', userId)
         break
       case 'needs_reply':
+        // Oversight feed: any non-closed thread awaiting our reply (last msg inbound).
         q = q.neq('status', 'closed').eq('last_message_direction', 'inbound')
         break
       case 'all':
@@ -127,12 +149,15 @@ export async function GET(req: Request) {
   }
 
   if (folder) {
-    // Explicit folder view: exactly that folder (param = provider folder id, per
-    // the folders route's provider_folder_id).
+    // Explicit folder view (Sent, Archive, …): exactly that folder (param = provider folder id).
     q = q.contains('provider_folder_ids', [folder])
+  } else if (scope === 'closed') {
+    // Closed is a complete record — don't restrict by current folder.
+  } else if (inboxFolderId) {
+    // Default view = a true Outlook Inbox mirror: any thread still holding a message in Inbox.
+    q = q.contains('provider_folder_ids', [inboxFolderId])
   } else {
-    // Queue tabs (mine/all/unassigned/needs_reply/closed): hide Sent/Drafts/Deleted/
-    // Junk/Outbox threads so outbound-only + junk mail doesn't pollute the queue.
+    // Fallback (Inbox folder not identified yet): hide Sent/Drafts/Deleted/Junk/Outbox noise.
     // `not.in` alone would also drop NULL folders (SQL null semantics) → OR is.null.
     const list = QUEUE_EXCLUDED_FOLDERS.map((f) => `"${f}"`).join(',')
     q = q.or(`folder.is.null,folder.not.in.(${list})`)

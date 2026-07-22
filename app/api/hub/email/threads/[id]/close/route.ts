@@ -33,7 +33,7 @@ export async function POST(
 
   const { error: updErr } = await admin
     .from('inbox_threads')
-    .update({ status: 'closed', updated_at: new Date().toISOString() })
+    .update({ status: 'closed', closed_by_user_id: user.id, updated_at: new Date().toISOString() })
     .eq('id', id)
   if (updErr) return NextResponse.json({ error: updErr.message }, { status: 500 })
 
