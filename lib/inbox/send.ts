@@ -27,6 +27,7 @@ import { getMailProvider } from './provider'
 import type { InboxAccount } from './accounts'
 import type { MailAttachment, MailParticipant, OutboundAttachmentFile } from './types'
 import { recordScheduledSend } from './drafts'
+import { resolveEffectiveSignature } from './signature'
 import { r2GetBuffer, r2Delete } from '@/lib/r2'
 
 export type SendResult =
@@ -93,17 +94,19 @@ function reSubject(subject: string | null | undefined): string {
 // this is only for the appended human signature so the customer knows who wrote.
 async function resolveSender(
   admin: SupabaseClient,
+  companyId: string,
   userId: string
 ): Promise<{ displayName: string; signatureHtml: string }> {
   const [{ data: hu }, { data: prof }] = await Promise.all([
     admin.from('hub_users').select('display_name').eq('id', userId).maybeSingle(),
-    admin.from('user_profiles').select('full_name, email_signature').eq('id', userId).maybeSingle(),
+    admin.from('user_profiles').select('full_name').eq('id', userId).maybeSingle(),
   ])
   const displayName =
     (hu?.display_name as string | undefined)?.trim() ||
     (prof?.full_name as string | undefined)?.trim() ||
     'Heroes Lawn Care'
-  const signatureHtml = ((prof?.email_signature as string | undefined) || '').trim()
+  // Own signature → company default template → '' (resolveEffectiveSignature handles all three).
+  const signatureHtml = await resolveEffectiveSignature(admin, companyId, userId)
   return { displayName, signatureHtml }
 }
 
@@ -268,7 +271,7 @@ export async function sendInboxReply(
 
   if (!recipient?.email) return { ok: false, error: 'Could not determine a recipient for this thread' }
 
-  const { displayName, signatureHtml } = await resolveSender(admin, userId)
+  const { displayName, signatureHtml } = await resolveSender(admin, thread.company_id as string, userId)
   const composed = buildOutboundBody(params, displayName, signatureHtml)
   if (!composed) return { ok: false, error: 'Empty message', status: 400 }
   const subject = reSubject(thread.subject)
@@ -425,7 +428,7 @@ export async function sendInboxNew(
 
   if (to.length === 0 || !to[0]?.email) return { ok: false, error: 'At least one recipient is required' }
 
-  const { displayName, signatureHtml } = await resolveSender(admin, userId)
+  const { displayName, signatureHtml } = await resolveSender(admin, account.company_id, userId)
   const composed = buildOutboundBody(params, displayName, signatureHtml)
   if (!composed) return { ok: false, error: 'Empty message', status: 400 }
   const subject = (params.subject || '').trim() || '(no subject)'

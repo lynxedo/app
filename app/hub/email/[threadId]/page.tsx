@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import EmailThreadView from '@/components/hub/email/EmailThreadView'
+import { resolveEffectiveSignature } from '@/lib/inbox/signature'
 
 /**
  * Hub Inbox thread page (server component). Same access guard as the inbox
@@ -47,12 +48,16 @@ export default async function HubEmailThreadPage({
   }
   if (!ok) redirect('/hub')
 
+  const emailSignature = prof?.company_id
+    ? await resolveEffectiveSignature(admin, prof.company_id as string, user.id)
+    : (prof?.email_signature as string | null) || ''
+
   return (
     <EmailThreadView
       threadId={threadId}
       currentUserId={user.id}
       companyId={prof?.company_id || ''}
-      emailSignature={(prof?.email_signature as string | null) || ''}
+      emailSignature={emailSignature}
     />
   )
 }

@@ -9,6 +9,7 @@ import NotificationDeviceControls from '@/components/hub/NotificationDeviceContr
 import { type RailPermissions } from '@/components/hub/railCatalog'
 import TxtPersonalTemplates from './TxtPersonalTemplates'
 import InboxPersonalMailbox from './InboxPersonalMailbox'
+import InboxCompanySignature from './InboxCompanySignature'
 import DialerPersonalSettings from './DialerPersonalSettings'
 import ExtensionTokensSection from './ExtensionTokensSection'
 import BetaFeaturesTab from './BetaFeaturesTab'
@@ -43,6 +44,8 @@ interface Props {
   emailSignature?: string
   allowUserSignatures?: boolean
   companyDefaultSignature?: string | null
+  /** Manager/admin of the shared inbox → shows the company default email-signature editor. */
+  canManageInbox?: boolean
   dialerGlobalRing: boolean
   initialMasterDndEnabled?: boolean
   initialMasterDndSchedule?: Record<string, unknown> | null
@@ -97,7 +100,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, initialTheme, notifPref, railPermissions, canAccessBeta = false, txtSignature, emailSignature = '', allowUserSignatures = true, companyDefaultSignature = null, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, initialTheme, notifPref, railPermissions, canAccessBeta = false, txtSignature, emailSignature = '', allowUserSignatures = true, companyDefaultSignature = null, canManageInbox = false, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
   const router = useRouter()
   const toast = useToast()
   const confirmDialog = useConfirm()
@@ -986,6 +989,7 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
           </div>
         </div>
         <InboxPersonalMailbox userId={userId} />
+        {canManageInbox && <InboxCompanySignature />}
       </section>
 
       {/* Change password */}

@@ -1,6 +1,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import EmailComposeView from '@/components/hub/email/EmailComposeView'
+import { resolveEffectiveSignature } from '@/lib/inbox/signature'
 
 /**
  * Full-page "New email" composer (server component). Guard: anyone who can
@@ -43,9 +44,13 @@ export default async function HubEmailComposePage({
   }
   if (!ok) redirect('/hub/email')
 
+  const emailSignature = prof?.company_id
+    ? await resolveEffectiveSignature(admin, prof.company_id as string, user.id)
+    : (prof?.email_signature as string | null) || ''
+
   return (
     <EmailComposeView
-      emailSignature={(prof?.email_signature as string | null) || ''}
+      emailSignature={emailSignature}
       draftId={typeof draftId === 'string' ? draftId : undefined}
     />
   )
