@@ -37,6 +37,18 @@ export async function POST(
   const bcc: MailParticipant[] = Array.isArray(body.bcc) ? body.bcc : []
   if (!bodyHtml && !bodyText) return NextResponse.json({ error: 'Empty message' }, { status: 400 })
 
+  // Optional scheduled send: scheduleAt (ISO) must be at least a minute out.
+  let sendAt: number | undefined
+  if (typeof body.scheduleAt === 'string' && body.scheduleAt) {
+    const ts = Date.parse(body.scheduleAt)
+    if (isNaN(ts) || ts < Date.now() + 60_000) {
+      return NextResponse.json({ error: 'Pick a send time at least a minute from now' }, { status: 400 })
+    }
+    sendAt = Math.floor(ts / 1000)
+  }
+  const sourceDraftId = typeof body.draftId === 'string' ? body.draftId : null
+  const kind = typeof body.kind === 'string' ? body.kind : 'reply'
+
   const perms = await getInboxThreadPermissions(supabase, id, user.id)
   if (!perms.canReply) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
 
@@ -62,9 +74,17 @@ export async function POST(
     attachments,
     cc,
     bcc,
+    sendAt,
+    sourceDraftId,
+    kind,
   })
 
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status || 502 })
+
+  // Scheduled: nothing has been sent yet — skip the "reply sent" fan-out.
+  if (result.scheduled) {
+    return NextResponse.json({ ok: true, scheduled: true, scheduledAt: result.scheduledAt })
+  }
 
   const companyId = threadRow.company_id
   after(async () => {

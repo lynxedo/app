@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useToast } from '@/components/ui'
 import EmailRichTextEditor, { type EmailEditorHandle } from './EmailRichTextEditor'
 import EmailAttachments from './EmailAttachments'
+import ScheduleSendMenu from './ScheduleSendMenu'
 import {
   messageTime,
   signatureToHtml,
@@ -378,7 +379,19 @@ export default function EmailReplyComposer({
     (draftText.trim().length > 0 || attachments.length > 0) &&
     (mode !== 'forward' || (to.trim().length > 0 && subject.trim().length > 0 && accountsLoaded && accounts.length > 0))
 
-  async function send() {
+  function scheduledToast(scheduleAt: string | undefined, scheduledAt?: string) {
+    toast.success(
+      `Scheduled — sends ${new Date(scheduleAt || scheduledAt || '').toLocaleString('en-US', {
+        month: 'short',
+        day: 'numeric',
+        hour: 'numeric',
+        minute: '2-digit',
+      })}`
+    )
+  }
+
+  // Send now, or schedule when scheduleAt (ISO) is given.
+  async function submit(scheduleAt?: string) {
     if (!canSend) return
     const html = editorRef.current?.getHTML() || ''
     const text = editorRef.current?.getText() || ''
@@ -402,11 +415,19 @@ export default function EmailReplyComposer({
             bodyHtml: buildOutboundHtml(html),
             body: buildOutboundText(text),
             attachments,
+            scheduleAt,
+            draftId: draftIdRef.current,
           }),
         })
         const data = await res.json().catch(() => ({}))
         if (!res.ok || data.error || data.ok === false) {
           setError(data.error || 'Could not send — try again')
+          return
+        }
+        if (data.scheduled) {
+          draftIdRef.current = null // converted to a scheduled row
+          scheduledToast(scheduleAt, data.scheduledAt)
+          await onReplySent()
           return
         }
         await discardDraftRow() // sent — drop the saved draft
@@ -426,11 +447,20 @@ export default function EmailReplyComposer({
           body: buildOutboundText(text),
           attachments,
           cc: ccShown ? parseRecipients(cc) : undefined,
+          scheduleAt,
+          draftId: draftIdRef.current,
+          kind: mode,
         }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok || data.ok === false || data.error) {
         setError(data.error || 'Send failed — try again')
+        return
+      }
+      if (data.scheduled) {
+        draftIdRef.current = null // converted to a scheduled row
+        scheduledToast(scheduleAt, data.scheduledAt)
+        await onReplySent()
         return
       }
       await discardDraftRow() // sent — drop the saved draft
@@ -442,6 +472,7 @@ export default function EmailReplyComposer({
       setSending(false)
     }
   }
+  const send = () => submit()
 
   const modeLabel = mode === 'forward' ? 'Forward' : mode === 'reply-all' ? 'Reply All' : 'Reply'
   const inputCls =
@@ -702,7 +733,8 @@ export default function EmailReplyComposer({
         </div>
       </div>
 
-      <div className="border-t border-gray-200 px-4 py-3 bg-white flex items-center justify-end">
+      <div className="border-t border-gray-200 px-4 py-3 bg-white flex items-center justify-end gap-2">
+        <ScheduleSendMenu disabled={!canSend} onSchedule={(iso) => submit(iso)} />
         <button
           type="button"
           onClick={send}

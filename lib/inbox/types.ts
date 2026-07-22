@@ -88,13 +88,18 @@ export type SendMessageInput = {
   trackReplies?: boolean
   /** When present, the send goes out as multipart/form-data with one part per file. */
   attachments?: OutboundAttachmentFile[]
+  /** Unix timestamp (seconds). When set, the provider SCHEDULES the send for this time
+   *  instead of sending now, and the result carries a scheduleId (no message id yet). */
+  sendAt?: number
 }
 
 export type SendMessageResult = {
-  providerMessageId: string
+  providerMessageId: string // '' when the send was scheduled (no message exists yet)
   providerThreadId: string | null
   /** Provider-assigned attachment metadata when the send response includes it (used for the local mirror). */
   attachments?: MailAttachment[]
+  /** Set when sendAt was used — the provider's schedule id (used to cancel). */
+  scheduleId?: string | null
 }
 
 // Result of exchanging an OAuth code for a Nylas grant.

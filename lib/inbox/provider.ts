@@ -19,6 +19,8 @@ export interface MailProvider {
   listMessages(threadId: string): Promise<MailMessage[]>
   getMessage(messageId: string): Promise<MailMessage>
   sendMessage(input: SendMessageInput): Promise<SendMessageResult>
+  /** Cancel a previously scheduled send (send_at) by its provider schedule id. */
+  cancelScheduledSend(scheduleId: string): Promise<void>
   listFolders(): Promise<MailFolder[]>
   moveMessageToFolder(messageId: string, folderId: string): Promise<void>
   setMessageFlags(messageId: string, flags: { unread?: boolean; starred?: boolean }): Promise<void>

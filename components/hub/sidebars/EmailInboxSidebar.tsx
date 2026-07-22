@@ -257,7 +257,13 @@ export default function EmailInboxSidebar({
     e.stopPropagation()
     setDrafts((prev) => prev.filter((d) => d.id !== id)) // optimistic
     try {
-      await fetch(`/api/hub/email/drafts/${id}`, { method: 'DELETE' })
+      const res = await fetch(`/api/hub/email/drafts/${id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}))
+        // e.g. a scheduled send too close to its time to cancel.
+        toast.error(data.error || "Couldn't remove that")
+        loadDrafts() // restore the row
+      }
     } catch {
       loadDrafts() // restore on failure
     }
@@ -648,38 +654,64 @@ export default function EmailInboxSidebar({
             {!draftsLoading && drafts.length === 0 && <EmptyState title="No drafts." />}
             <ul>
               {drafts.map((d) => {
+                const scheduled = !!d.scheduled_at
                 const href =
                   d.kind === 'new' || !d.thread_id
                     ? `/hub/email/compose?draft=${d.id}`
                     : `/hub/email/${d.thread_id}`
                 const who = d.to_recipients?.map((r) => r.email).filter(Boolean).join(', ')
+                const whenLabel = scheduled
+                  ? new Date(d.scheduled_at as string).toLocaleString('en-US', {
+                      month: 'short',
+                      day: 'numeric',
+                      hour: 'numeric',
+                      minute: '2-digit',
+                    })
+                  : relativeTime(d.updated_at)
+                const inner = (
+                  <>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="text-sm font-medium truncate">
+                        {d.subject?.trim() || '(no subject)'}
+                      </span>
+                      {!scheduled && (
+                        <span className="text-[10px] text-white/40 flex-none">{whenLabel}</span>
+                      )}
+                    </div>
+                    <div className="text-[12px] text-white/50 truncate mt-0.5">
+                      {who ? `To: ${who}` : 'No recipient yet'}
+                    </div>
+                    {scheduled && (
+                      <div className="text-[11px] text-amber-300/90 mt-0.5 truncate">
+                        ⏱ Scheduled — {whenLabel}
+                      </div>
+                    )}
+                  </>
+                )
                 return (
-                  <li key={d.id} className="border-l-2 border-transparent">
+                  <li
+                    key={d.id}
+                    className={`border-l-2 ${scheduled ? 'border-amber-400/50' : 'border-transparent'}`}
+                  >
                     <div className="flex items-center gap-1 hover:bg-white/5">
-                      <Link
-                        href={href}
-                        onClick={() => onClose?.()}
-                        className="flex-1 min-w-0 py-2.5 pl-4 pr-1"
-                      >
-                        <div className="flex items-center justify-between gap-2">
-                          <span className="text-sm font-medium truncate">
-                            {d.subject?.trim() || '(no subject)'}
-                          </span>
-                          <span className="text-[10px] text-white/40 flex-none">
-                            {relativeTime(d.updated_at)}
-                          </span>
-                        </div>
-                        <div className="text-[12px] text-white/50 truncate mt-0.5">
-                          {who ? `To: ${who}` : 'No recipient yet'}
-                          {d.scheduled_at ? ' · ⏱ Scheduled' : ''}
-                        </div>
-                      </Link>
+                      {scheduled ? (
+                        // Already handed to the provider — not editable; only cancellable.
+                        <div className="flex-1 min-w-0 py-2.5 pl-4 pr-1">{inner}</div>
+                      ) : (
+                        <Link
+                          href={href}
+                          onClick={() => onClose?.()}
+                          className="flex-1 min-w-0 py-2.5 pl-4 pr-1"
+                        >
+                          {inner}
+                        </Link>
+                      )}
                       <button
                         type="button"
                         onClick={(e) => deleteDraft(d.id, e)}
                         className="flex-none mr-2 w-6 h-6 rounded flex items-center justify-center text-white/30 hover:text-red-300 hover:bg-white/5"
-                        aria-label="Delete draft"
-                        title="Delete draft"
+                        aria-label={scheduled ? 'Cancel scheduled send' : 'Delete draft'}
+                        title={scheduled ? 'Cancel scheduled send' : 'Delete draft'}
                       >
                         ✕
                       </button>

@@ -26,10 +26,13 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 import { getMailProvider } from './provider'
 import type { InboxAccount } from './accounts'
 import type { MailAttachment, MailParticipant, OutboundAttachmentFile } from './types'
+import { recordScheduledSend } from './drafts'
 import { r2GetBuffer, r2Delete } from '@/lib/r2'
 
 export type SendResult =
-  | { ok: true; messageId: string; threadId?: string }
+  | { ok: true; scheduled?: false; messageId: string; threadId?: string }
+  // Scheduled send (send_at): Nylas holds + fires it; we recorded a scheduled row for visibility/cancel.
+  | { ok: true; scheduled: true; scheduleId: string | null; scheduledAt: string; draftId: string | null }
   // `status` lets the route surface the right HTTP code (413 attachment cap, 400 bad ref) instead of a blanket 502.
   | { ok: false; error: string; status?: number }
 
@@ -212,6 +215,9 @@ export async function sendInboxReply(
     attachments?: OutboundAttachmentMeta[]
     cc?: MailParticipant[]
     bcc?: MailParticipant[]
+    sendAt?: number // Unix seconds — schedule instead of sending now
+    sourceDraftId?: string | null // draft this send came from (converted to the scheduled row)
+    kind?: string // 'reply' | 'reply-all' (label for the scheduled row)
   }
 ): Promise<SendResult> {
   const { account, threadId, userId } = params
@@ -272,7 +278,7 @@ export async function sendInboxReply(
   if (!loaded.ok) return loaded
 
   // Send via the transport (Nylas). Any provider error → soft failure.
-  let sent: { providerMessageId: string; providerThreadId: string | null; attachments?: MailAttachment[] }
+  let sent: { providerMessageId: string; providerThreadId: string | null; attachments?: MailAttachment[]; scheduleId?: string | null }
   try {
     sent = await getMailProvider(account).sendMessage({
       to: [recipient],
@@ -283,11 +289,41 @@ export async function sendInboxReply(
       replyToMessageId,
       trackReplies: true,
       attachments: loaded.files,
+      sendAt: params.sendAt,
     })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     console.error('[inbox:send] reply send failed', error)
     return { ok: false, error }
+  }
+
+  // Scheduled: Nylas holds + fires it (attachments queued too). Record a scheduled row
+  // for visibility/cancel; the real Sent message appears via sync when it fires.
+  if (params.sendAt) {
+    const scheduledAt = new Date(params.sendAt * 1000).toISOString()
+    let draftId: string | null = null
+    try {
+      draftId = await recordScheduledSend(admin, {
+        id: params.sourceDraftId ?? null,
+        companyId: thread.company_id as string,
+        accountId: account.id,
+        userId,
+        threadId,
+        kind: params.kind || 'reply',
+        to: [recipient],
+        cc,
+        bcc,
+        subject,
+        bodyHtml: composed,
+        attachments: attachmentMetas,
+        scheduledAt,
+        scheduleId: sent.scheduleId ?? null,
+      })
+    } catch (e) {
+      console.error('[inbox:send] record scheduled reply failed', e instanceof Error ? e.message : e)
+    }
+    await cleanupOutboxKeys(loaded.keys)
+    return { ok: true, scheduled: true, scheduleId: sent.scheduleId ?? null, scheduledAt, draftId }
   }
 
   const now = new Date().toISOString()
@@ -375,6 +411,9 @@ export async function sendInboxNew(
     bodyHtml?: string | null // rich HTML (composer-signed) — no server signature
     bodyText?: string | null // legacy plain body — server appends the signature
     attachments?: OutboundAttachmentMeta[]
+    sendAt?: number // Unix seconds — schedule instead of sending now
+    sourceDraftId?: string | null // draft this send came from (converted to the scheduled row)
+    kind?: string // 'new' | 'forward' (label for the scheduled row)
   }
 ): Promise<SendResult> {
   const { account, userId } = params
@@ -394,7 +433,7 @@ export async function sendInboxNew(
   const loaded = await loadOutboundAttachments(account.company_id, attachmentMetas)
   if (!loaded.ok) return loaded
 
-  let sent: { providerMessageId: string; providerThreadId: string | null; attachments?: MailAttachment[] }
+  let sent: { providerMessageId: string; providerThreadId: string | null; attachments?: MailAttachment[]; scheduleId?: string | null }
   try {
     sent = await getMailProvider(account).sendMessage({
       to,
@@ -404,11 +443,41 @@ export async function sendInboxNew(
       bodyHtml: composed,
       trackReplies: true,
       attachments: loaded.files,
+      sendAt: params.sendAt,
     })
   } catch (e) {
     const error = e instanceof Error ? e.message : String(e)
     console.error('[inbox:send] new send failed', error)
     return { ok: false, error }
+  }
+
+  // Scheduled: Nylas holds + fires it. Record a scheduled row (no thread yet); the real
+  // Sent message + thread materialize via sync when it fires.
+  if (params.sendAt) {
+    const scheduledAt = new Date(params.sendAt * 1000).toISOString()
+    let draftId: string | null = null
+    try {
+      draftId = await recordScheduledSend(admin, {
+        id: params.sourceDraftId ?? null,
+        companyId: account.company_id,
+        accountId: account.id,
+        userId,
+        threadId: null,
+        kind: params.kind || 'new',
+        to,
+        cc,
+        bcc,
+        subject,
+        bodyHtml: composed,
+        attachments: attachmentMetas,
+        scheduledAt,
+        scheduleId: sent.scheduleId ?? null,
+      })
+    } catch (e) {
+      console.error('[inbox:send] record scheduled new failed', e instanceof Error ? e.message : e)
+    }
+    await cleanupOutboxKeys(loaded.keys)
+    return { ok: true, scheduled: true, scheduleId: sent.scheduleId ?? null, scheduledAt, draftId }
   }
 
   const now = new Date().toISOString()

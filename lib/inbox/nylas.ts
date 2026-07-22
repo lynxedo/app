@@ -263,17 +263,22 @@ export class NylasProvider implements MailProvider {
       subject: input.subject,
       body: input.bodyHtml,
       ...(input.replyToMessageId ? { reply_to_message_id: input.replyToMessageId } : {}),
+      // Nylas schedules the send instead of sending now when send_at (Unix seconds) is present.
+      ...(input.sendAt ? { send_at: input.sendAt } : {}),
       tracking_options: { opens: false, thread_replies: !!input.trackReplies, links: false, label: '' },
     }
 
     type SendData = {
-      id: string
+      id?: string
       thread_id?: string | null
+      // A scheduled send (send_at) returns only a schedule_id — no message id yet.
+      schedule_id?: string | null
       attachments?: Array<{ id: string; filename?: string; content_type?: string; size?: number }>
     }
     const mapSent = (data: SendData): SendMessageResult => ({
-      providerMessageId: data.id,
+      providerMessageId: data.id || '',
       providerThreadId: data.thread_id ?? null,
+      scheduleId: data.schedule_id ?? null,
       attachments: (data.attachments || []).map((a) => ({
         id: a.id,
         filename: a.filename,
@@ -330,7 +335,8 @@ export class NylasProvider implements MailProvider {
         throw new Error(`Nylas ${res.status}: ${msg}`)
       }
       const data = ((json || {}) as { data?: SendData }).data
-      if (!data?.id) throw new Error('Nylas send returned no message id')
+      // A scheduled send (send_at) returns a schedule_id and no message id.
+      if (!data?.id && !data?.schedule_id) throw new Error('Nylas send returned no message id')
       return mapSent(data)
     } finally {
       clearTimeout(timer)
@@ -379,6 +385,13 @@ export class NylasProvider implements MailProvider {
     await nylasFetch(this.g(`/messages/${encodeURIComponent(messageId)}`), {
       method: 'PUT',
       body: JSON.stringify(flags),
+    })
+  }
+
+  // Cancel a scheduled send (must be ≥10s before its send_at time, per Nylas).
+  async cancelScheduledSend(scheduleId: string): Promise<void> {
+    await nylasFetch(this.g(`/messages/schedules/${encodeURIComponent(scheduleId)}`), {
+      method: 'DELETE',
     })
   }
 }

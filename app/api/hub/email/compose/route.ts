@@ -66,6 +66,17 @@ export async function POST(request: Request) {
     }
   }
 
+  // Optional scheduled send: scheduleAt (ISO) must be at least a minute in the future.
+  let sendAt: number | undefined
+  if (typeof body.scheduleAt === 'string' && body.scheduleAt) {
+    const ts = Date.parse(body.scheduleAt)
+    if (isNaN(ts) || ts < Date.now() + 60_000) {
+      return NextResponse.json({ error: 'Pick a send time at least a minute from now' }, { status: 400 })
+    }
+    sendAt = Math.floor(ts / 1000)
+  }
+  const sourceDraftId = typeof body.draftId === 'string' ? body.draftId : null
+
   const result = await sendInboxNew(admin, {
     account,
     userId,
@@ -76,8 +87,13 @@ export async function POST(request: Request) {
     bodyHtml,
     bodyText,
     attachments,
+    sendAt,
+    sourceDraftId,
   })
 
   if (!result.ok) return NextResponse.json({ ok: false, error: result.error }, { status: result.status || 502 })
+  if (result.scheduled) {
+    return NextResponse.json({ ok: true, scheduled: true, scheduledAt: result.scheduledAt })
+  }
   return NextResponse.json({ ok: true, messageId: result.messageId, threadId: result.threadId ?? null })
 }

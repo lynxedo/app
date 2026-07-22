@@ -5,6 +5,7 @@ import { useRouter } from 'next/navigation'
 import { useToast, Spinner } from '@/components/ui'
 import EmailRichTextEditor, { type EmailEditorHandle } from './EmailRichTextEditor'
 import EmailAttachments from './EmailAttachments'
+import ScheduleSendMenu from './ScheduleSendMenu'
 import {
   parseRecipients,
   signatureToHtml,
@@ -188,7 +189,8 @@ export default function EmailComposeView({
     }
   }
 
-  async function send() {
+  // Send now, or schedule when scheduleAt (ISO) is given.
+  async function submit(scheduleAt?: string) {
     setError('')
     const toList = parseRecipients(to)
     if (!accountId) {
@@ -223,12 +225,28 @@ export default function EmailComposeView({
           // Legacy plain-text fallback for the API.
           body: text,
           attachments,
+          scheduleAt,
+          // The working draft becomes the scheduled row when scheduling.
+          draftId: savedDraftIdRef.current,
         }),
       })
       const data = await res.json().catch(() => ({}))
       if (!res.ok || data.error || data.ok === false) {
         setError(data.error || 'Could not send — try again')
         setSending(false)
+        return
+      }
+      if (data.scheduled) {
+        savedDraftIdRef.current = null // converted to a scheduled row — don't re-save/delete it
+        toast.success(
+          `Scheduled — sends ${new Date(scheduleAt || data.scheduledAt).toLocaleString('en-US', {
+            month: 'short',
+            day: 'numeric',
+            hour: 'numeric',
+            minute: '2-digit',
+          })}`
+        )
+        router.push('/hub/email')
         return
       }
       await discardDraft() // the message sent — drop the draft
@@ -240,6 +258,7 @@ export default function EmailComposeView({
       setSending(false)
     }
   }
+  const send = () => submit()
 
   const inputCls =
     'w-full px-3 py-2 rounded-md bg-white border border-gray-300 text-sm text-gray-900 placeholder-gray-400 focus:outline-none focus:border-emerald-500'
@@ -386,14 +405,20 @@ export default function EmailComposeView({
               onRemove={(id) => setAttachments((prev) => prev.filter((x) => x.id !== id))}
               disabled={sending}
             />
-            <button
-              type="button"
-              onClick={send}
-              disabled={sending || !accountsLoaded || accounts.length === 0}
-              className="text-sm px-5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium disabled:opacity-50"
-            >
-              {sending ? 'Sending…' : 'Send'}
-            </button>
+            <div className="flex items-center gap-2">
+              <ScheduleSendMenu
+                disabled={sending || !accountsLoaded || accounts.length === 0}
+                onSchedule={(iso) => submit(iso)}
+              />
+              <button
+                type="button"
+                onClick={send}
+                disabled={sending || !accountsLoaded || accounts.length === 0}
+                className="text-sm px-5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium disabled:opacity-50"
+              >
+                {sending ? 'Sending…' : 'Send'}
+              </button>
+            </div>
           </div>
         </div>
       </div>

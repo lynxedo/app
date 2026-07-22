@@ -149,6 +149,60 @@ export async function upsertDraft(admin: SupabaseClient, input: UpsertDraftInput
   return (data?.id as string) || null
 }
 
+export type ScheduledSendInput = {
+  id?: string | null // source draft to convert (else a fresh row)
+  companyId: string
+  accountId: string
+  userId: string
+  threadId?: string | null
+  kind?: string
+  to?: MailParticipant[]
+  cc?: MailParticipant[]
+  bcc?: MailParticipant[]
+  subject?: string | null
+  bodyHtml?: string | null
+  attachments?: Array<{ id: string; filename?: string; contentType?: string; size?: number }>
+  scheduledAt: string // ISO
+  scheduleId: string | null // provider (Nylas) schedule id, for cancel
+}
+
+// Record a scheduled send as a status='scheduled' inbox_drafts row (so it shows in
+// the Drafts list and can be cancelled). Converts the source draft row when given,
+// otherwise inserts a fresh row. Returns the row id.
+export async function recordScheduledSend(admin: SupabaseClient, input: ScheduledSendInput): Promise<string | null> {
+  const nowIso = new Date().toISOString()
+  const fields = {
+    company_id: input.companyId,
+    account_id: input.accountId,
+    created_by: input.userId,
+    thread_id: input.threadId ?? null,
+    kind: input.kind || 'new',
+    to_recipients: input.to ?? [],
+    cc_recipients: input.cc ?? [],
+    bcc_recipients: input.bcc ?? [],
+    subject: input.subject ?? null,
+    body_html: input.bodyHtml ?? null,
+    attachments: input.attachments ?? [],
+    scheduled_at: input.scheduledAt,
+    nylas_schedule_id: input.scheduleId,
+    status: 'scheduled',
+    updated_at: nowIso,
+  }
+  if (input.id) {
+    const { data } = await admin
+      .from('inbox_drafts')
+      .update(fields)
+      .eq('id', input.id)
+      .eq('created_by', input.userId)
+      .select('id')
+      .maybeSingle()
+    if (data?.id) return data.id as string
+  }
+  const { data, error } = await admin.from('inbox_drafts').insert(fields).select('id').single()
+  if (error) throw new Error(error.message)
+  return (data?.id as string) || null
+}
+
 // Delete the caller's own draft. Returns the deleted row (so a scheduled-send
 // delete can cancel the provider schedule). Returns null if not found / not owned.
 export async function deleteMyDraft(

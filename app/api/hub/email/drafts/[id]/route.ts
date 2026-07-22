@@ -2,6 +2,8 @@ import { NextResponse } from 'next/server'
 import { requireCompany } from '@/lib/company-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getMyDraft, deleteMyDraft } from '@/lib/inbox/drafts'
+import { getInboxAccountById } from '@/lib/inbox/accounts'
+import { getMailProvider } from '@/lib/inbox/provider'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,6 +31,26 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
   const { id } = await params
 
   const admin = createAdminClient()
+
+  // Cancelling a scheduled send: cancel it at the provider FIRST (must be ≥10s before
+  // its send time). If that fails, keep the row and tell the caller — it may be sending.
+  const existing = await getMyDraft(admin, id, userId)
+  if (!existing) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+  if (existing.status === 'scheduled' && existing.nylas_schedule_id) {
+    const account = await getInboxAccountById(admin, existing.account_id)
+    if (account) {
+      try {
+        await getMailProvider(account).cancelScheduledSend(existing.nylas_schedule_id)
+      } catch (e) {
+        console.warn('[inbox:drafts] cancel scheduled failed', e instanceof Error ? e.message : e)
+        return NextResponse.json(
+          { error: 'Could not cancel — it may already be sending.' },
+          { status: 409 }
+        )
+      }
+    }
+  }
+
   const deleted = await deleteMyDraft(admin, id, userId)
   if (!deleted) return NextResponse.json({ error: 'Not found' }, { status: 404 })
   return NextResponse.json({ ok: true })
