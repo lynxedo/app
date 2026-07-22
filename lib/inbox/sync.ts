@@ -178,10 +178,14 @@ async function mirrorThread(
   // every re-fetch, or Close would never stick for any customer-wrote-last thread
   // (the poll would reopen it each run). Otherwise keep the existing status (never
   // downgrade an 'assigned' thread to 'open' on sync).
+  // Compare as epoch ms, not strings — the stored DB value ("…+00:00") and Nylas's
+  // ("…Z") are the same instant but sort differently as strings (spurious reopen).
+  // A small margin absorbs precision/format drift so an UNCHANGED thread never reopens.
+  const REOPEN_MARGIN_MS = 5000
+  const existingMs = existing?.last_message_at ? Date.parse(existing.last_message_at as string) : 0
+  const incomingMs = t.lastMessageAt ? Date.parse(t.lastMessageAt) : 0
   const isNewerInbound =
-    t.lastMessageDirection === 'inbound' &&
-    !!t.lastMessageAt &&
-    (!existing?.last_message_at || t.lastMessageAt > (existing.last_message_at as string))
+    t.lastMessageDirection === 'inbound' && incomingMs > existingMs + REOPEN_MARGIN_MS
   let status: string
   if (!existing) {
     // NEW THREAD branch — inbound rules run after the messages mirror below.
