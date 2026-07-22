@@ -575,9 +575,13 @@ export default function EmailInboxSidebar({
           <option value="">Inbox</option>
           <option value={DRAFTS_VIEW}>Drafts</option>
           {folders
-            // The default "Inbox" option IS the Outlook Inbox (mirror) — don't list the
-            // Inbox folder again, or there'd be two "Inbox" entries (the old confusion).
-            .filter((f) => (f.system_folder || '').toLowerCase() !== 'inbox')
+            // Hide the Inbox + Drafts system folders — the "Inbox" default IS the
+            // Outlook Inbox mirror, and our "Drafts" entry IS the drafts view, so
+            // listing the provider folders again would duplicate both (the old confusion).
+            .filter((f) => {
+              const s = (f.system_folder || '').toLowerCase()
+              return s !== 'inbox' && s !== 'drafts'
+            })
             .map((f) => (
               <option key={f.id} value={f.provider_folder_id}>
                 {isSystemFolder(f) ? '— ' : ''}
