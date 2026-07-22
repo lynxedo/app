@@ -45,9 +45,13 @@ function detailSignature(d: ThreadDetail): string {
  * which Hub theme the user picked — email is read and written on white.
  *
  * SECURITY: email bodies are untrusted external HTML. There is no HTML sanitizer
- * in this project, so each body renders inside a locked-down `sandbox` iframe
- * (no allow-scripts, no allow-same-origin) — scripts and inline handlers can't
- * run and the frame can't touch the parent page. DO NOT loosen the sandbox.
+ * in this project, so each body renders inside a locked-down `sandbox` iframe.
+ * `allow-scripts` MUST stay OFF — that is the invariant that blocks XSS: no inline
+ * handlers, no <script>, nothing executes. NEVER add allow-scripts.
+ * The reading frame adds `allow-same-origin` (WITHOUT allow-scripts) so the parent
+ * can read the frame's rendered height to auto-size it — with scripts blocked the
+ * framed doc is inert HTML/CSS, so same-origin only grants parent read access, not
+ * any execution. Top-navigation is not granted, so the frame can't move the parent.
  */
 export default function EmailThreadView({
   threadId,
@@ -519,6 +523,57 @@ export default function EmailThreadView({
   )
 }
 
+/**
+ * Renders an untrusted email body in a sandboxed iframe that auto-sizes to its
+ * content, so short emails don't leave a big empty box and long ones read in one
+ * page scroll (no box-in-a-box). `allow-same-origin` (never allow-scripts) lets us
+ * read the rendered height; re-measures on load, after images settle, and on resize.
+ */
+function EmailBodyFrame({ html }: { html: string }) {
+  const ref = useRef<HTMLIFrameElement>(null)
+  const [height, setHeight] = useState(220)
+
+  const measure = useCallback(() => {
+    const doc = ref.current?.contentWindow?.document
+    if (!doc) return
+    const h = Math.max(doc.body?.scrollHeight || 0, doc.documentElement?.scrollHeight || 0)
+    if (h > 0) {
+      setHeight((prev) => {
+        const next = Math.min(Math.max(h + 8, 60), 40000)
+        return Math.abs(next - prev) > 2 ? next : prev
+      })
+    }
+  }, [])
+
+  useEffect(() => {
+    // Images/fonts load after onLoad and reflow the body — re-measure a couple times,
+    // and whenever the window (and thus the frame width) changes.
+    const t1 = setTimeout(measure, 300)
+    const t2 = setTimeout(measure, 1200)
+    window.addEventListener('resize', measure)
+    return () => {
+      clearTimeout(t1)
+      clearTimeout(t2)
+      window.removeEventListener('resize', measure)
+    }
+  }, [measure])
+
+  return (
+    <div className="rounded-md bg-white border border-gray-200 overflow-hidden">
+      <iframe
+        ref={ref}
+        title="Email message"
+        // allow-scripts stays OFF (blocks XSS). allow-same-origin is only so the parent
+        // can read the height — see the file-level SECURITY note. Never add allow-scripts.
+        sandbox="allow-popups allow-popups-to-escape-sandbox allow-same-origin"
+        srcDoc={html}
+        onLoad={measure}
+        style={{ width: '100%', height, border: 0, background: '#fff', display: 'block' }}
+      />
+    </div>
+  )
+}
+
 /** A single email message — collapsible header + sandboxed body + attachments. */
 function MessageCard({
   message,
@@ -583,18 +638,9 @@ function MessageCard({
       {expanded && (
         <div className="px-3 pb-3">
           {message.body_html ? (
-            // Untrusted external HTML — locked-down iframe: NO allow-scripts / allow-same-origin
-            // (so no XSS, no parent access). allow-popups(+escape) lets target=_blank links in the
-            // email open in a real new tab without granting the frame any script/DOM power.
-            // Fixed height + internal scroll (v1). Wrapper + frame stay white.
-            <div className="rounded-md bg-white border border-gray-200 overflow-hidden">
-              <iframe
-                title="Email message"
-                sandbox="allow-popups allow-popups-to-escape-sandbox"
-                srcDoc={message.body_html}
-                className="w-full h-[420px] bg-white"
-              />
-            </div>
+            // Untrusted external HTML — locked-down sandbox (scripts blocked). Auto-sizes
+            // to content so there's no empty box / no box-in-a-box scroll. See EmailBodyFrame.
+            <EmailBodyFrame html={message.body_html} />
           ) : (
             <div className="text-sm text-gray-800 whitespace-pre-wrap break-words">
               {message.snippet || '(no content)'}
