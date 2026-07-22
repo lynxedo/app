@@ -241,7 +241,7 @@ function LoginForm() {
           <button
             onClick={handleAppleLogin}
             disabled={appleLoading || sent}
-            className="w-full flex items-center justify-center gap-3 bg-black hover:bg-gray-900 disabled:opacity-50 text-white font-medium rounded-lg py-2.5 text-sm transition-colors mb-6 border border-gray-700"
+            className="w-full flex items-center justify-center gap-3 bg-black hover:bg-gray-900 disabled:opacity-50 text-[#fff] font-medium rounded-lg py-2.5 text-sm transition-colors mb-6 border border-gray-700"
           >
             <svg className="w-5 h-5" viewBox="0 0 24 24" fill="currentColor" aria-hidden="true">
               <path d="M17.05 12.04c-.03-2.53 2.07-3.74 2.16-3.8-1.18-1.72-3.01-1.96-3.66-1.99-1.56-.16-3.04.92-3.83.92-.79 0-2-.9-3.29-.87-1.69.02-3.25.98-4.12 2.5-1.76 3.05-.45 7.56 1.26 10.03.83 1.21 1.82 2.57 3.12 2.52 1.25-.05 1.72-.81 3.23-.81 1.51 0 1.93.81 3.25.78 1.34-.02 2.19-1.23 3.01-2.45.95-1.4 1.34-2.76 1.36-2.83-.03-.01-2.61-1-2.64-3.97zM14.6 4.84c.69-.84 1.16-2 1.03-3.16-1 .04-2.21.66-2.92 1.5-.64.74-1.2 1.93-1.05 3.06 1.11.09 2.25-.56 2.94-1.4z"/>

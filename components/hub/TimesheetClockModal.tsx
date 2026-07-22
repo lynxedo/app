@@ -105,8 +105,8 @@ export default function TimesheetClockModal({ onClose }: { onClose: () => void }
                 disabled={clocking}
                 className={`w-full py-4 rounded-2xl text-base font-bold transition-all disabled:opacity-70 ${
                   clockedIn
-                    ? 'bg-red-500 hover:bg-red-400 active:bg-red-600 text-white shadow-lg shadow-red-500/25'
-                    : 'bg-green-500 hover:bg-green-400 active:bg-green-600 text-white shadow-lg shadow-green-500/25'
+                    ? 'bg-red-500 hover:bg-red-400 active:bg-red-600 text-[#fff] shadow-lg shadow-red-500/25'
+                    : 'bg-green-500 hover:bg-green-400 active:bg-green-600 text-[#fff] shadow-lg shadow-green-500/25'
                 }`}
               >
                 {clocking ? '…' : clockedIn ? 'Clock Out' : 'Clock In'}

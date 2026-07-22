@@ -50,7 +50,7 @@ export default function ActiveCallBanner() {
     <button
       type="button"
       onClick={() => router.push('/hub/dialer')}
-      className="w-full flex items-center justify-between gap-3 px-4 py-2 bg-emerald-700/90 hover:bg-emerald-700 text-white text-sm font-medium border-b border-emerald-900/40"
+      className="w-full flex items-center justify-between gap-3 px-4 py-2 bg-emerald-700/90 hover:bg-emerald-700 text-[#fff] text-sm font-medium border-b border-emerald-900/40"
       aria-label="Return to active call"
     >
       <span className="flex items-center gap-2 min-w-0">

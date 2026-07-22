@@ -593,7 +593,7 @@ function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | n
                     return (
                       <button key={s.id} onClick={() => toggleSegment(s.id)}
                         className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-white/[0.04] rounded">
-                        <span className={'flex-none w-4 h-4 rounded border flex items-center justify-center text-[10px] ' + (on ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-600')}>{on ? '✓' : ''}</span>
+                        <span className={'flex-none w-4 h-4 rounded border flex items-center justify-center text-[10px] ' + (on ? 'bg-blue-500 border-blue-500 text-[#fff]' : 'border-gray-600')}>{on ? '✓' : ''}</span>
                         <span className="text-sm text-gray-200 truncate">{s.name}</span>
                       </button>
                     )
@@ -637,7 +637,7 @@ function ComposeCampaign({ draft, onClose, onDone }: { draft: CampaignDetail | n
                           onClick={() => togglePicked(c.id)}
                           className="w-full flex items-center gap-2 px-2 py-1.5 text-left hover:bg-white/[0.04] rounded"
                         >
-                          <span className={'flex-none w-4 h-4 rounded border flex items-center justify-center text-[10px] ' + (on ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-600')}>{on ? '✓' : ''}</span>
+                          <span className={'flex-none w-4 h-4 rounded border flex items-center justify-center text-[10px] ' + (on ? 'bg-blue-500 border-blue-500 text-[#fff]' : 'border-gray-600')}>{on ? '✓' : ''}</span>
                           <span className="min-w-0 flex-1">
                             <span className="block text-sm text-gray-200 truncate">{c.name}</span>
                             <span className="block text-xs text-gray-500 truncate">{c.email}</span>
@@ -803,7 +803,7 @@ function ReviewRecipients({
                 return (
                   <li key={c.id}>
                     <button onClick={() => toggle(c.id)} className="w-full flex items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.04]">
-                      <span className={'flex-none w-4 h-4 rounded border flex items-center justify-center text-[10px] ' + (on ? 'bg-blue-500 border-blue-500 text-white' : 'border-gray-600')}>{on ? '✓' : ''}</span>
+                      <span className={'flex-none w-4 h-4 rounded border flex items-center justify-center text-[10px] ' + (on ? 'bg-blue-500 border-blue-500 text-[#fff]' : 'border-gray-600')}>{on ? '✓' : ''}</span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm text-gray-200 truncate">{c.name || c.email}</span>
                         <span className="block text-xs text-gray-500 truncate">{c.email}</span>

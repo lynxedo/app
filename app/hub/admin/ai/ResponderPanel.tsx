@@ -156,7 +156,7 @@ export default function ResponderPanel({
                   onClick={() => setResp(p => ({ ...p, forwarded_line_ring_sec: sec }))}
                   className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                     resp.forwarded_line_ring_sec === sec
-                      ? 'bg-brand text-white'
+                      ? 'bg-brand text-[#fff]'
                       : 'bg-white/10 text-white/60 hover:bg-white/20'
                   }`}
                 >
@@ -219,7 +219,7 @@ export default function ResponderPanel({
                 }))}
                 className={`px-2.5 py-1 rounded text-xs font-medium transition-colors ${
                   resp.business_days.includes(d.num)
-                    ? 'bg-brand text-white'
+                    ? 'bg-brand text-[#fff]'
                     : 'bg-white/10 text-white/60 hover:bg-white/20'
                 }`}
               >

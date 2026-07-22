@@ -178,7 +178,7 @@ export default function PopoutTxtConversation({ id, companyId }: { id: string; c
               <div key={m.id} className={`flex flex-col ${out ? 'items-end' : 'items-start'}`}>
                 <div
                   className={`max-w-[80%] rounded-2xl px-3 py-2 text-sm ${
-                    out ? 'bg-sky-600 text-white' : 'bg-white/10 text-white'
+                    out ? 'bg-sky-600 text-[#fff]' : 'bg-white/10 text-white'
                   } ${m.status === 'sending' ? 'opacity-60' : ''}`}
                 >
                   {m.body && <div className="whitespace-pre-wrap break-words">{m.body}</div>}
@@ -220,7 +220,7 @@ export default function PopoutTxtConversation({ id, companyId }: { id: string; c
             type="button"
             onClick={send}
             disabled={!text.trim() || sending}
-            className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-sky-600 text-white transition-colors hover:bg-sky-500 disabled:opacity-40"
+            className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-sky-600 text-[#fff] transition-colors hover:bg-sky-500 disabled:opacity-40"
             aria-label="Send"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

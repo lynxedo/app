@@ -194,7 +194,7 @@ export default function Scoreboard6View({ meta }: { meta: ScoreboardMeta }) {
         <div className="flex gap-1.5">
           {PRESETS.map(p => (
             <button key={p.id} onClick={() => setPreset(p.id)}
-              className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${preset === p.id ? 'bg-purple-700 border-purple-600 text-white' : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'}`}>
+              className={`px-3 py-1.5 rounded-lg text-sm border transition-colors ${preset === p.id ? 'bg-purple-700 border-purple-600 text-[#fff]' : 'bg-gray-800 border-gray-700 text-gray-300 hover:border-gray-600'}`}>
               {p.label}
             </button>
           ))}

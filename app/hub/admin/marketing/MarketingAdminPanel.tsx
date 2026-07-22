@@ -255,7 +255,7 @@ export default function MarketingAdminPanel({
                         <button
                           onClick={() => handleRefreshToken(account.id)}
                           disabled={refreshing || !refreshToken.trim()}
-                          className="text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-white font-medium px-3 py-1.5 rounded-lg transition-colors"
+                          className="text-xs bg-amber-600 hover:bg-amber-500 disabled:opacity-40 disabled:cursor-not-allowed text-[#fff] font-medium px-3 py-1.5 rounded-lg transition-colors"
                         >
                           {refreshing ? 'Refreshing…' : 'Refresh Token'}
                         </button>
@@ -315,7 +315,7 @@ export default function MarketingAdminPanel({
         <button
           onClick={handleConnectFacebook}
           disabled={!metaConfigured || connecting}
-          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+          className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-[#fff] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
         >
           {connecting ? 'Redirecting to Facebook…' : accounts.length > 0 ? 'Reconnect / Update Tokens' : 'Connect Facebook Accounts'}
         </button>

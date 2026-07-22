@@ -977,7 +977,7 @@ export default function CallLogPage() {
             </div>
           )}
           <button onClick={handleSearch} disabled={loading}
-            className="px-4 py-1.5 bg-purple-700 hover:bg-purple-600 disabled:bg-gray-800 disabled:text-gray-600 text-white font-medium rounded-lg text-sm transition-colors">
+            className="px-4 py-1.5 bg-purple-700 hover:bg-purple-600 disabled:bg-gray-800 disabled:text-gray-600 text-[#fff] font-medium rounded-lg text-sm transition-colors">
             {loading ? 'Loading…' : 'Search'}
           </button>
           {hasFilters && (

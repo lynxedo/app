@@ -267,7 +267,7 @@ function EntityList({
           placeholder={`Add ${noun}…`}
           className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
         />
-        <button onClick={add} disabled={busy || !newName.trim()} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm font-medium px-4 py-1.5 rounded-lg whitespace-nowrap">Add</button>
+        <button onClick={add} disabled={busy || !newName.trim()} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-[#fff] text-sm font-medium px-4 py-1.5 rounded-lg whitespace-nowrap">Add</button>
       </div>
     </div>
   )
@@ -444,8 +444,8 @@ export default function ProductsAdminPanel({
         <div className="flex items-center gap-2">
           {error && <span className="text-red-400 text-sm">{error}</span>}
           <div className="flex rounded-lg border border-gray-700 overflow-hidden">
-            <button onClick={() => setView('catalog')} className={`px-4 py-1.5 text-sm ${view === 'catalog' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}`}>Catalog</button>
-            <button onClick={() => setView('settings')} className={`px-4 py-1.5 text-sm ${view === 'settings' ? 'bg-indigo-600 text-white' : 'text-gray-400 hover:text-white'}`}>Settings</button>
+            <button onClick={() => setView('catalog')} className={`px-4 py-1.5 text-sm ${view === 'catalog' ? 'bg-indigo-600 text-[#fff]' : 'text-gray-400 hover:text-white'}`}>Catalog</button>
+            <button onClick={() => setView('settings')} className={`px-4 py-1.5 text-sm ${view === 'settings' ? 'bg-indigo-600 text-[#fff]' : 'text-gray-400 hover:text-white'}`}>Settings</button>
           </div>
         </div>
       </div>
@@ -529,7 +529,7 @@ export default function ProductsAdminPanel({
               className="flex-1 min-w-[200px] max-w-sm bg-gray-900 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500"
             />
             {!addingItem && (
-              <button onClick={() => setAddingItem(true)} className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-2 rounded-lg">+ Add product</button>
+              <button onClick={() => setAddingItem(true)} className="bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-sm font-medium px-4 py-2 rounded-lg">+ Add product</button>
             )}
           </div>
 
@@ -575,7 +575,7 @@ export default function ProductsAdminPanel({
                   {RATE_BASIS_ORDER.map(b => <option key={b} value={b}>{RATE_BASIS_LABELS[b]}</option>)}
                 </select>
               </div>
-              <button onClick={addProduct} disabled={addBusy || !newItem.name.trim()} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-1.5 rounded">Create</button>
+              <button onClick={addProduct} disabled={addBusy || !newItem.name.trim()} className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-[#fff] text-sm font-medium px-4 py-1.5 rounded">Create</button>
               <button onClick={() => { setAddingItem(false); setNewItem(blankNew) }} className="text-gray-500 hover:text-gray-300 text-sm px-2 py-1.5">Cancel</button>
             </div>
           )}

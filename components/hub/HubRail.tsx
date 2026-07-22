@@ -396,7 +396,7 @@ export default function HubRail({
           title={label}
         >
           <ActiveBar show={isActive} />
-          <span className="relative w-5 h-5 rounded-full overflow-hidden bg-gradient-to-br from-sky-600 to-sky-800 flex items-center justify-center text-white text-[11px] font-bold">
+          <span className="relative w-5 h-5 rounded-full overflow-hidden bg-gradient-to-br from-sky-600 to-sky-800 flex items-center justify-center text-[#fff] text-[11px] font-bold">
             {avatarUser?.avatar_url ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img src={`/api/profile/avatar/${avatarUser.id}?v=${encodeURIComponent(avatarUser.avatar_url)}`} alt="" className="w-full h-full object-cover" />
@@ -495,7 +495,7 @@ export default function HubRail({
               <span className="absolute -top-0.5 -left-1 w-2 h-2 rounded-full bg-orange-400 border-2 border-[var(--t-rail)]" aria-label="Missed call" />
             )}
             {unheardVoicemails > 0 && (
-              <span className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 border-2 border-[var(--t-rail)] text-[9px] font-bold text-white flex items-center justify-center leading-none" aria-label={`${unheardVoicemails} unheard voicemail${unheardVoicemails === 1 ? '' : 's'}`}>
+              <span className="absolute -top-1 -right-1.5 min-w-[16px] h-4 px-1 rounded-full bg-red-500 border-2 border-[var(--t-rail)] text-[9px] font-bold text-[#fff] flex items-center justify-center leading-none" aria-label={`${unheardVoicemails} unheard voicemail${unheardVoicemails === 1 ? '' : 's'}`}>
                 {unheardVoicemails > 9 ? '9+' : unheardVoicemails}
               </span>
             )}
@@ -631,7 +631,7 @@ export default function HubRail({
           title={currentUserDisplayName ?? 'You'}
           style={{ paddingBottom: 'calc(env(safe-area-inset-bottom, 0) + 0.75rem)' }}
         >
-          <span className="relative w-7 h-7 rounded-full overflow-hidden bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-white text-xs font-bold">
+          <span className="relative w-7 h-7 rounded-full overflow-hidden bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-[#fff] text-xs font-bold">
             {currentUserAvatarUrl && currentUserId ? (
               // eslint-disable-next-line @next/next/no-img-element
               <img

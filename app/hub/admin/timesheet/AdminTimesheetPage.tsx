@@ -1225,7 +1225,7 @@ export default function AdminTimesheetPage() {
                                     <button
                                       onClick={saveHolidayOverrides}
                                       disabled={savingOverride}
-                                      className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium px-4 py-1.5 rounded-lg transition-colors"
+                                      className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] text-xs font-medium px-4 py-1.5 rounded-lg transition-colors"
                                     >{savingOverride ? 'Saving…' : 'Save overrides'}</button>
                                     <button
                                       onClick={() => setOverrideEmpId(null)}
@@ -1276,7 +1276,7 @@ export default function AdminTimesheetPage() {
                                       <div className="flex items-center gap-2 shrink-0">
                                         {pendingReq ? (
                                           <>
-                                            <button onClick={() => reviewEditRequest(pendingReq.id, 'approve')} disabled={isReviewing} className="text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition-colors font-medium">{isReviewing ? '…' : '✓ Approve'}</button>
+                                            <button onClick={() => reviewEditRequest(pendingReq.id, 'approve')} disabled={isReviewing} className="text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 text-[#fff] px-3 py-1.5 rounded-lg transition-colors font-medium">{isReviewing ? '…' : '✓ Approve'}</button>
                                             <button onClick={() => reviewEditRequest(pendingReq.id, 'reject')} disabled={isReviewing} className="text-xs bg-gray-700 hover:bg-red-900/40 hover:border-red-500/30 disabled:opacity-50 text-gray-300 hover:text-red-400 border border-gray-600 px-3 py-1.5 rounded-lg transition-colors">Reject</button>
                                           </>
                                         ) : (
@@ -1339,7 +1339,7 @@ export default function AdminTimesheetPage() {
                                             <button
                                               onClick={saveDayEdit}
                                               disabled={!!err || !dayEdit.reason.trim() || dayEditSaving}
-                                              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-white text-sm px-4 py-1.5 rounded-lg transition-colors"
+                                              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-40 disabled:cursor-not-allowed text-[#fff] text-sm px-4 py-1.5 rounded-lg transition-colors"
                                             >{dayEditSaving ? 'Saving…' : 'Save'}</button>
                                             <button onClick={() => { setDayEdit(null); setDayEditError(null) }} className="text-gray-500 hover:text-white text-sm px-3 py-1.5 transition-colors">Cancel</button>
                                           </div>
@@ -1366,7 +1366,7 @@ export default function AdminTimesheetPage() {
                                         {req.note && <p className="text-xs text-gray-400 mt-1">&ldquo;{req.note}&rdquo;</p>}
                                       </div>
                                       <div className="flex items-center gap-2 shrink-0">
-                                        <button onClick={() => reviewPtoRequest(req.id, 'approve')} disabled={isReviewing} className="text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 text-white px-3 py-1.5 rounded-lg transition-colors font-medium">{isReviewing ? '…' : '✓ Approve'}</button>
+                                        <button onClick={() => reviewPtoRequest(req.id, 'approve')} disabled={isReviewing} className="text-xs bg-green-600 hover:bg-green-500 disabled:opacity-50 text-[#fff] px-3 py-1.5 rounded-lg transition-colors font-medium">{isReviewing ? '…' : '✓ Approve'}</button>
                                         <button onClick={() => reviewPtoRequest(req.id, 'reject')} disabled={isReviewing} className="text-xs bg-gray-700 hover:bg-red-900/40 hover:border-red-500/30 disabled:opacity-50 text-gray-300 hover:text-red-400 border border-gray-600 px-3 py-1.5 rounded-lg transition-colors">Reject</button>
                                       </div>
                                     </div>
@@ -1435,13 +1435,13 @@ export default function AdminTimesheetPage() {
                   {gustoConnected === false ? (
                     <a
                       href="/api/admin/gusto/connect"
-                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 text-[#fff] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                     >🔗 Connect Gusto</a>
                   ) : (
                     <button
                       onClick={fetchMatchPreview}
                       disabled={matchLoading || gustoConnected === null}
-                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                      className="flex items-center gap-2 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-[#fff] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                     >
                       {matchLoading ? <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" /> : '⇄'}
                       Match with Gusto
@@ -1573,7 +1573,7 @@ export default function AdminTimesheetPage() {
                     <button
                       onClick={saveHoliday}
                       disabled={savingHoliday || !holidayForm.name || !holidayForm.date || !holidayForm.hours}
-                      className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                      className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                     >{savingHoliday ? 'Saving…' : 'Save'}</button>
                     <button
                       onClick={() => { setHolidayForm(null); setEditingHolidayId(null); setHolidayError('') }}
@@ -1790,7 +1790,7 @@ export default function AdminTimesheetPage() {
                             <button
                               onClick={savePolicy}
                               disabled={savingPolicy}
-                              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                              className="bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                             >{savingPolicy ? 'Saving…' : 'Save policy'}</button>
                             <button
                               onClick={() => { setEditingPolicyEmpId(null); setPolicyForm(null); setPolicyError('') }}
@@ -1830,7 +1830,7 @@ export default function AdminTimesheetPage() {
                   <p className="text-sm font-medium text-gray-300">Gusto not connected</p>
                   <a
                     href="/api/admin/gusto/connect"
-                    className="inline-block bg-blue-600 hover:bg-blue-500 text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
+                    className="inline-block bg-blue-600 hover:bg-blue-500 text-[#fff] text-sm font-medium px-4 py-2 rounded-lg transition-colors"
                   >Connect Gusto</a>
                 </div>
               ) : matchPreview.error ? (
@@ -1922,7 +1922,7 @@ export default function AdminTimesheetPage() {
                 <button
                   onClick={applyMatch}
                   disabled={matchApplying || matchSelections.size === 0}
-                  className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm"
+                  className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] font-medium py-2.5 rounded-xl transition-colors text-sm"
                 >
                   {matchApplying ? 'Applying…' : `Apply ${matchSelections.size} ${matchSelections.size === 1 ? 'change' : 'changes'}`}
                 </button>
@@ -2006,7 +2006,7 @@ export default function AdminTimesheetPage() {
               {editError && <p className="text-red-400 text-xs">{editError}</p>}
             </div>
             <div className="px-5 py-4 border-t border-gray-800 flex gap-3 shrink-0">
-              <button onClick={saveEmployeeEdit} disabled={editSaving || !editForm.first_name || !editForm.last_name} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm">
+              <button onClick={saveEmployeeEdit} disabled={editSaving || !editForm.first_name || !editForm.last_name} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] font-medium py-2.5 rounded-xl transition-colors text-sm">
                 {editSaving ? 'Saving…' : 'Save'}
               </button>
               <button onClick={() => setEditEmp(null)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
@@ -2076,7 +2076,7 @@ export default function AdminTimesheetPage() {
               {addError && <p className="text-red-400 text-xs">{addError}</p>}
             </div>
             <div className="px-5 py-4 border-t border-gray-800 flex gap-3 shrink-0">
-              <button onClick={saveNewEmployee} disabled={addSaving || !addForm.first_name || !addForm.last_name} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm">
+              <button onClick={saveNewEmployee} disabled={addSaving || !addForm.first_name || !addForm.last_name} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] font-medium py-2.5 rounded-xl transition-colors text-sm">
                 {addSaving ? 'Saving…' : 'Add Employee'}
               </button>
               <button onClick={() => setShowAddEmployee(false)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
@@ -2109,7 +2109,7 @@ export default function AdminTimesheetPage() {
               {linkError && <p className="text-xs text-red-400 bg-red-500/10 border border-red-500/20 rounded-lg px-3 py-2">{linkError}</p>}
             </div>
             <div className="px-5 py-4 border-t border-gray-800 flex gap-3 shrink-0">
-              <button onClick={saveLink} disabled={linkSaving || !selectedUserId} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white font-medium py-2.5 rounded-xl transition-colors text-sm">
+              <button onClick={saveLink} disabled={linkSaving || !selectedUserId} className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] font-medium py-2.5 rounded-xl transition-colors text-sm">
                 {linkSaving ? 'Linking…' : 'Link Account'}
               </button>
               <button onClick={() => setLinkingEmployee(null)} className="px-5 py-2.5 rounded-xl border border-gray-700 text-sm text-gray-400 hover:text-white transition-colors">Cancel</button>
@@ -2176,7 +2176,7 @@ export default function AdminTimesheetPage() {
                     <p className="text-xs text-amber-400">⚠ This time is before 5 AM — double-check AM vs PM.</p>
                   )}
                   <div className="flex gap-2">
-                    <button onClick={addPunch} className="bg-blue-600 hover:bg-blue-500 text-white text-sm px-4 py-1.5 rounded-lg transition-colors">Add</button>
+                    <button onClick={addPunch} className="bg-blue-600 hover:bg-blue-500 text-[#fff] text-sm px-4 py-1.5 rounded-lg transition-colors">Add</button>
                     <button onClick={() => setAddingPunch(null)} className="text-gray-500 hover:text-white text-sm px-3 py-1.5 transition-colors">Cancel</button>
                   </div>
                 </div>

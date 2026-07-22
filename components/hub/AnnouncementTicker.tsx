@@ -164,7 +164,7 @@ function EditModal({
           <button
             onClick={save}
             disabled={!content.trim() || saving}
-            className="px-5 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+            className="px-5 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>

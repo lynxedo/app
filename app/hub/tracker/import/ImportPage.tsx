@@ -162,7 +162,7 @@ export default function ImportPage() {
               <button
                 onClick={handleImport}
                 disabled={importing}
-                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+                className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-[#fff] text-sm font-medium rounded-lg transition-colors"
               >
                 {importing ? 'Importing…' : `Import ${parsed.rows.length} Leads`}
               </button>
@@ -250,7 +250,7 @@ export default function ImportPage() {
             </button>
             <a
               href="/hub/tracker/leads"
-              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium rounded-lg transition-colors"
+              className="px-4 py-2 bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-sm font-medium rounded-lg transition-colors"
             >
               Go to Lead Tracker →
             </a>

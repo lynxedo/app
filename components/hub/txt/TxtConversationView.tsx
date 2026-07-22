@@ -1952,7 +1952,7 @@ export default function TxtConversationView({
                   <button
                     type="button"
                     onClick={() => removeAttachment(a.storage_path)}
-                    className="absolute top-0 right-0 w-5 h-5 bg-black/60 hover:bg-black/80 text-white text-xs leading-none rounded-bl-md"
+                    className="absolute top-0 right-0 w-5 h-5 bg-black/60 hover:bg-black/80 text-[#fff] text-xs leading-none rounded-bl-md"
                     aria-label={`Remove ${a.filename}`}
                   >
                     ×
@@ -2236,7 +2236,7 @@ export default function TxtConversationView({
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
                 </svg>
                 {scheduledList.length > 0 && (
-                  <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-1 rounded-full bg-amber-500 text-[9px] font-semibold text-white flex items-center justify-center">
+                  <span className="absolute -top-0.5 -right-0.5 min-w-[14px] h-3.5 px-1 rounded-full bg-amber-500 text-[9px] font-semibold text-[#fff] flex items-center justify-center">
                     {scheduledList.length}
                   </span>
                 )}
@@ -2316,7 +2316,7 @@ export default function TxtConversationView({
           <button
             type="button"
             onClick={() => assignTo(currentUserId)}
-            className="flex-none text-sm px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-white"
+            className="flex-none text-sm px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff]"
           >
             Claim it
           </button>
@@ -2337,7 +2337,7 @@ export default function TxtConversationView({
             type="button"
             onClick={joinConversation}
             disabled={joining}
-            className="flex-none text-sm px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white"
+            className="flex-none text-sm px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#fff]"
           >
             {joining ? 'Joining…' : 'Join to reply'}
           </button>
@@ -2354,7 +2354,7 @@ export default function TxtConversationView({
           <button
             type="button"
             onClick={toggleArchive}
-            className="flex-none text-sm px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-white"
+            className="flex-none text-sm px-3 py-1.5 rounded-lg bg-orange-500 hover:bg-orange-400 text-[#fff]"
           >
             Reopen to reply
           </button>
@@ -2531,7 +2531,7 @@ export default function TxtConversationView({
       )}
 
       {boardAddedFor != null && (
-        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-full bg-emerald-600 text-white text-xs px-4 py-2 shadow-lg">
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-50 rounded-full bg-emerald-600 text-[#fff] text-xs px-4 py-2 shadow-lg">
           ✓ Added to board
         </div>
       )}

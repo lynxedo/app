@@ -73,14 +73,14 @@ export default function FormsAdminPanel() {
           <button
             onClick={() => createForm('irrigation')}
             disabled={creating}
-            className="px-3 py-1.5 text-sm bg-sky-700 hover:bg-sky-600 text-white rounded font-medium disabled:opacity-50"
+            className="px-3 py-1.5 text-sm bg-sky-700 hover:bg-sky-600 text-[#fff] rounded font-medium disabled:opacity-50"
           >
             + Irrigation Inspection
           </button>
           <button
             onClick={() => createForm()}
             disabled={creating}
-            className="px-3 py-1.5 text-sm bg-indigo-700 hover:bg-indigo-600 text-white rounded font-medium disabled:opacity-50"
+            className="px-3 py-1.5 text-sm bg-indigo-700 hover:bg-indigo-600 text-[#fff] rounded font-medium disabled:opacity-50"
           >
             + Blank Form
           </button>
@@ -138,7 +138,7 @@ export default function FormsAdminPanel() {
                       </button>
                       <button
                         onClick={() => router.push(`/hub/admin/forms/${form.id}`)}
-                        className="text-xs px-2.5 py-1.5 rounded bg-brand hover:bg-brand-hover text-white font-medium"
+                        className="text-xs px-2.5 py-1.5 rounded bg-brand hover:bg-brand-hover text-[#fff] font-medium"
                       >
                         Build
                       </button>

@@ -1324,7 +1324,7 @@ export default function HubSidebar({
               <button
                 onClick={createRoom}
                 disabled={!newRoomName.trim() || creatingRoom}
-                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
               >
                 {creatingRoom ? 'Creating…' : 'Create'}
               </button>
@@ -1357,7 +1357,7 @@ export default function HubSidebar({
                     <button
                       key={type}
                       onClick={() => setNewBoardType(type)}
-                      className={`flex-1 py-2 text-xs font-medium transition-colors ${i > 0 ? 'border-l border-gray-700' : ''} ${newBoardType === type ? 'bg-brand text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                      className={`flex-1 py-2 text-xs font-medium transition-colors ${i > 0 ? 'border-l border-gray-700' : ''} ${newBoardType === type ? 'bg-brand text-[#fff]' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                     >
                       {type === 'public' ? '🌐 Public' : type === 'private' ? '🔒 Private' : '👤 Personal'}
                     </button>
@@ -1380,7 +1380,7 @@ export default function HubSidebar({
               <button
                 onClick={createBoard}
                 disabled={!newBoardName.trim() || creatingBoard}
-                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
               >
                 {creatingBoard ? 'Creating…' : 'Create'}
               </button>
@@ -1418,7 +1418,7 @@ export default function HubSidebar({
                       <button
                         key={type}
                         onClick={() => setSettingsType(type)}
-                        className={`flex-1 py-2 text-xs font-medium transition-colors ${i > 0 ? 'border-l border-gray-700' : ''} ${settingsType === type ? 'bg-brand text-white' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
+                        className={`flex-1 py-2 text-xs font-medium transition-colors ${i > 0 ? 'border-l border-gray-700' : ''} ${settingsType === type ? 'bg-brand text-[#fff]' : 'text-gray-400 hover:text-white hover:bg-white/5'}`}
                       >
                         {type === 'public' ? '🌐 Public' : type === 'private' ? '🔒 Private' : '👤 Personal'}
                       </button>
@@ -1500,7 +1500,7 @@ export default function HubSidebar({
                 <button
                   onClick={saveBoardSettings}
                   disabled={!settingsName.trim() || savingSettings}
-                  className="py-2 px-4 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                  className="py-2 px-4 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
                 >
                   {savingSettings ? 'Saving…' : 'Save'}
                 </button>
@@ -1543,7 +1543,7 @@ export default function HubSidebar({
                     <button
                       onClick={() => joinRoom(room.id)}
                       disabled={joiningRoomId === room.id}
-                      className="flex-none ml-3 text-xs text-white bg-brand hover:bg-brand-hover disabled:opacity-50 px-3 py-1 rounded transition-colors"
+                      className="flex-none ml-3 text-xs text-[#fff] bg-brand hover:bg-brand-hover disabled:opacity-50 px-3 py-1 rounded transition-colors"
                     >
                       {joiningRoomId === room.id ? '…' : 'Join'}
                     </button>
@@ -1601,7 +1601,7 @@ export default function HubSidebar({
               <button
                 onClick={createConversation}
                 disabled={selectedIds.length === 0 || creating}
-                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
               >
                 {creating ? 'Opening…' : 'Open'}
               </button>

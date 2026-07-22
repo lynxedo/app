@@ -1076,7 +1076,7 @@ export default function RouteBuilder() {
           type="button"
           onClick={() => changeRouteMode('basic')}
           className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            routeMode === 'basic' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'
+            routeMode === 'basic' ? 'bg-orange-500 text-[#fff]' : 'text-gray-400 hover:text-white'
           }`}
         >
           Basic
@@ -1085,7 +1085,7 @@ export default function RouteBuilder() {
           type="button"
           onClick={() => changeRouteMode('advanced')}
           className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-            routeMode === 'advanced' ? 'bg-orange-500 text-white' : 'text-gray-400 hover:text-white'
+            routeMode === 'advanced' ? 'bg-orange-500 text-[#fff]' : 'text-gray-400 hover:text-white'
           }`}
         >
           Advanced
@@ -1214,7 +1214,7 @@ export default function RouteBuilder() {
             <button
               onClick={loadVisits}
               disabled={visitsLoading || selectedUserIds.length === 0}
-              className="w-full sm:w-auto px-5 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+              className="w-full sm:w-auto px-5 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-sm font-medium transition-colors"
             >
               {visitsLoading ? 'Loading…' : 'Load Visits'}
             </button>
@@ -1346,7 +1346,7 @@ export default function RouteBuilder() {
                     <button
                       onClick={optimizeRoute}
                       disabled={optimizing}
-                      className="px-4 py-1.5 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-xs font-medium transition-colors"
+                      className="px-4 py-1.5 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-xs font-medium transition-colors"
                     >
                       {optimizing ? 'Optimizing…' : `⚡ Optimize ${selectedCount}`}
                     </button>
@@ -1362,7 +1362,7 @@ export default function RouteBuilder() {
                   {optimizedVisits && isManualOrder && (
                     <button
                       onClick={recalculateETAs}
-                      className="px-4 py-1.5 bg-orange-500 hover:bg-orange-400 text-white rounded-lg text-xs font-medium transition-colors animate-pulse"
+                      className="px-4 py-1.5 bg-orange-500 hover:bg-orange-400 text-[#fff] rounded-lg text-xs font-medium transition-colors animate-pulse"
                     >
                       ⚡ Recalculate
                     </button>
@@ -1504,7 +1504,7 @@ export default function RouteBuilder() {
                                 title="Pin as first stop"
                                 className={`text-xs px-2 py-0.5 rounded font-medium transition-colors ${
                                   lockedFirstId === v.id
-                                    ? 'bg-green-600 text-white'
+                                    ? 'bg-green-600 text-[#fff]'
                                     : 'bg-gray-700 text-gray-400 hover:text-gray-200'
                                 }`}
                               >
@@ -1515,7 +1515,7 @@ export default function RouteBuilder() {
                                 title="Pin as last stop"
                                 className={`text-xs px-2 py-0.5 rounded font-medium transition-colors ${
                                   lockedLastId === v.id
-                                    ? 'bg-orange-600 text-white'
+                                    ? 'bg-orange-600 text-[#fff]'
                                     : 'bg-gray-700 text-gray-400 hover:text-gray-200'
                                 }`}
                               >
@@ -1646,7 +1646,7 @@ export default function RouteBuilder() {
               onClick={sendOrderOnly}
               disabled={sending}
               title="Reassigns the route's visits to the tech picked in 'Reassign to'. Jobber's API can't reorder anytime visits, so the optimized order lives in the Daily Log / route sheet."
-              className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors text-left"
+              className="px-4 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-sm font-medium transition-colors text-left"
             >
               <div className="font-semibold">
                 {sending && sendMode === 'order' ? 'Sending…' : 'Send Team to Jobber →'}
@@ -1660,7 +1660,7 @@ export default function RouteBuilder() {
               onClick={sendToJobber}
               disabled={sending}
               title="Sets appointment times on each visit, converting anytime visits to scheduled."
-              className="px-4 py-3 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors text-left"
+              className="px-4 py-3 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-sm font-medium transition-colors text-left"
             >
               <div className="font-semibold">
                 {sending && sendMode === 'times' ? 'Sending Times…' : 'Send with Times →'}
@@ -1675,7 +1675,7 @@ export default function RouteBuilder() {
               onClick={sendToDailyLog}
               disabled={sendingDailyLog}
               title="Populate the Daily Log v2 with the optimized stops for the target tech. Independent of Jobber — won't change visits in Jobber."
-              className="px-4 py-3 bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors text-left"
+              className="px-4 py-3 bg-sky-600 hover:bg-sky-500 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-sm font-medium transition-colors text-left"
             >
               <div className="font-semibold">
                 {sendingDailyLog ? 'Sending…' : 'Send to Daily Log →'}
@@ -1689,7 +1689,7 @@ export default function RouteBuilder() {
               onClick={sendToDailyLogV1}
               disabled={sendingDailyLogV1}
               title="Create a Daily Log (v1) entry for the tech and attach the route sheet automatically."
-              className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors text-left"
+              className="px-4 py-3 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-sm font-medium transition-colors text-left"
             >
               <div className="font-semibold">
                 {sendingDailyLogV1 ? 'Sending…' : 'Send to Daily Log (v1) →'}

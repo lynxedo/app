@@ -136,7 +136,7 @@ export default function LandingActivity({ currentUserId }: { currentUserId: stri
                 <li key={row.id}>
                   <Link href={activityHref(row)} className="block rounded-lg bg-gray-900 border border-gray-800 hover:bg-gray-800 transition-colors p-3">
                     <div className="flex items-start gap-3">
-                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-white text-xs font-bold flex-none">
+                      <div className="w-8 h-8 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-[#fff] text-xs font-bold flex-none">
                         {(sender?.display_name ?? '?').charAt(0).toUpperCase()}
                       </div>
                       <div className="min-w-0 flex-1">

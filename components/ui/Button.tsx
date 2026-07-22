@@ -21,10 +21,10 @@ const BASE =
   'inline-flex items-center justify-center gap-2 rounded-xl font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-brand/60'
 
 const VARIANT: Record<Variant, string> = {
-  primary: 'bg-brand hover:bg-brand-hover text-white',
+  primary: 'bg-brand hover:bg-brand-hover text-[#fff]',
   secondary:
     'border border-gray-700 text-gray-300 hover:text-white hover:border-gray-600 bg-transparent',
-  danger: 'bg-danger hover:bg-red-500 text-white',
+  danger: 'bg-danger hover:bg-red-500 text-[#fff]',
   ghost: 'bg-gray-800 hover:bg-gray-700 text-gray-300',
 }
 

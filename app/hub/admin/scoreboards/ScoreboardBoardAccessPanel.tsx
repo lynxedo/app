@@ -82,7 +82,7 @@ export default function ScoreboardBoardAccessPanel({
                       onClick={() => toggle(u.id, b.slug)}
                       className={`rounded-lg px-3 py-1.5 text-xs font-medium border transition-colors ${
                         on
-                          ? 'bg-sky-600 border-sky-500 text-white'
+                          ? 'bg-sky-600 border-sky-500 text-[#fff]'
                           : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-gray-200 hover:border-gray-600'
                       } ${savingKey === key ? 'opacity-60' : ''}`}
                       title={on ? `Click to hide ${b.title}` : `Click to show ${b.title}`}

@@ -90,7 +90,7 @@ export default function FinancialPinGate({ defaultUnlocked, children, businessNa
               <button
                 type="submit"
                 disabled={loading || pin.length === 0}
-                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-white font-semibold py-3 rounded-lg transition-colors"
+                className="w-full bg-blue-600 hover:bg-blue-500 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] font-semibold py-3 rounded-lg transition-colors"
               >
                 {loading ? 'Verifying…' : 'Unlock'}
               </button>

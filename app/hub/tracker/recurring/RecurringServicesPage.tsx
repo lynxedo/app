@@ -354,7 +354,7 @@ export default function RecurringServicesPage() {
             </select>
             <span className="text-xs text-gray-600 px-1">{rows.length} record{rows.length !== 1 ? 's' : ''}</span>
             <div className="flex-1" />
-            <button onClick={addRow} className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap">+ New</button>
+            <button onClick={addRow} className="bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap">+ New</button>
           </div>
           {/* TR1 — this board is overwritten nightly by the Monday→Lynxedo mirror. */}
           <div className="px-4 py-1.5 text-xs text-amber-300/90 bg-amber-500/10 border-t border-amber-500/20 max-md:pl-14">

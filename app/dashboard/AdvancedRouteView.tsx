@@ -1249,7 +1249,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
             <button
               onClick={loadVisits}
               disabled={visitsLoading || selectedUserIds.length === 0}
-              className="w-full sm:w-auto px-5 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+              className="w-full sm:w-auto px-5 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-sm font-medium transition-colors"
             >
               {visitsLoading ? 'Loading…' : 'Load Visits'}
             </button>
@@ -1342,7 +1342,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
               <span>Order changed — arrival times are stale until you recalculate.</span>
               <button
                 onClick={recalculateETAs}
-                className="shrink-0 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-md font-medium"
+                className="shrink-0 px-3 py-1 bg-amber-600 hover:bg-amber-500 text-[#fff] rounded-md font-medium"
               >
                 ↻ Recalculate times
               </button>
@@ -1364,14 +1364,14 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                   className={`flex items-center gap-2 text-sm py-1.5 border-b border-gray-800/60 ${isDragging ? 'opacity-40' : ''} ${isTarget ? 'border-t-2 border-t-orange-500' : ''}`}
                 >
                   <span className="text-gray-600 shrink-0 cursor-grab select-none text-lg leading-none" title="Drag to reorder">⠿</span>
-                  <span className="w-6 h-6 shrink-0 rounded-full bg-red-700 text-white text-xs font-bold flex items-center justify-center">{v.stopNumber}</span>
+                  <span className="w-6 h-6 shrink-0 rounded-full bg-red-700 text-[#fff] text-xs font-bold flex items-center justify-center">{v.stopNumber}</span>
                   <span className="flex-1 min-w-0 truncate text-white">{v.clientName}</span>
                   <span className="text-xs text-orange-400 shrink-0 mr-1">~{v.eta}</span>
                   <button
                     onClick={() => toggleLockFirst(v.id)}
                     disabled={optimizing}
                     title="Lock as first stop"
-                    className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-50 ${lockedFirstId === v.id ? 'bg-orange-500 border-orange-400 text-white' : 'border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'}`}
+                    className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-50 ${lockedFirstId === v.id ? 'bg-orange-500 border-orange-400 text-[#fff]' : 'border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'}`}
                   >
                     📌 1st
                   </button>
@@ -1379,7 +1379,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                     onClick={() => toggleLockLast(v.id)}
                     disabled={optimizing}
                     title="Lock as last stop"
-                    className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-50 ${lockedLastId === v.id ? 'bg-orange-500 border-orange-400 text-white' : 'border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'}`}
+                    className={`shrink-0 text-[10px] px-1.5 py-0.5 rounded border disabled:opacity-50 ${lockedLastId === v.id ? 'bg-orange-500 border-orange-400 text-[#fff]' : 'border-gray-700 text-gray-400 hover:text-white hover:border-gray-500'}`}
                   >
                     📌 Last
                   </button>
@@ -1511,7 +1511,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
             </p>
             <button
               onClick={openHoldingModal}
-              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-sm font-semibold transition-colors shrink-0"
+              className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 text-[#fff] rounded-lg text-sm font-semibold transition-colors shrink-0"
             >
               📥 Send to Holding →
             </button>
@@ -1563,7 +1563,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
             {batchesError && <p className="text-red-400 text-xs mt-3">{batchesError}</p>}
             <div className="flex items-center justify-end gap-2 mt-5">
               <button onClick={() => setHoldingModalOpen(false)} disabled={creatingBatch} className="px-4 py-2 bg-gray-700 hover:bg-gray-600 text-gray-200 rounded-lg text-sm font-medium disabled:opacity-50">Cancel</button>
-              <button onClick={createBatch} disabled={creatingBatch} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-semibold">
+              <button onClick={createBatch} disabled={creatingBatch} className="px-5 py-2 bg-indigo-600 hover:bg-indigo-500 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-sm font-semibold">
                 {creatingBatch ? 'Saving…' : 'Send to Holding'}
               </button>
             </div>
@@ -1659,7 +1659,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                 <button
                   onClick={() => optimizeSelected()}
                   disabled={optimizing || selectedCount < 1}
-                  className="px-4 py-1.5 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-xs font-medium transition-colors"
+                  className="px-4 py-1.5 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-xs font-medium transition-colors"
                 >
                   {optimizing ? 'Optimizing…' : `⚡ Optimize ${selectedCount || ''}`.trim()}
                 </button>
@@ -1721,7 +1721,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2">
                                     {route && (
-                                      <span className="w-5 h-5 shrink-0 rounded-full bg-red-700 text-white text-[10px] font-bold flex items-center justify-center">{route.pos < 9 ? route.pos + 1 : labelFor(route.pos)}</span>
+                                      <span className="w-5 h-5 shrink-0 rounded-full bg-red-700 text-[#fff] text-[10px] font-bold flex items-center justify-center">{route.pos < 9 ? route.pos + 1 : labelFor(route.pos)}</span>
                                     )}
                                     <p className="font-medium text-sm text-white truncate">{v.clientName}</p>
                                     {!located && <span className="shrink-0 text-[10px] text-yellow-500" title="Address could not be located on the map">⚠</span>}
@@ -1804,7 +1804,7 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                         <ol className="space-y-1">
                           {stops.map(s => (
                             <li key={s.jobber_visit_id} className="flex items-center gap-2 text-sm">
-                              <span className="w-5 h-5 shrink-0 rounded-full bg-indigo-700 text-white text-[10px] font-bold flex items-center justify-center">{s.ord}</span>
+                              <span className="w-5 h-5 shrink-0 rounded-full bg-indigo-700 text-[#fff] text-[10px] font-bold flex items-center justify-center">{s.ord}</span>
                               <span className="flex-1 min-w-0 truncate text-gray-200">{s.client_name}</span>
                               <span className="hidden sm:block text-xs text-gray-500 truncate max-w-[40%]">{s.address}</span>
                               <span className="text-xs text-orange-400 shrink-0">{s.eta}</span>
@@ -1812,19 +1812,19 @@ export default function AdvancedRouteView({ users, usersLoading, usersError }: A
                           ))}
                         </ol>
                         <div className="flex flex-wrap gap-2 pt-2">
-                          <button onClick={() => viewBatchRouteSheet(b)} disabled={!!busy} className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-white rounded-lg text-xs font-medium">
+                          <button onClick={() => viewBatchRouteSheet(b)} disabled={!!busy} className="px-3 py-1.5 bg-emerald-700 hover:bg-emerald-600 disabled:opacity-50 text-[#fff] rounded-lg text-xs font-medium">
                             {busy === 'sheet' ? 'Building…' : '📄 Route Sheet'}
                           </button>
                           <button onClick={() => sendBatchAssignOnly(b)} disabled={!!busy} title="Pushes the day + assigned tech to Jobber. Stops stay Anytime; the optimized order lives in the Daily Log / route sheet." className="px-3 py-1.5 bg-gray-700 hover:bg-gray-600 disabled:opacity-50 text-gray-100 rounded-lg text-xs font-medium">
                             {busy === 'assign' ? 'Sending…' : 'Send Day + Team'}
                           </button>
-                          <button onClick={() => sendBatchWithTimes(b)} disabled={!!busy} className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-white rounded-lg text-xs font-medium">
+                          <button onClick={() => sendBatchWithTimes(b)} disabled={!!busy} className="px-3 py-1.5 bg-orange-600 hover:bg-orange-500 disabled:opacity-50 text-[#fff] rounded-lg text-xs font-medium">
                             {busy === 'times' ? 'Sending…' : 'Send with Times'}
                           </button>
-                          <button onClick={() => sendBatchDailyLogV1(b)} disabled={!!busy} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white rounded-lg text-xs font-medium">
+                          <button onClick={() => sendBatchDailyLogV1(b)} disabled={!!busy} className="px-3 py-1.5 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-[#fff] rounded-lg text-xs font-medium">
                             {busy === 'dlv1' ? 'Sending…' : 'Send to Daily Log v1'}
                           </button>
-                          <button onClick={() => sendBatchDailyLogV2(b)} disabled={!!busy} className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-white rounded-lg text-xs font-medium">
+                          <button onClick={() => sendBatchDailyLogV2(b)} disabled={!!busy} className="px-3 py-1.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-50 text-[#fff] rounded-lg text-xs font-medium">
                             {busy === 'dlv2' ? 'Sending…' : 'Send to Daily Log v2'}
                           </button>
                         </div>

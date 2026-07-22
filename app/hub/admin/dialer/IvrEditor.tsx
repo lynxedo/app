@@ -525,7 +525,7 @@ function PromptEditor({
               )
             }
             className={`px-2 py-0.5 ${
-              prompt.kind === 'tts' ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10'
+              prompt.kind === 'tts' ? 'bg-brand text-[#fff]' : 'text-white/60 hover:bg-white/10'
             }`}
           >
             Type text
@@ -540,7 +540,7 @@ function PromptEditor({
               )
             }
             className={`px-2 py-0.5 ${
-              prompt.kind === 'audio' ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10'
+              prompt.kind === 'audio' ? 'bg-brand text-[#fff]' : 'text-white/60 hover:bg-white/10'
             }`}
           >
             Upload audio
@@ -581,7 +581,7 @@ function PromptEditor({
               if (f) uploadAudio(f)
             }}
             disabled={uploading}
-            className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-brand file:text-white file:text-sm hover:file:bg-brand-light file:cursor-pointer"
+            className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-brand file:text-[#fff] file:text-sm hover:file:bg-brand-light file:cursor-pointer"
           />
           {uploading && <span className="ml-2 text-xs text-white/50">Uploading…</span>}
           {error && <p className="text-xs text-red-300">{error}</p>}

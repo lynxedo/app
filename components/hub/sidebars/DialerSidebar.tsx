@@ -242,7 +242,7 @@ export default function DialerSidebar({
               >
                 {t.label}
                 {t.badge != null && t.badge > 0 && (
-                  <span className="ml-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-[9px] font-semibold text-white">
+                  <span className="ml-1 inline-flex items-center justify-center min-w-[16px] h-4 px-1 rounded-full bg-red-500 text-[9px] font-semibold text-[#fff]">
                     {t.badge > 99 ? '99+' : t.badge}
                   </span>
                 )}

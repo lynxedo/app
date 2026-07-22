@@ -392,7 +392,7 @@ export default function HelpContent() {
               <p className="text-gray-500 text-sm">Can&apos;t find what you&apos;re looking for?</p>
               <a
                 href="mailto:support@lynxedo.com?subject=Lynxedo%20Support%20Request"
-                className="inline-block bg-orange-600 hover:bg-orange-500 text-white font-semibold px-6 py-2.5 rounded-lg transition-colors text-sm"
+                className="inline-block bg-orange-600 hover:bg-orange-500 text-[#fff] font-semibold px-6 py-2.5 rounded-lg transition-colors text-sm"
               >
                 Contact Support
               </a>

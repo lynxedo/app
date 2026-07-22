@@ -116,7 +116,7 @@ export default function PesticideRecordsView() {
               </a>
               <a
                 href={buildExportHref({ epaOnly: true })}
-                className="text-xs md:text-sm px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-white font-medium transition-colors"
+                className="text-xs md:text-sm px-3 py-1.5 rounded bg-emerald-600 hover:bg-emerald-500 text-[#fff] font-medium transition-colors"
                 title="Download only EPA-registered products as CSV (TDA pesticide-compliance format)"
               >
                 ⬇ TDA pesticide export
@@ -170,13 +170,13 @@ export default function PesticideRecordsView() {
             <span className="text-[10px] uppercase tracking-wide text-gray-500 mr-1">Show</span>
             <button
               onClick={() => setEpaOnly(false)}
-              className={`text-xs px-2.5 py-1 rounded transition-colors ${!epaOnly ? 'bg-sky-600 text-white' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'}`}
+              className={`text-xs px-2.5 py-1 rounded transition-colors ${!epaOnly ? 'bg-sky-600 text-[#fff]' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'}`}
             >
               All products
             </button>
             <button
               onClick={() => setEpaOnly(true)}
-              className={`text-xs px-2.5 py-1 rounded transition-colors ${epaOnly ? 'bg-emerald-600 text-white' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'}`}
+              className={`text-xs px-2.5 py-1 rounded transition-colors ${epaOnly ? 'bg-emerald-600 text-[#fff]' : 'bg-gray-800 hover:bg-gray-700 text-gray-300'}`}
             >
               EPA-registered only
             </button>

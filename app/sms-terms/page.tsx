@@ -10,7 +10,7 @@ export default function HeroesSmsConsentScriptPage() {
   return (
     <div className="min-h-screen bg-gray-50 text-gray-800">
       {/* Header */}
-      <header className="bg-emerald-700 text-white">
+      <header className="bg-emerald-700 text-[#fff]">
         <div className="max-w-3xl mx-auto px-6 py-8">
           <p className="text-emerald-100 text-xs font-semibold tracking-widest uppercase">
             Heroes Lawn Care of The Woodlands

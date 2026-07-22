@@ -228,7 +228,7 @@ export default function PdfCanvas({ src }: { src: string }) {
 
       {/* Zoom control */}
       {status === 'ready' && pageInfos.length > 0 && (
-        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/70 backdrop-blur rounded-full px-1.5 py-1 text-white">
+        <div className="absolute bottom-3 left-1/2 -translate-x-1/2 flex items-center gap-1 bg-black/70 backdrop-blur rounded-full px-1.5 py-1 text-[#fff]">
           <button
             onClick={e => { e.stopPropagation(); setZoom(z => [...ZOOMS].reverse().find(v => v < z - 0.001) ?? MIN_ZOOM) }}
             disabled={zoom <= MIN_ZOOM + 0.001}

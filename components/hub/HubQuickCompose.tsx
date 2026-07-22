@@ -198,7 +198,7 @@ export default function HubQuickCompose({
           <button
             onClick={() => openDM()}
             disabled={creating}
-            className="flex-none px-4 py-1.5 bg-brand hover:bg-brand-hover disabled:opacity-40 rounded-lg text-sm text-white font-medium transition-colors"
+            className="flex-none px-4 py-1.5 bg-brand hover:bg-brand-hover disabled:opacity-40 rounded-lg text-sm text-[#fff] font-medium transition-colors"
           >
             {creating ? 'Opening…' : 'Start Group DM'}
           </button>

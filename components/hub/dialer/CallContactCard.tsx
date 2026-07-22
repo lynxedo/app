@@ -194,7 +194,7 @@ export default function CallContactCard({
               type="button"
               onClick={() => handleOnMyWay(m)}
               disabled={busy}
-              className="px-2.5 py-1 rounded-md text-xs bg-sky-600/80 hover:bg-sky-500 text-white disabled:opacity-50"
+              className="px-2.5 py-1 rounded-md text-xs bg-sky-600/80 hover:bg-sky-500 text-[#fff] disabled:opacity-50"
             >
               {m} min
             </button>
@@ -220,7 +220,7 @@ export default function CallContactCard({
               type="button"
               onClick={handleSaveNote}
               disabled={busy || !note.trim()}
-              className="px-3 py-1 rounded-md text-xs bg-emerald-600 hover:bg-emerald-500 text-white disabled:opacity-50"
+              className="px-3 py-1 rounded-md text-xs bg-emerald-600 hover:bg-emerald-500 text-[#fff] disabled:opacity-50"
             >
               Save
             </button>
