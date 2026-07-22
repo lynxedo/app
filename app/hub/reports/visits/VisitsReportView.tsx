@@ -212,7 +212,7 @@ export default function VisitsReportView() {
               onClick={() => { setShowCustom(false); setSelected(r) }}
               className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
                 selected.label === r.label && !showCustom
-                  ? 'bg-indigo-600 text-[#fff]'
+                  ? 'bg-brand text-[#fff]'
                   : 'bg-white/5 text-white/70 hover:bg-white/10'
               }`}
             >
@@ -222,7 +222,7 @@ export default function VisitsReportView() {
           <button
             onClick={() => setShowCustom(v => !v)}
             className={`px-3 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              showCustom ? 'bg-indigo-600 text-[#fff]' : 'bg-white/5 text-white/70 hover:bg-white/10'
+              showCustom ? 'bg-brand text-[#fff]' : 'bg-white/5 text-white/70 hover:bg-white/10'
             }`}
           >
             Custom
@@ -245,7 +245,7 @@ export default function VisitsReportView() {
               <button
                 onClick={applyCustom}
                 disabled={!custom.start || !custom.end}
-                className="px-3 py-1 rounded bg-indigo-600 text-[#fff] text-sm disabled:opacity-40"
+                className="px-3 py-1 rounded bg-brand text-[#fff] text-sm disabled:opacity-40"
               >
                 Apply
               </button>

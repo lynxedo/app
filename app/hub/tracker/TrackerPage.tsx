@@ -950,7 +950,7 @@ function NotesPanel({ lead, currentUser, onClose, onNoteAdded }: {
           className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-indigo-500 resize-none"
           onKeyDown={e => { if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) addNote() }} />
         <button onClick={addNote} disabled={!newNote.trim() || saving}
-          className="w-full bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium py-2 rounded-lg transition-colors">
+          className="w-full bg-brand hover:bg-brand-hover disabled:opacity-50 text-[#fff] text-sm font-medium py-2 rounded-lg transition-colors">
           {saving ? 'Saving…' : 'Add Note'}
         </button>
       </div>
@@ -1082,7 +1082,7 @@ function EditLeadDrawer({ lead, opts, stages, onClose, onUpdated, onDeleted }: {
         {error && <p className="text-red-400 text-sm">{error}</p>}
         <div className="flex gap-3 pt-2">
           <button type="button" onClick={onClose} className="flex-1 bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium py-2.5 rounded-lg transition-colors">Cancel</button>
-          <button type="submit" disabled={saving} className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors">{saving ? 'Saving…' : 'Save'}</button>
+          <button type="submit" disabled={saving} className="flex-1 bg-brand hover:bg-brand-hover disabled:opacity-50 text-[#fff] text-sm font-medium py-2.5 rounded-lg transition-colors">{saving ? 'Saving…' : 'Save'}</button>
         </div>
         <div className="border-t border-gray-800 pt-4 pb-6">
           {!confirmDelete ? (
@@ -1225,7 +1225,7 @@ function NewLeadForm({ opts, stages, currentUser, onClose, onCreated }: {
         {error && <p className="text-red-400 text-sm">{error}</p>}
         <div className="flex gap-3 pt-2 pb-6">
           <button type="button" onClick={onClose} className="flex-1 bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium py-2.5 rounded-lg transition-colors">Cancel</button>
-          <button type="submit" disabled={saving} className="flex-1 bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors">{saving ? 'Creating…' : 'Create Lead'}</button>
+          <button type="submit" disabled={saving} className="flex-1 bg-brand hover:bg-brand-hover disabled:opacity-50 text-[#fff] text-sm font-medium py-2.5 rounded-lg transition-colors">{saving ? 'Creating…' : 'Create Lead'}</button>
         </div>
       </form>
     </div>
@@ -1513,7 +1513,7 @@ export default function TrackerPage({
               ]).map(v => (
                 <button key={v.id} onClick={() => changeView(v.id)}
                   className={`flex items-center gap-1.5 text-sm font-medium px-3 py-1 rounded-md transition-colors ${
-                    view === v.id ? 'bg-indigo-600 text-white' : 'text-gray-300 hover:text-white hover:bg-gray-700'
+                    view === v.id ? 'bg-brand text-[#fff]' : 'text-gray-300 hover:text-white hover:bg-gray-700'
                   }`}>
                   {v.label}
                   {v.id === 'needs_me' && needsMeCount > 0 && (
@@ -1588,7 +1588,7 @@ export default function TrackerPage({
               Export CSV
             </button>
             <button onClick={() => { setNewLeadOpen(true); setNotesLeadId(null); setEditLeadId(null) }}
-              className="bg-indigo-600 hover:bg-indigo-500 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap">
+              className="bg-brand hover:bg-brand-hover text-[#fff] text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap">
               + New Lead
             </button>
           </div>
@@ -1671,7 +1671,7 @@ export default function TrackerPage({
             {stages.map(g => <option key={g.key} value={g.key}>{g.label}</option>)}
           </select>
           <button onClick={handleBulkMove} disabled={!bulkStage || bulkWorking}
-            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">Move</button>
+            className="bg-brand hover:bg-brand-hover disabled:opacity-40 text-[#fff] text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">Move</button>
           <div className="w-px h-5 bg-gray-700" />
           <button onClick={handleBulkDuplicate} disabled={bulkWorking}
             className="bg-gray-700 hover:bg-gray-600 disabled:opacity-40 text-white text-sm font-medium px-3 py-1.5 rounded-lg transition-colors">Duplicate</button>
