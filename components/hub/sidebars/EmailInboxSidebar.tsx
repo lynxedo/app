@@ -537,13 +537,17 @@ export default function EmailInboxSidebar({
             className="w-full px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white/80"
           >
             <option value="">Inbox</option>
-            {folders.map((f) => (
-              <option key={f.id} value={f.provider_folder_id}>
-                {isSystemFolder(f) ? '— ' : ''}
-                {f.name}
-                {f.unread_count > 0 ? ` (${f.unread_count})` : ''}
-              </option>
-            ))}
+            {folders
+              // The default "Inbox" option IS the Outlook Inbox (mirror) — don't list the
+              // Inbox folder again, or there'd be two "Inbox" entries (the old confusion).
+              .filter((f) => (f.system_folder || '').toLowerCase() !== 'inbox')
+              .map((f) => (
+                <option key={f.id} value={f.provider_folder_id}>
+                  {isSystemFolder(f) ? '— ' : ''}
+                  {f.name}
+                  {f.unread_count > 0 ? ` (${f.unread_count})` : ''}
+                </option>
+              ))}
           </select>
         )}
 
