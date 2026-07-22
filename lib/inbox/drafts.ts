@@ -57,6 +57,25 @@ export async function listMyDrafts(
   return rows.filter((d) => !(d.status === 'scheduled' && d.scheduled_at && d.scheduled_at <= opts.nowIso))
 }
 
+// The caller's in-progress reply draft for a specific thread (if any). Used to
+// resume a half-written reply when the thread is reopened.
+export async function getMyThreadDraft(
+  admin: SupabaseClient,
+  threadId: string,
+  userId: string
+): Promise<InboxDraft | null> {
+  const { data } = await admin
+    .from('inbox_drafts')
+    .select(DRAFT_COLS)
+    .eq('thread_id', threadId)
+    .eq('created_by', userId)
+    .eq('status', 'draft')
+    .order('updated_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+  return (data as InboxDraft) || null
+}
+
 export async function getMyDraft(
   admin: SupabaseClient,
   id: string,

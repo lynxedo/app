@@ -96,6 +96,15 @@ export default function EmailThreadView({
     composingRef.current = composerMode !== null
   }, [composerMode])
 
+  // A saved in-progress reply draft for this thread (resume support). We surface a
+  // "Resume draft" button in the reader rather than auto-opening the composer, so
+  // opening a thread to read it never hijacks the view.
+  const resumeDraftMode: ComposerMode | null = detail?.myDraft
+    ? detail.myDraft.kind === 'reply-all' || detail.myDraft.kind === 'forward'
+      ? (detail.myDraft.kind as ComposerMode)
+      : 'reply'
+    : null
+
   const load = useCallback(
     async (opts?: { quiet?: boolean }) => {
       try {
@@ -274,6 +283,7 @@ export default function EmailThreadView({
           thread={thread}
           messages={messages}
           emailSignature={emailSignature}
+          existingDraft={detail.myDraft ?? null}
           onCancel={() => {
             setComposerMode(null)
             // Catch up on anything that changed while composing (refreshes were
@@ -311,6 +321,16 @@ export default function EmailThreadView({
 
         {/* Action bar */}
         <div className="flex items-center gap-1.5 flex-wrap mt-2">
+          {resumeDraftMode && !isClosed && (
+            <button
+              type="button"
+              onClick={() => setComposerMode(resumeDraftMode)}
+              className="text-xs px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-400 text-white font-medium"
+              title="You have an unsent reply saved on this conversation"
+            >
+              ✎ Resume draft
+            </button>
+          )}
           {permissions.canReply && !isClosed && (
             <button
               type="button"

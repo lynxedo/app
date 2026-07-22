@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getInboxThreadPermissions } from '@/lib/inbox/permissions'
+import { getMyThreadDraft } from '@/lib/inbox/drafts'
 import { hydrateThreadMessages } from '@/lib/inbox/sync'
 
 export const dynamic = 'force-dynamic'
@@ -121,9 +122,13 @@ export async function GET(
     ...events.map((e) => e.target_user_id),
   ])
 
+  // The caller's own in-progress reply draft for this thread (resume support).
+  const myDraft = await getMyThreadDraft(admin, id, user.id)
+
   return NextResponse.json({
     thread: { ...thread, assignee_name: thread.assigned_to_user_id ? names[thread.assigned_to_user_id] || null : null },
     messages,
+    myDraft,
     members: members.map((m) => ({ ...m, display_name: names[m.user_id] || null })),
     notes: notes.map((n) => ({ ...n, created_by_name: n.created_by ? names[n.created_by] || null : null })),
     events: events.map((e) => ({

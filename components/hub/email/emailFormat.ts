@@ -195,6 +195,8 @@ export type ThreadDetail = {
   members: ThreadMember[]
   notes: ThreadNote[]
   permissions: ThreadPermissions
+  /** The caller's in-progress reply draft for this thread, if any (resume support). */
+  myDraft?: EmailDraft | null
 }
 
 /** "now" / "5m" / "3h" / "today" / "Jul 20" — matches the Txt sidebar. */

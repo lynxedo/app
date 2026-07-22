@@ -20,6 +20,7 @@ import {
   reSubjectDisplay,
   type EmailThread,
   type EmailMessage,
+  type EmailDraft,
   type OutgoingAttachment,
   type InboxAccount,
   type MailRecipient,
@@ -53,6 +54,7 @@ export default function EmailReplyComposer({
   thread,
   messages,
   emailSignature,
+  existingDraft,
   onCancel,
   onReplySent,
 }: {
@@ -61,6 +63,7 @@ export default function EmailReplyComposer({
   thread: EmailThread
   messages: EmailMessage[]
   emailSignature: string
+  existingDraft?: EmailDraft | null
   onCancel: () => void
   onReplySent: () => Promise<void> | void
 }) {
@@ -73,7 +76,15 @@ export default function EmailReplyComposer({
 
   const sigHtml = signatureToHtml(emailSignature)
   const sigText = htmlToPlainText(sigHtml)
-  const [initialHtml] = useState(() => (sigHtml ? `<p></p><p></p>${sigHtml}` : '<p></p>'))
+  // A saved draft for THIS thread whose mode matches → restore its content on mount.
+  const restore = existingDraft && existingDraft.kind === mode ? existingDraft : null
+  // One draft row per (thread, user): seed the id from any existing draft so
+  // auto-saves update it in place (kept even if the opened mode differs).
+  const draftIdRef = useRef<string | null>(existingDraft?.id ?? null)
+  const savingRef = useRef(false)
+  const [initialHtml] = useState(() =>
+    restore?.body_html ? restore.body_html : sigHtml ? `<p></p><p></p>${sigHtml}` : '<p></p>'
+  )
 
   // The message this composer quotes + acts on: for reply/reply-all, the latest
   // INBOUND message with a real sender — matching sendInboxReply's own recipient
@@ -125,9 +136,9 @@ export default function EmailReplyComposer({
     ? formatWho(replyTarget.from_name, replyTarget.from_email)
     : formatWho(thread.from_name, thread.from_email)
 
-  const [to, setTo] = useState('') // forward only
-  const [ccShown, setCcShown] = useState(mode === 'reply-all')
-  const [cc, setCc] = useState('')
+  const [to, setTo] = useState(() => (restore ? formatRecipientList(restore.to_recipients) : '')) // forward only
+  const [ccShown, setCcShown] = useState(mode === 'reply-all' || (!!restore && restore.cc_recipients.length > 0))
+  const [cc, setCc] = useState(() => (restore ? formatRecipientList(restore.cc_recipients) : ''))
   // Distinguishes the auto-seeded Reply All Cc from something the user actually
   // typed — so backing out of a freshly-opened Reply All without touching
   // anything doesn't trigger a spurious "discard this draft?" confirm.
@@ -141,7 +152,7 @@ export default function EmailReplyComposer({
   // would set state synchronously in its body and cost an extra render pass).
   // The `ccSeeded` guard means the user's own edits afterward are never clobbered.
   const [ccSeeded, setCcSeeded] = useState(false)
-  if (mode === 'reply-all' && replyTarget && accountsLoaded && !ccSeeded) {
+  if (mode === 'reply-all' && replyTarget && accountsLoaded && !ccSeeded && !restore) {
     setCcSeeded(true)
     const selfAddresses = new Set(accounts.map((a) => (a.email_address || '').toLowerCase()))
     const primary = (replyTarget.from_email || '').toLowerCase()
@@ -158,11 +169,17 @@ export default function EmailReplyComposer({
   }
 
   const [subject, setSubject] = useState(() =>
-    mode === 'forward' ? fwdSubject(thread.subject) : reSubjectDisplay(thread.subject)
+    restore?.subject != null
+      ? restore.subject
+      : mode === 'forward'
+      ? fwdSubject(thread.subject)
+      : reSubjectDisplay(thread.subject)
   )
 
   const [draftText, setDraftText] = useState('')
-  const [attachments, setAttachments] = useState<OutgoingAttachment[]>([])
+  const [attachments, setAttachments] = useState<OutgoingAttachment[]>(() =>
+    restore && Array.isArray(restore.attachments) ? restore.attachments : []
+  )
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
 
@@ -264,8 +281,67 @@ export default function EmailReplyComposer({
     return false
   }
 
-  function handleBack() {
-    if (isDirty() && typeof window !== 'undefined' && !window.confirm('Discard this draft?')) return
+  // Persist the in-progress reply so it survives closing the composer (resumes
+  // when the thread is reopened). Best-effort; one draft row per thread+user.
+  async function saveDraft() {
+    if (savingRef.current) return
+    savingRef.current = true
+    try {
+      const html = editorRef.current?.getHTML() || ''
+      const res = await fetch('/api/hub/email/drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: draftIdRef.current,
+          account: thread.account_id || 'shared',
+          threadId,
+          kind: mode,
+          to: mode === 'forward' ? parseRecipients(to) : [],
+          cc: ccShown ? parseRecipients(cc) : [],
+          subject: mode === 'forward' ? subject.trim() : null,
+          bodyHtml: html,
+          attachments,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.id) draftIdRef.current = data.id
+    } catch {
+      /* best-effort */
+    } finally {
+      savingRef.current = false
+    }
+  }
+
+  async function discardDraftRow() {
+    const id = draftIdRef.current
+    if (!id) return
+    draftIdRef.current = null
+    try {
+      await fetch(`/api/hub/email/drafts/${id}`, { method: 'DELETE' })
+    } catch {
+      /* best-effort */
+    }
+  }
+
+  // Debounced auto-save while there's content and we're not mid-send.
+  useEffect(() => {
+    if (sending || !isDirty()) return
+    const t = setTimeout(() => {
+      void saveDraft()
+    }, 1800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draftText, cc, ccShown, to, subject, attachments, sending])
+
+  async function handleBack() {
+    // The reply auto-saves as a draft — keep it (a fresh save catches the last edit).
+    if (isDirty()) await saveDraft()
+    onCancel()
+  }
+
+  async function discardDraft() {
+    if (typeof window !== 'undefined' && isDirty() && !window.confirm('Discard this draft?')) return
+    await discardDraftRow()
     onCancel()
   }
 
@@ -333,6 +409,7 @@ export default function EmailReplyComposer({
           setError(data.error || 'Could not send — try again')
           return
         }
+        await discardDraftRow() // sent — drop the saved draft
         toast.success('Email forwarded')
         if (data.threadId) router.push(`/hub/email/${data.threadId}`)
         else router.push('/hub/email')
@@ -356,6 +433,7 @@ export default function EmailReplyComposer({
         setError(data.error || 'Send failed — try again')
         return
       }
+      await discardDraftRow() // sent — drop the saved draft
       toast.success('Reply sent')
       await onReplySent()
     } catch {
@@ -379,14 +457,28 @@ export default function EmailReplyComposer({
         className="px-4 py-3 border-b border-gray-200 bg-white flex items-center justify-between gap-2 max-md:pl-14"
       >
         <h1 className="font-semibold text-gray-900">{modeLabel}</h1>
-        <button
-          type="button"
-          onClick={handleBack}
-          disabled={sending}
-          className="text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 hover:bg-gray-50 text-gray-600 disabled:opacity-50"
-        >
-          ← Back
-        </button>
+        <div className="flex items-center gap-2">
+          {(isDirty() || draftIdRef.current) && (
+            <button
+              type="button"
+              onClick={discardDraft}
+              disabled={sending}
+              className="text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 hover:bg-red-50 text-red-600 disabled:opacity-50"
+              title="Delete this draft"
+            >
+              Discard
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={handleBack}
+            disabled={sending}
+            className="text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 hover:bg-gray-50 text-gray-600 disabled:opacity-50"
+            title="Keeps your draft"
+          >
+            ← Back
+          </button>
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto px-3 sm:px-6 py-4">
