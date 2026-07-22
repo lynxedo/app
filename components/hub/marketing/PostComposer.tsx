@@ -429,7 +429,7 @@ export default function PostComposer({
             <button
               onClick={() => submit('schedule', new Date(Date.now() - 60000).toISOString())}
               disabled={!canSubmit || saving || captionLength > charLimit}
-              className="text-sm bg-green-600 hover:bg-green-500 disabled:opacity-40 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+              className="text-sm bg-green-600 hover:bg-green-500 disabled:opacity-40 text-[#fff] font-medium px-4 py-2 rounded-lg transition-colors"
             >
               {saving ? 'Saving…' : 'Post Now'}
             </button>
@@ -437,7 +437,7 @@ export default function PostComposer({
           <button
             onClick={() => submit('schedule')}
             disabled={!canSubmit || saving || captionLength > charLimit}
-            className="text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-white font-medium px-4 py-2 rounded-lg transition-colors"
+            className="text-sm bg-blue-600 hover:bg-blue-500 disabled:opacity-40 text-[#fff] font-medium px-4 py-2 rounded-lg transition-colors"
           >
             {saving ? 'Saving…' : editPost ? 'Update' : 'Schedule'}
           </button>

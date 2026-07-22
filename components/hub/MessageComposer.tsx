@@ -696,7 +696,7 @@ export default function MessageComposer({
               )}
               <button
                 onClick={() => removeFile(i)}
-                className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 hover:bg-red-400 rounded-full text-white text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                className="absolute -top-1.5 -right-1.5 w-4 h-4 bg-red-500 hover:bg-red-400 rounded-full text-[#fff] text-xs flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                 aria-label="Remove"
               >
                 ✕

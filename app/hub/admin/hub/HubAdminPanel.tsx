@@ -753,7 +753,7 @@ export default function HubAdminPanel({
                 <button
                   onClick={createRoom}
                   disabled={!newName.trim() || creating}
-                  className="px-5 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                  className="px-5 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
                 >
                   {creating ? 'Creating…' : 'Create Room'}
                 </button>
@@ -867,7 +867,7 @@ export default function HubAdminPanel({
                   <button
                     onClick={addMember}
                     disabled={!addUserId}
-                    className="px-4 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                    className="px-4 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
                   >
                     Add
                   </button>
@@ -1053,7 +1053,7 @@ export default function HubAdminPanel({
                 <button
                   onClick={createAutomationRule}
                   disabled={!newRuleKeyword.trim() || !newRuleTemplate.trim() || savingRule}
-                  className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                  className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
                 >
                   {savingRule ? 'Saving…' : 'Create Rule'}
                 </button>
@@ -1203,7 +1203,7 @@ export default function HubAdminPanel({
                 onClick={() => { setAnnType('announcement'); if (annDuration === 72) setAnnDuration(24) }}
                 className={`px-4 py-2 rounded-xl text-sm font-medium transition-colors flex items-center gap-2 ${
                   annType === 'announcement'
-                    ? 'bg-brand text-white'
+                    ? 'bg-brand text-[#fff]'
                     : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
                 }`}
               >
@@ -1273,7 +1273,7 @@ export default function HubAdminPanel({
                       key={opt.hours}
                       onClick={() => setAnnDuration(opt.hours)}
                       className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                        annDuration === opt.hours ? 'bg-brand text-white' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+                        annDuration === opt.hours ? 'bg-brand text-[#fff]' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
                       }`}
                     >
                       {opt.label}
@@ -1282,7 +1282,7 @@ export default function HubAdminPanel({
                   <button
                     onClick={() => setAnnDuration('custom')}
                     className={`px-3 py-1.5 rounded-lg text-sm transition-colors ${
-                      annDuration === 'custom' ? 'bg-brand text-white' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
+                      annDuration === 'custom' ? 'bg-brand text-[#fff]' : 'bg-gray-800 text-gray-400 hover:text-white hover:bg-gray-700'
                     }`}
                   >
                     Custom date
@@ -1306,7 +1306,7 @@ export default function HubAdminPanel({
                 className={`px-6 py-2.5 rounded-xl disabled:opacity-40 text-sm font-medium transition-colors ${
                   annType === 'shout_out'
                     ? 'bg-amber-500 hover:bg-amber-400 text-gray-900'
-                    : 'bg-brand hover:bg-brand-hover text-white'
+                    : 'bg-brand hover:bg-brand-hover text-[#fff]'
                 }`}
               >
                 {postingAnn ? 'Posting…' : `Post ${annType === 'shout_out' ? 'Shout Out' : 'Announcement'}`}
@@ -1339,7 +1339,7 @@ export default function HubAdminPanel({
                   <button
                     onClick={saveEdit}
                     disabled={!editContent.trim() || savingEdit}
-                    className="px-5 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                    className="px-5 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
                   >
                     {savingEdit ? 'Saving…' : 'Save'}
                   </button>
@@ -1409,7 +1409,7 @@ export default function HubAdminPanel({
                 key={key}
                 onClick={() => setChatSynxSubTab(key)}
                 className={`px-4 py-2 rounded-lg text-sm font-medium transition-colors ${
-                  chatSynxSubTab === key ? 'bg-brand text-white' : 'bg-gray-800 text-gray-400 hover:text-white'
+                  chatSynxSubTab === key ? 'bg-brand text-[#fff]' : 'bg-gray-800 text-gray-400 hover:text-white'
                 }`}
               >
                 {label}
@@ -1451,7 +1451,7 @@ export default function HubAdminPanel({
                 <button
                   onClick={createChatSynxLink}
                   disabled={savingPersonLink}
-                  className="mt-4 px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                  className="mt-4 px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
                 >
                   {savingPersonLink ? 'Linking…' : 'Link person'}
                 </button>
@@ -1536,7 +1536,7 @@ export default function HubAdminPanel({
                 <button
                   onClick={createChatSynxBridge}
                   disabled={savingBridge}
-                  className="mt-4 px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                  className="mt-4 px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
                 >
                   {savingBridge ? 'Bridging…' : 'Bridge channel'}
                 </button>
@@ -1669,7 +1669,7 @@ export default function HubAdminPanel({
             <button
               onClick={createFileTag}
               disabled={savingTag || !newTagName.trim()}
-              className="mt-4 px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+              className="mt-4 px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
             >
               {savingTag ? 'Creating…' : 'Add Tag'}
             </button>
@@ -1736,7 +1736,7 @@ export default function HubAdminPanel({
                         <div className="flex gap-2">
                           <button
                             onClick={() => saveEditTag(tag.id)}
-                            className="px-4 py-1.5 rounded-lg bg-brand hover:bg-brand-hover text-sm text-white"
+                            className="px-4 py-1.5 rounded-lg bg-brand hover:bg-brand-hover text-sm text-[#fff]"
                           >
                             Save
                           </button>

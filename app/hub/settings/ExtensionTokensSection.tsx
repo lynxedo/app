@@ -118,7 +118,7 @@ export default function ExtensionTokensSection() {
             </code>
             <button
               onClick={() => copy(freshToken)}
-              className="flex-none px-3 py-2 bg-orange-500 hover:bg-orange-400 text-white rounded-lg text-sm font-medium"
+              className="flex-none px-3 py-2 bg-orange-500 hover:bg-orange-400 text-[#fff] rounded-lg text-sm font-medium"
             >
               Copy
             </button>
@@ -138,7 +138,7 @@ export default function ExtensionTokensSection() {
         <button
           onClick={mint}
           disabled={minting}
-          className="flex-none px-4 py-2 bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-white rounded-lg text-sm font-medium"
+          className="flex-none px-4 py-2 bg-orange-500 hover:bg-orange-400 disabled:opacity-50 text-[#fff] rounded-lg text-sm font-medium"
         >
           {minting ? 'Generating…' : 'Generate token'}
         </button>

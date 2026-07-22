@@ -107,7 +107,7 @@ export default function DialerPersonalSettings() {
               if (f) uploadGreeting(f)
             }}
             disabled={uploading}
-            className="text-xs text-gray-300 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-orange-600 file:text-white file:text-sm hover:file:bg-orange-500 file:cursor-pointer"
+            className="text-xs text-gray-300 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-orange-600 file:text-[#fff] file:text-sm hover:file:bg-orange-500 file:cursor-pointer"
           />
           {uploading && <span className="ml-2 text-xs text-gray-400">Uploading…</span>}
         </div>

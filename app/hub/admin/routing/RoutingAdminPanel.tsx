@@ -364,7 +364,7 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
     <button
       onClick={onClick}
       disabled={disabled || state === 'saving'}
-      className="px-4 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+      className="px-4 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-sm font-medium transition-colors"
     >
       {state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved ✓' : label}
     </button>
@@ -736,7 +736,7 @@ export default function RoutingAdminPanel({ initial, jobberConnected }: Props) {
           <button
             onClick={addTank}
             disabled={tanksBusy || tanks.length >= 4}
-            className="px-3 py-1.5 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+            className="px-3 py-1.5 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-sm font-medium transition-colors"
           >
             + Add tank
           </button>

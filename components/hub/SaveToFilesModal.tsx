@@ -248,7 +248,7 @@ export default function SaveToFilesModal({
               type="button"
               onClick={handleSave}
               disabled={saving || saved || !selectedAttachmentId}
-              className="flex-1 px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+              className="flex-1 px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
             >
               {saved ? '✓ Saved' : saving ? 'Saving…' : 'Save to Files'}
             </button>

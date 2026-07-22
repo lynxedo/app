@@ -252,7 +252,7 @@ export default function PipDialer({ pipWindow }: { pipWindow: Window }) {
                 type="button"
                 onClick={() => runTransfer('warm-complete')}
                 disabled={transferBusy}
-                className="rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white text-xs py-2.5 disabled:opacity-50"
+                className="rounded-lg bg-emerald-600 hover:bg-emerald-500 text-[#fff] text-xs py-2.5 disabled:opacity-50"
               >
                 Complete
               </button>
@@ -285,7 +285,7 @@ export default function PipDialer({ pipWindow }: { pipWindow: Window }) {
                 type="button"
                 onClick={() => runTransfer('warm-consult')}
                 disabled={transferBusy}
-                className="rounded-lg bg-sky-600 hover:bg-sky-500 text-white text-xs py-2.5 disabled:opacity-50"
+                className="rounded-lg bg-sky-600 hover:bg-sky-500 text-[#fff] text-xs py-2.5 disabled:opacity-50"
               >
                 Warm
               </button>

@@ -580,7 +580,7 @@ export default function AdminPanel({
             </div>
             <button
               onClick={() => setShowAddUser(v => !v)}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-sm font-medium transition-colors"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 text-[#fff] rounded-lg text-sm font-medium transition-colors"
             >
               {showAddUser ? 'Close' : '+ Add User'}
             </button>
@@ -624,7 +624,7 @@ export default function AdminPanel({
               <button
                 onClick={() => handleAddUser(false)}
                 disabled={!inviteEmail || inviteStatus === 'loading'}
-                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-white text-sm font-medium px-5 py-2.5 rounded-lg transition-colors whitespace-nowrap"
+                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-60 text-[#fff] text-sm font-medium px-5 py-2.5 rounded-lg transition-colors whitespace-nowrap"
               >
                 {inviteStatus === 'loading' ? 'Sending…' : 'Send Invite'}
               </button>
@@ -905,7 +905,7 @@ function UserPanel({
             <button
               onClick={handleSave}
               disabled={saving}
-              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors"
+              className="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] text-xs font-medium rounded-lg transition-colors"
             >
               {saving ? 'Saving…' : 'Save'}
             </button>
@@ -1086,7 +1086,7 @@ function DevToolsCard() {
         {isStaging ? (
           <button
             onClick={() => { window.location.replace('https://lynxedo.com/hub') }}
-            className="px-4 py-2 bg-green-700 hover:bg-green-600 text-white text-sm font-medium rounded-lg transition-colors"
+            className="px-4 py-2 bg-green-700 hover:bg-green-600 text-[#fff] text-sm font-medium rounded-lg transition-colors"
           >
             Switch to Production
           </button>
@@ -1094,7 +1094,7 @@ function DevToolsCard() {
           <button
             onClick={switchToStaging}
             disabled={switching}
-            className="px-4 py-2 bg-yellow-700 hover:bg-yellow-600 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors"
+            className="px-4 py-2 bg-yellow-700 hover:bg-yellow-600 disabled:opacity-60 text-[#fff] text-sm font-medium rounded-lg transition-colors"
           >
             {switching ? 'Switching…' : 'Switch to Staging'}
           </button>
@@ -1225,7 +1225,7 @@ function EmployeeRow({
                 <button
                   onClick={handleLink}
                   disabled={!selectedUserId || working}
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap"
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] text-xs font-medium rounded-lg transition-colors whitespace-nowrap"
                 >
                   {working ? 'Linking…' : 'Link'}
                 </button>
@@ -1251,7 +1251,7 @@ function EmployeeRow({
                 <button
                   onClick={handleInvite}
                   disabled={!workEmail || working}
-                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-xs font-medium rounded-lg transition-colors whitespace-nowrap"
+                  className="px-4 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] text-xs font-medium rounded-lg transition-colors whitespace-nowrap"
                 >
                   {working ? 'Sending…' : 'Send Invite'}
                 </button>

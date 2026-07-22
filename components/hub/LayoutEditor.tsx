@@ -41,7 +41,7 @@ function TokenIcon({ token, rooms, conversations, currentUserId }: { token: stri
   if (c.kind === 'dm') {
     const conv = conversations.find(cv => cv.id === c.id)
     const letter = (conv ? convFirstNames(conv, currentUserId) : '?').trim().charAt(0).toUpperCase() || '?'
-    return <span className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-700 text-white text-[11px] font-bold">{letter}</span>
+    return <span className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-700 text-[#fff] text-[11px] font-bold">{letter}</span>
   }
   return <span className="text-white/80"><CatalogIcon id={c.id} /></span>
 }
@@ -260,7 +260,7 @@ export default function LayoutEditor({
                 <div className="space-y-1.5 max-h-52 overflow-y-auto">
                   {addableDms.map(conv => (
                     <button key={conv.id} type="button" onClick={() => addToken(`dm:${conv.id}`)} className="w-full flex items-center gap-2 bg-gray-800/50 hover:bg-gray-800 border border-gray-700/60 rounded-lg px-2.5 py-2 text-left">
-                      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-700 text-white text-[11px] font-bold">{convFirstNames(conv, currentUserId).trim().charAt(0).toUpperCase() || '?'}</span>
+                      <span className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-700 text-[#fff] text-[11px] font-bold">{convFirstNames(conv, currentUserId).trim().charAt(0).toUpperCase() || '?'}</span>
                       <span className="text-sm text-white truncate flex-1">{convFirstNames(conv, currentUserId)}</span>
                       <span className="text-orange-400 text-lg leading-none">+</span>
                     </button>
@@ -327,7 +327,7 @@ export default function LayoutEditor({
                   placeholder="example.com or https://…"
                   className="flex-1 bg-gray-950 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-600 focus:border-orange-500 focus:outline-none"
                 />
-                <button type="button" onClick={addUrl} className="bg-orange-500 hover:bg-orange-400 text-white font-semibold px-4 rounded-lg text-sm">Add</button>
+                <button type="button" onClick={addUrl} className="bg-orange-500 hover:bg-orange-400 text-[#fff] font-semibold px-4 rounded-lg text-sm">Add</button>
               </div>
             )}
           </div>

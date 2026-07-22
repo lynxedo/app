@@ -142,7 +142,7 @@ export default function DashboardPage({
         <span className="text-sm text-gray-400">View:</span>
         <button
           onClick={() => setSalesperson('')}
-          className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${salesperson === '' ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}
+          className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${salesperson === '' ? 'bg-indigo-600 text-[#fff]' : 'bg-gray-800 text-gray-400 hover:text-white'}`}
         >
           All
         </button>
@@ -150,7 +150,7 @@ export default function DashboardPage({
           <button
             key={sp}
             onClick={() => setSalesperson(sp === salesperson ? '' : sp)}
-            className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${salesperson === sp ? 'bg-indigo-600 text-white' : 'bg-gray-800 text-gray-400 hover:text-white'}`}
+            className={`px-3 py-1 rounded-full text-sm font-medium transition-colors ${salesperson === sp ? 'bg-indigo-600 text-[#fff]' : 'bg-gray-800 text-gray-400 hover:text-white'}`}
           >
             {sp}
           </button>

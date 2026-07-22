@@ -200,7 +200,7 @@ export default function ScheduledMessagesModal({ onClose }: { onClose: () => voi
                             type="button"
                             onClick={() => saveEdit(row.id)}
                             disabled={isBusy || (!editContent.trim() && !(row.files && row.files.length > 0)) || !editSendAt}
-                            className="px-3 py-1.5 text-xs font-medium rounded-md bg-brand hover:bg-brand-hover text-white disabled:opacity-50 disabled:cursor-not-allowed"
+                            className="px-3 py-1.5 text-xs font-medium rounded-md bg-brand hover:bg-brand-hover text-[#fff] disabled:opacity-50 disabled:cursor-not-allowed"
                           >
                             Save
                           </button>

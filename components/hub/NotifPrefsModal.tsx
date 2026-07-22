@@ -91,7 +91,7 @@ export default function NotifPrefsModal({ onClose }: { onClose: () => void }) {
           <button
             onClick={save}
             disabled={!loaded || saving}
-            className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+            className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
           >
             {saving ? 'Saving…' : 'Save'}
           </button>

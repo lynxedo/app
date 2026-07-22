@@ -489,7 +489,7 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
       <button
         onClick={onClick}
         disabled={disabled || state === 'saving'}
-        className="px-4 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+        className="px-4 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-sm font-medium transition-colors"
       >
         {state === 'saving' ? 'Saving…' : state === 'saved' ? 'Saved ✓' : label}
       </button>
@@ -585,7 +585,7 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
                 <button
                   onClick={uploadCrop}
                   disabled={uploading || !crop}
-                  className="px-5 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+                  className="px-5 py-2 bg-orange-500 hover:bg-orange-400 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-sm font-medium transition-colors"
                 >
                   {uploading ? 'Uploading…' : 'Save photo'}
                 </button>
@@ -697,7 +697,7 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
         <button
           type="button"
           onClick={() => router.push('/hub?customize=1')}
-          className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-white font-semibold px-4 py-2 rounded-lg transition-colors text-sm"
+          className="inline-flex items-center gap-2 bg-orange-500 hover:bg-orange-400 text-[#fff] font-semibold px-4 py-2 rounded-lg transition-colors text-sm"
         >
           <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
             <path strokeLinecap="round" strokeLinejoin="round" d="M11 4H4a2 2 0 00-2 2v14a2 2 0 002 2h14a2 2 0 002-2v-7M18.5 2.5a2.12 2.12 0 013 3L12 15l-4 1 1-4 9.5-9.5z" />
@@ -1030,7 +1030,7 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
         <button
           onClick={handleDeleteAccount}
           disabled={deleting}
-          className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:bg-gray-700 disabled:text-gray-500 text-white rounded-lg text-sm font-medium transition-colors"
+          className="px-4 py-2 bg-red-600 hover:bg-red-500 disabled:bg-gray-700 disabled:text-gray-500 text-[#fff] rounded-lg text-sm font-medium transition-colors"
         >
           {deleting ? 'Deleting…' : 'Delete my account'}
         </button>

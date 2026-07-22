@@ -89,7 +89,7 @@ export default function OnMyWayPanel({
           type="button"
           onClick={save}
           disabled={saving}
-          className="px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium text-white disabled:opacity-50"
+          className="px-4 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium text-[#fff] disabled:opacity-50"
         >
           {saving ? 'Saving…' : 'Save'}
         </button>

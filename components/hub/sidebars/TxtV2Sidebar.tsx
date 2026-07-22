@@ -649,7 +649,7 @@ export default function TxtV2Sidebar({
                         type="button"
                         onClick={(e) => claim(c.id, e)}
                         disabled={busy}
-                        className="px-2 py-0.5 rounded bg-emerald-600/80 hover:bg-emerald-600 text-white text-[10px] font-medium disabled:opacity-50"
+                        className="px-2 py-0.5 rounded bg-emerald-600/80 hover:bg-emerald-600 text-[#fff] text-[10px] font-medium disabled:opacity-50"
                         title="Assign this to me"
                       >
                         {busy ? '…' : 'Claim'}

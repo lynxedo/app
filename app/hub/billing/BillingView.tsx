@@ -326,7 +326,7 @@ export default function BillingView({
           type="button"
           onClick={handleSubscribe}
           disabled={checkoutLoading}
-          className="rounded-lg bg-sky-500 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
+          className="rounded-lg bg-sky-500 px-5 py-2.5 text-sm font-semibold text-[#fff] transition-colors hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {checkoutLoading ? 'Starting…' : hasPlan ? 'Update plan' : 'Subscribe'}
         </button>

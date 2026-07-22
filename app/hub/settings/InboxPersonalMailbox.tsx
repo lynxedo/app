@@ -73,7 +73,7 @@ export default function InboxPersonalMailbox({ userId }: { userId: string }) {
         <div>
           <button
             onClick={connect}
-            className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-white hover:bg-indigo-500"
+            className="rounded-lg bg-indigo-600 px-3 py-2 text-sm font-medium text-[#fff] hover:bg-indigo-500"
           >
             Connect my email
           </button>

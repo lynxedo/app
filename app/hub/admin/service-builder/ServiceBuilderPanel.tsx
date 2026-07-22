@@ -278,7 +278,7 @@ export default function ServiceBuilderPanel({
                 className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:border-indigo-500" />
             </div>
             <div className="flex-1" />
-            {active.status !== 'published' && <button className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-white" onClick={() => setStatus('published')}>Publish</button>}
+            {active.status !== 'published' && <button className="px-3 py-1.5 text-xs font-semibold rounded-lg bg-emerald-600 hover:bg-emerald-500 text-[#fff]" onClick={() => setStatus('published')}>Publish</button>}
             {active.status === 'published' && <button className={btn} onClick={() => setStatus('draft')}>Unpublish (→ draft)</button>}
             {active.status !== 'archived' && <button className={btn} onClick={() => setStatus('archived')}>Archive</button>}
             {active.status === 'archived' && <button className={btn} onClick={() => setStatus('draft')}>Restore (→ draft)</button>}
@@ -315,7 +315,7 @@ export default function ServiceBuilderPanel({
               <span className="text-xs text-gray-500">{active.rounds?.length ?? 0} rounds · annual product {fmtMoney(annPerK)}/K</span>
               <div className="flex-1" />
               <button className={btn} onClick={seedRoundsFromCurrent}>↧ Seed from current composition</button>
-              <button className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white" onClick={addRound}>+ Add round</button>
+              <button className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-[#fff]" onClick={addRound}>+ Add round</button>
             </div>
             {(active.visits ?? 0) !== (active.rounds?.length ?? 0) && (
               <div className="mb-3 px-3 py-2 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-300 text-xs">

@@ -10,7 +10,7 @@ export default function ScoreboardError({ error, onRetry }: { error: string; onR
       <button
         type="button"
         onClick={onRetry}
-        className="mt-4 rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-white transition-colors hover:bg-sky-400"
+        className="mt-4 rounded-lg bg-sky-500 px-4 py-2 text-sm font-semibold text-[#fff] transition-colors hover:bg-sky-400"
       >
         Try again
       </button>

@@ -125,7 +125,7 @@ function ListEditor({
         <button
           onClick={add}
           disabled={!newItem.trim()}
-          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-[#fff] text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
         >
           Add
         </button>
@@ -348,7 +348,7 @@ function StageManager({ stages, onChange }: { stages: Stage[]; onChange: (s: Sta
                   <button
                     onClick={() => deleteStage(stage.id)}
                     disabled={busy}
-                    className="bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white text-xs font-medium px-3 py-1 rounded-lg transition-colors"
+                    className="bg-red-700 hover:bg-red-600 disabled:opacity-50 text-[#fff] text-xs font-medium px-3 py-1 rounded-lg transition-colors"
                   >
                     Delete Stage
                   </button>
@@ -381,7 +381,7 @@ function StageManager({ stages, onChange }: { stages: Stage[]; onChange: (s: Sta
         <button
           onClick={addStage}
           disabled={!newLabel.trim() || busy}
-          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-[#fff] text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
         >
           Add Stage
         </button>
@@ -532,7 +532,7 @@ function CustomColumnManager({
                   <button
                     onClick={() => addOption(col.id)}
                     disabled={!newOption.trim()}
-                    className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
+                    className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-[#fff] text-xs font-medium px-3 py-1.5 rounded-lg transition-colors"
                   >
                     Add
                   </button>
@@ -556,7 +556,7 @@ function CustomColumnManager({
                   <button
                     onClick={() => deleteColumn(col.id)}
                     disabled={busy}
-                    className="bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white text-xs font-medium px-3 py-1 rounded-lg transition-colors"
+                    className="bg-red-700 hover:bg-red-600 disabled:opacity-50 text-[#fff] text-xs font-medium px-3 py-1 rounded-lg transition-colors"
                   >
                     Delete
                   </button>
@@ -586,7 +586,7 @@ function CustomColumnManager({
         <button
           onClick={addColumn}
           disabled={!newName.trim() || busy}
-          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-white text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
+          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-40 text-[#fff] text-sm font-medium px-4 py-1.5 rounded-lg transition-colors whitespace-nowrap"
         >
           Add
         </button>
@@ -819,7 +819,7 @@ export default function SettingsPage({
           <button
             onClick={handleSave}
             disabled={saving}
-            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium px-5 py-2 rounded-lg transition-colors"
+            className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-[#fff] text-sm font-medium px-5 py-2 rounded-lg transition-colors"
           >
             {saving ? 'Saving…' : 'Save Changes'}
           </button>
@@ -856,7 +856,7 @@ export default function SettingsPage({
         <button
           onClick={handleSave}
           disabled={saving}
-          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-white text-sm font-medium px-6 py-2.5 rounded-lg transition-colors"
+          className="bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-[#fff] text-sm font-medium px-6 py-2.5 rounded-lg transition-colors"
         >
           {saving ? 'Saving…' : 'Save Changes'}
         </button>

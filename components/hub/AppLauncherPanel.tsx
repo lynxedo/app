@@ -123,7 +123,7 @@ export default function AppLauncherPanel({
       const conv = conversations.find(cv => cv.id === c.id)
       if (!conv) return null
       label = convFirstNames(conv, currentUserId)
-      icon = <span className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-700 text-white text-[11px] font-bold">{label.trim().charAt(0).toUpperCase() || '?'}</span>
+      icon = <span className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-700 text-[#fff] text-[11px] font-bold">{label.trim().charAt(0).toUpperCase() || '?'}</span>
       onClick = () => navigate(`/hub/pm/${conv.id}`)
     } else {
       const id = c.id

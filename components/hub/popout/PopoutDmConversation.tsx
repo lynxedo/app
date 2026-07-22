@@ -244,7 +244,7 @@ export default function PopoutDmConversation({
                 )}
                 <div
                   className={`max-w-[85%] rounded-2xl px-3 py-2 text-sm ${
-                    mine ? 'bg-indigo-600 text-white' : 'bg-white/10 text-white'
+                    mine ? 'bg-indigo-600 text-[#fff]' : 'bg-white/10 text-white'
                   }`}
                 >
                   <div className="whitespace-pre-wrap break-words">{safeRenderContent(m.content)}</div>
@@ -273,7 +273,7 @@ export default function PopoutDmConversation({
             type="button"
             onClick={send}
             disabled={!text.trim() || sending}
-            className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-indigo-600 text-white transition-colors hover:bg-indigo-500 disabled:opacity-40"
+            className="flex h-9 w-9 flex-none items-center justify-center rounded-full bg-indigo-600 text-[#fff] transition-colors hover:bg-indigo-500 disabled:opacity-40"
             aria-label="Send"
           >
             <svg className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>

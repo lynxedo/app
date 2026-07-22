@@ -69,7 +69,7 @@ export default function ScheduleSendMenu({
             type="button"
             onClick={confirm}
             disabled={!val}
-            className="w-full text-sm px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium disabled:opacity-50"
+            className="w-full text-sm px-3 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[#fff] font-medium disabled:opacity-50"
           >
             Schedule send
           </button>

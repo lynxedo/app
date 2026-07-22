@@ -54,7 +54,7 @@ export default async function BooksPage() {
           <p className="text-gray-400 mb-6">Connect your QuickBooks account to get started.</p>
           <a
             href="/api/qbo/auth"
-            className="inline-block bg-blue-600 hover:bg-blue-500 text-white font-semibold px-6 py-3 rounded-lg transition-colors"
+            className="inline-block bg-blue-600 hover:bg-blue-500 text-[#fff] font-semibold px-6 py-3 rounded-lg transition-colors"
           >
             Connect QuickBooks
           </a>

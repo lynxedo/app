@@ -30,7 +30,7 @@ export function UpdateNotifier({ loadedBuildId }: { loadedBuildId: string }) {
   if (!updateAvailable) return null
 
   return (
-    <div className="fixed bottom-4 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-full bg-blue-600 px-5 py-3 shadow-lg text-sm font-medium text-white">
+    <div className="fixed bottom-4 left-1/2 z-[100] flex -translate-x-1/2 items-center gap-3 rounded-full bg-blue-600 px-5 py-3 shadow-lg text-sm font-medium text-[#fff]">
       <span>A new version is available</span>
       <button
         onClick={() => window.location.reload()}

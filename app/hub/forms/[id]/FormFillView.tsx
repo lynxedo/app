@@ -293,7 +293,7 @@ function SuccessScreen({
             <p className="text-sm text-gray-200 whitespace-pre-wrap">{smsPreview}</p>
             <button
               onClick={copySms}
-              className="text-xs px-3 py-1.5 bg-brand hover:bg-brand-hover text-white rounded"
+              className="text-xs px-3 py-1.5 bg-brand hover:bg-brand-hover text-[#fff] rounded"
             >
               {copied ? '✓ Copied' : 'Copy message'}
             </button>
@@ -309,7 +309,7 @@ function SuccessScreen({
           </Link>
           <Link
             href="/hub/forms"
-            className="px-4 py-2 bg-brand hover:bg-brand-hover text-white rounded text-sm"
+            className="px-4 py-2 bg-brand hover:bg-brand-hover text-[#fff] rounded text-sm"
           >
             Back to Forms
           </Link>
@@ -547,7 +547,7 @@ export default function FormFillView({
                       type="button"
                       onClick={searchJobber}
                       disabled={searching}
-                      className="px-3 py-2 bg-blue-800 hover:bg-blue-700 text-white text-sm rounded disabled:opacity-50"
+                      className="px-3 py-2 bg-blue-800 hover:bg-blue-700 text-[#fff] text-sm rounded disabled:opacity-50"
                     >
                       {searching ? '…' : 'Search'}
                     </button>
@@ -583,7 +583,7 @@ export default function FormFillView({
             <button
               type="submit"
               disabled={submitting}
-              className="w-full py-3 bg-brand hover:bg-brand-hover disabled:opacity-50 text-white font-semibold rounded-lg text-base"
+              className="w-full py-3 bg-brand hover:bg-brand-hover disabled:opacity-50 text-[#fff] font-semibold rounded-lg text-base"
             >
               {submitting ? 'Submitting…' : 'Submit Form'}
             </button>

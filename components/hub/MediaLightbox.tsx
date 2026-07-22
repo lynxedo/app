@@ -141,7 +141,7 @@ export default function MediaLightbox({
           <>
             <button
               onClick={e => { e.stopPropagation(); prev() }}
-              className="hidden md:flex absolute left-2 top-1/2 -translate-y-1/2 items-center justify-center w-12 h-12 bg-black/40 hover:bg-black/70 text-white rounded-full text-3xl leading-none"
+              className="hidden md:flex absolute left-2 top-1/2 -translate-y-1/2 items-center justify-center w-12 h-12 bg-black/40 hover:bg-black/70 text-[#fff] rounded-full text-3xl leading-none"
               title="Previous (←)"
               aria-label="Previous"
             >
@@ -149,7 +149,7 @@ export default function MediaLightbox({
             </button>
             <button
               onClick={e => { e.stopPropagation(); next() }}
-              className="hidden md:flex absolute right-2 top-1/2 -translate-y-1/2 items-center justify-center w-12 h-12 bg-black/40 hover:bg-black/70 text-white rounded-full text-3xl leading-none"
+              className="hidden md:flex absolute right-2 top-1/2 -translate-y-1/2 items-center justify-center w-12 h-12 bg-black/40 hover:bg-black/70 text-[#fff] rounded-full text-3xl leading-none"
               title="Next (→)"
               aria-label="Next"
             >

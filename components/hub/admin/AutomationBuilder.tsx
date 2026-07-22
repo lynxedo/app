@@ -249,7 +249,7 @@ export default function AutomationBuilder({
               <label className="text-xs text-gray-500 mb-1 block">Days (none = every day)</label>
               <div className="flex gap-1">
                 {DAYS.map((d, i) => (
-                  <button key={d} onClick={() => toggleDay(i)} className={`flex-1 text-xs py-2 rounded-lg transition-colors ${days.includes(i) ? 'bg-brand text-white' : 'bg-gray-800 text-gray-500 hover:text-gray-300'}`}>{d[0]}</button>
+                  <button key={d} onClick={() => toggleDay(i)} className={`flex-1 text-xs py-2 rounded-lg transition-colors ${days.includes(i) ? 'bg-brand text-[#fff]' : 'bg-gray-800 text-gray-500 hover:text-gray-300'}`}>{d[0]}</button>
                 ))}
               </div>
             </div>
@@ -383,7 +383,7 @@ export default function AutomationBuilder({
 
         {err && <p className="text-sm text-red-400">{err}</p>}
         <div className="flex justify-end">
-          <button onClick={createRule} disabled={saving || !template.trim()} className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors">
+          <button onClick={createRule} disabled={saving || !template.trim()} className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors">
             {saving ? 'Saving…' : 'Create Automation'}
           </button>
         </div>
@@ -502,7 +502,7 @@ function GeofencesCard({
         <div className="flex items-center gap-2">
           <input type="number" value={radiusYd} min={25} onChange={(e) => setRadiusYd(Number(e.target.value))} className={`${inputCls} w-28`} />
           <span className="text-xs text-gray-500">yards radius</span>
-          <button onClick={add} disabled={busy} className="ml-auto px-4 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium">
+          <button onClick={add} disabled={busy} className="ml-auto px-4 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium">
             {busy ? 'Adding…' : 'Add place'}
           </button>
         </div>

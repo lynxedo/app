@@ -304,7 +304,7 @@ function GroupRow({
                 type="button"
                 onClick={() => setMode('simultaneous')}
                 className={`px-2 py-0.5 ${
-                  mode === 'simultaneous' ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10'
+                  mode === 'simultaneous' ? 'bg-brand text-[#fff]' : 'text-white/60 hover:bg-white/10'
                 }`}
               >
                 Simultaneous
@@ -313,7 +313,7 @@ function GroupRow({
                 type="button"
                 onClick={() => setMode('sequential')}
                 className={`px-2 py-0.5 ${
-                  mode === 'sequential' ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10'
+                  mode === 'sequential' ? 'bg-brand text-[#fff]' : 'text-white/60 hover:bg-white/10'
                 }`}
               >
                 Sequential
@@ -486,7 +486,7 @@ function NewGroupForm({
             type="button"
             onClick={() => setMode('simultaneous')}
             className={`px-2 py-0.5 ${
-              mode === 'simultaneous' ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10'
+              mode === 'simultaneous' ? 'bg-brand text-[#fff]' : 'text-white/60 hover:bg-white/10'
             }`}
           >
             Simultaneous
@@ -495,7 +495,7 @@ function NewGroupForm({
             type="button"
             onClick={() => setMode('sequential')}
             className={`px-2 py-0.5 ${
-              mode === 'sequential' ? 'bg-brand text-white' : 'text-white/60 hover:bg-white/10'
+              mode === 'sequential' ? 'bg-brand text-[#fff]' : 'text-white/60 hover:bg-white/10'
             }`}
           >
             Sequential

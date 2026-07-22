@@ -739,7 +739,7 @@ export default function EmailReplyComposer({
           type="button"
           onClick={send}
           disabled={!canSend}
-          className="text-sm px-4 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium disabled:opacity-50"
+          className="text-sm px-4 py-1.5 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[#fff] font-medium disabled:opacity-50"
         >
           {sending ? 'Sending…' : 'Send'}
         </button>

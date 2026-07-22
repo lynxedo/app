@@ -414,7 +414,7 @@ export default function EmailComposeView({
                 type="button"
                 onClick={send}
                 disabled={sending || !accountsLoaded || accounts.length === 0}
-                className="text-sm px-5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium disabled:opacity-50"
+                className="text-sm px-5 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[#fff] font-medium disabled:opacity-50"
               >
                 {sending ? 'Sending…' : 'Send'}
               </button>

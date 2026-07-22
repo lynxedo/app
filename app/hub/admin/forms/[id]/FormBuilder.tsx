@@ -238,7 +238,7 @@ export default function FormBuilder({ initialForm }: { initialForm: Form }) {
         <button
           onClick={save}
           disabled={saving}
-          className="px-4 py-1.5 bg-brand hover:bg-brand-hover disabled:opacity-50 text-white text-sm font-medium rounded"
+          className="px-4 py-1.5 bg-brand hover:bg-brand-hover disabled:opacity-50 text-[#fff] text-sm font-medium rounded"
         >
           {saving ? 'Saving…' : 'Save'}
         </button>
@@ -341,7 +341,7 @@ export default function FormBuilder({ initialForm }: { initialForm: Form }) {
           <button
             onClick={save}
             disabled={saving}
-            className="w-full py-2.5 bg-brand hover:bg-brand-hover disabled:opacity-50 text-white font-medium rounded"
+            className="w-full py-2.5 bg-brand hover:bg-brand-hover disabled:opacity-50 text-[#fff] font-medium rounded"
           >
             {saving ? 'Saving…' : 'Save Form'}
           </button>

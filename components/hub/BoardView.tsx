@@ -274,7 +274,7 @@ function CommentsPanel({
                 <button
                   onClick={send}
                   disabled={sending}
-                  className="flex-none bg-brand hover:bg-brand-hover disabled:opacity-40 text-white text-xs font-medium px-2.5 py-1 rounded-lg transition-colors"
+                  className="flex-none bg-brand hover:bg-brand-hover disabled:opacity-40 text-[#fff] text-xs font-medium px-2.5 py-1 rounded-lg transition-colors"
                 >
                   Send
                 </button>
@@ -545,7 +545,7 @@ export default function BoardView({
               <button
                 key={f}
                 onClick={e => { e.stopPropagation(); setFilter(f) }}
-                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${filter === f ? 'bg-brand text-white' : 'text-white/50 hover:text-white'}`}
+                className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${filter === f ? 'bg-brand text-[#fff]' : 'text-white/50 hover:text-white'}`}
               >
                 {f === 'open' ? 'Open' : 'All'}
               </button>
@@ -605,7 +605,7 @@ export default function BoardView({
                         className="flex-1 bg-gray-800 border border-brand rounded-lg px-3 py-1.5 text-sm text-white outline-none resize-none"
                       />
                       <div className="flex flex-col gap-1">
-                        <button onClick={() => saveEdit(item)} className="text-xs bg-brand hover:bg-brand-hover text-white px-2.5 py-1 rounded-lg transition-colors">Save</button>
+                        <button onClick={() => saveEdit(item)} className="text-xs bg-brand hover:bg-brand-hover text-[#fff] px-2.5 py-1 rounded-lg transition-colors">Save</button>
                         <button onClick={() => setEditingId(null)} className="text-xs text-white/40 hover:text-white/70 px-2.5 py-1 rounded-lg transition-colors">Cancel</button>
                       </div>
                     </div>
@@ -722,7 +722,7 @@ export default function BoardView({
                             <>
                               <div className="flex -space-x-1.5">
                                 {item.assignees.slice(0, 3).map(a => (
-                                  <div key={a.id} className="w-4 h-4 rounded-full bg-brand ring-1 ring-gray-900 flex items-center justify-center text-[9px] font-bold text-white flex-none">
+                                  <div key={a.id} className="w-4 h-4 rounded-full bg-brand ring-1 ring-gray-900 flex items-center justify-center text-[9px] font-bold text-[#fff] flex-none">
                                     {a.display_name.slice(0, 1).toUpperCase()}
                                   </div>
                                 ))}
@@ -858,7 +858,7 @@ export default function BoardView({
               <button
                 onClick={addItem}
                 disabled={submitting}
-                className="flex-none bg-brand hover:bg-brand-hover disabled:opacity-40 text-white text-xs font-medium px-3 py-1 rounded-lg transition-colors"
+                className="flex-none bg-brand hover:bg-brand-hover disabled:opacity-40 text-[#fff] text-xs font-medium px-3 py-1 rounded-lg transition-colors"
               >
                 Add
               </button>

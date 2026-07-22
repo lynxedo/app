@@ -325,7 +325,7 @@ export default function EmailThreadView({
             <button
               type="button"
               onClick={() => setComposerMode(resumeDraftMode)}
-              className="text-xs px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-400 text-white font-medium"
+              className="text-xs px-2.5 py-1 rounded-md bg-amber-500 hover:bg-amber-400 text-[#fff] font-medium"
               title="You have an unsent reply saved on this conversation"
             >
               ✎ Resume draft
@@ -335,7 +335,7 @@ export default function EmailThreadView({
             <button
               type="button"
               onClick={() => setComposerMode('reply')}
-              className="text-xs px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium"
+              className="text-xs px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[#fff] font-medium"
             >
               ↩ Reply
             </button>
@@ -363,7 +363,7 @@ export default function EmailThreadView({
               type="button"
               onClick={() => runAction('claim')}
               disabled={busyAction}
-              className="text-xs px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-white font-medium disabled:opacity-50"
+              className="text-xs px-2.5 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[#fff] font-medium disabled:opacity-50"
               title="Assign this to me"
             >
               Claim
@@ -689,7 +689,7 @@ function NotesPanel({
             type="button"
             onClick={onSave}
             disabled={!noteText.trim() || saving}
-            className="w-full px-2 py-1.5 rounded-md bg-amber-600 hover:bg-amber-500 text-white text-xs disabled:opacity-50"
+            className="w-full px-2 py-1.5 rounded-md bg-amber-600 hover:bg-amber-500 text-[#fff] text-xs disabled:opacity-50"
           >
             {saving ? 'Saving…' : 'Save note'}
           </button>

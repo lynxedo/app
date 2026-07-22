@@ -132,7 +132,7 @@ export default function HubMobileMore({
       const conv = conversations.find(cv => cv.id === c.id)
       if (!conv) return null
       label = convFirstNames(conv, currentUserId)
-      icon = <span className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-700 text-white text-[11px] font-bold">{label.trim().charAt(0).toUpperCase() || '?'}</span>
+      icon = <span className="flex items-center justify-center w-5 h-5 rounded-full bg-sky-700 text-[#fff] text-[11px] font-bold">{label.trim().charAt(0).toUpperCase() || '?'}</span>
       onClick = () => navigate(`/hub/pm/${conv.id}`)
     } else {
       const id = c.id
@@ -266,7 +266,7 @@ function SysTile({ onClick, label, badge, children }: { onClick: () => void; lab
       {children}
       <span className="text-xs font-medium">{label}</span>
       {badge != null && badge > 0 && (
-        <span className="absolute top-2 right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-white text-[10px] font-bold flex items-center justify-center">{badge > 99 ? '99+' : badge}</span>
+        <span className="absolute top-2 right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-rose-500 text-[#fff] text-[10px] font-bold flex items-center justify-center">{badge > 99 ? '99+' : badge}</span>
       )}
     </button>
   )

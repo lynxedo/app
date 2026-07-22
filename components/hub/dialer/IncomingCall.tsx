@@ -68,7 +68,7 @@ export default function IncomingCall({
       className="fixed top-0 left-0 right-0 z-[70]"
       style={{ paddingTop: 'env(safe-area-inset-top, 0)' }}
     >
-      <div className="flex items-center gap-3 px-4 py-2.5 bg-sky-700 text-white shadow-xl border-b border-sky-900/50">
+      <div className="flex items-center gap-3 px-4 py-2.5 bg-sky-700 text-[#fff] shadow-xl border-b border-sky-900/50">
         <svg className="w-5 h-5 flex-none animate-pulse" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
           <path strokeLinecap="round" strokeLinejoin="round" d="M6 4h3l2 5-2.5 1.5a11 11 0 005 5L15 13l5 2v3a2 2 0 01-2 2A14 14 0 014 6a2 2 0 012-2z" />
         </svg>

@@ -92,7 +92,7 @@ export default function HubApiKeysSection() {
               </div>
               <button
                 onClick={() => setRevealedKey(null)}
-                className="w-full py-2.5 rounded-xl bg-brand hover:bg-brand-hover text-sm text-white font-medium transition-colors"
+                className="w-full py-2.5 rounded-xl bg-brand hover:bg-brand-hover text-sm text-[#fff] font-medium transition-colors"
               >
                 I&apos;ve saved it — close
               </button>
@@ -117,7 +117,7 @@ export default function HubApiKeysSection() {
             <button
               onClick={createApiKey}
               disabled={!newKeyName.trim() || creatingKey}
-              className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors flex-none"
+              className="px-5 py-2.5 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors flex-none"
             >
               {creatingKey ? 'Creating…' : 'Create'}
             </button>

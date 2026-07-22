@@ -64,7 +64,7 @@ export default async function HubRoutingPage({ searchParams }: Props) {
             <p className="text-gray-400 mb-8">Connect your Jobber account to load visits and optimize routes.</p>
             <a
               href="/api/auth/jobber"
-              className="inline-block px-6 py-3 bg-orange-500 hover:bg-orange-400 text-white rounded-xl text-sm font-medium transition-colors"
+              className="inline-block px-6 py-3 bg-orange-500 hover:bg-orange-400 text-[#fff] rounded-xl text-sm font-medium transition-colors"
             >
               Connect Jobber →
             </a>

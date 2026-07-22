@@ -143,7 +143,7 @@ export default function FeedbackView() {
           <div className="mt-7 flex flex-col sm:flex-row gap-3 justify-center">
             <button
               onClick={reset}
-              className="px-4 py-2.5 rounded-lg bg-brand hover:bg-brand-hover text-white font-medium transition-colors"
+              className="px-4 py-2.5 rounded-lg bg-brand hover:bg-brand-hover text-[#fff] font-medium transition-colors"
             >
               Send another report
             </button>
@@ -312,7 +312,7 @@ export default function FeedbackView() {
             <button
               type="submit"
               disabled={submitting || !summary.trim()}
-              className="flex-1 sm:flex-none sm:min-w-40 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-lg bg-brand hover:bg-brand-hover text-white font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              className="flex-1 sm:flex-none sm:min-w-40 inline-flex items-center justify-center gap-2 px-5 py-3 rounded-lg bg-brand hover:bg-brand-hover text-[#fff] font-semibold transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {submitting && (
                 <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">

@@ -91,7 +91,7 @@ export default function ActivityFeed() {
               }`}
             >
               <div className="flex items-start gap-3">
-                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-white text-sm font-bold flex-none">
+                <div className="w-9 h-9 rounded-full bg-gradient-to-br from-amber-500 to-amber-700 flex items-center justify-center text-[#fff] text-sm font-bold flex-none">
                   {(sender?.display_name ?? '?').charAt(0).toUpperCase()}
                 </div>
                 <div className="min-w-0 flex-1">

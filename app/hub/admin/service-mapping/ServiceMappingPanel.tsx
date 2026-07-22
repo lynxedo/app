@@ -12,7 +12,7 @@ import {
 
 const inputCls = 'bg-gray-800 border border-gray-700 rounded px-2 py-1.5 text-sm text-white placeholder-gray-600 focus:outline-none focus:border-indigo-500'
 const btn = 'px-2.5 py-1.5 text-xs font-semibold rounded-lg border border-gray-700 bg-gray-800 hover:bg-gray-700 text-gray-200 disabled:opacity-50'
-const btnPrimary = 'px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white disabled:opacity-50'
+const btnPrimary = 'px-3 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-[#fff] disabled:opacity-50'
 
 // The "no program yet" bucket in the program picker.
 const UNASSIGNED = '__unassigned__'

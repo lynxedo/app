@@ -177,7 +177,7 @@ export default function PlatformConsole({
             <button
               onClick={syncStripe}
               disabled={syncing}
-              className="shrink-0 rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
+              className="shrink-0 rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-medium text-[#fff] transition-colors hover:bg-sky-500 disabled:opacity-50"
             >
               {syncing ? 'Syncing…' : 'Sync to Stripe'}
             </button>
@@ -509,7 +509,7 @@ function TenantsTable({ tenants: initialTenants, features }: { tenants: TenantSu
         </p>
         <button
           onClick={() => setShowAdd((v) => !v)}
-          className="shrink-0 rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500"
+          className="shrink-0 rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-medium text-[#fff] transition-colors hover:bg-sky-500"
         >
           {showAdd ? 'Cancel' : '+ Add subscriber'}
         </button>
@@ -737,7 +737,7 @@ function AddSubscriberForm({
         <button
           onClick={submit}
           disabled={busy}
-          className="rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
+          className="rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-medium text-[#fff] transition-colors hover:bg-sky-500 disabled:opacity-50"
         >
           {busy ? 'Adding…' : 'Add subscriber'}
         </button>
@@ -878,8 +878,8 @@ function TenantDetailPanel({
           disabled={busy}
           className={`shrink-0 rounded-lg px-3 py-2 text-sm font-medium transition-colors disabled:opacity-50 ${
             detail.company.is_active
-              ? 'bg-red-500/90 text-white hover:bg-red-500'
-              : 'bg-emerald-500/90 text-white hover:bg-emerald-500'
+              ? 'bg-red-500/90 text-[#fff] hover:bg-red-500'
+              : 'bg-emerald-500/90 text-[#fff] hover:bg-emerald-500'
           }`}
         >
           {busy ? 'Saving…' : detail.company.is_active ? 'Suspend' : 'Activate'}
@@ -1034,7 +1034,7 @@ function TenantOverrideRow({
         <button
           onClick={save}
           disabled={busy}
-          className="rounded-md bg-sky-500/90 px-2.5 py-1 text-xs font-medium text-white transition-colors hover:bg-sky-500 disabled:opacity-50"
+          className="rounded-md bg-sky-500/90 px-2.5 py-1 text-xs font-medium text-[#fff] transition-colors hover:bg-sky-500 disabled:opacity-50"
         >
           Save
         </button>

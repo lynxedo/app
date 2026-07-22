@@ -194,7 +194,7 @@ export default function HubMobileBar({
       const letter = (label || '?').trim().charAt(0).toUpperCase() || '?'
       return (
         <Link key={`dm-${idx}`} href={`/hub/pm/${conv.id}`} onClick={() => onUserSlotNav?.()} className={btn(isActive)}>
-          <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${isActive ? 'bg-sky-400 text-gray-950' : 'bg-sky-700 text-white'}`}>{letter}</span>
+          <span className={`flex items-center justify-center w-5 h-5 rounded-full text-[11px] font-bold ${isActive ? 'bg-sky-400 text-gray-950' : 'bg-sky-700 text-[#fff]'}`}>{letter}</span>
           <span className="truncate max-w-full px-1">{label}</span>
         </Link>
       )
@@ -219,7 +219,7 @@ export default function HubMobileBar({
               <span className="absolute -top-0.5 -left-1 w-2 h-2 rounded-full bg-orange-400 border border-gray-950" aria-label="Missed call" />
             )}
             {unheardVoicemails != null && unheardVoicemails > 0 && (
-              <span className="absolute -top-0.5 -right-1.5 min-w-[16px] h-[16px] px-0.5 rounded-full bg-red-500 text-white text-[10px] font-bold flex items-center justify-center border border-gray-950" aria-label={`${unheardVoicemails} unheard voicemails`}>
+              <span className="absolute -top-0.5 -right-1.5 min-w-[16px] h-[16px] px-0.5 rounded-full bg-red-500 text-[#fff] text-[10px] font-bold flex items-center justify-center border border-gray-950" aria-label={`${unheardVoicemails} unheard voicemails`}>
                 {unheardVoicemails > 9 ? '9+' : unheardVoicemails}
               </span>
             )}

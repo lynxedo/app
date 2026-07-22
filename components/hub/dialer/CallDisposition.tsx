@@ -65,7 +65,7 @@ export default function CallDisposition({
               disabled={busy}
               className={`px-3 py-1.5 rounded-lg text-sm transition-colors disabled:opacity-60 ${
                 done === opt
-                  ? 'bg-emerald-600 text-white'
+                  ? 'bg-emerald-600 text-[#fff]'
                   : 'bg-white/10 text-white hover:bg-white/20'
               }`}
             >

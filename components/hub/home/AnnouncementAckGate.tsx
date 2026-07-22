@@ -154,7 +154,7 @@ export default function AnnouncementAckGate() {
                 <button
                   onClick={() => acknowledge(a.id)}
                   disabled={acking === a.id}
-                  className="px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-50 text-sm text-white font-medium transition-colors"
+                  className="px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-50 text-sm text-[#fff] font-medium transition-colors"
                 >
                   {acking === a.id ? 'Saving…' : '✓ Got it'}
                 </button>

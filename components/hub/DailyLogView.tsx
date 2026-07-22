@@ -77,7 +77,7 @@ function UserAvatar({ user, size = 7 }: { user: HubUser | null; size?: number })
   if (!user) return null
   const initials = user.display_name.split(' ').map(n => n[0]).join('').slice(0, 2).toUpperCase()
   return (
-    <div className={`w-${size} h-${size} rounded-full bg-brand flex items-center justify-center text-white font-semibold text-xs flex-none`}>
+    <div className={`w-${size} h-${size} rounded-full bg-brand flex items-center justify-center text-[#fff] font-semibold text-xs flex-none`}>
       {initials}
     </div>
   )
@@ -493,7 +493,7 @@ function EntryCard({
                 <span className="text-xs text-red-400">Remove?</span>
                 <button
                   onClick={deleteEntry}
-                  className="text-xs px-2 py-1 bg-red-600 hover:bg-red-500 text-white rounded-lg transition-colors"
+                  className="text-xs px-2 py-1 bg-red-600 hover:bg-red-500 text-[#fff] rounded-lg transition-colors"
                 >
                   Yes
                 </button>
@@ -537,7 +537,7 @@ function EntryCard({
             <span
               className={`flex items-center justify-center w-5 h-5 rounded border flex-none ${
                 isComplete
-                  ? 'bg-emerald-600 border-emerald-500 text-white'
+                  ? 'bg-emerald-600 border-emerald-500 text-[#fff]'
                   : 'bg-gray-900 border-gray-600 text-transparent'
               }`}
             >
@@ -574,7 +574,7 @@ function EntryCard({
             <span
               className={`flex items-center justify-center w-5 h-5 rounded border flex-none ${
                 isClosed
-                  ? 'bg-sky-600 border-sky-500 text-white'
+                  ? 'bg-sky-600 border-sky-500 text-[#fff]'
                   : 'bg-gray-900 border-gray-600 text-transparent'
               }`}
             >
@@ -675,7 +675,7 @@ function EntryCard({
                 <button
                   onClick={saveNotes}
                   disabled={savingNotes}
-                  className="px-3 py-1.5 rounded-lg bg-brand hover:bg-brand-hover text-white text-xs font-medium transition-colors disabled:opacity-40"
+                  className="px-3 py-1.5 rounded-lg bg-brand hover:bg-brand-hover text-[#fff] text-xs font-medium transition-colors disabled:opacity-40"
                 >
                   {savingNotes ? 'Saving…' : 'Save'}
                 </button>
@@ -1001,7 +1001,7 @@ function EntryCard({
               <button
                 onClick={submitUpdate}
                 disabled={(!updateText.trim() && pendingAttachments.length === 0) || sendingUpdate || uploadingCount > 0}
-                className="px-3 py-2 rounded-xl bg-brand hover:bg-brand-hover text-white text-sm font-medium transition-colors disabled:opacity-40 flex-none"
+                className="px-3 py-2 rounded-xl bg-brand hover:bg-brand-hover text-[#fff] text-sm font-medium transition-colors disabled:opacity-40 flex-none"
               >
                 {sendingUpdate ? '…' : 'Send'}
               </button>
@@ -1206,7 +1206,7 @@ export default function DailyLogView({
               <button
                 onClick={() => setMyDayOnly(true)}
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                  myDayOnly ? 'bg-brand text-white' : 'text-gray-400 hover:text-white'
+                  myDayOnly ? 'bg-brand text-[#fff]' : 'text-gray-400 hover:text-white'
                 }`}
               >
                 My Day
@@ -1214,7 +1214,7 @@ export default function DailyLogView({
               <button
                 onClick={() => setMyDayOnly(false)}
                 className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
-                  !myDayOnly ? 'bg-brand text-white' : 'text-gray-400 hover:text-white'
+                  !myDayOnly ? 'bg-brand text-[#fff]' : 'text-gray-400 hover:text-white'
                 }`}
               >
                 All Techs
@@ -1224,7 +1224,7 @@ export default function DailyLogView({
             {/* Add entry button (all users) */}
             <button
               onClick={() => setShowAddEntry(true)}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand hover:bg-brand-hover text-white text-xs font-medium transition-colors"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-brand hover:bg-brand-hover text-[#fff] text-xs font-medium transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 4v16m8-8H4" />
@@ -1363,7 +1363,7 @@ export default function DailyLogView({
               <button
                 onClick={createEntry}
                 disabled={!newTechId || creating}
-                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                className="flex-1 py-2 rounded-xl bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
               >
                 {creating ? 'Creating…' : 'Create Entry'}
               </button>

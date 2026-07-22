@@ -1092,7 +1092,7 @@ function EditLeadDrawer({ lead, opts, stages, onClose, onUpdated, onDeleted }: {
               <p className="text-xs text-gray-400 text-center">Delete this lead permanently?</p>
               <div className="flex gap-2">
                 <button type="button" onClick={() => setConfirmDelete(false)} className="flex-1 bg-gray-800 hover:bg-gray-700 text-white text-sm font-medium py-2 rounded-lg transition-colors">Cancel</button>
-                <button type="button" onClick={handleDelete} disabled={deleting} className="flex-1 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-medium py-2 rounded-lg transition-colors">{deleting ? 'Deleting…' : 'Confirm Delete'}</button>
+                <button type="button" onClick={handleDelete} disabled={deleting} className="flex-1 bg-red-700 hover:bg-red-600 disabled:opacity-50 text-[#fff] text-sm font-medium py-2 rounded-lg transition-colors">{deleting ? 'Deleting…' : 'Confirm Delete'}</button>
               </div>
             </div>
           )}

@@ -294,7 +294,7 @@ export default function TimesheetPage({
             </p>
             <p className="text-xs text-gray-600">{userEmail}</p>
             {isAdmin && (
-              <Link href="/hub/admin/timesheet" className="mt-4 bg-blue-600 hover:bg-blue-500 text-white px-6 py-3 rounded-xl font-medium transition-colors">
+              <Link href="/hub/admin/timesheet" className="mt-4 bg-blue-600 hover:bg-blue-500 text-[#fff] px-6 py-3 rounded-xl font-medium transition-colors">
                 Go to Admin View
               </Link>
             )}
@@ -353,8 +353,8 @@ export default function TimesheetPage({
                   disabled={clocking}
                   className={`w-full py-5 rounded-2xl text-lg font-bold transition-all disabled:opacity-70 ${
                     clockedIn
-                      ? 'bg-red-500 hover:bg-red-400 active:bg-red-600 text-white shadow-lg shadow-red-500/25'
-                      : 'bg-green-500 hover:bg-green-400 active:bg-green-600 text-white shadow-lg shadow-green-500/25'
+                      ? 'bg-red-500 hover:bg-red-400 active:bg-red-600 text-[#fff] shadow-lg shadow-red-500/25'
+                      : 'bg-green-500 hover:bg-green-400 active:bg-green-600 text-[#fff] shadow-lg shadow-green-500/25'
                   }`}
                 >
                   {clocking ? '…' : clockedIn ? 'Clock Out' : 'Clock In'}
@@ -444,7 +444,7 @@ export default function TimesheetPage({
                         <button
                           key={t}
                           onClick={() => setPtoForm(f => ({ ...f, type: t }))}
-                          className={`flex-1 py-1.5 rounded-lg text-sm transition-colors border ${ptoForm.type === t ? 'bg-blue-600 border-blue-500 text-white' : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-white'}`}
+                          className={`flex-1 py-1.5 rounded-lg text-sm transition-colors border ${ptoForm.type === t ? 'bg-blue-600 border-blue-500 text-[#fff]' : 'bg-gray-800 border-gray-700 text-gray-400 hover:text-white'}`}
                         >{t.charAt(0).toUpperCase() + t.slice(1)}</button>
                       ))}
                     </div>
@@ -464,7 +464,7 @@ export default function TimesheetPage({
                     <button
                       onClick={submitPto}
                       disabled={ptoSubmitting}
-                      className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+                      className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] text-sm font-medium py-2 rounded-lg transition-colors"
                     >{ptoSubmitting ? 'Submitting…' : 'Submit Request'}</button>
                     <button
                       onClick={() => { setShowPtoForm(false); setPtoError('') }}
@@ -607,7 +607,7 @@ export default function TimesheetPage({
                               <button
                                 onClick={() => submitEdit(entry.id)}
                                 disabled={submittingEdit || !editForm.reason.trim()}
-                                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white text-sm font-medium py-2 rounded-lg transition-colors"
+                                className="flex-1 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-[#fff] text-sm font-medium py-2 rounded-lg transition-colors"
                               >
                                 {submittingEdit ? 'Submitting…' : 'Submit Request'}
                               </button>

@@ -429,7 +429,7 @@ function SkipReasonForm({
         <button
           onClick={submit}
           disabled={label.trim().length === 0 || label.trim().length > 100}
-          className="px-3 py-1.5 rounded bg-brand hover:bg-brand-hover text-white text-sm font-medium transition-colors disabled:opacity-40"
+          className="px-3 py-1.5 rounded bg-brand hover:bg-brand-hover text-[#fff] text-sm font-medium transition-colors disabled:opacity-40"
         >
           {initial ? 'Save changes' : 'Add reason'}
         </button>

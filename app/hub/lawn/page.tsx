@@ -315,7 +315,7 @@ export default function LawnPage() {
             <button
               onClick={loading ? undefined : run}
               disabled={loading || !address.trim()}
-              className="px-5 py-2.5 bg-green-700 hover:bg-green-600 disabled:bg-gray-800 disabled:text-gray-600 text-white font-medium rounded-lg text-sm transition-colors whitespace-nowrap"
+              className="px-5 py-2.5 bg-green-700 hover:bg-green-600 disabled:bg-gray-800 disabled:text-gray-600 text-[#fff] font-medium rounded-lg text-sm transition-colors whitespace-nowrap"
             >
               {loading ? 'Analyzing…' : 'Analyze'}
             </button>

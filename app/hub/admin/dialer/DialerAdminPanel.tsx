@@ -365,7 +365,7 @@ export default function DialerAdminPanel({
               if (file) uploadGreeting(file)
             }}
             disabled={uploading}
-            className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-brand file:text-white file:text-sm hover:file:bg-brand-light file:cursor-pointer"
+            className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-brand file:text-[#fff] file:text-sm hover:file:bg-brand-light file:cursor-pointer"
           />
           {uploading && <span className="ml-2 text-xs text-white/50">Uploading…</span>}
         </div>
@@ -618,7 +618,7 @@ export default function DialerAdminPanel({
                     if (file) uploadConsentAudio(file)
                   }}
                   disabled={uploadingConsent}
-                  className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-brand file:text-white file:text-sm hover:file:bg-brand-light file:cursor-pointer"
+                  className="text-xs text-white/70 file:mr-3 file:px-3 file:py-1.5 file:rounded file:border-0 file:bg-brand file:text-[#fff] file:text-sm hover:file:bg-brand-light file:cursor-pointer"
                 />
                 {uploadingConsent && <span className="ml-2 text-xs text-white/50">Uploading…</span>}
               </div>

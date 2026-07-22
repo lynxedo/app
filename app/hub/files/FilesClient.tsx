@@ -289,7 +289,7 @@ export default function FilesClient({
                 type="file"
                 className="block w-full text-sm text-gray-400
                   file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0
-                  file:text-sm file:font-medium file:bg-brand file:text-white
+                  file:text-sm file:font-medium file:bg-brand file:text-[#fff]
                   hover:file:bg-brand-hover file:cursor-pointer cursor-pointer"
                 required
               />
@@ -312,7 +312,7 @@ export default function FilesClient({
               <button
                 type="submit"
                 disabled={uploading}
-                className="px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white font-medium transition-colors"
+                className="px-4 py-2 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff] font-medium transition-colors"
               >
                 {uploading ? 'Uploading…' : 'Upload'}
               </button>
@@ -389,7 +389,7 @@ export default function FilesClient({
                         type="button"
                         onClick={() => saveEdit(f.id)}
                         disabled={savingEdit}
-                        className="px-4 py-1.5 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-white"
+                        className="px-4 py-1.5 rounded-lg bg-brand hover:bg-brand-hover disabled:opacity-40 text-sm text-[#fff]"
                       >
                         {savingEdit ? 'Saving…' : 'Save'}
                       </button>

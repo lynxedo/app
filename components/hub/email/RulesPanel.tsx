@@ -271,7 +271,7 @@ export default function RulesPanel({ open, onClose }: { open: boolean; onClose: 
               <button
                 type="button"
                 onClick={openNew}
-                className="px-3 py-1.5 text-sm font-medium rounded-md bg-emerald-600 text-white hover:bg-emerald-700"
+                className="px-3 py-1.5 text-sm font-medium rounded-md bg-emerald-600 text-[#fff] hover:bg-emerald-700"
               >
                 + New rule
               </button>
@@ -471,7 +471,7 @@ export default function RulesPanel({ open, onClose }: { open: boolean; onClose: 
                   type="button"
                   onClick={save}
                   disabled={saving}
-                  className="px-4 py-1.5 text-sm font-medium rounded-md bg-emerald-600 text-white hover:bg-emerald-700 disabled:opacity-50"
+                  className="px-4 py-1.5 text-sm font-medium rounded-md bg-emerald-600 text-[#fff] hover:bg-emerald-700 disabled:opacity-50"
                 >
                   {saving ? 'Saving…' : editingId ? 'Save changes' : 'Create rule'}
                 </button>
@@ -497,7 +497,7 @@ export default function RulesPanel({ open, onClose }: { open: boolean; onClose: 
               <button
                 type="button"
                 onClick={openNew}
-                className="mt-4 px-4 py-1.5 text-sm font-medium rounded-md bg-emerald-600 text-white hover:bg-emerald-700"
+                className="mt-4 px-4 py-1.5 text-sm font-medium rounded-md bg-emerald-600 text-[#fff] hover:bg-emerald-700"
               >
                 Create your first rule
               </button>

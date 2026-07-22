@@ -192,7 +192,7 @@ function UserAvatar({ user, size = 8 }: { user: HubUser | null; size?: number })
   return (
     <div
       style={{ width: px, height: px }}
-      className="rounded-full bg-brand flex items-center justify-center text-white font-semibold text-xs flex-none"
+      className="rounded-full bg-brand flex items-center justify-center text-[#fff] font-semibold text-xs flex-none"
     >
       {initials}
     </div>
@@ -804,7 +804,7 @@ function EntryCard({
           <div className="flex-1 text-sm text-emerald-200">✓ All stops done — mark route complete?</div>
           <button
             onClick={() => onMarkRouteComplete(entry.id)}
-            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-white rounded text-sm font-semibold transition-colors"
+            className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 text-[#fff] rounded text-sm font-semibold transition-colors"
           >
             Mark Complete
           </button>
@@ -1144,7 +1144,7 @@ function StopRow({
                   href={navHref}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="px-3 py-2.5 bg-sky-600 hover:bg-sky-500 text-white rounded font-medium text-sm text-center transition-colors flex items-center justify-center gap-1.5"
+                  className="px-3 py-2.5 bg-sky-600 hover:bg-sky-500 text-[#fff] rounded font-medium text-sm text-center transition-colors flex items-center justify-center gap-1.5"
                 >
                   🗺️ Navigate
                 </a>
@@ -1160,7 +1160,7 @@ function StopRow({
                   className={`px-3 py-2.5 rounded font-medium text-sm transition-colors flex items-center justify-center gap-1.5 ${
                     stop.on_my_way_sent_at
                       ? 'bg-sky-500/20 text-sky-200 hover:bg-sky-500/30'
-                      : 'bg-amber-600 hover:bg-amber-500 text-white disabled:opacity-50'
+                      : 'bg-amber-600 hover:bg-amber-500 text-[#fff] disabled:opacity-50'
                   }`}
                 >
                   {stop.on_my_way_sent_at
@@ -1186,7 +1186,7 @@ function StopRow({
                     onClick={() => { setOmwEta(n); setOmwCustom('') }}
                     className={`px-3 py-2 rounded text-sm font-medium transition-colors min-w-[52px] ${
                       !omwCustom && omwEta === n
-                        ? 'bg-amber-500 text-white'
+                        ? 'bg-amber-500 text-[#fff]'
                         : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
                     }`}
                   >
@@ -1209,7 +1209,7 @@ function StopRow({
                 <button
                   onClick={submitOmw}
                   disabled={pending}
-                  className="flex-1 px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded font-semibold text-sm transition-colors"
+                  className="flex-1 px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#fff] rounded font-semibold text-sm transition-colors"
                 >
                   {pending ? 'Sending…' : `Send (${omwCustom || omwEta} min ETA)`}
                 </button>
@@ -1284,7 +1284,7 @@ function StopRow({
                 className={`text-xs px-2.5 py-1.5 rounded font-medium transition-colors ${
                   stop.office_reviewed_at
                     ? 'bg-violet-700/40 text-violet-300 hover:bg-violet-700/60'
-                    : 'bg-violet-600 text-white hover:bg-violet-500'
+                    : 'bg-violet-600 text-[#fff] hover:bg-violet-500'
                 }`}
               >
                 {stop.office_reviewed_at ? 'Undo' : 'Mark reviewed'}
@@ -1412,14 +1412,14 @@ function StopRow({
                 <button
                   onClick={() => onArrive(stop.id, false)}
                   disabled={pending}
-                  className="w-full px-3 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-white rounded font-semibold text-base transition-colors"
+                  className="w-full px-3 py-3 bg-amber-500 hover:bg-amber-400 disabled:opacity-50 text-[#fff] rounded font-semibold text-base transition-colors"
                 >
                   {pending ? 'Starting…' : '▶ Arrived at property'}
                 </button>
                 <button
                   onClick={() => onComplete(stop.id, false)}
                   disabled={pending}
-                  className="w-full px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded font-medium text-sm transition-colors"
+                  className="w-full px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#fff] rounded font-medium text-sm transition-colors"
                 >
                   {pending ? 'Marking complete…' : '✓ Mark Complete (skip timer)'}
                 </button>
@@ -1438,7 +1438,7 @@ function StopRow({
                 <button
                   onClick={() => onComplete(stop.id, false)}
                   disabled={pending}
-                  className="w-full px-3 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-white rounded font-semibold text-base transition-colors"
+                  className="w-full px-3 py-3 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-50 text-[#fff] rounded font-semibold text-base transition-colors"
                 >
                   {pending ? 'Marking complete…' : '✓ Mark Complete'}
                 </button>
@@ -1796,7 +1796,7 @@ function StopNotesAndAttachments({
         <button
           onClick={send}
           disabled={sending || (!text.trim() && pendingFiles.length === 0)}
-          className="flex-none px-3 py-2.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-white rounded text-sm font-medium transition-colors self-end"
+          className="flex-none px-3 py-2.5 bg-sky-600 hover:bg-sky-500 disabled:opacity-40 text-[#fff] rounded text-sm font-medium transition-colors self-end"
         >
           {sending ? '…' : '↑'}
         </button>
@@ -1926,7 +1926,7 @@ function ServiceReportSection({
                   onClick={() => setMainService(prev => prev === s ? '' : s)}
                   className={`px-2.5 py-1.5 rounded text-xs font-medium transition-colors ${
                     mainService === s
-                      ? 'bg-sky-600 text-white'
+                      ? 'bg-sky-600 text-[#fff]'
                       : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
                   }`}
                 >
@@ -1946,7 +1946,7 @@ function ServiceReportSection({
                   onClick={() => toggleAdditional(s)}
                   className={`px-2.5 py-1.5 rounded text-xs font-medium transition-colors ${
                     additionalServices.includes(s)
-                      ? 'bg-emerald-600 text-white'
+                      ? 'bg-emerald-600 text-[#fff]'
                       : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
                   }`}
                 >
@@ -1966,7 +1966,7 @@ function ServiceReportSection({
                   onClick={() => toggleIssue(s)}
                   className={`px-2.5 py-1.5 rounded text-xs font-medium transition-colors ${
                     issues.includes(s)
-                      ? 'bg-amber-600 text-white'
+                      ? 'bg-amber-600 text-[#fff]'
                       : 'bg-gray-800 text-gray-300 hover:bg-gray-700'
                   }`}
                 >
@@ -2000,7 +2000,7 @@ function ServiceReportSection({
             <button
               onClick={saveReport}
               disabled={saving}
-              className="flex-1 px-3 py-2.5 bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-white rounded text-sm font-medium transition-colors"
+              className="flex-1 px-3 py-2.5 bg-sky-700 hover:bg-sky-600 disabled:opacity-50 text-[#fff] rounded text-sm font-medium transition-colors"
             >
               {saving ? 'Saving…' : 'Save report'}
             </button>
@@ -2009,7 +2009,7 @@ function ServiceReportSection({
                 onClick={sendReport}
                 disabled={sending || !report}
                 title={!report ? 'Save the report first' : ''}
-                className="flex-1 px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-white rounded text-sm font-medium transition-colors"
+                className="flex-1 px-3 py-2.5 bg-emerald-600 hover:bg-emerald-500 disabled:opacity-40 text-[#fff] rounded text-sm font-medium transition-colors"
               >
                 {sending ? 'Sending…' : '📱 Send to customer'}
               </button>
