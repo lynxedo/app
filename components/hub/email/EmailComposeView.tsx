@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
-import { useToast } from '@/components/ui'
+import { useToast, Spinner } from '@/components/ui'
 import EmailRichTextEditor, { type EmailEditorHandle } from './EmailRichTextEditor'
 import EmailAttachments from './EmailAttachments'
 import {
@@ -11,20 +11,31 @@ import {
   htmlToPlainText,
   extractDraftText,
   finalizeEmailHtml,
+  formatRecipientList,
   LIGHT_SURFACE_STYLE,
   type InboxAccount,
   type OutgoingAttachment,
+  type EmailDraft,
 } from './emailFormat'
 
 /**
- * Full-page "New email" composer (main window, light theme) — replaces the old
- * sidebar modal. To / Cc / Subject + a TipTap rich body pre-loaded with the
- * user's signature, plus attachments. POSTs /api/hub/email/compose with
- * { account, to, cc?, subject, bodyHtml, body, attachments }; on success
- * navigates to the returned thread (when the API gives one) or back to the
- * inbox with a toast.
+ * Full-page "New email" composer (main window, light theme). To / Cc / Subject +
+ * a TipTap rich body pre-loaded with the user's signature, plus attachments.
+ *
+ * Drafts (Step 2a): the composer AUTO-SAVES to /api/hub/email/drafts as you type
+ * (debounced) so an unfinished email survives closing the window; opening
+ * /hub/email/compose?draft=<id> restores it. A successful send deletes the draft.
+ *
+ * POSTs /api/hub/email/compose on send; navigates to the returned thread (when the
+ * API gives one) or back to the inbox with a toast.
  */
-export default function EmailComposeView({ emailSignature = '' }: { emailSignature?: string }) {
+export default function EmailComposeView({
+  emailSignature = '',
+  draftId,
+}: {
+  emailSignature?: string
+  draftId?: string
+}) {
   const router = useRouter()
   const toast = useToast()
   const editorRef = useRef<EmailEditorHandle>(null)
@@ -32,7 +43,10 @@ export default function EmailComposeView({ emailSignature = '' }: { emailSignatu
   const sigHtml = signatureToHtml(emailSignature)
   const sigText = htmlToPlainText(sigHtml)
   // Empty typing area on top, then the (editable) signature after a blank line.
-  const [initialHtml] = useState(() => (sigHtml ? `<p></p><p></p>${sigHtml}` : '<p></p>'))
+  const defaultInitialHtml = useMemo(
+    () => (sigHtml ? `<p></p><p></p>${sigHtml}` : '<p></p>'),
+    [sigHtml]
+  )
 
   const [accounts, setAccounts] = useState<InboxAccount[]>([])
   const [accountsLoaded, setAccountsLoaded] = useState(false)
@@ -46,6 +60,13 @@ export default function EmailComposeView({ emailSignature = '' }: { emailSignatu
   const [attachments, setAttachments] = useState<OutgoingAttachment[]>([])
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+
+  // Draft persistence.
+  const [draftReady, setDraftReady] = useState(!draftId) // wait for the draft to load first
+  const [restoredHtml, setRestoredHtml] = useState<string | null>(null)
+  const [draftStatus, setDraftStatus] = useState<'idle' | 'saving' | 'saved'>('idle')
+  const savedDraftIdRef = useRef<string | null>(draftId || null)
+  const savingRef = useRef(false)
 
   // Load sendable accounts (same source as the sidebar).
   useEffect(() => {
@@ -71,6 +92,101 @@ export default function EmailComposeView({ emailSignature = '' }: { emailSignatu
       cancelled = true
     }
   }, [])
+
+  // Restore an existing draft (?draft=<id>) before mounting the editor.
+  useEffect(() => {
+    if (!draftId) return
+    let cancelled = false
+    fetch(`/api/hub/email/drafts/${draftId}`)
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (cancelled) return
+        const d = data.draft as EmailDraft | undefined
+        if (d) {
+          setAccountId(d.account_id)
+          setTo(formatRecipientList(d.to_recipients))
+          if (d.cc_recipients && d.cc_recipients.length > 0) {
+            setCc(formatRecipientList(d.cc_recipients))
+            setShowCc(true)
+          }
+          setSubject(d.subject || '')
+          setAttachments(Array.isArray(d.attachments) ? d.attachments : [])
+          setRestoredHtml(d.body_html || defaultInitialHtml)
+          savedDraftIdRef.current = d.id
+        }
+      })
+      .catch(() => {
+        /* draft gone → start fresh */
+      })
+      .finally(() => {
+        if (!cancelled) setDraftReady(true)
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [draftId, defaultInitialHtml])
+
+  const hasContent =
+    to.trim().length > 0 ||
+    (showCc && cc.trim().length > 0) ||
+    subject.trim().length > 0 ||
+    draftText.trim().length > 0 ||
+    attachments.length > 0
+
+  async function saveDraft() {
+    if (savingRef.current || !accountId) return
+    savingRef.current = true
+    setDraftStatus('saving')
+    try {
+      const html = editorRef.current?.getHTML() || ''
+      const res = await fetch('/api/hub/email/drafts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: savedDraftIdRef.current,
+          account: accountId,
+          kind: 'new',
+          to: parseRecipients(to),
+          cc: showCc ? parseRecipients(cc) : [],
+          subject: subject.trim(),
+          bodyHtml: html,
+          attachments,
+        }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok && data.id) {
+        savedDraftIdRef.current = data.id
+        setDraftStatus('saved')
+      } else {
+        setDraftStatus('idle')
+      }
+    } catch {
+      setDraftStatus('idle')
+    } finally {
+      savingRef.current = false
+    }
+  }
+
+  // Debounced auto-save while there's meaningful content and we're not sending.
+  useEffect(() => {
+    if (!draftReady || sending || !accountId || !hasContent) return
+    const t = setTimeout(() => {
+      void saveDraft()
+    }, 1800)
+    return () => clearTimeout(t)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [to, cc, showCc, subject, draftText, attachments, accountId, draftReady, sending, hasContent])
+
+  async function discardDraft() {
+    const id = savedDraftIdRef.current
+    if (!id) return
+    savedDraftIdRef.current = null
+    try {
+      await fetch(`/api/hub/email/drafts/${id}`, { method: 'DELETE' })
+    } catch {
+      /* best-effort */
+    }
+  }
 
   async function send() {
     setError('')
@@ -112,14 +228,15 @@ export default function EmailComposeView({ emailSignature = '' }: { emailSignatu
       const data = await res.json().catch(() => ({}))
       if (!res.ok || data.error || data.ok === false) {
         setError(data.error || 'Could not send — try again')
+        setSending(false)
         return
       }
+      await discardDraft() // the message sent — drop the draft
       toast.success('Email sent')
       if (data.threadId) router.push(`/hub/email/${data.threadId}`)
       else router.push('/hub/email')
     } catch {
       setError('Could not send — try again')
-    } finally {
       setSending(false)
     }
   }
@@ -141,14 +258,20 @@ export default function EmailComposeView({ emailSignature = '' }: { emailSignatu
             className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-2 max-md:pl-14"
           >
             <h1 className="font-semibold text-gray-900">New email</h1>
-            <button
-              type="button"
-              onClick={() => router.push('/hub/email')}
-              disabled={sending}
-              className="text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 hover:bg-gray-50 text-gray-600 disabled:opacity-50"
-            >
-              Cancel
-            </button>
+            <div className="flex items-center gap-3">
+              <span className="text-[11px] text-gray-400" aria-live="polite">
+                {draftStatus === 'saving' ? 'Saving…' : draftStatus === 'saved' ? 'Draft saved' : ''}
+              </span>
+              <button
+                type="button"
+                onClick={() => router.push('/hub/email')}
+                disabled={sending}
+                className="text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 hover:bg-gray-50 text-gray-600 disabled:opacity-50"
+                title={savedDraftIdRef.current ? 'Your draft is saved' : undefined}
+              >
+                {savedDraftIdRef.current ? 'Close' : 'Cancel'}
+              </button>
+            </div>
           </div>
 
           <div className="px-4 py-4 space-y-3 flex-1">
@@ -231,14 +354,20 @@ export default function EmailComposeView({ emailSignature = '' }: { emailSignatu
 
             <div>
               <label className={labelCls}>Message</label>
-              <EmailRichTextEditor
-                ref={editorRef}
-                initialHtml={initialHtml}
-                onChange={(_html, text) => setDraftText(extractDraftText(text, sigText))}
-                disabled={sending}
-                minHeightClass="min-h-[220px]"
-                maxHeightClass="max-h-[52vh]"
-              />
+              {draftReady ? (
+                <EmailRichTextEditor
+                  ref={editorRef}
+                  initialHtml={restoredHtml ?? defaultInitialHtml}
+                  onChange={(_html, text) => setDraftText(extractDraftText(text, sigText))}
+                  disabled={sending}
+                  minHeightClass="min-h-[220px]"
+                  maxHeightClass="max-h-[52vh]"
+                />
+              ) : (
+                <div className="min-h-[220px] flex items-center justify-center">
+                  <Spinner size={6} />
+                </div>
+              )}
               {sigHtml && (
                 <p className="text-[11px] text-gray-400 mt-1">
                   Your signature is pre-filled below the message — edit it freely for this email.

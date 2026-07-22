@@ -18,8 +18,12 @@ import {
   type InboxAccount,
   type EmailThread,
   type EmailMessage,
+  type EmailDraft,
   type MailFolder,
 } from '@/components/hub/email/emailFormat'
+
+// Special folder-dropdown value that switches the list to the user's Drafts.
+const DRAFTS_VIEW = '__drafts__'
 
 const READS_KEY = 'email-conv-reads'
 
@@ -84,6 +88,8 @@ export default function EmailInboxSidebar({
   // List state.
   const [threads, setThreads] = useState<EmailThread[]>([])
   const [queue, setQueue] = useState<EmailThread[]>([]) // manager-only unassigned Queue
+  const [drafts, setDrafts] = useState<EmailDraft[]>([]) // Drafts view
+  const [draftsLoading, setDraftsLoading] = useState(false)
   const [loading, setLoading] = useState(false)
   const [scope, setScope] = useState<Scope>('mine')
   const [lens, setLens] = useState<Lens>('all') // secondary within-list filter
@@ -200,11 +206,12 @@ export default function EmailInboxSidebar({
     }
   }, [account, accountsLoaded])
 
-  // Managers see the pinned unassigned Queue on the live Inbox view (not on Closed / a folder view).
+  const isDraftsView = folder === DRAFTS_VIEW
+  // Managers see the pinned unassigned Queue on the live Inbox view (not on Closed / Drafts / a folder view).
   const showQueue = isManager && account === 'shared' && folder === '' && scope !== 'closed'
 
   const load = useCallback(async () => {
-    if (!accountsLoaded) return
+    if (!accountsLoaded || isDraftsView) return
     setLoading(true)
     const params = new URLSearchParams({ scope, account, limit: '100' })
     if (folder) params.set('folder', folder)
@@ -223,11 +230,38 @@ export default function EmailInboxSidebar({
     } finally {
       setLoading(false)
     }
-  }, [scope, account, folder, debouncedSearch, accountsLoaded, showQueue])
+  }, [scope, account, folder, debouncedSearch, accountsLoaded, showQueue, isDraftsView])
 
   useEffect(() => {
     load()
   }, [load])
+
+  // Drafts view — load the caller's own drafts for the current mailbox.
+  const loadDrafts = useCallback(async () => {
+    if (!accountsLoaded || !isDraftsView) return
+    setDraftsLoading(true)
+    try {
+      const res = await fetch(`/api/hub/email/drafts?account=${encodeURIComponent(account)}`)
+      if (res.ok) setDrafts((await res.json()).drafts || [])
+    } finally {
+      setDraftsLoading(false)
+    }
+  }, [account, accountsLoaded, isDraftsView])
+
+  useEffect(() => {
+    loadDrafts()
+  }, [loadDrafts])
+
+  async function deleteDraft(id: string, e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    setDrafts((prev) => prev.filter((d) => d.id !== id)) // optimistic
+    try {
+      await fetch(`/api/hub/email/drafts/${id}`, { method: 'DELETE' })
+    } catch {
+      loadDrafts() // restore on failure
+    }
+  }
 
   // Realtime — the sync/webhook pipeline broadcasts on `inbox:{companyId}`.
   useEffect(() => {
@@ -291,11 +325,14 @@ export default function EmailInboxSidebar({
   )
 
   // In the "All" scope the unassigned threads also come back in the main list —
-  // drop them so they only appear once (in the pinned Queue above).
-  const filteredThreads = threads
-    .filter((t) => !(showQueue && scope === 'all' && t.status === 'open' && !t.assigned_to_user_id))
-    .filter(passesLens)
-  const filteredQueue = queue.filter(passesLens)
+  // drop them so they only appear once (in the pinned Queue above). The Drafts view
+  // renders its own list, so the thread/queue lists are empty there.
+  const filteredThreads = isDraftsView
+    ? []
+    : threads
+        .filter((t) => !(showQueue && scope === 'all' && t.status === 'open' && !t.assigned_to_user_id))
+        .filter(passesLens)
+  const filteredQueue = isDraftsView ? [] : queue.filter(passesLens)
 
   async function claim(id: string, e: React.MouseEvent) {
     e.preventDefault()
@@ -521,35 +558,34 @@ export default function EmailInboxSidebar({
           className="w-full px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm placeholder-white/30"
         />
 
-        {/* Folder dropdown — Inbox default; others are reference/filing views.
-            System folders (Sent/Drafts/Deleted/Junk…) get an em-dash prefix. */}
-        {folders.length > 0 && (
-          <select
-            value={folder}
-            onChange={(e) => {
-              const v = e.target.value
-              setFolder(v)
-              setExpandedId(null)
-              // A filing folder shows everything in it; the Inbox queue returns
-              // to the personal default.
-              if (account === 'shared' && isManager) setScope(v ? 'all' : 'mine')
-            }}
-            className="w-full px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white/80"
-          >
-            <option value="">Inbox</option>
-            {folders
-              // The default "Inbox" option IS the Outlook Inbox (mirror) — don't list the
-              // Inbox folder again, or there'd be two "Inbox" entries (the old confusion).
-              .filter((f) => (f.system_folder || '').toLowerCase() !== 'inbox')
-              .map((f) => (
-                <option key={f.id} value={f.provider_folder_id}>
-                  {isSystemFolder(f) ? '— ' : ''}
-                  {f.name}
-                  {f.unread_count > 0 ? ` (${f.unread_count})` : ''}
-                </option>
-              ))}
-          </select>
-        )}
+        {/* Folder dropdown — Inbox default + Drafts; other folders are reference/filing
+            views. System folders (Sent/Deleted/Junk…) get an em-dash prefix. */}
+        <select
+          value={folder}
+          onChange={(e) => {
+            const v = e.target.value
+            setFolder(v)
+            setExpandedId(null)
+            // A filing folder shows everything in it; the Inbox queue returns to the
+            // personal default. Drafts is its own view — leave the scope alone.
+            if (account === 'shared' && isManager && v !== DRAFTS_VIEW) setScope(v ? 'all' : 'mine')
+          }}
+          className="w-full px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white/80"
+        >
+          <option value="">Inbox</option>
+          <option value={DRAFTS_VIEW}>Drafts</option>
+          {folders
+            // The default "Inbox" option IS the Outlook Inbox (mirror) — don't list the
+            // Inbox folder again, or there'd be two "Inbox" entries (the old confusion).
+            .filter((f) => (f.system_folder || '').toLowerCase() !== 'inbox')
+            .map((f) => (
+              <option key={f.id} value={f.provider_folder_id}>
+                {isSystemFolder(f) ? '— ' : ''}
+                {f.name}
+                {f.unread_count > 0 ? ` (${f.unread_count})` : ''}
+              </option>
+            ))}
+        </select>
 
         {/* Primary tabs — Inbox only; wrap cleanly instead of overlapping at
             narrow sidebar widths. */}
@@ -597,11 +633,66 @@ export default function EmailInboxSidebar({
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
-        {(!accountsLoaded || (loading && threads.length === 0 && queue.length === 0)) && (
-          <div className="py-12 text-center">
-            <Spinner size={6} />
+        {/* Drafts view — the caller's own saved/scheduled composes. */}
+        {isDraftsView && (
+          <div>
+            {draftsLoading && drafts.length === 0 && (
+              <div className="py-12 text-center">
+                <Spinner size={6} />
+              </div>
+            )}
+            {!draftsLoading && drafts.length === 0 && <EmptyState title="No drafts." />}
+            <ul>
+              {drafts.map((d) => {
+                const href =
+                  d.kind === 'new' || !d.thread_id
+                    ? `/hub/email/compose?draft=${d.id}`
+                    : `/hub/email/${d.thread_id}`
+                const who = d.to_recipients?.map((r) => r.email).filter(Boolean).join(', ')
+                return (
+                  <li key={d.id} className="border-l-2 border-transparent">
+                    <div className="flex items-center gap-1 hover:bg-white/5">
+                      <Link
+                        href={href}
+                        onClick={() => onClose?.()}
+                        className="flex-1 min-w-0 py-2.5 pl-4 pr-1"
+                      >
+                        <div className="flex items-center justify-between gap-2">
+                          <span className="text-sm font-medium truncate">
+                            {d.subject?.trim() || '(no subject)'}
+                          </span>
+                          <span className="text-[10px] text-white/40 flex-none">
+                            {relativeTime(d.updated_at)}
+                          </span>
+                        </div>
+                        <div className="text-[12px] text-white/50 truncate mt-0.5">
+                          {who ? `To: ${who}` : 'No recipient yet'}
+                          {d.scheduled_at ? ' · ⏱ Scheduled' : ''}
+                        </div>
+                      </Link>
+                      <button
+                        type="button"
+                        onClick={(e) => deleteDraft(d.id, e)}
+                        className="flex-none mr-2 w-6 h-6 rounded flex items-center justify-center text-white/30 hover:text-red-300 hover:bg-white/5"
+                        aria-label="Delete draft"
+                        title="Delete draft"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </li>
+                )
+              })}
+            </ul>
           </div>
         )}
+
+        {!isDraftsView &&
+          (!accountsLoaded || (loading && threads.length === 0 && queue.length === 0)) && (
+            <div className="py-12 text-center">
+              <Spinner size={6} />
+            </div>
+          )}
 
         {/* Pinned unassigned Queue (managers only) — claim/open to work it. */}
         {showQueue && filteredQueue.length > 0 && (
@@ -613,7 +704,7 @@ export default function EmailInboxSidebar({
           </div>
         )}
 
-        {accountsLoaded && !loading && filteredThreads.length === 0 && filteredQueue.length === 0 && (
+        {!isDraftsView && accountsLoaded && !loading && filteredThreads.length === 0 && filteredQueue.length === 0 && (
           <EmptyState
             title={
               debouncedSearch

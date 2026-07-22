@@ -83,6 +83,23 @@ export type EmailThread = {
   message_count?: number | null
 }
 
+/** A draft row from GET /api/hub/email/drafts. */
+export type EmailDraft = {
+  id: string
+  account_id: string
+  thread_id: string | null
+  kind: string // 'new' | 'reply' | 'reply-all' | 'forward'
+  to_recipients: MailRecipient[]
+  cc_recipients: MailRecipient[]
+  bcc_recipients: MailRecipient[]
+  subject: string | null
+  body_html: string | null
+  attachments: OutgoingAttachment[]
+  scheduled_at: string | null
+  status: string
+  updated_at: string
+}
+
 /** A folder row from GET /api/hub/email/folders. */
 export type MailFolder = {
   id: string

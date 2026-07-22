@@ -9,12 +9,18 @@ import EmailComposeView from '@/components/hub/email/EmailComposeView'
  * (same /api/hub/email/accounts source as the sidebar); we pass down the user's
  * signature so it's pre-loaded into the editor body.
  */
-export default async function HubEmailComposePage() {
+export default async function HubEmailComposePage({
+  searchParams,
+}: {
+  searchParams: Promise<{ draft?: string }>
+}) {
   const supabase = await createClient()
   const {
     data: { user },
   } = await supabase.auth.getUser()
   if (!user) redirect('/login')
+
+  const { draft: draftId } = await searchParams
 
   const { createAdminClient } = await import('@/lib/supabase/admin')
   const admin = createAdminClient()
@@ -37,5 +43,10 @@ export default async function HubEmailComposePage() {
   }
   if (!ok) redirect('/hub/email')
 
-  return <EmailComposeView emailSignature={(prof?.email_signature as string | null) || ''} />
+  return (
+    <EmailComposeView
+      emailSignature={(prof?.email_signature as string | null) || ''}
+      draftId={typeof draftId === 'string' ? draftId : undefined}
+    />
+  )
 }
