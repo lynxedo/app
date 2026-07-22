@@ -1,6 +1,6 @@
 'use client'
 
-import { useCallback, useEffect, useState } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { Spinner, useToast } from '@/components/ui'
@@ -19,6 +19,21 @@ import {
 } from './emailFormat'
 
 type ComposerMode = 'reply' | 'reply-all' | 'forward'
+
+// A cheap "did anything meaningful change" fingerprint of a thread detail, used
+// so a background poll refresh only re-renders (and only re-mounts message
+// iframes) when there's an actual change — a quiet 2-min sweep with no new
+// activity leaves the open thread perfectly still.
+function detailSignature(d: ThreadDetail): string {
+  return [
+    d.thread.status,
+    d.thread.assigned_to_user_id || '',
+    d.thread.folder || '',
+    d.messages.map((m) => m.id).join(','),
+    d.notes.length,
+    d.members.length,
+  ].join('|')
+}
 
 /**
  * Full email thread view. Loads its own data from GET /api/hub/email/threads/{id}
@@ -74,27 +89,44 @@ export default function EmailThreadView({
   // Which messages are expanded (default: the most recent).
   const [expanded, setExpanded] = useState<Set<string>>(new Set())
 
-  const load = useCallback(async () => {
-    try {
-      const res = await fetch(`/api/hub/email/threads/${threadId}`)
-      if (res.status === 404 || res.status === 403) {
-        setNotFound(true)
-        return
+  // Are we mid-compose? Realtime refreshes read this to NEVER reload the thread
+  // out from under an in-progress reply (which would blow away the draft).
+  const composingRef = useRef(false)
+  useEffect(() => {
+    composingRef.current = composerMode !== null
+  }, [composerMode])
+
+  const load = useCallback(
+    async (opts?: { quiet?: boolean }) => {
+      try {
+        const res = await fetch(`/api/hub/email/threads/${threadId}`)
+        if (res.status === 404 || res.status === 403) {
+          setNotFound(true)
+          return
+        }
+        if (!res.ok) return
+        const data: ThreadDetail = await res.json()
+        // Quiet (background poll) refresh: keep the exact same object when nothing
+        // meaningful changed, so React doesn't re-render / reload the message
+        // iframes — no flicker on an idle 2-min sweep. A real change swaps it in.
+        if (opts?.quiet) {
+          setDetail((prev) => (prev && detailSignature(prev) === detailSignature(data) ? prev : data))
+        } else {
+          setDetail(data)
+        }
+        // Expand the newest message by default (only on first load — don't fight
+        // the user's manual toggles on later refreshes).
+        setExpanded((prev) => {
+          if (prev.size > 0) return prev
+          const last = data.messages[data.messages.length - 1]
+          return last ? new Set([last.id]) : new Set()
+        })
+      } finally {
+        setLoading(false)
       }
-      if (!res.ok) return
-      const data: ThreadDetail = await res.json()
-      setDetail(data)
-      // Expand the newest message by default (only on first load — don't fight
-      // the user's manual toggles on later refreshes).
-      setExpanded((prev) => {
-        if (prev.size > 0) return prev
-        const last = data.messages[data.messages.length - 1]
-        return last ? new Set([last.id]) : new Set()
-      })
-    } finally {
-      setLoading(false)
-    }
-  }, [threadId])
+    },
+    [threadId]
+  )
 
   useEffect(() => {
     load()
@@ -119,11 +151,15 @@ export default function EmailThreadView({
     const channel = supabase
       .channel(`inbox:${companyId}`)
       .on('broadcast', { event: 'update' }, ({ payload }) => {
-        if ((payload as { thread_id?: string })?.thread_id === threadId) load()
+        // A targeted change to THIS thread (someone claimed/assigned/closed/replied).
+        // Refresh — but never while the user is composing (don't yank the draft).
+        if ((payload as { thread_id?: string })?.thread_id === threadId && !composingRef.current) load()
       })
-      .on('broadcast', { event: 'sync' }, ({ payload }) => {
-        const p = payload as { thread_id?: string }
-        if (!p?.thread_id || p.thread_id === threadId) load()
+      .on('broadcast', { event: 'sync' }, () => {
+        // Generic 2-min poll nudge (no thread id). Quietly reconcile — only
+        // re-renders if a message/status actually changed — and never while
+        // composing. "New mail arrived" visibility is the sidebar list's job.
+        if (!composingRef.current) load({ quiet: true })
       })
       .subscribe()
     return () => {
@@ -238,7 +274,12 @@ export default function EmailThreadView({
           thread={thread}
           messages={messages}
           emailSignature={emailSignature}
-          onCancel={() => setComposerMode(null)}
+          onCancel={() => {
+            setComposerMode(null)
+            // Catch up on anything that changed while composing (refreshes were
+            // suppressed to protect the draft).
+            load({ quiet: true })
+          }}
           onReplySent={async () => {
             setComposerMode(null)
             await load()
