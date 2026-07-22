@@ -993,7 +993,7 @@ export default function MessageComposer({
               <button
                 type="button"
                 onClick={() => { setShowScheduler(false); setShowScheduledModal(true) }}
-                className="mt-2 w-full text-xs text-brand hover:text-[#5aa3d4] transition-colors border-t border-gray-700 pt-2"
+                className="mt-2 w-full text-xs text-brand hover:text-brand-hover transition-colors border-t border-gray-700 pt-2"
               >
                 View scheduled messages
               </button>

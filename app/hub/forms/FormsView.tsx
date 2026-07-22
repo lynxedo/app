@@ -17,7 +17,7 @@ export default function FormsView({
         {canAdmin && (
           <Link
             href="/hub/admin/forms"
-            className="text-sm text-brand hover:text-[#5ba3d0]"
+            className="text-sm text-brand hover:text-brand-hover"
           >
             Form Builder →
           </Link>

@@ -207,7 +207,7 @@ export default function CustomersReportView() {
             Columns ({visible.length})
           </button>
           <button onClick={exportCsv} disabled={!view.length}
-            className="px-3 py-1.5 rounded bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-sm disabled:opacity-40">
+            className="px-3 py-1.5 rounded bg-brand hover:bg-brand-hover text-[#fff] text-sm disabled:opacity-40">
             Export CSV
           </button>
         </div>
@@ -223,7 +223,7 @@ export default function CustomersReportView() {
         <div className="flex items-center gap-1">
           {STATUS_FILTERS.map((s) => (
             <button key={s} onClick={() => setStatusFilter(s)}
-              className={`px-2.5 py-1 rounded text-xs ${statusFilter === s ? 'bg-indigo-600 text-[#fff]' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>
+              className={`px-2.5 py-1 rounded text-xs ${statusFilter === s ? 'bg-brand text-[#fff]' : 'bg-white/5 text-white/60 hover:bg-white/10'}`}>
               {s}
             </button>
           ))}
@@ -287,7 +287,7 @@ export default function CustomersReportView() {
               <h2 className="font-semibold">Choose Columns</h2>
               <div className="flex items-center gap-2">
                 <button onClick={() => persistVisible(DEFAULT_VISIBLE)} className="text-xs text-white/50 hover:text-white">Reset</button>
-                <button onClick={() => setShowPicker(false)} className="px-3 py-1 rounded bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-sm">Done</button>
+                <button onClick={() => setShowPicker(false)} className="px-3 py-1 rounded bg-brand hover:bg-brand-hover text-[#fff] text-sm">Done</button>
               </div>
             </div>
             <div className="flex-1 overflow-y-auto px-4 py-3 space-y-4">

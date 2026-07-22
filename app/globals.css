@@ -8,9 +8,14 @@
      on screen — existing hard-typed values like bg-[#2E7EB8] keep working.
      Screens migrate one role at a time to the Tailwind utilities below
      (bg-brand, text-brand, bg-danger, …) so the brand is editable in one place.
-     Values captured from the audit: brand blue #2E7EB8 was hand-typed ~277×. */
-  --brand: #2E7EB8;          /* primary accent — buttons, active states, links */
-  --brand-hover: #2470a8;    /* primary hover */
+     Values captured from the audit: brand blue #2E7EB8 was hand-typed ~277×.
+     brand/brand-hover now TRACK the active theme's accent (--t-accent) so every
+     bg-brand/text-brand element follows the user's chosen theme. #2E7EB8 is
+     Midnight's accent, so Midnight is unchanged. The GLOSSY themes pin brand
+     back to this blue below (their accents are pale pastels + bg-brand buttons
+     carry hardcoded white text, which would be illegible on a light accent). */
+  --brand: var(--t-accent, #2E7EB8);        /* primary accent — follows theme */
+  --brand-hover: var(--t-accent-hover, #2470a8); /* primary hover — follows theme */
   --brand-light: #3a8dc9;    /* lighter accent / highlights */
   --success: #10b981;        /* emerald — "live"/positive */
   --success-strong: #16a34a; /* green — confirm checks */
@@ -277,6 +282,12 @@ html.theme-nebula     { --t-accent:#ff9ad1; --t-accent-hover:#ffb1db; --t-accent
 html.theme-tide       { --t-accent:#5eead4; --t-accent-hover:#7af0de; --t-accent-contrast:#04332a; --t-heading:#c7f9ee; --t-heading-hover:#e3fcf6; }
 html.theme-obsidian   { --t-accent:#7dd3fc; --t-accent-hover:#a5e0fd; --t-accent-contrast:#07293a; --t-heading:#cdeeff; --t-heading-hover:#e6f7ff; }
 html.theme-emberglass { --t-accent:#ffae6b; --t-accent-hover:#ffc089; --t-accent-contrast:#3a1c08; --t-heading:#ffdfc4; --t-heading-hover:#ffeede; }
+/* Glass themes keep bg-brand on a legible solid blue: their --t-accent is a pale
+   pastel meant for dark text, but bg-brand buttons carry hardcoded white text, so
+   brand must NOT follow the glass accent. (Overrides the :root brand→accent link.) */
+html.theme-aurora, html.theme-nebula, html.theme-tide, html.theme-obsidian, html.theme-emberglass, html.theme-heroesglass {
+  --brand: #2E7EB8; --brand-hover: #2470a8;
+}
 html.theme-aurora     .hub-root { background:linear-gradient(135deg,#3b1d6e 0%,#1e3a8a 52%,#0e7490 100%); }
 html.theme-nebula     .hub-root { background:linear-gradient(135deg,#6d214f 0%,#3b1d6e 50%,#1a1a4f 100%); }
 html.theme-tide       .hub-root { background:linear-gradient(135deg,#0f3443 0%,#134e5e 50%,#0a5f4a 100%); }
