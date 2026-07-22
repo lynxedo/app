@@ -173,14 +173,20 @@ async function mirrorThread(
     .eq('provider_thread_id', t.providerThreadId)
     .maybeSingle()
 
-  // Status rule: new → 'open'; a closed thread that gets a new inbound reply
-  // reopens to 'open'; otherwise keep the existing status (never downgrade an
-  // 'assigned' thread to 'open' on sync).
+  // Status rule: new → 'open'; a closed thread reopens ONLY on a GENUINELY NEW
+  // inbound reply (its last-message time advanced past what we stored) — NOT on
+  // every re-fetch, or Close would never stick for any customer-wrote-last thread
+  // (the poll would reopen it each run). Otherwise keep the existing status (never
+  // downgrade an 'assigned' thread to 'open' on sync).
+  const isNewerInbound =
+    t.lastMessageDirection === 'inbound' &&
+    !!t.lastMessageAt &&
+    (!existing?.last_message_at || t.lastMessageAt > (existing.last_message_at as string))
   let status: string
   if (!existing) {
     // NEW THREAD branch — inbound rules run after the messages mirror below.
     status = 'open'
-  } else if (existing.status === 'closed' && t.lastMessageDirection === 'inbound') {
+  } else if (existing.status === 'closed' && isNewerInbound) {
     status = 'open'
   } else {
     status = existing.status as string
