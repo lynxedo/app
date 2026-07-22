@@ -126,7 +126,7 @@ export const VOICEMAIL_ESCAPE_INSTRUCTION = `Leaving a voicemail instead:
 // with the Level 1 "deflect questions" style.
 export const CUSTOMER_SERVICE_INSTRUCTION = `Handling different kinds of calls:
 - First, get a feel for WHY they're calling — a new customer or someone wanting a quote, an existing customer with a service or schedule question, a complaint, or a billing question. You don't have to ask outright; listen and adapt. When it's unclear, just be helpful and take good notes.
-- Existing customer asking about their next visit, when the team is coming, or what service is scheduled: you can look this up. First tell them you're checking — a brief "sure, let me pull that up, one moment" — then use your account-lookup tool and share what it finds in plain, natural words (for example, "it looks like you're on the schedule for Thursday the seventeenth for a lawn treatment"). If the lookup finds nothing, let them know a team member will confirm — never guess a date or a service.
+- Existing customer asking about their next visit, when the team is coming, or what service is scheduled: you can look this up — just use your account-lookup tool (a brief hold line is spoken automatically while it runs, so do NOT announce that you're checking or say "one moment" yourself), then share what it finds in plain, natural words (for example, "it looks like you're on the schedule for Thursday the seventeenth for a lawn treatment"). If the lookup can't find or reach it, do NOT tell them there's "nothing on their account" or "nothing scheduled" — that sounds dismissive; instead let them know you're not able to pull it up on your end right now and a team member will confirm and follow up. Never guess a date or a service.
 - Reschedule, cancel, skip, or add-a-service requests: you cannot change the schedule yourself. Warmly take down exactly what they want, read it back to confirm, and let them know a team member will take care of it and follow up — never say it's done or promise a specific change will happen.
 - Billing or payment questions: do NOT read out balances, amounts owed, or specific charges, and never dispute a charge. Reassure them you'll pass it straight to the office team, and take a short message (what it's about, plus their callback number).
 - A complaint or an upset caller: lead with genuine empathy, let them know you're writing everything down and a manager will be notified right away, and capture every detail. Treat it as urgent.`
@@ -361,6 +361,18 @@ export function decodeServiceFromTitle(
 // Appended to the task by /api/voice/brain with what we know about THIS caller:
 // their name (if they match an existing contact) and the number they're calling
 // from (so the assistant confirms it instead of asking). Pure string builder.
+
+// Spell digits as spoken words ("0660" -> "zero six six zero") so the TTS reads
+// every 0 as "zero" instead of the interjection "oh" (or randomly mixing the
+// two). Used for the last-4 callback-number confirmation.
+const DIGIT_WORDS = ['zero', 'one', 'two', 'three', 'four', 'five', 'six', 'seven', 'eight', 'nine']
+function spellDigits(digits: string): string {
+  return digits
+    .split('')
+    .map((d) => DIGIT_WORDS[Number(d)] ?? d)
+    .join(' ')
+}
+
 export function buildCallContextNote(opts: {
   callerName?: string | null
   /** Human-readable phone (e.g. "(832) 555-1234") — already formatted for speech. */
@@ -377,8 +389,9 @@ export function buildCallContextNote(opts: {
   }
   const phone = (opts.callerPhone || '').trim()
   if (phone) {
+    const last4Words = spellDigits(phone.replace(/\D/g, '').slice(-4))
     lines.push(
-      `- They are calling from ${phone}. Treat this as their likely callback number: confirm it by reading it back (for example "I've got you at ${phone} — is that the best number to reach you?") rather than asking them to recite their number. If they give a different number, use that instead.`,
+      `- They are calling from ${phone}. Treat this as their likely callback number. Confirm it by reading back ONLY the last four digits, spoken as words — for example "I've got your number ending in ${last4Words} — is that the best one to reach you?" Do NOT read the whole number aloud. If they give a different number, use that instead and read back just its last four the same way.`,
     )
   }
   return lines.length ? `THIS CALL:\n${lines.join('\n')}` : ''

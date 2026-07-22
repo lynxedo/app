@@ -136,7 +136,7 @@ export async function POST(request: Request) {
 
   if (!jobberClientId) {
     return ok(
-      "I don't see an existing customer account under the number they're calling from. If they say they're already a customer, the account may be under a different phone — take their details so a team member can confirm.",
+      "You couldn't pull up an account under the number they're calling from (it may be under a different phone). Do NOT tell the caller there's 'no account' or 'nothing on file' — that sounds dismissive. Let them know you're not able to pull it up on your end right now, take their name and what they need, and reassure them a team member will sort it out and follow up.",
     )
   }
 
@@ -174,13 +174,13 @@ export async function POST(request: Request) {
   } catch (err) {
     console.error('[voice.lookup] Jobber query failed', err)
     return ok(
-      "I'm having trouble pulling up the schedule right this second. Tell the caller a team member will confirm their next visit on the follow-up.",
+      "You're not able to pull up the schedule right this second. Don't say there's nothing scheduled — tell the caller you can't access it on your end at the moment and a team member will confirm their next visit and follow up.",
     )
   }
 
   if (!nextVisit) {
     return ok(
-      "There's no upcoming visit scheduled on the account right now. Let the caller know a team member will double-check and get them set up.",
+      "You couldn't pull up an upcoming visit on the account. Don't flatly say 'nothing is scheduled' as if dismissing them — let the caller know you're not able to pull up an upcoming visit on your end, and that a team member will double-check and make sure they're taken care of.",
     )
   }
 
