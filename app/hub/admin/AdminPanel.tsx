@@ -41,6 +41,7 @@ type UserProfile = {
   can_access_email: boolean
   can_admin_email: boolean
   can_access_shared_inbox: boolean
+  can_manage_shared_inbox: boolean
   can_compose_shared_email: boolean
   can_manage_drip: boolean
   can_access_forms: boolean
@@ -91,6 +92,7 @@ const TOOL_GROUPS: { title: string; items: { key: keyof UserProfile; label: stri
       { key: 'can_access_hub', label: 'Hub' },
       { key: 'can_access_txt', label: 'Txt' },
       { key: 'can_access_shared_inbox', label: 'Shared Inbox' },
+      { key: 'can_manage_shared_inbox', label: 'Shared Inbox — Manager' },
       { key: 'can_compose_shared_email', label: 'Inbox — Compose only' },
       { key: 'can_access_unified_inbox', label: 'Unified Inbox' },
       { key: 'can_access_dialer', label: 'Dialer' },
@@ -233,6 +235,7 @@ function defaultProfile(id: string, overrides: Partial<UserProfile> = {}): UserP
     can_access_email: false,
     can_admin_email: false,
     can_access_shared_inbox: false,
+    can_manage_shared_inbox: false,
     can_compose_shared_email: false,
     can_manage_drip: false,
     can_access_forms: true,

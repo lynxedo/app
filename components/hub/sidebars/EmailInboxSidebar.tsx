@@ -7,6 +7,7 @@ import { SidebarHeader } from './SidebarShell'
 import { createClient } from '@/lib/supabase/client'
 import { Spinner, EmptyState, useToast } from '@/components/ui'
 import RulesPanel from '@/components/hub/email/RulesPanel'
+import FoldersPanel from '@/components/hub/email/FoldersPanel'
 import {
   relativeTime,
   participantName,
@@ -99,9 +100,10 @@ export default function EmailInboxSidebar({
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [claiming, setClaiming] = useState<string | null>(null)
 
-  // Gear menu + Rules.
+  // Gear menu + Rules + Folders.
   const [gearOpen, setGearOpen] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)
+  const [foldersOpen, setFoldersOpen] = useState(false)
   const gearRef = useRef<HTMLDivElement>(null)
 
   // Expanded-thread previews (Outlook-style chevron sub-rows).
@@ -189,22 +191,18 @@ export default function EmailInboxSidebar({
   }, [gearOpen])
 
   // Load the folder list for the current account (lean — Inbox default + others).
-  useEffect(() => {
+  const loadFolders = useCallback(() => {
     if (!accountsLoaded) return
-    let cancelled = false
     fetch(`/api/hub/email/folders?account=${encodeURIComponent(account)}`)
       .then((r) => (r.ok ? r.json() : Promise.reject()))
-      .then((data) => {
-        if (!cancelled) setFolders(data.folders || [])
-      })
-      .catch(() => {
-        if (!cancelled) setFolders([])
-      })
-    setFolder('') // reset folder selection when switching accounts
-    return () => {
-      cancelled = true
-    }
+      .then((data) => setFolders(data.folders || []))
+      .catch(() => setFolders([]))
   }, [account, accountsLoaded])
+
+  useEffect(() => {
+    loadFolders()
+    setFolder('') // reset folder selection when switching accounts
+  }, [loadFolders])
 
   const isDraftsView = folder === DRAFTS_VIEW
   // Managers see the pinned unassigned Queue on the live Inbox view (not on Closed / Drafts / a folder view).
@@ -476,6 +474,18 @@ export default function EmailInboxSidebar({
               className="block w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5"
             >
               Rules
+            </button>
+          )}
+          {isManager && (
+            <button
+              type="button"
+              onClick={() => {
+                setGearOpen(false)
+                setFoldersOpen(true)
+              }}
+              className="block w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+            >
+              Folders
             </button>
           )}
           <button
@@ -957,6 +967,14 @@ export default function EmailInboxSidebar({
       </div>
 
       {rulesOpen && <RulesPanel open onClose={() => setRulesOpen(false)} />}
+      {foldersOpen && (
+        <FoldersPanel
+          open
+          account={account === 'personal' ? 'personal' : 'shared'}
+          onClose={() => setFoldersOpen(false)}
+          onChanged={loadFolders}
+        />
+      )}
     </aside>
   )
 }

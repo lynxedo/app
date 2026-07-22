@@ -51,7 +51,7 @@ export default async function AdminPage() {
     can_admin_zone_sizer: boolean; can_admin_dialer: boolean; can_admin_contacts: boolean; can_admin_integrations: boolean;
     can_access_marketing: boolean; can_admin_marketing: boolean;
     can_access_email: boolean; can_admin_email: boolean; can_manage_drip: boolean;
-    can_access_shared_inbox: boolean; can_compose_shared_email: boolean;
+    can_access_shared_inbox: boolean; can_manage_shared_inbox: boolean; can_compose_shared_email: boolean;
     can_access_forms: boolean; can_admin_forms: boolean; can_admin_products: boolean;
     can_access_daily_log_v2: boolean;
     can_access_call_log2: boolean; can_access_scoreboards: boolean;
@@ -108,6 +108,7 @@ export default async function AdminPage() {
       can_access_email: r.can_access_email,
       can_admin_email: r.can_admin_email,
       can_access_shared_inbox: r.can_access_shared_inbox,
+      can_manage_shared_inbox: r.can_manage_shared_inbox,
       can_compose_shared_email: r.can_compose_shared_email,
       can_manage_drip: r.can_manage_drip,
       can_access_forms: r.can_access_forms,
