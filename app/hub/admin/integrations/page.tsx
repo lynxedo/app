@@ -3,6 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import IntegrationsAdminPanel from './IntegrationsAdminPanel'
 import type { ProviderKey, IntegrationStatus } from '@/lib/integrations-catalog'
+import { nylasConfigured } from '@/lib/inbox/config'
 
 export const metadata = { title: 'Integrations Admin' }
 
@@ -62,6 +63,16 @@ export default async function AdminIntegrationsPage() {
   // tied to a hardcoded company. See lib/voicedrop.ts.
   const voiceDropOwnKey = !!((voicedrop.data?.config ?? null) as { api_key?: string } | null)?.api_key
 
+  // Shared Inbox (Hub Email via Nylas): "connected" iff a shared mailbox row exists for the company.
+  const sharedInbox = await admin
+    .from('inbox_accounts')
+    .select('id, email_address')
+    .eq('company_id', companyId)
+    .eq('account_type', 'shared')
+    .eq('active', true)
+    .maybeSingle()
+  const sharedInboxEmail = (sharedInbox.data as { email_address?: string } | null)?.email_address ?? null
+
   const statuses: Record<ProviderKey, { status: IntegrationStatus; detail?: string }> = {
     jobber: jobber.data ? { status: 'connected' } : { status: 'not_connected' },
     quickbooks: qbo.data ? { status: 'connected' } : { status: 'not_connected' },
@@ -93,6 +104,11 @@ export default async function AdminIntegrationsPage() {
     voicedrop: voiceDropOwnKey
       ? { status: 'connected', detail: 'Your VoiceDrop account' }
       : { status: 'not_connected' },
+    shared_inbox: sharedInbox.data
+      ? { status: 'connected', detail: sharedInboxEmail ?? undefined }
+      : !nylasConfigured()
+        ? { status: 'action_needed', detail: 'Setup pending — contact Lynxedo' }
+        : { status: 'not_connected' },
   }
 
   const webhookBase = process.env.NEXT_PUBLIC_APP_URL ?? 'https://lynxedo.com'

@@ -8,6 +8,8 @@ import { createClient } from '@/lib/supabase/client'
 import NotificationDeviceControls from '@/components/hub/NotificationDeviceControls'
 import { type RailPermissions } from '@/components/hub/railCatalog'
 import TxtPersonalTemplates from './TxtPersonalTemplates'
+import InboxPersonalMailbox from './InboxPersonalMailbox'
+import InboxCompanySignature from './InboxCompanySignature'
 import DialerPersonalSettings from './DialerPersonalSettings'
 import ExtensionTokensSection from './ExtensionTokensSection'
 import BetaFeaturesTab from './BetaFeaturesTab'
@@ -15,6 +17,8 @@ import DndScheduleEditor from '@/components/hub/DndScheduleEditor'
 import type { DndSchedule } from '@/lib/dnd-schedule'
 import { useToast, useConfirm } from '@/components/ui'
 import { THEMES, THEME_IDS, THEME_CATEGORIES } from '@/lib/themes'
+import EmailRichTextEditor from '@/components/hub/email/EmailRichTextEditor'
+import { signatureToHtml } from '@/components/hub/email/emailFormat'
 
 interface HubProfile {
   full_name: string | null
@@ -37,8 +41,11 @@ interface Props {
   /** Admin → People "Beta Features" grant (admins always). Gates the Beta tab. */
   canAccessBeta?: boolean
   txtSignature: string
+  emailSignature?: string
   allowUserSignatures?: boolean
   companyDefaultSignature?: string | null
+  /** Manager/admin of the shared inbox → shows the company default email-signature editor. */
+  canManageInbox?: boolean
   dialerGlobalRing: boolean
   initialMasterDndEnabled?: boolean
   initialMasterDndSchedule?: Record<string, unknown> | null
@@ -93,7 +100,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, initialTheme, notifPref, railPermissions, canAccessBeta = false, txtSignature, allowUserSignatures = true, companyDefaultSignature = null, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, initialTheme, notifPref, railPermissions, canAccessBeta = false, txtSignature, emailSignature = '', allowUserSignatures = true, companyDefaultSignature = null, canManageInbox = false, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
   const router = useRouter()
   const toast = useToast()
   const confirmDialog = useConfirm()
@@ -269,6 +276,36 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
     } catch (e) {
       setSigErr(e instanceof Error ? e.message : 'Network error')
       setSigSave('error')
+    }
+  }
+
+  // ── Email signature (Hub Inbox) ───────────────────────────────────────────
+  const [emailSig, setEmailSig] = useState(emailSignature)
+  const [emailSigSave, setEmailSigSave] = useState<SaveState>('idle')
+  const [emailSigErr, setEmailSigErr] = useState<string | null>(null)
+  const [emailSigBaseline, setEmailSigBaseline] = useState(emailSignature)
+  const emailSigDirty = emailSig !== emailSigBaseline
+  const saveEmailSignature = async () => {
+    setEmailSigSave('saving')
+    setEmailSigErr(null)
+    try {
+      const res = await fetch('/api/profile', {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email_signature: emailSig.trim() || null }),
+      })
+      if (!res.ok) {
+        const d = await res.json().catch(() => ({}))
+        setEmailSigErr(d.error ?? 'Save failed')
+        setEmailSigSave('error')
+        return
+      }
+      setEmailSigBaseline(emailSig)
+      setEmailSigSave('saved')
+      setTimeout(() => setEmailSigSave('idle'), 2000)
+    } catch (e) {
+      setEmailSigErr(e instanceof Error ? e.message : 'Network error')
+      setEmailSigSave('error')
     }
   }
 
@@ -925,6 +962,34 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
         )}
 
         {railPermissions.canAccessDialer && <DialerPersonalSettings />}
+      </section>
+
+      {/* Email Inbox (Hub Inbox) */}
+      <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <h2 className="font-semibold text-lg mb-1">Email Inbox</h2>
+        <p className="text-gray-400 text-sm mb-5">Your signature for the Hub Inbox, plus your own personal work email.</p>
+        <div>
+          <label className="block text-xs text-gray-400 mb-1.5">Email signature</label>
+          {/* Rich signature editor (bold / italic / underline / link). Saves HTML
+              into the same email_signature column — legacy plain-text values are
+              converted on load via signatureToHtml. */}
+          <EmailRichTextEditor
+            variant="mini"
+            initialHtml={signatureToHtml(emailSignature)}
+            onChange={(html, text) => setEmailSig(text.trim() ? html : '')}
+            minHeightClass="min-h-[90px]"
+            maxHeightClass="max-h-[240px]"
+          />
+          <p className="text-xs text-gray-500 mt-1.5">
+            Appended to emails you send from the shared inbox, signed with your name. Leave blank to use a simple default.
+          </p>
+          {emailSigErr && <p className="text-red-400 text-sm mt-2">{emailSigErr}</p>}
+          <div className="mt-3">
+            {saveBtn('Save signature', emailSigSave, saveEmailSignature, false, emailSigDirty)}
+          </div>
+        </div>
+        <InboxPersonalMailbox userId={userId} />
+        {canManageInbox && <InboxCompanySignature />}
       </section>
 
       {/* Change password */}

@@ -16,6 +16,7 @@ import SettingsSidebar from './sidebars/SettingsSidebar'
 import ProfileSidebar from './sidebars/ProfileSidebar'
 import ActivitySidebar from './sidebars/ActivitySidebar'
 import TxtV2Sidebar from './sidebars/TxtV2Sidebar'
+import EmailInboxSidebar from './sidebars/EmailInboxSidebar'
 import DialerSidebar from './sidebars/DialerSidebar'
 import ScoreboardsSidebar from './sidebars/ScoreboardsSidebar'
 import TrackerSidebar from './sidebars/TrackerSidebar'
@@ -80,6 +81,8 @@ export default function HubShell({
   canAccessMarketing,
   canAdminMarketing,
   canAccessEmail,
+  canAccessSharedInbox,
+  canComposeSharedEmail,
   canManageDrip,
   canAdminEmail,
   canAccessForms,
@@ -151,6 +154,8 @@ export default function HubShell({
   canAccessMarketing?: boolean
   canAdminMarketing?: boolean
   canAccessEmail?: boolean
+  canAccessSharedInbox?: boolean
+  canComposeSharedEmail?: boolean
   canManageDrip?: boolean
   canAdminEmail?: boolean
   canAccessForms?: boolean
@@ -733,6 +738,7 @@ export default function HubShell({
     canAccessTxt: !!canAccessTxt,
     canAccessMarketing: !!canAccessMarketing,
     canAccessEmail: !!canAccessEmail,
+    canAccessSharedInbox: !!canAccessSharedInbox,
     canManageDrip: !!canManageDrip,
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
@@ -763,6 +769,15 @@ export default function HubShell({
             canManage={!!canManageTxt}
             canCall={!!canAccessDialer}
             canAccessUnifiedInbox={!!canAccessUnifiedInbox}
+            currentUserId={currentUserId}
+            companyId={companyId || ''}
+          />
+        )
+      case 'email-inbox':
+        return (
+          <EmailInboxSidebar
+            onClose={closeMobileDrawer}
+            {...collapseProps}
             currentUserId={currentUserId}
             companyId={companyId || ''}
           />

@@ -209,6 +209,13 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessEmail = isAdmin || (profileResult.data?.can_access_email ?? false)
   const canManageDrip = isAdmin || (profileResult.data?.can_manage_drip ?? false)
   const canAdminEmail = profileResult.data?.can_admin_email ?? false
+  // Shared Inbox (Hub Email) — may enter = admin OR Manager grant OR Standard-user access grant;
+  // compose = lighter grant that also admits someone to reach the inbox.
+  const canAccessSharedInbox =
+    isAdmin ||
+    (profileResult.data?.can_manage_shared_inbox ?? false) ||
+    (profileResult.data?.can_access_shared_inbox ?? false)
+  const canComposeSharedEmail = isAdmin || (profileResult.data?.can_compose_shared_email ?? false)
   const canAccessForms = profileResult.data?.can_access_forms ?? true
   const canAccessDailyLogV2 = profileResult.data?.can_access_daily_log_v2 ?? false
   const canAccessPricer = isAdmin || (profileResult.data?.can_access_pricer ?? false)
@@ -219,6 +226,20 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   // welcome screen instead of an empty Hub. Every real user has a company, so
   // this only affects brand-new unaffiliated sign-ups (e.g. Sign in with Apple).
   if (!companyId) redirect('/welcome')
+  // The Inbox rail shows for full-access users and tech-composers, AND for anyone who has a
+  // personal mailbox connected or a specific shared thread handed to them (thread-scoped access,
+  // Decision C) — so a flag-less technician can still reach a conversation shared to them. The two
+  // existence checks only run for users without a flag (most users, dark feature = cheap 0-count).
+  let canReachInbox = canAccessSharedInbox || canComposeSharedEmail
+  if (!canReachInbox) {
+    const [personalMailboxes, sharedThreadShares] = await Promise.all([
+      admin.from('inbox_accounts').select('id', { count: 'exact', head: true })
+        .eq('owner_user_id', user.id).eq('active', true),
+      admin.from('inbox_thread_members').select('user_id', { count: 'exact', head: true })
+        .eq('user_id', user.id),
+    ])
+    canReachInbox = !!((personalMailboxes.count ?? 0) + (sharedThreadShares.count ?? 0))
+  }
   // Per-board view access (Admin -> Scoreboards). Admins see all boards; non-admins
   // see only explicitly-granted boards, and the section is hidden entirely when they
   // have none. Only query when the section flag is on (admins skip the query too).
@@ -267,6 +288,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     canAccessTimesheet: !!canAccessTimesheet,
     canAccessMarketing: !!canAccessMarketing,
     canAccessEmail: !!canAccessEmail,
+    canAccessSharedInbox: !!canReachInbox,
     canManageDrip: !!canManageDrip,
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
@@ -383,6 +405,8 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessMarketing={canAccessMarketing && moduleOn('social')}
         canAdminMarketing={canAdminMarketing && moduleOn('social')}
         canAccessEmail={canAccessEmail && moduleOn('email')}
+        canAccessSharedInbox={canReachInbox}
+        canComposeSharedEmail={canComposeSharedEmail}
         canManageDrip={canManageDrip && moduleOn('drip')}
         canAdminEmail={canAdminEmail && moduleOn('email')}
         canAccessForms={canAccessForms}

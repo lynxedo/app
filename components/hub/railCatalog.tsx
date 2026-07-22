@@ -25,6 +25,7 @@ export type CatalogId =
   | 'contacts'
   | 'marketing'
   | 'email'         // Email Marketing, gated by canAccessEmail
+  | 'email-inbox'   // Shared team Inbox (hlc105) at /hub/email, gated by canAccessSharedInbox
   | 'drip'          // Drip Marketing, gated by canManageDrip
   | 'pesticide-records'
   | 'forms'
@@ -66,6 +67,7 @@ export type RailPermissions = {
   canAccessTimesheet: boolean
   canAccessMarketing: boolean
   canAccessEmail: boolean
+  canAccessSharedInbox: boolean
   canManageDrip: boolean
   canAccessForms: boolean
   canAccessDailyLogV2: boolean
@@ -119,6 +121,8 @@ const PATHS = {
   marketing: 'M11 5.882V19.24a1.76 1.76 0 01-3.417.592l-2.147-6.15M18 13a3 3 0 100-6M5.436 13.683A4.001 4.001 0 017 6h1.832c4.1 0 7.625-1.952 9.168-5v10c-1.543-3.048-5.068-5-9.168-5H7a3.988 3.988 0 00-1.564.317z',
   // Email marketing — envelope
   email: 'M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z',
+  // Shared Inbox — an inbox tray (distinct from the envelope), for the hlc105 team inbox.
+  emailInbox: 'M4 13h4l1.5 2.5h5L16 13h4M6 4h12l3 9v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4l3-9z',
   // Drip Marketing — a water droplet (speed-to-lead nurture).
   drip: 'M12 3s6 7 6 11a6 6 0 11-12 0c0-4 6-11 6-11z',
   // Pesticide records — chemistry flask with a marker dot, plus a cap notch
@@ -177,6 +181,7 @@ export function CatalogIcon({ id }: { id: CatalogId }) {
     case 'contacts':    return <I d={PATHS.contacts} />
     case 'marketing':     return <I d={PATHS.marketing} />
     case 'email':         return <I d={PATHS.email} />
+    case 'email-inbox':   return <I d={PATHS.emailInbox} />
     case 'drip':          return <I d={PATHS.drip} />
     case 'pesticide-records': return <I d={PATHS.pesticideRecords} />
     case 'forms':         return <I d={PATHS.forms} />
@@ -254,6 +259,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'contacts',     label: 'Contacts',      href: '/hub/contacts', prefixMatch: true, pickable: true, requires: 'canAccessHub' },
   { id: 'marketing', label: 'Marketing', href: '/hub/marketing', prefixMatch: true, pickable: true, requires: 'canAccessMarketing' },
   { id: 'email',     label: 'Email',     href: '/hub/marketing/email', prefixMatch: true, pickable: true, requires: 'canAccessEmail' },
+  { id: 'email-inbox', label: 'Inbox',   href: '/hub/email', prefixMatch: true, pickable: true, requires: 'canAccessSharedInbox' },
   { id: 'drip',      label: 'Drip',      href: '/hub/marketing/drip', prefixMatch: true, pickable: true, requires: 'canManageDrip' },
   { id: 'pesticide-records', label: 'Products Used', href: '/hub/pesticide-records', prefixMatch: true, pickable: true, requires: 'canAccessPesticideRecords' },
   { id: 'forms',     label: 'Forms',     href: '/hub/forms', prefixMatch: true, pickable: true, requires: 'canAccessForms' },

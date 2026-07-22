@@ -20,7 +20,7 @@ export default async function SettingsPage() {
       .maybeSingle(),
     supabase
       .from('user_profiles')
-      .select('role, company_id, phone, full_name, rail_config, txt_signature, dialer_global_ring, hub_theme, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_call_log2, can_access_timesheet, can_access_dialer, can_access_txt, can_access_marketing, can_access_email, can_manage_drip, can_access_forms, can_access_daily_log_v2, can_access_scoreboards, can_access_files, can_access_pesticide_records, can_access_pricer, can_access_hub, can_access_beta, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule')
+      .select('role, company_id, phone, full_name, rail_config, txt_signature, email_signature, dialer_global_ring, hub_theme, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_call_log2, can_access_timesheet, can_access_dialer, can_access_txt, can_access_marketing, can_access_email, can_access_shared_inbox, can_manage_shared_inbox, can_manage_drip, can_access_forms, can_access_daily_log_v2, can_access_scoreboards, can_access_files, can_access_pesticide_records, can_access_pricer, can_access_hub, can_access_beta, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule')
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -64,6 +64,7 @@ export default async function SettingsPage() {
     canAccessTxt: !!profileResult.data?.can_access_txt,
     canAccessMarketing: !!profileResult.data?.can_access_marketing,
     canAccessEmail: !!profileResult.data?.can_access_email,
+    canAccessSharedInbox: !!profileResult.data?.can_access_shared_inbox,
     canManageDrip: !!profileResult.data?.can_manage_drip,
     canAccessCallLog: !!profileResult.data?.can_access_call_log,
     canAccessCallLog2: !!profileResult.data?.can_access_call_log2,
@@ -95,6 +96,7 @@ export default async function SettingsPage() {
   }
 
   const txtSignature = (profileResult.data?.txt_signature ?? '') as string
+  const emailSignature = (profileResult.data?.email_signature ?? '') as string
   const dialerGlobalRing = profileResult.data?.dialer_global_ring ?? true
   const initialMasterDndEnabled = profileResult.data?.master_dnd_enabled ?? false
   const initialMasterDndSchedule = (profileResult.data?.master_dnd_schedule ?? null) as Record<string, unknown> | null
@@ -119,8 +121,10 @@ export default async function SettingsPage() {
           railPermissions={railPermissions}
           canAccessBeta={canAccessBeta}
           txtSignature={txtSignature}
+          emailSignature={emailSignature}
           allowUserSignatures={allowUserSignatures}
           companyDefaultSignature={companyDefaultSignature}
+          canManageInbox={isSettingsAdmin || profileResult.data?.can_manage_shared_inbox === true}
           dialerGlobalRing={dialerGlobalRing}
           initialMasterDndEnabled={initialMasterDndEnabled}
           initialMasterDndSchedule={initialMasterDndSchedule}

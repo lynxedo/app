@@ -38,7 +38,7 @@ export async function PUT(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, hub_layout, txt_signature, dialer_global_ring, dialer_dnd_enabled, dialer_dnd_schedule, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, hub_theme } = await request.json()
+  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, hub_layout, txt_signature, email_signature, dialer_global_ring, dialer_dnd_enabled, dialer_dnd_schedule, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, hub_theme } = await request.json()
 
   if (landing_page !== undefined && landing_page !== 'hub' && landing_page !== 'dashboard') {
     return NextResponse.json({ error: 'landing_page must be "hub" or "dashboard"' }, { status: 400 })
@@ -105,6 +105,18 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'txt_signature too long (max 500 chars)' }, { status: 400 })
     }
     profileUpdates.txt_signature = txt_signature ? txt_signature : null
+  }
+  if (email_signature !== undefined) {
+    if (email_signature !== null && typeof email_signature !== 'string') {
+      return NextResponse.json({ error: 'email_signature must be a string or null' }, { status: 400 })
+    }
+    // The Inbox signature editor stores HTML now (bold/links/formatting), which is
+    // far more verbose than the old plain-text signature — 20k gives comfortable
+    // room for a formatted block signature while still bounding abuse.
+    if (typeof email_signature === 'string' && email_signature.length > 20000) {
+      return NextResponse.json({ error: 'email_signature too long (max 20000 chars)' }, { status: 400 })
+    }
+    profileUpdates.email_signature = email_signature ? email_signature : null
   }
   if (dialer_global_ring !== undefined) {
     if (typeof dialer_global_ring !== 'boolean') {
