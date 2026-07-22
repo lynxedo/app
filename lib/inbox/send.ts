@@ -322,7 +322,8 @@ export async function sendInboxReply(
     } catch (e) {
       console.error('[inbox:send] record scheduled reply failed', e instanceof Error ? e.message : e)
     }
-    await cleanupOutboxKeys(loaded.keys)
+    // Keep the R2 staging objects: an Edit (unschedule) reopens this as a draft and
+    // may re-send the same attachments. They're cleaned on cancel/discard instead.
     return { ok: true, scheduled: true, scheduleId: sent.scheduleId ?? null, scheduledAt, draftId }
   }
 
@@ -476,7 +477,8 @@ export async function sendInboxNew(
     } catch (e) {
       console.error('[inbox:send] record scheduled new failed', e instanceof Error ? e.message : e)
     }
-    await cleanupOutboxKeys(loaded.keys)
+    // Keep the R2 staging objects: an Edit (unschedule) reopens this as a draft and
+    // may re-send the same attachments. They're cleaned on cancel/discard instead.
     return { ok: true, scheduled: true, scheduleId: sent.scheduleId ?? null, scheduledAt, draftId }
   }
 

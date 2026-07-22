@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getMyDraft, deleteMyDraft } from '@/lib/inbox/drafts'
 import { getInboxAccountById } from '@/lib/inbox/accounts'
 import { getMailProvider } from '@/lib/inbox/provider'
+import { r2Delete } from '@/lib/r2'
 
 export const dynamic = 'force-dynamic'
 
@@ -53,5 +54,19 @@ export async function DELETE(_request: Request, { params }: { params: Promise<{ 
 
   const deleted = await deleteMyDraft(admin, id, userId)
   if (!deleted) return NextResponse.json({ error: 'Not found' }, { status: 404 })
+
+  // Best-effort: free any staged attachment objects in this company's R2 outbox.
+  const prefix = `inbox/${existing.company_id}/outbox/`
+  for (const a of deleted.attachments || []) {
+    const key = a?.id
+    if (typeof key === 'string' && key.startsWith(prefix)) {
+      try {
+        await r2Delete(key)
+      } catch {
+        /* best-effort */
+      }
+    }
+  }
+
   return NextResponse.json({ ok: true })
 }

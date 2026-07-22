@@ -269,6 +269,27 @@ export default function EmailInboxSidebar({
     }
   }
 
+  // Edit a scheduled send: cancel it at the provider, reopen as an editable draft.
+  async function editScheduled(id: string, e: React.MouseEvent) {
+    e.preventDefault()
+    e.stopPropagation()
+    try {
+      const res = await fetch(`/api/hub/email/drafts/${id}/unschedule`, { method: 'POST' })
+      const data = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(data.error || "Couldn't edit that")
+        return
+      }
+      const d = data.draft as { id: string; kind: string; thread_id: string | null } | undefined
+      if (!d) return
+      onClose?.()
+      if (d.kind === 'new' || !d.thread_id) router.push(`/hub/email/compose?draft=${d.id}`)
+      else router.push(`/hub/email/${d.thread_id}`)
+    } catch {
+      toast.error("Couldn't edit that")
+    }
+  }
+
   // Realtime — the sync/webhook pipeline broadcasts on `inbox:{companyId}`.
   useEffect(() => {
     if (!companyId) return
@@ -705,6 +726,17 @@ export default function EmailInboxSidebar({
                         >
                           {inner}
                         </Link>
+                      )}
+                      {scheduled && (
+                        <button
+                          type="button"
+                          onClick={(e) => editScheduled(d.id, e)}
+                          className="flex-none w-6 h-6 rounded flex items-center justify-center text-white/30 hover:text-white/80 hover:bg-white/5"
+                          aria-label="Edit scheduled send"
+                          title="Edit (cancels the schedule, reopens as a draft)"
+                        >
+                          ✎
+                        </button>
                       )}
                       <button
                         type="button"

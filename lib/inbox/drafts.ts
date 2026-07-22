@@ -203,6 +203,23 @@ export async function recordScheduledSend(admin: SupabaseClient, input: Schedule
   return (data?.id as string) || null
 }
 
+// Turn a scheduled send back into an editable draft (after the provider schedule is
+// cancelled): clears scheduled_at + nylas_schedule_id and sets status='draft'.
+export async function revertScheduledToDraft(
+  admin: SupabaseClient,
+  id: string,
+  userId: string
+): Promise<InboxDraft | null> {
+  const { data } = await admin
+    .from('inbox_drafts')
+    .update({ status: 'draft', scheduled_at: null, nylas_schedule_id: null, updated_at: new Date().toISOString() })
+    .eq('id', id)
+    .eq('created_by', userId)
+    .select(DRAFT_COLS)
+    .maybeSingle()
+  return (data as InboxDraft) || null
+}
+
 // Delete the caller's own draft. Returns the deleted row (so a scheduled-send
 // delete can cancel the provider schedule). Returns null if not found / not owned.
 export async function deleteMyDraft(
