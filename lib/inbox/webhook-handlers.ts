@@ -15,6 +15,7 @@ import type { NylasNotification } from './webhook'
 import type { InboxAccount } from './accounts'
 import { getMailProvider } from './provider'
 import { mirrorThreadById, broadcastInboxUpdate } from './sync'
+import { NylasError } from './nylas'
 import { postGuardianToUserDm } from '@/lib/guardian-post'
 import { sendHubPush } from '@/lib/hub-push'
 
@@ -32,6 +33,28 @@ const ACCOUNT_COLS =
 // both places depending on the trigger family).
 function resolveGrantId(n: NylasNotification): string | null {
   return n.data?.grant_id ?? n.data?.object?.grant_id ?? null
+}
+
+// Retry a provider call that hit Microsoft's app-level 429, honoring Retry-After. Runs
+// post-response (inside after()), so a short bounded wait is fine; mirror ops are
+// idempotent so a retried call is safe. Exhausted retries throw → the event is marked
+// 'error' and the periodic poll backstop re-mirrors the thread, so no mail is lost.
+async function withRetry<T>(fn: () => Promise<T>, label: string): Promise<T> {
+  const MAX_ATTEMPTS = 3
+  for (let attempt = 1; attempt <= MAX_ATTEMPTS; attempt++) {
+    try {
+      return await fn()
+    } catch (e) {
+      if (e instanceof NylasError && e.status === 429 && attempt < MAX_ATTEMPTS) {
+        const wait = Math.min(e.retryAfterMs ?? 3000 * attempt, 20000)
+        console.warn(`[inbox:webhook] ${label} 429 — retry ${attempt}/${MAX_ATTEMPTS - 1} in ${wait}ms`)
+        await new Promise((r) => setTimeout(r, wait))
+        continue
+      }
+      throw e
+    }
+  }
+  throw new Error(`[inbox:webhook] ${label} exhausted retries`)
 }
 
 // Patch the raw-event row by its natural key (never rethrows — status bookkeeping must
@@ -100,14 +123,20 @@ async function findAccountByGrant(
   return row ?? null
 }
 
-// Build the set of provider folder ids that mean "trash / junk" for this mailbox, so a
-// message.updated that lands ONLY in one of them can be treated as a delete.
-async function trashFolderIds(account: InboxAccount): Promise<Set<string>> {
-  const provider = getMailProvider(account)
-  const folders = await provider.listFolders()
+// Provider folder ids that mean "trash / junk", read from our inbox_folders mirror (NO
+// live provider.listFolders on every message.updated — avoids extra 429 pressure). The
+// periodic poll keeps inbox_folders fresh.
+async function trashFolderIds(admin: SupabaseClient, account: InboxAccount): Promise<Set<string>> {
+  const { data } = await admin
+    .from('inbox_folders')
+    .select('provider_folder_id, system_folder')
+    .eq('account_id', account.id)
+    .is('deleted_at', null)
   const ids = new Set<string>()
-  for (const f of folders) {
-    if (f.systemFolder === 'trash' || f.systemFolder === 'spam') ids.add(f.providerFolderId)
+  for (const f of (data ?? []) as { provider_folder_id: string | null; system_folder: string | null }[]) {
+    if ((f.system_folder === 'trash' || f.system_folder === 'spam') && f.provider_folder_id) {
+      ids.add(f.provider_folder_id)
+    }
   }
   return ids
 }
@@ -131,7 +160,10 @@ async function handleMessageUpsert(
   let providerThreadId = obj.thread_id ?? null
   if (!providerThreadId && providerMessageId) {
     try {
-      const msg = await getMailProvider(account).getMessage(providerMessageId)
+      const msg = await withRetry(
+        () => getMailProvider(account).getMessage(providerMessageId),
+        'getMessage'
+      )
       providerThreadId = msg.providerThreadId
     } catch (err) {
       console.warn('[inbox:webhook] getMessage (for thread id) failed', err)
@@ -142,14 +174,17 @@ async function handleMessageUpsert(
     return
   }
 
-  const threadDbId = await mirrorThreadById(admin, account, providerThreadId, { applyRules: true })
+  const threadDbId = await withRetry(
+    () => mirrorThreadById(admin, account, providerThreadId, { applyRules: true }),
+    'mirrorThreadById'
+  )
 
   // Trash handling — updates only. If the message's folders are now ONLY trash/junk,
   // it left the visible mailbox; soft-delete our mirror row (idempotent — an already
   // set deleted_at survives mirrorThread's re-upsert, which never writes deleted_at).
   if (n.type === 'message.updated' && providerMessageId && (obj.folders?.length ?? 0) > 0) {
     try {
-      const trashIds = await trashFolderIds(account)
+      const trashIds = await trashFolderIds(admin, account)
       const onlyTrash = (obj.folders as string[]).every((id) => trashIds.has(id))
       if (onlyTrash) {
         const nowIso = new Date().toISOString()

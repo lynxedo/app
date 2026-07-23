@@ -311,6 +311,23 @@ async function mirrorThread(
 //   • applyRules defaults to true so a webhook-delivered inbound reply fires inbound
 //     rules just like the poller would — mirrorThread's own !existing guard keeps
 //     rules from re-firing on an already-known thread (e.g. a flag/folder update).
+// Folder display-name map from our already-mirrored inbox_folders rows — NO live Graph
+// call. The webhook path uses this instead of syncFolders()'s list-and-upsert-every-folder,
+// which (fired on every event) was the main driver of Microsoft app-level 429s under a
+// burst of notifications. The periodic poll keeps inbox_folders fresh.
+async function folderMapFromDb(admin: SupabaseClient, accountId: string): Promise<Map<string, string>> {
+  const map = new Map<string, string>()
+  const { data } = await admin
+    .from('inbox_folders')
+    .select('provider_folder_id, name')
+    .eq('account_id', accountId)
+    .is('deleted_at', null)
+  for (const f of (data ?? []) as { provider_folder_id: string | null; name: string | null }[]) {
+    if (f.provider_folder_id) map.set(f.provider_folder_id, f.name ?? '')
+  }
+  return map
+}
+
 export async function mirrorThreadById(
   admin: SupabaseClient,
   account: InboxAccount,
@@ -319,7 +336,8 @@ export async function mirrorThreadById(
 ): Promise<string | null> {
   const provider = getMailProvider(account)
   const nowIso = new Date().toISOString()
-  const folderMap = await syncFolders(admin, account, provider, nowIso)
+  // Folder map from our DB mirror (no per-event provider.listFolders → avoids 429 bursts).
+  const folderMap = await folderMapFromDb(admin, account.id)
   const t = await provider.getThread(providerThreadId)
   const r = await mirrorThread(admin, account, provider, t, folderMap, nowIso, {
     applyRules: opts?.applyRules ?? true,
