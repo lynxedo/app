@@ -58,6 +58,8 @@ export async function GET(req: Request) {
   // Phase 2 filters — compose with any scope.
   const tagParam = (url.searchParams.get('tag') || '').trim()
   const waitingParam = (url.searchParams.get('waiting') || '').trim() // '' | 'any' | customer|tech|vendor|approval
+  const snoozedView = url.searchParams.get('snoozed') === '1'
+  const nowIso = new Date().toISOString()
 
   const admin = createAdminClient()
 
@@ -159,6 +161,13 @@ export async function GET(req: Request) {
   if (waitingParam) {
     if (waitingParam === 'any') q = q.not('waiting_state', 'is', null)
     else q = q.eq('waiting_state', waitingParam)
+  }
+  // Phase 3A snooze: active views hide currently-snoozed threads (they auto-return when the
+  // snooze time passes — no cron); the Snoozed view (?snoozed=1) shows only those still snoozed.
+  if (snoozedView) {
+    q = q.gt('snoozed_until', nowIso)
+  } else {
+    q = q.or(`snoozed_until.is.null,snoozed_until.lte.${nowIso}`)
   }
 
   if (folder) {

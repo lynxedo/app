@@ -9,8 +9,10 @@ import { Spinner, EmptyState, useToast } from '@/components/ui'
 import RulesPanel from '@/components/hub/email/RulesPanel'
 import FoldersPanel from '@/components/hub/email/FoldersPanel'
 import TagsPanel from '@/components/hub/email/TagsPanel'
+import TemplatesPanel from '@/components/hub/email/TemplatesPanel'
 import {
   relativeTime,
+  messageTime,
   participantName,
   initials,
   firstName,
@@ -107,6 +109,7 @@ export default function EmailInboxSidebar({
   // Phase 2 filters (server-side; compose with the current scope).
   const [tagFilter, setTagFilter] = useState('') // a single tag id, or '' for all
   const [waitingFilter, setWaitingFilter] = useState<'' | 'any' | WaitingState>('')
+  const [snoozedView, setSnoozedView] = useState(false) // Phase 3A — show only currently-snoozed threads
   const [tagCatalog, setTagCatalog] = useState<InboxTag[]>([]) // admin tag definitions — resolves row tag ids + fills the filter dropdown
 
   // Gear menu + Rules + Folders + Tags.
@@ -114,6 +117,7 @@ export default function EmailInboxSidebar({
   const [rulesOpen, setRulesOpen] = useState(false)
   const [foldersOpen, setFoldersOpen] = useState(false)
   const [tagsOpen, setTagsOpen] = useState(false)
+  const [templatesOpen, setTemplatesOpen] = useState(false)
   const gearRef = useRef<HTMLDivElement>(null)
 
   // Expanded-thread previews (Outlook-style chevron sub-rows).
@@ -232,8 +236,9 @@ export default function EmailInboxSidebar({
   }, [loadFolders])
 
   const isDraftsView = folder === DRAFTS_VIEW
-  // Managers see the pinned unassigned Queue on the live Inbox view (not on Closed / Drafts / a folder view).
-  const showQueue = isManager && account === 'shared' && folder === '' && scope !== 'closed'
+  // Managers see the pinned unassigned Queue on the live Inbox view (not on Closed / Drafts / a folder /
+  // the snoozed view).
+  const showQueue = isManager && account === 'shared' && folder === '' && scope !== 'closed' && !snoozedView
 
   const load = useCallback(async () => {
     if (!accountsLoaded || isDraftsView) return
@@ -243,6 +248,9 @@ export default function EmailInboxSidebar({
     if (debouncedSearch) params.set('search', debouncedSearch)
     if (tagFilter) params.set('tag', tagFilter)
     if (waitingFilter) params.set('waiting', waitingFilter)
+    // Snoozed view — keep the current scope but ask only for currently-snoozed
+    // threads (active views hide these server-side by default).
+    if (snoozedView) params.set('snoozed', '1')
     const reqs: Promise<Response>[] = [fetch(`/api/hub/email/threads?${params.toString()}`)]
     if (showQueue) {
       const qp = new URLSearchParams({ scope: 'unassigned', account, limit: '100' })
@@ -259,7 +267,7 @@ export default function EmailInboxSidebar({
     } finally {
       setLoading(false)
     }
-  }, [scope, account, folder, debouncedSearch, tagFilter, waitingFilter, accountsLoaded, showQueue, isDraftsView])
+  }, [scope, account, folder, debouncedSearch, tagFilter, waitingFilter, snoozedView, accountsLoaded, showQueue, isDraftsView])
 
   useEffect(() => {
     load()
@@ -540,6 +548,18 @@ export default function EmailInboxSidebar({
               Manage tags
             </button>
           )}
+          {isManager && (
+            <button
+              type="button"
+              onClick={() => {
+                setGearOpen(false)
+                setTemplatesOpen(true)
+              }}
+              className="block w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+            >
+              Manage templates
+            </button>
+          )}
           <button
             type="button"
             onClick={() => {
@@ -772,6 +792,24 @@ export default function EmailInboxSidebar({
             </select>
           </div>
         )}
+
+        {/* Snoozed view toggle (Phase 3A) — keeps the current scope but asks the
+            server for only currently-snoozed threads (hidden from active views). */}
+        {showTabs && (
+          <button
+            type="button"
+            onClick={() => setSnoozedView((v) => !v)}
+            aria-pressed={snoozedView}
+            className={`w-full px-2 py-[3px] rounded-md text-[11px] whitespace-nowrap transition ${
+              snoozedView
+                ? 'bg-indigo-500/25 text-indigo-200 font-medium'
+                : 'text-white/40 hover:text-white/70'
+            }`}
+            title="Show snoozed conversations"
+          >
+            💤 {snoozedView ? 'Showing snoozed' : 'Snoozed'}
+          </button>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
@@ -888,6 +926,8 @@ export default function EmailInboxSidebar({
             title={
               debouncedSearch
                 ? 'No matching email.'
+                : snoozedView
+                ? 'Nothing snoozed. 💤'
                 : folder
                 ? 'Nothing in this folder.'
                 : scope === 'closed'
@@ -916,6 +956,8 @@ export default function EmailInboxSidebar({
               .map((id) => tagById.get(id))
               .filter((x): x is InboxTag => !!x)
             const waiting = t.waiting_state || null
+            const rowSnoozedUntil = t.snoozed_until || null
+            const rowSnoozed = !!rowSnoozedUntil && new Date(rowSnoozedUntil).getTime() > Date.now()
             return (
               <li
                 key={t.id}
@@ -1015,9 +1057,18 @@ export default function EmailInboxSidebar({
                         )}
                       </span>
                     </div>
-                    {/* Phase 2 — "waiting on …" pill + applied tag chips (cap 3 + overflow). */}
-                    {(waiting || rowTags.length > 0) && (
+                    {/* Phase 2 — "waiting on …" pill + applied tag chips (cap 3 + overflow);
+                        Phase 3A — a "snoozed until" pill. */}
+                    {(waiting || rowTags.length > 0 || rowSnoozed) && (
                       <div className="flex items-center flex-wrap gap-1 mt-1">
+                        {rowSnoozed && (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-200 text-[9px] font-medium whitespace-nowrap"
+                            title={`Snoozed until ${messageTime(rowSnoozedUntil)}`}
+                          >
+                            💤 {relativeTime(rowSnoozedUntil)}
+                          </span>
+                        )}
                         {waiting && (
                           <span
                             className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[9px] font-medium whitespace-nowrap"
@@ -1110,6 +1161,7 @@ export default function EmailInboxSidebar({
         />
       )}
       {tagsOpen && <TagsPanel open onClose={() => setTagsOpen(false)} />}
+      {templatesOpen && <TemplatesPanel open onClose={() => setTemplatesOpen(false)} />}
     </aside>
   )
 }

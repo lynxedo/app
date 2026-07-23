@@ -32,6 +32,16 @@ export type InboxTag = {
   active: boolean
 }
 
+/** A company-shared canned response / template (GET /api/hub/email/templates). */
+export type InboxTemplate = {
+  id: string
+  name: string
+  subject: string | null
+  body_html: string
+  sort_order: number
+  active: boolean
+}
+
 /**
  * The Hub theme remaps the entire Tailwind --color-* palette per theme, so
  * bg-white / bg-gray-* / text-gray-* render DARK under a dark/inverted theme.
@@ -106,6 +116,11 @@ export type EmailThread = {
   waiting_state?: WaitingState | null
   /** Phase 2 — when the waiting state was set (detail responses). */
   waiting_set_at?: string | null
+  /** Phase 3A — snoozed until (hidden from active views until this time passes). */
+  snoozed_until?: string | null
+  /** Phase 3A — follow-up reminder time + optional note. */
+  follow_up_at?: string | null
+  follow_up_note?: string | null
 }
 
 /** A draft row from GET /api/hub/email/drafts. */

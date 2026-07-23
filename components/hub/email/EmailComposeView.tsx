@@ -17,7 +17,18 @@ import {
   type InboxAccount,
   type OutgoingAttachment,
   type EmailDraft,
+  type InboxTemplate,
 } from './emailFormat'
+
+/** Fill a template's simple merge tokens with the customer's name (case-insensitive,
+ *  global). Unknown name → ''. Any other {{…}} token is left untouched. */
+function applyTemplateMergeTokens(html: string, fullName: string): string {
+  const name = (fullName || '').trim()
+  const first = name.split(/\s+/)[0] || ''
+  return (html || '')
+    .replace(/\{\{\s*first_name\s*\}\}/gi, first)
+    .replace(/\{\{\s*name\s*\}\}/gi, name)
+}
 
 /**
  * Full-page "New email" composer (main window, light theme). To / Cc / Subject +
@@ -61,6 +72,38 @@ export default function EmailComposeView({
   const [attachments, setAttachments] = useState<OutgoingAttachment[]>([])
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
+
+  // Company-shared canned responses (active only) for the "Insert template" menu.
+  const [templates, setTemplates] = useState<InboxTemplate[]>([])
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/hub/email/templates')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setTemplates(((data.templates || []) as InboxTemplate[]).filter((t) => t.active))
+      })
+      .catch(() => {
+        if (!cancelled) setTemplates([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Insert a template's body, APPENDED to whatever's typed (never wipes it), via
+  // the editor's own setContent (TipTap parses the HTML — no raw injection). The
+  // new-email composer has no known recipient name, so merge tokens resolve to ''.
+  // If the template carries a subject and the field is empty, fill it too.
+  function insertTemplate(t: InboxTemplate) {
+    setTemplatesOpen(false)
+    const merged = applyTemplateMergeTokens(t.body_html || '', '')
+    if (merged) {
+      const current = editorRef.current?.getHTML() || ''
+      editorRef.current?.setContent(`${current}${merged}`, { focusStart: false })
+    }
+    if (t.subject && !subject.trim()) setSubject(t.subject)
+  }
 
   // Draft persistence.
   const [draftReady, setDraftReady] = useState(!draftId) // wait for the draft to load first
@@ -399,12 +442,47 @@ export default function EmailComposeView({
 
           {/* Footer */}
           <div className="px-4 py-3 border-t border-gray-200 flex items-center justify-between gap-2 flex-wrap">
-            <EmailAttachments
-              attachments={attachments}
-              onAdd={(a) => setAttachments((prev) => [...prev, a])}
-              onRemove={(id) => setAttachments((prev) => prev.filter((x) => x.id !== id))}
-              disabled={sending}
-            />
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <EmailAttachments
+                attachments={attachments}
+                onAdd={(a) => setAttachments((prev) => [...prev, a])}
+                onRemove={(id) => setAttachments((prev) => prev.filter((x) => x.id !== id))}
+                disabled={sending}
+              />
+              {templates.length > 0 && (
+                <div className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setTemplatesOpen((v) => !v)}
+                    disabled={sending}
+                    className="text-xs px-2 py-1 rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 disabled:opacity-50 inline-flex items-center gap-1"
+                    title="Insert a saved template"
+                  >
+                    <span aria-hidden>📝</span>
+                    <span className="hidden sm:inline">Insert template</span>
+                    <span aria-hidden className="text-gray-400">▾</span>
+                  </button>
+                  {templatesOpen && (
+                    <div className="absolute left-0 bottom-full mb-1 w-60 max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                      <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-gray-400 border-b border-gray-100">
+                        Templates
+                      </div>
+                      {templates.map((t) => (
+                        <button
+                          key={t.id}
+                          type="button"
+                          onClick={() => insertTemplate(t)}
+                          className="block w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 truncate"
+                          title={t.name}
+                        >
+                          {t.name}
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
             <div className="flex items-center gap-2">
               <ScheduleSendMenu
                 disabled={sending || !accountsLoaded || accounts.length === 0}

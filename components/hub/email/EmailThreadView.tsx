@@ -34,6 +34,8 @@ function detailSignature(d: ThreadDetail): string {
     d.thread.assigned_to_user_id || '',
     d.thread.folder || '',
     d.thread.waiting_state || '',
+    d.thread.snoozed_until || '',
+    d.thread.follow_up_at || '',
     (d.thread.tags || []).join(','),
     d.messages.map((m) => m.id).join(','),
     d.notes.length,
@@ -53,6 +55,29 @@ function readableTextColor(hex: string): string {
   if ([r, g, b].some((v) => Number.isNaN(v))) return '#fff'
   const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
   return lum > 0.6 ? '#111827' : '#fff'
+}
+
+// Client-side ISO computations for the Snooze / Follow-up quick presets. Local
+// time (setHours), then .toISOString() → the UTC instant the backend stores.
+function tomorrow8am(): string {
+  const d = new Date()
+  d.setDate(d.getDate() + 1)
+  d.setHours(8, 0, 0, 0)
+  return d.toISOString()
+}
+function nextMonday8am(): string {
+  const d = new Date()
+  // days until the NEXT Monday (today-is-Monday → +7, never 0).
+  const daysUntil = ((8 - d.getDay()) % 7) || 7
+  d.setDate(d.getDate() + daysUntil)
+  d.setHours(8, 0, 0, 0)
+  return d.toISOString()
+}
+function inDays8am(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  d.setHours(8, 0, 0, 0)
+  return d.toISOString()
 }
 
 /**
@@ -95,6 +120,8 @@ export default function EmailThreadView({
   const [shareOpen, setShareOpen] = useState(false)
   const [tagMenuOpen, setTagMenuOpen] = useState(false)
   const [waitingMenuOpen, setWaitingMenuOpen] = useState(false)
+  const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false)
+  const [followUpMenuOpen, setFollowUpMenuOpen] = useState(false)
   const [busyAction, setBusyAction] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
   const [noteText, setNoteText] = useState('')
@@ -283,6 +310,42 @@ export default function EmailThreadView({
     }
   }
 
+  // Snooze / un-snooze — POST /threads/{id}/snooze { snoozed_until } (null
+  // un-snoozes), then reload. Mirrors setWaiting's busy-guard.
+  async function setSnooze(snoozedUntil: string | null) {
+    if (busyAction) return
+    setBusyAction(true)
+    try {
+      const res = await fetch(`/api/hub/email/threads/${threadId}/snooze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snoozed_until: snoozedUntil }),
+      })
+      if (res.ok) await load()
+      else toast.error("Couldn't update the snooze")
+    } finally {
+      setBusyAction(false)
+    }
+  }
+
+  // Set / clear the follow-up reminder — POST /threads/{id}/follow-up
+  // { follow_up_at, follow_up_note } (null follow_up_at clears), then reload.
+  async function setFollowUp(followUpAt: string | null, followUpNote: string | null) {
+    if (busyAction) return
+    setBusyAction(true)
+    try {
+      const res = await fetch(`/api/hub/email/threads/${threadId}/follow-up`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ follow_up_at: followUpAt, follow_up_note: followUpNote }),
+      })
+      if (res.ok) await load()
+      else toast.error("Couldn't update the follow-up")
+    } finally {
+      setBusyAction(false)
+    }
+  }
+
   async function saveNote() {
     const body = noteText.trim()
     if (!body || savingNote) return
@@ -349,6 +412,12 @@ export default function EmailThreadView({
     .map((id) => tagById.get(id))
     .filter((t): t is InboxTag => !!t)
   const waitingState = thread.waiting_state ?? null
+  // Phase 3A — snooze is only "active" while its time is still in the future;
+  // a past snoozed_until is a no-op (the server already un-hides it).
+  const snoozedUntil = thread.snoozed_until ?? null
+  const isSnoozed = !!snoozedUntil && new Date(snoozedUntil).getTime() > Date.now()
+  const followUpAt = thread.follow_up_at ?? null
+  const followUpNote = thread.follow_up_note ?? null
 
   const statusChip = isClosed ? (
     <span className="text-[11px] px-2 py-0.5 rounded-md bg-gray-100 border border-gray-200 text-gray-500">
@@ -410,13 +479,26 @@ export default function EmailThreadView({
           {statusChip}
         </div>
 
-        {/* Applied tags + waiting badge (Phase 2) */}
-        {(waitingState || appliedTags.length > 0) && (
+        {/* Applied tags + waiting badge (Phase 2) + snooze / follow-up (Phase 3A) */}
+        {(waitingState || appliedTags.length > 0 || isSnoozed || followUpAt) && (
           <div className="flex items-center gap-1.5 flex-wrap mt-2">
             {waitingState && (
               <span className="text-[11px] px-2 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-amber-800 font-medium">
                 ⏳ {WAITING_LABELS[waitingState]}
                 {thread.waiting_set_at ? ` · ${waitedFor(thread.waiting_set_at)}` : ''}
+              </span>
+            )}
+            {isSnoozed && (
+              <span className="text-[11px] px-2 py-0.5 rounded-md bg-indigo-100 border border-indigo-300 text-indigo-800 font-medium">
+                💤 Snoozed until {messageTime(snoozedUntil)}
+              </span>
+            )}
+            {followUpAt && (
+              <span
+                className="text-[11px] px-2 py-0.5 rounded-md bg-slate-100 border border-slate-300 text-slate-700 font-medium"
+                title={followUpNote || undefined}
+              >
+                ⏰ Follow-up {messageTime(followUpAt)}
               </span>
             )}
             {appliedTags.map((t) => (
@@ -579,6 +661,67 @@ export default function EmailThreadView({
                     setWaitingMenuOpen(false)
                   }}
                   onClose={() => setWaitingMenuOpen(false)}
+                />
+              )}
+            </div>
+          )}
+          {permissions.canClose && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setSnoozeMenuOpen((v) => !v)}
+                disabled={busyAction}
+                className={`text-xs px-2.5 py-1 rounded-md border disabled:opacity-50 ${
+                  isSnoozed
+                    ? 'bg-indigo-100 border-indigo-300 text-indigo-800 font-medium hover:bg-indigo-200'
+                    : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+                title="Snooze this thread (hide it from active views until a set time)"
+              >
+                {isSnoozed ? '💤 Snoozed' : 'Snooze'} ▾
+              </button>
+              {snoozeMenuOpen && (
+                <SnoozeMenu
+                  isSnoozed={isSnoozed}
+                  busy={busyAction}
+                  onSelect={(iso) => {
+                    setSnooze(iso)
+                    setSnoozeMenuOpen(false)
+                  }}
+                  onClose={() => setSnoozeMenuOpen(false)}
+                />
+              )}
+            </div>
+          )}
+          {permissions.canClose && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setFollowUpMenuOpen((v) => !v)}
+                disabled={busyAction}
+                className={`text-xs px-2.5 py-1 rounded-md border disabled:opacity-50 ${
+                  followUpAt
+                    ? 'bg-slate-100 border-slate-300 text-slate-700 font-medium hover:bg-slate-200'
+                    : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+                title="Set a follow-up reminder on this thread"
+              >
+                {followUpAt ? '⏰ Follow-up' : 'Follow-up'} ▾
+              </button>
+              {followUpMenuOpen && (
+                <FollowUpMenu
+                  current={followUpAt}
+                  currentNote={followUpNote}
+                  busy={busyAction}
+                  onSet={(at, note) => {
+                    setFollowUp(at, note)
+                    setFollowUpMenuOpen(false)
+                  }}
+                  onClear={() => {
+                    setFollowUp(null, null)
+                    setFollowUpMenuOpen(false)
+                  }}
+                  onClose={() => setFollowUpMenuOpen(false)}
                 />
               )}
             </div>
@@ -1045,6 +1188,194 @@ function WaitingMenu({
         <span aria-hidden className="w-3.5 flex-none" />
         Not waiting / Clear
       </button>
+    </div>
+  )
+}
+
+/**
+ * Snooze ▾ selector (Phase 3A). Quick presets (Later today / Tomorrow / Next
+ * Monday) + a custom datetime-local, plus "Un-snooze" when already snoozed. Each
+ * pick computes an ISO instant client-side and calls onSelect (null un-snoozes).
+ * Positioned absolutely by the caller (wrap in `relative`); closes on outside
+ * click, mirroring WaitingMenu.
+ */
+function SnoozeMenu({
+  isSnoozed,
+  busy,
+  onSelect,
+  onClose,
+}: {
+  isSnoozed: boolean
+  busy: boolean
+  onSelect: (iso: string | null) => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [custom, setCustom] = useState('')
+
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [onClose])
+
+  const presets: { label: string; iso: () => string }[] = [
+    { label: 'Later today (+3 hours)', iso: () => new Date(Date.now() + 3 * 3600 * 1000).toISOString() },
+    { label: 'Tomorrow 8am', iso: tomorrow8am },
+    { label: 'Next Monday 8am', iso: nextMonday8am },
+  ]
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-0 top-full mt-1 w-60 bg-white border border-gray-200 rounded-md shadow-xl z-50 py-1"
+    >
+      {presets.map((p) => (
+        <button
+          key={p.label}
+          type="button"
+          disabled={busy}
+          onClick={() => onSelect(p.iso())}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          <span aria-hidden>💤</span>
+          {p.label}
+        </button>
+      ))}
+      <div className="px-3 py-2 border-t border-gray-100">
+        <label className="block text-[10px] uppercase tracking-wide text-gray-400 mb-1">Custom</label>
+        <input
+          type="datetime-local"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          className="w-full px-2 py-1 rounded-md border border-gray-300 text-xs text-gray-900 focus:outline-none focus:border-gray-400"
+          style={{ fontSize: 16 }}
+        />
+        <button
+          type="button"
+          disabled={busy || !custom}
+          onClick={() => {
+            const d = new Date(custom)
+            if (!isNaN(d.getTime())) onSelect(d.toISOString())
+          }}
+          className="mt-1.5 w-full px-2 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-xs disabled:opacity-40"
+        >
+          Snooze
+        </button>
+      </div>
+      {isSnoozed && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onSelect(null)}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50 border-t border-gray-100 disabled:opacity-40"
+        >
+          <span aria-hidden className="w-3.5 flex-none" />
+          Un-snooze
+        </button>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Follow-up popover (Phase 3A). Quick presets (Tomorrow / In 3 days / Next week)
+ * + a custom datetime-local and an optional note, plus a Clear row when a
+ * follow-up is already set. Positioned absolutely by the caller (wrap in
+ * `relative`); closes on outside click, mirroring WaitingMenu.
+ */
+function FollowUpMenu({
+  current,
+  currentNote,
+  busy,
+  onSet,
+  onClear,
+  onClose,
+}: {
+  current: string | null
+  currentNote: string | null
+  busy: boolean
+  onSet: (at: string, note: string | null) => void
+  onClear: () => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [when, setWhen] = useState('')
+  const [note, setNote] = useState(currentNote || '')
+
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [onClose])
+
+  const presets: { label: string; iso: () => string }[] = [
+    { label: 'Tomorrow 8am', iso: tomorrow8am },
+    { label: 'In 3 days', iso: () => inDays8am(3) },
+    { label: 'Next week', iso: () => inDays8am(7) },
+  ]
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-xl z-50 py-1"
+    >
+      {presets.map((p) => (
+        <button
+          key={p.label}
+          type="button"
+          disabled={busy}
+          onClick={() => onSet(p.iso(), note.trim() || null)}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          <span aria-hidden>⏰</span>
+          {p.label}
+        </button>
+      ))}
+      <div className="px-3 py-2 border-t border-gray-100 space-y-1.5">
+        <label className="block text-[10px] uppercase tracking-wide text-gray-400">Custom time</label>
+        <input
+          type="datetime-local"
+          value={when}
+          onChange={(e) => setWhen(e.target.value)}
+          className="w-full px-2 py-1 rounded-md border border-gray-300 text-xs text-gray-900 focus:outline-none focus:border-gray-400"
+          style={{ fontSize: 16 }}
+        />
+        <input
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Note (optional)"
+          className="w-full px-2 py-1 rounded-md border border-gray-300 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400"
+          style={{ fontSize: 16 }}
+        />
+        <button
+          type="button"
+          disabled={busy || !when}
+          onClick={() => {
+            const d = new Date(when)
+            if (!isNaN(d.getTime())) onSet(d.toISOString(), note.trim() || null)
+          }}
+          className="w-full px-2 py-1 rounded-md bg-slate-600 hover:bg-slate-500 text-[#fff] text-xs disabled:opacity-40"
+        >
+          Set follow-up
+        </button>
+      </div>
+      {current && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onClear}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50 border-t border-gray-100 disabled:opacity-40"
+        >
+          <span aria-hidden className="w-3.5 flex-none" />
+          Clear follow-up
+        </button>
+      )}
     </div>
   )
 }
