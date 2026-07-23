@@ -6,6 +6,7 @@ import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
 import SaveToFilesModal from './SaveToFilesModal'
 import MessageActionsSheet from './MessageActionsSheet'
+import MessageComposer from './MessageComposer'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { renderContent } from './renderContent'
 import { useConfirm, useToast } from '@/components/ui'
@@ -252,7 +253,6 @@ type MessageRowProps = {
   reactions: RxItem[]
   replyCount: number
   readersLabel: string | null
-  editContent: string
   boardPickerBoards: { id: string; name: string }[]
   addingToBoard: boolean
   onTap: (msgId: string) => void
@@ -262,10 +262,9 @@ type MessageRowProps = {
   onToggleQuickPicker: (msgId: string) => void
   onOpenFullPicker: (msgId: string) => void
   onCloseFullPicker: () => void
-  onStartEdit: (msgId: string, content: string) => void
+  onStartEdit: (msgId: string) => void
   onCancelEdit: () => void
-  onSaveEdit: (msgId: string) => void
-  onEditContentChange: (content: string) => void
+  onSaveEdit: (msgId: string, content: string) => void
   onDelete: (msgId: string) => void
   onSetForwardingMsg: (msg: HubMessage) => void
   onSaveToFiles: (msg: HubMessage) => void
@@ -295,7 +294,6 @@ const MessageRow = memo(function MessageRow({
   reactions,
   replyCount,
   readersLabel,
-  editContent,
   boardPickerBoards,
   addingToBoard,
   onTap,
@@ -308,7 +306,6 @@ const MessageRow = memo(function MessageRow({
   onStartEdit,
   onCancelEdit,
   onSaveEdit,
-  onEditContentChange,
   onDelete,
   onSetForwardingMsg,
   onSaveToFiles,
@@ -383,20 +380,14 @@ const MessageRow = memo(function MessageRow({
         )}
 
         {isEditing ? (
-          <div className="flex gap-2">
-            <input
-              autoFocus
-              value={editContent}
-              onChange={e => onEditContentChange(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); onSaveEdit(msg.id) }
-                if (e.key === 'Escape') onCancelEdit()
-              }}
-              className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-brand"
-            />
-            <button onClick={() => onSaveEdit(msg.id)} className="text-xs text-brand hover:text-blue-300 px-2">Save</button>
-            <button onClick={onCancelEdit} className="text-xs text-gray-500 hover:text-gray-300 px-2">Cancel</button>
-          </div>
+          <MessageComposer
+            edit
+            editInitialContent={msg.content}
+            hubUsers={hubUsers}
+            currentUserId={currentUserId}
+            onSaveEdit={(content) => onSaveEdit(msg.id, content)}
+            onCancelEdit={onCancelEdit}
+          />
         ) : (
           msg.content && (
             <p className="hub-message-text text-lg md:text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
@@ -608,7 +599,7 @@ const MessageRow = memo(function MessageRow({
 
           {isOwn && (
             <button
-              onClick={() => onStartEdit(msg.id, msg.content)}
+              onClick={() => onStartEdit(msg.id)}
               className="text-gray-500 hover:text-gray-300 px-2 py-1.5 rounded hover:bg-gray-800 text-base md:text-xs md:px-1.5 md:py-0.5"
               title="Edit"
             >
@@ -675,7 +666,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   const prevScrollTopRef = useRef(0)
   const topSentinelRef = useRef<HTMLDivElement>(null)
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editContent, setEditContent] = useState('')
   const [pickerMsgId, setPickerMsgId] = useState<string | null>(null)
   const [fullPickerMsgId, setFullPickerMsgId] = useState<string | null>(null)
   const [forwardingMsg, setForwardingMsg] = useState<HubMessage | null>(null)
@@ -1252,8 +1242,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
   // Lets callbacks drop volatile deps so memo() sees the same function ref.
   const rxMapRef = useRef(rxMap)
   rxMapRef.current = rxMap
-  const editContentRef = useRef(editContent)
-  editContentRef.current = editContent
 
   // ── Stable callbacks ────────────────────────────────────────────────────
 
@@ -1273,14 +1261,15 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     })
   }, [currentUserId])
 
-  const saveEdit = useCallback(async (msgId: string) => {
-    const trimmed = editContentRef.current.trim()
+  const saveEdit = useCallback(async (msgId: string, content: string) => {
+    const trimmed = content.trim()
     if (!trimmed) return
-    await fetch(`/api/hub/messages/${msgId}`, {
+    const res = await fetch(`/api/hub/messages/${msgId}`, {
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ content: trimmed }),
     })
+    if (!res.ok) throw new Error(`edit failed: ${res.status}`) // keep the composer open so nothing is lost
     setEditingId(null)
   }, [])
 
@@ -1363,18 +1352,14 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
     setTappedMsgId(prev => prev === msgId ? null : msgId)
   }, [])
 
-  const handleStartEdit = useCallback((msgId: string, content: string) => {
+  const handleStartEdit = useCallback((msgId: string) => {
+    // The edit composer seeds from msg.content itself, so no content state to lift.
     setEditingId(msgId)
-    setEditContent(content)
     setTappedMsgId(null)
   }, [])
 
   const handleCancelEdit = useCallback(() => {
     setEditingId(null)
-  }, [])
-
-  const handleEditContentChange = useCallback((content: string) => {
-    setEditContent(content)
   }, [])
 
   const handleToggleQuickPicker = useCallback((msgId: string) => {
@@ -1482,7 +1467,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                   reactions={rxMap[msg.id] ?? EMPTY_REACTIONS}
                   replyCount={replyCounts[msg.id] ?? 0}
                   readersLabel={readersLabel}
-                  editContent={editingId === msg.id ? editContent : ''}
                   boardPickerBoards={addToBoardMsgId === msg.id ? boardPickerBoards : EMPTY_BOARDS}
                   addingToBoard={addToBoardMsgId === msg.id ? addingToBoard : false}
                   onTap={handleTap}
@@ -1495,7 +1479,6 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
                   onStartEdit={handleStartEdit}
                   onCancelEdit={handleCancelEdit}
                   onSaveEdit={saveEdit}
-                  onEditContentChange={handleEditContentChange}
                   onDelete={deleteMessage}
                   onSetForwardingMsg={handleSetForwardingMsg}
                   onSaveToFiles={handleSetSaveToFilesMsg}
@@ -1552,7 +1535,7 @@ const MessageFeed = forwardRef<MessageFeedHandle, {
             onSaveToFiles={() => setSaveToFilesMsg(msg)}
             onAddToBoard={() => openBoardPicker(msg.id)}
             onOpenThread={() => onOpenThread?.(msg)}
-            onEdit={() => { setEditingId(msg.id); setEditContent(msg.content) }}
+            onEdit={() => { setEditingId(msg.id) }}
             onDelete={() => deleteMessage(msg.id)}
           />
         )
