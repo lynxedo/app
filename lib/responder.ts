@@ -3,6 +3,7 @@ import { sendSms } from '@/lib/twilio'
 import { resolveFromNumber } from '@/lib/txt-numbers'
 import { buildMessagePreview } from '@/lib/txt-preview'
 import { enrichTxtContactName } from '@/lib/dialer-lookup'
+import { getAiTextBotUserId, renderAiTextSignature } from '@/lib/ai-text-identity'
 
 export type ResponderMode = 'off' | 'forwarded_line' | 'main_line'
 
@@ -257,6 +258,14 @@ export async function sendResponderText(
   })
   const body = renderTemplate(picked.body, { first_name: firstName })
 
+  // Sign the auto-text as the AI persona (Amber) so every automated Responder
+  // text carries her name, not a blank/staff signature. Attribute the message to
+  // the bot user too. Both fall back cleanly (no signature / sent_by null) when
+  // no bot user is configured for this company.
+  const botUserId = await getAiTextBotUserId(admin, companyId)
+  const signature = await renderAiTextSignature(admin, companyId, botUserId)
+  const finalBody = signature ? `${body}\n\n${signature}` : body
+
   // Log the outbound message first (status 'sending'), then send.
   const { data: inserted } = await admin
     .from('txt_messages')
@@ -265,9 +274,9 @@ export async function sendResponderText(
       conversation_id: conversationId,
       contact_id: contactId,
       direction: 'outbound',
-      body,
+      body: finalBody,
       media_urls: [],
-      sent_by: null,
+      sent_by: botUserId,
       status: 'sending',
     })
     .select('id')
@@ -276,7 +285,7 @@ export async function sendResponderText(
   const fromResolved = await resolveFromNumber(admin, { conversationId, companyId })
   const smsResult = await sendSms({
     to: fromNumber,
-    body,
+    body: finalBody,
     fromNumber: fromResolved || ourNumber || undefined,
   })
 
