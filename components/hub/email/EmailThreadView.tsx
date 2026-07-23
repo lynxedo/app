@@ -126,6 +126,8 @@ export default function EmailThreadView({
   const [showNotes, setShowNotes] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
+  // Phase 3B — teammates to @mention/notify when this note is posted.
+  const [mentionIds, setMentionIds] = useState<string[]>([])
 
   // The admin-managed tag catalog (Phase 2). Fetched once; ids on a thread are
   // resolved against this to render chips + the Tag ▾ picker. We keep INACTIVE
@@ -249,6 +251,145 @@ export default function EmailThreadView({
     }
   }, [threadId, companyId, load])
 
+  // ─── Phase 3B: collision detection (who's here / who's replying) ──────────
+  // Teammate list — powers both the presence display names and the @mention
+  // notify picker in the notes panel. Fetched once; bots filtered out.
+  const [hubUsers, setHubUsers] = useState<{ id: string; display_name: string; is_bot?: boolean }[]>([])
+  const [myName, setMyName] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/hub/users')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (cancelled) return
+        const list: { id: string; display_name: string; is_bot?: boolean }[] = (
+          Array.isArray(data.users) ? data.users : []
+        ).filter((u: { is_bot?: boolean }) => !u.is_bot)
+        setHubUsers(list)
+        const me = list.find((u) => u.id === currentUserId)
+        if (me?.display_name) setMyName(me.display_name)
+      })
+      .catch(() => {
+        if (!cancelled) setHubUsers([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentUserId])
+
+  // Resolve the current user via getUser() and fall back to email initials for the
+  // presence name if we're not in hub_users. Never overwrites a real display name.
+  useEffect(() => {
+    let cancelled = false
+    try {
+      const supabase = createClient()
+      supabase.auth.getUser().then(({ data }) => {
+        if (cancelled) return
+        const email = data.user?.email || ''
+        if (email) setMyName((prev) => prev || email.split('@')[0])
+      })
+    } catch {
+      /* auth/realtime unavailable — presence just shows a generic name */
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Present users on THIS thread (ephemeral Supabase presence). Each carries a
+  // display name + whether their reply composer is open.
+  type PresenceMeta = { user_id: string; name: string; replying: boolean }
+  const [presentUsers, setPresentUsers] = useState<PresenceMeta[]>([])
+  const presenceChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
+  const presenceSubscribedRef = useRef(false)
+  // Latest name readable from the async subscribe callback.
+  const myNameRef = useRef(myName)
+  myNameRef.current = myName
+
+  useEffect(() => {
+    if (!threadId || !currentUserId) return
+    let supabase: ReturnType<typeof createClient>
+    let channel: ReturnType<ReturnType<typeof createClient>['channel']>
+    try {
+      supabase = createClient()
+      channel = supabase.channel(`inbox:presence:${threadId}`, {
+        config: { presence: { key: currentUserId } },
+      })
+    } catch {
+      return // realtime unavailable — the collision UI simply never appears
+    }
+    presenceChannelRef.current = channel
+
+    const recompute = () => {
+      try {
+        const state = channel.presenceState() as Record<string, Partial<PresenceMeta>[]>
+        const flat: PresenceMeta[] = Object.keys(state).map((key) => {
+          const metas = state[key] || []
+          const meta = metas[metas.length - 1] || {}
+          return {
+            user_id: meta.user_id || key,
+            name: meta.name || '',
+            replying: !!meta.replying,
+          }
+        })
+        setPresentUsers(flat)
+      } catch {
+        /* ignore */
+      }
+    }
+
+    try {
+      channel
+        .on('presence', { event: 'sync' }, recompute)
+        .on('presence', { event: 'join' }, recompute)
+        .on('presence', { event: 'leave' }, recompute)
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            presenceSubscribedRef.current = true
+            try {
+              channel.track({ user_id: currentUserId, name: myNameRef.current, replying: composingRef.current })
+            } catch {
+              /* ignore */
+            }
+          }
+        })
+    } catch {
+      /* ignore */
+    }
+
+    return () => {
+      presenceSubscribedRef.current = false
+      try {
+        channel.untrack()
+      } catch {
+        /* ignore */
+      }
+      try {
+        supabase.removeChannel(channel)
+      } catch {
+        /* ignore */
+      }
+      presenceChannelRef.current = null
+      setPresentUsers([])
+    }
+  }, [threadId, currentUserId])
+
+  // Re-broadcast our presence when the reply composer opens/closes (replying)
+  // or once our display name resolves.
+  useEffect(() => {
+    const channel = presenceChannelRef.current
+    if (!channel || !presenceSubscribedRef.current) return
+    try {
+      channel.track({ user_id: currentUserId, name: myNameRef.current, replying: composerMode !== null })
+    } catch {
+      /* ignore */
+    }
+  }, [composerMode, myName, currentUserId])
+
+  function toggleMention(id: string) {
+    setMentionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
   function toggleExpanded(id: string) {
     setExpanded((prev) => {
       const next = new Set(prev)
@@ -354,12 +495,15 @@ export default function EmailThreadView({
       const res = await fetch(`/api/hub/email/threads/${threadId}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body }),
+        // Phase 3B — mentioned_user_ids: the backend DMs these teammates. Purely
+        // additive; the note text itself is saved exactly as before.
+        body: JSON.stringify({ body, mentioned_user_ids: mentionIds }),
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok && data.note) {
         setDetail((prev) => (prev ? { ...prev, notes: [...prev.notes, data.note] } : prev))
         setNoteText('')
+        setMentionIds([])
       } else {
         toast.error("Couldn't save the note")
       }
@@ -418,6 +562,14 @@ export default function EmailThreadView({
   const isSnoozed = !!snoozedUntil && new Date(snoozedUntil).getTime() > Date.now()
   const followUpAt = thread.follow_up_at ?? null
   const followUpNote = thread.follow_up_note ?? null
+
+  // Phase 3B — collision detection: everyone present on this thread except me,
+  // split into those actively replying vs just reading.
+  const presenceOthers = presentUsers.filter((p) => p.user_id !== currentUserId)
+  const replyingOthers = presenceOthers.filter((p) => p.replying)
+  const viewingOthers = presenceOthers.filter((p) => !p.replying)
+  // Teammates the note author can @mention (non-bot, excluding self).
+  const mentionCandidates = hubUsers.filter((u) => u.id !== currentUserId)
 
   const statusChip = isClosed ? (
     <span className="text-[11px] px-2 py-0.5 rounded-md bg-gray-100 border border-gray-200 text-gray-500">
@@ -478,6 +630,23 @@ export default function EmailThreadView({
           </div>
           {statusChip}
         </div>
+
+        {/* Phase 3B — collision detection: who else is here / replying right now */}
+        {presenceOthers.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap mt-2">
+            {replyingOthers.length > 0 && (
+              <span className="text-[11px] px-2 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-amber-800 font-medium">
+                ✍️ {replyingOthers.map((p) => firstName(p.name) || 'Someone').join(', ')}{' '}
+                {replyingOthers.length === 1 ? 'is' : 'are'} replying…
+              </span>
+            )}
+            {viewingOthers.length > 0 && (
+              <span className="text-[11px] px-2 py-0.5 rounded-md bg-sky-50 border border-sky-200 text-sky-700">
+                👁 {viewingOthers.map((p) => firstName(p.name) || 'Someone').join(', ')} also viewing
+              </span>
+            )}
+          </div>
+        )}
 
         {/* Applied tags + waiting badge (Phase 2) + snooze / follow-up (Phase 3A) */}
         {(waitingState || appliedTags.length > 0 || isSnoozed || followUpAt) && (
@@ -788,6 +957,9 @@ export default function EmailThreadView({
                   setNoteText={setNoteText}
                   onSave={saveNote}
                   saving={savingNote}
+                  mentionCandidates={mentionCandidates}
+                  mentionIds={mentionIds}
+                  onToggleMention={toggleMention}
                 />
               </div>
             )}
@@ -806,6 +978,9 @@ export default function EmailThreadView({
               setNoteText={setNoteText}
               onSave={saveNote}
               saving={savingNote}
+              mentionCandidates={mentionCandidates}
+              mentionIds={mentionIds}
+              onToggleMention={toggleMention}
             />
           </div>
         )}
@@ -1002,6 +1177,9 @@ function NotesPanel({
   setNoteText,
   onSave,
   saving,
+  mentionCandidates,
+  mentionIds,
+  onToggleMention,
 }: {
   notes: ThreadDetail['notes']
   canNote: boolean
@@ -1009,6 +1187,9 @@ function NotesPanel({
   setNoteText: (v: string) => void
   onSave: () => void
   saving: boolean
+  mentionCandidates: { id: string; display_name: string }[]
+  mentionIds: string[]
+  onToggleMention: (id: string) => void
 }) {
   return (
     <>
@@ -1025,6 +1206,12 @@ function NotesPanel({
       </div>
       {canNote && (
         <div className="p-2 border-t border-gray-200 space-y-2 bg-white">
+          {/* Phase 3B — @mention teammates to notify when this note posts. */}
+          <MentionField
+            candidates={mentionCandidates}
+            selectedIds={mentionIds}
+            onToggle={onToggleMention}
+          />
           <textarea
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
@@ -1044,6 +1231,106 @@ function NotesPanel({
         </div>
       )}
     </>
+  )
+}
+
+/**
+ * Phase 3B — @mention teammate notify picker for an internal note. A compact
+ * "＠ Notify" button opens a searchable checklist of non-bot teammates; chosen
+ * teammates render as removable chips. The selected ids ride along as
+ * `mentioned_user_ids` when the note posts so the backend can DM them. Mirrors
+ * the TagMenu dropdown pattern (outside-click close); opens UPWARD since the
+ * notes composer sits at the bottom of its pane.
+ */
+function MentionField({
+  candidates,
+  selectedIds,
+  onToggle,
+}: {
+  candidates: { id: string; display_name: string }[]
+  selectedIds: string[]
+  onToggle: (id: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [])
+
+  const selected = new Set(selectedIds)
+  const q = query.trim().toLowerCase()
+  const filtered = candidates.filter((u) => !q || u.display_name.toLowerCase().includes(q))
+  const chosen = candidates.filter((u) => selected.has(u.id))
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="relative" ref={ref}>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-[11px] px-2 py-0.5 rounded-md bg-white border border-gray-300 text-gray-600 hover:bg-gray-50"
+          title="Notify a teammate about this note"
+        >
+          ＠ Notify
+        </button>
+        {open && (
+          <div className="absolute left-0 bottom-full mb-1 w-52 bg-white border border-gray-200 rounded-md shadow-xl z-50 py-1">
+            <div className="px-2 pb-1">
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search teammates…"
+                className="w-full px-2 py-1 rounded-md border border-gray-300 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400"
+                style={{ fontSize: 16 }}
+              />
+            </div>
+            <div className="max-h-52 overflow-y-auto">
+              {filtered.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-gray-400">No teammates</div>
+              ) : (
+                filtered.map((u) => {
+                  const isSel = selected.has(u.id)
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => onToggle(u.id)}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <span className="w-3.5 flex-none text-emerald-600">{isSel ? '✓' : ''}</span>
+                      <span className="truncate">{u.display_name}</span>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+      {chosen.map((u) => (
+        <span
+          key={u.id}
+          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-sky-50 border border-sky-200 text-sky-700"
+        >
+          ＠{firstName(u.display_name) || u.display_name}
+          <button
+            type="button"
+            onClick={() => onToggle(u.id)}
+            className="text-sky-400 hover:text-sky-700 leading-none"
+            aria-label={`Remove ${u.display_name}`}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+    </div>
   )
 }
 
