@@ -856,6 +856,16 @@ export default function EmailInboxSidebar({
           className="w-full px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm placeholder-white/30"
         />
 
+        {/* Kanban board view of the shared inbox. */}
+        <Link
+          href="/hub/email/board"
+          onClick={() => onClose?.()}
+          className="block w-full px-2 py-[3px] rounded-md text-[11px] text-center bg-white/[0.04] text-white/60 hover:text-white/90 transition"
+          title="Board view"
+        >
+          ⊞ Board
+        </Link>
+
         {/* Folder dropdown — Inbox default + Drafts; other folders are reference/filing
             views. System folders (Sent/Deleted/Junk…) get an em-dash prefix. */}
         <select
