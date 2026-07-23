@@ -1334,6 +1334,7 @@ function InboxTab() {
         <Step n={3}>When it&apos;s handled, tap <strong className="text-white">Close</strong>. If the customer writes back, it reopens automatically.</Step>
         <p className="mt-3"><strong className="text-white">AI help:</strong> <strong className="text-white">Suggest Reply</strong> drafts a response from the conversation; <strong className="text-white">✨ Polish</strong> cleans up wording in a draft you&apos;ve started.</p>
         <p className="mt-3"><strong className="text-white">Internal notes</strong> (managers) leave context on a thread the customer never sees.</p>
+        <Note><strong className="text-white">Push notifications.</strong> A new customer email pings your phone the same way Txt does. While it&apos;s unclaimed in the <strong className="text-white">Queue</strong>, managers get the push; once it&apos;s claimed or assigned, its owner (and any members) get it instead — and a customer reply to a thread you own pings you again. Personal-mailbox mail notifies just you. Your Do Not Disturb, mute, and notification-level settings are always respected.</Note>
       </Section>
 
       <Section title="Drafts — nothing gets lost">
