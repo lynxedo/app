@@ -55,6 +55,9 @@ export async function GET(req: Request) {
   const search = (url.searchParams.get('search') || '').trim()
   const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '50', 10) || 50, 1), 100)
   const before = url.searchParams.get('before')
+  // Phase 2 filters — compose with any scope.
+  const tagParam = (url.searchParams.get('tag') || '').trim()
+  const waitingParam = (url.searchParams.get('waiting') || '').trim() // '' | 'any' | customer|tech|vendor|approval
 
   const admin = createAdminClient()
 
@@ -111,9 +114,12 @@ export async function GET(req: Request) {
   let q = supabase
     .from('inbox_threads')
     .select(
-      'id, subject, snippet, last_message_at, last_message_direction, from_name, from_email, participants, assigned_to_user_id, status, is_shared, unread, folder, provider_folder_ids, has_attachments, contact_id, message_count:inbox_messages(count)'
+      'id, subject, snippet, last_message_at, last_message_direction, from_name, from_email, participants, assigned_to_user_id, status, is_shared, unread, folder, provider_folder_ids, has_attachments, contact_id, tags, waiting_state, message_count:inbox_messages(count)'
     )
     .eq('account_id', account.id)
+    // Hide soft-deleted (trashed-in-Outlook) threads. Phase 1 added deleted_at + the webhook
+    // soft-deletes on trash, but this read filter was missing, so trashed threads still showed.
+    .is('deleted_at', null)
 
   if (isPersonal) {
     // Personal mailbox: ignore queue scopes; RLS already restricts to the owner.
@@ -146,6 +152,13 @@ export async function GET(req: Request) {
         q = q.neq('status', 'closed')
         break
     }
+  }
+
+  // Phase 2 filters (compose with any scope): tag id + waiting state.
+  if (tagParam) q = q.contains('tags', [tagParam])
+  if (waitingParam) {
+    if (waitingParam === 'any') q = q.not('waiting_state', 'is', null)
+    else q = q.eq('waiting_state', waitingParam)
   }
 
   if (folder) {

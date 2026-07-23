@@ -8,14 +8,18 @@ import { createClient } from '@/lib/supabase/client'
 import { Spinner, EmptyState, useToast } from '@/components/ui'
 import RulesPanel from '@/components/hub/email/RulesPanel'
 import FoldersPanel from '@/components/hub/email/FoldersPanel'
+import TagsPanel from '@/components/hub/email/TagsPanel'
 import {
   relativeTime,
   participantName,
   initials,
   firstName,
+  WAITING_LABELS,
   type AccountType,
   type Scope,
   type Lens,
+  type WaitingState,
+  type InboxTag,
   type InboxAccount,
   type EmailThread,
   type EmailMessage,
@@ -100,10 +104,16 @@ export default function EmailInboxSidebar({
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [claiming, setClaiming] = useState<string | null>(null)
 
-  // Gear menu + Rules + Folders.
+  // Phase 2 filters (server-side; compose with the current scope).
+  const [tagFilter, setTagFilter] = useState('') // a single tag id, or '' for all
+  const [waitingFilter, setWaitingFilter] = useState<'' | 'any' | WaitingState>('')
+  const [tagCatalog, setTagCatalog] = useState<InboxTag[]>([]) // admin tag definitions — resolves row tag ids + fills the filter dropdown
+
+  // Gear menu + Rules + Folders + Tags.
   const [gearOpen, setGearOpen] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)
   const [foldersOpen, setFoldersOpen] = useState(false)
+  const [tagsOpen, setTagsOpen] = useState(false)
   const gearRef = useRef<HTMLDivElement>(null)
 
   // Expanded-thread previews (Outlook-style chevron sub-rows).
@@ -168,6 +178,23 @@ export default function EmailInboxSidebar({
     }
   }, [])
 
+  // Load the admin tag catalog once — resolves row tag ids → name/color and fills
+  // the tag filter dropdown. (Managers edit it via the gear → Manage tags panel.)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/hub/email/tags')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setTagCatalog((data.tags || []) as InboxTag[])
+      })
+      .catch(() => {
+        if (!cancelled) setTagCatalog([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Reset scope when the account changes (personal + shared-standard only have "mine").
   useEffect(() => {
     if (account === 'personal') setScope('mine')
@@ -214,10 +241,14 @@ export default function EmailInboxSidebar({
     const params = new URLSearchParams({ scope, account, limit: '100' })
     if (folder) params.set('folder', folder)
     if (debouncedSearch) params.set('search', debouncedSearch)
+    if (tagFilter) params.set('tag', tagFilter)
+    if (waitingFilter) params.set('waiting', waitingFilter)
     const reqs: Promise<Response>[] = [fetch(`/api/hub/email/threads?${params.toString()}`)]
     if (showQueue) {
       const qp = new URLSearchParams({ scope: 'unassigned', account, limit: '100' })
       if (debouncedSearch) qp.set('search', debouncedSearch)
+      if (tagFilter) qp.set('tag', tagFilter)
+      if (waitingFilter) qp.set('waiting', waitingFilter)
       reqs.push(fetch(`/api/hub/email/threads?${qp.toString()}`))
     }
     try {
@@ -228,7 +259,7 @@ export default function EmailInboxSidebar({
     } finally {
       setLoading(false)
     }
-  }, [scope, account, folder, debouncedSearch, accountsLoaded, showQueue, isDraftsView])
+  }, [scope, account, folder, debouncedSearch, tagFilter, waitingFilter, accountsLoaded, showQueue, isDraftsView])
 
   useEffect(() => {
     load()
@@ -442,6 +473,15 @@ export default function EmailInboxSidebar({
     { id: 'needs_reply', label: 'Needs reply' },
   ]
 
+  // Active tag catalog (split by kind for the filter dropdown) + an id→tag lookup for
+  // the row chips. Unknown/inactive ids simply resolve to nothing.
+  const activeTags = tagCatalog
+    .filter((t) => t.active)
+    .sort((a, b) => a.sort_order - b.sort_order)
+  const typeTags = activeTags.filter((t) => t.kind === 'type')
+  const outcomeTags = activeTags.filter((t) => t.kind === 'outcome')
+  const tagById = new Map(tagCatalog.map((t) => [t.id, t] as const))
+
   const gearMenu = (
     <div className="relative" ref={gearRef}>
       <button
@@ -486,6 +526,18 @@ export default function EmailInboxSidebar({
               className="block w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5"
             >
               Folders
+            </button>
+          )}
+          {isManager && (
+            <button
+              type="button"
+              onClick={() => {
+                setGearOpen(false)
+                setTagsOpen(true)
+              }}
+              className="block w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+            >
+              Manage tags
             </button>
           )}
           <button
@@ -671,6 +723,55 @@ export default function EmailInboxSidebar({
             ))}
           </div>
         )}
+
+        {/* Phase 2 filters — tag + waiting-on. Server-side (compose with the scope),
+            shown on the live Inbox view alongside the tabs/lens. */}
+        {showTabs && (
+          <div className="flex gap-1">
+            {activeTags.length > 0 && (
+              <select
+                value={tagFilter}
+                onChange={(e) => setTagFilter(e.target.value)}
+                aria-label="Filter by tag"
+                className="flex-1 min-w-0 px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white/80"
+              >
+                <option value="">All tags</option>
+                {typeTags.length > 0 && (
+                  <optgroup label="Type">
+                    {typeTags.map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {outcomeTags.length > 0 && (
+                  <optgroup label="Outcome">
+                    {outcomeTags.map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            )}
+            <select
+              value={waitingFilter}
+              onChange={(e) => setWaitingFilter(e.target.value as '' | 'any' | WaitingState)}
+              aria-label="Filter by waiting state"
+              className="flex-1 min-w-0 px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white/80"
+            >
+              <option value="">Waiting: off</option>
+              <option value="any">Any waiting</option>
+              {(Object.keys(WAITING_LABELS) as WaitingState[]).map((w) => (
+                <option key={w} value={w}>
+                  {WAITING_LABELS[w]}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
@@ -811,6 +912,10 @@ export default function EmailInboxSidebar({
             const showChevron = (t.message_count ?? 2) > 1
             const isExpanded = expandedId === t.id
             const preview = previews[t.id]
+            const rowTags = (t.tags || [])
+              .map((id) => tagById.get(id))
+              .filter((x): x is InboxTag => !!x)
+            const waiting = t.waiting_state || null
             return (
               <li
                 key={t.id}
@@ -910,6 +1015,35 @@ export default function EmailInboxSidebar({
                         )}
                       </span>
                     </div>
+                    {/* Phase 2 — "waiting on …" pill + applied tag chips (cap 3 + overflow). */}
+                    {(waiting || rowTags.length > 0) && (
+                      <div className="flex items-center flex-wrap gap-1 mt-1">
+                        {waiting && (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[9px] font-medium whitespace-nowrap"
+                            title={WAITING_LABELS[waiting]}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-none" aria-hidden />
+                            {WAITING_LABELS[waiting]}
+                          </span>
+                        )}
+                        {rowTags.slice(0, 3).map((tag) => (
+                          <span
+                            key={tag.id}
+                            className="px-1.5 py-0.5 rounded-full text-[9px] font-medium whitespace-nowrap"
+                            style={{ backgroundColor: tag.color || '#64748b', color: '#fff' }}
+                            title={tag.name}
+                          >
+                            {tag.name}
+                          </span>
+                        ))}
+                        {rowTags.length > 3 && (
+                          <span className="px-1 py-0.5 text-[9px] text-white/40">
+                            +{rowTags.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {t.status === 'assigned' && t.assignee_name && !active && (
                       <div className="text-[10px] text-emerald-300/70 mt-0.5 truncate">
                         Owner: {firstName(t.assignee_name)}
@@ -975,6 +1109,7 @@ export default function EmailInboxSidebar({
           onChanged={loadFolders}
         />
       )}
+      {tagsOpen && <TagsPanel open onClose={() => setTagsOpen(false)} />}
     </aside>
   )
 }

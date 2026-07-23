@@ -16,6 +16,7 @@ import type { InboxAccount } from './accounts'
 import { getInboxAccountById } from './accounts'
 import type { MailThread, MailMessage } from './types'
 import { applyInboxRules } from './rules'
+import { suggestTypeTagId } from './tag-suggest'
 import { NylasError } from './nylas'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
@@ -241,6 +242,15 @@ async function mirrorThread(
   // touch assignments.
   if (contactId) payload.contact_id = contactId
 
+  // Auto-clear any "Waiting on …" state when the customer genuinely replies (new inbound):
+  // the wait is over and the thread needs attention again. Written ONLY on new inbound, so a
+  // routine re-sync never disturbs a manually-set wait. (Both poller + webhook flow through here.)
+  if (isNewerInbound) {
+    payload.waiting_state = null
+    payload.waiting_set_at = null
+    payload.waiting_set_by = null
+  }
+
   const { data: up, error: upErr } = await admin
     .from('inbox_threads')
     .upsert(payload, { onConflict: 'account_id,provider_thread_id' })
@@ -276,14 +286,16 @@ async function mirrorThread(
     !!t.lastMessageAt &&
     Date.now() - Date.parse(t.lastMessageAt) < RULES_RECENCY_MS
   ) {
+    // Evaluate against the latest inbound message's content (fall back to the
+    // thread snippet when the body is unavailable). Shared by rules + AI tagging below.
+    const inbound = [...messages].reverse().find((m) => m.direction === 'inbound')
+    const inboundBodyText = (inbound?.bodyHtml
+      ? inbound.bodyHtml.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
+      : inbound?.snippet || t.snippet || ''
+    ).slice(0, 20000)
+
+    // (1) Admin-configured rules.
     try {
-      // Evaluate against the latest inbound message's content (fall back to the
-      // thread snippet when the body is unavailable).
-      const inbound = [...messages].reverse().find((m) => m.direction === 'inbound')
-      const bodyText = (inbound?.bodyHtml
-        ? inbound.bodyHtml.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim()
-        : inbound?.snippet || t.snippet || ''
-      ).slice(0, 20000)
       await applyInboxRules(admin, {
         companyId: account.company_id,
         accountId: account.id,
@@ -293,10 +305,45 @@ async function mirrorThread(
         fromEmail,
         fromName,
         toRecipients: inbound?.to ?? undefined,
-        bodyText,
+        bodyText: inboundBodyText,
       })
     } catch (err) {
       console.warn('[inbox:sync] rules evaluation failed:', err instanceof Error ? err.message : err)
+    }
+
+    // (2) AI auto-triage: suggest + apply the best-matching Type tag. suggestTypeTagId is
+    // best-effort and never throws (null when Anthropic unconfigured, no Type tags, or low
+    // confidence). Dedup against any tag a rule just added.
+    try {
+      const suggestedTagId = await suggestTypeTagId(admin, {
+        companyId: account.company_id,
+        subject: t.subject ?? null,
+        bodyText: inboundBodyText,
+        fromEmail,
+      })
+      if (suggestedTagId) {
+        const { data: cur } = await admin
+          .from('inbox_threads')
+          .select('tags')
+          .eq('id', threadDbId)
+          .maybeSingle()
+        const existingTags = (cur?.tags as string[] | null) ?? []
+        if (!existingTags.includes(suggestedTagId)) {
+          await admin
+            .from('inbox_threads')
+            .update({ tags: [...existingTags, suggestedTagId], updated_at: new Date().toISOString() })
+            .eq('id', threadDbId)
+          await admin.from('inbox_thread_events').insert({
+            company_id: account.company_id,
+            thread_id: threadDbId,
+            event_type: 'tag_added',
+            actor_user_id: null,
+            detail: { tag_id: suggestedTagId, source: 'ai_suggest' },
+          })
+        }
+      }
+    } catch (err) {
+      console.warn('[inbox:sync] AI tag suggest failed:', err instanceof Error ? err.message : err)
     }
   }
 

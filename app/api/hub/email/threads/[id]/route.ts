@@ -46,9 +46,10 @@ export async function GET(
   const { data: thread } = await supabase
     .from('inbox_threads')
     .select(
-      'id, company_id, account_id, provider_thread_id, subject, snippet, last_message_at, last_message_direction, from_name, from_email, participants, assigned_to_user_id, status, is_shared, owner_user_id, unread, folder, provider_folder_ids, has_attachments, contact_id, created_at, updated_at'
+      'id, company_id, account_id, provider_thread_id, subject, snippet, last_message_at, last_message_direction, from_name, from_email, participants, assigned_to_user_id, status, is_shared, owner_user_id, unread, folder, provider_folder_ids, has_attachments, contact_id, tags, waiting_state, waiting_set_at, created_at, updated_at'
     )
     .eq('id', id)
+    .is('deleted_at', null)
     .maybeSingle()
   if (!thread) return NextResponse.json({ error: 'Not found' }, { status: 404 })
 

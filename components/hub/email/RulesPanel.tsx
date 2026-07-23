@@ -18,6 +18,7 @@ import type { InboxRule, RuleAction, RuleCondition } from '@/lib/inbox/rules'
 
 type HubUser = { id: string; display_name: string; is_bot?: boolean }
 type InboxFolder = { id: string; provider_folder_id: string; name: string | null }
+type InboxTag = { id: string; kind: 'type' | 'outcome'; name: string; color?: string | null; active?: boolean }
 
 const FIELD_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'from_email', label: 'From address' },
@@ -36,6 +37,7 @@ const OP_OPTIONS: Array<{ value: string; label: string }> = [
 const ACTION_OPTIONS: Array<{ value: string; label: string }> = [
   { value: 'assign_to_user', label: 'Assign to user' },
   { value: 'move_to_folder', label: 'Move to folder' },
+  { value: 'add_tag', label: 'Add tag' },
   { value: 'mark_urgent', label: 'Mark urgent' },
   { value: 'auto_close', label: 'Auto-close' },
 ]
@@ -50,6 +52,7 @@ export default function RulesPanel({ open, onClose }: { open: boolean; onClose: 
   const [rules, setRules] = useState<InboxRule[]>([])
   const [users, setUsers] = useState<HubUser[]>([])
   const [folders, setFolders] = useState<InboxFolder[]>([])
+  const [tags, setTags] = useState<InboxTag[]>([])
   const [loading, setLoading] = useState(true)
   const [forbidden, setForbidden] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -96,6 +99,11 @@ export default function RulesPanel({ open, onClose }: { open: boolean; onClose: 
         .then((r) => (r.ok ? r.json() : Promise.reject()))
         .then((d) => setFolders((d.folders || []) as InboxFolder[]))
         .catch(() => setFolders([])),
+      // Company tags for the add-tag picker.
+      fetch('/api/hub/email/tags')
+        .then((r) => (r.ok ? r.json() : Promise.reject()))
+        .then((d) => setTags((d.tags || []) as InboxTag[]))
+        .catch(() => setTags([])),
     ]).finally(() => setLoading(false))
   }, [open, loadRules])
 
@@ -112,6 +120,7 @@ export default function RulesPanel({ open, onClose }: { open: boolean; onClose: 
       .map((a) => {
         if (a.type === 'assign_to_user') return `Assign to ${userName(a.user_id)}`
         if (a.type === 'move_to_folder') return `Move to ${a.folder_name || 'folder'}`
+        if (a.type === 'add_tag') return `Add tag ${tags.find((t) => t.id === a.tag_id)?.name || ''}`.trim()
         return label(ACTION_OPTIONS, a.type)
       })
       .join(', ')
@@ -204,6 +213,7 @@ export default function RulesPanel({ open, onClose }: { open: boolean; onClose: 
       if (a.type === 'assign_to_user' && !a.user_id) return setFormError('Pick a user for the assign action.')
       if (a.type === 'move_to_folder' && !a.provider_folder_id)
         return setFormError('Pick a folder for the move action.')
+      if (a.type === 'add_tag' && !a.tag_id) return setFormError('Pick a tag for the add-tag action.')
     }
 
     setSaving(true)
@@ -242,6 +252,7 @@ export default function RulesPanel({ open, onClose }: { open: boolean; onClose: 
         if (idx !== i) return a
         if (type === 'assign_to_user') return { type, user_id: '' }
         if (type === 'move_to_folder') return { type, provider_folder_id: '', folder_name: '' }
+        if (type === 'add_tag') return { type, tag_id: '' }
         return { type }
       })
     )
@@ -431,6 +442,37 @@ export default function RulesPanel({ open, onClose }: { open: boolean; onClose: 
                               {f.name || '(unnamed)'}
                             </option>
                           ))}
+                        </select>
+                      )}
+                      {a.type === 'add_tag' && (
+                        <select
+                          value={a.tag_id || ''}
+                          onChange={(e) => setActionParam(i, { tag_id: e.target.value })}
+                          className={`flex-1 min-w-0 ${inputCls}`}
+                        >
+                          <option value="">Choose a tag…</option>
+                          {tags.some((t) => t.kind === 'type') && (
+                            <optgroup label="Type">
+                              {tags
+                                .filter((t) => t.kind === 'type')
+                                .map((t) => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.name}
+                                  </option>
+                                ))}
+                            </optgroup>
+                          )}
+                          {tags.some((t) => t.kind === 'outcome') && (
+                            <optgroup label="Outcome">
+                              {tags
+                                .filter((t) => t.kind === 'outcome')
+                                .map((t) => (
+                                  <option key={t.id} value={t.id}>
+                                    {t.name}
+                                  </option>
+                                ))}
+                            </optgroup>
+                          )}
                         </select>
                       )}
                       <button

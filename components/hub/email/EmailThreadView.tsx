@@ -13,9 +13,13 @@ import {
   firstName,
   fileSize,
   attachmentMeta,
+  waitedFor,
+  WAITING_LABELS,
   LIGHT_SURFACE_STYLE,
   type ThreadDetail,
   type EmailMessage,
+  type WaitingState,
+  type InboxTag,
 } from './emailFormat'
 
 type ComposerMode = 'reply' | 'reply-all' | 'forward'
@@ -29,10 +33,26 @@ function detailSignature(d: ThreadDetail): string {
     d.thread.status,
     d.thread.assigned_to_user_id || '',
     d.thread.folder || '',
+    d.thread.waiting_state || '',
+    (d.thread.tags || []).join(','),
     d.messages.map((m) => m.id).join(','),
     d.notes.length,
     d.members.length,
   ].join('|')
+}
+
+// Black or white text for a tag pill, picked from the tag's hex background so the
+// name stays legible whatever color an admin chose. Defaults to white if the hex
+// can't be parsed.
+function readableTextColor(hex: string): string {
+  const h = (hex || '').replace('#', '').trim()
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  const r = parseInt(full.slice(0, 2), 16)
+  const g = parseInt(full.slice(2, 4), 16)
+  const b = parseInt(full.slice(4, 6), 16)
+  if ([r, g, b].some((v) => Number.isNaN(v))) return '#fff'
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return lum > 0.6 ? '#111827' : '#fff'
 }
 
 /**
@@ -73,10 +93,32 @@ export default function EmailThreadView({
   // Action bar.
   const [assignOpen, setAssignOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const [tagMenuOpen, setTagMenuOpen] = useState(false)
+  const [waitingMenuOpen, setWaitingMenuOpen] = useState(false)
   const [busyAction, setBusyAction] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
+
+  // The admin-managed tag catalog (Phase 2). Fetched once; ids on a thread are
+  // resolved against this to render chips + the Tag ▾ picker. We keep INACTIVE
+  // tags too so an already-applied-but-since-retired tag still resolves to a
+  // label; the picker itself only lists active ones.
+  const [tagCatalog, setTagCatalog] = useState<InboxTag[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/hub/email/tags')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setTagCatalog(Array.isArray(data.tags) ? data.tags : [])
+      })
+      .catch(() => {
+        if (!cancelled) setTagCatalog([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Reply / Reply All / Forward — set to switch the whole main pane into a
   // full-window composer (not a split view). null = the normal reader.
@@ -204,6 +246,43 @@ export default function EmailThreadView({
     }
   }
 
+  // Add / remove a tag — POST (add) or DELETE (remove) /threads/{id}/tags { tagId },
+  // then reload so the chips + picker checkmarks repaint. Mirrors runAction's
+  // busy-guard; the picker stays open so multiple tags can be toggled in a row.
+  async function toggleTag(tagId: string, applied: boolean) {
+    if (busyAction) return
+    setBusyAction(true)
+    try {
+      const res = await fetch(`/api/hub/email/threads/${threadId}/tags`, {
+        method: applied ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId }),
+      })
+      if (res.ok) await load()
+      else toast.error("Couldn't update tags")
+    } finally {
+      setBusyAction(false)
+    }
+  }
+
+  // Set / clear the "waiting on …" state — POST /threads/{id}/waiting
+  // { waiting_state } (null clears), then reload.
+  async function setWaiting(state: WaitingState | null) {
+    if (busyAction) return
+    setBusyAction(true)
+    try {
+      const res = await fetch(`/api/hub/email/threads/${threadId}/waiting`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ waiting_state: state }),
+      })
+      if (res.ok) await load()
+      else toast.error("Couldn't update the waiting status")
+    } finally {
+      setBusyAction(false)
+    }
+  }
+
   async function saveNote() {
     const body = noteText.trim()
     if (!body || savingNote) return
@@ -262,6 +341,14 @@ export default function EmailThreadView({
   const isClosed = thread.status === 'closed'
   const subject = thread.subject || '(no subject)'
   const memberIds = members.map((m) => m.user_id)
+
+  // Resolve this thread's applied tag ids → catalog rows for the chips (skip any
+  // id not found in the catalog).
+  const tagById = new Map(tagCatalog.map((t) => [t.id, t]))
+  const appliedTags = (thread.tags || [])
+    .map((id) => tagById.get(id))
+    .filter((t): t is InboxTag => !!t)
+  const waitingState = thread.waiting_state ?? null
 
   const statusChip = isClosed ? (
     <span className="text-[11px] px-2 py-0.5 rounded-md bg-gray-100 border border-gray-200 text-gray-500">
@@ -322,6 +409,28 @@ export default function EmailThreadView({
           </div>
           {statusChip}
         </div>
+
+        {/* Applied tags + waiting badge (Phase 2) */}
+        {(waitingState || appliedTags.length > 0) && (
+          <div className="flex items-center gap-1.5 flex-wrap mt-2">
+            {waitingState && (
+              <span className="text-[11px] px-2 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-amber-800 font-medium">
+                ⏳ {WAITING_LABELS[waitingState]}
+                {thread.waiting_set_at ? ` · ${waitedFor(thread.waiting_set_at)}` : ''}
+              </span>
+            )}
+            {appliedTags.map((t) => (
+              <span
+                key={t.id}
+                className="text-[11px] px-2 py-0.5 rounded-md font-medium border border-black/5"
+                style={{ backgroundColor: t.color, color: readableTextColor(t.color) }}
+                title={t.kind === 'type' ? 'Type' : 'Outcome'}
+              >
+                {t.name}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Action bar */}
         <div className="flex items-center gap-1.5 flex-wrap mt-2">
@@ -423,6 +532,56 @@ export default function EmailThreadView({
             >
               {isClosed ? '↺ Reopen' : '✓ Close'}
             </button>
+          )}
+          {permissions.canReply && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setTagMenuOpen((v) => !v)}
+                disabled={busyAction}
+                className="text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
+                title="Tag this thread (type / outcome)"
+              >
+                🏷 Tag ▾
+              </button>
+              {tagMenuOpen && (
+                <TagMenu
+                  catalog={tagCatalog}
+                  appliedIds={thread.tags || []}
+                  busy={busyAction}
+                  onToggle={toggleTag}
+                  onClose={() => setTagMenuOpen(false)}
+                />
+              )}
+            </div>
+          )}
+          {permissions.canClose && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setWaitingMenuOpen((v) => !v)}
+                disabled={busyAction}
+                className={`text-xs px-2.5 py-1 rounded-md border disabled:opacity-50 ${
+                  waitingState
+                    ? 'bg-amber-100 border-amber-300 text-amber-800 font-medium hover:bg-amber-200'
+                    : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+                title="Set what this thread is waiting on"
+              >
+                {waitingState ? `⏳ ${WAITING_LABELS[waitingState]}` : 'Waiting'} ▾
+              </button>
+              {waitingMenuOpen && (
+                <WaitingMenu
+                  current={waitingState}
+                  busy={busyAction}
+                  onSelect={(s) => {
+                    setWaiting(s)
+                    setWaitingMenuOpen(false)
+                  }}
+                  onClose={() => setWaitingMenuOpen(false)}
+                />
+              )}
+            </div>
           )}
           {permissions.canNote && (
             <button
@@ -742,5 +901,150 @@ function NotesPanel({
         </div>
       )}
     </>
+  )
+}
+
+/**
+ * Tag ▾ dropdown (Phase 2). Lists the ACTIVE tags grouped under Type / Outcome
+ * headers, sorted by sort_order; applied tags show a ✓. Clicking an applied tag
+ * removes it, an unapplied one adds it — the menu stays open so several can be
+ * toggled in a row. Positioned absolutely by the caller (wrap in `relative`);
+ * closes on outside click, mirroring AssignMenu/ShareMenu.
+ */
+function TagMenu({
+  catalog,
+  appliedIds,
+  busy,
+  onToggle,
+  onClose,
+}: {
+  catalog: InboxTag[]
+  appliedIds: string[]
+  busy: boolean
+  onToggle: (tagId: string, applied: boolean) => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [onClose])
+
+  const applied = new Set(appliedIds)
+  const active = catalog
+    .filter((t) => t.active)
+    .sort((a, b) => a.sort_order - b.sort_order)
+  const types = active.filter((t) => t.kind === 'type')
+  const outcomes = active.filter((t) => t.kind === 'outcome')
+
+  function group(label: string, list: InboxTag[]) {
+    if (list.length === 0) return null
+    return (
+      <div>
+        <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-gray-400">
+          {label}
+        </div>
+        {list.map((t) => {
+          const isApplied = applied.has(t.id)
+          return (
+            <button
+              key={t.id}
+              type="button"
+              disabled={busy}
+              onClick={() => onToggle(t.id, isApplied)}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <span className="w-3.5 flex-none text-emerald-600">{isApplied ? '✓' : ''}</span>
+              <span
+                aria-hidden
+                className="w-2.5 h-2.5 rounded-full flex-none border border-black/10"
+                style={{ backgroundColor: t.color }}
+              />
+              <span className="truncate">{t.name}</span>
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-md shadow-xl z-50 max-h-80 overflow-y-auto py-1"
+    >
+      {active.length === 0 ? (
+        <div className="px-3 py-2 text-xs text-gray-400">No tags configured</div>
+      ) : (
+        <>
+          {group('Type', types)}
+          {group('Outcome', outcomes)}
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Waiting ▾ selector (Phase 2). The 4 WaitingState options + a "Not waiting /
+ * Clear" row; the current state shows a ✓. Positioned absolutely by the caller
+ * (wrap in `relative`); closes on outside click, mirroring AssignMenu.
+ */
+function WaitingMenu({
+  current,
+  busy,
+  onSelect,
+  onClose,
+}: {
+  current: WaitingState | null
+  busy: boolean
+  onSelect: (state: WaitingState | null) => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [onClose])
+
+  const states: WaitingState[] = ['customer', 'tech', 'vendor', 'approval']
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-md shadow-xl z-50 py-1"
+    >
+      {states.map((s) => (
+        <button
+          key={s}
+          type="button"
+          disabled={busy}
+          onClick={() => onSelect(s)}
+          className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50 ${
+            current === s ? 'text-amber-700 font-medium' : 'text-gray-700'
+          }`}
+        >
+          <span className="w-3.5 flex-none">{current === s ? '✓' : ''}</span>
+          {WAITING_LABELS[s]}
+        </button>
+      ))}
+      <button
+        type="button"
+        disabled={busy || !current}
+        onClick={() => onSelect(null)}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50 border-t border-gray-100 disabled:opacity-40"
+      >
+        <span aria-hidden className="w-3.5 flex-none" />
+        Not waiting / Clear
+      </button>
+    </div>
   )
 }
