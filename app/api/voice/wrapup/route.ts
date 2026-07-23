@@ -13,6 +13,7 @@ import { formatPhone } from '@/lib/format'
 import { sendDirectTxtToPhone } from '@/lib/txt-send'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 import { getBusinessProfile } from '@/lib/business-profile'
+import { getAiTextBotUserId } from '@/lib/ai-text-identity'
 
 // AI Voice Receptionist — "wrap-up" endpoint (Phase 1a).
 //
@@ -127,6 +128,18 @@ function splitName(full: string | null): { first: string | null; last: string | 
   if (!parts.length) return { first: null, last: null }
   if (parts.length === 1) return { first: parts[0], last: null }
   return { first: parts[0], last: parts.slice(1).join(' ') }
+}
+
+// The extracted service phrase (e.g. "Broken irrigation/sprinkler pipe repair")
+// is a label — it reads as a mid-sentence proper noun when dropped into prose
+// ("…your call about Broken irrigation…"). Lower-case the first letter so it
+// flows, but leave a leading acronym alone (e.g. "AC unit repair").
+function lowerFirstForSentence(s: string): string {
+  const t = (s || '').trim()
+  if (!t) return t
+  const firstWord = t.split(/\s+/)[0]
+  if (firstWord.length > 1 && firstWord === firstWord.toUpperCase()) return t
+  return t.charAt(0).toLowerCase() + t.slice(1)
 }
 
 // Extract a structured lead from the transcript. One non-streaming Claude call,
@@ -479,15 +492,21 @@ export async function POST(request: Request) {
       const recapPhone = fromNumber || callbackPhone
       if (vr.recapTextEnabled && extracted?.recap_opt_in && recapPhone) {
         const hi = first ? `Hi ${first}, ` : 'Hi, '
-        const svc = service ? ` about ${service}` : ''
+        const svc = service ? ` about ${lowerFirstForSentence(service)}` : ''
         const { businessName } = await getBusinessProfile(admin, companyId)
         const recapBody =
           `${hi}thanks for calling ${businessName}! This is ${vr.receptionistName}, following up with a quick recap of your call${svc}. ` +
           `A team member will reach out shortly to take care of everything for you.`
+        // Sign as the AI persona (Amber) so the recap doesn't read "This is Amber
+        // … - Ben". Thread stays OWNED by the notify user so a customer reply
+        // still routes to a human. Falls back to the notify user when no bot
+        // user is configured.
+        const botUserId = await getAiTextBotUserId(admin, companyId)
         const res = await sendDirectTxtToPhone({
           admin,
           companyId,
           userId: notifyUserIds()[0],
+          signatureUserId: botUserId,
           phone: recapPhone,
           name: extracted?.name ?? null,
           body: recapBody,

@@ -17,6 +17,7 @@ import { buildGuardianSystem, type SystemBlock } from '@/lib/guardian-persona'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { buildMessagePreview } from '@/lib/txt-preview'
 import { enrichTxtContactName } from '@/lib/dialer-lookup'
+import { getAiTextBotUserId, renderAiTextSignature } from '@/lib/ai-text-identity'
 
 
 // AI9 — clamp a string to `max` chars without splitting a word. If the text is
@@ -132,9 +133,19 @@ Write the personalized SMS reply.`
       return { smsSent: false, smsBody: null, error: 'Claude returned no text', latency_ms: Date.now() - start }
     }
 
-    // AI9 — cap at 320 chars but never cut mid-word. If we have to trim, back up
-    // to the last whitespace so the text ends on a whole word.
-    const smsBody = trimToWordBoundary(block.text.trim(), 320)
+    // Sign the AI reply as the persona (Amber) so it carries her name, not a
+    // faceless/blank signature. Resolve first so we can trim the AI-written text
+    // to leave room and keep the whole message within the ~320-char budget.
+    // Falls back to no signature (unchanged) when no bot user is configured.
+    const sigAdmin = createAdminClient()
+    const botUserId = await getAiTextBotUserId(sigAdmin, companyId)
+    const signature = await renderAiTextSignature(sigAdmin, companyId, botUserId)
+
+    // AI9 — cap the AI text at (320 - signature) chars but never cut mid-word,
+    // backing up to the last whitespace so it ends on a whole word.
+    const bodyBudget = signature ? Math.max(80, 320 - (signature.length + 2)) : 320
+    const bodyTrimmed = trimToWordBoundary(block.text.trim(), bodyBudget)
+    const smsBody = signature ? `${bodyTrimmed}\n\n${signature}` : bodyTrimmed
 
     // AI1 — re-check do_not_text immediately before sending. The customer may
     // have texted STOP during the ~30–90s of transcription + AI generation, so
@@ -261,7 +272,7 @@ Write the personalized SMS reply.`
             direction: 'outbound',
             body: smsBody,
             media_urls: [],
-            sent_by: null,
+            sent_by: botUserId,
             status: smsResult.ok ? 'sent' : 'failed',
             twilio_sid: smsResult.ok ? (smsResult as { ok: true; sid: string }).sid : null,
           })

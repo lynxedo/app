@@ -38,10 +38,18 @@ export async function sendDirectTxtMessage(opts: {
   body: string
   mediaUrls?: string[]
   templateId?: string | null
+  /**
+   * Sign the text as this Hub user instead of `userId`. Used for automated/AI
+   * sends (e.g. the voice-receptionist recap) that must keep the thread owned by
+   * a real human (`userId`) so a reply routes to them, while the customer-facing
+   * signature shows the AI persona's name ("- Amber, …"). Defaults to `userId`.
+   */
+  signatureUserId?: string | null
 }): Promise<DirectSendResult> {
   const { admin, companyId, conversationId, contact, userId } = opts
   const mediaUrls = opts.mediaUrls ?? []
   const templateId = opts.templateId ?? null
+  const signatureUserId = opts.signatureUserId || userId
   let text = (opts.body || '').trim()
 
   if (!text && mediaUrls.length === 0) return { ok: false, error: 'Empty message' }
@@ -53,9 +61,9 @@ export async function sendDirectTxtMessage(opts: {
   if (text) {
     const [{ data: sender }, { data: company }, { data: profile }, { data: txtSettings }] =
       await Promise.all([
-        admin.from('hub_users').select('display_name').eq('id', userId).maybeSingle(),
+        admin.from('hub_users').select('display_name').eq('id', signatureUserId).maybeSingle(),
         admin.from('companies').select('name').eq('id', companyId).maybeSingle(),
-        admin.from('user_profiles').select('txt_signature').eq('id', userId).maybeSingle(),
+        admin.from('user_profiles').select('txt_signature').eq('id', signatureUserId).maybeSingle(),
         admin
           .from('txt_settings')
           .select('company_default_signature, allow_user_signatures, opt_out_message, opt_out_on_first_message')
@@ -220,6 +228,8 @@ export async function sendDirectTxtToPhone(opts: {
   name?: string | null
   body: string
   templateId?: string | null
+  /** Sign as this Hub user instead of `userId` (see sendDirectTxtMessage). */
+  signatureUserId?: string | null
 }): Promise<DirectSendResult & { conversation_id?: string; contact_id?: string }> {
   const { admin, companyId, userId } = opts
 
@@ -318,6 +328,7 @@ export async function sendDirectTxtToPhone(opts: {
     userId,
     body: opts.body,
     templateId: opts.templateId ?? null,
+    signatureUserId: opts.signatureUserId ?? null,
   })
 
   return { ...result, conversation_id: conversationId, contact_id: contact.id }
