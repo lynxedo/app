@@ -10,6 +10,7 @@ import EmojiPicker from './EmojiPicker'
 import ForwardModal, { type ForwardTarget } from './ForwardModal'
 import SaveToFilesModal from './SaveToFilesModal'
 import MessageActionsSheet from './MessageActionsSheet'
+import MessageComposer from './MessageComposer'
 import type { HubMessage, HubUser, Sender, FileItem, RxItem } from './MessageFeed'
 import MediaLightbox, { type LightboxItem } from './MediaLightbox'
 import { renderContent } from './renderContent'
@@ -180,7 +181,6 @@ export default function ThreadPanel({
   // picker uses its own state (bar*) separate from the reaction-pill picker
   // above so the two don't fight over the shared outside-click handler.
   const [editingId, setEditingId] = useState<string | null>(null)
-  const [editContent, setEditContent] = useState('')
   const [barPickerMsgId, setBarPickerMsgId] = useState<string | null>(null)
   const [barFullPickerMsgId, setBarFullPickerMsgId] = useState<string | null>(null)
   const [forwardingReply, setForwardingReply] = useState<Reply | null>(null)
@@ -836,8 +836,8 @@ export default function ThreadPanel({
 
   // Edit a reply. Optimistic — the thread's realtime channel only subscribes to
   // INSERTs (not UPDATEs), so the local list is the source of truth here.
-  async function saveReplyEdit(msgId: string) {
-    const trimmed = editContent.trim()
+  async function saveReplyEdit(msgId: string, content: string) {
+    const trimmed = content.trim()
     if (!trimmed) return
     setReplies(prev => prev.map(r => (r.id === msgId ? { ...r, content: trimmed, edited_at: new Date().toISOString() } : r)))
     setEditingId(null)
@@ -1039,20 +1039,14 @@ export default function ThreadPanel({
                   <span className="text-xs text-gray-600">{formatTime(reply.created_at)}</span>
                 </div>
                 {isEditing ? (
-                  <div className="flex gap-2">
-                    <input
-                      autoFocus
-                      value={editContent}
-                      onChange={e => setEditContent(e.target.value)}
-                      onKeyDown={e => {
-                        if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveReplyEdit(reply.id) }
-                        if (e.key === 'Escape') setEditingId(null)
-                      }}
-                      className="flex-1 bg-gray-800 border border-gray-700 rounded px-3 py-1.5 text-sm text-white outline-none focus:border-brand"
-                    />
-                    <button onClick={() => saveReplyEdit(reply.id)} className="text-xs text-brand hover:text-blue-300 px-2">Save</button>
-                    <button onClick={() => setEditingId(null)} className="text-xs text-gray-500 hover:text-gray-300 px-2">Cancel</button>
-                  </div>
+                  <MessageComposer
+                    edit
+                    editInitialContent={reply.content}
+                    hubUsers={hubUsers}
+                    currentUserId={currentUserId}
+                    onSaveEdit={(content) => saveReplyEdit(reply.id, content)}
+                    onCancelEdit={() => setEditingId(null)}
+                  />
                 ) : (
                   reply.content && reply.content.trim() && (
                     <p className="hub-message-text text-lg md:text-sm text-gray-200 leading-relaxed whitespace-pre-wrap break-words">
@@ -1195,7 +1189,7 @@ export default function ThreadPanel({
 
                   {isOwn && (
                     <button
-                      onClick={() => { setEditingId(reply.id); setEditContent(reply.content) }}
+                      onClick={() => { setEditingId(reply.id) }}
                       className="text-gray-500 hover:text-gray-300 px-1.5 py-0.5 rounded hover:bg-gray-800 text-xs"
                       title="Edit"
                     >
@@ -1512,7 +1506,7 @@ export default function ThreadPanel({
             onSaveToFiles={() => setSaveToFilesReply(reply)}
             onAddToBoard={() => openBoardPicker(reply.id)}
             onOpenThread={() => {}}
-            onEdit={() => { setEditingId(reply.id); setEditContent(reply.content) }}
+            onEdit={() => { setEditingId(reply.id) }}
             onDelete={() => deleteReply(reply.id)}
           />
         )

@@ -73,6 +73,10 @@ export default function MessageComposer({
   hubUsers,
   placeholder,
   onSent,
+  edit = false,
+  editInitialContent,
+  onSaveEdit,
+  onCancelEdit,
 }: {
   roomId?: string
   conversationId?: string
@@ -80,16 +84,28 @@ export default function MessageComposer({
   hubUsers: HubUser[]
   placeholder?: string
   onSent?: (msg: HubMessage) => void
+  // ── Edit mode ────────────────────────────────────────────────────────────
+  // When `edit` is set the composer becomes an inline message editor: it seeds
+  // from the existing text and, on Save, calls onSaveEdit instead of posting a
+  // new message. It keeps the full typing experience (roomy multi-line box,
+  // format toolbar, emoji, @-mentions, keyboard shortcuts) but drops the
+  // new-message-only machinery (file attach, drafts, scheduling, typing
+  // broadcast). Compose behavior is untouched when `edit` is false.
+  edit?: boolean
+  editInitialContent?: string
+  onSaveEdit?: (content: string) => void | Promise<void>
+  onCancelEdit?: () => void
 }) {
   const toast = useToast()
-  const [content, setContent] = useState('')
+  const [content, setContent] = useState(edit ? (editInitialContent ?? '') : '')
   const [sending, setSending] = useState(false)
   const [pendingFiles, setPendingFiles] = useState<PendingFile[]>([])
   const [uploading, setUploading] = useState(false)
   const [sendError, setSendError] = useState<string | null>(null) // #5 — surfaced on send failure
 
   // Warn before a refresh/close throws away a half-typed message or staged files.
-  useUnsavedGuard(content.trim().length > 0 || pendingFiles.length > 0)
+  // Skipped in edit mode — the box seeds non-empty, so the guard would always fire.
+  useUnsavedGuard(!edit && (content.trim().length > 0 || pendingFiles.length > 0))
   // Mention autocomplete
   const [mentionQuery, setMentionQuery] = useState<string | null>(null)
   const [mentionStart, setMentionStart] = useState(-1)
@@ -128,7 +144,7 @@ export default function MessageComposer({
 
   useEffect(() => {
     const id = roomId ?? conversationId
-    if (!id) return
+    if (!id || edit) return // no typing broadcast while editing an existing message
     // Dedicated topic (NOT the messages `feed:` channel) so the typing traffic
     // can't interfere with the critical message stream.
     const ch = supabase.channel(`typing:${id}`)
@@ -150,7 +166,9 @@ export default function MessageComposer({
     })
   }, [hubUsers, currentUserId])
 
-  const draftKey = roomId ? `hub-draft-room-${roomId}` : conversationId ? `hub-draft-conv-${conversationId}` : null
+  // No draft persistence while editing — the edit box must not read from or
+  // clobber the room/DM's own compose draft.
+  const draftKey = edit ? null : (roomId ? `hub-draft-room-${roomId}` : conversationId ? `hub-draft-conv-${conversationId}` : null)
 
   // Restore draft from localStorage when switching conversations/rooms.
   useEffect(() => {
@@ -267,6 +285,19 @@ export default function MessageComposer({
       && window.matchMedia('(max-width: 767px)').matches
     if (!isMobile) textareaRef.current?.focus()
   }, [roomId, conversationId])
+
+  // Edit mode: on mount, focus the box and drop the caret at the very end so the
+  // user can keep typing immediately — as if the message were never sent. We
+  // focus on mobile too here, because opening the editor is an explicit tap.
+  useEffect(() => {
+    if (!edit) return
+    const el = textareaRef.current
+    if (!el) return
+    el.focus()
+    const len = el.value.length
+    try { el.setSelectionRange(len, len) } catch { /* older browsers */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
 
   function handleInput(e: React.ChangeEvent<HTMLTextAreaElement>) {
     const val = e.target.value
@@ -476,6 +507,13 @@ export default function MessageComposer({
   }
 
   function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    // Edit mode: Escape abandons the edit (only when no autocomplete popover is
+    // open — those consume Escape below to close themselves first).
+    if (edit && e.key === 'Escape' && mentionQuery === null && emojiQuery === null) {
+      e.preventDefault()
+      onCancelEdit?.()
+      return
+    }
     // Emoji autocomplete navigation takes priority over mention because
     // the two can't be open at the same time (different trigger chars).
     if (emojiQuery !== null && emojiResults.length > 0) {
@@ -545,10 +583,12 @@ export default function MessageComposer({
 
   function handleDrop(e: React.DragEvent) {
     e.preventDefault()
+    if (edit) return // editing is text-only — no attachments
     Array.from(e.dataTransfer.files).forEach(uploadFile)
   }
 
   function handlePaste(e: React.ClipboardEvent) {
+    if (edit) return // let the browser paste text; no file attachments in edit mode
     const items = Array.from(e.clipboardData.items)
     const fileItems = items.filter(i => i.kind === 'file')
     if (fileItems.length > 0) {
@@ -570,6 +610,24 @@ export default function MessageComposer({
 
   const send = useCallback(async () => {
     const trimmed = content.trim()
+    // Edit mode: save the edited text instead of posting a new message. Empty
+    // edits are ignored (delete is a separate action); the box stays open on
+    // failure so nothing typed is lost.
+    if (edit) {
+      if (!trimmed || sending) return
+      setSending(true)
+      setSendError(null)
+      try {
+        await onSaveEdit?.(trimmed)
+      } catch (err) {
+        console.error('[composer] save edit failed:', err)
+        setSendError('Could not save your edit — check your connection and tap Save to retry.')
+        setSending(false)
+        return
+      }
+      setSending(false)
+      return
+    }
     if ((!trimmed && pendingFiles.length === 0) || sending) return
     setSending(true)
     setSendError(null)
@@ -661,7 +719,7 @@ export default function MessageComposer({
 
     setSending(false)
     textareaRef.current?.focus()
-  }, [content, pendingFiles, sending, scheduledAt, roomId, conversationId, onSent, currentUserId, hubUsers, draftKey])
+  }, [content, pendingFiles, sending, scheduledAt, roomId, conversationId, onSent, currentUserId, hubUsers, draftKey, edit, onSaveEdit])
 
   // Min datetime for scheduler — 1 minute from now
   const minDateTime = new Date(Date.now() + 60000).toISOString().slice(0, 16)
@@ -670,7 +728,7 @@ export default function MessageComposer({
 
   return (
     <div
-      className="flex-none border-t border-white/[0.06] px-4 py-3"
+      className={edit ? 'py-1' : 'flex-none border-t border-white/[0.06] px-4 py-3'}
       onDrop={handleDrop}
       onDragOver={e => e.preventDefault()}
     >
@@ -820,19 +878,21 @@ export default function MessageComposer({
       {/* Toolbar bar below the input. Order (Slack-style):
           📎 attach · Aa format · 😀 emoji · @ mention · ⏰ schedule · ▶ Send */}
       <div className="flex items-center gap-1 mt-1.5 px-1">
-        {/* Attach */}
-        <button
-          type="button"
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="text-gray-400 hover:text-gray-200 disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-gray-800"
-          title="Attach file"
-          aria-label="Attach file"
-        >
-          <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
-            <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
-          </svg>
-        </button>
+        {/* Attach — hidden in edit mode (text-only) */}
+        {!edit && (
+          <button
+            type="button"
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="text-gray-400 hover:text-gray-200 disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-gray-800"
+            title="Attach file"
+            aria-label="Attach file"
+          >
+            <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+          </button>
+        )}
 
         {/* Aa format — Slack-style markdown wrappers. Popover stays open
             until outside-click; each action closes it so typing flows. */}
@@ -956,7 +1016,8 @@ export default function MessageComposer({
           @
         </button>
 
-        {/* Schedule */}
+        {/* Schedule — hidden in edit mode (you can't reschedule an existing message) */}
+        {!edit && (
         <div className="relative" ref={schedulerRef}>
           <button
             type="button"
@@ -1000,6 +1061,7 @@ export default function MessageComposer({
             </div>
           )}
         </div>
+        )}
 
         {/* Expand / shrink the composer — lives in the toolbar instead of a
             dedicated row above the input, so it no longer creates an empty band
@@ -1023,30 +1085,52 @@ export default function MessageComposer({
         {/* Spacer pushes Send to the right edge */}
         <div className="flex-1" />
 
-        {/* Send button. Fixed pixel size so it doesn't balloon when the
-            user picks L for root font-size (Session 36.6). Hidden when
-            nothing to send. */}
-        {hasContent && (
-          <button
-            onClick={send}
-            disabled={sending || uploading}
-            style={{ width: '32px', height: '32px' }}
-            className={`flex-none rounded-xl disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-all hover:scale-105 ${
-              scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-gradient-to-br from-[#38bdf8] to-brand shadow-lg shadow-sky-900/40'
-            }`}
-            title={uploading ? 'Waiting for upload…' : scheduledAt ? 'Schedule message' : 'Send'}
-            aria-label={scheduledAt ? 'Schedule message' : 'Send'}
-          >
-            {scheduledAt ? (
-              <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-            ) : (
-              <svg className="w-4 h-4 text-white" viewBox="0 0 20 20" fill="currentColor">
-                <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
-              </svg>
-            )}
-          </button>
+        {edit ? (
+          /* Edit mode: Cancel + Save (Enter also saves, Esc cancels). */
+          <div className="flex items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => onCancelEdit?.()}
+              className="text-xs text-gray-400 hover:text-gray-200 px-2.5 py-1.5 rounded-lg hover:bg-gray-800 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={send}
+              disabled={sending || !content.trim()}
+              className="text-xs font-semibold text-[#fff] bg-brand hover:bg-brand-hover disabled:opacity-40 disabled:cursor-not-allowed px-3 py-1.5 rounded-lg transition-colors"
+              title="Save changes"
+            >
+              {sending ? 'Saving…' : 'Save'}
+            </button>
+          </div>
+        ) : (
+          /* Send button. Fixed pixel size so it doesn't balloon when the
+             user picks L for root font-size (Session 36.6). Hidden when
+             nothing to send. */
+          hasContent && (
+            <button
+              onClick={send}
+              disabled={sending || uploading}
+              style={{ width: '32px', height: '32px' }}
+              className={`flex-none rounded-xl disabled:opacity-30 disabled:cursor-not-allowed flex items-center justify-center transition-all hover:scale-105 ${
+                scheduledAt ? 'bg-yellow-600 hover:bg-yellow-500' : 'bg-gradient-to-br from-[#38bdf8] to-brand shadow-lg shadow-sky-900/40'
+              }`}
+              title={uploading ? 'Waiting for upload…' : scheduledAt ? 'Schedule message' : 'Send'}
+              aria-label={scheduledAt ? 'Schedule message' : 'Send'}
+            >
+              {scheduledAt ? (
+                <svg className="w-4 h-4 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4 text-white" viewBox="0 0 20 20" fill="currentColor">
+                  <path d="M10.894 2.553a1 1 0 00-1.788 0l-7 14a1 1 0 001.169 1.409l5-1.429A1 1 0 009 15.571V11a1 1 0 112 0v4.571a1 1 0 00.725.962l5 1.428a1 1 0 001.17-1.408l-7-14z" />
+                </svg>
+              )}
+            </button>
+          )
         )}
       </div>
 
