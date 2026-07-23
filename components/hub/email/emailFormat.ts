@@ -42,6 +42,21 @@ export type InboxTemplate = {
   active: boolean
 }
 
+/** A per-user saved list view (GET /api/hub/email/saved-views). config = the list filters. */
+export type InboxSavedView = {
+  id: string
+  name: string
+  config: {
+    scope?: string
+    tag?: string
+    waiting?: string
+    folder?: string
+    search?: string
+    snoozed?: boolean
+  }
+  sort_order: number
+}
+
 /**
  * The Hub theme remaps the entire Tailwind --color-* palette per theme, so
  * bg-white / bg-gray-* / text-gray-* render DARK under a dark/inverted theme.

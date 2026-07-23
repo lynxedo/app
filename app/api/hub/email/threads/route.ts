@@ -187,7 +187,28 @@ export async function GET(req: Request) {
 
   if (search) {
     const pat = ilikeSearchPattern(search)
-    q = q.or(`subject.ilike.${pat},snippet.ilike.${pat},from_email.ilike.${pat}`)
+    // Also match message BODIES, not just subject/snippet/from. Pre-resolve thread ids whose
+    // (mirrored) message bodies contain the term via the admin client, then widen the candidate
+    // set. The main query stays RLS-scoped, so this can never leak a thread the caller can't see.
+    // ⚠ Coverage is limited to bodies already mirrored (bodies hydrate lazily on open); the
+    // snippet match covers the rest. Full-body coverage across all mail is a future improvement.
+    let bodyClause = ''
+    try {
+      const { data: bodyHits } = await admin
+        .from('inbox_messages')
+        .select('thread_id')
+        .eq('company_id', companyId)
+        .ilike('body_html', pat)
+        .is('deleted_at', null)
+        .limit(500)
+      const ids = Array.from(
+        new Set((bodyHits ?? []).map((r) => r.thread_id as string).filter(Boolean))
+      )
+      if (ids.length) bodyClause = `,id.in.(${ids.map((id) => `"${id}"`).join(',')})`
+    } catch {
+      /* best-effort body search — fall back to the header match below */
+    }
+    q = q.or(`subject.ilike.${pat},snippet.ilike.${pat},from_email.ilike.${pat}${bodyClause}`)
   }
 
   if (before) q = q.lt('last_message_at', before)
