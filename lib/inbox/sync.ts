@@ -155,7 +155,7 @@ async function mirrorThread(
   folderMap: Map<string, string>,
   nowIso: string,
   opts: { applyRules: boolean; headerOnly: boolean }
-): Promise<{ mirrored: boolean; messages: number }> {
+): Promise<{ mirrored: boolean; messages: number; threadDbId?: string }> {
   const isShared = account.account_type === 'shared'
   const self = (account.email_address || '').toLowerCase()
 
@@ -254,12 +254,12 @@ async function mirrorThread(
 
   // Header-only (backfill): mirror the row and stop — no message-body fetch. Bodies
   // are hydrated on demand when the thread is opened. Rules never run in this mode.
-  if (opts.headerOnly) return { mirrored: true, messages: 0 }
+  if (opts.headerOnly) return { mirrored: true, messages: 0, threadDbId }
 
   // Only (re)fetch messages when the thread is new or its last activity moved,
   // so an unchanged thread isn't re-pulled every run.
   const needMessages = !existing || !sameInstant(existing.last_message_at as string | null, t.lastMessageAt)
-  if (!needMessages) return { mirrored: true, messages: 0 }
+  if (!needMessages) return { mirrored: true, messages: 0, threadDbId }
 
   const messages = await provider.listMessages(t.providerThreadId)
   const messageCount = await upsertMessages(admin, account, threadDbId, messages)
@@ -300,7 +300,32 @@ async function mirrorThread(
     }
   }
 
-  return { mirrored: true, messages: messageCount }
+  return { mirrored: true, messages: messageCount, threadDbId }
+}
+
+// Re-mirror ONE provider thread on demand (used by the webhook pipeline when a
+// message.created/updated event names a thread). Fetches the thread + its folder
+// map, then runs the exact same mirrorThread logic as the poller so all the
+// status/reopen/contact-link/rules handling lives in one place. Returns the thread
+// DB id (or null if the upsert failed).
+//   • applyRules defaults to true so a webhook-delivered inbound reply fires inbound
+//     rules just like the poller would — mirrorThread's own !existing guard keeps
+//     rules from re-firing on an already-known thread (e.g. a flag/folder update).
+export async function mirrorThreadById(
+  admin: SupabaseClient,
+  account: InboxAccount,
+  providerThreadId: string,
+  opts?: { applyRules?: boolean }
+): Promise<string | null> {
+  const provider = getMailProvider(account)
+  const nowIso = new Date().toISOString()
+  const folderMap = await syncFolders(admin, account, provider, nowIso)
+  const t = await provider.getThread(providerThreadId)
+  const r = await mirrorThread(admin, account, provider, t, folderMap, nowIso, {
+    applyRules: opts?.applyRules ?? true,
+    headerOnly: false,
+  })
+  return r.threadDbId ?? null
 }
 
 // Sync a single mailbox: folders, then one page of threads (and, for new/changed
@@ -446,6 +471,26 @@ async function broadcastInboxSync(admin: SupabaseClient, companyId: string): Pro
     await admin.removeChannel(ch)
   } catch (err) {
     console.warn('[inbox:sync] broadcast failed', err)
+  }
+}
+
+// Targeted refresh nudge for a single thread (used by the webhook pipeline after
+// re-mirroring one thread). Same channel + 'update' event as the interactive routes
+// (see threads/[id]/close). The payload carries `thread_id` (snake_case) because the
+// EmailThreadView reader matches on `payload.thread_id`; `threadId` is included too so
+// the payload is self-describing regardless of which casing a future reader expects.
+export async function broadcastInboxUpdate(
+  admin: SupabaseClient,
+  companyId: string,
+  threadId: string
+): Promise<void> {
+  try {
+    const ch = admin.channel(`inbox:${companyId}`)
+    await ch.subscribe()
+    await ch.send({ type: 'broadcast', event: 'update', payload: { thread_id: threadId, threadId } })
+    await admin.removeChannel(ch)
+  } catch (err) {
+    console.warn('[inbox:webhook] broadcast failed', err)
   }
 }
 
