@@ -17,6 +17,7 @@ import { getInboxAccountById } from './accounts'
 import type { MailThread, MailMessage } from './types'
 import { applyInboxRules } from './rules'
 import { NylasError } from './nylas'
+import { sendHubPush } from '@/lib/hub-push'
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
@@ -84,6 +85,14 @@ async function syncFolders(
 // rules act on ARRIVING mail only.
 const RULES_RECENCY_MS = 48 * 60 * 60 * 1000
 
+// Only push for mail whose last activity is within this window. Genuinely-new mail
+// is always well inside it (the poller runs every couple of minutes and sees new
+// mail within minutes); the guard bounds a burst — a long cron outage recovering,
+// or an unusually large sweep — to the last hour of mail instead of blasting a
+// backlog. First-sweep suppression (see syncAccount) is the primary connect-time
+// blast guard; this recency check is the backstop.
+const PUSH_RECENCY_MS = 60 * 60 * 1000
+
 // Upsert a thread's messages into inbox_messages (idempotent on the provider
 // message id). Returns how many rows were written. body_text + sent_by_user_id are
 // intentionally omitted so a re-sync never clobbers Hub-authored values.
@@ -139,6 +148,76 @@ export async function hydrateThreadMessages(
   return upsertMessages(admin, account, threadDbId, messages)
 }
 
+// Push fan-out for a genuinely-new inbound email, mirroring the Txt inbound push so
+// a new customer email actually reaches a backgrounded phone (not just the in-app
+// chime + rail dot from broadcastInboxSync). Best-effort — never throws (the caller
+// also guards). Audience is read AFTER inbound rules have run:
+//   • personal mailbox → its owner only (nobody else sees personal mail).
+//   • shared mailbox, assigned → the assignee + every thread member (owner/shared techs).
+//   • shared mailbox, unassigned → the Queue audience (admins + shared-inbox managers),
+//     matching the Txt "unassigned notifies all managers" rule and PRD §6 (the
+//     Unassigned queue is accountability screen #1). sendHubPush still honors each
+//     recipient's DND / muted / notification-level prefs.
+// A thread a rule just auto-closed (e.g. newsletter) wakes no one.
+async function notifyNewInbound(
+  admin: SupabaseClient,
+  account: InboxAccount,
+  threadDbId: string,
+  meta: { fromName: string | null; fromEmail: string | null; subject: string | null; snippet: string | null }
+): Promise<void> {
+  const { data: th } = await admin
+    .from('inbox_threads')
+    .select('status, assigned_to_user_id')
+    .eq('id', threadDbId)
+    .maybeSingle()
+  if (!th || (th.status as string) === 'closed') return
+
+  let recipients: string[] = []
+  if (account.account_type === 'personal') {
+    if (account.owner_user_id) recipients = [account.owner_user_id]
+  } else {
+    // Shared mailbox: the assignee + any thread members, else the whole Queue audience.
+    const ids = new Set<string>()
+    if (th.assigned_to_user_id) ids.add(th.assigned_to_user_id as string)
+    const { data: members } = await admin
+      .from('inbox_thread_members')
+      .select('user_id')
+      .eq('thread_id', threadDbId)
+    for (const m of (members ?? []) as { user_id: string }[]) ids.add(m.user_id)
+    if (ids.size > 0) {
+      recipients = Array.from(ids)
+    } else {
+      const { data: managers } = await admin
+        .from('user_profiles')
+        .select('id, role, can_manage_shared_inbox')
+        .eq('company_id', account.company_id)
+      recipients = ((managers ?? []) as { id: string; role: string | null; can_manage_shared_inbox: boolean | null }[])
+        .filter((m) => m.role === 'admin' || m.can_manage_shared_inbox === true)
+        .map((m) => m.id)
+    }
+  }
+  if (recipients.length === 0) return
+
+  const sender = meta.fromName?.trim() || meta.fromEmail?.trim() || 'New email'
+  const subjectLine = meta.subject?.trim() || meta.snippet?.trim() || '(no subject)'
+  const body = subjectLine.length > 120 ? subjectLine.slice(0, 117) + '…' : subjectLine
+  const baseUrl = process.env.NEXT_PUBLIC_APP_URL || 'https://staging.lynxedo.com'
+
+  await sendHubPush(
+    recipients,
+    {
+      title: `📧 Email — ${sender}`,
+      body,
+      url: `${baseUrl}/hub/email/${threadDbId}?source=push`,
+      type: 'inbox',
+      groupKey: threadDbId,
+    },
+    // isDm bypasses the global "mentions only" level (a new email is a direct,
+    // actionable item like a Txt/DM) while still honoring DND / muted / schedules.
+    { isDm: true }
+  )
+}
+
 // Mirror ONE provider thread into the inbox_* tables. Shared by the normal poller
 // and the backfill pager so there is exactly one copy of the upsert/status/
 // contact-link logic.
@@ -147,6 +226,10 @@ export async function hydrateThreadMessages(
 //   • headerOnly — true for backfill: mirror the thread ROW only and DON'T fetch
 //     message bodies (keeps a 12-month backfill light + off Microsoft's throttle;
 //     bodies are hydrated lazily when a thread is opened — see the detail route).
+//   • notify — true only for a steady-state live-poller sweep: send a push for a
+//     genuinely-new inbound message. False during backfill and on an account's very
+//     first sweep (see syncAccount), so a freshly-connected mailbox's backlog never
+//     blasts phones.
 async function mirrorThread(
   admin: SupabaseClient,
   account: InboxAccount,
@@ -154,7 +237,7 @@ async function mirrorThread(
   t: MailThread,
   folderMap: Map<string, string>,
   nowIso: string,
-  opts: { applyRules: boolean; headerOnly: boolean }
+  opts: { applyRules: boolean; headerOnly: boolean; notify: boolean }
 ): Promise<{ mirrored: boolean; messages: number }> {
   const isShared = account.account_type === 'shared'
   const self = (account.email_address || '').toLowerCase()
@@ -186,6 +269,10 @@ async function mirrorThread(
   const incomingMs = t.lastMessageAt ? Date.parse(t.lastMessageAt) : 0
   const isNewerInbound =
     t.lastMessageDirection === 'inbound' && incomingMs > existingMs + REOPEN_MARGIN_MS
+  // Genuinely-new inbound we're seeing for the first time: a brand-new inbound thread,
+  // or an existing thread whose inbound activity just advanced (a fresh customer reply,
+  // which also reopens a closed thread above). Drives the push notification below.
+  const isNewInbound = existing ? isNewerInbound : t.lastMessageDirection === 'inbound'
   let status: string
   if (!existing) {
     // NEW THREAD branch — inbound rules run after the messages mirror below.
@@ -300,6 +387,29 @@ async function mirrorThread(
     }
   }
 
+  // Push notification for genuinely-new inbound mail — mirrors the Txt inbound push
+  // so incoming email actually wakes a phone. Runs AFTER the rules block so an
+  // auto-assigned thread pings its assignee rather than the whole Queue. Gated by
+  // opts.notify (off during backfill and on an account's first sweep) and a recency
+  // window so a backlog can't blast phones. Best-effort — never fails the sweep.
+  if (
+    opts.notify &&
+    isNewInbound &&
+    !!t.lastMessageAt &&
+    Date.now() - Date.parse(t.lastMessageAt) < PUSH_RECENCY_MS
+  ) {
+    try {
+      await notifyNewInbound(admin, account, threadDbId, {
+        fromName,
+        fromEmail,
+        subject: t.subject,
+        snippet: t.snippet,
+      })
+    } catch (err) {
+      console.warn('[inbox:sync] inbound push failed:', err instanceof Error ? err.message : err)
+    }
+  }
+
   return { mirrored: true, messages: messageCount }
 }
 
@@ -310,6 +420,12 @@ export async function syncAccount(admin: SupabaseClient, account: InboxAccount):
   let threadCount = 0
   let messageCount = 0
   const nowIso = new Date().toISOString()
+
+  // Suppress pushes on this account's FIRST sweep: a freshly-connected mailbox
+  // surfaces its whole recent history as "new" here, and waking phones for that
+  // backlog would be wrong. The first sweep mirrors silently; every later sweep
+  // pushes genuinely-new inbound. (last_synced_at is null until the stamp below.)
+  const notify = !!account.last_synced_at
 
   try {
     const provider = getMailProvider(account)
@@ -332,6 +448,7 @@ export async function syncAccount(admin: SupabaseClient, account: InboxAccount):
       const r = await mirrorThread(admin, account, provider, t, folderMap, nowIso, {
         applyRules: true,
         headerOnly: false,
+        notify,
       })
       if (r.mirrored) threadCount++
       messageCount += r.messages
@@ -402,10 +519,12 @@ export async function backfillAccount(
       pages++
       for (const t of result.threads) {
         // headerOnly — mirror thread rows only (bodies hydrate on open); applyRules
-        // false — rules must never mass-fire across 12 months of history.
+        // false — rules must never mass-fire across 12 months of history; notify
+        // false — a backfill must never push (it is historical mail, not new arrivals).
         const r = await mirrorThread(admin, account, provider, t, folderMap, nowIso, {
           applyRules: false,
           headerOnly: true,
+          notify: false,
         })
         if (r.mirrored) threadCount++
         messageCount += r.messages
