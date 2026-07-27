@@ -871,7 +871,16 @@ export default function HubSidebar({
       <Link
         key={room.id}
         href={`/hub/${room.id}`}
-        onClick={() => onClose?.()}
+        onClick={(e) => {
+          // Workspace Tabs: open the room as a kept-alive tab (Alt = new copy).
+          if (tabs.enabled) {
+            e.preventDefault()
+            onClose?.()
+            tabs.openTab({ catalogId: 'room', instanceKey: room.id, label: room.name, href: `/hub/${room.id}`, newCopy: e.altKey })
+            return
+          }
+          onClose?.()
+        }}
         onContextMenu={e => openContextMenu(e, room.id, 'room')}
         onTouchStart={() => onTouchStart(room.id, 'room')}
         onTouchEnd={onTouchEnd}
@@ -907,7 +916,16 @@ export default function HubSidebar({
       <div key={conv.id} className="group/conv flex items-center">
         <Link
           href={`/hub/pm/${conv.id}`}
-          onClick={() => onClose?.()}
+          onClick={(e) => {
+            // Workspace Tabs: open the DM as a kept-alive tab (Alt = new copy).
+            if (tabs.enabled) {
+              e.preventDefault()
+              onClose?.()
+              tabs.openTab({ catalogId: 'dm', instanceKey: conv.id, label, href: `/hub/pm/${conv.id}`, newCopy: e.altKey })
+              return
+            }
+            onClose?.()
+          }}
           onContextMenu={e => openContextMenu(e, conv.id, 'conv')}
           onTouchStart={() => onTouchStart(conv.id, 'conv')}
           onTouchEnd={onTouchEnd}

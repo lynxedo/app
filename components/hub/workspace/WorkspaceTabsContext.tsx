@@ -30,7 +30,7 @@ export const MAX_WORKSPACE_TABS = 8
  * Hub sidebar and keyed by boardId). Kept out of the global `CatalogId` union to
  * avoid touching every catalog switch/icon map.
  */
-export type TabCatalogId = CatalogId | 'board'
+export type TabCatalogId = CatalogId | 'board' | 'room' | 'dm'
 
 export type WorkspaceTab = {
   /**

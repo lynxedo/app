@@ -38,6 +38,8 @@ import PricerView from '@/app/hub/pricer/PricerView'
 import { ScoreboardsIndexTab, ScoreboardBoardTab } from './workspace/ScoreboardsTab'
 import TrackerLeadsTab from './workspace/TrackerLeadsTab'
 import BoardTab from './workspace/BoardTab'
+import ChatTab from './workspace/ChatTab'
+import DailyLogV2View from '@/components/hub/DailyLogV2View'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
 import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
 import { createClient } from '@/lib/supabase/client'
@@ -228,7 +230,7 @@ export default function HubShell({
   // A kept-alive tab, when active, drives the sidebar + rail highlight via its
   // catalogId (a subset of RailId); board tabs map to the Hub rail (they have no
   // rail entry, same as the real /hub/board route → railFromPath = 'hub').
-  const catalogToRail = (c: TabCatalogId): RailId => (c === 'board' ? 'hub' : c)
+  const catalogToRail = (c: TabCatalogId): RailId => (c === 'board' || c === 'room' || c === 'dm' ? 'hub' : c)
   const activeRail: RailId = tabsApi.activeTab ? catalogToRail(tabsApi.activeTab.catalogId) : (manualRail ?? pathRail)
 
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
@@ -789,6 +791,12 @@ export default function HubShell({
         return <TrackerLeadsTab currentUser={{ email: userEmail, name: currentUserDisplayName ?? userEmail.split('@')[0], isAdmin: !!isAdmin }} />
       case 'board':
         return t.instanceKey ? <BoardTab boardId={t.instanceKey} hubUsers={hubUsers} currentUserId={currentUserId} /> : null
+      case 'daily-log-v2':
+        return <DailyLogV2View currentUserId={currentUserId} isAdmin={!!isAdmin} />
+      case 'room':
+        return t.instanceKey ? <ChatTab roomId={t.instanceKey} label={t.label} currentUserId={currentUserId} hubUsers={hubUsers} isAdmin={!!isAdmin} rooms={rooms.map(r => ({ id: r.id, name: r.name }))} /> : null
+      case 'dm':
+        return t.instanceKey ? <ChatTab conversationId={t.instanceKey} label={t.label} currentUserId={currentUserId} hubUsers={hubUsers} isAdmin={!!isAdmin} rooms={rooms.map(r => ({ id: r.id, name: r.name }))} /> : null
       default:
         return null
     }
