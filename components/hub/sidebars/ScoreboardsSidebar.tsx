@@ -4,6 +4,7 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import SidebarShell from './SidebarShell'
 import { SCOREBOARDS } from '@/lib/scoreboards/registry'
+import { useWorkspaceTabs } from '../workspace/WorkspaceTabsContext'
 
 // Badge accent per board. Presentation-only, so it lives here rather than in the
 // registry (which stays pure data). Unknown slugs fall back to a neutral chip, so
@@ -23,6 +24,7 @@ function BoardRow({
   badgeClass,
   active,
   onClose,
+  onOpen,
 }: {
   href: string
   label: string
@@ -30,11 +32,13 @@ function BoardRow({
   badgeClass?: string
   active: boolean
   onClose?: () => void
+  /** Workspace Tabs: when set, click opens a tab instead of navigating. */
+  onOpen?: () => void
 }) {
   return (
     <Link
       href={href}
-      onClick={() => onClose?.()}
+      onClick={(e) => { if (onOpen) { e.preventDefault(); onOpen() } else { onClose?.() } }}
       className={`flex items-center gap-2 px-2 py-2 md:py-1.5 rounded-lg text-lg md:text-sm transition-colors ${
         active
           ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30'
@@ -64,6 +68,7 @@ export default function ScoreboardsSidebar({
   onDesktopCollapse?: () => void
 }) {
   const pathname = usePathname() ?? ''
+  const tabs = useWorkspaceTabs()
   const visibleBoards = isAdmin
     ? SCOREBOARDS
     : SCOREBOARDS.filter(b => (allowedSlugs ?? []).includes(b.slug))
@@ -76,6 +81,7 @@ export default function ScoreboardsSidebar({
           label="All scoreboards"
           active={pathname === '/hub/scoreboards'}
           onClose={onClose}
+          onOpen={tabs.enabled ? () => { onClose?.(); tabs.openTab({ catalogId: 'scoreboards', label: 'Scoreboards', href: '/hub/scoreboards' }) } : undefined}
         />
       </div>
 
@@ -95,6 +101,7 @@ export default function ScoreboardsSidebar({
                 badgeClass={BADGE_CLASS[b.slug]}
                 active={pathname === href || pathname.startsWith(href + '/')}
                 onClose={onClose}
+                onOpen={tabs.enabled ? () => { onClose?.(); tabs.openTab({ catalogId: 'scoreboards', instanceKey: b.slug, label: b.title, href }) } : undefined}
               />
             )
           })}

@@ -24,6 +24,14 @@ import type { CatalogId } from '../railCatalog'
 /** Locked decision: up to 8 tabs; opening a 9th evicts the least-recently-used. */
 export const MAX_WORKSPACE_TABS = 8
 
+/**
+ * Which app a tab represents. All rail/drawer apps are `CatalogId`; `'board'` is
+ * an extra (Boards has no rail-catalog entry — board tabs are opened from the
+ * Hub sidebar and keyed by boardId). Kept out of the global `CatalogId` union to
+ * avoid touching every catalog switch/icon map.
+ */
+export type TabCatalogId = CatalogId | 'board'
+
 export type WorkspaceTab = {
   /**
    * Stable tab id. Single-instance screens use their `catalogId` (e.g.
@@ -32,7 +40,7 @@ export type WorkspaceTab = {
    * screen gets a `~N` suffix so two copies can coexist.
    */
   id: string
-  catalogId: CatalogId
+  catalogId: TabCatalogId
   /** Per-instance identifier (Scoreboards slug, Boards boardId). Undefined for single-instance screens. */
   instanceKey?: string
   label: string
@@ -42,7 +50,7 @@ export type WorkspaceTab = {
 }
 
 export type OpenTabInput = {
-  catalogId: CatalogId
+  catalogId: TabCatalogId
   label: string
   href: string
   instanceKey?: string
@@ -61,13 +69,13 @@ export type WorkspaceTabsApi = {
   closeTab: (id: string) => void
   /** Show the underlying Next route instead of any tab (called on real navigation). */
   showRoute: () => void
-  isOpen: (catalogId: CatalogId, instanceKey?: string) => boolean
+  isOpen: (catalogId: TabCatalogId, instanceKey?: string) => boolean
   /** Transient toast text set when the 8-cap evicts a tab; the strip shows + auto-clears it. */
   evictionNotice: string | null
   clearEvictionNotice: () => void
 }
 
-function tabIdFor(catalogId: CatalogId, instanceKey?: string): string {
+function tabIdFor(catalogId: TabCatalogId, instanceKey?: string): string {
   return instanceKey ? `${catalogId}:${instanceKey}` : catalogId
 }
 
@@ -171,7 +179,7 @@ export function useWorkspaceTabsState(enabled: boolean): WorkspaceTabsApi {
   const showRoute = useCallback(() => { setActiveTabId(null) }, [])
 
   const isOpen = useCallback(
-    (catalogId: CatalogId, instanceKey?: string) => tabsRef.current.some(t => t.id === tabIdFor(catalogId, instanceKey)),
+    (catalogId: TabCatalogId, instanceKey?: string) => tabsRef.current.some(t => t.id === tabIdFor(catalogId, instanceKey)),
     [],
   )
 
