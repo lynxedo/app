@@ -33,15 +33,7 @@ import OnCallPresenceProvider from './OnCallPresenceProvider'
 import { WorkspaceTabsProvider, useWorkspaceTabsState, type WorkspaceTab, type TabCatalogId } from './workspace/WorkspaceTabsContext'
 import WorkspaceTabStrip from './workspace/WorkspaceTabStrip'
 import { isDesktopEnvironment } from '@/lib/is-desktop'
-import ContactsPanel from '@/app/hub/contacts/ContactsPanel'
-import PricerView from '@/app/hub/pricer/PricerView'
-import { ScoreboardsIndexTab, ScoreboardBoardTab } from './workspace/ScoreboardsTab'
-import TrackerLeadsTab from './workspace/TrackerLeadsTab'
-import BoardTab from './workspace/BoardTab'
-import ChatTab from './workspace/ChatTab'
-import TxtTab from './workspace/TxtTab'
-import DailyLogV2View from '@/components/hub/DailyLogV2View'
-import EmailThreadView from '@/components/hub/email/EmailThreadView'
+import dynamic from 'next/dynamic'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
 import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
 import { createClient } from '@/lib/supabase/client'
@@ -58,6 +50,22 @@ export const HUB_CONV_CREATED_EVENT = 'hub-conversation-created'
 // Sections that have a sidebar of their own. Driven by a manual override
 // (rail click) for sections that have no URL (profile).
 type ManualRail = 'profile' | 'activity' | null
+
+// Tab twins are lazy-loaded (next/dynamic) so the Hub shell bundle doesn't
+// eagerly include every tab-able screen's code — each chunk loads only when a
+// tab of that kind is first opened. Kept-alive behavior is unaffected: once
+// loaded the component stays mounted (display-toggled), never re-fetched.
+const TabLoading = () => <div className="flex-1 min-h-0 p-6 text-sm text-white/40">Loading…</div>
+const ContactsPanel = dynamic(() => import('@/app/hub/contacts/ContactsPanel'), { ssr: false, loading: TabLoading })
+const PricerView = dynamic(() => import('@/app/hub/pricer/PricerView'), { ssr: false, loading: TabLoading })
+const ScoreboardsIndexTab = dynamic(() => import('./workspace/ScoreboardsTab').then(m => m.ScoreboardsIndexTab), { ssr: false, loading: TabLoading })
+const ScoreboardBoardTab = dynamic(() => import('./workspace/ScoreboardsTab').then(m => m.ScoreboardBoardTab), { ssr: false, loading: TabLoading })
+const TrackerLeadsTab = dynamic(() => import('./workspace/TrackerLeadsTab'), { ssr: false, loading: TabLoading })
+const BoardTab = dynamic(() => import('./workspace/BoardTab'), { ssr: false, loading: TabLoading })
+const ChatTab = dynamic(() => import('./workspace/ChatTab'), { ssr: false, loading: TabLoading })
+const TxtTab = dynamic(() => import('./workspace/TxtTab'), { ssr: false, loading: TabLoading })
+const DailyLogV2View = dynamic(() => import('@/components/hub/DailyLogV2View'), { ssr: false, loading: TabLoading })
+const EmailThreadView = dynamic(() => import('@/components/hub/email/EmailThreadView'), { ssr: false, loading: TabLoading })
 
 export default function HubShell({
   rooms,
