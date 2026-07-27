@@ -37,6 +37,7 @@ import ContactsPanel from '@/app/hub/contacts/ContactsPanel'
 import PricerView from '@/app/hub/pricer/PricerView'
 import { ScoreboardsIndexTab, ScoreboardBoardTab } from './workspace/ScoreboardsTab'
 import TrackerLeadsTab from './workspace/TrackerLeadsTab'
+import BoardTab from './workspace/BoardTab'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
 import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
 import { createClient } from '@/lib/supabase/client'
@@ -786,6 +787,8 @@ export default function HubShell({
           : <ScoreboardsIndexTab allowedSlugs={scoreboardSlugs ?? []} isAdmin={!!isAdmin} />
       case 'tracker':
         return <TrackerLeadsTab currentUser={{ email: userEmail, name: currentUserDisplayName ?? userEmail.split('@')[0], isAdmin: !!isAdmin }} />
+      case 'board':
+        return t.instanceKey ? <BoardTab boardId={t.instanceKey} hubUsers={hubUsers} currentUserId={currentUserId} /> : null
       default:
         return null
     }

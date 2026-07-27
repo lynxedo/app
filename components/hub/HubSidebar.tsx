@@ -6,6 +6,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { useHubMessageInsert } from './HubMessagesProvider'
 import type { HubUser } from './MessageFeed'
+import { useWorkspaceTabs } from './workspace/WorkspaceTabsContext'
 import StatusPicker, { StatusDot } from './StatusPicker'
 import { useOnCallUsers } from './OnCallPresenceProvider'
 import { CatalogIcon, LockIcon } from './railCatalog'
@@ -144,6 +145,7 @@ export default function HubSidebar({
   const onCallUsers = useOnCallUsers()
   const [sidebarRooms, setSidebarRooms] = useState<Room[]>(rooms)
   const [conversations, setConversations] = useState<Conversation[]>([])
+  const tabs = useWorkspaceTabs()
   const [boards, setBoards] = useState<Board[]>([])
   const [showNewPM, setShowNewPM] = useState(false)
   const [showNewRoom, setShowNewRoom] = useState(false)
@@ -1181,7 +1183,17 @@ export default function HubSidebar({
                 <div key={board.id} className="flex items-center group/board">
                   <Link
                     href={`/hub/board/${board.id}`}
-                    onClick={() => onClose?.()}
+                    onClick={(e) => {
+                      // Workspace Tabs: open the board as a kept-alive tab instead
+                      // of navigating (Alt-click forces a second copy).
+                      if (tabs.enabled) {
+                        e.preventDefault()
+                        onClose?.()
+                        tabs.openTab({ catalogId: 'board', instanceKey: board.id, label: board.name, href: `/hub/board/${board.id}`, newCopy: e.altKey })
+                        return
+                      }
+                      onClose?.()
+                    }}
                     className={`flex items-center gap-1.5 px-2 py-2 md:py-1.5 rounded text-lg md:text-sm transition-colors flex-1 min-w-0 ${
                       isActive ? 'bg-sky-500/[0.16] text-white font-semibold ring-1 ring-inset ring-sky-400/30' : 'text-white/70 hover:bg-white/10 hover:text-white'
                     }`}
