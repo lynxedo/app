@@ -11,6 +11,7 @@ import ContactModal from '@/components/hub/txt/ContactModal'
 import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
 import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
 import { formatPhone } from '@/lib/format'
+import { useWorkspaceTabs } from '../workspace/WorkspaceTabsContext'
 
 type Conversation = {
   id: string
@@ -110,6 +111,10 @@ export default function TxtV2Sidebar({
   companyId: string
 }) {
   const pathname = usePathname() || ''
+  const wsTabs = useWorkspaceTabs()
+  // Workspace Tabs: open a Txt conversation as a kept-alive tab instead of navigating.
+  const openTxtTab = (c: Conversation, alt: boolean) =>
+    wsTabs.openTab({ catalogId: 'txt-thread', instanceKey: c.id, label: displayNameFor(c), href: `/hub/txt/${c.id}`, newCopy: alt })
   const toast = useToast()
   const [scope, setScope] = useState<Scope>('all')
   const [viewFilter, setViewFilter] = useState<ViewFilter>('all')
@@ -552,7 +557,7 @@ export default function TxtV2Sidebar({
                     <li key={c.id}>
                       <Link
                         href={`/hub/txt/${c.id}`}
-                        onClick={() => { markRead(c.id); onClose?.() }}
+                        onClick={(e) => { markRead(c.id); if (wsTabs.enabled) { e.preventDefault(); onClose?.(); openTxtTab(c, e.altKey); return } onClose?.() }}
                         className={`block px-4 py-2 border-l-2 ${
                           active
                             ? 'bg-white/5 border-emerald-400'
@@ -618,7 +623,7 @@ export default function TxtV2Sidebar({
                   <li key={c.id} className="border-l-2 border-orange-400/70">
                     <Link
                       href={`/hub/txt/${c.id}`}
-                      onClick={onClose}
+                      onClick={(e) => { if (wsTabs.enabled) { e.preventDefault(); onClose?.(); openTxtTab(c, e.altKey); return } onClose?.() }}
                       className={`block px-4 py-2 ${active ? 'bg-white/5' : 'hover:bg-white/5'}`}
                     >
                       <div className="flex items-center justify-between gap-2">
@@ -725,7 +730,7 @@ export default function TxtV2Sidebar({
               <li key={c.id}>
                 <Link
                   href={`/hub/txt/${c.id}`}
-                  onClick={() => { markRead(c.id); onClose?.() }}
+                  onClick={(e) => { markRead(c.id); if (wsTabs.enabled) { e.preventDefault(); onClose?.(); openTxtTab(c, e.altKey); return } onClose?.() }}
                   className={`block px-4 py-2 border-l-2 ${
                     active
                       ? 'bg-white/5 border-emerald-400'

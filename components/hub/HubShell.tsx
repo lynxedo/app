@@ -39,7 +39,9 @@ import { ScoreboardsIndexTab, ScoreboardBoardTab } from './workspace/Scoreboards
 import TrackerLeadsTab from './workspace/TrackerLeadsTab'
 import BoardTab from './workspace/BoardTab'
 import ChatTab from './workspace/ChatTab'
+import TxtTab from './workspace/TxtTab'
 import DailyLogV2View from '@/components/hub/DailyLogV2View'
+import EmailThreadView from '@/components/hub/email/EmailThreadView'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
 import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
 import { createClient } from '@/lib/supabase/client'
@@ -230,7 +232,11 @@ export default function HubShell({
   // A kept-alive tab, when active, drives the sidebar + rail highlight via its
   // catalogId (a subset of RailId); board tabs map to the Hub rail (they have no
   // rail entry, same as the real /hub/board route → railFromPath = 'hub').
-  const catalogToRail = (c: TabCatalogId): RailId => (c === 'board' || c === 'room' || c === 'dm' ? 'hub' : c)
+  const catalogToRail = (c: TabCatalogId): RailId =>
+    c === 'txt-thread' ? 'txt2'
+    : c === 'inbox-thread' ? 'email-inbox'
+    : (c === 'board' || c === 'room' || c === 'dm') ? 'hub'
+    : c
   const activeRail: RailId = tabsApi.activeTab ? catalogToRail(tabsApi.activeTab.catalogId) : (manualRail ?? pathRail)
 
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
@@ -797,6 +803,10 @@ export default function HubShell({
         return t.instanceKey ? <ChatTab roomId={t.instanceKey} label={t.label} currentUserId={currentUserId} hubUsers={hubUsers} isAdmin={!!isAdmin} rooms={rooms.map(r => ({ id: r.id, name: r.name }))} /> : null
       case 'dm':
         return t.instanceKey ? <ChatTab conversationId={t.instanceKey} label={t.label} currentUserId={currentUserId} hubUsers={hubUsers} isAdmin={!!isAdmin} rooms={rooms.map(r => ({ id: r.id, name: r.name }))} /> : null
+      case 'txt-thread':
+        return t.instanceKey ? <TxtTab conversationId={t.instanceKey} currentUserId={currentUserId} companyId={companyId ?? ''} hubUsers={hubUsers} currentUserName={currentUserDisplayName ?? null} canAssign={!!canManageTxt} canAccessDialer={!!canAccessDialer} canAccessUnifiedInbox={!!canAccessUnifiedInbox} /> : null
+      case 'inbox-thread':
+        return t.instanceKey ? <EmailThreadView threadId={t.instanceKey} currentUserId={currentUserId} companyId={companyId ?? ''} emailSignature="" /> : null
       default:
         return null
     }

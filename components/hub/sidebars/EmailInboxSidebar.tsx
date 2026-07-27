@@ -10,6 +10,7 @@ import RulesPanel from '@/components/hub/email/RulesPanel'
 import FoldersPanel from '@/components/hub/email/FoldersPanel'
 import TagsPanel from '@/components/hub/email/TagsPanel'
 import TemplatesPanel from '@/components/hub/email/TemplatesPanel'
+import { useWorkspaceTabs } from '../workspace/WorkspaceTabsContext'
 import {
   relativeTime,
   messageTime,
@@ -86,6 +87,10 @@ export default function EmailInboxSidebar({
   onDesktopCollapse?: () => void
 }) {
   const pathname = usePathname() || ''
+  const wsTabs = useWorkspaceTabs()
+  // Workspace Tabs: open an email thread as a kept-alive tab instead of navigating.
+  const openInboxTab = (t: EmailThread, alt: boolean) =>
+    wsTabs.openTab({ catalogId: 'inbox-thread', instanceKey: t.id, label: t.subject || '(no subject)', href: `/hub/email/${t.id}`, newCopy: alt })
   const router = useRouter()
   const toast = useToast()
 
@@ -771,10 +776,7 @@ export default function EmailInboxSidebar({
       <div className="flex items-center gap-1 hover:bg-white/5">
         <Link
           href={`/hub/email/${t.id}`}
-          onClick={() => {
-            markRead(t.id)
-            onClose?.()
-          }}
+          onClick={(e) => { markRead(t.id); if (wsTabs.enabled) { e.preventDefault(); onClose?.(); openInboxTab(t, e.altKey); return } onClose?.() }}
           className="flex-1 min-w-0 py-2 pl-3 pr-1"
         >
           <div className="flex items-center justify-between gap-2">
@@ -1463,10 +1465,7 @@ export default function EmailInboxSidebar({
                   )}
                   <Link
                     href={`/hub/email/${t.id}`}
-                    onClick={() => {
-                      markRead(t.id)
-                      onClose?.()
-                    }}
+                    onClick={(e) => { markRead(t.id); if (wsTabs.enabled) { e.preventDefault(); onClose?.(); openInboxTab(t, e.altKey); return } onClose?.() }}
                     className={`flex-1 min-w-0 py-2.5 pr-4 ${showChevron ? 'pl-1' : 'pl-4'}`}
                   >
                     <div className="flex items-center justify-between gap-2">
