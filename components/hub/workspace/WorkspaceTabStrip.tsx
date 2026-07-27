@@ -72,7 +72,13 @@ export default function WorkspaceTabStrip() {
                 style={isActive ? { color: 'var(--brand)' } : undefined}
                 aria-hidden="true"
               >
-                <CatalogIcon id={t.catalogId} />
+                {t.catalogId === 'board' ? (
+                  <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={1.8}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4 5h16v14H4zM4 9h16M9 9v10" />
+                  </svg>
+                ) : (
+                  <CatalogIcon id={t.catalogId} />
+                )}
               </span>
               <span className="truncate">{t.label}</span>
               <span className="sr-only">{isActive ? '(active)' : ''} — Ctrl+{i + 1} to switch</span>

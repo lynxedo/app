@@ -30,11 +30,13 @@ import GlobalCallBar from './dialer/GlobalCallBar'
 import ConversationPopoutProvider from './popout/ConversationPopoutProvider'
 import { BetaFlagsProvider } from './BetaFlagsContext'
 import OnCallPresenceProvider from './OnCallPresenceProvider'
-import { WorkspaceTabsProvider, useWorkspaceTabsState, type WorkspaceTab } from './workspace/WorkspaceTabsContext'
+import { WorkspaceTabsProvider, useWorkspaceTabsState, type WorkspaceTab, type TabCatalogId } from './workspace/WorkspaceTabsContext'
 import WorkspaceTabStrip from './workspace/WorkspaceTabStrip'
 import { isDesktopEnvironment } from '@/lib/is-desktop'
 import ContactsPanel from '@/app/hub/contacts/ContactsPanel'
 import PricerView from '@/app/hub/pricer/PricerView'
+import { ScoreboardsIndexTab, ScoreboardBoardTab } from './workspace/ScoreboardsTab'
+import TrackerLeadsTab from './workspace/TrackerLeadsTab'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
 import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
 import { createClient } from '@/lib/supabase/client'
@@ -222,9 +224,11 @@ export default function HubShell({
   // Idempotent; no UI prompt; safe to ignore the result.
   useEffect(() => { void persistStorage() }, [])
 
-  // A kept-alive tab, when active, drives the sidebar + rail highlight (via its
-  // catalogId — a subset of RailId); otherwise fall back to today's behavior.
-  const activeRail: RailId = tabsApi.activeTab ? (tabsApi.activeTab.catalogId as RailId) : (manualRail ?? pathRail)
+  // A kept-alive tab, when active, drives the sidebar + rail highlight via its
+  // catalogId (a subset of RailId); board tabs map to the Hub rail (they have no
+  // rail entry, same as the real /hub/board route → railFromPath = 'hub').
+  const catalogToRail = (c: TabCatalogId): RailId => (c === 'board' ? 'hub' : c)
+  const activeRail: RailId = tabsApi.activeTab ? catalogToRail(tabsApi.activeTab.catalogId) : (manualRail ?? pathRail)
 
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [showMobileMore, setShowMobileMore] = useState(false)
@@ -776,6 +780,12 @@ export default function HubShell({
         return <ContactsPanel initialContacts={[]} initialTags={[]} canAccessDialer={!!canAccessDialer} />
       case 'pricer':
         return <PricerView />
+      case 'scoreboards':
+        return t.instanceKey
+          ? <ScoreboardBoardTab slug={t.instanceKey} />
+          : <ScoreboardsIndexTab allowedSlugs={scoreboardSlugs ?? []} isAdmin={!!isAdmin} />
+      case 'tracker':
+        return <TrackerLeadsTab currentUser={{ email: userEmail, name: currentUserDisplayName ?? userEmail.split('@')[0], isAdmin: !!isAdmin }} />
       default:
         return null
     }
@@ -951,7 +961,7 @@ export default function HubShell({
         rooms={rooms}
         conversations={railConversations}
         launcherOpen={showDesktopLauncher}
-        activeRailOverride={tabsApi.activeTab ? (tabsApi.activeTab.catalogId as RailId) : undefined}
+        activeRailOverride={tabsApi.activeTab ? catalogToRail(tabsApi.activeTab.catalogId) : undefined}
       />
 
       <div
