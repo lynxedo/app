@@ -32,6 +32,7 @@ import { BetaFlagsProvider } from './BetaFlagsContext'
 import OnCallPresenceProvider from './OnCallPresenceProvider'
 import { WorkspaceTabsProvider, useWorkspaceTabsState, type WorkspaceTab, type TabCatalogId } from './workspace/WorkspaceTabsContext'
 import WorkspaceTabStrip from './workspace/WorkspaceTabStrip'
+import WorkspaceTabErrorBoundary from './workspace/WorkspaceTabErrorBoundary'
 import { isDesktopEnvironment } from '@/lib/is-desktop'
 import dynamic from 'next/dynamic'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
@@ -1097,7 +1098,9 @@ export default function HubShell({
               className="flex-1 min-h-0 flex-col"
               style={{ display: t.id === tabsApi.activeTabId ? 'flex' : 'none' }}
             >
-              {renderTabContent(t)}
+              <WorkspaceTabErrorBoundary label={t.label} resetKey={t.id}>
+                {renderTabContent(t)}
+              </WorkspaceTabErrorBoundary>
             </div>
           ))}
           {/* The underlying Next route — shown whenever no tab is active. */}
