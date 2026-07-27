@@ -51,6 +51,10 @@ interface Props {
   initialMasterDndSchedule?: Record<string, unknown> | null
   initialHubDndEnabled?: boolean
   initialHubDndSchedule?: Record<string, unknown> | null
+  initialTxtDndEnabled?: boolean
+  initialTxtDndSchedule?: Record<string, unknown> | null
+  initialInboxDndEnabled?: boolean
+  initialInboxDndSchedule?: Record<string, unknown> | null
   initialDialerDndEnabled?: boolean
   initialDialerDndSchedule?: Record<string, unknown> | null
 }
@@ -100,7 +104,7 @@ async function getCroppedBlob(
   })
 }
 
-export default function SettingsForm({ email, userId, hubProfile, initialTheme, notifPref, railPermissions, canAccessBeta = false, txtSignature, emailSignature = '', allowUserSignatures = true, companyDefaultSignature = null, canManageInbox = false, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
+export default function SettingsForm({ email, userId, hubProfile, initialTheme, notifPref, railPermissions, canAccessBeta = false, txtSignature, emailSignature = '', allowUserSignatures = true, companyDefaultSignature = null, canManageInbox = false, dialerGlobalRing, initialMasterDndEnabled = false, initialMasterDndSchedule = null, initialHubDndEnabled = false, initialHubDndSchedule = null, initialTxtDndEnabled = false, initialTxtDndSchedule = null, initialInboxDndEnabled = false, initialInboxDndSchedule = null, initialDialerDndEnabled = false, initialDialerDndSchedule = null }: Props) {
   const router = useRouter()
   const toast = useToast()
   const confirmDialog = useConfirm()
@@ -213,6 +217,22 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
   )
   const [hubSchedule, setHubSchedule] = useState<DndSchedule>(
     toSchedule(initialHubDndSchedule as Record<string, unknown> | null)
+  )
+
+  const [txtDndOn, setTxtDndOn] = useState(initialTxtDndEnabled)
+  const [txtScheduleEnabled, setTxtScheduleEnabled] = useState(
+    Boolean((initialTxtDndSchedule as DndSchedule | null)?.enabled)
+  )
+  const [txtSchedule, setTxtSchedule] = useState<DndSchedule>(
+    toSchedule(initialTxtDndSchedule as Record<string, unknown> | null)
+  )
+
+  const [inboxDndOn, setInboxDndOn] = useState(initialInboxDndEnabled)
+  const [inboxScheduleEnabled, setInboxScheduleEnabled] = useState(
+    Boolean((initialInboxDndSchedule as DndSchedule | null)?.enabled)
+  )
+  const [inboxSchedule, setInboxSchedule] = useState<DndSchedule>(
+    toSchedule(initialInboxDndSchedule as Record<string, unknown> | null)
   )
 
   const [dialerDndOn, setDialerDndOn] = useState(initialDialerDndEnabled)
@@ -830,6 +850,90 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
             }}
             onScheduleChange={s => setHubSchedule(s)}
             onCommit={() => saveDndField({ hub_dnd_schedule: { ...hubSchedule, enabled: hubScheduleEnabled } })}
+          />
+        </section>
+
+        {/* Txt DND */}
+        <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          <div className="flex items-start justify-between gap-4 mb-1">
+            <div>
+              <h2 className="font-semibold text-lg flex items-center gap-2">
+                <span className="text-orange-400">
+                  <svg className="w-5 h-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" /></svg>
+                </span>
+                Txt DND
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">Text (SMS) message notifications only.</p>
+            </div>
+            <label className="inline-flex items-center cursor-pointer flex-none">
+              <input
+                type="checkbox"
+                checked={txtDndOn}
+                onChange={e => {
+                  setTxtDndOn(e.target.checked)
+                  saveDndField({ txt_dnd_enabled: e.target.checked })
+                }}
+                className="sr-only peer"
+              />
+              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-[#ffffff] after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
+            </label>
+          </div>
+          <p className="text-gray-400 text-sm mb-5">
+            Pauses customer text (SMS) push notifications without affecting your Hub messages or calls.
+          </p>
+          <DndScheduleEditor
+            scheduleEnabled={txtScheduleEnabled}
+            schedule={txtSchedule}
+            onToggleSchedule={on => {
+              setTxtScheduleEnabled(on)
+              const next: DndSchedule = { ...txtSchedule, enabled: on }
+              setTxtSchedule(next)
+              saveDndField({ txt_dnd_schedule: next })
+            }}
+            onScheduleChange={s => setTxtSchedule(s)}
+            onCommit={() => saveDndField({ txt_dnd_schedule: { ...txtSchedule, enabled: txtScheduleEnabled } })}
+          />
+        </section>
+
+        {/* Inbox DND */}
+        <section className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
+          <div className="flex items-start justify-between gap-4 mb-1">
+            <div>
+              <h2 className="font-semibold text-lg flex items-center gap-2">
+                <span className="text-orange-400">
+                  <svg className="w-5 h-5 inline" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={1.8}><path strokeLinecap="round" strokeLinejoin="round" d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" /></svg>
+                </span>
+                Inbox DND
+              </h2>
+              <p className="text-xs text-gray-500 mt-0.5">Shared inbox (email) notifications only.</p>
+            </div>
+            <label className="inline-flex items-center cursor-pointer flex-none">
+              <input
+                type="checkbox"
+                checked={inboxDndOn}
+                onChange={e => {
+                  setInboxDndOn(e.target.checked)
+                  saveDndField({ inbox_dnd_enabled: e.target.checked })
+                }}
+                className="sr-only peer"
+              />
+              <span className="w-10 h-5 bg-gray-700 peer-checked:bg-orange-500 rounded-full relative transition-colors after:content-[''] after:absolute after:top-0.5 after:left-0.5 after:bg-[#ffffff] after:rounded-full after:h-4 after:w-4 after:transition-transform peer-checked:after:translate-x-5" />
+            </label>
+          </div>
+          <p className="text-gray-400 text-sm mb-5">
+            Pauses shared inbox (email) push notifications without affecting your Hub messages or calls.
+          </p>
+          <DndScheduleEditor
+            scheduleEnabled={inboxScheduleEnabled}
+            schedule={inboxSchedule}
+            onToggleSchedule={on => {
+              setInboxScheduleEnabled(on)
+              const next: DndSchedule = { ...inboxSchedule, enabled: on }
+              setInboxSchedule(next)
+              saveDndField({ inbox_dnd_schedule: next })
+            }}
+            onScheduleChange={s => setInboxSchedule(s)}
+            onCommit={() => saveDndField({ inbox_dnd_schedule: { ...inboxSchedule, enabled: inboxScheduleEnabled } })}
           />
         </section>
 

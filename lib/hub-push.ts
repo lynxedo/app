@@ -26,6 +26,18 @@ interface PushOptions {
   roomId?: string | null  // room context for per-room mute checks
 }
 
+// Which DND channel a push belongs to, derived from payload.type. Master DND overrides ALL
+// channels; this only selects WHICH per-channel toggle applies. 'txt' → Txt DND; 'inbox*' →
+// Inbox DND; voicemail/missed_call → Calls DND (fixes the old quirk where Hub DND silenced them);
+// everything else (room, dm, daily-log, lead, and untyped guardian/board/feedback) → Hub DND.
+function channelForType(type?: string): 'hub' | 'txt' | 'inbox' | 'calls' {
+  const t = type || ''
+  if (t === 'txt') return 'txt'
+  if (t.startsWith('inbox')) return 'inbox'
+  if (t === 'voicemail' || t === 'missed_call') return 'calls'
+  return 'hub'
+}
+
 export async function sendHubPush(
   userIds: string[],
   payload: { title: string; body: string; url: string; type?: string; groupKey?: string },
@@ -51,7 +63,7 @@ export async function sendHubPush(
       .in('user_id', userIds),
     admin
       .from('user_profiles')
-      .select('id, company_id, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule')
+      .select('id, company_id, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, txt_dnd_enabled, txt_dnd_schedule, inbox_dnd_enabled, inbox_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule')
       .in('id', userIds),
   ])
 
@@ -61,7 +73,7 @@ export async function sendHubPush(
     statusMap[u.id] = { status: u.status, status_until: u.status_until }
     if (u.company_id) companyMap[u.id] = u.company_id
   }
-  type ProfileRow = { id: string; company_id: string; master_dnd_enabled: boolean; master_dnd_schedule: unknown; hub_dnd_enabled: boolean; hub_dnd_schedule: unknown }
+  type ProfileRow = { id: string; company_id: string; master_dnd_enabled: boolean; master_dnd_schedule: unknown; hub_dnd_enabled: boolean; hub_dnd_schedule: unknown; txt_dnd_enabled: boolean; txt_dnd_schedule: unknown; inbox_dnd_enabled: boolean; inbox_dnd_schedule: unknown; dialer_dnd_enabled: boolean; dialer_dnd_schedule: unknown }
   const profileMap: Record<string, ProfileRow> = {}
   for (const p of (profilesResult.data ?? []) as ProfileRow[]) {
     profileMap[p.id] = p
@@ -96,9 +108,21 @@ export async function sendHubPush(
       (!s.status_until || new Date(s.status_until) > new Date())
     if (isDndActive) return false
 
-    // Hub notifications DND — silences Hub message pushes only
-    if (up?.hub_dnd_enabled) return false
-    if (isInDndSchedule((up?.hub_dnd_schedule as DndSchedule | null) || null)) return false
+    // Per-channel DND — apply only the channel this push belongs to (Master handled above).
+    const channel = channelForType(payload.type)
+    if (channel === 'hub') {
+      if (up?.hub_dnd_enabled) return false
+      if (isInDndSchedule((up?.hub_dnd_schedule as DndSchedule | null) || null)) return false
+    } else if (channel === 'txt') {
+      if (up?.txt_dnd_enabled) return false
+      if (isInDndSchedule((up?.txt_dnd_schedule as DndSchedule | null) || null)) return false
+    } else if (channel === 'inbox') {
+      if (up?.inbox_dnd_enabled) return false
+      if (isInDndSchedule((up?.inbox_dnd_schedule as DndSchedule | null) || null)) return false
+    } else if (channel === 'calls') {
+      if (up?.dialer_dnd_enabled) return false
+      if (isInDndSchedule((up?.dialer_dnd_schedule as DndSchedule | null) || null)) return false
+    }
 
     // Global notification level (all / mentions / muted)
     if (global?.level === 'muted') return false
