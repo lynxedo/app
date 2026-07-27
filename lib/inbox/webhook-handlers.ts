@@ -265,24 +265,24 @@ async function handleGrantExpired(
   }
 }
 
-// bounced / rejected / complaint / delivered: stamp the outbound message's delivery state.
+// Delivery outcome of an OUTBOUND message — stamp its delivery state. Nylas v3 fires these under
+// message.bounce_detected / message.send_failed / message.send_success (we also keep the
+// message.bounced/rejected/complaint/delivered names defensively). The message id can sit in a
+// few fields depending on the event, so try several; a miss is a best-effort no-op and the raw
+// event is still logged (inbox_events_raw) so a real bounce's exact shape can be inspected later.
 async function handleDeliveryEvent(
   admin: SupabaseClient,
   account: WebhookAccount,
   n: NylasNotification,
-  status: 'bounced' | 'rejected' | 'complaint' | 'delivered'
+  status: 'bounced' | 'failed' | 'rejected' | 'complaint' | 'delivered'
 ): Promise<void> {
   const obj = (n.data?.object || {}) as Record<string, unknown>
+  const pick = (k: string) => (typeof obj[k] === 'string' ? (obj[k] as string) : undefined)
   const messageId =
-    (obj.message_id as string | undefined) ?? (obj.id as string | undefined) ?? null
-  if (!messageId) return // nothing to match — best-effort
+    pick('message_id') ?? pick('origin_message_id') ?? pick('original_message_id') ?? pick('id') ?? null
+  if (!messageId) return // no id to match — best-effort (event stays logged for inspection)
 
-  const detail =
-    (obj.bounce_reason as string | undefined) ??
-    (obj.reason as string | undefined) ??
-    (obj.description as string | undefined) ??
-    (obj.error as string | undefined) ??
-    null
+  const detail = pick('bounce_reason') ?? pick('reason') ?? pick('description') ?? pick('error') ?? null
 
   await admin
     .from('inbox_messages')
@@ -293,6 +293,41 @@ async function handleDeliveryEvent(
     .eq('account_id', account.id)
     .eq('provider_message_id', messageId)
     .eq('direction', 'outbound')
+}
+
+// message.deleted: the message was removed at the provider (hard-deleted / purged). Soft-delete
+// our mirror row, and the whole thread too if no non-deleted messages remain. (message.updated →
+// moved-to-trash is handled in handleMessageUpsert; this covers true deletes.)
+async function handleMessageDeleted(
+  admin: SupabaseClient,
+  account: WebhookAccount,
+  n: NylasNotification
+): Promise<void> {
+  const obj = (n.data?.object || {}) as { id?: string }
+  const providerMessageId = typeof obj.id === 'string' ? obj.id : null
+  if (!providerMessageId) return
+  const nowIso = new Date().toISOString()
+  const { data: msg } = await admin
+    .from('inbox_messages')
+    .select('id, thread_id')
+    .eq('account_id', account.id)
+    .eq('provider_message_id', providerMessageId)
+    .is('deleted_at', null)
+    .maybeSingle()
+  if (!msg) return
+  await admin.from('inbox_messages').update({ deleted_at: nowIso }).eq('id', msg.id)
+  const threadDbId = (msg.thread_id as string | null) ?? null
+  if (threadDbId) {
+    const { count } = await admin
+      .from('inbox_messages')
+      .select('id', { count: 'exact', head: true })
+      .eq('thread_id', threadDbId)
+      .is('deleted_at', null)
+    if (!count) {
+      await admin.from('inbox_threads').update({ deleted_at: nowIso, updated_at: nowIso }).eq('id', threadDbId)
+    }
+    await broadcastInboxUpdate(admin, account.company_id, threadDbId)
+  }
 }
 
 // Dispatch one notification. Resolves the mailbox, switches on trigger type, and records
@@ -334,8 +369,15 @@ export async function processInboxEvent(admin: SupabaseClient, n: NylasNotificat
           .update({ status: 'disconnected', active: false, updated_at: new Date().toISOString() })
           .eq('id', account.id)
         break
+      case 'message.deleted':
+        await handleMessageDeleted(admin, account, n)
+        break
+      case 'message.bounce_detected':
       case 'message.bounced':
         await handleDeliveryEvent(admin, account, n, 'bounced')
+        break
+      case 'message.send_failed':
+        await handleDeliveryEvent(admin, account, n, 'failed')
         break
       case 'message.rejected':
         await handleDeliveryEvent(admin, account, n, 'rejected')
@@ -343,6 +385,7 @@ export async function processInboxEvent(admin: SupabaseClient, n: NylasNotificat
       case 'message.complaint':
         await handleDeliveryEvent(admin, account, n, 'complaint')
         break
+      case 'message.send_success':
       case 'message.delivered':
         await handleDeliveryEvent(admin, account, n, 'delivered')
         break
