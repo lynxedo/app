@@ -19,6 +19,7 @@ import { useCallback, useEffect, useRef, useState } from 'react'
 import type { Call, Device as DeviceType } from '@twilio/voice-sdk'
 import { nativeVoiceAvailable, getNativeVoice, nativePlatform } from '@/lib/native-voice'
 import type { NativeAudioRoute } from '@/lib/native-voice'
+import { isDesktopEnvironment } from '@/lib/is-desktop'
 import type { DialerLookupMatch } from '@/lib/dialer-lookup'
 
 // Phase 3 transfer modes — mirror the /conference/transfer endpoint.
@@ -100,10 +101,6 @@ function buildAudioDeviceLists(list: MediaDeviceInfo[]): {
 // Headset mode defaults ON for desktop (browser + Electron app), where agents
 // are on headsets, and OFF for mobile browsers. (The native mobile app doesn't
 // use this web path at all.) An explicit saved choice always wins.
-function isDesktopEnvironment(): boolean {
-  if (typeof navigator === 'undefined') return false
-  return !/Mobi|Android|iPhone|iPad|iPod/i.test(navigator.userAgent || '')
-}
 
 export type DialerState =
   | 'idle'                  // no token yet

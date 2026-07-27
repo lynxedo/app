@@ -30,6 +30,8 @@ export default function AppLauncherPanel({
   hubDndOn = false,
   dialerDndOn = false,
   showAdmin,
+  onOpenApp,
+  openTabIds,
 }: {
   /** The one shared layout list (already permission-filtered). */
   items: string[]
@@ -51,6 +53,14 @@ export default function AppLauncherPanel({
   hubDndOn?: boolean
   dialerDndOn?: boolean
   showAdmin: boolean
+  /**
+   * Workspace Tabs: when provided (feature on), picking a tabbable app opens it
+   * as a kept-alive tab (Alt-click = new copy) instead of navigating. Undefined
+   * → tiles navigate exactly as today.
+   */
+  onOpenApp?: (t: { id: CatalogId; label: string; href: string; newCopy: boolean }) => void
+  /** CatalogIds currently open as tabs — drives the "Open" badge on tiles. */
+  openTabIds?: string[]
 }) {
   const router = useRouter()
   const [appSearch, setAppSearch] = useState('')
@@ -80,7 +90,8 @@ export default function AppLauncherPanel({
     const c = classifyToken(token)
     let icon: React.ReactNode = null
     let label = ''
-    let onClick: () => void = () => {}
+    let onClick: (e?: React.MouseEvent) => void = () => {}
+    let showOpenBadge = false
 
     if (c.kind === 'master-dnd') {
       const on = masterDndOn
@@ -134,7 +145,13 @@ export default function AppLauncherPanel({
         if (!entry) return null
         label = entry.label
         icon = <CatalogIcon id={id} />
-        onClick = entry.href ? () => navigate(entry.href!) : () => {}
+        // Workspace Tabs: a tabbable app opens as a kept-alive tab (Alt = new copy)
+        // instead of navigating; go-to-existing is handled by the tab manager.
+        const canTab = !!onOpenApp && !!entry.tabbable && !!entry.href
+        showOpenBadge = canTab && !!openTabIds?.includes(id)
+        onClick = canTab
+          ? (e) => { onClose(); onOpenApp!({ id, label: entry.label, href: entry.href!, newCopy: !!e?.altKey }) }
+          : entry.href ? () => navigate(entry.href!) : () => {}
       }
     }
 
@@ -145,9 +162,12 @@ export default function AppLauncherPanel({
       <button
         type="button"
         onClick={onClick}
-        className="group w-full flex flex-col items-center justify-center gap-2 p-2.5 rounded-2xl hover:bg-white/[0.05] hover:-translate-y-0.5 transition-all"
+        className="group relative w-full flex flex-col items-center justify-center gap-2 p-2.5 rounded-2xl hover:bg-white/[0.05] hover:-translate-y-0.5 transition-all"
         title={displayLabel}
       >
+        {showOpenBadge && (
+          <span className="absolute top-1 right-1 px-1.5 py-0.5 rounded-full text-[8px] font-semibold uppercase tracking-wide text-emerald-300 bg-emerald-500/15 border border-emerald-500/30 leading-none">Open</span>
+        )}
         <span
           className="flex items-center justify-center w-11 h-11 rounded-2xl transition-transform group-hover:scale-105 [&_svg]:w-5 [&_svg]:h-5"
           style={{ color: accent, background: accent + '1f', boxShadow: `inset 0 0 0 1px ${accent}44` }}

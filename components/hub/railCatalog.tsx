@@ -50,6 +50,16 @@ export type CatalogEntry = {
   pickable: boolean
   /** Permission gate; if false the icon is hidden */
   requires?: keyof RailPermissions
+  /**
+   * Workspace Tabs (desktop, behind the `workspace_tabs` beta flag): when true,
+   * clicking this app opens it as a kept-alive TAB in the Hub content area
+   * instead of a full route change, so its scroll/filters/open-record survive
+   * flipping to another tab. Only Tier-1 (self-contained, main-pane, drill-in
+   * via a drawer not a route, little/no realtime) screens should be flagged.
+   * Anything not flagged navigates exactly as today. Dialer/Fleet are
+   * deliberately NOT tabbable (live singletons). See HUB_WORKSPACE_TABS_PRD.md.
+   */
+  tabbable?: boolean
 }
 
 export type RailPermissions = {
@@ -256,7 +266,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'time-records', label: 'Time Records',  href: '/hub/admin/timesheet', prefixMatch: true, pickable: true, requires: 'isAdmin' },
   { id: 'files',        label: 'Files',         href: '/hub/files', pickable: true, requires: 'canAccessFiles' },
   { id: 'company-news', label: 'Company News',  href: '/hub/pages/company-news', pickable: true },
-  { id: 'contacts',     label: 'Contacts',      href: '/hub/contacts', prefixMatch: true, pickable: true, requires: 'canAccessHub' },
+  { id: 'contacts',     label: 'Contacts',      href: '/hub/contacts', prefixMatch: true, pickable: true, requires: 'canAccessHub', tabbable: true },
   { id: 'marketing', label: 'Marketing', href: '/hub/marketing', prefixMatch: true, pickable: true, requires: 'canAccessMarketing' },
   { id: 'email',     label: 'Email',     href: '/hub/marketing/email', prefixMatch: true, pickable: true, requires: 'canAccessEmail' },
   { id: 'email-inbox', label: 'Inbox',   href: '/hub/email', prefixMatch: true, pickable: true, requires: 'canAccessSharedInbox' },
@@ -265,7 +275,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'forms',     label: 'Forms',     href: '/hub/forms', prefixMatch: true, pickable: true, requires: 'canAccessForms' },
   { id: 'reports',   label: 'Reports',   href: '/hub/reports', prefixMatch: true, pickable: true, requires: 'isAdmin' },
   { id: 'scoreboards', label: 'Scoreboards', href: '/hub/scoreboards', prefixMatch: true, pickable: true, requires: 'canAccessScoreboards' },
-  { id: 'pricer',      label: 'Pricer',      href: '/hub/pricer', prefixMatch: true, pickable: true, requires: 'canAccessPricer' },
+  { id: 'pricer',      label: 'Pricer',      href: '/hub/pricer', prefixMatch: true, pickable: true, requires: 'canAccessPricer', tabbable: true },
   { id: 'mix-sheet',   label: 'Mix Sheet',   href: '/hub/mix-sheet', prefixMatch: true, pickable: true },
   { id: 'feedback',    label: 'Report an Issue', href: '/hub/feedback', prefixMatch: true, pickable: true },
 ]

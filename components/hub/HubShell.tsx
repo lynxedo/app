@@ -4,7 +4,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { usePathname } from 'next/navigation'
 import HubSidebar from './HubSidebar'
 import { useHubMessageInsert } from './HubMessagesProvider'
-import HubRail, { railFromPath } from './HubRail'
+import HubRail, { railFromPath, type RailId } from './HubRail'
 import HubMobileBar from './HubMobileBar'
 import HubMobileMore from './HubMobileMore'
 import AppLauncherPanel from './AppLauncherPanel'
@@ -30,6 +30,11 @@ import GlobalCallBar from './dialer/GlobalCallBar'
 import ConversationPopoutProvider from './popout/ConversationPopoutProvider'
 import { BetaFlagsProvider } from './BetaFlagsContext'
 import OnCallPresenceProvider from './OnCallPresenceProvider'
+import { WorkspaceTabsProvider, useWorkspaceTabsState, type WorkspaceTab } from './workspace/WorkspaceTabsContext'
+import WorkspaceTabStrip from './workspace/WorkspaceTabStrip'
+import { isDesktopEnvironment } from '@/lib/is-desktop'
+import ContactsPanel from '@/app/hub/contacts/ContactsPanel'
+import PricerView from '@/app/hub/pricer/PricerView'
 import { useHubVoicemailCount } from '@/hooks/use-hub-voicemail-count'
 import { useHubMissedCall } from '@/hooks/use-hub-missed-call'
 import { createClient } from '@/lib/supabase/client'
@@ -191,6 +196,17 @@ export default function HubShell({
   const [manualRail, setManualRail] = useState<ManualRail>(null)
   useEffect(() => { setManualRail(null) }, [pathname])
 
+  // ── Workspace Tabs (desktop only, behind the `workspace_tabs` beta flag) ────
+  // Resolved on the client (navigator UA) via an effect so SSR + first paint
+  // agree (feature off) and nothing hydration-mismatches; the strip only renders
+  // once a tab is opened, so the Hub is byte-identical until then.
+  const [tabsFeature, setTabsFeature] = useState(false)
+  useEffect(() => { setTabsFeature(!!betaFlags['workspace_tabs'] && isDesktopEnvironment()) }, [betaFlags])
+  const tabsApi = useWorkspaceTabsState(tabsFeature)
+  const { showRoute: showRouteTab } = tabsApi
+  // A real route navigation always shows the route pane (not a stale tab).
+  useEffect(() => { showRouteTab() }, [pathname, showRouteTab])
+
   // Deep link from Settings → My Hub: /hub?customize=1 opens the layout editor.
   // Read on the client to avoid a Suspense requirement from useSearchParams.
   useEffect(() => {
@@ -206,7 +222,9 @@ export default function HubShell({
   // Idempotent; no UI prompt; safe to ignore the result.
   useEffect(() => { void persistStorage() }, [])
 
-  const activeRail = manualRail ?? pathRail
+  // A kept-alive tab, when active, drives the sidebar + rail highlight (via its
+  // catalogId — a subset of RailId); otherwise fall back to today's behavior.
+  const activeRail: RailId = tabsApi.activeTab ? (tabsApi.activeTab.catalogId as RailId) : (manualRail ?? pathRail)
 
   const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false)
   const [showMobileMore, setShowMobileMore] = useState(false)
@@ -749,6 +767,20 @@ export default function HubShell({
     canAccessHub: !!canAccessHub,
   }
 
+  // Persistent client twin for a kept-alive workspace tab. Each twin self-fetches
+  // its own data (needs no server props); the few scalar props come from the
+  // shell. Only Tier-1 screens are wired for now (see HUB_WORKSPACE_TABS_PRD.md).
+  function renderTabContent(t: WorkspaceTab) {
+    switch (t.catalogId) {
+      case 'contacts':
+        return <ContactsPanel initialContacts={[]} initialTags={[]} canAccessDialer={!!canAccessDialer} />
+      case 'pricer':
+        return <PricerView />
+      default:
+        return null
+    }
+  }
+
   function renderSidebar() {
     const collapseProps = { onDesktopCollapse: toggleSidebarCollapsed }
     switch (activeRail) {
@@ -895,7 +927,7 @@ export default function HubShell({
         unheardVoicemails={unheardVoicemails}
         isClockedIn={isClockedIn}
         onSearchClick={() => setShowCompose(true)}
-        onProfileClick={() => setManualRail('profile')}
+        onProfileClick={() => { tabsApi.showRoute(); setManualRail('profile') }}
         onTimeClockClick={() => setShowTimeClock(true)}
         onActivityClick={() => setShowActivity(true)}
         onOpenLauncher={() => setShowDesktopLauncher(v => !v)}
@@ -919,6 +951,7 @@ export default function HubShell({
         rooms={rooms}
         conversations={railConversations}
         launcherOpen={showDesktopLauncher}
+        activeRailOverride={tabsApi.activeTab ? (tabsApi.activeTab.catalogId as RailId) : undefined}
       />
 
       <div
@@ -1001,6 +1034,10 @@ export default function HubShell({
           />
         )}
 
+        {/* Workspace Tabs strip — renders only when the feature is on AND ≥1 tab
+            is open, so this is invisible/inert until a user opens their first tab. */}
+        <WorkspaceTabStrip />
+
         <div
           className="flex-1 min-h-0 overflow-hidden flex flex-col"
           style={{
@@ -1012,7 +1049,25 @@ export default function HubShell({
               : 0,
           }}
         >
-          {children}
+          {/* Kept-alive tab stack: every open tab stays MOUNTED (state preserved);
+              only the active one is visible via a display toggle — NEVER conditional
+              render, which would unmount and lose scroll/filters/drafts. */}
+          {tabsApi.tabs.map(t => (
+            <div
+              key={t.id}
+              className="flex-1 min-h-0 flex-col"
+              style={{ display: t.id === tabsApi.activeTabId ? 'flex' : 'none' }}
+            >
+              {renderTabContent(t)}
+            </div>
+          ))}
+          {/* The underlying Next route — shown whenever no tab is active. */}
+          <div
+            className="flex-1 min-h-0 flex-col"
+            style={{ display: tabsApi.activeTabId === null ? 'flex' : 'none' }}
+          >
+            {children}
+          </div>
         </div>
       </div>
 
@@ -1100,7 +1155,7 @@ export default function HubShell({
         onClose={() => setShowDesktopLauncher(false)}
         onSearch={() => { setShowDesktopLauncher(false); setShowCompose(true) }}
         onActivity={() => { setShowDesktopLauncher(false); setShowActivity(true) }}
-        onProfile={() => { setShowDesktopLauncher(false); setManualRail('profile'); openSidebar() }}
+        onProfile={() => { setShowDesktopLauncher(false); tabsApi.showRoute(); setManualRail('profile'); openSidebar() }}
         onTimeClock={() => { setShowDesktopLauncher(false); setShowTimeClock(true) }}
         onToggleDnd={toggleDnd}
         onToggleHubDnd={toggleHubDnd}
@@ -1110,6 +1165,8 @@ export default function HubShell({
         dialerDndOn={dialerDndEnabled}
         currentUserStatus={liveStatus}
         showAdmin={showAdminRail}
+        onOpenApp={tabsApi.enabled ? (t) => { setShowDesktopLauncher(false); tabsApi.openTab({ catalogId: t.id, label: t.label, href: t.href, newCopy: t.newCopy }) } : undefined}
+        openTabIds={tabsApi.tabs.map(t => t.catalogId)}
       />
     )}
     {showLayoutEditor && (
@@ -1151,7 +1208,9 @@ export default function HubShell({
   // points can stay dark until the user opts in.
   return (
     <BetaFlagsProvider flags={betaFlags}>
-      <ConversationPopoutProvider>{withDialer}</ConversationPopoutProvider>
+      <WorkspaceTabsProvider api={tabsApi}>
+        <ConversationPopoutProvider>{withDialer}</ConversationPopoutProvider>
+      </WorkspaceTabsProvider>
     </BetaFlagsProvider>
   )
 }

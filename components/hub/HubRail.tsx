@@ -18,6 +18,7 @@ import {
 } from './railCatalog'
 import { classifyToken } from '@/lib/hub-layout'
 import { useOnCallUsers } from './OnCallPresenceProvider'
+import { useWorkspaceTabs } from './workspace/WorkspaceTabsContext'
 // NAV-tokenConsistency — DM label resolution shared with the launcher, mobile
 // bar, and mobile drawer (was a per-file copy that could drift).
 import { convFirstNames } from './menuItem'
@@ -101,6 +102,7 @@ export default function HubRail({
   rooms = [],
   conversations = [],
   launcherOpen = false,
+  activeRailOverride,
 }: {
   showAdmin: boolean
   unreadActivity?: number
@@ -145,11 +147,17 @@ export default function HubRail({
   rooms?: Room[]
   conversations?: RailConversation[]
   launcherOpen?: boolean
+  /**
+   * Workspace Tabs: when a kept-alive tab is active, HubShell passes that tab's
+   * rail id here so the rail highlights the tab's app instead of the URL path.
+   */
+  activeRailOverride?: RailId
 }) {
   const pathname = usePathname()
   const router = useRouter()
   const onCallUsers = useOnCallUsers()
-  const active = railFromPath(pathname)
+  const tabs = useWorkspaceTabs()
+  const active = activeRailOverride ?? railFromPath(pathname)
   // Effective rail for active-icon detection — manual overrides win for the
   // pathless rails (profile). Means clicking the same icon again can toggle
   // collapse even when the section has no URL of its own.
@@ -524,8 +532,25 @@ export default function HubRail({
       </>
     )
     if (entry.href) {
+      const openAsTab = tabs.enabled && entry.tabbable
       return (
-        <Link key={`cat-${idx}`} href={entry.href} onClick={handleNavLinkClick(id)} className={railBtnClass(isActive)} title={entry.label}>{body}</Link>
+        <Link
+          key={`cat-${idx}`}
+          href={entry.href}
+          onClick={(e) => {
+            // Workspace Tabs: a tabbable app opens as a kept-alive tab instead of
+            // navigating (Alt-click forces a second copy). Everything else keeps
+            // today's behavior exactly.
+            if (openAsTab) {
+              e.preventDefault()
+              tabs.openTab({ catalogId: id, label: entry.label, href: entry.href!, newCopy: e.altKey })
+              return
+            }
+            handleNavLinkClick(id)(e)
+          }}
+          className={railBtnClass(isActive)}
+          title={entry.label}
+        >{body}</Link>
       )
     }
     return (
