@@ -38,7 +38,7 @@ export async function PUT(request: Request) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
 
-  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, hub_layout, txt_signature, email_signature, dialer_global_ring, dialer_dnd_enabled, dialer_dnd_schedule, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, hub_theme } = await request.json()
+  const { display_name, full_name, phone, hub_text_size, hub_pinned_ids, landing_page, rail_config, hub_layout, txt_signature, email_signature, dialer_global_ring, dialer_dnd_enabled, dialer_dnd_schedule, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, txt_dnd_enabled, txt_dnd_schedule, inbox_dnd_enabled, inbox_dnd_schedule, hub_theme } = await request.json()
 
   if (landing_page !== undefined && landing_page !== 'hub' && landing_page !== 'dashboard') {
     return NextResponse.json({ error: 'landing_page must be "hub" or "dashboard"' }, { status: 400 })
@@ -159,6 +159,30 @@ export async function PUT(request: Request) {
       return NextResponse.json({ error: 'hub_dnd_schedule must be an object or null' }, { status: 400 })
     }
     profileUpdates.hub_dnd_schedule = hub_dnd_schedule ?? {}
+  }
+  if (txt_dnd_enabled !== undefined) {
+    if (typeof txt_dnd_enabled !== 'boolean') {
+      return NextResponse.json({ error: 'txt_dnd_enabled must be a boolean' }, { status: 400 })
+    }
+    profileUpdates.txt_dnd_enabled = txt_dnd_enabled
+  }
+  if (txt_dnd_schedule !== undefined) {
+    if (txt_dnd_schedule !== null && (typeof txt_dnd_schedule !== 'object' || Array.isArray(txt_dnd_schedule))) {
+      return NextResponse.json({ error: 'txt_dnd_schedule must be an object or null' }, { status: 400 })
+    }
+    profileUpdates.txt_dnd_schedule = txt_dnd_schedule ?? {}
+  }
+  if (inbox_dnd_enabled !== undefined) {
+    if (typeof inbox_dnd_enabled !== 'boolean') {
+      return NextResponse.json({ error: 'inbox_dnd_enabled must be a boolean' }, { status: 400 })
+    }
+    profileUpdates.inbox_dnd_enabled = inbox_dnd_enabled
+  }
+  if (inbox_dnd_schedule !== undefined) {
+    if (inbox_dnd_schedule !== null && (typeof inbox_dnd_schedule !== 'object' || Array.isArray(inbox_dnd_schedule))) {
+      return NextResponse.json({ error: 'inbox_dnd_schedule must be an object or null' }, { status: 400 })
+    }
+    profileUpdates.inbox_dnd_schedule = inbox_dnd_schedule ?? {}
   }
 
   if (Object.keys(profileUpdates).length > 0) {

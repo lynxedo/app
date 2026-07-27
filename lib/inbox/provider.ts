@@ -43,7 +43,12 @@ export function getMailProvider(account: ProviderAccount): MailProvider {
   switch (account.provider) {
     case 'nylas':
       if (!account.nylas_grant_id) throw new Error('inbox account has no nylas_grant_id')
-      return new NylasProvider(account.nylas_grant_id, account.email_address || null)
+      // TODO: include mailbox aliases once stored (pass them in the third arg).
+      return new NylasProvider(
+        account.nylas_grant_id,
+        account.email_address || null,
+        account.email_address ? [account.email_address] : []
+      )
     default:
       throw new Error(`Unsupported inbox provider: ${account.provider}`)
   }

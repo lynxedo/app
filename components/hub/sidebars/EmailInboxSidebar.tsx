@@ -8,14 +8,21 @@ import { createClient } from '@/lib/supabase/client'
 import { Spinner, EmptyState, useToast } from '@/components/ui'
 import RulesPanel from '@/components/hub/email/RulesPanel'
 import FoldersPanel from '@/components/hub/email/FoldersPanel'
+import TagsPanel from '@/components/hub/email/TagsPanel'
+import TemplatesPanel from '@/components/hub/email/TemplatesPanel'
 import {
   relativeTime,
+  messageTime,
   participantName,
   initials,
   firstName,
+  WAITING_LABELS,
   type AccountType,
   type Scope,
   type Lens,
+  type WaitingState,
+  type InboxTag,
+  type InboxSavedView,
   type InboxAccount,
   type EmailThread,
   type EmailMessage,
@@ -39,6 +46,9 @@ type PreviewMessage = {
 }
 
 type PreviewState = { loading: boolean; error: boolean; messages: PreviewMessage[] }
+
+/** A hub teammate (GET /api/hub/users) — for the bulk Assign dropdown. */
+type HubUser = { id: string; display_name: string; is_bot?: boolean }
 
 /** Folders that are filing/system views rather than the live queue. */
 function isSystemFolder(f: MailFolder): boolean {
@@ -100,11 +110,35 @@ export default function EmailInboxSidebar({
   const [debouncedSearch, setDebouncedSearch] = useState('')
   const [claiming, setClaiming] = useState<string | null>(null)
 
-  // Gear menu + Rules + Folders.
+  // Phase 2 filters (server-side; compose with the current scope).
+  const [tagFilter, setTagFilter] = useState('') // a single tag id, or '' for all
+  const [waitingFilter, setWaitingFilter] = useState<'' | 'any' | WaitingState>('')
+  const [snoozedView, setSnoozedView] = useState(false) // Phase 3A — show only currently-snoozed threads
+  const [tagCatalog, setTagCatalog] = useState<InboxTag[]>([]) // admin tag definitions — resolves row tag ids + fills the filter dropdown
+
+  // Gear menu + Rules + Folders + Tags.
   const [gearOpen, setGearOpen] = useState(false)
   const [rulesOpen, setRulesOpen] = useState(false)
   const [foldersOpen, setFoldersOpen] = useState(false)
+  const [tagsOpen, setTagsOpen] = useState(false)
+  const [templatesOpen, setTemplatesOpen] = useState(false)
   const gearRef = useRef<HTMLDivElement>(null)
+
+  // Phase 4A — Saved views (per-user pinned filter snapshots).
+  const [savedViews, setSavedViews] = useState<InboxSavedView[]>([])
+  const [viewsOpen, setViewsOpen] = useState(false)
+  const [newViewName, setNewViewName] = useState('')
+  const [savingView, setSavingView] = useState(false)
+  const viewsRef = useRef<HTMLDivElement>(null)
+
+  // Phase 4A — Multi-select bulk triage (managers only).
+  const [selectMode, setSelectMode] = useState(false)
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkMenu, setBulkMenu] = useState<null | 'assign' | 'tag' | 'snooze' | 'waiting'>(null)
+  const [teammates, setTeammates] = useState<HubUser[]>([])
+  const teammatesLoadedRef = useRef(false)
+  const bulkBarRef = useRef<HTMLDivElement>(null)
 
   // Expanded-thread previews (Outlook-style chevron sub-rows).
   const [expandedId, setExpandedId] = useState<string | null>(null)
@@ -168,6 +202,23 @@ export default function EmailInboxSidebar({
     }
   }, [])
 
+  // Load the admin tag catalog once — resolves row tag ids → name/color and fills
+  // the tag filter dropdown. (Managers edit it via the gear → Manage tags panel.)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/hub/email/tags')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setTagCatalog((data.tags || []) as InboxTag[])
+      })
+      .catch(() => {
+        if (!cancelled) setTagCatalog([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
   // Reset scope when the account changes (personal + shared-standard only have "mine").
   useEffect(() => {
     if (account === 'personal') setScope('mine')
@@ -205,8 +256,9 @@ export default function EmailInboxSidebar({
   }, [loadFolders])
 
   const isDraftsView = folder === DRAFTS_VIEW
-  // Managers see the pinned unassigned Queue on the live Inbox view (not on Closed / Drafts / a folder view).
-  const showQueue = isManager && account === 'shared' && folder === '' && scope !== 'closed'
+  // Managers see the pinned unassigned Queue on the live Inbox view (not on Closed / Drafts / a folder /
+  // the snoozed view).
+  const showQueue = isManager && account === 'shared' && folder === '' && scope !== 'closed' && !snoozedView
 
   const load = useCallback(async () => {
     if (!accountsLoaded || isDraftsView) return
@@ -214,10 +266,17 @@ export default function EmailInboxSidebar({
     const params = new URLSearchParams({ scope, account, limit: '100' })
     if (folder) params.set('folder', folder)
     if (debouncedSearch) params.set('search', debouncedSearch)
+    if (tagFilter) params.set('tag', tagFilter)
+    if (waitingFilter) params.set('waiting', waitingFilter)
+    // Snoozed view — keep the current scope but ask only for currently-snoozed
+    // threads (active views hide these server-side by default).
+    if (snoozedView) params.set('snoozed', '1')
     const reqs: Promise<Response>[] = [fetch(`/api/hub/email/threads?${params.toString()}`)]
     if (showQueue) {
       const qp = new URLSearchParams({ scope: 'unassigned', account, limit: '100' })
       if (debouncedSearch) qp.set('search', debouncedSearch)
+      if (tagFilter) qp.set('tag', tagFilter)
+      if (waitingFilter) qp.set('waiting', waitingFilter)
       reqs.push(fetch(`/api/hub/email/threads?${qp.toString()}`))
     }
     try {
@@ -228,7 +287,7 @@ export default function EmailInboxSidebar({
     } finally {
       setLoading(false)
     }
-  }, [scope, account, folder, debouncedSearch, accountsLoaded, showQueue, isDraftsView])
+  }, [scope, account, folder, debouncedSearch, tagFilter, waitingFilter, snoozedView, accountsLoaded, showQueue, isDraftsView])
 
   useEffect(() => {
     load()
@@ -379,6 +438,175 @@ export default function EmailInboxSidebar({
     }
   }
 
+  // ── Phase 4A — Saved views ──────────────────────────────────────────────────
+  const loadSavedViews = useCallback(() => {
+    fetch('/api/hub/email/saved-views')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => setSavedViews((data.views || []) as InboxSavedView[]))
+      .catch(() => setSavedViews([]))
+  }, [])
+  useEffect(() => {
+    loadSavedViews()
+  }, [loadSavedViews])
+
+  // Close the Views dropdown on outside click (mirrors the gear menu).
+  useEffect(() => {
+    if (!viewsOpen) return
+    function onDown(e: MouseEvent) {
+      if (viewsRef.current && !viewsRef.current.contains(e.target as Node)) setViewsOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [viewsOpen])
+
+  // Close an open bulk submenu on outside click.
+  useEffect(() => {
+    if (!bulkMenu) return
+    function onDown(e: MouseEvent) {
+      if (bulkBarRef.current && !bulkBarRef.current.contains(e.target as Node)) setBulkMenu(null)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [bulkMenu])
+
+  // Snapshot the current filter state as a saved-view config (only include set keys —
+  // never persist empty strings, mirroring the load() request builder above).
+  function buildCurrentConfig(): InboxSavedView['config'] {
+    const config: InboxSavedView['config'] = { scope }
+    if (tagFilter) config.tag = tagFilter
+    if (waitingFilter) config.waiting = waitingFilter
+    if (folder) config.folder = folder
+    const s = search.trim()
+    if (s) config.search = s
+    if (snoozedView) config.snoozed = true
+    return config
+  }
+
+  // Apply a saved view's config to the live filter state (missing keys → cleared /
+  // sensible default). The existing load() effect reloads on these deps.
+  function applyView(v: InboxSavedView) {
+    const c = v.config || {}
+    setScope((c.scope as Scope) || 'mine')
+    setTagFilter(c.tag || '')
+    setWaitingFilter((c.waiting as '' | 'any' | WaitingState) || '')
+    setFolder(c.folder || '')
+    setSearch(c.search || '')
+    setSnoozedView(!!c.snoozed)
+    setExpandedId(null)
+    setViewsOpen(false)
+  }
+
+  async function saveCurrentView() {
+    const name = newViewName.trim()
+    if (!name || savingView) return
+    setSavingView(true)
+    try {
+      const res = await fetch('/api/hub/email/saved-views', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name, config: buildCurrentConfig() }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        setNewViewName('')
+        loadSavedViews()
+        toast.success('View saved')
+      } else if (res.status === 409) {
+        toast.error(data.error || 'A view with that name already exists')
+      } else {
+        toast.error(data.error || "Couldn't save view")
+      }
+    } catch {
+      toast.error("Couldn't save view")
+    } finally {
+      setSavingView(false)
+    }
+  }
+
+  async function deleteView(id: string) {
+    setSavedViews((prev) => prev.filter((v) => v.id !== id)) // optimistic
+    try {
+      const res = await fetch(`/api/hub/email/saved-views/${id}`, { method: 'DELETE' })
+      if (!res.ok) toast.error("Couldn't delete view")
+    } catch {
+      toast.error("Couldn't delete view")
+    } finally {
+      loadSavedViews() // reconcile against the server
+    }
+  }
+
+  // ── Phase 4A — Bulk actions (managers only) ─────────────────────────────────
+  function toggleSelected(id: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+  function toggleSelectMode() {
+    setSelectMode((v) => {
+      const next = !v
+      if (!next) {
+        setSelectedIds(new Set())
+        setBulkMenu(null)
+      }
+      return next
+    })
+  }
+
+  // Teammate list for the bulk Assign menu — fetched once, lazily on first open.
+  const loadTeammates = useCallback(() => {
+    if (teammatesLoadedRef.current) return
+    teammatesLoadedRef.current = true
+    fetch('/api/hub/users')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => setTeammates(((data.users || []) as HubUser[]).filter((u) => !u.is_bot)))
+      .catch(() => {
+        teammatesLoadedRef.current = false
+        setTeammates([])
+      })
+  }, [])
+
+  function openBulkMenu(m: 'assign' | 'tag' | 'snooze' | 'waiting') {
+    setBulkMenu((prev) => (prev === m ? null : m))
+    if (m === 'assign') loadTeammates()
+  }
+
+  // Tomorrow at 8:00 AM local, ISO — the one-tap bulk snooze target.
+  function tomorrow8am(): string {
+    const d = new Date()
+    d.setDate(d.getDate() + 1)
+    d.setHours(8, 0, 0, 0)
+    return d.toISOString()
+  }
+
+  // Apply ONE bulk action to the current selection, then clear + reload.
+  async function bulkAction(action: string, params: Record<string, unknown>) {
+    if (bulkBusy || selectedIds.size === 0) return
+    setBulkBusy(true)
+    try {
+      const res = await fetch('/api/hub/email/threads/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ thread_ids: [...selectedIds], action, params }),
+      })
+      const data = await res.json().catch(() => ({}))
+      if (res.ok) {
+        toast.success(`Updated ${data.applied ?? selectedIds.size}`)
+        setSelectedIds(new Set())
+        setBulkMenu(null)
+        load()
+      } else {
+        toast.error(data.error || "Couldn't apply that")
+      }
+    } catch {
+      toast.error("Couldn't apply that")
+    } finally {
+      setBulkBusy(false)
+    }
+  }
+
   // Lazily fetch the thread's messages for the chevron preview. A ref mirrors
   // the cache so the callback stays stable AND the fetch never runs inside a
   // state updater (strict mode double-invokes those).
@@ -442,6 +670,15 @@ export default function EmailInboxSidebar({
     { id: 'needs_reply', label: 'Needs reply' },
   ]
 
+  // Active tag catalog (split by kind for the filter dropdown) + an id→tag lookup for
+  // the row chips. Unknown/inactive ids simply resolve to nothing.
+  const activeTags = tagCatalog
+    .filter((t) => t.active)
+    .sort((a, b) => a.sort_order - b.sort_order)
+  const typeTags = activeTags.filter((t) => t.kind === 'type')
+  const outcomeTags = activeTags.filter((t) => t.kind === 'outcome')
+  const tagById = new Map(tagCatalog.map((t) => [t.id, t] as const))
+
   const gearMenu = (
     <div className="relative" ref={gearRef}>
       <button
@@ -486,6 +723,30 @@ export default function EmailInboxSidebar({
               className="block w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5"
             >
               Folders
+            </button>
+          )}
+          {isManager && (
+            <button
+              type="button"
+              onClick={() => {
+                setGearOpen(false)
+                setTagsOpen(true)
+              }}
+              className="block w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+            >
+              Manage tags
+            </button>
+          )}
+          {isManager && (
+            <button
+              type="button"
+              onClick={() => {
+                setGearOpen(false)
+                setTemplatesOpen(true)
+              }}
+              className="block w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5"
+            >
+              Manage templates
             </button>
           )}
           <button
@@ -595,6 +856,16 @@ export default function EmailInboxSidebar({
           className="w-full px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm placeholder-white/30"
         />
 
+        {/* Kanban board view of the shared inbox. */}
+        <Link
+          href="/hub/email/board"
+          onClick={() => onClose?.()}
+          className="block w-full px-2 py-[3px] rounded-md text-[11px] text-center bg-white/[0.04] text-white/60 hover:text-white/90 transition"
+          title="Board view"
+        >
+          ⊞ Board
+        </Link>
+
         {/* Folder dropdown — Inbox default + Drafts; other folders are reference/filing
             views. System folders (Sent/Deleted/Junk…) get an em-dash prefix. */}
         <select
@@ -671,9 +942,336 @@ export default function EmailInboxSidebar({
             ))}
           </div>
         )}
+
+        {/* Phase 2 filters — tag + waiting-on. Server-side (compose with the scope),
+            shown on the live Inbox view alongside the tabs/lens. */}
+        {showTabs && (
+          <div className="flex gap-1">
+            {activeTags.length > 0 && (
+              <select
+                value={tagFilter}
+                onChange={(e) => setTagFilter(e.target.value)}
+                aria-label="Filter by tag"
+                className="flex-1 min-w-0 px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white/80"
+              >
+                <option value="">All tags</option>
+                {typeTags.length > 0 && (
+                  <optgroup label="Type">
+                    {typeTags.map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+                {outcomeTags.length > 0 && (
+                  <optgroup label="Outcome">
+                    {outcomeTags.map((tag) => (
+                      <option key={tag.id} value={tag.id}>
+                        {tag.name}
+                      </option>
+                    ))}
+                  </optgroup>
+                )}
+              </select>
+            )}
+            <select
+              value={waitingFilter}
+              onChange={(e) => setWaitingFilter(e.target.value as '' | 'any' | WaitingState)}
+              aria-label="Filter by waiting state"
+              className="flex-1 min-w-0 px-2 py-1.5 rounded-md bg-white/5 border border-white/10 text-xs text-white/80"
+            >
+              <option value="">Waiting: off</option>
+              <option value="any">Any waiting</option>
+              {(Object.keys(WAITING_LABELS) as WaitingState[]).map((w) => (
+                <option key={w} value={w}>
+                  {WAITING_LABELS[w]}
+                </option>
+              ))}
+            </select>
+          </div>
+        )}
+
+        {/* Snoozed view toggle (Phase 3A) — keeps the current scope but asks the
+            server for only currently-snoozed threads (hidden from active views). */}
+        {showTabs && (
+          <button
+            type="button"
+            onClick={() => setSnoozedView((v) => !v)}
+            aria-pressed={snoozedView}
+            className={`w-full px-2 py-[3px] rounded-md text-[11px] whitespace-nowrap transition ${
+              snoozedView
+                ? 'bg-indigo-500/25 text-indigo-200 font-medium'
+                : 'text-white/40 hover:text-white/70'
+            }`}
+            title="Show snoozed conversations"
+          >
+            💤 {snoozedView ? 'Showing snoozed' : 'Snoozed'}
+          </button>
+        )}
+
+        {/* Phase 4A — Saved views (apply / save current) + a manager-only Select
+            toggle for bulk triage. Sits alongside the tag/Waiting filters. */}
+        <div className="flex items-center gap-1">
+          <div className="relative flex-1 min-w-0" ref={viewsRef}>
+            <button
+              type="button"
+              onClick={() => setViewsOpen((v) => !v)}
+              aria-expanded={viewsOpen}
+              className="w-full px-2 py-[3px] rounded-md text-[11px] bg-white/[0.04] text-white/60 hover:text-white/90 transition"
+              title="Saved views"
+            >
+              Views ▾
+            </button>
+            {viewsOpen && (
+              <div className="absolute left-0 top-full mt-1 w-60 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-50 overflow-hidden">
+                <div className="max-h-52 overflow-y-auto">
+                  {savedViews.length === 0 && (
+                    <div className="px-3 py-2 text-[11px] text-white/40">No saved views yet.</div>
+                  )}
+                  {savedViews.map((v) => (
+                    <div key={v.id} className="flex items-center hover:bg-white/5">
+                      <button
+                        type="button"
+                        onClick={() => applyView(v)}
+                        className="flex-1 min-w-0 text-left px-3 py-2 text-sm text-white/80 truncate"
+                        title={`Apply "${v.name}"`}
+                      >
+                        {v.name}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => deleteView(v.id)}
+                        className="flex-none w-7 h-7 mr-1 rounded flex items-center justify-center text-white/30 hover:text-red-300 hover:bg-white/5"
+                        aria-label={`Delete view ${v.name}`}
+                        title="Delete view"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  ))}
+                </div>
+                <div className="border-t border-white/10 p-2 space-y-1">
+                  <input
+                    type="text"
+                    value={newViewName}
+                    onChange={(e) => setNewViewName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault()
+                        saveCurrentView()
+                      }
+                    }}
+                    placeholder="Name this view"
+                    className="w-full px-2 py-1 rounded-md bg-white/5 border border-white/10 text-xs placeholder-white/30"
+                  />
+                  <button
+                    type="button"
+                    onClick={saveCurrentView}
+                    disabled={savingView || !newViewName.trim()}
+                    className="w-full px-2 py-1 rounded-md bg-emerald-600 hover:bg-emerald-500 text-[11px] font-medium text-[#fff] disabled:opacity-50"
+                  >
+                    {savingView ? 'Saving…' : 'Save current view'}
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+          {isManager && !isDraftsView && (
+            <button
+              type="button"
+              onClick={toggleSelectMode}
+              aria-pressed={selectMode}
+              className={`flex-none px-2 py-[3px] rounded-md text-[11px] transition ${
+                selectMode
+                  ? 'bg-emerald-600 text-[#fff] font-medium'
+                  : 'bg-white/[0.04] text-white/60 hover:text-white/90'
+              }`}
+              title="Select conversations for bulk actions"
+            >
+              {selectMode ? 'Done' : 'Select'}
+            </button>
+          )}
+        </div>
       </div>
 
       <div className="flex-1 overflow-y-auto min-h-0">
+        {/* Phase 4A — bulk action bar (managers, multi-select mode). Sticky to the
+            top of the list; opaque panel surface so rows scroll under it cleanly. */}
+        {selectMode && !isDraftsView && selectedIds.size > 0 && (
+          <div
+            ref={bulkBarRef}
+            className="sticky top-0 z-30 bg-[var(--t-panel)] border-b border-white/10 px-2 py-2"
+          >
+            <div className="flex items-center flex-wrap gap-1 text-[11px]">
+              <span className="text-white/60 font-medium mr-1">{selectedIds.size} selected</span>
+
+              {/* Assign ▾ */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => openBulkMenu('assign')}
+                  disabled={bulkBusy}
+                  className="px-2 py-[3px] rounded-md bg-white/[0.06] text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-50 transition"
+                >
+                  Assign ▾
+                </button>
+                {bulkMenu === 'assign' && (
+                  <div className="absolute left-0 top-full mt-1 w-48 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-50 max-h-64 overflow-y-auto">
+                    {teammates.length === 0 && (
+                      <div className="px-3 py-2 text-[11px] text-white/40">No teammates</div>
+                    )}
+                    {teammates.map((u) => (
+                      <button
+                        key={u.id}
+                        type="button"
+                        disabled={bulkBusy}
+                        onClick={() => bulkAction('assign', { user_id: u.id })}
+                        className="block w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5 disabled:opacity-50"
+                      >
+                        {u.display_name}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      disabled={bulkBusy}
+                      onClick={() => bulkAction('assign', { user_id: null })}
+                      className="block w-full text-left px-3 py-2 text-sm text-orange-300 hover:bg-white/5 border-t border-white/10 disabled:opacity-50"
+                    >
+                      Unassign
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Close */}
+              <button
+                type="button"
+                onClick={() => bulkAction('close', {})}
+                disabled={bulkBusy}
+                className="px-2 py-[3px] rounded-md bg-white/[0.06] text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-50 transition"
+              >
+                Close
+              </button>
+
+              {/* Tag ▾ */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => openBulkMenu('tag')}
+                  disabled={bulkBusy}
+                  className="px-2 py-[3px] rounded-md bg-white/[0.06] text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-50 transition"
+                >
+                  Tag ▾
+                </button>
+                {bulkMenu === 'tag' && (
+                  <div className="absolute left-0 top-full mt-1 w-48 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-50 max-h-64 overflow-y-auto">
+                    {activeTags.length === 0 && (
+                      <div className="px-3 py-2 text-[11px] text-white/40">No tags</div>
+                    )}
+                    {activeTags.map((tag) => (
+                      <button
+                        key={tag.id}
+                        type="button"
+                        disabled={bulkBusy}
+                        onClick={() => bulkAction('add_tag', { tag_id: tag.id })}
+                        className="flex items-center gap-2 w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5 disabled:opacity-50"
+                      >
+                        <span
+                          className="w-2.5 h-2.5 rounded-full flex-none"
+                          style={{ backgroundColor: tag.color || '#64748b' }}
+                          aria-hidden
+                        />
+                        <span className="truncate">{tag.name}</span>
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Snooze ▾ */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => openBulkMenu('snooze')}
+                  disabled={bulkBusy}
+                  className="px-2 py-[3px] rounded-md bg-white/[0.06] text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-50 transition"
+                >
+                  Snooze ▾
+                </button>
+                {bulkMenu === 'snooze' && (
+                  <div className="absolute left-0 top-full mt-1 w-44 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-50 overflow-hidden">
+                    <button
+                      type="button"
+                      disabled={bulkBusy}
+                      onClick={() => bulkAction('snooze', { snoozed_until: tomorrow8am() })}
+                      className="block w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5 disabled:opacity-50"
+                    >
+                      Tomorrow 8am
+                    </button>
+                    <button
+                      type="button"
+                      disabled={bulkBusy}
+                      onClick={() => bulkAction('snooze', { snoozed_until: null })}
+                      className="block w-full text-left px-3 py-2 text-sm text-white/60 hover:bg-white/5 border-t border-white/10 disabled:opacity-50"
+                    >
+                      Clear snooze
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Waiting ▾ */}
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => openBulkMenu('waiting')}
+                  disabled={bulkBusy}
+                  className="px-2 py-[3px] rounded-md bg-white/[0.06] text-white/70 hover:text-white hover:bg-white/10 disabled:opacity-50 transition"
+                >
+                  Waiting ▾
+                </button>
+                {bulkMenu === 'waiting' && (
+                  <div className="absolute left-0 top-full mt-1 w-48 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-50 overflow-hidden">
+                    {(Object.keys(WAITING_LABELS) as WaitingState[]).map((w) => (
+                      <button
+                        key={w}
+                        type="button"
+                        disabled={bulkBusy}
+                        onClick={() => bulkAction('waiting', { waiting_state: w })}
+                        className="block w-full text-left px-3 py-2 text-sm text-white/80 hover:bg-white/5 disabled:opacity-50"
+                      >
+                        {WAITING_LABELS[w]}
+                      </button>
+                    ))}
+                    <button
+                      type="button"
+                      disabled={bulkBusy}
+                      onClick={() => bulkAction('waiting', { waiting_state: null })}
+                      className="block w-full text-left px-3 py-2 text-sm text-white/60 hover:bg-white/5 border-t border-white/10 disabled:opacity-50"
+                    >
+                      Clear waiting
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              {/* Clear selection */}
+              <button
+                type="button"
+                onClick={() => {
+                  setSelectedIds(new Set())
+                  setBulkMenu(null)
+                }}
+                disabled={bulkBusy}
+                className="ml-auto px-2 py-[3px] rounded-md text-white/50 hover:text-white/80 disabled:opacity-50 transition"
+              >
+                Clear
+              </button>
+            </div>
+          </div>
+        )}
+
         {/* Drafts view — the caller's own saved/scheduled composes. */}
         {isDraftsView && (
           <div>
@@ -787,6 +1385,8 @@ export default function EmailInboxSidebar({
             title={
               debouncedSearch
                 ? 'No matching email.'
+                : snoozedView
+                ? 'Nothing snoozed. 💤'
                 : folder
                 ? 'Nothing in this folder.'
                 : scope === 'closed'
@@ -811,6 +1411,12 @@ export default function EmailInboxSidebar({
             const showChevron = (t.message_count ?? 2) > 1
             const isExpanded = expandedId === t.id
             const preview = previews[t.id]
+            const rowTags = (t.tags || [])
+              .map((id) => tagById.get(id))
+              .filter((x): x is InboxTag => !!x)
+            const waiting = t.waiting_state || null
+            const rowSnoozedUntil = t.snoozed_until || null
+            const rowSnoozed = !!rowSnoozedUntil && new Date(rowSnoozedUntil).getTime() > Date.now()
             return (
               <li
                 key={t.id}
@@ -819,6 +1425,20 @@ export default function EmailInboxSidebar({
                 }`}
               >
                 <div className={`flex items-stretch ${active ? '' : 'hover:bg-white/5'}`}>
+                  {selectMode && (
+                    <label
+                      className="flex-none w-8 flex items-center justify-center"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <input
+                        type="checkbox"
+                        checked={selectedIds.has(t.id)}
+                        onChange={() => toggleSelected(t.id)}
+                        className="w-3.5 h-3.5 accent-emerald-500 cursor-pointer"
+                        aria-label={`Select ${participantName(t.from_name, t.from_email)}`}
+                      />
+                    </label>
+                  )}
                   {showChevron && (
                     <button
                       type="button"
@@ -910,6 +1530,44 @@ export default function EmailInboxSidebar({
                         )}
                       </span>
                     </div>
+                    {/* Phase 2 — "waiting on …" pill + applied tag chips (cap 3 + overflow);
+                        Phase 3A — a "snoozed until" pill. */}
+                    {(waiting || rowTags.length > 0 || rowSnoozed) && (
+                      <div className="flex items-center flex-wrap gap-1 mt-1">
+                        {rowSnoozed && (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-indigo-500/20 text-indigo-200 text-[9px] font-medium whitespace-nowrap"
+                            title={`Snoozed until ${messageTime(rowSnoozedUntil)}`}
+                          >
+                            💤 {relativeTime(rowSnoozedUntil)}
+                          </span>
+                        )}
+                        {waiting && (
+                          <span
+                            className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-amber-500/20 text-amber-300 text-[9px] font-medium whitespace-nowrap"
+                            title={WAITING_LABELS[waiting]}
+                          >
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-none" aria-hidden />
+                            {WAITING_LABELS[waiting]}
+                          </span>
+                        )}
+                        {rowTags.slice(0, 3).map((tag) => (
+                          <span
+                            key={tag.id}
+                            className="px-1.5 py-0.5 rounded-full text-[9px] font-medium whitespace-nowrap"
+                            style={{ backgroundColor: tag.color || '#64748b', color: '#fff' }}
+                            title={tag.name}
+                          >
+                            {tag.name}
+                          </span>
+                        ))}
+                        {rowTags.length > 3 && (
+                          <span className="px-1 py-0.5 text-[9px] text-white/40">
+                            +{rowTags.length - 3}
+                          </span>
+                        )}
+                      </div>
+                    )}
                     {t.status === 'assigned' && t.assignee_name && !active && (
                       <div className="text-[10px] text-emerald-300/70 mt-0.5 truncate">
                         Owner: {firstName(t.assignee_name)}
@@ -975,6 +1633,8 @@ export default function EmailInboxSidebar({
           onChanged={loadFolders}
         />
       )}
+      {tagsOpen && <TagsPanel open onClose={() => setTagsOpen(false)} />}
+      {templatesOpen && <TemplatesPanel open onClose={() => setTemplatesOpen(false)} />}
     </aside>
   )
 }

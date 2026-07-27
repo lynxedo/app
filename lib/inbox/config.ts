@@ -25,3 +25,9 @@ export function nylasRedirectUri(): string {
 export function nylasConfigured(): boolean {
   return Boolean(nylasApiKey() && nylasClientId())
 }
+
+// Signing secret for inbound Nylas webhooks (X-Nylas-Signature = HMAC-SHA256 of the raw body).
+// When unset the webhook endpoint skips verification and stays dark/safe (logs + records only).
+export function nylasWebhookSecret(): string | undefined {
+  return process.env.NYLAS_WEBHOOK_SECRET
+}

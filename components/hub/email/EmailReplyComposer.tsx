@@ -25,9 +25,20 @@ import {
   type OutgoingAttachment,
   type InboxAccount,
   type MailRecipient,
+  type InboxTemplate,
 } from './emailFormat'
 
 export type ComposerMode = 'reply' | 'reply-all' | 'forward'
+
+/** Fill a template's simple merge tokens with the customer's name (case-insensitive,
+ *  global). Unknown name → ''. Any other {{…}} token is left untouched. */
+function applyTemplateMergeTokens(html: string, fullName: string): string {
+  const name = (fullName || '').trim()
+  const first = name.split(/\s+/)[0] || ''
+  return (html || '')
+    .replace(/\{\{\s*first_name\s*\}\}/gi, first)
+    .replace(/\{\{\s*name\s*\}\}/gi, name)
+}
 
 type SuggestTone = 'professional' | 'friendly' | 'brief'
 const SUGGEST_TONES: { value: SuggestTone; label: string }[] = [
@@ -193,6 +204,28 @@ export default function EmailReplyComposer({
   const [polishLoading, setPolishLoading] = useState(false)
   const [polishUndo, setPolishUndo] = useState<string | null>(null)
 
+  // Company-shared canned responses (active only) — loaded once for the
+  // "Insert template" menu. Failures leave the menu empty (no error surfaced).
+  const [templates, setTemplates] = useState<InboxTemplate[]>([])
+  const [templatesOpen, setTemplatesOpen] = useState(false)
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/hub/email/templates')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setTemplates(((data.templates || []) as InboxTemplate[]).filter((t) => t.active))
+      })
+      .catch(() => {
+        if (!cancelled) setTemplates([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // The customer this thread is with — used to fill {{name}} / {{first_name}}.
+  const customerName = (replyTarget?.from_name || thread.from_name || '').trim()
+
   function applyContent(html: string, focusStart = true) {
     programmatic.current = true
     editorRef.current?.setContent(html, { focusStart })
@@ -273,6 +306,18 @@ export default function EmailReplyComposer({
     if (polishUndo === null) return
     applyContent(polishUndo)
     setPolishUndo(null)
+  }
+
+  // Insert a template's body into the editor, APPENDED to whatever's typed (never
+  // wipes the draft). Merge tokens filled from the thread's customer. Goes through
+  // the editor's own setContent (via applyContent) — TipTap parses the HTML, no
+  // raw injection. Keeps the caret where it is (focusStart:false).
+  function insertTemplate(t: InboxTemplate) {
+    setTemplatesOpen(false)
+    const merged = applyTemplateMergeTokens(t.body_html || '', customerName)
+    if (!merged) return
+    const current = editorRef.current?.getHTML() || ''
+    applyContent(`${current}${merged}`, false)
   }
 
   function isDirty(): boolean {
@@ -698,6 +743,38 @@ export default function EmailReplyComposer({
               )}
               <span className="hidden sm:inline">Polish</span>
             </button>
+            {templates.length > 0 && (
+              <div className="relative">
+                <button
+                  type="button"
+                  onClick={() => setTemplatesOpen((v) => !v)}
+                  className="text-xs px-2 py-1 rounded-md border border-gray-300 bg-white text-gray-600 hover:bg-gray-50 inline-flex items-center gap-1"
+                  title="Insert a saved template"
+                >
+                  <span aria-hidden>📝</span>
+                  <span className="hidden sm:inline">Insert template</span>
+                  <span aria-hidden className="text-gray-400">▾</span>
+                </button>
+                {templatesOpen && (
+                  <div className="absolute left-0 bottom-full mb-1 w-60 max-h-64 overflow-y-auto bg-white border border-gray-200 rounded-md shadow-lg z-50">
+                    <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-gray-400 border-b border-gray-100">
+                      Templates
+                    </div>
+                    {templates.map((t) => (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => insertTemplate(t)}
+                        className="block w-full text-left px-3 py-2 text-sm text-gray-700 hover:bg-gray-50 truncate"
+                        title={t.name}
+                      >
+                        {t.name}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
           </div>
 
           {/* Quoted original — Outlook-style header + hr + the ORIGINAL message

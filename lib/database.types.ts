@@ -7772,6 +7772,10 @@ export type Database = {
           guardian_tier: string
           hub_dnd_enabled: boolean
           hub_dnd_schedule: Json | null
+          inbox_dnd_enabled: boolean
+          inbox_dnd_schedule: Json | null
+          txt_dnd_enabled: boolean
+          txt_dnd_schedule: Json | null
           hub_layout: Json | null
           hub_pinned_ids: string[]
           hub_seeded_apps: string[]
@@ -7845,6 +7849,10 @@ export type Database = {
           guardian_tier?: string
           hub_dnd_enabled?: boolean
           hub_dnd_schedule?: Json | null
+          inbox_dnd_enabled?: boolean
+          inbox_dnd_schedule?: Json | null
+          txt_dnd_enabled?: boolean
+          txt_dnd_schedule?: Json | null
           hub_layout?: Json | null
           hub_pinned_ids?: string[]
           hub_seeded_apps?: string[]
@@ -7918,6 +7926,10 @@ export type Database = {
           guardian_tier?: string
           hub_dnd_enabled?: boolean
           hub_dnd_schedule?: Json | null
+          inbox_dnd_enabled?: boolean
+          inbox_dnd_schedule?: Json | null
+          txt_dnd_enabled?: boolean
+          txt_dnd_schedule?: Json | null
           hub_layout?: Json | null
           hub_pinned_ids?: string[]
           hub_seeded_apps?: string[]

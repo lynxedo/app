@@ -12,6 +12,50 @@ export type AccountType = 'shared' | 'personal'
 export type Scope = 'mine' | 'all' | 'unassigned' | 'closed'
 // Secondary within-list lens (Txt-style): All · Unread · Needs replied.
 export type Lens = 'all' | 'unread' | 'needs_reply'
+// Waiting-on workflow state — orthogonal to status (a thread can be assigned AND waiting).
+export type WaitingState = 'customer' | 'tech' | 'vendor' | 'approval'
+export const WAITING_LABELS: Record<WaitingState, string> = {
+  customer: 'Waiting on customer',
+  tech: 'Waiting on tech',
+  vendor: 'Waiting on vendor',
+  approval: 'Waiting on approval',
+}
+
+/** An admin-managed tag definition (GET /api/hub/email/tags). 'type' = what it IS,
+ *  'outcome' = what happened / what's next. Resolve a thread's tag ids against this list. */
+export type InboxTag = {
+  id: string
+  kind: 'type' | 'outcome'
+  name: string
+  color: string
+  sort_order: number
+  active: boolean
+}
+
+/** A company-shared canned response / template (GET /api/hub/email/templates). */
+export type InboxTemplate = {
+  id: string
+  name: string
+  subject: string | null
+  body_html: string
+  sort_order: number
+  active: boolean
+}
+
+/** A per-user saved list view (GET /api/hub/email/saved-views). config = the list filters. */
+export type InboxSavedView = {
+  id: string
+  name: string
+  config: {
+    scope?: string
+    tag?: string
+    waiting?: string
+    folder?: string
+    search?: string
+    snoozed?: boolean
+  }
+  sort_order: number
+}
 
 /**
  * The Hub theme remaps the entire Tailwind --color-* palette per theme, so
@@ -81,6 +125,17 @@ export type EmailThread = {
   /** Optional — number of messages in the thread (used for the expand chevron).
    *  Older API responses may omit it; treat missing as "unknown, maybe multi". */
   message_count?: number | null
+  /** Phase 2 — applied tag ids (resolve to name/color via the loaded tag catalog). */
+  tags?: string[] | null
+  /** Phase 2 — "waiting on …" workflow state (null = not waiting). */
+  waiting_state?: WaitingState | null
+  /** Phase 2 — when the waiting state was set (detail responses). */
+  waiting_set_at?: string | null
+  /** Phase 3A — snoozed until (hidden from active views until this time passes). */
+  snoozed_until?: string | null
+  /** Phase 3A — follow-up reminder time + optional note. */
+  follow_up_at?: string | null
+  follow_up_note?: string | null
 }
 
 /** A draft row from GET /api/hub/email/drafts. */

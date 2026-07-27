@@ -55,6 +55,11 @@ export async function GET(req: Request) {
   const search = (url.searchParams.get('search') || '').trim()
   const limit = Math.min(Math.max(parseInt(url.searchParams.get('limit') || '50', 10) || 50, 1), 100)
   const before = url.searchParams.get('before')
+  // Phase 2 filters — compose with any scope.
+  const tagParam = (url.searchParams.get('tag') || '').trim()
+  const waitingParam = (url.searchParams.get('waiting') || '').trim() // '' | 'any' | customer|tech|vendor|approval
+  const snoozedView = url.searchParams.get('snoozed') === '1'
+  const nowIso = new Date().toISOString()
 
   const admin = createAdminClient()
 
@@ -111,9 +116,12 @@ export async function GET(req: Request) {
   let q = supabase
     .from('inbox_threads')
     .select(
-      'id, subject, snippet, last_message_at, last_message_direction, from_name, from_email, participants, assigned_to_user_id, status, is_shared, unread, folder, provider_folder_ids, has_attachments, contact_id, message_count:inbox_messages(count)'
+      'id, subject, snippet, last_message_at, last_message_direction, from_name, from_email, participants, assigned_to_user_id, status, is_shared, unread, folder, provider_folder_ids, has_attachments, contact_id, tags, waiting_state, message_count:inbox_messages(count)'
     )
     .eq('account_id', account.id)
+    // Hide soft-deleted (trashed-in-Outlook) threads. Phase 1 added deleted_at + the webhook
+    // soft-deletes on trash, but this read filter was missing, so trashed threads still showed.
+    .is('deleted_at', null)
 
   if (isPersonal) {
     // Personal mailbox: ignore queue scopes; RLS already restricts to the owner.
@@ -148,6 +156,20 @@ export async function GET(req: Request) {
     }
   }
 
+  // Phase 2 filters (compose with any scope): tag id + waiting state.
+  if (tagParam) q = q.contains('tags', [tagParam])
+  if (waitingParam) {
+    if (waitingParam === 'any') q = q.not('waiting_state', 'is', null)
+    else q = q.eq('waiting_state', waitingParam)
+  }
+  // Phase 3A snooze: active views hide currently-snoozed threads (they auto-return when the
+  // snooze time passes — no cron); the Snoozed view (?snoozed=1) shows only those still snoozed.
+  if (snoozedView) {
+    q = q.gt('snoozed_until', nowIso)
+  } else {
+    q = q.or(`snoozed_until.is.null,snoozed_until.lte.${nowIso}`)
+  }
+
   if (folder) {
     // Explicit folder view (Sent, Archive, …): exactly that folder (param = provider folder id).
     q = q.contains('provider_folder_ids', [folder])
@@ -165,7 +187,28 @@ export async function GET(req: Request) {
 
   if (search) {
     const pat = ilikeSearchPattern(search)
-    q = q.or(`subject.ilike.${pat},snippet.ilike.${pat},from_email.ilike.${pat}`)
+    // Also match message BODIES, not just subject/snippet/from. Pre-resolve thread ids whose
+    // (mirrored) message bodies contain the term via the admin client, then widen the candidate
+    // set. The main query stays RLS-scoped, so this can never leak a thread the caller can't see.
+    // ⚠ Coverage is limited to bodies already mirrored (bodies hydrate lazily on open); the
+    // snippet match covers the rest. Full-body coverage across all mail is a future improvement.
+    let bodyClause = ''
+    try {
+      const { data: bodyHits } = await admin
+        .from('inbox_messages')
+        .select('thread_id')
+        .eq('company_id', companyId)
+        .ilike('body_html', pat)
+        .is('deleted_at', null)
+        .limit(500)
+      const ids = Array.from(
+        new Set((bodyHits ?? []).map((r) => r.thread_id as string).filter(Boolean))
+      )
+      if (ids.length) bodyClause = `,id.in.(${ids.map((id) => `"${id}"`).join(',')})`
+    } catch {
+      /* best-effort body search — fall back to the header match below */
+    }
+    q = q.or(`subject.ilike.${pat},snippet.ilike.${pat},from_email.ilike.${pat}${bodyClause}`)
   }
 
   if (before) q = q.lt('last_message_at', before)

@@ -13,9 +13,13 @@ import {
   firstName,
   fileSize,
   attachmentMeta,
+  waitedFor,
+  WAITING_LABELS,
   LIGHT_SURFACE_STYLE,
   type ThreadDetail,
   type EmailMessage,
+  type WaitingState,
+  type InboxTag,
 } from './emailFormat'
 
 type ComposerMode = 'reply' | 'reply-all' | 'forward'
@@ -29,10 +33,51 @@ function detailSignature(d: ThreadDetail): string {
     d.thread.status,
     d.thread.assigned_to_user_id || '',
     d.thread.folder || '',
+    d.thread.waiting_state || '',
+    d.thread.snoozed_until || '',
+    d.thread.follow_up_at || '',
+    (d.thread.tags || []).join(','),
     d.messages.map((m) => m.id).join(','),
     d.notes.length,
     d.members.length,
   ].join('|')
+}
+
+// Black or white text for a tag pill, picked from the tag's hex background so the
+// name stays legible whatever color an admin chose. Defaults to white if the hex
+// can't be parsed.
+function readableTextColor(hex: string): string {
+  const h = (hex || '').replace('#', '').trim()
+  const full = h.length === 3 ? h.split('').map((c) => c + c).join('') : h
+  const r = parseInt(full.slice(0, 2), 16)
+  const g = parseInt(full.slice(2, 4), 16)
+  const b = parseInt(full.slice(4, 6), 16)
+  if ([r, g, b].some((v) => Number.isNaN(v))) return '#fff'
+  const lum = (0.299 * r + 0.587 * g + 0.114 * b) / 255
+  return lum > 0.6 ? '#111827' : '#fff'
+}
+
+// Client-side ISO computations for the Snooze / Follow-up quick presets. Local
+// time (setHours), then .toISOString() → the UTC instant the backend stores.
+function tomorrow8am(): string {
+  const d = new Date()
+  d.setDate(d.getDate() + 1)
+  d.setHours(8, 0, 0, 0)
+  return d.toISOString()
+}
+function nextMonday8am(): string {
+  const d = new Date()
+  // days until the NEXT Monday (today-is-Monday → +7, never 0).
+  const daysUntil = ((8 - d.getDay()) % 7) || 7
+  d.setDate(d.getDate() + daysUntil)
+  d.setHours(8, 0, 0, 0)
+  return d.toISOString()
+}
+function inDays8am(days: number): string {
+  const d = new Date()
+  d.setDate(d.getDate() + days)
+  d.setHours(8, 0, 0, 0)
+  return d.toISOString()
 }
 
 /**
@@ -73,10 +118,36 @@ export default function EmailThreadView({
   // Action bar.
   const [assignOpen, setAssignOpen] = useState(false)
   const [shareOpen, setShareOpen] = useState(false)
+  const [tagMenuOpen, setTagMenuOpen] = useState(false)
+  const [waitingMenuOpen, setWaitingMenuOpen] = useState(false)
+  const [snoozeMenuOpen, setSnoozeMenuOpen] = useState(false)
+  const [followUpMenuOpen, setFollowUpMenuOpen] = useState(false)
   const [busyAction, setBusyAction] = useState(false)
   const [showNotes, setShowNotes] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [savingNote, setSavingNote] = useState(false)
+  // Phase 3B — teammates to @mention/notify when this note is posted.
+  const [mentionIds, setMentionIds] = useState<string[]>([])
+
+  // The admin-managed tag catalog (Phase 2). Fetched once; ids on a thread are
+  // resolved against this to render chips + the Tag ▾ picker. We keep INACTIVE
+  // tags too so an already-applied-but-since-retired tag still resolves to a
+  // label; the picker itself only lists active ones.
+  const [tagCatalog, setTagCatalog] = useState<InboxTag[]>([])
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/hub/email/tags')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (!cancelled) setTagCatalog(Array.isArray(data.tags) ? data.tags : [])
+      })
+      .catch(() => {
+        if (!cancelled) setTagCatalog([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [])
 
   // Reply / Reply All / Forward — set to switch the whole main pane into a
   // full-window composer (not a split view). null = the normal reader.
@@ -180,6 +251,145 @@ export default function EmailThreadView({
     }
   }, [threadId, companyId, load])
 
+  // ─── Phase 3B: collision detection (who's here / who's replying) ──────────
+  // Teammate list — powers both the presence display names and the @mention
+  // notify picker in the notes panel. Fetched once; bots filtered out.
+  const [hubUsers, setHubUsers] = useState<{ id: string; display_name: string; is_bot?: boolean }[]>([])
+  const [myName, setMyName] = useState('')
+  useEffect(() => {
+    let cancelled = false
+    fetch('/api/hub/users')
+      .then((r) => (r.ok ? r.json() : Promise.reject()))
+      .then((data) => {
+        if (cancelled) return
+        const list: { id: string; display_name: string; is_bot?: boolean }[] = (
+          Array.isArray(data.users) ? data.users : []
+        ).filter((u: { is_bot?: boolean }) => !u.is_bot)
+        setHubUsers(list)
+        const me = list.find((u) => u.id === currentUserId)
+        if (me?.display_name) setMyName(me.display_name)
+      })
+      .catch(() => {
+        if (!cancelled) setHubUsers([])
+      })
+    return () => {
+      cancelled = true
+    }
+  }, [currentUserId])
+
+  // Resolve the current user via getUser() and fall back to email initials for the
+  // presence name if we're not in hub_users. Never overwrites a real display name.
+  useEffect(() => {
+    let cancelled = false
+    try {
+      const supabase = createClient()
+      supabase.auth.getUser().then(({ data }) => {
+        if (cancelled) return
+        const email = data.user?.email || ''
+        if (email) setMyName((prev) => prev || email.split('@')[0])
+      })
+    } catch {
+      /* auth/realtime unavailable — presence just shows a generic name */
+    }
+    return () => {
+      cancelled = true
+    }
+  }, [])
+
+  // Present users on THIS thread (ephemeral Supabase presence). Each carries a
+  // display name + whether their reply composer is open.
+  type PresenceMeta = { user_id: string; name: string; replying: boolean }
+  const [presentUsers, setPresentUsers] = useState<PresenceMeta[]>([])
+  const presenceChannelRef = useRef<ReturnType<ReturnType<typeof createClient>['channel']> | null>(null)
+  const presenceSubscribedRef = useRef(false)
+  // Latest name readable from the async subscribe callback.
+  const myNameRef = useRef(myName)
+  myNameRef.current = myName
+
+  useEffect(() => {
+    if (!threadId || !currentUserId) return
+    let supabase: ReturnType<typeof createClient>
+    let channel: ReturnType<ReturnType<typeof createClient>['channel']>
+    try {
+      supabase = createClient()
+      channel = supabase.channel(`inbox:presence:${threadId}`, {
+        config: { presence: { key: currentUserId } },
+      })
+    } catch {
+      return // realtime unavailable — the collision UI simply never appears
+    }
+    presenceChannelRef.current = channel
+
+    const recompute = () => {
+      try {
+        const state = channel.presenceState() as Record<string, Partial<PresenceMeta>[]>
+        const flat: PresenceMeta[] = Object.keys(state).map((key) => {
+          const metas = state[key] || []
+          const meta = metas[metas.length - 1] || {}
+          return {
+            user_id: meta.user_id || key,
+            name: meta.name || '',
+            replying: !!meta.replying,
+          }
+        })
+        setPresentUsers(flat)
+      } catch {
+        /* ignore */
+      }
+    }
+
+    try {
+      channel
+        .on('presence', { event: 'sync' }, recompute)
+        .on('presence', { event: 'join' }, recompute)
+        .on('presence', { event: 'leave' }, recompute)
+        .subscribe((status) => {
+          if (status === 'SUBSCRIBED') {
+            presenceSubscribedRef.current = true
+            try {
+              channel.track({ user_id: currentUserId, name: myNameRef.current, replying: composingRef.current })
+            } catch {
+              /* ignore */
+            }
+          }
+        })
+    } catch {
+      /* ignore */
+    }
+
+    return () => {
+      presenceSubscribedRef.current = false
+      try {
+        channel.untrack()
+      } catch {
+        /* ignore */
+      }
+      try {
+        supabase.removeChannel(channel)
+      } catch {
+        /* ignore */
+      }
+      presenceChannelRef.current = null
+      setPresentUsers([])
+    }
+  }, [threadId, currentUserId])
+
+  // Re-broadcast our presence when the reply composer opens/closes (replying)
+  // or once our display name resolves.
+  useEffect(() => {
+    const channel = presenceChannelRef.current
+    if (!channel || !presenceSubscribedRef.current) return
+    try {
+      channel.track({ user_id: currentUserId, name: myNameRef.current, replying: composerMode !== null })
+    } catch {
+      /* ignore */
+    }
+  }, [composerMode, myName, currentUserId])
+
+  function toggleMention(id: string) {
+    setMentionIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]))
+  }
+
   function toggleExpanded(id: string) {
     setExpanded((prev) => {
       const next = new Set(prev)
@@ -204,6 +414,79 @@ export default function EmailThreadView({
     }
   }
 
+  // Add / remove a tag — POST (add) or DELETE (remove) /threads/{id}/tags { tagId },
+  // then reload so the chips + picker checkmarks repaint. Mirrors runAction's
+  // busy-guard; the picker stays open so multiple tags can be toggled in a row.
+  async function toggleTag(tagId: string, applied: boolean) {
+    if (busyAction) return
+    setBusyAction(true)
+    try {
+      const res = await fetch(`/api/hub/email/threads/${threadId}/tags`, {
+        method: applied ? 'DELETE' : 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ tagId }),
+      })
+      if (res.ok) await load()
+      else toast.error("Couldn't update tags")
+    } finally {
+      setBusyAction(false)
+    }
+  }
+
+  // Set / clear the "waiting on …" state — POST /threads/{id}/waiting
+  // { waiting_state } (null clears), then reload.
+  async function setWaiting(state: WaitingState | null) {
+    if (busyAction) return
+    setBusyAction(true)
+    try {
+      const res = await fetch(`/api/hub/email/threads/${threadId}/waiting`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ waiting_state: state }),
+      })
+      if (res.ok) await load()
+      else toast.error("Couldn't update the waiting status")
+    } finally {
+      setBusyAction(false)
+    }
+  }
+
+  // Snooze / un-snooze — POST /threads/{id}/snooze { snoozed_until } (null
+  // un-snoozes), then reload. Mirrors setWaiting's busy-guard.
+  async function setSnooze(snoozedUntil: string | null) {
+    if (busyAction) return
+    setBusyAction(true)
+    try {
+      const res = await fetch(`/api/hub/email/threads/${threadId}/snooze`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ snoozed_until: snoozedUntil }),
+      })
+      if (res.ok) await load()
+      else toast.error("Couldn't update the snooze")
+    } finally {
+      setBusyAction(false)
+    }
+  }
+
+  // Set / clear the follow-up reminder — POST /threads/{id}/follow-up
+  // { follow_up_at, follow_up_note } (null follow_up_at clears), then reload.
+  async function setFollowUp(followUpAt: string | null, followUpNote: string | null) {
+    if (busyAction) return
+    setBusyAction(true)
+    try {
+      const res = await fetch(`/api/hub/email/threads/${threadId}/follow-up`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ follow_up_at: followUpAt, follow_up_note: followUpNote }),
+      })
+      if (res.ok) await load()
+      else toast.error("Couldn't update the follow-up")
+    } finally {
+      setBusyAction(false)
+    }
+  }
+
   async function saveNote() {
     const body = noteText.trim()
     if (!body || savingNote) return
@@ -212,12 +495,15 @@ export default function EmailThreadView({
       const res = await fetch(`/api/hub/email/threads/${threadId}/notes`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ body }),
+        // Phase 3B — mentioned_user_ids: the backend DMs these teammates. Purely
+        // additive; the note text itself is saved exactly as before.
+        body: JSON.stringify({ body, mentioned_user_ids: mentionIds }),
       })
       const data = await res.json().catch(() => ({}))
       if (res.ok && data.note) {
         setDetail((prev) => (prev ? { ...prev, notes: [...prev.notes, data.note] } : prev))
         setNoteText('')
+        setMentionIds([])
       } else {
         toast.error("Couldn't save the note")
       }
@@ -262,6 +548,28 @@ export default function EmailThreadView({
   const isClosed = thread.status === 'closed'
   const subject = thread.subject || '(no subject)'
   const memberIds = members.map((m) => m.user_id)
+
+  // Resolve this thread's applied tag ids → catalog rows for the chips (skip any
+  // id not found in the catalog).
+  const tagById = new Map(tagCatalog.map((t) => [t.id, t]))
+  const appliedTags = (thread.tags || [])
+    .map((id) => tagById.get(id))
+    .filter((t): t is InboxTag => !!t)
+  const waitingState = thread.waiting_state ?? null
+  // Phase 3A — snooze is only "active" while its time is still in the future;
+  // a past snoozed_until is a no-op (the server already un-hides it).
+  const snoozedUntil = thread.snoozed_until ?? null
+  const isSnoozed = !!snoozedUntil && new Date(snoozedUntil).getTime() > Date.now()
+  const followUpAt = thread.follow_up_at ?? null
+  const followUpNote = thread.follow_up_note ?? null
+
+  // Phase 3B — collision detection: everyone present on this thread except me,
+  // split into those actively replying vs just reading.
+  const presenceOthers = presentUsers.filter((p) => p.user_id !== currentUserId)
+  const replyingOthers = presenceOthers.filter((p) => p.replying)
+  const viewingOthers = presenceOthers.filter((p) => !p.replying)
+  // Teammates the note author can @mention (non-bot, excluding self).
+  const mentionCandidates = hubUsers.filter((u) => u.id !== currentUserId)
 
   const statusChip = isClosed ? (
     <span className="text-[11px] px-2 py-0.5 rounded-md bg-gray-100 border border-gray-200 text-gray-500">
@@ -322,6 +630,58 @@ export default function EmailThreadView({
           </div>
           {statusChip}
         </div>
+
+        {/* Phase 3B — collision detection: who else is here / replying right now */}
+        {presenceOthers.length > 0 && (
+          <div className="flex items-center gap-1.5 flex-wrap mt-2">
+            {replyingOthers.length > 0 && (
+              <span className="text-[11px] px-2 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-amber-800 font-medium">
+                ✍️ {replyingOthers.map((p) => firstName(p.name) || 'Someone').join(', ')}{' '}
+                {replyingOthers.length === 1 ? 'is' : 'are'} replying…
+              </span>
+            )}
+            {viewingOthers.length > 0 && (
+              <span className="text-[11px] px-2 py-0.5 rounded-md bg-sky-50 border border-sky-200 text-sky-700">
+                👁 {viewingOthers.map((p) => firstName(p.name) || 'Someone').join(', ')} also viewing
+              </span>
+            )}
+          </div>
+        )}
+
+        {/* Applied tags + waiting badge (Phase 2) + snooze / follow-up (Phase 3A) */}
+        {(waitingState || appliedTags.length > 0 || isSnoozed || followUpAt) && (
+          <div className="flex items-center gap-1.5 flex-wrap mt-2">
+            {waitingState && (
+              <span className="text-[11px] px-2 py-0.5 rounded-md bg-amber-100 border border-amber-300 text-amber-800 font-medium">
+                ⏳ {WAITING_LABELS[waitingState]}
+                {thread.waiting_set_at ? ` · ${waitedFor(thread.waiting_set_at)}` : ''}
+              </span>
+            )}
+            {isSnoozed && (
+              <span className="text-[11px] px-2 py-0.5 rounded-md bg-indigo-100 border border-indigo-300 text-indigo-800 font-medium">
+                💤 Snoozed until {messageTime(snoozedUntil)}
+              </span>
+            )}
+            {followUpAt && (
+              <span
+                className="text-[11px] px-2 py-0.5 rounded-md bg-slate-100 border border-slate-300 text-slate-700 font-medium"
+                title={followUpNote || undefined}
+              >
+                ⏰ Follow-up {messageTime(followUpAt)}
+              </span>
+            )}
+            {appliedTags.map((t) => (
+              <span
+                key={t.id}
+                className="text-[11px] px-2 py-0.5 rounded-md font-medium border border-black/5"
+                style={{ backgroundColor: t.color, color: readableTextColor(t.color) }}
+                title={t.kind === 'type' ? 'Type' : 'Outcome'}
+              >
+                {t.name}
+              </span>
+            ))}
+          </div>
+        )}
 
         {/* Action bar */}
         <div className="flex items-center gap-1.5 flex-wrap mt-2">
@@ -424,6 +784,117 @@ export default function EmailThreadView({
               {isClosed ? '↺ Reopen' : '✓ Close'}
             </button>
           )}
+          {permissions.canReply && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setTagMenuOpen((v) => !v)}
+                disabled={busyAction}
+                className="text-xs px-2.5 py-1 rounded-md bg-white border border-gray-300 hover:bg-gray-50 text-gray-700 disabled:opacity-50"
+                title="Tag this thread (type / outcome)"
+              >
+                🏷 Tag ▾
+              </button>
+              {tagMenuOpen && (
+                <TagMenu
+                  catalog={tagCatalog}
+                  appliedIds={thread.tags || []}
+                  busy={busyAction}
+                  onToggle={toggleTag}
+                  onClose={() => setTagMenuOpen(false)}
+                />
+              )}
+            </div>
+          )}
+          {permissions.canClose && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setWaitingMenuOpen((v) => !v)}
+                disabled={busyAction}
+                className={`text-xs px-2.5 py-1 rounded-md border disabled:opacity-50 ${
+                  waitingState
+                    ? 'bg-amber-100 border-amber-300 text-amber-800 font-medium hover:bg-amber-200'
+                    : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+                title="Set what this thread is waiting on"
+              >
+                {waitingState ? `⏳ ${WAITING_LABELS[waitingState]}` : 'Waiting'} ▾
+              </button>
+              {waitingMenuOpen && (
+                <WaitingMenu
+                  current={waitingState}
+                  busy={busyAction}
+                  onSelect={(s) => {
+                    setWaiting(s)
+                    setWaitingMenuOpen(false)
+                  }}
+                  onClose={() => setWaitingMenuOpen(false)}
+                />
+              )}
+            </div>
+          )}
+          {permissions.canClose && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setSnoozeMenuOpen((v) => !v)}
+                disabled={busyAction}
+                className={`text-xs px-2.5 py-1 rounded-md border disabled:opacity-50 ${
+                  isSnoozed
+                    ? 'bg-indigo-100 border-indigo-300 text-indigo-800 font-medium hover:bg-indigo-200'
+                    : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+                title="Snooze this thread (hide it from active views until a set time)"
+              >
+                {isSnoozed ? '💤 Snoozed' : 'Snooze'} ▾
+              </button>
+              {snoozeMenuOpen && (
+                <SnoozeMenu
+                  isSnoozed={isSnoozed}
+                  busy={busyAction}
+                  onSelect={(iso) => {
+                    setSnooze(iso)
+                    setSnoozeMenuOpen(false)
+                  }}
+                  onClose={() => setSnoozeMenuOpen(false)}
+                />
+              )}
+            </div>
+          )}
+          {permissions.canClose && (
+            <div className="relative">
+              <button
+                type="button"
+                onClick={() => setFollowUpMenuOpen((v) => !v)}
+                disabled={busyAction}
+                className={`text-xs px-2.5 py-1 rounded-md border disabled:opacity-50 ${
+                  followUpAt
+                    ? 'bg-slate-100 border-slate-300 text-slate-700 font-medium hover:bg-slate-200'
+                    : 'bg-white border-gray-300 text-gray-700 hover:bg-gray-50'
+                }`}
+                title="Set a follow-up reminder on this thread"
+              >
+                {followUpAt ? '⏰ Follow-up' : 'Follow-up'} ▾
+              </button>
+              {followUpMenuOpen && (
+                <FollowUpMenu
+                  current={followUpAt}
+                  currentNote={followUpNote}
+                  busy={busyAction}
+                  onSet={(at, note) => {
+                    setFollowUp(at, note)
+                    setFollowUpMenuOpen(false)
+                  }}
+                  onClear={() => {
+                    setFollowUp(null, null)
+                    setFollowUpMenuOpen(false)
+                  }}
+                  onClose={() => setFollowUpMenuOpen(false)}
+                />
+              )}
+            </div>
+          )}
           {permissions.canNote && (
             <button
               type="button"
@@ -486,6 +957,9 @@ export default function EmailThreadView({
                   setNoteText={setNoteText}
                   onSave={saveNote}
                   saving={savingNote}
+                  mentionCandidates={mentionCandidates}
+                  mentionIds={mentionIds}
+                  onToggleMention={toggleMention}
                 />
               </div>
             )}
@@ -504,6 +978,9 @@ export default function EmailThreadView({
               setNoteText={setNoteText}
               onSave={saveNote}
               saving={savingNote}
+              mentionCandidates={mentionCandidates}
+              mentionIds={mentionIds}
+              onToggleMention={toggleMention}
             />
           </div>
         )}
@@ -700,6 +1177,9 @@ function NotesPanel({
   setNoteText,
   onSave,
   saving,
+  mentionCandidates,
+  mentionIds,
+  onToggleMention,
 }: {
   notes: ThreadDetail['notes']
   canNote: boolean
@@ -707,6 +1187,9 @@ function NotesPanel({
   setNoteText: (v: string) => void
   onSave: () => void
   saving: boolean
+  mentionCandidates: { id: string; display_name: string }[]
+  mentionIds: string[]
+  onToggleMention: (id: string) => void
 }) {
   return (
     <>
@@ -723,6 +1206,12 @@ function NotesPanel({
       </div>
       {canNote && (
         <div className="p-2 border-t border-gray-200 space-y-2 bg-white">
+          {/* Phase 3B — @mention teammates to notify when this note posts. */}
+          <MentionField
+            candidates={mentionCandidates}
+            selectedIds={mentionIds}
+            onToggle={onToggleMention}
+          />
           <textarea
             value={noteText}
             onChange={(e) => setNoteText(e.target.value)}
@@ -742,5 +1231,438 @@ function NotesPanel({
         </div>
       )}
     </>
+  )
+}
+
+/**
+ * Phase 3B — @mention teammate notify picker for an internal note. A compact
+ * "＠ Notify" button opens a searchable checklist of non-bot teammates; chosen
+ * teammates render as removable chips. The selected ids ride along as
+ * `mentioned_user_ids` when the note posts so the backend can DM them. Mirrors
+ * the TagMenu dropdown pattern (outside-click close); opens UPWARD since the
+ * notes composer sits at the bottom of its pane.
+ */
+function MentionField({
+  candidates,
+  selectedIds,
+  onToggle,
+}: {
+  candidates: { id: string; display_name: string }[]
+  selectedIds: string[]
+  onToggle: (id: string) => void
+}) {
+  const [open, setOpen] = useState(false)
+  const [query, setQuery] = useState('')
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false)
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [])
+
+  const selected = new Set(selectedIds)
+  const q = query.trim().toLowerCase()
+  const filtered = candidates.filter((u) => !q || u.display_name.toLowerCase().includes(q))
+  const chosen = candidates.filter((u) => selected.has(u.id))
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap">
+      <div className="relative" ref={ref}>
+        <button
+          type="button"
+          onClick={() => setOpen((v) => !v)}
+          className="text-[11px] px-2 py-0.5 rounded-md bg-white border border-gray-300 text-gray-600 hover:bg-gray-50"
+          title="Notify a teammate about this note"
+        >
+          ＠ Notify
+        </button>
+        {open && (
+          <div className="absolute left-0 bottom-full mb-1 w-52 bg-white border border-gray-200 rounded-md shadow-xl z-50 py-1">
+            <div className="px-2 pb-1">
+              <input
+                autoFocus
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Search teammates…"
+                className="w-full px-2 py-1 rounded-md border border-gray-300 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400"
+                style={{ fontSize: 16 }}
+              />
+            </div>
+            <div className="max-h-52 overflow-y-auto">
+              {filtered.length === 0 ? (
+                <div className="px-3 py-2 text-xs text-gray-400">No teammates</div>
+              ) : (
+                filtered.map((u) => {
+                  const isSel = selected.has(u.id)
+                  return (
+                    <button
+                      key={u.id}
+                      type="button"
+                      onClick={() => onToggle(u.id)}
+                      className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50"
+                    >
+                      <span className="w-3.5 flex-none text-emerald-600">{isSel ? '✓' : ''}</span>
+                      <span className="truncate">{u.display_name}</span>
+                    </button>
+                  )
+                })
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+      {chosen.map((u) => (
+        <span
+          key={u.id}
+          className="inline-flex items-center gap-1 text-[11px] px-2 py-0.5 rounded-md bg-sky-50 border border-sky-200 text-sky-700"
+        >
+          ＠{firstName(u.display_name) || u.display_name}
+          <button
+            type="button"
+            onClick={() => onToggle(u.id)}
+            className="text-sky-400 hover:text-sky-700 leading-none"
+            aria-label={`Remove ${u.display_name}`}
+          >
+            ×
+          </button>
+        </span>
+      ))}
+    </div>
+  )
+}
+
+/**
+ * Tag ▾ dropdown (Phase 2). Lists the ACTIVE tags grouped under Type / Outcome
+ * headers, sorted by sort_order; applied tags show a ✓. Clicking an applied tag
+ * removes it, an unapplied one adds it — the menu stays open so several can be
+ * toggled in a row. Positioned absolutely by the caller (wrap in `relative`);
+ * closes on outside click, mirroring AssignMenu/ShareMenu.
+ */
+function TagMenu({
+  catalog,
+  appliedIds,
+  busy,
+  onToggle,
+  onClose,
+}: {
+  catalog: InboxTag[]
+  appliedIds: string[]
+  busy: boolean
+  onToggle: (tagId: string, applied: boolean) => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [onClose])
+
+  const applied = new Set(appliedIds)
+  const active = catalog
+    .filter((t) => t.active)
+    .sort((a, b) => a.sort_order - b.sort_order)
+  const types = active.filter((t) => t.kind === 'type')
+  const outcomes = active.filter((t) => t.kind === 'outcome')
+
+  function group(label: string, list: InboxTag[]) {
+    if (list.length === 0) return null
+    return (
+      <div>
+        <div className="px-3 pt-2 pb-1 text-[10px] uppercase tracking-wide text-gray-400">
+          {label}
+        </div>
+        {list.map((t) => {
+          const isApplied = applied.has(t.id)
+          return (
+            <button
+              key={t.id}
+              type="button"
+              disabled={busy}
+              onClick={() => onToggle(t.id, isApplied)}
+              className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+            >
+              <span className="w-3.5 flex-none text-emerald-600">{isApplied ? '✓' : ''}</span>
+              <span
+                aria-hidden
+                className="w-2.5 h-2.5 rounded-full flex-none border border-black/10"
+                style={{ backgroundColor: t.color }}
+              />
+              <span className="truncate">{t.name}</span>
+            </button>
+          )
+        })}
+      </div>
+    )
+  }
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-0 top-full mt-1 w-56 bg-white border border-gray-200 rounded-md shadow-xl z-50 max-h-80 overflow-y-auto py-1"
+    >
+      {active.length === 0 ? (
+        <div className="px-3 py-2 text-xs text-gray-400">No tags configured</div>
+      ) : (
+        <>
+          {group('Type', types)}
+          {group('Outcome', outcomes)}
+        </>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Waiting ▾ selector (Phase 2). The 4 WaitingState options + a "Not waiting /
+ * Clear" row; the current state shows a ✓. Positioned absolutely by the caller
+ * (wrap in `relative`); closes on outside click, mirroring AssignMenu.
+ */
+function WaitingMenu({
+  current,
+  busy,
+  onSelect,
+  onClose,
+}: {
+  current: WaitingState | null
+  busy: boolean
+  onSelect: (state: WaitingState | null) => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [onClose])
+
+  const states: WaitingState[] = ['customer', 'tech', 'vendor', 'approval']
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-0 top-full mt-1 w-52 bg-white border border-gray-200 rounded-md shadow-xl z-50 py-1"
+    >
+      {states.map((s) => (
+        <button
+          key={s}
+          type="button"
+          disabled={busy}
+          onClick={() => onSelect(s)}
+          className={`flex w-full items-center gap-2 px-3 py-1.5 text-sm hover:bg-gray-50 disabled:opacity-50 ${
+            current === s ? 'text-amber-700 font-medium' : 'text-gray-700'
+          }`}
+        >
+          <span className="w-3.5 flex-none">{current === s ? '✓' : ''}</span>
+          {WAITING_LABELS[s]}
+        </button>
+      ))}
+      <button
+        type="button"
+        disabled={busy || !current}
+        onClick={() => onSelect(null)}
+        className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50 border-t border-gray-100 disabled:opacity-40"
+      >
+        <span aria-hidden className="w-3.5 flex-none" />
+        Not waiting / Clear
+      </button>
+    </div>
+  )
+}
+
+/**
+ * Snooze ▾ selector (Phase 3A). Quick presets (Later today / Tomorrow / Next
+ * Monday) + a custom datetime-local, plus "Un-snooze" when already snoozed. Each
+ * pick computes an ISO instant client-side and calls onSelect (null un-snoozes).
+ * Positioned absolutely by the caller (wrap in `relative`); closes on outside
+ * click, mirroring WaitingMenu.
+ */
+function SnoozeMenu({
+  isSnoozed,
+  busy,
+  onSelect,
+  onClose,
+}: {
+  isSnoozed: boolean
+  busy: boolean
+  onSelect: (iso: string | null) => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [custom, setCustom] = useState('')
+
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [onClose])
+
+  const presets: { label: string; iso: () => string }[] = [
+    { label: 'Later today (+3 hours)', iso: () => new Date(Date.now() + 3 * 3600 * 1000).toISOString() },
+    { label: 'Tomorrow 8am', iso: tomorrow8am },
+    { label: 'Next Monday 8am', iso: nextMonday8am },
+  ]
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-0 top-full mt-1 w-60 bg-white border border-gray-200 rounded-md shadow-xl z-50 py-1"
+    >
+      {presets.map((p) => (
+        <button
+          key={p.label}
+          type="button"
+          disabled={busy}
+          onClick={() => onSelect(p.iso())}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          <span aria-hidden>💤</span>
+          {p.label}
+        </button>
+      ))}
+      <div className="px-3 py-2 border-t border-gray-100">
+        <label className="block text-[10px] uppercase tracking-wide text-gray-400 mb-1">Custom</label>
+        <input
+          type="datetime-local"
+          value={custom}
+          onChange={(e) => setCustom(e.target.value)}
+          className="w-full px-2 py-1 rounded-md border border-gray-300 text-xs text-gray-900 focus:outline-none focus:border-gray-400"
+          style={{ fontSize: 16 }}
+        />
+        <button
+          type="button"
+          disabled={busy || !custom}
+          onClick={() => {
+            const d = new Date(custom)
+            if (!isNaN(d.getTime())) onSelect(d.toISOString())
+          }}
+          className="mt-1.5 w-full px-2 py-1 rounded-md bg-indigo-600 hover:bg-indigo-500 text-[#fff] text-xs disabled:opacity-40"
+        >
+          Snooze
+        </button>
+      </div>
+      {isSnoozed && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => onSelect(null)}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50 border-t border-gray-100 disabled:opacity-40"
+        >
+          <span aria-hidden className="w-3.5 flex-none" />
+          Un-snooze
+        </button>
+      )}
+    </div>
+  )
+}
+
+/**
+ * Follow-up popover (Phase 3A). Quick presets (Tomorrow / In 3 days / Next week)
+ * + a custom datetime-local and an optional note, plus a Clear row when a
+ * follow-up is already set. Positioned absolutely by the caller (wrap in
+ * `relative`); closes on outside click, mirroring WaitingMenu.
+ */
+function FollowUpMenu({
+  current,
+  currentNote,
+  busy,
+  onSet,
+  onClear,
+  onClose,
+}: {
+  current: string | null
+  currentNote: string | null
+  busy: boolean
+  onSet: (at: string, note: string | null) => void
+  onClear: () => void
+  onClose: () => void
+}) {
+  const ref = useRef<HTMLDivElement>(null)
+  const [when, setWhen] = useState('')
+  const [note, setNote] = useState(currentNote || '')
+
+  useEffect(() => {
+    function onDown(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) onClose()
+    }
+    document.addEventListener('mousedown', onDown)
+    return () => document.removeEventListener('mousedown', onDown)
+  }, [onClose])
+
+  const presets: { label: string; iso: () => string }[] = [
+    { label: 'Tomorrow 8am', iso: tomorrow8am },
+    { label: 'In 3 days', iso: () => inDays8am(3) },
+    { label: 'Next week', iso: () => inDays8am(7) },
+  ]
+
+  return (
+    <div
+      ref={ref}
+      className="absolute left-0 top-full mt-1 w-64 bg-white border border-gray-200 rounded-md shadow-xl z-50 py-1"
+    >
+      {presets.map((p) => (
+        <button
+          key={p.label}
+          type="button"
+          disabled={busy}
+          onClick={() => onSet(p.iso(), note.trim() || null)}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+        >
+          <span aria-hidden>⏰</span>
+          {p.label}
+        </button>
+      ))}
+      <div className="px-3 py-2 border-t border-gray-100 space-y-1.5">
+        <label className="block text-[10px] uppercase tracking-wide text-gray-400">Custom time</label>
+        <input
+          type="datetime-local"
+          value={when}
+          onChange={(e) => setWhen(e.target.value)}
+          className="w-full px-2 py-1 rounded-md border border-gray-300 text-xs text-gray-900 focus:outline-none focus:border-gray-400"
+          style={{ fontSize: 16 }}
+        />
+        <input
+          type="text"
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          placeholder="Note (optional)"
+          className="w-full px-2 py-1 rounded-md border border-gray-300 text-xs text-gray-900 placeholder-gray-400 focus:outline-none focus:border-gray-400"
+          style={{ fontSize: 16 }}
+        />
+        <button
+          type="button"
+          disabled={busy || !when}
+          onClick={() => {
+            const d = new Date(when)
+            if (!isNaN(d.getTime())) onSet(d.toISOString(), note.trim() || null)
+          }}
+          className="w-full px-2 py-1 rounded-md bg-slate-600 hover:bg-slate-500 text-[#fff] text-xs disabled:opacity-40"
+        >
+          Set follow-up
+        </button>
+      </div>
+      {current && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onClear}
+          className="flex w-full items-center gap-2 px-3 py-1.5 text-sm text-gray-500 hover:bg-gray-50 border-t border-gray-100 disabled:opacity-40"
+        >
+          <span aria-hidden className="w-3.5 flex-none" />
+          Clear follow-up
+        </button>
+      )}
+    </div>
   )
 }

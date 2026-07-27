@@ -1335,6 +1335,7 @@ function InboxTab() {
         <p className="mt-3"><strong className="text-white">AI help:</strong> <strong className="text-white">Suggest Reply</strong> drafts a response from the conversation; <strong className="text-white">✨ Polish</strong> cleans up wording in a draft you&apos;ve started.</p>
         <p className="mt-3"><strong className="text-white">Internal notes</strong> (managers) leave context on a thread the customer never sees.</p>
         <Note><strong className="text-white">Push notifications.</strong> A new customer email pings your phone the same way Txt does. While it&apos;s unclaimed in the <strong className="text-white">Queue</strong>, managers get the push; once it&apos;s claimed or assigned, its owner (and any members) get it instead — and a customer reply to a thread you own pings you again. Personal-mailbox mail notifies just you. Your Do Not Disturb, mute, and notification-level settings are always respected.</Note>
+        <Note><strong className="text-white">Working a thread — the tools.</strong> Beyond claim / assign / close you can: <strong className="text-white">Tag</strong> a thread (Type tags like Quote Request / Billing / Complaint, plus Outcome tags like Quoted / Booked / Needs Callback — managed in the gear → Manage tags); mark it <strong className="text-white">Waiting on</strong> customer / tech / vendor / approval (it drops out of the active list and pops back when the customer replies); <strong className="text-white">Snooze</strong> it until later; set a <strong className="text-white">Follow-up reminder</strong> (you get a nudge when it&apos;s due); insert a saved <strong className="text-white">Template</strong> in a reply (gear → Manage templates); and <strong className="text-white">@mention a teammate</strong> in an internal note to loop them in. New mail is auto-tagged by type, and if two of you open the same thread you&apos;ll see &ldquo;also viewing / replying&rdquo; so you don&apos;t double-answer. Filter the list by tag or Waiting, save a <strong className="text-white">View</strong> of your filters, select multiple threads for <strong className="text-white">bulk</strong> actions, or switch to the <strong className="text-white">⊞ Board</strong> to drag threads across stages. Search now looks inside message bodies too.</Note>
       </Section>
 
       <Section title="Drafts — nothing gets lost">
@@ -1760,7 +1761,7 @@ function SettingsTab() {
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Profile</strong> — your name, photo, phone number, sign out</li>
           <li><strong className="text-white">My Hub</strong> — your theme, plus customize your icon rail and mobile bottom bar (show only what you use, in your order)</li>
-          <li><strong className="text-white">Notifications</strong> — your notification level, the three Do&nbsp;Not&nbsp;Disturb tiers (Master / Hub / Calls), and your push devices</li>
+          <li><strong className="text-white">Notifications</strong> — your notification level, the five Do&nbsp;Not&nbsp;Disturb channels (Master / Hub / Txt / Inbox / Calls), each with an optional scheduled window, and your push devices</li>
           <li><strong className="text-white">Browser Extension</strong> — connect the Lynxedo browser extension</li>
           <li><strong className="text-white">Account</strong> — communications (signature, ring &amp; voicemail settings), change password, delete account</li>
         </ul>
@@ -1832,13 +1833,16 @@ function SettingsTab() {
         <Note>If the status badge says &ldquo;Blocked in browser settings,&rdquo; the browser itself has blocked notifications for lynxedo.com. Open the browser&apos;s site settings for lynxedo.com and re-enable notifications, then come back here and tap Reset.</Note>
       </Section>
 
-      <Section title="Notifications — Do Not Disturb (three tiers)">
-        <p>The <strong className="text-white">Notifications</strong> tab has three independent Do&nbsp;Not&nbsp;Disturb switches, so you can silence exactly as much as you want:</p>
+      <Section title="Notifications — Do Not Disturb (five channels + schedules)">
+        <p>The <strong className="text-white">Notifications</strong> tab has five independent Do&nbsp;Not&nbsp;Disturb switches, so you can silence exactly as much as you want — and each one can run on an optional <strong className="text-white">scheduled window</strong> (e.g. 6pm–8am, set per day) instead of a manual on/off:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-red-400">Master DND</strong> — silences <em>everything</em>: calls, messages, and every push (including @-mentions). Overrides the other two.</li>
-          <li><strong className="text-amber-300">Hub Notifications DND</strong> — silences chat/message pushes only. Calls still ring.</li>
-          <li><strong className="text-amber-300">Calls DND</strong> — silences the dialer only (incoming calls, IVR transfers, ring groups). Messages still notify. <em>(Shown only if you have Dialer access.)</em></li>
+          <li><strong className="text-red-400">Master DND</strong> — silences <em>everything</em>: calls, messages, and every push (including @-mentions). Overrides all the others.</li>
+          <li><strong className="text-amber-300">Hub DND</strong> — silences Hub chat/message pushes only.</li>
+          <li><strong className="text-amber-300">Txt DND</strong> — silences text-message (SMS) notifications only.</li>
+          <li><strong className="text-amber-300">Inbox DND</strong> — silences shared-inbox (email) notifications only.</li>
+          <li><strong className="text-amber-300">Calls DND</strong> — silences the dialer only (incoming calls, IVR transfers, ring groups). <em>(Shown only if you have Dialer access.)</em></li>
         </ul>
+        <p className="mt-2">Each channel is independent — quiet just the ones you want and the rest keep notifying. A scheduled window turns that channel&apos;s DND on automatically during the hours you set (in the schedule&apos;s time zone, default Central).</p>
         <p className="mt-3">Each tier can be flipped on right now, or put on a <strong className="text-white">per-day schedule</strong> — set a start and end time for each day of the week (e.g. 6 PM–8 AM, Mon–Fri). Overnight ranges that cross midnight work (set the start later than the end). Times use your device&apos;s local time zone.</p>
         <Note>DND is per-user — every teammate sets their own. Quick toggles for all three also live in your <strong className="text-white">You menu</strong> (tap your avatar at the bottom of the rail → <strong className="text-white">Do Not Disturb</strong>), so you don&apos;t have to open Settings each time. Setting your status to <strong className="text-white">Do Not Disturb</strong> there automatically turns on <strong className="text-red-400">Master DND</strong> (and clearing it turns Master DND back off).</Note>
       </Section>

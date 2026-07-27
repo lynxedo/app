@@ -21,7 +21,7 @@ import { nylasApiKey, nylasApiUri } from './config'
 
 export const RULE_CONDITION_FIELDS = ['from_email', 'from_name', 'subject', 'body', 'to'] as const
 export const RULE_CONDITION_OPS = ['contains', 'not_contains', 'equals', 'starts_with', 'ends_with'] as const
-export const RULE_ACTION_TYPES = ['assign_to_user', 'move_to_folder', 'mark_urgent', 'auto_close'] as const
+export const RULE_ACTION_TYPES = ['assign_to_user', 'move_to_folder', 'mark_urgent', 'auto_close', 'add_tag'] as const
 export const RULE_MATCH_MODES = ['all', 'any'] as const
 export const MAX_RULES_PER_COMPANY = 50
 
@@ -39,6 +39,7 @@ export type RuleAction = {
   user_id?: string // assign_to_user
   provider_folder_id?: string // move_to_folder
   folder_name?: string // move_to_folder
+  tag_id?: string // add_tag
   [key: string]: unknown // forward-compat params
 }
 
@@ -103,6 +104,12 @@ export function validateRuleActions(input: unknown): { actions?: RuleAction[]; e
       const fname = typeof a.folder_name === 'string' ? a.folder_name.trim() : ''
       if (!pfid || !fname) return { error: 'move_to_folder requires provider_folder_id and folder_name' }
       out.push({ type, provider_folder_id: pfid, folder_name: fname })
+    } else if (type === 'add_tag') {
+      const tagId = typeof a.tag_id === 'string' ? a.tag_id.trim() : ''
+      // Company/existence/active is re-checked at apply time (a rule may be scoped
+      // to all mailboxes, and a tag could be deleted/deactivated after write).
+      if (!tagId) return { error: 'add_tag requires a tag_id' }
+      out.push({ type, tag_id: tagId })
     } else {
       out.push({ type }) // mark_urgent / auto_close carry no params
     }
@@ -374,6 +381,49 @@ async function actMoveToFolder(admin: SupabaseClient, rule: InboxRule, action: R
     .eq('id', ctx.threadDbId)
 }
 
+async function actAddTag(admin: SupabaseClient, rule: InboxRule, action: RuleAction, ctx: RuleContext) {
+  const tagId = action.tag_id
+  if (!tagId || typeof tagId !== 'string') return
+
+  // The tag must belong to this company and still be active. A rule may be scoped
+  // to all mailboxes (account_id=null) and a tag can be deleted/deactivated after
+  // the rule is written, so validate at run time — never tag with a foreign/dead id.
+  const { data: tag } = await admin
+    .from('inbox_tags')
+    .select('id')
+    .eq('id', tagId)
+    .eq('company_id', ctx.companyId)
+    .eq('active', true)
+    .maybeSingle()
+  if (!tag) {
+    console.warn(`[inbox:rules] rule "${rule.name}": tag ${tagId} not found/active for company; skipping`)
+    return
+  }
+
+  // Append to the denormalized tags array, deduped. Read-modify-write is fine here:
+  // the sweep processes one new thread at a time, so there is no concurrent writer.
+  const { data: threadRow } = await admin
+    .from('inbox_threads')
+    .select('tags')
+    .eq('id', ctx.threadDbId)
+    .maybeSingle()
+  const current: string[] = Array.isArray(threadRow?.tags) ? (threadRow!.tags as string[]) : []
+  if (current.includes(tagId)) return // already tagged — no-op, no duplicate event
+
+  await admin
+    .from('inbox_threads')
+    .update({ tags: [...current, tagId], updated_at: new Date().toISOString() })
+    .eq('id', ctx.threadDbId)
+
+  await admin.from('inbox_thread_events').insert({
+    company_id: ctx.companyId,
+    thread_id: ctx.threadDbId,
+    event_type: 'tag_added',
+    actor_user_id: null, // automated — see detail.rule
+    detail: { ...ruleDetail(rule), tag_id: tagId },
+  })
+}
+
 // ---------------------------------------------------------------------------
 // Engine entry point — called by the sync sweep on newly-mirrored threads.
 // (The orchestrator wires the sync.ts hook; the signature below is the contract.)
@@ -429,6 +479,9 @@ export async function applyInboxRules(
                 break
               case 'auto_close':
                 await actAutoClose(admin, rule, ctx)
+                break
+              case 'add_tag':
+                await actAddTag(admin, rule, action, ctx)
                 break
               default:
                 // Forward-compat: an action type written by a future version is skipped silently.

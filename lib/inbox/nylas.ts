@@ -216,9 +216,13 @@ export class NylasProvider implements MailProvider {
   private grantId: string
   private selfEmails: Set<string>
 
-  constructor(grantId: string, selfEmail?: string | null) {
+  // A mailbox can send/receive under several addresses (primary + aliases); a message
+  // is "outbound" iff its From is ANY of them. `selfEmail` is the primary; `selfEmails`
+  // carries additional aliases. All are lowercased into one set for O(1) direction checks.
+  constructor(grantId: string, selfEmail?: string | null, selfEmails?: string[]) {
     this.grantId = grantId
-    this.selfEmails = new Set((selfEmail ? [selfEmail] : []).map((e) => e.toLowerCase()))
+    const all = [...(selfEmail ? [selfEmail] : []), ...(selfEmails || [])]
+    this.selfEmails = new Set(all.filter(Boolean).map((e) => e.toLowerCase()))
   }
 
   private g(path: string) {
@@ -245,9 +249,22 @@ export class NylasProvider implements MailProvider {
   }
 
   async listMessages(threadId: string): Promise<MailMessage[]> {
-    const q = new URLSearchParams({ thread_id: threadId, limit: '100' })
-    const { data } = await nylasFetch<NylasMessage[]>(this.g(`/messages?${q.toString()}`))
-    return (data || []).map((m) => mapMessage(m, this.selfEmails))
+    // Nylas caps a single messages page at 100. A long thread therefore silently
+    // truncated to its first 100 messages before this — page through next_cursor and
+    // concatenate, bounded by a safety cap so a runaway thread can't loop forever.
+    const SAFETY_CAP = 500
+    const out: NylasMessage[] = []
+    let pageToken: string | undefined
+    while (out.length < SAFETY_CAP) {
+      const q = new URLSearchParams({ thread_id: threadId, limit: '100' })
+      if (pageToken) q.set('page_token', pageToken)
+      const { data, nextCursor } = await nylasFetch<NylasMessage[]>(this.g(`/messages?${q.toString()}`))
+      const page = data || []
+      out.push(...page)
+      if (!nextCursor || page.length === 0) break
+      pageToken = nextCursor
+    }
+    return out.map((m) => mapMessage(m, this.selfEmails))
   }
 
   async getMessage(messageId: string): Promise<MailMessage> {
