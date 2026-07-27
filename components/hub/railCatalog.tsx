@@ -253,7 +253,7 @@ export function CustomUrlIcon() { return <I d={PATHS.customUrl} /> }
 export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'activity',     label: 'Activity',      pickable: false },
   { id: 'daily-log',    label: 'Daily Log',     href: '/hub/daily-log', prefixMatch: true, pickable: true },
-  { id: 'daily-log-v2', label: 'Daily Log v2',  href: '/hub/daily-log-v2', prefixMatch: true, pickable: true, requires: 'canAccessDailyLogV2' },
+  { id: 'daily-log-v2', label: 'Daily Log v2',  href: '/hub/daily-log-v2', prefixMatch: true, pickable: true, requires: 'canAccessDailyLogV2', tabbable: true },
   { id: 'tracker',      label: 'Tracker',       href: '/hub/tracker', prefixMatch: true, pickable: true, requires: 'canAccessTracker', tabbable: true },
   { id: 'routing',      label: 'Routing',       href: '/hub/routing', prefixMatch: true, pickable: true, requires: 'canAccessRouting' },
   { id: 'fleet',        label: 'Fleet',         href: '/hub/fleet', prefixMatch: true, pickable: true, requires: 'canAccessFleet' },
