@@ -538,6 +538,37 @@ export default function HubSidebar({
     }
   }, [pathname])
 
+  // Mark as read when a room / DM is opened as a WORKSPACE TAB. Workspace Tabs
+  // open a chat by mounting a kept-alive twin WITHOUT driving the router, so the
+  // pathname effect above never fires for tabbed chats — the dot would never
+  // clear on desktop (it does on mobile, which has no tabs). This is the
+  // tab-mode equivalent: fire when a room/dm tab becomes active (opened OR
+  // switched back to — activateTab bumps lastActiveSeq → new activeTab identity).
+  // Inert when Workspace Tabs is off (activeTab stays null), so mobile/non-beta
+  // behavior is unchanged. New messages that arrive while the tab is the active,
+  // visible one are still marked read by MessageFeed's realtime handler.
+  const activeTab = tabs.activeTab
+  useEffect(() => {
+    if (!activeTab?.instanceKey || !UUID_RE.test(activeTab.instanceKey)) return
+    if (activeTab.catalogId === 'room') {
+      const roomId = activeTab.instanceKey
+      setUnreadRoomIds(prev => { const next = new Set(prev); next.delete(roomId); return next })
+      fetch('/api/hub/read-receipts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room_id: roomId }),
+      }).catch(() => {})
+    } else if (activeTab.catalogId === 'dm') {
+      const convId = activeTab.instanceKey
+      setUnreadConvIds(prev => { const next = new Set(prev); next.delete(convId); return next })
+      fetch('/api/hub/read-receipts', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conversation_id: convId }),
+      }).catch(() => {})
+    }
+  }, [activeTab])
+
   // Close context menu on outside click
   useEffect(() => {
     if (!contextMenu) return
