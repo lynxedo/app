@@ -1,7 +1,10 @@
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import CustomerDetailView from './CustomerDetailView'
-import type { CustomerDetailAccount, CustomerDetailProperty } from './types'
+import type {
+  CustomerDetailAccount, CustomerDetailProperty,
+  AccountProgram, AccountVisit, AccountLineItem,
+} from './types'
 
 // The CRM customer screen — one full page per contact. Reachable for every
 // contact in the directory (2,000+). A Jobber-linked contact shows the rich
@@ -50,6 +53,115 @@ function parseMoney(s: string): number | null {
   if (!s) return null
   const n = Number(s.replace(/[^0-9.-]/g, ''))
   return Number.isFinite(n) ? n : null
+}
+
+// --- Program & services assembly (read-only, from the Jobber mirror) ---
+
+function normName(s: string): string {
+  return String(s || '').toLowerCase().replace(/\s+/g, ' ').trim()
+}
+// "WF - Root Rot Recovery" -> "Root Rot Recovery"
+function stripDeptPrefix(name: string): string {
+  const m = String(name || '').match(/^[A-Za-z]{2}\s*-\s*(.+)$/)
+  return (m ? m[1] : String(name || '')).trim()
+}
+
+type JobRow = {
+  id: string; title: string | null; dept_prefix: string | null; is_recurring: boolean | null
+  job_status: string | null; total: number | null; jobber_web_uri: string | null
+  start_at: string | null; completed_at: string | null
+}
+type LiRow = { parent_id: string; name: string | null; quantity: number | null; unit_price: number | null; total: number | null; dept_prefix: string | null }
+type VRow = { id: string; job_id: string; scheduled_date: string | null; visit_status: string | null; completed_at: string | null; total: number | null }
+type SvcDef = { prefix: string; name: string; color: string | null }
+type ProgDef = { line_item_name: string; display_name: string | null; visits_per_year: number | null; is_auxiliary: boolean | null; dept_prefix: string | null }
+
+function buildAccountPrograms(jobs: JobRow[], lineItems: LiRow[], visits: VRow[], svcDefs: SvcDef[], progDefs: ProgDef[]): AccountProgram[] {
+  const defByName = new Map<string, ProgDef>()
+  for (const d of progDefs) defByName.set(normName(d.line_item_name), d)
+  const svcByPrefix = new Map<string, SvcDef>()
+  for (const s of svcDefs) svcByPrefix.set(String(s.prefix).toUpperCase(), s)
+
+  const liByJob = new Map<string, LiRow[]>()
+  for (const li of lineItems) { const a = liByJob.get(li.parent_id) ?? []; a.push(li); liByJob.set(li.parent_id, a) }
+  const vByJob = new Map<string, VRow[]>()
+  for (const v of visits) { const a = vByJob.get(v.job_id) ?? []; a.push(v); vByJob.set(v.job_id, a) }
+
+  const out: AccountProgram[] = []
+  for (const j of jobs) {
+    const lis = liByJob.get(j.id) ?? []
+    const enriched = lis.map(li => {
+      const def = defByName.get(normName(li.name || ''))
+      return { li, def, isAux: !!(def && def.is_auxiliary) }
+    })
+    const bases = enriched.filter(e => !e.isAux)
+    const baseWithDef = bases.find(e => e.def) ?? bases[0] ?? null
+
+    const name =
+      baseWithDef?.def?.display_name?.trim() ||
+      (baseWithDef ? stripDeptPrefix(baseWithDef.li.name || '') : '') ||
+      (j.title || '') || 'Service'
+
+    const prefix =
+      (j.dept_prefix || '').toUpperCase() ||
+      (baseWithDef?.def?.dept_prefix || '').toUpperCase() ||
+      (baseWithDef?.li?.dept_prefix || '').toUpperCase() ||
+      (baseWithDef ? (String(baseWithDef.li.name || '').match(/^([A-Za-z]{2})\s*-/)?.[1] || '') : '').toUpperCase() ||
+      ''
+    const svc = prefix ? svcByPrefix.get(prefix) : undefined
+
+    const jv = (vByJob.get(j.id) ?? []).slice().sort((a, b) => {
+      const da = a.scheduled_date || '', db = b.scheduled_date || ''
+      return da < db ? -1 : da > db ? 1 : 0
+    })
+    const roundByYear = new Map<number, number>()
+    const avisits: AccountVisit[] = jv.map(v => {
+      const year = v.scheduled_date ? Number(String(v.scheduled_date).slice(0, 4)) : null
+      let round = 0
+      if (year != null && !Number.isNaN(year)) { round = (roundByYear.get(year) ?? 0) + 1; roundByYear.set(year, round) }
+      const status = String(v.visit_status || '')
+      return {
+        id: v.id, year: year != null && !Number.isNaN(year) ? year : null, round,
+        date: v.scheduled_date ?? null, status,
+        completed: !!v.completed_at || status.toUpperCase() === 'COMPLETED',
+        total: v.total != null ? Number(v.total) : null,
+      }
+    })
+    const latestDate = jv.length ? (jv[jv.length - 1].scheduled_date ?? null)
+      : (j.completed_at || j.start_at || null)
+
+    const lineItemsOut: AccountLineItem[] = enriched.map(e => ({
+      name: stripDeptPrefix(e.li.name || ''),
+      quantity: e.li.quantity != null ? Number(e.li.quantity) : null,
+      unitPrice: e.li.unit_price != null ? Number(e.li.unit_price) : null,
+      total: e.li.total != null ? Number(e.li.total) : null,
+      isAux: e.isAux,
+    }))
+
+    out.push({
+      id: j.id,
+      isRecurring: !!j.is_recurring,
+      category: prefix,
+      categoryName: svc?.name || prefix || 'Other',
+      categoryColor: svc?.color || null,
+      name,
+      jobStatus: String(j.job_status || ''),
+      live: String(j.job_status || '') !== 'archived',
+      visitsPerYear: baseWithDef?.def?.visits_per_year ?? null,
+      jobTotal: j.total != null ? Number(j.total) : null,
+      lineItems: lineItemsOut,
+      visits: avisits,
+      jobberWebUri: j.jobber_web_uri || '',
+      latestDate,
+    })
+  }
+
+  out.sort((a, b) => {
+    if (a.isRecurring !== b.isRecurring) return a.isRecurring ? -1 : 1
+    const da = a.latestDate || '', db = b.latestDate || ''
+    return da < db ? 1 : da > db ? -1 : 0
+  })
+  return out
 }
 
 export default async function CustomerDetailPage({
@@ -124,6 +236,7 @@ export default async function CustomerDetailPage({
   // The linked Jobber account (+ its properties) when this contact is a customer.
   let account: CustomerDetailAccount | null = null
   let properties: CustomerDetailProperty[] = []
+  let programs: AccountProgram[] = []
 
   if (contact.jobber_client_id) {
     const { data: client } = await supabase
@@ -208,8 +321,40 @@ export default async function CustomerDetailPage({
           }]
         }
       }
+
+      // Programs (recurring jobs) + one-off services, from the synced Jobber mirror.
+      const { data: jobRows } = await supabase
+        .from('jobs')
+        .select('id, title, dept_prefix, is_recurring, job_status, total, jobber_web_uri, start_at, completed_at')
+        .eq('company_id', profile.company_id!)
+        .eq('client_id', client.id)
+        .is('deleted_at', null)
+
+      const jobs = (jobRows ?? []) as JobRow[]
+      const jobIds = jobs.map(j => j.id)
+      if (jobIds.length > 0) {
+        const [liRes, vRes, svcRes, progRes] = await Promise.all([
+          supabase.from('line_items')
+            .select('parent_id, name, quantity, unit_price, total, dept_prefix')
+            .eq('company_id', profile.company_id!).eq('parent_type', 'job').in('parent_id', jobIds).is('deleted_at', null),
+          supabase.from('visits')
+            .select('id, job_id, scheduled_date, visit_status, completed_at, total')
+            .eq('company_id', profile.company_id!).in('job_id', jobIds).is('deleted_at', null),
+          supabase.from('service_definitions').select('prefix, name, color').eq('is_active', true),
+          supabase.from('recurring_program_definitions').select('line_item_name, display_name, visits_per_year, is_auxiliary, dept_prefix'),
+        ])
+        programs = buildAccountPrograms(
+          jobs,
+          (liRes.data ?? []) as LiRow[],
+          (vRes.data ?? []) as VRow[],
+          (svcRes.data ?? []) as SvcDef[],
+          (progRes.data ?? []) as ProgDef[],
+        )
+      }
     }
   }
+
+  const currentYear = new Date().getFullYear()
 
   const canSeeActivity =
     profile.role === 'admin' ||
@@ -222,6 +367,8 @@ export default async function CustomerDetailPage({
       allTags={allTags}
       account={account}
       properties={properties}
+      programs={programs}
+      currentYear={currentYear}
       canAccessDialer={!!profile.can_access_dialer}
       canSeeActivity={canSeeActivity}
     />

@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatPhone, formatCurrency, formatDurationSec } from '@/lib/format'
-import type { CustomerDetailAccount, CustomerDetailProperty } from './types'
+import type { CustomerDetailAccount, CustomerDetailProperty, AccountProgram, AccountVisit } from './types'
 
 type Tag = { id: string; label: string; color: string }
 
@@ -67,6 +67,8 @@ export default function CustomerDetailView({
   allTags,
   account,
   properties,
+  programs,
+  currentYear,
   canAccessDialer,
   canSeeActivity,
 }: {
@@ -74,6 +76,8 @@ export default function CustomerDetailView({
   allTags: Tag[]
   account: CustomerDetailAccount | null
   properties: CustomerDetailProperty[]
+  programs: AccountProgram[]
+  currentYear: number
   canAccessDialer: boolean
   canSeeActivity: boolean
 }) {
@@ -144,7 +148,7 @@ export default function CustomerDetailView({
           {account && <BalanceCard account={account} />}
           <FlagsCard contact={contact} allTags={allTags} onUpdated={setContact} />
           <PropertyCard properties={properties} />
-          <ProgramServicesCard />
+          {contact.jobber_client_id && <ProgramServicesCard programs={programs} currentYear={currentYear} />}
         </div>
 
         {/* Right column */}
@@ -414,14 +418,192 @@ function PropertyCard({ properties }: { properties: CustomerDetailProperty[] }) 
   )
 }
 
-/* ---------- program & services (placeholder) ---------- */
+/* ---------- program & services (read-only, from Jobber) ---------- */
 
-function ProgramServicesCard() {
+const VISIT_STATUS_STYLES: Record<string, string> = {
+  COMPLETED: 'bg-emerald-900/40 text-emerald-300',
+  UPCOMING: 'bg-sky-900/40 text-sky-300',
+  TODAY: 'bg-amber-900/40 text-amber-300',
+  LATE: 'bg-orange-900/40 text-orange-300',
+  UNSCHEDULED: 'bg-white/10 text-white/50',
+}
+
+function statusPill(status: string) {
+  const key = status.toUpperCase()
+  const cls = VISIT_STATUS_STYLES[key] ?? 'bg-white/10 text-white/50'
+  return <span className={`text-[9px] uppercase tracking-wide px-1.5 py-0.5 rounded ${cls}`}>{status.toLowerCase()}</span>
+}
+
+function shortDate(d: string | null): string {
+  if (!d) return ''
+  const [y, m, day] = d.split('-').map(Number)
+  if (!y) return d
+  return new Date(y, (m || 1) - 1, day || 1).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+}
+
+function CategoryChip({ prefix, name, color }: { prefix: string; name: string; color: string | null }) {
   return (
-    <section className="bg-[var(--t-panel)] border border-dashed border-white/15 rounded-lg p-5 text-center">
-      <div className="text-sm font-medium text-white/60 mb-1">Program and services</div>
-      <div className="text-xs text-white/35">Reserved — wired up once programs are organized.</div>
-    </section>
+    <span className="inline-flex items-center gap-1.5 text-[10px] uppercase tracking-wide text-white/60 bg-white/5 border border-white/10 px-1.5 py-0.5 rounded shrink-0">
+      <span className="w-2 h-2 rounded-full shrink-0" style={{ backgroundColor: color || '#888' }} />
+      {prefix || name}
+    </span>
+  )
+}
+
+function ProgramServicesCard({ programs, currentYear }: { programs: AccountProgram[]; currentYear: number }) {
+  const [showPast, setShowPast] = useState(false)
+  const [showAllServices, setShowAllServices] = useState(false)
+
+  const recurring = programs.filter(p => p.isRecurring)
+  const services = programs.filter(p => !p.isRecurring)
+  const livePrograms = recurring.filter(p => p.live)
+  const pastPrograms = recurring.filter(p => !p.live)
+
+  const SERVICE_LIMIT = 6
+  const shownServices = showAllServices ? services : services.slice(0, SERVICE_LIMIT)
+
+  if (programs.length === 0) {
+    return (
+      <Card title="Programs & services" action={fromJobber}>
+        <div className="text-xs text-white/40">No programs or services on file.</div>
+      </Card>
+    )
+  }
+
+  return (
+    <Card title="Programs & services" action={fromJobber}>
+      {/* Programs (recurring) */}
+      {livePrograms.length > 0 && (
+        <div className="space-y-2">
+          {livePrograms.map(p => <ProgramRow key={p.id} p={p} currentYear={currentYear} />)}
+        </div>
+      )}
+
+      {/* One-off services */}
+      {services.length > 0 && (
+        <div className={livePrograms.length > 0 ? 'mt-4 pt-3 border-t border-white/5' : ''}>
+          <div className="text-[11px] uppercase tracking-wide text-white/35 mb-2">One-time services</div>
+          <div className="space-y-1.5">
+            {shownServices.map(s => <ServiceRow key={s.id} s={s} />)}
+          </div>
+          {services.length > SERVICE_LIMIT && (
+            <button type="button" onClick={() => setShowAllServices(v => !v)} className="mt-2 text-xs text-sky-300 hover:text-sky-200">
+              {showAllServices ? 'Show fewer' : `Show all ${services.length}`}
+            </button>
+          )}
+        </div>
+      )}
+
+      {livePrograms.length === 0 && services.length === 0 && pastPrograms.length > 0 && (
+        <div className="text-xs text-white/40">No active programs.</div>
+      )}
+
+      {/* Past / cancelled programs */}
+      {pastPrograms.length > 0 && (
+        <div className="mt-4 pt-3 border-t border-white/5">
+          <button type="button" onClick={() => setShowPast(v => !v)} className="text-xs text-white/45 hover:text-white/70">
+            {showPast ? '▾' : '▸'} Past / cancelled programs ({pastPrograms.length})
+          </button>
+          {showPast && (
+            <div className="space-y-2 mt-2 opacity-70">
+              {pastPrograms.map(p => <ProgramRow key={p.id} p={p} currentYear={currentYear} />)}
+            </div>
+          )}
+        </div>
+      )}
+    </Card>
+  )
+}
+
+function ProgramRow({ p, currentYear }: { p: AccountProgram; currentYear: number }) {
+  const years = Array.from(new Set(p.visits.map(v => v.year).filter((y): y is number => y != null))).sort((a, b) => b - a)
+  const defaultYear = years.includes(currentYear) ? currentYear : (years[0] ?? currentYear)
+  const [open, setOpen] = useState(false)
+  const [year, setYear] = useState(defaultYear)
+
+  const yearVisits = p.visits.filter(v => v.year === year).sort((a, b) => a.round - b.round)
+  const completed = yearVisits.filter(v => v.completed).length
+  const target = p.visitsPerYear ?? yearVisits.length
+  const aux = p.lineItems.filter(li => li.isAux)
+
+  return (
+    <div className="bg-white/[0.03] border border-white/10 rounded-md">
+      <button type="button" onClick={() => setOpen(v => !v)} className="w-full flex items-start gap-2 p-2.5 text-left">
+        <span className="text-white/30 text-xs mt-0.5 shrink-0">{open ? '▾' : '▸'}</span>
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center gap-2 flex-wrap">
+            <CategoryChip prefix={p.category} name={p.categoryName} color={p.categoryColor} />
+            <span className="text-sm font-medium text-white/90 truncate">{p.name}</span>
+          </div>
+          <div className="text-[11px] text-white/45 mt-0.5">
+            {target > 0 ? `${completed} of ${target} visits · ${year}` : `${year}`}
+            {aux.length > 0 && <span className="text-white/35"> · +{aux.length} add-on{aux.length > 1 ? 's' : ''}</span>}
+          </div>
+        </div>
+        {p.jobTotal != null && (
+          <span className="text-sm text-white/70 shrink-0">
+            {formatCurrency(p.jobTotal, { decimals: 2 })}<span className="text-[10px] text-white/35">/visit</span>
+          </span>
+        )}
+      </button>
+
+      {open && (
+        <div className="px-2.5 pb-2.5 pt-0 border-t border-white/5">
+          {/* Line items */}
+          <div className="mt-2 space-y-1">
+            {p.lineItems.map((li, i) => (
+              <div key={i} className="flex items-center justify-between gap-2 text-xs">
+                <span className="text-white/70 truncate">{li.isAux ? '+ ' : ''}{li.name}{li.quantity != null && li.quantity !== 1 ? ` ×${li.quantity}` : ''}</span>
+                {li.total != null && <span className="text-white/50 shrink-0">{formatCurrency(li.total, { decimals: 2 })}</span>}
+              </div>
+            ))}
+          </div>
+
+          {/* Year selector */}
+          {years.length > 1 && (
+            <div className="flex flex-wrap gap-1 mt-2.5">
+              {years.map(y => (
+                <button key={y} type="button" onClick={() => setYear(y)}
+                  className={`text-[11px] px-2 py-0.5 rounded ${y === year ? 'bg-sky-600 text-[#fff]' : 'bg-white/5 text-white/50 hover:bg-white/10'}`}>{y}</button>
+              ))}
+            </div>
+          )}
+
+          {/* Rounds / visits */}
+          <div className="mt-2.5">
+            {yearVisits.length === 0
+              ? <div className="text-[11px] text-white/35">No visits scheduled for {year}.</div>
+              : (
+                <div className="space-y-0.5">
+                  {yearVisits.map(v => <VisitRow key={v.id} v={v} />)}
+                </div>
+              )}
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}
+
+function VisitRow({ v }: { v: AccountVisit }) {
+  return (
+    <div className="flex items-center gap-2 text-xs py-0.5">
+      <span className="text-white/40 w-14 shrink-0">Round {v.round}</span>
+      <span className="text-white/70 w-16 shrink-0">{shortDate(v.date) || '—'}</span>
+      {statusPill(v.status || '—')}
+      {v.total != null && v.total > 0 && <span className="text-white/45 ml-auto">{formatCurrency(v.total, { decimals: 2 })}</span>}
+    </div>
+  )
+}
+
+function ServiceRow({ s }: { s: AccountProgram }) {
+  return (
+    <div className="flex items-center gap-2 text-sm">
+      <CategoryChip prefix={s.category} name={s.categoryName} color={s.categoryColor} />
+      <span className="text-white/85 truncate min-w-0 flex-1">{s.name}</span>
+      {s.latestDate && <span className="text-[11px] text-white/40 shrink-0">{shortDate(s.latestDate)}</span>}
+      {s.jobTotal != null && <span className="text-sm text-white/60 shrink-0">{formatCurrency(s.jobTotal, { decimals: 2 })}</span>}
+    </div>
   )
 }
 
