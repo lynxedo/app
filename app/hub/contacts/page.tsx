@@ -9,7 +9,7 @@ export default async function ContactsIndexPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('can_access_hub, can_access_dialer')
+    .select('can_access_hub')
     .eq('id', user.id)
     .single()
 
@@ -59,7 +59,6 @@ export default async function ContactsIndexPage() {
     <ContactsPanel
       initialContacts={initialContacts}
       initialTags={tagsRes.data ?? []}
-      canAccessDialer={!!profile.can_access_dialer}
     />
   )
 }

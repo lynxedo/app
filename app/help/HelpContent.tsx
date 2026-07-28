@@ -1524,6 +1524,18 @@ function ContactsTab() {
         <Note><strong className="text-white">Leads land here automatically.</strong> When a new lead is added to the <Link href="/hub/tracker/leads" className="text-sky-400 hover:underline">Lead Tracker</Link>, it&apos;s also added to Contacts (tagged source <em>Leads</em>) so you have one record for that person across the whole platform. Because a lead form isn&apos;t texting consent, lead-sourced contacts are set <strong className="text-white">do-not-text</strong> until someone opts them in.</Note>
       </Section>
 
+      <Section title="The customer screen">
+        <p>Tap any contact to open their own <strong className="text-white">customer page</strong> — one full-screen view of everything we know about them. Across the top: their name, account status, and quick <strong className="text-white">📞 Call</strong>, <strong className="text-white">💬 Text</strong>, <strong className="text-white">✉️ Email</strong>, and <strong className="text-white">Jobber ↗</strong> buttons (you see the ones you have access to).</p>
+        <p>The page is organized into cards:</p>
+        <Step n={1}><strong className="text-white">Customer</strong> — name, company, phone, email, and address. Tap <strong className="text-white">Edit</strong> to change them.</Step>
+        <Step n={2}><strong className="text-white">Flags</strong> — the contact&apos;s tags. Tap <strong className="text-white">Edit</strong> to add or remove them.</Step>
+        <Step n={3}><strong className="text-white">Notes</strong> — free-text notes you can edit, plus any note imported from the old system.</Step>
+        <Step n={4}><strong className="text-white">Balance</strong>, <strong className="text-white">Property details</strong> (lawn size, irrigation zones, sprinkler, neighborhood, directions), and <strong className="text-white">Customer details</strong> (type, lead source, sales person, customer since) — pulled straight from Jobber, so they&apos;re shown read-only and stay in sync automatically.</Step>
+        <Step n={5}><strong className="text-white">Recent activity</strong> — the latest texts, calls, and voicemails with this person.</Step>
+        <p><strong className="text-white">Program and services</strong> has a placeholder card for now — it&apos;ll fill in once programs are set up.</p>
+        <Note>Sections only appear when there&apos;s something to show. A Jobber customer sees the full picture; a lead or hand-added contact shows the basics, and the account/property cards stay hidden until there&apos;s data.</Note>
+      </Section>
+
       <Section title="Filtering the directory">
         <p>Below the search box are three quick filters so you can slice the directory the way each tool sees it:</p>
         <Step n={1}><strong className="text-white">Channel</strong> — show only contacts that have a phone (the Txt/Dialer view) or have an email (the Email Marketing view).</Step>
@@ -1546,13 +1558,13 @@ function ContactsTab() {
 
       <Section title="Adding & editing contacts">
         <p>The <strong className="text-white">+ Add</strong> button at the top creates a new contact (name + phone required; company, email, mailing address, and tags optional). Tick <strong className="text-white">This contact is a business</strong> for vendors or commercial accounts.</p>
-        <p>Tap any existing contact to open its detail sheet. <strong className="text-white">Edit</strong> lets you change name, company, phone, email, email status, mailing address, notes, and tags. The <strong className="text-white">Do not text</strong> toggle blocks outbound SMS to this contact from Txt and broadcasts — useful when someone replies STOP or asks to be left alone (Twilio also auto-flips this when they text STOP).</p>
+        <p>Tap any existing contact to open their <strong className="text-white">customer page</strong>. The <strong className="text-white">Customer</strong>, <strong className="text-white">Flags</strong>, and <strong className="text-white">Notes</strong> cards each have their own <strong className="text-white">Edit</strong> button for changing name, company, phone, email, email status, mailing address, notes, and tags. The <strong className="text-white">Do not text</strong> toggle blocks outbound SMS to this contact from Txt and broadcasts — useful when someone replies STOP or asks to be left alone (Twilio also auto-flips this when they text STOP).</p>
         <p><strong className="text-white">Delete</strong> now <strong className="text-white">removes the contact from the directory but keeps it recoverable</strong> — their text and call history stays intact, and it can be brought back. (Nothing is permanently erased.)</p>
         <Note>Editing a contact by hand marks it as yours — the nightly Jobber sync won&apos;t overwrite fields you&apos;ve corrected. Inbound calls and texts still auto-create contacts on first contact, so the list keeps growing on its own.</Note>
       </Section>
 
       <Section title="Calling from Contacts">
-        <p>The detail sheet has a green <strong className="text-white">📞 Call</strong> button that jumps to the Dialer with the number pre-filled. Tap the green Call button there to actually dial. The call gets logged with the contact&apos;s name attached so it shows up nicely in Recent and Call Log later.</p>
+        <p>The customer page has a green <strong className="text-white">📞 Call</strong> button that jumps to the Dialer with the number pre-filled. Tap the green Call button there to actually dial. The call gets logged with the contact&apos;s name attached so it shows up nicely in Recent and Call Log later.</p>
       </Section>
 
       <Section title="Managing tags (admin)">
