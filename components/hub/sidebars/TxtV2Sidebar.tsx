@@ -530,6 +530,17 @@ export default function TxtV2Sidebar({
             </button>
           )}
         </div>
+        {/* Bulk-archive every thread the user owns (only theirs). Confirms with a
+            count first. Shown on all tabs so it's easy to reach on mobile. */}
+        <button
+          type="button"
+          onClick={archiveAllMine}
+          disabled={archivingAll}
+          className="w-full px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10 disabled:opacity-50"
+          title="Archive every conversation you own"
+        >
+          {archivingAll ? 'Archiving…' : '🗄 Archive all mine'}
+        </button>
         <input
           type="text"
           value={search}
@@ -554,19 +565,6 @@ export default function TxtV2Sidebar({
               </button>
             ))}
         </div>
-        {scope === 'mine' && (
-          <div className="flex justify-end">
-            <button
-              type="button"
-              onClick={archiveAllMine}
-              disabled={archivingAll}
-              className="text-[11px] text-white/40 hover:text-white/80 disabled:opacity-40 px-1 py-0.5"
-              title="Archive every conversation you own"
-            >
-              {archivingAll ? 'Archiving…' : 'Archive all mine'}
-            </button>
-          </div>
-        )}
 
         {/* Unified inbox lens: filter the current list by channel/state. One
             icon per row already shows the last activity type; these chips
