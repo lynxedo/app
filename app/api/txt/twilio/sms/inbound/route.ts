@@ -297,11 +297,18 @@ export async function POST(req: NextRequest) {
       .from('txt_contacts')
       .update({ do_not_text: true, updated_at: now })
       .eq('id', contactId)
-    // Archive the conversation so it drops out of active views; staff can still see history.
+    // Archive the conversation so it drops out of active views; staff can still see
+    // history. Fresh start (matches the manual archive route): clear the owner and
+    // drop every member so if the customer later texts START/again it reopens clean
+    // in the Queue rather than carrying the old owner forward.
     await supabase
       .from('txt_conversations')
-      .update({ status: 'archived' })
+      .update({ status: 'archived', assigned_to: null })
       .eq('id', conversationId)
+    await supabase
+      .from('txt_conversation_members')
+      .delete()
+      .eq('conversation_id', conversationId)
   } else if (compliance === 'start') {
     await supabase
       .from('txt_contacts')

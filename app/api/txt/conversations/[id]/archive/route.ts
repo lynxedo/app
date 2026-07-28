@@ -43,12 +43,16 @@ export async function POST(
   const isGroup = conv?.kind === 'group'
 
   let update:
-    | { status: 'archived'; archived_by: string }
+    | { status: 'archived'; archived_by: string; assigned_to: null }
     | { status: 'assigned' | 'unassigned'; archived_by: null }
     | { status: 'assigned'; assigned_to: string; archived_by: null }
 
   if (archived) {
-    update = { status: 'archived', archived_by: user.id }
+    // Fresh start: clear the owner here (members are dropped after the write) so
+    // if the customer texts back the thread reopens clean in the Queue instead of
+    // carrying the old owner forward. `archived_by` is kept — it still scopes the
+    // Archived tab for non-managers.
+    update = { status: 'archived', archived_by: user.id, assigned_to: null }
   } else if (isGroup) {
     // Group: no single owner to claim — just restore it to the active inbox.
     update = {
@@ -83,6 +87,13 @@ export async function POST(
 
   if (error || !updated) {
     return NextResponse.json({ error: error?.message || 'Update failed' }, { status: 500 })
+  }
+
+  // Fresh start on archive: drop the owner + every member off the thread (the
+  // owner pointer was already cleared in `update`). A later inbound reply then
+  // reopens it unassigned in the Queue with a clean slate.
+  if (archived) {
+    await admin.from('txt_conversation_members').delete().eq('conversation_id', id)
   }
 
   return NextResponse.json({ ok: true, conversation: updated })
