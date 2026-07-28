@@ -876,7 +876,7 @@ export default function HubSidebar({
           if (tabs.enabled) {
             e.preventDefault()
             onClose?.()
-            tabs.openTab({ catalogId: 'room', instanceKey: room.id, label: room.name, href: `/hub/${room.id}`, newCopy: e.altKey })
+            tabs.openTab({ catalogId: 'room', instanceKey: room.id, label: room.name, href: `/hub/${room.id}` })
             return
           }
           onClose?.()
@@ -921,7 +921,7 @@ export default function HubSidebar({
             if (tabs.enabled) {
               e.preventDefault()
               onClose?.()
-              tabs.openTab({ catalogId: 'dm', instanceKey: conv.id, label, href: `/hub/pm/${conv.id}`, newCopy: e.altKey })
+              tabs.openTab({ catalogId: 'dm', instanceKey: conv.id, label, href: `/hub/pm/${conv.id}` })
               return
             }
             onClose?.()

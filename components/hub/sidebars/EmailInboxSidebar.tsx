@@ -89,8 +89,10 @@ export default function EmailInboxSidebar({
   const pathname = usePathname() || ''
   const wsTabs = useWorkspaceTabs()
   // Workspace Tabs: open an email thread as a kept-alive tab instead of navigating.
-  const openInboxTab = (t: EmailThread, alt: boolean) =>
-    wsTabs.openTab({ catalogId: 'inbox-thread', instanceKey: t.id, label: t.subject || '(no subject)', href: `/hub/email/${t.id}`, newCopy: alt })
+  // Conversations are always go-to-existing (a 2nd tab of the same thread would
+  // double-subscribe its realtime channel) — Alt is ignored.
+  const openInboxTab = (t: EmailThread) =>
+    wsTabs.openTab({ catalogId: 'inbox-thread', instanceKey: t.id, label: t.subject || '(no subject)', href: `/hub/email/${t.id}` })
   const router = useRouter()
   const toast = useToast()
 
@@ -776,7 +778,7 @@ export default function EmailInboxSidebar({
       <div className="flex items-center gap-1 hover:bg-white/5">
         <Link
           href={`/hub/email/${t.id}`}
-          onClick={(e) => { markRead(t.id); if (wsTabs.enabled) { e.preventDefault(); onClose?.(); openInboxTab(t, e.altKey); return } onClose?.() }}
+          onClick={(e) => { markRead(t.id); if (wsTabs.enabled) { e.preventDefault(); onClose?.(); openInboxTab(t); return } onClose?.() }}
           className="flex-1 min-w-0 py-2 pl-3 pr-1"
         >
           <div className="flex items-center justify-between gap-2">
@@ -1465,7 +1467,7 @@ export default function EmailInboxSidebar({
                   )}
                   <Link
                     href={`/hub/email/${t.id}`}
-                    onClick={(e) => { markRead(t.id); if (wsTabs.enabled) { e.preventDefault(); onClose?.(); openInboxTab(t, e.altKey); return } onClose?.() }}
+                    onClick={(e) => { markRead(t.id); if (wsTabs.enabled) { e.preventDefault(); onClose?.(); openInboxTab(t); return } onClose?.() }}
                     className={`flex-1 min-w-0 py-2.5 pr-4 ${showChevron ? 'pl-1' : 'pl-4'}`}
                   >
                     <div className="flex items-center justify-between gap-2">
