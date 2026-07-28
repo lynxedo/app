@@ -6,7 +6,7 @@ import { usePathname } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
 import { createClient } from '@/lib/supabase/client'
 import SidebarContactsList from './SidebarContactsList'
-import { Spinner, EmptyState, useToast } from '@/components/ui'
+import { Spinner, EmptyState, useToast, useConfirm } from '@/components/ui'
 import ContactModal from '@/components/hub/txt/ContactModal'
 import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
 import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
@@ -118,6 +118,7 @@ export default function TxtV2Sidebar({
   const openTxtTab = (c: Conversation) =>
     wsTabs.openTab({ catalogId: 'txt-thread', instanceKey: c.id, label: displayNameFor(c), href: `/hub/txt/${c.id}` })
   const toast = useToast()
+  const confirm = useConfirm()
   const [scope, setScope] = useState<Scope>('all')
   const [viewFilter, setViewFilter] = useState<ViewFilter>('all')
   const [conversations, setConversations] = useState<Conversation[]>([])
@@ -129,6 +130,7 @@ export default function TxtV2Sidebar({
   const [groupOpen, setGroupOpen] = useState(false)
   const [broadcastOpen, setBroadcastOpen] = useState(false)
   const [actioningId, setActioningId] = useState<string | null>(null)
+  const [archivingAll, setArchivingAll] = useState(false)
   const [assignOpenId, setAssignOpenId] = useState<string | null>(null)
   const [users, setUsers] = useState<SimpleUser[]>([])
   // Server-side search results (non-null when search.length >= 2).
@@ -412,6 +414,51 @@ export default function TxtV2Sidebar({
     }
   }
 
+  // Bulk "Archive all mine": archives every conversation the current user OWNS
+  // (only those — not ones they merely collaborate on). Previews the count first
+  // so the confirm can name it, then refreshes the list. Each archived thread
+  // starts fresh (owner + members cleared) if the customer texts back.
+  async function archiveAllMine() {
+    if (archivingAll) return
+    setArchivingAll(true)
+    try {
+      const pre = await fetch('/api/txt/conversations/archive-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ preview: true }),
+      })
+      if (!pre.ok) {
+        toast.error("Couldn't check your conversations")
+        return
+      }
+      const { count } = await pre.json()
+      if (!count) {
+        toast.info('No conversations of yours to archive')
+        return
+      }
+      const ok = await confirm({
+        title: 'Archive all mine',
+        message: `Archive ${count} conversation${count === 1 ? '' : 's'} you own? They leave your inbox, and if a customer texts back that conversation returns to the queue unassigned — a clean start. Conversations you don't own are untouched.`,
+        confirmText: 'Archive all',
+      })
+      if (!ok) return
+      const res = await fetch('/api/txt/conversations/archive-all', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({}),
+      })
+      if (res.ok) {
+        const { archived } = await res.json()
+        toast.success(`Archived ${archived} conversation${archived === 1 ? '' : 's'}`)
+        await load()
+      } else {
+        toast.error("Couldn't archive your conversations")
+      }
+    } finally {
+      setArchivingAll(false)
+    }
+  }
+
   const tabs: { id: Scope; label: string; show: boolean }[] = [
     { id: 'mine', label: 'Mine', show: true },
     { id: 'all', label: 'All', show: true },
@@ -507,6 +554,19 @@ export default function TxtV2Sidebar({
               </button>
             ))}
         </div>
+        {scope === 'mine' && (
+          <div className="flex justify-end">
+            <button
+              type="button"
+              onClick={archiveAllMine}
+              disabled={archivingAll}
+              className="text-[11px] text-white/40 hover:text-white/80 disabled:opacity-40 px-1 py-0.5"
+              title="Archive every conversation you own"
+            >
+              {archivingAll ? 'Archiving…' : 'Archive all mine'}
+            </button>
+          </div>
+        )}
 
         {/* Unified inbox lens: filter the current list by channel/state. One
             icon per row already shows the last activity type; these chips
