@@ -1103,13 +1103,16 @@ export default function HubShell({
               </WorkspaceTabErrorBoundary>
             </div>
           ))}
-          {/* The underlying Next route — shown whenever no tab is active. */}
-          <div
-            className="flex-1 min-h-0 flex-col"
-            style={{ display: tabsApi.activeTabId === null ? 'flex' : 'none' }}
-          >
-            {children}
-          </div>
+          {/* The underlying Next route — mounted ONLY when no tab is active. We
+              UNMOUNT (not just hide) it so its realtime channels are released;
+              otherwise opening a tab for the same conversation you're viewing as a
+              route double-subscribes the shared Supabase topic (feed:${id}) and
+              throws "cannot add postgres_changes callbacks after subscribe()". */}
+          {tabsApi.activeTabId === null && (
+            <div className="flex-1 min-h-0 flex flex-col">
+              {children}
+            </div>
+          )}
         </div>
       </div>
 
