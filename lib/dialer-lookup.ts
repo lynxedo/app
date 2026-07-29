@@ -212,7 +212,8 @@ export async function enrichTxtContactName(
       if (tc && !usableName(tc.name, match.phone)) {
         await admin
           .from('txt_contacts')
-          .update({ name: match.name, name_source: 'jobber', updated_at: new Date().toISOString() })
+          // Promote-on-name: a matched Jobber customer belongs in the directory.
+          .update({ name: match.name, name_source: 'jobber', in_directory: true, updated_at: new Date().toISOString() })
           .eq('id', match.txtContactId)
       }
     }

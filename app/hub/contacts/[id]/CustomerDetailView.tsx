@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatPhone, formatCurrency, formatDurationSec } from '@/lib/format'
+import { contactDisplayName, nameIsAiGuessed } from '@/lib/contact-name'
 import MergeContactModal from './MergeContactModal'
 import type { CustomerDetailAccount, CustomerDetailProperty, AccountProgram, AccountVisit } from './types'
 
@@ -12,6 +13,8 @@ type Tag = { id: string; label: string; color: string }
 type Contact = {
   id: string
   name: string
+  name_source?: string | null
+  archived_at?: string | null
   first_name: string | null
   last_name: string | null
   company_name: string | null
@@ -86,6 +89,23 @@ export default function CustomerDetailView({
   const [contact, setContact] = useState<Contact>(initialContact)
   const [texting, setTexting] = useState(false)
   const [showMerge, setShowMerge] = useState(false)
+  const [archiving, setArchiving] = useState(false)
+
+  const isArchived = !!contact.archived_at
+  async function toggleArchive() {
+    if (archiving) return
+    setArchiving(true)
+    try {
+      const res = await fetch(`/api/contacts/${contact.id}/archive`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ archived: !isArchived }),
+      })
+      if (res.ok) setContact(c => ({ ...c, archived_at: isArchived ? null : new Date().toISOString() }))
+    } finally {
+      setArchiving(false)
+    }
+  }
 
   const status = account?.status ?? (contact.jobber_client_id ? 'Active' : 'Contact')
   const statusCls = STATUS_STYLES[status] ?? 'bg-white/10 text-white/50 border-white/15'
@@ -113,10 +133,16 @@ export default function CustomerDetailView({
         <div className="flex items-center gap-3 flex-wrap">
           <Link href="/hub/contacts" className="text-white/50 hover:text-white text-lg leading-none" aria-label="Back to contacts">←</Link>
           <span className={`text-[11px] font-medium px-2.5 py-0.5 rounded-full border ${statusCls}`}>{status}</span>
+          {isArchived && (
+            <span className="text-[11px] font-medium px-2.5 py-0.5 rounded-full border bg-white/10 text-white/60 border-white/20">Archived</span>
+          )}
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               {contact.is_company && <span className="text-xs">🏢</span>}
-              <h1 className="text-lg font-semibold truncate">{contact.name}</h1>
+              <h1 className="text-lg font-semibold truncate">{contactDisplayName(contact.name, contact.phone)}</h1>
+              {nameIsAiGuessed(contact.name_source) && (
+                <span className="w-2 h-2 rounded-full bg-purple-400 flex-none" title="Name suggested by AI — Edit to confirm" />
+              )}
               {contact.do_not_text && (
                 <span className="text-[9px] uppercase tracking-wide text-orange-300 bg-orange-900/30 px-1.5 py-0.5 rounded">do not text</span>
               )}
@@ -140,6 +166,10 @@ export default function CustomerDetailView({
             )}
             <button type="button" onClick={() => setShowMerge(true)} title="Merge this contact into another"
               className="px-2.5 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-xs font-medium text-white/70">⧉ Merge</button>
+            <button type="button" onClick={toggleArchive} disabled={archiving}
+              title={isArchived ? 'Unarchive — show in the active directory again' : 'Archive — hide from the active directory (reversible)'}
+              className="px-2.5 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-xs font-medium text-white/70 disabled:opacity-50">
+              {archiving ? '…' : isArchived ? '📤 Unarchive' : '🗄 Archive'}</button>
           </div>
         </div>
       </div>

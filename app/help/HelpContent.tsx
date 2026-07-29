@@ -1551,6 +1551,11 @@ function ContactsTab() {
         <Step n={1}><strong className="text-white">Channel</strong> — show only contacts that have a phone (the Txt/Dialer view) or have an email (the Email Marketing view).</Step>
         <Step n={2}><strong className="text-white">Source</strong> — where the contact came from: Jobber, the Lead Tracker, Manual, or Imported.</Step>
         <Step n={3}><strong className="text-white">Email status</strong> — Subscribed, Unsubscribed, Bounced, or Complained. <strong className="text-white">Reset</strong> clears these three at once.</Step>
+        <p className="mt-2">There&apos;s also a <strong className="text-white">No name</strong> toggle — show only the <em>Unknown</em> contacts (people who called or texted in but were never named), so you can clean them up in a batch.</p>
+      </Section>
+
+      <Section title="AI-suggested names">
+        <p>Contacts that came in from a call or text and were never named show as <strong className="text-white">Unknown</strong>. Where the customer&apos;s name can be figured out from the conversation, AI fills it in for you — those names get a small <span className="inline-block align-middle w-2 h-2 rounded-full bg-purple-400" /> <strong className="text-white">purple dot</strong> so you know it was an AI guess. Open the contact and <strong className="text-white">Edit</strong> to confirm or correct it; once you do, the dot goes away (it&apos;s now a name you verified). AI only fills a name when it&apos;s confident — unclear ones stay <em>Unknown</em>.</p>
       </Section>
 
       <Section title="Right inside the Dialer & Txt sidebars">
@@ -1569,7 +1574,8 @@ function ContactsTab() {
       <Section title="Adding & editing contacts">
         <p>The <strong className="text-white">+ Add</strong> button at the top creates a new contact (name + phone required; company, email, mailing address, and tags optional). Tick <strong className="text-white">This contact is a business</strong> for vendors or commercial accounts.</p>
         <p>Tap any existing contact to open their <strong className="text-white">customer page</strong>. The <strong className="text-white">Customer</strong>, <strong className="text-white">Flags</strong>, and <strong className="text-white">Notes</strong> cards each have their own <strong className="text-white">Edit</strong> button for changing name, company, phone, email, email status, mailing address, notes, and tags. The <strong className="text-white">Do not text</strong> toggle blocks outbound SMS to this contact from Txt and broadcasts — useful when someone replies STOP or asks to be left alone (Twilio also auto-flips this when they text STOP).</p>
-        <p><strong className="text-white">Delete</strong> now <strong className="text-white">removes the contact from the directory but keeps it recoverable</strong> — their text and call history stays intact, and it can be brought back. (Nothing is permanently erased.)</p>
+        <p><strong className="text-white">🗄 Archive</strong> (on the customer page) <strong className="text-white">hides a contact from the directory without deleting it</strong> — great for spam, wrong numbers, or one-off inbounds you don&apos;t want cluttering your lists. Archived contacts drop out of the normal Contacts list; tap the <strong className="text-white">Archived</strong> filter to see them, open one, and hit <strong className="text-white">📤 Unarchive</strong> to bring it back. All their history is kept. (This is separate from archiving a Txt <em>conversation</em> — that just tidies your message list; this tidies the contact directory.)</p>
+        <p><strong className="text-white">Delete</strong> <strong className="text-white">removes the contact from the directory but keeps it recoverable</strong> — their text and call history stays intact, and it can be brought back. (Nothing is permanently erased.)</p>
         <Note>Editing a contact by hand marks it as yours — the nightly Jobber sync won&apos;t overwrite fields you&apos;ve corrected. Inbound calls and texts still auto-create contacts on first contact, so the list keeps growing on its own.</Note>
       </Section>
 

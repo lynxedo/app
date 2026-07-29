@@ -11,7 +11,7 @@ import ContactModal from '@/components/hub/txt/ContactModal'
 import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
 import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
 import { formatPhone } from '@/lib/format'
-import { contactDisplayName, isPlaceholderName } from '@/lib/contact-name'
+import { contactDisplayName, isPlaceholderName, nameIsAiGuessed } from '@/lib/contact-name'
 import { useWorkspaceTabs } from '../workspace/WorkspaceTabsContext'
 
 type Conversation = {
@@ -25,7 +25,7 @@ type Conversation = {
   last_message_preview: string | null
   last_message_direction: 'inbound' | 'outbound' | null
   created_at: string
-  contact: { id: string; name: string; phone: string; do_not_text: boolean } | null
+  contact: { id: string; name: string; name_source?: string | null; phone: string; do_not_text: boolean } | null
   assignee: { id: string; display_name: string } | null
   members?: Array<{ user_id: string; role?: string | null }>
   group_contacts?: Array<{ contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null }>
@@ -79,6 +79,14 @@ function displayNameFor(c: Conversation) {
   return groupNames.length > 0
     ? `👥 ${groupNames.slice(0, 2).join(', ')}${groupNames.length > 2 ? ` +${groupNames.length - 2}` : ''}`
     : '👥 Group'
+}
+
+// Purple dot when a direct contact's name was guessed by AI (verify + confirm).
+// inline-block + leading so it renders inside the truncating name span and never
+// gets clipped when a long name ellipsizes.
+function AiDot({ c }: { c: Conversation }) {
+  if (c.kind === 'group' || !nameIsAiGuessed(c.contact?.name_source)) return null
+  return <span className="inline-block align-middle mr-1 w-2 h-2 rounded-full bg-purple-400" title="Name suggested by AI — open to confirm" />
 }
 
 function sublineFor(c: Conversation) {
@@ -645,7 +653,7 @@ export default function TxtV2Sidebar({
                             )}
                             {activityIcon(c)}
                             <span className={`text-sm truncate ${unread ? 'font-semibold text-white' : 'font-medium'}`}>
-                              {displayNameFor(c)}
+                              <AiDot c={c} />{displayNameFor(c)}
                             </span>
                           </span>
                           <span className={`text-[10px] flex-none ${unread ? 'text-orange-300' : 'text-white/40'}`}>
@@ -704,7 +712,7 @@ export default function TxtV2Sidebar({
                         <span className="flex items-center gap-1.5 min-w-0">
                           {activityIcon(c)}
                           <span className="font-medium text-sm truncate">
-                            {displayNameFor(c)}
+                            <AiDot c={c} />{displayNameFor(c)}
                           </span>
                         </span>
                         <span className="flex items-center gap-1.5 flex-none">
@@ -821,7 +829,7 @@ export default function TxtV2Sidebar({
                       )}
                       {activityIcon(c)}
                       <span className={`text-sm truncate ${unread ? 'font-semibold text-white' : 'font-medium'}`}>
-                        {displayNameFor(c)}
+                        <AiDot c={c} />{displayNameFor(c)}
                       </span>
                     </span>
                     <span className={`text-[10px] flex-none ${unread ? 'text-orange-300' : 'text-white/40'}`}>
@@ -913,7 +921,7 @@ function NewConversationModal({
 }) {
   const [query, setQuery] = useState(initialQuery)
   const [results, setResults] = useState<
-    Array<{ id: string; name: string; phone: string; do_not_text?: boolean }>
+    Array<{ id: string; name: string; name_source?: string | null; phone: string; do_not_text?: boolean }>
   >([])
   const [searching, setSearching] = useState(false)
   const [searched, setSearched] = useState(false)
@@ -1008,7 +1016,8 @@ function NewConversationModal({
                     className="w-full text-left px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 disabled:opacity-40"
                   >
                     <div className="text-sm font-medium flex items-center gap-2">
-                      {r.name}
+                      {nameIsAiGuessed(r.name_source) && <span className="w-2 h-2 rounded-full bg-purple-400 flex-none" title="Name suggested by AI — open to confirm" />}
+                      {contactDisplayName(r.name, r.phone)}
                       {r.do_not_text && (
                         <span className="text-[10px] px-1 rounded bg-orange-500/20 text-orange-300">
                           do-not-text

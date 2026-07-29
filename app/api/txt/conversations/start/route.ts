@@ -51,7 +51,9 @@ export async function POST(request: Request) {
         email,
         notes,
         jobber_client_id: jobberClientId,
-        in_directory: jobberClientId != null,
+        // Promote-on-name: a contact created here with a real name belongs in
+        // the directory (Jobber-linked ones always did).
+        in_directory: !!name || jobberClientId != null,
       })
       .select('id')
       .single()
@@ -63,7 +65,7 @@ export async function POST(request: Request) {
     // Update name/email/notes/jobber_id if newly known
     if (name || email || notes || jobberClientId) {
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
-      if (name) { patch.name = name; patch.name_source = 'manual' }
+      if (name) { patch.name = name; patch.name_source = 'manual'; patch.in_directory = true }
       if (email) patch.email = email
       if (notes) patch.notes = notes
       if (jobberClientId) patch.jobber_client_id = jobberClientId

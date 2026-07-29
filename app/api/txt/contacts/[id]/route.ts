@@ -42,6 +42,8 @@ export async function PATCH(
       return NextResponse.json({ error: 'Name cannot be empty' }, { status: 400 })
     }
     patch.name = name
+    patch.name_source = 'manual'  // human-confirmed → clears the AI-guessed (purple dot) marker
+    patch.in_directory = true     // promote-on-name: a named contact belongs in the directory
   }
 
   if (typeof body.phone === 'string') {

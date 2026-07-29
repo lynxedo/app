@@ -186,8 +186,8 @@ export default async function CustomerDetailPage({
   const { data: raw } = await supabase
     .from('txt_contacts')
     .select(`
-      id, company_id, name, first_name, last_name, company_name, is_company,
-      phone, email, email_status, do_not_text, notes, jobber_client_id, sources, created_at,
+      id, company_id, name, name_source, first_name, last_name, company_name, is_company,
+      phone, email, email_status, do_not_text, notes, jobber_client_id, sources, created_at, archived_at,
       address_line1, address_line2, city, state, postal_code, country,
       tags:contact_tag_assignments(tag_id, contact_tags(id, label, color))
     `)
@@ -204,6 +204,8 @@ export default async function CustomerDetailPage({
   const contact = {
     id: raw.id as string,
     name: raw.name as string,
+    name_source: (raw.name_source as string | null) ?? null,
+    archived_at: (raw.archived_at as string | null) ?? null,
     first_name: (raw.first_name as string | null) ?? null,
     last_name: (raw.last_name as string | null) ?? null,
     company_name: (raw.company_name as string | null) ?? null,

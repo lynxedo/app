@@ -34,6 +34,8 @@ export async function GET(request: Request) {
   const source = (url.searchParams.get('source') || '').trim()
   const status = (url.searchParams.get('status') || '').trim()
   const includeBlocked = url.searchParams.get('include_do_not_text') === '1'
+  const unnamed = url.searchParams.get('unnamed') === '1'  // "No name" filter → name = ''
+  const archived = url.searchParams.get('archived') === '1' // "Archived" view → archived_at set
   const withCount = url.searchParams.get('with_count') === '1'
   // Pagination. `limit` is the page size (default 100, capped 500); `offset`
   // is the row to start at. Tag filters are applied in JS after the fetch (see
@@ -47,8 +49,8 @@ export async function GET(request: Request) {
   let query = supabase
     .from('txt_contacts')
     .select(`
-      id, name, first_name, last_name, company_name, is_company,
-      phone, email, email_status, do_not_text, notes, jobber_client_id, sources,
+      id, name, name_source, first_name, last_name, company_name, is_company,
+      phone, email, email_status, do_not_text, notes, jobber_client_id, sources, archived_at,
       address_line1, address_line2, city, state, postal_code, country,
       tags:contact_tag_assignments(tag_id, contact_tags(id, label, color))
     `, withCount && !tagFilterActive ? { count: 'exact' } : undefined)
@@ -63,6 +65,10 @@ export async function GET(request: Request) {
   if (channel === 'email') query = query.not('email', 'is', null)
   if (source) query = query.contains('sources', [source])
   if (status) query = query.eq('email_status', status)
+  if (unnamed) query = query.eq('name', '')
+  // Archived contacts are hidden from the active directory; the "Archived" view
+  // shows only them.
+  query = archived ? query.not('archived_at', 'is', null) : query.is('archived_at', null)
 
   if (search) {
     const pattern = ilikeSearchPattern(search)

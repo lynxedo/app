@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatPhone } from '@/lib/format'
+import { contactDisplayName, nameIsAiGuessed } from '@/lib/contact-name'
 
 const PAGE_SIZE = 100
 
@@ -11,6 +12,8 @@ type Tag = { id: string; label: string; color: string }
 type Contact = {
   id: string
   name: string
+  name_source?: string | null
+  archived_at?: string | null
   first_name?: string | null
   last_name?: string | null
   company_name?: string | null
@@ -52,6 +55,8 @@ export default function ContactsPanel({
   const [channel, setChannel] = useState('')   // '' | 'phone' | 'email'
   const [source, setSource] = useState('')      // '' | jobber | manual | import | sms | voice
   const [status, setStatus] = useState('')      // '' | subscribed | unsubscribed | bounced | complained
+  const [unnamedOnly, setUnnamedOnly] = useState(false) // "No name" (Unknown) contacts only
+  const [archivedOnly, setArchivedOnly] = useState(false) // "Archived" view (hidden from default list)
   const [showTags, setShowTags] = useState(false) // tag filter collapsed by default (lots of tags)
   const [adding, setAdding] = useState(false)
   const [hasMore, setHasMore] = useState(false)
@@ -73,6 +78,8 @@ export default function ContactsPanel({
     if (channel) params.set('channel', channel)
     if (source) params.set('source', source)
     if (status) params.set('status', status)
+    if (unnamedOnly) params.set('unnamed', '1')
+    if (archivedOnly) params.set('archived', '1')
     // The directory shows everyone (do-not-text contacts included, with a
     // badge) — it's an address book, not a send tool.
     params.set('include_do_not_text', '1')
@@ -80,7 +87,7 @@ export default function ContactsPanel({
     params.set('offset', String(offset))
     if (withCount) params.set('with_count', '1')
     return params
-  }, [search, selectedTagIds, untaggedOnly, channel, source, status])
+  }, [search, selectedTagIds, untaggedOnly, channel, source, status, unnamedOnly, archivedOnly])
 
   // Debounced reset-load: refetch page 1 whenever search/filters change.
   useEffect(() => {
@@ -154,7 +161,7 @@ export default function ContactsPanel({
     if (!untaggedOnly) setSelectedTagIds(new Set())
   }
 
-  const anyFilter = !!(search || selectedTagIds.size > 0 || untaggedOnly || channel || source || status)
+  const anyFilter = !!(search || selectedTagIds.size > 0 || untaggedOnly || channel || source || status || unnamedOnly || archivedOnly)
   const totalLabel = useMemo(() => {
     const n = contacts.length.toLocaleString()
     if (total != null && total > contacts.length) return `Showing ${n} of ${total.toLocaleString()}`
@@ -205,10 +212,26 @@ export default function ContactsPanel({
             <option value="bounced">Bounced</option>
             <option value="complained">Complained</option>
           </select>
-          {(channel || source || status) && (
+          <button
+            type="button"
+            onClick={() => setUnnamedOnly(v => !v)}
+            title="Show only contacts without a name (Unknown)"
+            className={`text-xs px-2 py-1 rounded-md border ${unnamedOnly ? 'bg-amber-500/20 border-amber-500/40 text-amber-200' : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10'}`}
+          >
+            No name
+          </button>
+          <button
+            type="button"
+            onClick={() => setArchivedOnly(v => !v)}
+            title="Show archived contacts (hidden from the active directory)"
+            className={`text-xs px-2 py-1 rounded-md border ${archivedOnly ? 'bg-white/20 border-white/30 text-white' : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10'}`}
+          >
+            Archived
+          </button>
+          {(channel || source || status || unnamedOnly || archivedOnly) && (
             <button
               type="button"
-              onClick={() => { setChannel(''); setSource(''); setStatus('') }}
+              onClick={() => { setChannel(''); setSource(''); setStatus(''); setUnnamedOnly(false); setArchivedOnly(false) }}
               className="text-xs px-2 py-1 rounded-md text-white/40 hover:text-white"
             >
               Reset
@@ -301,10 +324,18 @@ export default function ContactsPanel({
                 <div className="min-w-0 flex-1">
                   <div className="flex items-center gap-2">
                     {c.is_company && <span className="text-[11px]">🏢</span>}
-                    <span className="font-medium text-sm truncate">{c.name}</span>
+                    <span className={`font-medium text-sm truncate ${contactDisplayName(c.name, c.phone) === 'Unknown' ? 'text-white/50 italic' : ''}`}>{contactDisplayName(c.name, c.phone)}</span>
+                    {nameIsAiGuessed(c.name_source) && (
+                      <span className="w-1.5 h-1.5 rounded-full bg-purple-400 flex-none" title="Name suggested by AI — open to confirm" />
+                    )}
                     {c.do_not_text && (
                       <span className="text-[9px] uppercase tracking-wide text-orange-300 bg-orange-900/30 px-1.5 py-0.5 rounded">
                         do not text
+                      </span>
+                    )}
+                    {c.archived_at && (
+                      <span className="text-[9px] uppercase tracking-wide text-white/50 bg-white/10 px-1.5 py-0.5 rounded">
+                        archived
                       </span>
                     )}
                   </div>
