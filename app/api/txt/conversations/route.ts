@@ -272,7 +272,7 @@ export async function GET(request: Request) {
       .from('txt_conversations')
       .select(
         `id, kind, status, source, assigned_to, archived_by, phone_number_id, last_message_at, last_inbound_at, last_message_preview, last_message_direction, created_at,
-         contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, phone, do_not_text ),
+         contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, name_source, phone, do_not_text ),
          assignee:hub_users!assigned_to ( id, display_name ),
          members:txt_conversation_members ( user_id, role, member:hub_users!user_id ( id, display_name ) ),
          group_contacts:txt_conversation_contacts ( contact:txt_contacts!txt_conversation_contacts_contact_id_fkey ( id, name, phone ) ),
