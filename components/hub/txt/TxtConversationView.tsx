@@ -45,6 +45,7 @@ type Contact = {
   id: string
   name: string
   name_source?: string | null
+  name_prompt_dismissed_at?: string | null
   phone: string
   email: string | null
   do_not_text: boolean
@@ -220,6 +221,7 @@ export default function TxtConversationView({
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [editContactOpen, setEditContactOpen] = useState(false)
   const [addContactOpen, setAddContactOpen] = useState(false)
+  const [namePromptDismissed, setNamePromptDismissed] = useState<boolean>(!!initialConversation.contact?.name_prompt_dismissed_at)
   const [trackerOpen, setTrackerOpen] = useState(false)
   const [trackerLeadId, setTrackerLeadId] = useState<string | null>(null)
   const [numbers, setNumbers] = useState<PhoneNumberOption[]>([])
@@ -1182,6 +1184,25 @@ export default function TxtConversationView({
     conversation.contact?.name,
     conversation.contact?.phone,
   )
+  // Nudge to name an "Unknown" contact — shown once per contact (dismissible),
+  // never re-nagging (item 5). Skipped for groups.
+  const showNamePrompt =
+    !isGroup && !!conversation.contact && contactNameIsPlaceholder && !namePromptDismissed
+  function dismissNamePrompt() {
+    setNamePromptDismissed(true)
+    const cid = conversation.contact?.id
+    if (cid) {
+      void fetch(`/api/txt/contacts/${cid}`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dismiss_name_prompt: true }),
+      })
+    }
+  }
+  function openNameEditor() {
+    if (contactInDirectory) setEditContactOpen(true)
+    else setAddContactOpen(true)
+  }
   // Min for the schedule datetime-local input — 1 minute out (UX hint only;
   // the server validates send_at is in the future).
   const minScheduleDateTime = new Date(Date.now() + 60_000).toISOString().slice(0, 16)
@@ -1661,6 +1682,17 @@ export default function TxtConversationView({
           <span>
             This contact opted out — they&apos;re on the do-not-text list. Outbound texts are blocked.
           </span>
+        </div>
+      )}
+
+      {showNamePrompt && (
+        <div className="px-4 py-2 bg-sky-500/10 border-b border-sky-500/25 text-sm flex items-center gap-2">
+          <span aria-hidden>🏷️</span>
+          <span className="flex-1 text-white/80">This contact doesn&apos;t have a name yet. Add one so it&apos;s easy to find.</span>
+          <button type="button" onClick={openNameEditor}
+            className="px-2.5 py-1 rounded-md bg-sky-600 hover:bg-sky-500 text-[#fff] text-xs font-medium flex-none">Add a name</button>
+          <button type="button" onClick={dismissNamePrompt} title="Dismiss"
+            className="px-1.5 py-1 rounded-md text-white/40 hover:text-white flex-none">✕</button>
         </div>
       )}
 

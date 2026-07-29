@@ -57,6 +57,8 @@ export async function PATCH(
   if (body.email !== undefined) patch.email = body.email || null
   if (body.notes !== undefined) patch.notes = body.notes || null
   if (typeof body.do_not_text === 'boolean') patch.do_not_text = body.do_not_text
+  // Item 5: dismiss the "add a name" nudge for this contact (once per contact).
+  if (body.dismiss_name_prompt === true) patch.name_prompt_dismissed_at = new Date().toISOString()
 
   const { data: updated, error: updErr } = await admin
     .from('txt_contacts')
