@@ -67,8 +67,7 @@ export async function POST(
     return NextResponse.json({ error: 'No phone number on file for this stop.' }, { status: 422 })
   }
 
-  // Check do-not-text against txt_contacts (canonical contacts table) and
-  // fall back to hub_contacts for any legacy rows the optimizer captured.
+  // Check do-not-text against txt_contacts — the canonical contacts directory.
   const rawDigits = stop.client_phone.replace(/\D/g, '')
   const possiblePhones = [stop.client_phone, rawDigits]
   if (rawDigits.length === 10) possiblePhones.push(`+1${rawDigits}`, `1${rawDigits}`)
@@ -81,17 +80,6 @@ export async function POST(
     .limit(1)
     .maybeSingle()
   if (txtMatch?.do_not_text) {
-    return NextResponse.json({ error: 'Customer is on the do-not-text list.' }, { status: 422 })
-  }
-
-  const { data: hubMatch } = await admin
-    .from('hub_contacts')
-    .select('do_not_text')
-    .eq('company_id', profile.company_id)
-    .in('phone', possiblePhones)
-    .limit(1)
-    .maybeSingle()
-  if (hubMatch?.do_not_text) {
     return NextResponse.json({ error: 'Customer is on the do-not-text list.' }, { status: 422 })
   }
 
