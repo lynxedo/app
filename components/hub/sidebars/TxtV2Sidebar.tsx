@@ -11,6 +11,7 @@ import ContactModal from '@/components/hub/txt/ContactModal'
 import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
 import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
 import { formatPhone } from '@/lib/format'
+import { contactDisplayName, isPlaceholderName } from '@/lib/contact-name'
 import { useWorkspaceTabs } from '../workspace/WorkspaceTabsContext'
 
 type Conversation = {
@@ -68,11 +69,11 @@ function formatRelative(iso: string | null) {
 
 function displayNameFor(c: Conversation) {
   const isGroup = c.kind === 'group'
-  if (!isGroup) return c.contact?.name || 'Unknown'
+  if (!isGroup) return contactDisplayName(c.contact?.name, c.contact?.phone)
   const groupNames = (c.group_contacts ?? [])
     .map((gc) => {
       const inner = Array.isArray(gc.contact) ? gc.contact[0] : gc.contact
-      return inner?.name || null
+      return inner?.name && !isPlaceholderName(inner.name, inner.phone) ? inner.name.trim() : null
     })
     .filter(Boolean) as string[]
   return groupNames.length > 0
@@ -126,6 +127,7 @@ export default function TxtV2Sidebar({
   const [loading, setLoading] = useState(false)
   const [search, setSearch] = useState('')
   const [newOpen, setNewOpen] = useState(false)
+  const [newInitialQuery, setNewInitialQuery] = useState('')
   const [addContactOpen, setAddContactOpen] = useState(false)
   const [groupOpen, setGroupOpen] = useState(false)
   const [broadcastOpen, setBroadcastOpen] = useState(false)
@@ -598,6 +600,18 @@ export default function TxtV2Sidebar({
       ) : searchResults !== null ? (
         // Server search results mode — shown when search.length >= 2
         <div className="flex-1 overflow-y-auto min-h-0">
+          {/* Typed a phone number? Offer to text it directly — no detour through
+              "New conversation". Opens the composer pre-filled (find-or-create). */}
+          {search.replace(/\D/g, '').length >= 7 && (
+            <button
+              type="button"
+              onClick={() => { setNewInitialQuery(search); setNewOpen(true) }}
+              className="w-full text-left px-4 py-2.5 border-b border-white/5 hover:bg-white/5 flex items-center gap-2 text-sm"
+            >
+              <span className="text-emerald-400">💬</span>
+              <span>Message <span className="font-medium">{formatPhone(search.replace(/\D/g, '').slice(-10))}</span></span>
+            </button>
+          )}
           {searchingServer && searchResults.length === 0 && (
             <div className="py-12 text-center"><Spinner size={6} /></div>
           )}
@@ -863,7 +877,11 @@ export default function TxtV2Sidebar({
       </div>
 
       {newOpen && (
-        <NewConversationModal onClose={() => setNewOpen(false)} onCreated={load} />
+        <NewConversationModal
+          initialQuery={newInitialQuery}
+          onClose={() => { setNewOpen(false); setNewInitialQuery('') }}
+          onCreated={load}
+        />
       )}
 
       {addContactOpen && (
@@ -887,17 +905,23 @@ export default function TxtV2Sidebar({
 function NewConversationModal({
   onClose,
   onCreated,
+  initialQuery = '',
 }: {
   onClose: () => void
   onCreated: () => void
+  initialQuery?: string
 }) {
-  const [query, setQuery] = useState('')
+  const [query, setQuery] = useState(initialQuery)
   const [results, setResults] = useState<
     Array<{ id: string; name: string; phone: string; do_not_text?: boolean }>
   >([])
   const [searching, setSearching] = useState(false)
   const [searched, setSearched] = useState(false)
-  const [manualPhone, setManualPhone] = useState('')
+  // Pre-fill the manual-phone box when the caller handed us a number, so
+  // "Message this number" lands ready to send.
+  const [manualPhone, setManualPhone] = useState(
+    /\d/.test(initialQuery) && initialQuery.replace(/\D/g, '').length >= 7 ? initialQuery : ''
+  )
   const [error, setError] = useState('')
 
   // Search the local Txt contacts (the Contacts page), not Jobber.

@@ -12,6 +12,7 @@ import { createClient } from '@/lib/supabase/client'
 import { renderTemplate, DEFAULT_ON_MY_WAY_TEMPLATE } from '@/lib/txt-templates'
 import { CallMarker, VoicemailMarker, type TimelineCallEvent } from './TimelineMarkers'
 import { formatPhone } from '@/lib/format'
+import { contactDisplayName, isPlaceholderName } from '@/lib/contact-name'
 
 type Message = {
   id: string
@@ -1176,10 +1177,10 @@ export default function TxtConversationView({
   // directory yet. Offer a one-tap "Add to Contacts" that graduates it (POST
   // /api/txt/contacts adopts the row by phone, keeping full history).
   const contactInDirectory = conversation.contact?.in_directory !== false
-  const contactNameIsPlaceholder =
-    !!conversation.contact?.phone &&
-    (conversation.contact.name || '').replace(/\D/g, '') ===
-      conversation.contact.phone.replace(/\D/g, '')
+  const contactNameIsPlaceholder = isPlaceholderName(
+    conversation.contact?.name,
+    conversation.contact?.phone,
+  )
   // Min for the schedule datetime-local input — 1 minute out (UX hint only;
   // the server validates send_at is in the future).
   const minScheduleDateTime = new Date(Date.now() + 60_000).toISOString().slice(0, 16)
@@ -1302,7 +1303,7 @@ export default function TxtConversationView({
             }
           >
             <div className="font-medium truncate">
-              {conversation.contact?.name || 'Unknown'}
+              {contactDisplayName(conversation.contact?.name, conversation.contact?.phone)}
             </div>
             <div className="text-xs text-white/50 truncate">{phoneDisplay}</div>
           </button>
@@ -1315,7 +1316,7 @@ export default function TxtConversationView({
             target={{
               kind: 'txt',
               id: conversation.id,
-              title: conversation.contact?.name || 'Text conversation',
+              title: contactDisplayName(conversation.contact?.name, conversation.contact?.phone),
               companyId,
             }}
           />

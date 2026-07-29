@@ -229,11 +229,18 @@ export async function GET(request: Request) {
     if (q.length < 2) return NextResponse.json({ conversations: [] })
 
     const pattern = ilikeSearchPattern(q)
+    // Digit-normalized phone match: a number typed with any formatting
+    // ((281) 555-1234, 281-555-1234, 2815551234) matches the stored phone_digits
+    // (last-10). Only when the query carries ≥3 digits, so a text search isn't
+    // hijacked. qDigits is digits-only → safe to interpolate raw.
+    const qDigits = q.replace(/\D/g, '').slice(-10)
+    const orClauses = [`name.ilike.${pattern}`, `phone.ilike.${pattern}`]
+    if (qDigits.length >= 3) orClauses.push(`phone_digits.ilike.%${qDigits}%`)
     const [contactsRes, msgsRes] = await Promise.all([
       supabase
         .from('txt_contacts')
         .select('id')
-        .or(`name.ilike.${pattern},phone.ilike.${pattern}`)
+        .or(orClauses.join(','))
         .limit(100),
       supabase
         .from('txt_messages')

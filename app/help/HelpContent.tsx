@@ -1217,6 +1217,12 @@ function TxtTab() {
         <Note>Reading is open to the whole team; <strong className="text-white">sending</strong> is just for the people on a conversation, and you join one of two explicit ways (typing a reply never silently claims a thread anymore). If it&apos;s an <strong className="text-white">unclaimed</strong> Queue thread, you&apos;ll see <strong className="text-white">Claim it</strong> — tap it to become the owner and the composer appears. If it&apos;s already <strong className="text-white">owned by someone else</strong>, you&apos;ll see <strong className="text-white">Join to reply</strong> — tap it to add yourself as a member and the composer appears.</Note>
       </Section>
 
+      <Section title="Finding a conversation">
+        <p>Search from the top of the Txt list by <strong className="text-white">name, phone, or message text</strong>. Phone search now works in <strong className="text-white">any format</strong> — <code className="text-gray-300">(281) 555-1234</code>, <code className="text-gray-300">281-555-1234</code>, or <code className="text-gray-300">2815551234</code> all find the same person and their existing thread, so you no longer have to start a New Conversation just to discover a contact already exists.</p>
+        <p className="mt-2">Typed a number that has no thread yet? A <strong className="text-white">💬 Message (xxx) xxx-xxxx</strong> shortcut appears at the top of the results — one tap opens a conversation with that number (creating the contact if needed).</p>
+        <Note>Contacts we don&apos;t have a name for show as <strong className="text-white">&ldquo;Unknown&rdquo;</strong> (with their number underneath), not the phone number as the name — so the list stays clean and name search isn&apos;t cluttered with numbers. Tap <strong className="text-white">+ Add to Contacts</strong> (below) to give them a real name.</Note>
+      </Section>
+
       <Section title="Add to Contacts">
         <p>When you&apos;re texting a number that isn&apos;t in your <Link href="/hub/contacts" className="text-sky-400 hover:underline">Contacts</Link> directory yet — someone who just texted in, for example — a green <strong className="text-white">+ Add to Contacts</strong> button shows in the conversation header. Tap it to save them (name pre-filled where we have it); the whole conversation history stays attached to that contact. Once saved, the button disappears and the name opens the usual <strong className="text-white">Edit contact</strong> panel.</p>
       </Section>

@@ -11,6 +11,7 @@ import { sendHubPush } from '@/lib/hub-push'
 import { buildMessagePreview } from '@/lib/txt-preview'
 import { evaluateEventAutomations } from '@/lib/automations'
 import { enrichTxtContactName } from '@/lib/dialer-lookup'
+import { contactDisplayName, isPlaceholderName } from '@/lib/contact-name'
 import { pauseEnrollmentsForInbound } from '@/lib/drip'
 import { maybeEnqueueAmberTurn } from '@/lib/amber-text'
 import { resolveCompanyByTwilioNumber } from '@/lib/txt-company'
@@ -176,8 +177,10 @@ export async function POST(req: NextRequest) {
 
   let contactId = existingContact?.id
   if (!contactId) {
-    // Resolve a real name from the Jobber clients/contacts mirror; fall back
-    // to the phone-number placeholder only when nothing matches.
+    // Resolve a real name from the Jobber clients/contacts mirror. When nothing
+    // matches we leave name NULL (an "Unknown" contact) rather than storing the
+    // phone number as the name — that pollutes name-search and looks messy
+    // (Contact Quality PRD). name_source records where a real name came from.
     const jobberName = await enrichTxtContactName(companyId, from)
     const { data: created, error: createErr } = await supabase
       .from('txt_contacts')
@@ -185,7 +188,8 @@ export async function POST(req: NextRequest) {
         company_id: companyId,
         phone: from,
         phone_digits: from.replace(/\D/g, '').slice(-10),
-        name: jobberName || from,
+        name: jobberName || null,
+        name_source: jobberName ? 'jobber' : null,
         in_directory: false,
       })
       .select('id')
@@ -195,10 +199,10 @@ export async function POST(req: NextRequest) {
       return twimlResponse(EMPTY_TWIML, 500)
     }
     contactId = created.id
-  } else if (existingContact && existingContact.name === from) {
-    // Existing contact still has the phone-as-name placeholder — enrich it
-    // from the Jobber mirror (persists the name itself; a few indexed queries,
-    // never throws). Awaited so the push title below picks up the real name.
+  } else if (existingContact && isPlaceholderName(existingContact.name, from)) {
+    // Existing contact still has no real name (null or the phone-as-name
+    // placeholder) — enrich it from the Jobber mirror (persists the name itself;
+    // a few indexed queries, never throws). Awaited so the push title picks it up.
     await enrichTxtContactName(companyId, from)
   }
 
@@ -543,7 +547,7 @@ async function processInboundSideEffects(args: {
         .select('name')
         .eq('id', contactId)
         .maybeSingle()
-      const displayName = contactRow?.name?.trim() || from
+      const displayName = contactDisplayName(contactRow?.name, from)
       const preview = body
         ? body.length > 100
           ? body.slice(0, 97) + '…'

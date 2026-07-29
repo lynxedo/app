@@ -20,6 +20,7 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/phone'
 import { fetchTwilioCallerId, callerIdEnabled } from '@/lib/twilio-caller-id'
+import { isPlaceholderName } from '@/lib/contact-name'
 
 const HEROES_COMPANY_ID = process.env.DIALER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
@@ -206,11 +207,12 @@ export async function enrichTxtContactName(
         .select('name')
         .eq('id', match.txtContactId)
         .maybeSingle()
-      // Only overwrite a placeholder (phone-as-name) — never a real saved name.
+      // Only overwrite a placeholder (null / phone-as-name) — never a real saved
+      // name. Stamp name_source='jobber' so the name reads as trusted (no AI dot).
       if (tc && !usableName(tc.name, match.phone)) {
         await admin
           .from('txt_contacts')
-          .update({ name: match.name, updated_at: new Date().toISOString() })
+          .update({ name: match.name, name_source: 'jobber', updated_at: new Date().toISOString() })
           .eq('id', match.txtContactId)
       }
     }
@@ -226,8 +228,8 @@ export async function enrichTxtContactName(
 // path can link a calls row to a contact the same way the inbound SMS path does
 // (previously the voice path only *looked up* an existing contact, leaving
 // contact_id NULL for first-time callers). Normalizes to E.164, then:
-//   - existing row → return it (enrich a placeholder name in the background)
-//   - none → create with the E.164 as a placeholder name and enrich async, so
+//   - existing row → return it (enrich a still-nameless row in the background)
+//   - none → create with name NULL (an "Unknown" contact) and enrich async, so
 //     the hot voice-webhook path isn't blocked on the Jobber-mirror lookup.
 // Race-safe against the txt_contacts (company_id, phone) unique constraint.
 // Never throws — returns null only when the number can't be normalized.
@@ -246,7 +248,7 @@ export async function findOrCreateTxtContact(
       .eq('phone', e164)
       .maybeSingle()
     if (existing) {
-      if (existing.name === e164) void enrichTxtContactName(companyId, e164)
+      if (isPlaceholderName(existing.name, e164)) void enrichTxtContactName(companyId, e164)
       return existing.id
     }
     // ignoreDuplicates so a concurrent create (e.g. a near-simultaneous inbound
@@ -257,7 +259,9 @@ export async function findOrCreateTxtContact(
     const { data: created } = await admin
       .from('txt_contacts')
       .upsert(
-        { company_id: companyId, phone: e164, phone_digits: e164.replace(/\D/g, '').slice(-10), name: e164 },
+        // name NULL (an "Unknown" contact), NOT the phone number — enrich fills a
+        // real name from Jobber async. phone_digits required (July 1 `86d7c05`).
+        { company_id: companyId, phone: e164, phone_digits: e164.replace(/\D/g, '').slice(-10), name: null },
         { onConflict: 'company_id,phone', ignoreDuplicates: true },
       )
       .select('id')

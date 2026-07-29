@@ -21,7 +21,9 @@ export async function POST(request: Request) {
   if (!phoneE164) {
     return NextResponse.json({ error: 'Invalid phone' }, { status: 400 })
   }
-  const name: string = (body.name || phoneE164).trim()
+  // A name only if one was actually provided — never default to the phone
+  // number (that's an "Unknown" contact; Contact Quality PRD).
+  const name: string = (body.name || '').trim()
   const email: string | null = body.email || null
   const notes: string | null = body.notes || null
   const jobberClientId: string | null = body.jobber_client_id || null
@@ -44,7 +46,8 @@ export async function POST(request: Request) {
         company_id: HEROES_COMPANY_ID,
         phone: phoneE164,
         phone_digits: phoneE164.replace(/\D/g, '').slice(-10),
-        name,
+        name: name || null,
+        name_source: name ? 'manual' : null,
         email,
         notes,
         jobber_client_id: jobberClientId,
@@ -60,7 +63,7 @@ export async function POST(request: Request) {
     // Update name/email/notes/jobber_id if newly known
     if (name || email || notes || jobberClientId) {
       const patch: Record<string, unknown> = { updated_at: new Date().toISOString() }
-      if (name) patch.name = name
+      if (name) { patch.name = name; patch.name_source = 'manual' }
       if (email) patch.email = email
       if (notes) patch.notes = notes
       if (jobberClientId) patch.jobber_client_id = jobberClientId
