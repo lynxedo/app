@@ -33,6 +33,7 @@ export default async function ContactsIndexPage() {
       `)
       .is('deleted_at', null)
       .eq('in_directory', true)
+      .is('archived_at', null)  // archived contacts are hidden from the default list
       // Match the client's first page exactly (order + size) so the handoff
       // to client-side infinite scroll is seamless — no flash of different rows.
       .order('name', { ascending: true })

@@ -13,6 +13,7 @@ type Contact = {
   id: string
   name: string
   name_source?: string | null
+  archived_at?: string | null
   first_name?: string | null
   last_name?: string | null
   company_name?: string | null
@@ -55,6 +56,7 @@ export default function ContactsPanel({
   const [source, setSource] = useState('')      // '' | jobber | manual | import | sms | voice
   const [status, setStatus] = useState('')      // '' | subscribed | unsubscribed | bounced | complained
   const [unnamedOnly, setUnnamedOnly] = useState(false) // "No name" (Unknown) contacts only
+  const [archivedOnly, setArchivedOnly] = useState(false) // "Archived" view (hidden from default list)
   const [showTags, setShowTags] = useState(false) // tag filter collapsed by default (lots of tags)
   const [adding, setAdding] = useState(false)
   const [hasMore, setHasMore] = useState(false)
@@ -77,6 +79,7 @@ export default function ContactsPanel({
     if (source) params.set('source', source)
     if (status) params.set('status', status)
     if (unnamedOnly) params.set('unnamed', '1')
+    if (archivedOnly) params.set('archived', '1')
     // The directory shows everyone (do-not-text contacts included, with a
     // badge) — it's an address book, not a send tool.
     params.set('include_do_not_text', '1')
@@ -84,7 +87,7 @@ export default function ContactsPanel({
     params.set('offset', String(offset))
     if (withCount) params.set('with_count', '1')
     return params
-  }, [search, selectedTagIds, untaggedOnly, channel, source, status, unnamedOnly])
+  }, [search, selectedTagIds, untaggedOnly, channel, source, status, unnamedOnly, archivedOnly])
 
   // Debounced reset-load: refetch page 1 whenever search/filters change.
   useEffect(() => {
@@ -158,7 +161,7 @@ export default function ContactsPanel({
     if (!untaggedOnly) setSelectedTagIds(new Set())
   }
 
-  const anyFilter = !!(search || selectedTagIds.size > 0 || untaggedOnly || channel || source || status || unnamedOnly)
+  const anyFilter = !!(search || selectedTagIds.size > 0 || untaggedOnly || channel || source || status || unnamedOnly || archivedOnly)
   const totalLabel = useMemo(() => {
     const n = contacts.length.toLocaleString()
     if (total != null && total > contacts.length) return `Showing ${n} of ${total.toLocaleString()}`
@@ -217,10 +220,18 @@ export default function ContactsPanel({
           >
             No name
           </button>
-          {(channel || source || status || unnamedOnly) && (
+          <button
+            type="button"
+            onClick={() => setArchivedOnly(v => !v)}
+            title="Show archived contacts (hidden from the active directory)"
+            className={`text-xs px-2 py-1 rounded-md border ${archivedOnly ? 'bg-white/20 border-white/30 text-white' : 'bg-white/5 border-white/10 text-white/70 hover:bg-white/10'}`}
+          >
+            Archived
+          </button>
+          {(channel || source || status || unnamedOnly || archivedOnly) && (
             <button
               type="button"
-              onClick={() => { setChannel(''); setSource(''); setStatus(''); setUnnamedOnly(false) }}
+              onClick={() => { setChannel(''); setSource(''); setStatus(''); setUnnamedOnly(false); setArchivedOnly(false) }}
               className="text-xs px-2 py-1 rounded-md text-white/40 hover:text-white"
             >
               Reset
@@ -320,6 +331,11 @@ export default function ContactsPanel({
                     {c.do_not_text && (
                       <span className="text-[9px] uppercase tracking-wide text-orange-300 bg-orange-900/30 px-1.5 py-0.5 rounded">
                         do not text
+                      </span>
+                    )}
+                    {c.archived_at && (
+                      <span className="text-[9px] uppercase tracking-wide text-white/50 bg-white/10 px-1.5 py-0.5 rounded">
+                        archived
                       </span>
                     )}
                   </div>
