@@ -12,7 +12,8 @@ import { ilikeSearchPattern } from '@/lib/search'
 //   ?source=jobber|manual|import|sms|voice
 //   ?status=subscribed|unsubscribed|bounced|complained   (email subscription status)
 //   ?include_do_not_text=1
-//   ?limit=200
+//   ?limit=100&offset=0    (page size + start row — infinite-scroll paging)
+//   ?with_count=1          (also return the exact total for "N of TOTAL")
 //
 // Backed by the txt_contacts table — the unified contacts directory (the CRM
 // core). Its user-facing name is just "Contacts". RLS scopes to the caller's
@@ -33,7 +34,15 @@ export async function GET(request: Request) {
   const source = (url.searchParams.get('source') || '').trim()
   const status = (url.searchParams.get('status') || '').trim()
   const includeBlocked = url.searchParams.get('include_do_not_text') === '1'
-  const limit = Math.min(parseInt(url.searchParams.get('limit') || '200', 10) || 200, 1000)
+  const withCount = url.searchParams.get('with_count') === '1'
+  // Pagination. `limit` is the page size (default 100, capped 500); `offset`
+  // is the row to start at. Tag filters are applied in JS after the fetch (see
+  // below), so they can't paginate cleanly — for those we fetch the whole
+  // matching set in one page (TAG_FILTER_CAP) and report hasMore=false.
+  const limit = Math.min(parseInt(url.searchParams.get('limit') || '100', 10) || 100, 500)
+  const offset = Math.max(parseInt(url.searchParams.get('offset') || '0', 10) || 0, 0)
+  const tagFilterActive = tagIds.length > 0 || untagged
+  const TAG_FILTER_CAP = 2000
 
   let query = supabase
     .from('txt_contacts')
@@ -42,11 +51,12 @@ export async function GET(request: Request) {
       phone, email, email_status, do_not_text, notes, jobber_client_id, sources,
       address_line1, address_line2, city, state, postal_code, country,
       tags:contact_tag_assignments(tag_id, contact_tags(id, label, color))
-    `)
+    `, withCount && !tagFilterActive ? { count: 'exact' } : undefined)
     .is('deleted_at', null)
     .eq('in_directory', true)
+    // Deterministic order (name, then id) so offset pages never skip/dupe.
     .order('name', { ascending: true })
-    .limit(limit)
+    .order('id', { ascending: true })
 
   if (!includeBlocked) query = query.eq('do_not_text', false)
   if (channel === 'phone') query = query.not('phone', 'is', null)
@@ -59,7 +69,11 @@ export async function GET(request: Request) {
     query = query.or(`name.ilike.${pattern},phone.ilike.${pattern},email.ilike.${pattern}`)
   }
 
-  const { data, error } = await query
+  query = tagFilterActive
+    ? query.range(0, TAG_FILTER_CAP - 1)
+    : query.range(offset, offset + limit - 1)
+
+  const { data, error, count } = await query
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   // Flatten nested tag rows: contact_tag_assignments → contact_tags
@@ -82,8 +96,8 @@ export async function GET(request: Request) {
 
   // Tag filtering applied in JS — the embed is needed anyway for display, so
   // doing this in a single round-trip is simpler than a server-side filter
-  // through a join table. Heroes has on the order of 100 contacts; scale is
-  // not an issue.
+  // through a join table. Tag-filtered views fetch the whole set at once
+  // (capped at TAG_FILTER_CAP), so this JS pass sees every matching row.
   let filtered = shaped
   if (tagIds.length > 0) {
     filtered = filtered.filter(c => {
@@ -95,7 +109,14 @@ export async function GET(request: Request) {
     filtered = filtered.filter(c => c.tags.length === 0)
   }
 
-  return NextResponse.json({ contacts: filtered })
+  // hasMore drives infinite scroll: a full page means another may follow.
+  // Tag-filtered views fetched everything already, so never more.
+  const hasMore = tagFilterActive ? false : (data?.length ?? 0) === limit
+  // total powers the "N of TOTAL" label. Exact count for the paged path (only
+  // requested on the first page); for tag-filtered views it's the filtered set.
+  const total = tagFilterActive ? filtered.length : (withCount ? (count ?? null) : null)
+
+  return NextResponse.json({ contacts: filtered, hasMore, total })
 }
 
 // POST /api/contacts — create a new contact (no conversation start, unlike

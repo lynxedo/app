@@ -15,8 +15,8 @@ export default async function ContactsIndexPage() {
 
   if (!profile?.can_access_hub) redirect('/hub')
 
-  // Initial server fetch — tags + first 200 contacts with embedded tags.
-  // Client takes over from here for search/filter/CRUD.
+  // Initial server fetch — tags + the first page of contacts with embedded
+  // tags. Client takes over for search/filter/CRUD + infinite scroll.
   const [tagsRes, contactsRes] = await Promise.all([
     supabase
       .from('contact_tags')
@@ -32,8 +32,12 @@ export default async function ContactsIndexPage() {
         tags:contact_tag_assignments(tag_id, contact_tags(id, label, color))
       `)
       .is('deleted_at', null)
+      .eq('in_directory', true)
+      // Match the client's first page exactly (order + size) so the handoff
+      // to client-side infinite scroll is seamless — no flash of different rows.
       .order('name', { ascending: true })
-      .limit(200),
+      .order('id', { ascending: true })
+      .range(0, 99),
   ])
 
   type RawTag = { tag_id: string; contact_tags: { id: string; label: string; color: string } | { id: string; label: string; color: string }[] | null }

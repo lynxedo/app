@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatPhone, formatCurrency, formatDurationSec } from '@/lib/format'
+import MergeContactModal from './MergeContactModal'
 import type { CustomerDetailAccount, CustomerDetailProperty, AccountProgram, AccountVisit } from './types'
 
 type Tag = { id: string; label: string; color: string }
@@ -84,6 +85,7 @@ export default function CustomerDetailView({
   const router = useRouter()
   const [contact, setContact] = useState<Contact>(initialContact)
   const [texting, setTexting] = useState(false)
+  const [showMerge, setShowMerge] = useState(false)
 
   const status = account?.status ?? (contact.jobber_client_id ? 'Active' : 'Contact')
   const statusCls = STATUS_STYLES[status] ?? 'bg-white/10 text-white/50 border-white/15'
@@ -136,6 +138,8 @@ export default function CustomerDetailView({
             {account?.jobberWebUri && (
               <a href={account.jobberWebUri} target="_blank" rel="noopener noreferrer" className="px-2.5 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-xs font-medium">Jobber ↗</a>
             )}
+            <button type="button" onClick={() => setShowMerge(true)} title="Merge this contact into another"
+              className="px-2.5 py-1.5 rounded-md bg-white/10 hover:bg-white/20 text-xs font-medium text-white/70">⧉ Merge</button>
           </div>
         </div>
       </div>
@@ -158,6 +162,15 @@ export default function CustomerDetailView({
           {canSeeActivity && <ActivityCard contactId={contact.id} />}
         </div>
       </div>
+
+      {showMerge && (
+        <MergeContactModal
+          sourceId={contact.id}
+          sourceName={contact.name}
+          onClose={() => setShowMerge(false)}
+          onMerged={(winnerId) => { setShowMerge(false); router.push(`/hub/contacts/${winnerId}`) }}
+        />
+      )}
     </div>
   )
 }

@@ -1,8 +1,10 @@
 'use client'
 
-import { useEffect, useMemo, useState } from 'react'
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useRouter } from 'next/navigation'
 import { formatPhone } from '@/lib/format'
+
+const PAGE_SIZE = 100
 
 type Tag = { id: string; label: string; color: string }
 
@@ -52,30 +54,90 @@ export default function ContactsPanel({
   const [status, setStatus] = useState('')      // '' | subscribed | unsubscribed | bounced | complained
   const [showTags, setShowTags] = useState(false) // tag filter collapsed by default (lots of tags)
   const [adding, setAdding] = useState(false)
+  const [hasMore, setHasMore] = useState(false)
+  const [loadingMore, setLoadingMore] = useState(false)
+  const [total, setTotal] = useState<number | null>(null)
 
-  // Debounced reload from /api/contacts when search or filters change so the
-  // tag-filter and search are server-authoritative (handles >200 contacts).
+  const scrollRef = useRef<HTMLDivElement | null>(null)
+  const sentinelRef = useRef<HTMLDivElement | null>(null)
+  const loadingRef = useRef(false)  // blocks overlapping fetches
+  const genRef = useRef(0)          // bumps on every filter change → discards stale/append responses
+
+  // Build the shared query string for one page. `offset` is the start row;
+  // `withCount` asks the server for the exact total (first page only).
+  const buildParams = useCallback((offset: number, withCount: boolean) => {
+    const params = new URLSearchParams()
+    if (search.trim()) params.set('search', search.trim())
+    if (selectedTagIds.size > 0) params.set('tag_ids', Array.from(selectedTagIds).join(','))
+    if (untaggedOnly) params.set('untagged', '1')
+    if (channel) params.set('channel', channel)
+    if (source) params.set('source', source)
+    if (status) params.set('status', status)
+    // The directory shows everyone (do-not-text contacts included, with a
+    // badge) — it's an address book, not a send tool.
+    params.set('include_do_not_text', '1')
+    params.set('limit', String(PAGE_SIZE))
+    params.set('offset', String(offset))
+    if (withCount) params.set('with_count', '1')
+    return params
+  }, [search, selectedTagIds, untaggedOnly, channel, source, status])
+
+  // Debounced reset-load: refetch page 1 whenever search/filters change.
   useEffect(() => {
     const t = setTimeout(async () => {
-      const params = new URLSearchParams()
-      if (search.trim()) params.set('search', search.trim())
-      if (selectedTagIds.size > 0) params.set('tag_ids', Array.from(selectedTagIds).join(','))
-      if (untaggedOnly) params.set('untagged', '1')
-      if (channel) params.set('channel', channel)
-      if (source) params.set('source', source)
-      if (status) params.set('status', status)
-      // The directory shows everyone (do-not-text contacts included, with a
-      // badge) — it's an address book, not a send tool.
-      params.set('include_do_not_text', '1')
-      params.set('limit', '500')
-      const res = await fetch(`/api/contacts?${params.toString()}`)
-      if (res.ok) {
-        const data = await res.json()
-        setContacts(data.contacts ?? [])
+      const gen = ++genRef.current
+      loadingRef.current = true
+      try {
+        const res = await fetch(`/api/contacts?${buildParams(0, true).toString()}`)
+        if (gen !== genRef.current) return  // a newer filter change superseded this
+        if (res.ok) {
+          const data = await res.json()
+          setContacts(data.contacts ?? [])
+          setHasMore(!!data.hasMore)
+          setTotal(typeof data.total === 'number' ? data.total : null)
+        }
+      } finally {
+        if (gen === genRef.current) loadingRef.current = false
       }
     }, 200)
     return () => clearTimeout(t)
-  }, [search, selectedTagIds, untaggedOnly, channel, source, status])
+  }, [buildParams])
+
+  // Append the next page for infinite scroll (offset = rows already loaded).
+  const loadMore = useCallback(async () => {
+    if (loadingRef.current || !hasMore) return
+    const gen = genRef.current
+    loadingRef.current = true
+    setLoadingMore(true)
+    try {
+      const res = await fetch(`/api/contacts?${buildParams(contacts.length, false).toString()}`)
+      if (gen !== genRef.current) return  // filters changed mid-flight — drop this page
+      if (res.ok) {
+        const data = await res.json()
+        const incoming: Contact[] = data.contacts ?? []
+        setContacts(prev => {
+          const seen = new Set(prev.map(c => c.id))
+          return [...prev, ...incoming.filter(c => !seen.has(c.id))]
+        })
+        setHasMore(!!data.hasMore)
+      }
+    } finally {
+      if (gen === genRef.current) loadingRef.current = false
+      setLoadingMore(false)
+    }
+  }, [hasMore, contacts.length, buildParams])
+
+  // Fire loadMore when the bottom sentinel scrolls into view.
+  useEffect(() => {
+    const el = sentinelRef.current
+    if (!el) return
+    const io = new IntersectionObserver(
+      entries => { if (entries[0]?.isIntersecting) loadMore() },
+      { root: scrollRef.current, rootMargin: '300px' }
+    )
+    io.observe(el)
+    return () => io.disconnect()
+  }, [loadMore])
 
   function toggleTag(id: string) {
     setSelectedTagIds(prev => {
@@ -94,8 +156,10 @@ export default function ContactsPanel({
 
   const anyFilter = !!(search || selectedTagIds.size > 0 || untaggedOnly || channel || source || status)
   const totalLabel = useMemo(() => {
-    return anyFilter ? `${contacts.length} matching` : `${contacts.length} contacts`
-  }, [contacts.length, anyFilter])
+    const n = contacts.length.toLocaleString()
+    if (total != null && total > contacts.length) return `Showing ${n} of ${total.toLocaleString()}`
+    return anyFilter ? `${n} matching` : `${n} contacts`
+  }, [contacts.length, anyFilter, total])
 
   return (
     <div className="h-full flex flex-col bg-[var(--t-panel-deep)] text-white min-h-0">
@@ -218,7 +282,7 @@ export default function ContactsPanel({
         <div className="text-[11px] text-white/40">{totalLabel}</div>
       </div>
 
-      <div className="flex-1 overflow-y-auto min-h-0">
+      <div ref={scrollRef} className="flex-1 overflow-y-auto min-h-0">
         {contacts.length === 0 && (
           <div className="px-4 py-12 text-center text-sm text-white/40">
             {anyFilter
@@ -266,6 +330,11 @@ export default function ContactsPanel({
             </li>
           ))}
         </ul>
+        {hasMore && (
+          <div ref={sentinelRef} className="px-4 py-4 text-center text-[11px] text-white/30">
+            {loadingMore ? 'Loading more…' : ''}
+          </div>
+        )}
       </div>
 
       {adding && (
