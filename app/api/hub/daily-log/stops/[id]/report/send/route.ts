@@ -89,17 +89,6 @@ export async function POST(
     return NextResponse.json({ error: 'Customer is on the do-not-text list.' }, { status: 422 })
   }
 
-  const { data: hubMatch } = await admin
-    .from('hub_contacts')
-    .select('do_not_text')
-    .eq('company_id', profile.company_id)
-    .in('phone', possiblePhones)
-    .limit(1)
-    .maybeSingle()
-  if (hubMatch?.do_not_text) {
-    return NextResponse.json({ error: 'Customer is on the do-not-text list.' }, { status: 422 })
-  }
-
   // Load the report.
   const { data: report } = await admin
     .from('daily_log_stop_reports')

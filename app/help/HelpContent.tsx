@@ -1217,6 +1217,12 @@ function TxtTab() {
         <Note>Reading is open to the whole team; <strong className="text-white">sending</strong> is just for the people on a conversation, and you join one of two explicit ways (typing a reply never silently claims a thread anymore). If it&apos;s an <strong className="text-white">unclaimed</strong> Queue thread, you&apos;ll see <strong className="text-white">Claim it</strong> — tap it to become the owner and the composer appears. If it&apos;s already <strong className="text-white">owned by someone else</strong>, you&apos;ll see <strong className="text-white">Join to reply</strong> — tap it to add yourself as a member and the composer appears.</Note>
       </Section>
 
+      <Section title="Finding a conversation">
+        <p>Search from the top of the Txt list by <strong className="text-white">name, phone, or message text</strong>. Phone search now works in <strong className="text-white">any format</strong> — <code className="text-gray-300">(281) 555-1234</code>, <code className="text-gray-300">281-555-1234</code>, or <code className="text-gray-300">2815551234</code> all find the same person and their existing thread, so you no longer have to start a New Conversation just to discover a contact already exists.</p>
+        <p className="mt-2">Typed a number that has no thread yet? A <strong className="text-white">💬 Message (xxx) xxx-xxxx</strong> shortcut appears at the top of the results — one tap opens a conversation with that number (creating the contact if needed).</p>
+        <Note>Contacts we don&apos;t have a name for show as <strong className="text-white">&ldquo;Unknown&rdquo;</strong> (with their number underneath), not the phone number as the name — so the list stays clean and name search isn&apos;t cluttered with numbers. Tap <strong className="text-white">+ Add to Contacts</strong> (below) to give them a real name.</Note>
+      </Section>
+
       <Section title="Add to Contacts">
         <p>When you&apos;re texting a number that isn&apos;t in your <Link href="/hub/contacts" className="text-sky-400 hover:underline">Contacts</Link> directory yet — someone who just texted in, for example — a green <strong className="text-white">+ Add to Contacts</strong> button shows in the conversation header. Tap it to save them (name pre-filled where we have it); the whole conversation history stays attached to that contact. Once saved, the button disappears and the name opens the usual <strong className="text-white">Edit contact</strong> panel.</p>
       </Section>
@@ -1335,8 +1341,6 @@ function InboxTab() {
         <Step n={3}>When it&apos;s handled, tap <strong className="text-white">Close</strong>. If the customer writes back, it reopens automatically.</Step>
         <p className="mt-3"><strong className="text-white">AI help:</strong> <strong className="text-white">Suggest Reply</strong> drafts a response from the conversation; <strong className="text-white">✨ Polish</strong> cleans up wording in a draft you&apos;ve started.</p>
         <p className="mt-3"><strong className="text-white">Internal notes</strong> (managers) leave context on a thread the customer never sees.</p>
-        <Note><strong className="text-white">Push notifications.</strong> A new customer email pings your phone the same way Txt does. While it&apos;s unclaimed in the <strong className="text-white">Queue</strong>, managers get the push; once it&apos;s claimed or assigned, its owner (and any members) get it instead — and a customer reply to a thread you own pings you again. Personal-mailbox mail notifies just you. Your Do Not Disturb, mute, and notification-level settings are always respected.</Note>
-        <Note><strong className="text-white">Working a thread — the tools.</strong> Beyond claim / assign / close you can: <strong className="text-white">Tag</strong> a thread (Type tags like Quote Request / Billing / Complaint, plus Outcome tags like Quoted / Booked / Needs Callback — managed in the gear → Manage tags); mark it <strong className="text-white">Waiting on</strong> customer / tech / vendor / approval (it drops out of the active list and pops back when the customer replies); <strong className="text-white">Snooze</strong> it until later; set a <strong className="text-white">Follow-up reminder</strong> (you get a nudge when it&apos;s due); insert a saved <strong className="text-white">Template</strong> in a reply (gear → Manage templates); and <strong className="text-white">@mention a teammate</strong> in an internal note to loop them in. New mail is auto-tagged by type, and if two of you open the same thread you&apos;ll see &ldquo;also viewing / replying&rdquo; so you don&apos;t double-answer. Filter the list by tag or Waiting, save a <strong className="text-white">View</strong> of your filters, select multiple threads for <strong className="text-white">bulk</strong> actions, or switch to the <strong className="text-white">⊞ Board</strong> to drag threads across stages. Search now looks inside message bodies too.</Note>
       </Section>
 
       <Section title="Drafts — nothing gets lost">
@@ -1523,8 +1527,23 @@ function ContactsTab() {
       <Section title="Contacts">
         <p>The Contacts page is your company-wide address book — the one central directory every tool reads from. It fills automatically from two places: your <strong className="text-white">Jobber customers</strong> and anyone added to the <Link href="/hub/tracker/leads" className="text-sky-400 hover:underline">Lead Tracker</Link>. You can also add someone by hand any time. Everyone lives in one searchable list at <strong className="text-white">Contacts</strong> in your app drawer, with one record per person.</p>
         <p>Search by name, phone, or email from the top bar. Tap any contact to see their details, call them (Dialer), text them, or edit their info. Each contact now also holds a <strong className="text-white">company name</strong>, a <strong className="text-white">mailing address</strong>, and an <strong className="text-white">email subscription status</strong>, and shows where it came from (Jobber, the Lead Tracker, manually added, or imported).</p>
+        <p><strong className="text-white">The whole directory is browsable.</strong> The list loads more as you scroll, so you can page through every contact you have — the counter under the filters shows <strong className="text-white">Showing 100 of 2,049</strong> (your numbers) so you always know how many there are and how far in you&apos;ve scrolled. Searching or filtering jumps straight to the matches.</p>
         <Note><strong className="text-white">Just calling or texting a number doesn&apos;t add it to Contacts.</strong> Random inbound texts and calls still show up in your Txt inbox and the Dialer exactly as before — but a number only becomes a saved contact when it&apos;s a Jobber customer, a lead, or you add it by hand. If someone you&apos;ve texted or called later becomes a customer or a lead, they turn into a full contact automatically — with their past conversation kept.</Note>
         <Note><strong className="text-white">Leads land here automatically.</strong> When a new lead is added to the <Link href="/hub/tracker/leads" className="text-sky-400 hover:underline">Lead Tracker</Link>, it&apos;s also added to Contacts (tagged source <em>Leads</em>) so you have one record for that person across the whole platform. Because a lead form isn&apos;t texting consent, lead-sourced contacts are set <strong className="text-white">do-not-text</strong> until someone opts them in.</Note>
+      </Section>
+
+      <Section title="The customer screen">
+        <p>Tap any contact to open their own <strong className="text-white">customer page</strong> — one full-screen view of everything we know about them. Across the top: their name, account status, and quick <strong className="text-white">📞 Call</strong>, <strong className="text-white">💬 Text</strong>, <strong className="text-white">✉️ Email</strong>, and <strong className="text-white">Jobber ↗</strong> buttons (you see the ones you have access to).</p>
+        <p>The page is organized into cards:</p>
+        <Step n={1}><strong className="text-white">Customer</strong> — name, company, phone, email, and address. Tap <strong className="text-white">Edit</strong> to change them.</Step>
+        <Step n={2}><strong className="text-white">Flags</strong> — the contact&apos;s tags. Tap <strong className="text-white">Edit</strong> to add or remove them.</Step>
+        <Step n={3}><strong className="text-white">Notes</strong> — free-text notes you can edit, plus any note imported from the old system.</Step>
+        <Step n={4}><strong className="text-white">Balance</strong>, <strong className="text-white">Property details</strong> (lawn size, irrigation zones, sprinkler, neighborhood, directions), and <strong className="text-white">Customer details</strong> (type, lead source, sales person, customer since) — pulled straight from Jobber, so they&apos;re shown read-only and stay in sync automatically.</Step>
+        <Step n={5}><strong className="text-white">Recent activity</strong> — the latest texts, calls, and voicemails with this person.</Step>
+        <Step n={6}><strong className="text-white">Programs &amp; services</strong> — everything this customer is signed up for, pulled from Jobber. Recurring plans (e.g. Lawn Health Basic) show as <strong className="text-white">programs</strong> with a service-category tag, the per-visit price, and how many visits are done out of the year&apos;s total; tap one to expand its line items, any add-ons, and the round-by-round visit list (Round 1, 2, 3… with each visit&apos;s date and status). Use the year buttons to look back at a past year. One-time services are listed separately below, and cancelled/finished plans tuck under <strong className="text-white">Past / cancelled programs</strong>.</Step>
+        <Note>Programs &amp; services is read-only for now — it mirrors what&apos;s in Jobber. &ldquo;Round&rdquo; is simply the order of that year&apos;s scheduled visits.</Note>
+        <Note>Sections only appear when there&apos;s something to show. A Jobber customer sees the full picture; a lead or hand-added contact shows the basics, and the account/property cards stay hidden until there&apos;s data.</Note>
+        <p className="mt-3"><strong className="text-white">Merging duplicates.</strong> Same person on two records — say one has their texts and the other has their email history? Open one and tap <strong className="text-white">⧉ Merge</strong> in the top-right, search for the record it should join, and confirm. Everything from the record you&apos;re on — texts, calls, voicemails, emails, tags, and notes — moves onto the one you pick, and any blanks on the surviving record are filled in from this one (existing values are kept, and a &ldquo;do not text&rdquo; flag on either side stays on). The merged-away record is then removed from the directory. This can&apos;t be undone from the app, so double-check you&apos;ve picked the right person.</p>
       </Section>
 
       <Section title="Filtering the directory">
@@ -1549,13 +1568,13 @@ function ContactsTab() {
 
       <Section title="Adding & editing contacts">
         <p>The <strong className="text-white">+ Add</strong> button at the top creates a new contact (name + phone required; company, email, mailing address, and tags optional). Tick <strong className="text-white">This contact is a business</strong> for vendors or commercial accounts.</p>
-        <p>Tap any existing contact to open its detail sheet. <strong className="text-white">Edit</strong> lets you change name, company, phone, email, email status, mailing address, notes, and tags. The <strong className="text-white">Do not text</strong> toggle blocks outbound SMS to this contact from Txt and broadcasts — useful when someone replies STOP or asks to be left alone (Twilio also auto-flips this when they text STOP).</p>
+        <p>Tap any existing contact to open their <strong className="text-white">customer page</strong>. The <strong className="text-white">Customer</strong>, <strong className="text-white">Flags</strong>, and <strong className="text-white">Notes</strong> cards each have their own <strong className="text-white">Edit</strong> button for changing name, company, phone, email, email status, mailing address, notes, and tags. The <strong className="text-white">Do not text</strong> toggle blocks outbound SMS to this contact from Txt and broadcasts — useful when someone replies STOP or asks to be left alone (Twilio also auto-flips this when they text STOP).</p>
         <p><strong className="text-white">Delete</strong> now <strong className="text-white">removes the contact from the directory but keeps it recoverable</strong> — their text and call history stays intact, and it can be brought back. (Nothing is permanently erased.)</p>
         <Note>Editing a contact by hand marks it as yours — the nightly Jobber sync won&apos;t overwrite fields you&apos;ve corrected. Inbound calls and texts still auto-create contacts on first contact, so the list keeps growing on its own.</Note>
       </Section>
 
       <Section title="Calling from Contacts">
-        <p>The detail sheet has a green <strong className="text-white">📞 Call</strong> button that jumps to the Dialer with the number pre-filled. Tap the green Call button there to actually dial. The call gets logged with the contact&apos;s name attached so it shows up nicely in Recent and Call Log later.</p>
+        <p>The customer page has a green <strong className="text-white">📞 Call</strong> button that jumps to the Dialer with the number pre-filled. Tap the green Call button there to actually dial. The call gets logged with the contact&apos;s name attached so it shows up nicely in Recent and Call Log later.</p>
       </Section>
 
       <Section title="Managing tags (admin)">
@@ -1762,7 +1781,7 @@ function SettingsTab() {
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Profile</strong> — your name, photo, phone number, sign out</li>
           <li><strong className="text-white">My Hub</strong> — your theme, plus customize your icon rail and mobile bottom bar (show only what you use, in your order)</li>
-          <li><strong className="text-white">Notifications</strong> — your notification level, the five Do&nbsp;Not&nbsp;Disturb channels (Master / Hub / Txt / Inbox / Calls), each with an optional scheduled window, and your push devices</li>
+          <li><strong className="text-white">Notifications</strong> — your notification level, the three Do&nbsp;Not&nbsp;Disturb tiers (Master / Hub / Calls), and your push devices</li>
           <li><strong className="text-white">Browser Extension</strong> — connect the Lynxedo browser extension</li>
           <li><strong className="text-white">Account</strong> — communications (signature, ring &amp; voicemail settings), change password, delete account</li>
         </ul>
@@ -1834,16 +1853,13 @@ function SettingsTab() {
         <Note>If the status badge says &ldquo;Blocked in browser settings,&rdquo; the browser itself has blocked notifications for lynxedo.com. Open the browser&apos;s site settings for lynxedo.com and re-enable notifications, then come back here and tap Reset.</Note>
       </Section>
 
-      <Section title="Notifications — Do Not Disturb (five channels + schedules)">
-        <p>The <strong className="text-white">Notifications</strong> tab has five independent Do&nbsp;Not&nbsp;Disturb switches, so you can silence exactly as much as you want — and each one can run on an optional <strong className="text-white">scheduled window</strong> (e.g. 6pm–8am, set per day) instead of a manual on/off:</p>
+      <Section title="Notifications — Do Not Disturb (three tiers)">
+        <p>The <strong className="text-white">Notifications</strong> tab has three independent Do&nbsp;Not&nbsp;Disturb switches, so you can silence exactly as much as you want:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
-          <li><strong className="text-red-400">Master DND</strong> — silences <em>everything</em>: calls, messages, and every push (including @-mentions). Overrides all the others.</li>
-          <li><strong className="text-amber-300">Hub DND</strong> — silences Hub chat/message pushes only.</li>
-          <li><strong className="text-amber-300">Txt DND</strong> — silences text-message (SMS) notifications only.</li>
-          <li><strong className="text-amber-300">Inbox DND</strong> — silences shared-inbox (email) notifications only.</li>
-          <li><strong className="text-amber-300">Calls DND</strong> — silences the dialer only (incoming calls, IVR transfers, ring groups). <em>(Shown only if you have Dialer access.)</em></li>
+          <li><strong className="text-red-400">Master DND</strong> — silences <em>everything</em>: calls, messages, and every push (including @-mentions). Overrides the other two.</li>
+          <li><strong className="text-amber-300">Hub Notifications DND</strong> — silences chat/message pushes only. Calls still ring.</li>
+          <li><strong className="text-amber-300">Calls DND</strong> — silences the dialer only (incoming calls, IVR transfers, ring groups). Messages still notify. <em>(Shown only if you have Dialer access.)</em></li>
         </ul>
-        <p className="mt-2">Each channel is independent — quiet just the ones you want and the rest keep notifying. A scheduled window turns that channel&apos;s DND on automatically during the hours you set (in the schedule&apos;s time zone, default Central).</p>
         <p className="mt-3">Each tier can be flipped on right now, or put on a <strong className="text-white">per-day schedule</strong> — set a start and end time for each day of the week (e.g. 6 PM–8 AM, Mon–Fri). Overnight ranges that cross midnight work (set the start later than the end). Times use your device&apos;s local time zone.</p>
         <Note>DND is per-user — every teammate sets their own. Quick toggles for all three also live in your <strong className="text-white">You menu</strong> (tap your avatar at the bottom of the rail → <strong className="text-white">Do Not Disturb</strong>), so you don&apos;t have to open Settings each time. Setting your status to <strong className="text-white">Do Not Disturb</strong> there automatically turns on <strong className="text-red-400">Master DND</strong> (and clearing it turns Master DND back off).</Note>
       </Section>
@@ -2070,6 +2086,11 @@ function ServiceBuilderTab() {
         <p>The <strong className="text-white">price chart</strong> shows every metric across the lawn sizes you list. The <strong className="text-white">averages</strong> box shows whether margin holds as lawns scale across a size range. The <strong className="text-white">target-margin helper</strong> lets you enter a target GP% at a size and tells you the Price/K (or Base fee) to set to hit it.</p>
       </Section>
 
+      <Section title="Pricing model — simple or stepped tiers">
+        <p>Every program has a <strong className="text-white">Pricing model</strong> card. First pick what the price is based on — <strong className="text-white">lawn size (1,000s sq ft)</strong> or <strong className="text-white">irrigation zones</strong> — so an irrigation program can be priced by zone count instead of square footage.</p>
+        <p className="mt-2">By default pricing is <strong className="text-white">simple</strong>: per-visit price = <em>Base fee + Price&nbsp;per&nbsp;unit × size</em> (the fields you already set). Click <strong className="text-white">Use stepped tiers</strong> to switch to a <strong className="text-white">banded chart</strong> — the RealGreen style, where price changes in steps rather than one straight line. Each band applies <em>up to and including</em> its cutoff (leave the last band blank for &ldquo;and above&rdquo;); within a band the price is <em>Base $ + Per-unit $ × size</em>. For a <strong className="text-white">flat price per band</strong> (e.g. IR Gold Tier 1 / 2 / 3 by zones), just set Per-unit to 0 and put the flat price in Base. Flipping a program to stepped starts with a single band that matches its current price, so nothing changes until you add a breakpoint — and switching back to simple is one click. The price chart and margins recompute against whichever model is active.</p>
+      </Section>
+
       <Section title="Per-gallon products">
         <p>Products priced <em>per gallon</em> (the DRF spray-mix chemicals) use your tank ratio — gallons of mix per 1,000 sq ft (default 2) — to work out their cost per 1,000 sq ft. The <strong className="text-white">Tank gal / K</strong> field on each program lets you adjust that ratio. Products that aren&apos;t expressible per 1,000 sq ft (e.g. per-tree trunk drenches) show <em>n/a</em> and aren&apos;t counted in the round cost.</p>
       </Section>
@@ -2158,6 +2179,7 @@ function PricerTab() {
           <li><strong className="text-white">One-time &amp; seasonal services</strong> show a single one-time price.</li>
         </ul>
         <p className="mt-2">Coming from the <strong className="text-white">Lawn Sizer</strong>? It can hand the measured size straight in, so the quote is ready the moment the page opens.</p>
+        <p className="mt-2"><strong className="text-white">Irrigation-by-zone programs:</strong> if an admin has published a program priced by <em>irrigation zones</em> (rather than lawn size), an <strong className="text-white">Irrigation Zones</strong> box appears next to Lawn Size — enter the zone count and those programs price off it. Programs priced by size and by zones can both show at once, each using its own input.</p>
       </Section>
 
       <Section title="Add-ons">

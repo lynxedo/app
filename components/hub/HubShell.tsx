@@ -795,7 +795,7 @@ export default function HubShell({
   function renderTabContent(t: WorkspaceTab) {
     switch (t.catalogId) {
       case 'contacts':
-        return <ContactsPanel initialContacts={[]} initialTags={[]} canAccessDialer={!!canAccessDialer} />
+        return <ContactsPanel initialContacts={[]} initialTags={[]} />
       case 'pricer':
         return <PricerView />
       case 'scoreboards':

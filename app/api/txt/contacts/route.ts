@@ -41,7 +41,11 @@ export async function GET(request: Request) {
   if (!includeBlocked) query = query.eq('do_not_text', false)
   if (search) {
     const pattern = ilikeSearchPattern(search)
-    query = query.or(`name.ilike.${pattern},phone.ilike.${pattern}`)
+    // Digit-normalized phone match so any number format finds the contact.
+    const qDigits = search.replace(/\D/g, '').slice(-10)
+    const orClauses = [`name.ilike.${pattern}`, `phone.ilike.${pattern}`]
+    if (qDigits.length >= 3) orClauses.push(`phone_digits.ilike.%${qDigits}%`)
+    query = query.or(orClauses.join(','))
   }
 
   const { data, error } = await query

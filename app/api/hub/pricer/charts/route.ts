@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import type { PriceTier, PricingUnit } from '@/lib/service-builder'
 
 export const dynamic = 'force-dynamic'
 
@@ -29,6 +30,8 @@ type ChartRow = {
   visits: number | null
   base_fee: number | null
   price_per_k: number | null
+  pricing_unit: PricingUnit | null
+  tiers: PriceTier[] | null
   version_label: string | null
   effective_from: string | null
   created_at: string
@@ -53,7 +56,7 @@ export async function GET() {
 
   const { data, error } = await supabase
     .from('program_price_charts')
-    .select('program_key, name, description, category, sort_order, visits, base_fee, price_per_k, version_label, effective_from, created_at')
+    .select('program_key, name, description, category, sort_order, visits, base_fee, price_per_k, pricing_unit, tiers, version_label, effective_from, created_at')
     .eq('company_id', profile.company_id)
     .eq('status', 'published')
     .is('deleted_at', null)
@@ -81,6 +84,8 @@ export async function GET() {
       visits: Number(r.visits) || 0,
       base_fee: Number(r.base_fee) || 0,
       price_per_k: Number(r.price_per_k) || 0,
+      pricing_unit: (r.pricing_unit ?? 'sqft_k') as PricingUnit,
+      tiers: r.tiers ?? null,
       version_label: r.version_label,
     }))
     .sort((a, b) =>
