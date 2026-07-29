@@ -1,8 +1,9 @@
 // lib/contact-name.ts
 // The ONE place that decides a contact's display name. Client- and server-safe
-// (no imports). Unknown / inbound-only contacts are stored with name = null going
-// forward, but legacy rows may still carry the phone number AS the name — both
-// are treated as "no real name" so the UI shows "Unknown", never a bare number.
+// (no imports). Unknown / inbound-only contacts are stored with name = '' going
+// forward (the column is NOT NULL), and legacy rows may carry the phone number AS
+// the name — both are treated as "no real name" so the UI shows "Unknown", never
+// a bare number.
 //
 // name_source marks how a real name was obtained:
 //   null        — no real name yet (show "Unknown")

@@ -46,7 +46,7 @@ export async function POST(request: Request) {
         company_id: HEROES_COMPANY_ID,
         phone: phoneE164,
         phone_digits: phoneE164.replace(/\D/g, '').slice(-10),
-        name: name || null,
+        name: name || '',   // '' = no name yet → "Unknown" (name is NOT NULL)
         name_source: name ? 'manual' : null,
         email,
         notes,

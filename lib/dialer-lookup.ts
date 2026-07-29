@@ -259,9 +259,9 @@ export async function findOrCreateTxtContact(
     const { data: created } = await admin
       .from('txt_contacts')
       .upsert(
-        // name NULL (an "Unknown" contact), NOT the phone number — enrich fills a
-        // real name from Jobber async. phone_digits required (July 1 `86d7c05`).
-        { company_id: companyId, phone: e164, phone_digits: e164.replace(/\D/g, '').slice(-10), name: null },
+        // name '' (an "Unknown" contact — name is NOT NULL), NOT the phone number;
+        // enrich fills a real name from Jobber async. phone_digits required (July 1 `86d7c05`).
+        { company_id: companyId, phone: e164, phone_digits: e164.replace(/\D/g, '').slice(-10), name: '' },
         { onConflict: 'company_id,phone', ignoreDuplicates: true },
       )
       .select('id')

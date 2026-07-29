@@ -188,7 +188,7 @@ export async function POST(req: NextRequest) {
         company_id: companyId,
         phone: from,
         phone_digits: from.replace(/\D/g, '').slice(-10),
-        name: jobberName || null,
+        name: jobberName || '',   // '' = no name yet → displays "Unknown" (name is NOT NULL)
         name_source: jobberName ? 'jobber' : null,
         in_directory: false,
       })
