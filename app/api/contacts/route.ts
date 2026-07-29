@@ -34,6 +34,7 @@ export async function GET(request: Request) {
   const source = (url.searchParams.get('source') || '').trim()
   const status = (url.searchParams.get('status') || '').trim()
   const includeBlocked = url.searchParams.get('include_do_not_text') === '1'
+  const unnamed = url.searchParams.get('unnamed') === '1'  // "No name" filter → name = ''
   const withCount = url.searchParams.get('with_count') === '1'
   // Pagination. `limit` is the page size (default 100, capped 500); `offset`
   // is the row to start at. Tag filters are applied in JS after the fetch (see
@@ -47,7 +48,7 @@ export async function GET(request: Request) {
   let query = supabase
     .from('txt_contacts')
     .select(`
-      id, name, first_name, last_name, company_name, is_company,
+      id, name, name_source, first_name, last_name, company_name, is_company,
       phone, email, email_status, do_not_text, notes, jobber_client_id, sources,
       address_line1, address_line2, city, state, postal_code, country,
       tags:contact_tag_assignments(tag_id, contact_tags(id, label, color))
@@ -63,6 +64,7 @@ export async function GET(request: Request) {
   if (channel === 'email') query = query.not('email', 'is', null)
   if (source) query = query.contains('sources', [source])
   if (status) query = query.eq('email_status', status)
+  if (unnamed) query = query.eq('name', '')
 
   if (search) {
     const pattern = ilikeSearchPattern(search)

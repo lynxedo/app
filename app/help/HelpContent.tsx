@@ -1551,6 +1551,11 @@ function ContactsTab() {
         <Step n={1}><strong className="text-white">Channel</strong> — show only contacts that have a phone (the Txt/Dialer view) or have an email (the Email Marketing view).</Step>
         <Step n={2}><strong className="text-white">Source</strong> — where the contact came from: Jobber, the Lead Tracker, Manual, or Imported.</Step>
         <Step n={3}><strong className="text-white">Email status</strong> — Subscribed, Unsubscribed, Bounced, or Complained. <strong className="text-white">Reset</strong> clears these three at once.</Step>
+        <p className="mt-2">There&apos;s also a <strong className="text-white">No name</strong> toggle — show only the <em>Unknown</em> contacts (people who called or texted in but were never named), so you can clean them up in a batch.</p>
+      </Section>
+
+      <Section title="AI-suggested names">
+        <p>Contacts that came in from a call or text and were never named show as <strong className="text-white">Unknown</strong>. Where the customer&apos;s name can be figured out from the conversation, AI fills it in for you — those names get a small <span className="inline-block align-middle w-2 h-2 rounded-full bg-purple-400" /> <strong className="text-white">purple dot</strong> so you know it was an AI guess. Open the contact and <strong className="text-white">Edit</strong> to confirm or correct it; once you do, the dot goes away (it&apos;s now a name you verified). AI only fills a name when it&apos;s confident — unclear ones stay <em>Unknown</em>.</p>
       </Section>
 
       <Section title="Right inside the Dialer & Txt sidebars">

@@ -12,7 +12,7 @@ import { createClient } from '@/lib/supabase/client'
 import { renderTemplate, DEFAULT_ON_MY_WAY_TEMPLATE } from '@/lib/txt-templates'
 import { CallMarker, VoicemailMarker, type TimelineCallEvent } from './TimelineMarkers'
 import { formatPhone } from '@/lib/format'
-import { contactDisplayName, isPlaceholderName } from '@/lib/contact-name'
+import { contactDisplayName, isPlaceholderName, nameIsAiGuessed } from '@/lib/contact-name'
 
 type Message = {
   id: string
@@ -44,6 +44,7 @@ type Note = {
 type Contact = {
   id: string
   name: string
+  name_source?: string | null
   phone: string
   email: string | null
   do_not_text: boolean
@@ -1302,8 +1303,11 @@ export default function TxtConversationView({
                 : undefined
             }
           >
-            <div className="font-medium truncate">
+            <div className="font-medium truncate flex items-center gap-1.5">
               {contactDisplayName(conversation.contact?.name, conversation.contact?.phone)}
+              {nameIsAiGuessed(conversation.contact?.name_source) && (
+                <span className="w-2 h-2 rounded-full bg-purple-400 flex-none" title="Name suggested by AI — tap to confirm" />
+              )}
             </div>
             <div className="text-xs text-white/50 truncate">{phoneDisplay}</div>
           </button>

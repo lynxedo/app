@@ -16,7 +16,7 @@ export async function GET(
   const { data, error } = await supabase
     .from('txt_contacts')
     .select(`
-      id, company_id, name, first_name, last_name, company_name, is_company,
+      id, company_id, name, name_source, first_name, last_name, company_name, is_company,
       phone, email, email_status, do_not_text, notes, jobber_client_id, sources, created_at,
       address_line1, address_line2, city, state, postal_code, country,
       tags:contact_tag_assignments(tag_id, contact_tags(id, label, color))
@@ -80,6 +80,7 @@ export async function PATCH(
     const n = body.name.trim()
     if (!n) return NextResponse.json({ error: 'Name cannot be empty' }, { status: 400 })
     update.name = n
+    update.name_source = 'manual'  // a human confirmed/entered it → trusted, clears the AI dot
   }
   if (typeof body.phone === 'string') {
     const e = toE164(body.phone)

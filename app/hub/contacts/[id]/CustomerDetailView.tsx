@@ -4,6 +4,7 @@ import { useEffect, useState } from 'react'
 import Link from 'next/link'
 import { useRouter } from 'next/navigation'
 import { formatPhone, formatCurrency, formatDurationSec } from '@/lib/format'
+import { contactDisplayName, nameIsAiGuessed } from '@/lib/contact-name'
 import MergeContactModal from './MergeContactModal'
 import type { CustomerDetailAccount, CustomerDetailProperty, AccountProgram, AccountVisit } from './types'
 
@@ -12,6 +13,7 @@ type Tag = { id: string; label: string; color: string }
 type Contact = {
   id: string
   name: string
+  name_source?: string | null
   first_name: string | null
   last_name: string | null
   company_name: string | null
@@ -116,7 +118,10 @@ export default function CustomerDetailView({
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-2">
               {contact.is_company && <span className="text-xs">🏢</span>}
-              <h1 className="text-lg font-semibold truncate">{contact.name}</h1>
+              <h1 className="text-lg font-semibold truncate">{contactDisplayName(contact.name, contact.phone)}</h1>
+              {nameIsAiGuessed(contact.name_source) && (
+                <span className="w-2 h-2 rounded-full bg-purple-400 flex-none" title="Name suggested by AI — Edit to confirm" />
+              )}
               {contact.do_not_text && (
                 <span className="text-[9px] uppercase tracking-wide text-orange-300 bg-orange-900/30 px-1.5 py-0.5 rounded">do not text</span>
               )}
