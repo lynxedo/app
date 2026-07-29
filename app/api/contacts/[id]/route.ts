@@ -81,6 +81,7 @@ export async function PATCH(
     if (!n) return NextResponse.json({ error: 'Name cannot be empty' }, { status: 400 })
     update.name = n
     update.name_source = 'manual'  // a human confirmed/entered it → trusted, clears the AI dot
+    update.in_directory = true      // promote-on-name: a named contact belongs in the directory
   }
   if (typeof body.phone === 'string') {
     const e = toE164(body.phone)

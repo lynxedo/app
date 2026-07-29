@@ -74,7 +74,8 @@ export async function POST(request: Request) {
       if (fresh && (fresh.name ?? '') === '') {
         await admin
           .from('txt_contacts')
-          .update({ name: guess.name, name_source: 'ai', updated_at: new Date().toISOString() })
+          // Promote-on-name: a named contact belongs in the directory.
+          .update({ name: guess.name, name_source: 'ai', in_directory: true, updated_at: new Date().toISOString() })
           .eq('id', c.id)
         named++
         results.push({ id: c.id, name: guess.name })

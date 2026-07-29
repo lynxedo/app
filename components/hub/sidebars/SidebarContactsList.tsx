@@ -6,12 +6,14 @@ import { useRouter } from 'next/navigation'
 import ContactModal from '@/components/hub/txt/ContactModal'
 import { Spinner, EmptyState, useToast } from '@/components/ui'
 import { formatPhone } from '@/lib/format'
+import { contactDisplayName, nameIsAiGuessed } from '@/lib/contact-name'
 
 type Tag = { id: string; label: string; color: string }
 
 type Contact = {
   id: string
   name: string
+  name_source?: string | null
   phone: string
   email: string | null
   do_not_text: boolean
@@ -137,7 +139,8 @@ export default function SidebarContactsList({
             <li key={c.id} className="px-3 py-2.5">
               <div className="min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="font-medium text-sm truncate">{c.name}</span>
+                  {nameIsAiGuessed(c.name_source) && <span className="w-2 h-2 rounded-full bg-purple-400 flex-none" title="Name suggested by AI — open to confirm" />}
+                  <span className={`font-medium text-sm truncate ${contactDisplayName(c.name, c.phone) === 'Unknown' ? 'text-white/50 italic' : ''}`}>{contactDisplayName(c.name, c.phone)}</span>
                   {c.do_not_text && (
                     <span className="text-[9px] uppercase tracking-wide text-orange-300 bg-orange-900/30 px-1.5 py-0.5 rounded flex-none">
                       no text

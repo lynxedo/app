@@ -921,7 +921,7 @@ function NewConversationModal({
 }) {
   const [query, setQuery] = useState(initialQuery)
   const [results, setResults] = useState<
-    Array<{ id: string; name: string; phone: string; do_not_text?: boolean }>
+    Array<{ id: string; name: string; name_source?: string | null; phone: string; do_not_text?: boolean }>
   >([])
   const [searching, setSearching] = useState(false)
   const [searched, setSearched] = useState(false)
@@ -1016,7 +1016,8 @@ function NewConversationModal({
                     className="w-full text-left px-3 py-2 rounded-md bg-white/5 hover:bg-white/10 disabled:opacity-40"
                   >
                     <div className="text-sm font-medium flex items-center gap-2">
-                      {r.name}
+                      {nameIsAiGuessed(r.name_source) && <span className="w-2 h-2 rounded-full bg-purple-400 flex-none" title="Name suggested by AI — open to confirm" />}
+                      {contactDisplayName(r.name, r.phone)}
                       {r.do_not_text && (
                         <span className="text-[10px] px-1 rounded bg-orange-500/20 text-orange-300">
                           do-not-text

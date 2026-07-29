@@ -3,6 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatDurationSec, formatPhone } from '@/lib/format'
+import { isPlaceholderName, nameIsAiGuessed } from '@/lib/contact-name'
 import { CoachingPanel, coachingGradeColor, COACHING_CATEGORIES, type CoachingData, type CoachingReview } from '@/components/hub/CoachingPanel'
 import AddToTrackerModal from '@/components/hub/tracker/AddToTrackerModal'
 
@@ -102,7 +103,7 @@ type DialerCall = {
   coaching_must_listen: boolean | null
   coaching_json: CoachingData | null
   review: CoachingReview | null
-  contact: { id: string; name: string; phone: string } | null
+  contact: { id: string; name: string; name_source?: string | null; phone: string } | null
   ai_results: AiResult[]
   voicemail: Voicemail | null
 }
@@ -118,6 +119,7 @@ type MergedCall = {
   direction: string
   phone: string | null
   displayName: string | null
+  nameIsAi: boolean
   repName: string | null
   viaAmber: string | null
   durationSec: number | null
@@ -270,6 +272,7 @@ function normalizeUnitel(c: UnitelCall): MergedCall {
     direction: c.direction,
     phone: c.phone ?? null,
     displayName: c.customer_name || null,
+    nameIsAi: false,
     repName: c.rep_name || null,
     viaAmber: null,
     durationSec: c.duration_seconds ?? null,
@@ -293,7 +296,10 @@ function normalizeDialer(c: DialerCall): MergedCall {
     dateDisplay: formatDateTimeDialer(c.created_at),
     direction: c.direction,
     phone: displayNumber ?? null,
-    displayName: c.contact?.name || null,
+    // A real name only — a placeholder/number-name resolves to null so the row
+    // shows the number, consistent with the rest of the app.
+    displayName: c.contact && !isPlaceholderName(c.contact.name, c.contact.phone) ? c.contact.name : null,
+    nameIsAi: nameIsAiGuessed(c.contact?.name_source),
     repName: c.agent_name || null,
     viaAmber: c.ai_routed_by || null,
     durationSec: c.recording_duration_seconds || c.duration_seconds || null,
@@ -320,8 +326,9 @@ function CallRow({ call, selected, onClick, canViewCoaching }: { call: MergedCal
       className={`w-full text-left px-4 py-3 border-b border-gray-800 hover:bg-gray-800/60 transition-colors ${selected ? 'bg-gray-800 border-l-2 border-l-purple-500' : ''}`}
     >
       <div className="flex items-center justify-between gap-2 mb-0.5">
-        <span className="text-sm font-medium text-white truncate">
-          {call.displayName || formatPhone(call.phone) || '—'}
+        <span className="text-sm font-medium text-white truncate flex items-center gap-1.5 min-w-0">
+          {call.nameIsAi && call.displayName && <span className="w-2 h-2 rounded-full bg-purple-400 flex-none" title="Name suggested by AI — open the contact to confirm" />}
+          <span className="truncate">{call.displayName || formatPhone(call.phone) || '—'}</span>
         </span>
         <SourcePill source={call.source} />
       </div>
@@ -527,7 +534,8 @@ function DialerCallDetail({ call, canViewCoaching }: { call: DialerCall; canView
   const dir = directionLabel(call.direction)
   const status = statusLabel(call)
   const displayNumber = call.direction === 'inbound' ? call.from_number : call.to_number
-  const displayName = call.contact?.name || null
+  const displayName = call.contact && !isPlaceholderName(call.contact.name, call.contact.phone) ? call.contact.name : null
+  const nameIsAi = nameIsAiGuessed(call.contact?.name_source)
   const winner = call.ai_results.find(r => r.engine === 'deepgram_claude')
   const summary = winner?.summary || call.ai_summary
   const actionItems: string[] = winner?.action_items || (call.action_items as string[]) || []
@@ -552,7 +560,8 @@ function DialerCallDetail({ call, canViewCoaching }: { call: DialerCall; canView
       <div>
         <div className="flex items-start justify-between gap-3 mb-1">
           <div>
-            <h2 className="text-lg font-bold text-white">
+            <h2 className="text-lg font-bold text-white flex items-center gap-2">
+              {nameIsAi && displayName && <span className="w-2.5 h-2.5 rounded-full bg-purple-400 flex-none" title="Name suggested by AI — open the contact to confirm" />}
               {displayName || formatPhone(displayNumber) || '—'}
             </h2>
             {displayName && <div className="text-sm text-gray-400">{formatPhone(displayNumber) || '—'}</div>}

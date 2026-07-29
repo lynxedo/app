@@ -27,7 +27,7 @@ export async function GET(request: Request) {
 
   let query = supabase
     .from('txt_contacts')
-    .select('id, name, phone, email, do_not_text, notes, jobber_client_id')
+    .select('id, name, name_source, phone, email, do_not_text, notes, jobber_client_id')
     .eq('company_id', HEROES_COMPANY_ID)
     // This is the texting view (broadcast/group composers + new-conversation
     // search). The unified contacts directory now holds email-only contacts with
