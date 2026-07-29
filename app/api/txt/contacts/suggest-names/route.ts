@@ -45,13 +45,16 @@ export async function POST(request: Request) {
     .is('deleted_at', null)
     .eq('name', '')
     .not('phone', 'is', null)
-    .order('updated_at', { ascending: false })
+    // Oldest-touched first, so repeated runs march through fresh candidates
+    // rather than re-scanning the same front of the list.
+    .order('updated_at', { ascending: true })
     .limit(limit)
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
   let processed = 0
   let named = 0
   const results: Array<{ id: string; name: string }> = []
+  const examinedNotNamed: string[] = []  // no usable conversation / not confident
 
   for (const c of candidates ?? []) {
     // Pull the recent thread (both directions) for this contact.
@@ -63,10 +66,11 @@ export async function POST(request: Request) {
       .order('created_at', { ascending: false })
       .limit(20)
     const messages = (msgs ?? []).reverse().map((m) => ({ direction: m.direction, body: m.body }))
-    if (messages.length === 0) continue
+    if (messages.length === 0) { examinedNotNamed.push(c.id); continue }
     processed++
 
     const guess = await extractContactName(messages)
+    let didName = false
     if (guess.name && guess.confidence === 'high') {
       // Re-check it's still nameless (avoid clobbering a name added meanwhile).
       const { data: fresh } = await admin
@@ -79,8 +83,19 @@ export async function POST(request: Request) {
           .eq('id', c.id)
         named++
         results.push({ id: c.id, name: guess.name })
+        didName = true
       }
     }
+    if (!didName) examinedNotNamed.push(c.id)
+  }
+
+  // Bump the touched-but-unnamed contacts to the back of the queue so a repeated
+  // run advances past them (they have no usable conversation to name from).
+  if (examinedNotNamed.length > 0) {
+    await admin
+      .from('txt_contacts')
+      .update({ updated_at: new Date().toISOString() })
+      .in('id', examinedNotNamed)
   }
 
   return NextResponse.json({ ok: true, processed, named, results })
