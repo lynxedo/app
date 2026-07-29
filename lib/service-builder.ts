@@ -42,6 +42,27 @@ export type BuilderRound = {
   product_ids: string[]
 }
 
+// What the chart's size input measures. 'sqft_k' = lawn size in thousands of
+// sq ft (the historical default — price_per_k is $/1,000 sq ft). 'zones' =
+// irrigation zone count (e.g. IR Gold priced by zones).
+export type PricingUnit = 'sqft_k' | 'zones'
+
+export const PRICING_UNIT_LABELS: Record<PricingUnit, string> = {
+  sqft_k: 'Lawn size (1,000s sq ft)',
+  zones: 'Irrigation zones',
+}
+
+// One band of a stepped/tiered price chart. A band applies to inputs up to and
+// including `up_to` (in the chart's pricing unit); the final band uses
+// `up_to: null` meaning "and above". Within a band the per-visit price is
+// `base_fee + price_per_unit × input` — set price_per_unit to 0 for a flat
+// per-band price (the RealGreen-style lookup, e.g. IR Gold Tier 1/2/3).
+export type PriceTier = {
+  up_to: number | null
+  base_fee: number
+  price_per_unit: number
+}
+
 // UI-only inputs that don't belong on the pricing formula but should persist per version.
 export type BuilderSettings = {
   sizes: number[] // lawn sizes (K) shown in the price chart
@@ -76,6 +97,8 @@ export type PriceChart = {
   visits: number | null
   base_fee: number | null
   price_per_k: number | null
+  pricing_unit: PricingUnit | null   // null ⇒ 'sqft_k' (legacy default)
+  tiers: PriceTier[] | null          // null/empty ⇒ linear (base_fee + price_per_k)
   labor_rate: number | null
   min_low: number | null
   min_high: number | null
@@ -145,6 +168,33 @@ export function minutesPerK(chart: Pick<PriceChart, 'threshold' | 'min_low' | 'm
   return sizeK <= threshold ? low : high
 }
 
+// Which tier band an input value falls in. Tiers are matched in order; the
+// first band whose `up_to` covers the value wins (null = "and above"). Falls
+// back to the last band if the value exceeds every finite `up_to`.
+export function pickTier(tiers: PriceTier[], value: number): PriceTier | null {
+  if (!tiers.length) return null
+  for (const t of tiers) {
+    if (t.up_to == null || value <= t.up_to) return t
+  }
+  return tiers[tiers.length - 1]
+}
+
+// THE single source of the per-visit price, used by both the Service Builder
+// preview and the Pricer quote. Stepped when the chart has tiers; otherwise the
+// historical linear formula (base_fee + price_per_k × input) — so every
+// existing chart prices exactly as before.
+export function perVisitAt(
+  chart: Pick<PriceChart, 'base_fee' | 'price_per_k' | 'tiers'>,
+  input: number,
+): number {
+  const tiers = chart.tiers
+  if (tiers && tiers.length) {
+    const t = pickTier(tiers, input)
+    if (t) return (t.base_fee ?? 0) + (t.price_per_unit ?? 0) * input
+  }
+  return (chart.base_fee ?? 0) + (chart.price_per_k ?? 0) * input
+}
+
 export type SizeMetrics = {
   K: number
   annProduct: number
@@ -166,14 +216,12 @@ export function metricsAt(
 ): SizeMetrics {
   const galPerK = chart.builder_settings?.tankGalPerK ?? DEFAULT_TANK_GAL_PER_K
   const visits = chart.visits ?? 0
-  const base = chart.base_fee ?? 0
-  const perK = chart.price_per_k ?? 0
   const laborRate = chart.labor_rate ?? DEFAULT_LABOR_RATE
 
   const annProduct = annualProductPerK(chart, productById, galPerK) * K
   const annLabor = (K * minutesPerK(chart, K)) / 60 * laborRate * visits
   const cogs = annProduct + annLabor
-  const perVisit = base + perK * K
+  const perVisit = perVisitAt(chart, K)  // stepped when the chart has tiers, else linear
   const annPrice = perVisit * visits
   const gp = annPrice > 0 ? (annPrice - cogs) / annPrice : 0
   const prodPct = annPrice > 0 ? annProduct / annPrice : 0

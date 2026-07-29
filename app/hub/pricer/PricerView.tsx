@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from 'react'
 import { formatCurrency } from '@/lib/format'
+import { perVisitAt, type PriceTier, type PricingUnit } from '@/lib/service-builder'
 
 // Staff Pricer — a faithful port of Pricer/pricer.html, but the program data is
 // read live from /api/hub/pricer/charts (published Service Builder charts)
@@ -18,6 +19,8 @@ type Program = {
   visits: number
   base_fee: number
   price_per_k: number
+  pricing_unit: PricingUnit
+  tiers: PriceTier[] | null
   version_label: string | null
 }
 
@@ -25,9 +28,9 @@ function fmt(val: number): string {
   if (!isFinite(val)) return '—'
   return formatCurrency(val, { decimals: val % 1 === 0 ? 0 : 2 })
 }
-// Formula (matches the Service Builder + the original Pricer): per-visit price =
-// base + perK × sizeK; annual = per-visit × visits.
-const perVisitOf = (p: Program, sizeK: number) => p.base_fee + p.price_per_k * sizeK
+// The chart's sizing input: lawn size (K) for 'sqft_k', zone count for 'zones'.
+const inputFor = (p: Program, sizeK: number, zones: number) =>
+  p.pricing_unit === 'zones' ? zones : sizeK
 
 // ── Scoped styles — ported verbatim from pricer.html, every selector prefixed
 // with .pricer-root so the light theme can't leak into the dark Hub shell. ──
@@ -87,33 +90,39 @@ const CSS = `
 .pricer-root footer { text-align: center; padding: 20px; font-size: 0.75rem; color: #aaa; border-top: 1px solid #e0e8e0; }
 `
 
-function ProgramCard({ p, sizeK }: { p: Program; sizeK: number }) {
+function ProgramCard({ p, sizeK, zones }: { p: Program; sizeK: number; zones: number }) {
   const isOneTime = p.category === 'onetime'
-  const perVisit = perVisitOf(p, sizeK)
+  const input = inputFor(p, sizeK, zones)
+  // The 3K lawn minimum applies only to size-based charts; zone charts need a zone count.
+  const needMoreInput = p.pricing_unit === 'zones' ? input < 1 : input < 3
+  const perVisit = perVisitAt(p, input)
   const annual = perVisit * (p.visits || 1)
+  const inputHint = p.pricing_unit === 'zones' ? 'Enter zones' : 'Enter size ≥ 3K'
+  const hint = <div className="price-val" style={{ fontSize: '0.9rem', color: '#aaa' }}>{inputHint}</div>
   return (
     <div className="program-card">
       <div className="card-name">{p.name}</div>
       <div className="card-desc">{p.description}</div>
       <span className={`card-badge${isOneTime ? ' onetime' : ''}`}>
         {isOneTime ? 'One-Time Service' : `${p.visits} visits / year`}
+        {p.pricing_unit === 'zones' ? ' · by zones' : ''}
       </span>
       <div className="card-pricing">
         {isOneTime ? (
           <div className="price-col">
             <div className="price-label">One-Time Price</div>
-            <div className="price-val big">{fmt(perVisit)}</div>
+            {needMoreInput ? hint : <div className="price-val big">{fmt(perVisit)}</div>}
           </div>
         ) : (
           <>
             <div className="price-col">
               <div className="price-label">Per Visit</div>
-              <div className="price-val">{fmt(perVisit)}</div>
+              {needMoreInput ? hint : <div className="price-val">{fmt(perVisit)}</div>}
             </div>
             <div className="price-divider" />
             <div className="price-col">
               <div className="price-label">Annual</div>
-              <div className="price-val big">{fmt(annual)}</div>
+              {needMoreInput ? hint : <div className="price-val big">{fmt(annual)}</div>}
             </div>
           </>
         )}
@@ -156,6 +165,7 @@ export default function PricerView({ businessName = 'Heroes Lawn Care' }: { busi
   const [loading, setLoading] = useState(true)
   const [loadError, setLoadError] = useState<string | null>(null)
   const [sizeStr, setSizeStr] = useState('5')
+  const [zonesStr, setZonesStr] = useState('')
   const [bedStr, setBedStr] = useState('')
   const [phcTier, setPhcTier] = useState(0)
 
@@ -183,14 +193,19 @@ export default function PricerView({ businessName = 'Heroes Lawn Care' }: { busi
   }, [])
 
   const sizeK = parseFloat(sizeStr) || 0
+  const zones = parseFloat(zonesStr) || 0
   const bedK = parseFloat(bedStr) || 0
 
   const annual = useMemo(() => programs.filter(p => p.category === 'annual'), [programs])
   const onetime = useMemo(() => programs.filter(p => p.category === 'onetime'), [programs])
   const other = useMemo(() => programs.filter(p => p.category !== 'annual' && p.category !== 'onetime'), [programs])
   const versionLabel = programs.find(p => p.version_label)?.version_label ?? null
+  const hasZoneProgram = useMemo(() => programs.some(p => p.pricing_unit === 'zones'), [programs])
 
-  const tooSmall = sizeK < 3
+  // The full-page "enter a size" block only makes sense when every program is
+  // lawn-size based (today's case). With a zone-based chart present, cards price
+  // off their own unit, so we render normally and each card prompts for what it needs.
+  const tooSmall = sizeK < 3 && !hasZoneProgram
   const mmAnnual = 270 + 30 * sizeK
   const bwpAnnual = 40 + 150 * bedK
   const phcAnnual = 225 + 125 * phcTier
@@ -212,6 +227,14 @@ export default function PricerView({ businessName = 'Heroes Lawn Care' }: { busi
               onChange={e => setSizeStr(e.target.value)} placeholder="10" />
             <span className="unit-label">K sq ft</span>
           </div>
+          {hasZoneProgram && (
+            <div className="main-size-group">
+              <label htmlFor="zoneCount">Irrigation Zones</label>
+              <input id="zoneCount" type="number" min={0} step={1} value={zonesStr}
+                onChange={e => setZonesStr(e.target.value)} placeholder="6" />
+              <span className="unit-label">zones</span>
+            </div>
+          )}
           <span className="size-hint">Enter in thousands (e.g. 10 = 10,000 sq ft) · Minimum 3K</span>
         </div>
       </div>
@@ -253,7 +276,7 @@ export default function PricerView({ businessName = 'Heroes Lawn Care' }: { busi
               <>
                 <div className="section-header first">🌱 Annual Programs</div>
                 <div className="programs-grid">
-                  {annual.map(p => <ProgramCard key={p.program_key} p={p} sizeK={sizeK} />)}
+                  {annual.map(p => <ProgramCard key={p.program_key} p={p} sizeK={sizeK} zones={zones} />)}
                 </div>
               </>
             )}
@@ -262,7 +285,7 @@ export default function PricerView({ businessName = 'Heroes Lawn Care' }: { busi
               <>
                 <div className="section-header">⚡ One-Time &amp; Seasonal Services</div>
                 <div className="programs-grid">
-                  {onetime.map(p => <ProgramCard key={p.program_key} p={p} sizeK={sizeK} />)}
+                  {onetime.map(p => <ProgramCard key={p.program_key} p={p} sizeK={sizeK} zones={zones} />)}
                 </div>
               </>
             )}
@@ -271,7 +294,7 @@ export default function PricerView({ businessName = 'Heroes Lawn Care' }: { busi
               <>
                 <div className="section-header">📋 Other Programs</div>
                 <div className="programs-grid">
-                  {other.map(p => <ProgramCard key={p.program_key} p={p} sizeK={sizeK} />)}
+                  {other.map(p => <ProgramCard key={p.program_key} p={p} sizeK={sizeK} zones={zones} />)}
                 </div>
               </>
             )}

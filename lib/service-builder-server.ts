@@ -6,7 +6,7 @@
 import { NextResponse } from 'next/server'
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { requireAdminArea } from '@/lib/admin-auth'
-import type { BuilderRound, BuilderSettings, ChartStatus } from '@/lib/service-builder'
+import type { BuilderRound, BuilderSettings, ChartStatus, PriceTier, PricingUnit } from '@/lib/service-builder'
 import { deriveRoundsFromMappings, naturalCompare, type SeededRound } from '@/lib/service-mapping'
 
 const STATUSES: ChartStatus[] = ['draft', 'published', 'archived']
@@ -79,6 +79,36 @@ export function parseChartBody(
     const bs = body.builder_settings
     if (bs !== null && typeof bs !== 'object') return { error: 'builder_settings invalid' }
     out.builder_settings = bs as BuilderSettings | null
+  }
+
+  if ('pricing_unit' in body) {
+    const u = body.pricing_unit
+    if (u === null || u === undefined || u === '') out.pricing_unit = null
+    else if (u === 'sqft_k' || u === 'zones') out.pricing_unit = u as PricingUnit
+    else return { error: 'invalid pricing_unit' }
+  }
+
+  if ('tiers' in body) {
+    const t = body.tiers
+    if (t === null) { out.tiers = null }
+    else if (!Array.isArray(t)) return { error: 'tiers must be an array' }
+    else {
+      const tiers: PriceTier[] = []
+      for (const row of t) {
+        if (typeof row !== 'object' || row === null) return { error: 'invalid tier' }
+        const rr = row as Record<string, unknown>
+        const up = rr.up_to
+        const up_to = up === null || up === undefined || up === '' ? null
+          : (isFinite(Number(up)) ? Number(up) : NaN)
+        if (Number.isNaN(up_to)) return { error: 'tier up_to must be a number or blank' }
+        const base_fee = isFinite(Number(rr.base_fee)) ? Number(rr.base_fee) : 0
+        const price_per_unit = isFinite(Number(rr.price_per_unit)) ? Number(rr.price_per_unit) : 0
+        tiers.push({ up_to, base_fee, price_per_unit })
+      }
+      // Keep bands in ascending order; the open-ended (null) band sorts last.
+      tiers.sort((a, b) => (a.up_to == null ? 1 : b.up_to == null ? -1 : a.up_to - b.up_to))
+      out.tiers = tiers.length ? tiers : null
+    }
   }
 
   return out

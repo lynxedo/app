@@ -6,8 +6,8 @@ import { useConfirm } from '@/components/ui'
 import type { Product } from '@/lib/products'
 import { fmtMoney } from '@/lib/products'
 import {
-  type PriceChart, type BuilderRound, type ChartStatus,
-  STATUS_LABELS, defaultBuilderSettings, productCostPerK, roundCostPerK,
+  type PriceChart, type BuilderRound, type ChartStatus, type PriceTier, type PricingUnit,
+  STATUS_LABELS, PRICING_UNIT_LABELS, defaultBuilderSettings, productCostPerK, roundCostPerK,
   annualProductPerK, metricsAt, minutesPerK, slugifyProgramKey, pct,
   DEFAULT_LABOR_RATE, DEFAULT_MIN_LOW, DEFAULT_MIN_HIGH, DEFAULT_LABOR_THRESHOLD,
 } from '@/lib/service-builder'
@@ -87,6 +87,7 @@ export default function ServiceBuilderPanel({
       body: JSON.stringify({
         program_key: slugifyProgramKey(name), name, version_label: version, status: 'draft',
         visits: 8, labor_rate: 28, min_low: 2, min_high: 1.5, threshold: 15, base_fee: 50, price_per_k: 15,
+        pricing_unit: 'sqft_k', tiers: null,
         rounds: [{ id: uid(), name: 'Round 1', product_ids: [] }], builder_settings: def,
       }),
     })
@@ -106,6 +107,7 @@ export default function ServiceBuilderPanel({
         description: active.description, visits: active.visits, labor_rate: active.labor_rate,
         min_low: active.min_low, min_high: active.min_high, threshold: active.threshold,
         base_fee: active.base_fee, price_per_k: active.price_per_k,
+        pricing_unit: active.pricing_unit ?? 'sqft_k', tiers: active.tiers ?? null,
         rounds: (active.rounds ?? []).map(r => ({ ...r, id: uid() })),
         builder_settings: active.builder_settings ?? defaultBuilderSettings(),
       }),
@@ -191,6 +193,30 @@ export default function ServiceBuilderPanel({
     const next = { ...(active.builder_settings ?? defaultBuilderSettings()), ...partial }
     edit({ builder_settings: next })
   }
+
+  // ---- pricing model (unit + stepped tiers) ----
+  const unit: PricingUnit = active?.pricing_unit ?? 'sqft_k'
+  const tiered = !!(active?.tiers && active.tiers.length)
+  function setTiers(next: PriceTier[] | null) { edit({ tiers: next && next.length ? next : null }) }
+  function enableTiers() {
+    if (!active) return
+    // Seed one open-ended band mirroring the current linear price, so flipping
+    // to stepped doesn't change any price until a breakpoint is added.
+    setTiers([{ up_to: null, base_fee: active.base_fee ?? 0, price_per_unit: active.price_per_k ?? 0 }])
+  }
+  function addTier() {
+    if (!active) return
+    setTiers([...(active.tiers ?? []), { up_to: null, base_fee: 0, price_per_unit: 0 }])
+  }
+  function editTier(i: number, partial: Partial<PriceTier>) {
+    if (!active) return
+    setTiers((active.tiers ?? []).map((t, idx) => idx === i ? { ...t, ...partial } : t))
+  }
+  function delTier(i: number) {
+    if (!active) return
+    setTiers((active.tiers ?? []).filter((_, idx) => idx !== i))
+  }
+  const unitLabel = unit === 'zones' ? 'zones' : 'K'
 
   const settings = active?.builder_settings ?? defaultBuilderSettings()
   const sizes = settings.sizes
@@ -308,6 +334,78 @@ export default function ServiceBuilderPanel({
             )}
           </div>
 
+          {/* pricing model — unit + stepped tiers */}
+          <div className={cardCls}>
+            <div className="flex flex-wrap items-center gap-3 mb-3">
+              <h3 className="text-sm font-semibold">Pricing model</h3>
+              <div className="flex items-center gap-1.5">
+                <label className="text-[11px] uppercase tracking-wide text-gray-500">Priced by</label>
+                <select value={unit} onChange={e => edit({ pricing_unit: e.target.value as PricingUnit })}
+                  className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm focus:outline-none focus:border-indigo-500">
+                  {(Object.keys(PRICING_UNIT_LABELS) as PricingUnit[]).map(u => (
+                    <option key={u} value={u}>{PRICING_UNIT_LABELS[u]}</option>
+                  ))}
+                </select>
+              </div>
+              <div className="flex-1" />
+              {tiered
+                ? <button className={btn} onClick={() => setTiers(null)}>Switch to simple pricing</button>
+                : <button className="px-2.5 py-1.5 text-xs font-semibold rounded-lg bg-indigo-600 hover:bg-indigo-500 text-[#fff]" onClick={enableTiers}>Use stepped tiers →</button>}
+            </div>
+
+            {!tiered ? (
+              <p className="text-xs text-gray-500">
+                Simple pricing: <b className="text-gray-300">per-visit = Base fee + Price&nbsp;per&nbsp;{unitLabel} × {unit === 'zones' ? 'zones' : 'size'}</b> (set in the fields above).
+                Switch to stepped tiers for a banded chart (e.g. a flat price per size band, or IR priced by zone count).
+              </p>
+            ) : (
+              <div>
+                <p className="text-xs text-gray-500 mb-2">
+                  Each band applies up to and including its <b className="text-gray-300">Up to ({unitLabel})</b> value (leave the last blank = &ldquo;and above&rdquo;).
+                  Per-visit price in a band = <b className="text-gray-300">Base $ + Per-{unitLabel} $ × {unit === 'zones' ? 'zones' : 'size'}</b>.
+                  For a flat per-band price, set Per-{unitLabel} to 0. The simple Base fee / Price per {unitLabel} above are ignored while tiers are on.
+                </p>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm tabular-nums">
+                    <thead>
+                      <tr className="text-[10px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
+                        <th className="text-left py-2 pr-3">Up to ({unitLabel})</th>
+                        <th className="text-right px-2">Base $</th>
+                        <th className="text-right px-2">Per-{unitLabel} $</th>
+                        <th className="text-right pl-2"></th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {(active.tiers ?? []).map((t, i) => (
+                        <tr key={`tier-${active.id}-${i}-${t.up_to ?? 'top'}`} className="border-b border-gray-800/60">
+                          <td className="py-1.5 pr-3">
+                            <input type="number" step="any" defaultValue={t.up_to ?? ''} placeholder="and above"
+                              onBlur={e => { const v = e.target.value.trim(); editTier(i, { up_to: v === '' ? null : (isFinite(Number(v)) ? Number(v) : t.up_to) }) }}
+                              className="w-28 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-right focus:outline-none focus:border-indigo-500" />
+                          </td>
+                          <td className="px-2 text-right">
+                            <input type="number" step="any" defaultValue={t.base_fee ?? 0}
+                              onBlur={e => { const n = Number(e.target.value); editTier(i, { base_fee: isFinite(n) ? n : 0 }) }}
+                              className="w-24 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-right focus:outline-none focus:border-indigo-500" />
+                          </td>
+                          <td className="px-2 text-right">
+                            <input type="number" step="any" defaultValue={t.price_per_unit ?? 0}
+                              onBlur={e => { const n = Number(e.target.value); editTier(i, { price_per_unit: isFinite(n) ? n : 0 }) }}
+                              className="w-24 bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm text-right focus:outline-none focus:border-indigo-500" />
+                          </td>
+                          <td className="pl-2 text-right">
+                            <button className="text-gray-500 hover:text-red-400 text-sm" onClick={() => delTier(i)} title="Remove band">✕</button>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+                <button className={`${btn} mt-2`} onClick={addTier}>+ Add band</button>
+              </div>
+            )}
+          </div>
+
           {/* rounds */}
           <div className={cardCls}>
             <div className="flex flex-wrap items-center gap-2 mb-3">
@@ -368,9 +466,9 @@ export default function ServiceBuilderPanel({
           {/* price chart */}
           <div className={cardCls}>
             <div className="flex flex-wrap items-center gap-2 mb-3">
-              <h3 className="text-sm font-semibold">Price chart by lawn size</h3>
+              <h3 className="text-sm font-semibold">Price chart by {unit === 'zones' ? 'zone count' : 'lawn size'}</h3>
               <div className="flex-1" />
-              <label className="text-[11px] uppercase tracking-wide text-gray-500">Sizes (K)</label>
+              <label className="text-[11px] uppercase tracking-wide text-gray-500">{unit === 'zones' ? 'Zone counts' : 'Sizes (K)'}</label>
               <input defaultValue={sizes.join(', ')} key={`sizes-${active.id}`}
                 onBlur={e => editSettings({ sizes: e.target.value.split(',').map(s => parseFloat(s.trim())).filter(n => isFinite(n) && n > 0) })}
                 className="bg-gray-800 border border-gray-700 rounded px-2 py-1 text-sm w-64 focus:outline-none focus:border-indigo-500" />
@@ -379,7 +477,7 @@ export default function ServiceBuilderPanel({
               <table className="w-full text-sm tabular-nums">
                 <thead>
                   <tr className="text-[10px] uppercase tracking-wide text-gray-500 border-b border-gray-800">
-                    <th className="text-left py-2 pr-3">Size (K)</th>
+                    <th className="text-left py-2 pr-3">{unit === 'zones' ? 'Zones' : 'Size (K)'}</th>
                     <th className="text-right px-2">Per-visit</th><th className="text-right px-2">Annual price</th>
                     <th className="text-right px-2">Ann. product</th><th className="text-right px-2">Ann. labor</th>
                     <th className="text-right px-2">COGS</th><th className="text-right px-2">GP margin</th>

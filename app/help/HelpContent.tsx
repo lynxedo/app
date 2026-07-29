@@ -2080,6 +2080,11 @@ function ServiceBuilderTab() {
         <p>The <strong className="text-white">price chart</strong> shows every metric across the lawn sizes you list. The <strong className="text-white">averages</strong> box shows whether margin holds as lawns scale across a size range. The <strong className="text-white">target-margin helper</strong> lets you enter a target GP% at a size and tells you the Price/K (or Base fee) to set to hit it.</p>
       </Section>
 
+      <Section title="Pricing model — simple or stepped tiers">
+        <p>Every program has a <strong className="text-white">Pricing model</strong> card. First pick what the price is based on — <strong className="text-white">lawn size (1,000s sq ft)</strong> or <strong className="text-white">irrigation zones</strong> — so an irrigation program can be priced by zone count instead of square footage.</p>
+        <p className="mt-2">By default pricing is <strong className="text-white">simple</strong>: per-visit price = <em>Base fee + Price&nbsp;per&nbsp;unit × size</em> (the fields you already set). Click <strong className="text-white">Use stepped tiers</strong> to switch to a <strong className="text-white">banded chart</strong> — the RealGreen style, where price changes in steps rather than one straight line. Each band applies <em>up to and including</em> its cutoff (leave the last band blank for &ldquo;and above&rdquo;); within a band the price is <em>Base $ + Per-unit $ × size</em>. For a <strong className="text-white">flat price per band</strong> (e.g. IR Gold Tier 1 / 2 / 3 by zones), just set Per-unit to 0 and put the flat price in Base. Flipping a program to stepped starts with a single band that matches its current price, so nothing changes until you add a breakpoint — and switching back to simple is one click. The price chart and margins recompute against whichever model is active.</p>
+      </Section>
+
       <Section title="Per-gallon products">
         <p>Products priced <em>per gallon</em> (the DRF spray-mix chemicals) use your tank ratio — gallons of mix per 1,000 sq ft (default 2) — to work out their cost per 1,000 sq ft. The <strong className="text-white">Tank gal / K</strong> field on each program lets you adjust that ratio. Products that aren&apos;t expressible per 1,000 sq ft (e.g. per-tree trunk drenches) show <em>n/a</em> and aren&apos;t counted in the round cost.</p>
       </Section>
@@ -2168,6 +2173,7 @@ function PricerTab() {
           <li><strong className="text-white">One-time &amp; seasonal services</strong> show a single one-time price.</li>
         </ul>
         <p className="mt-2">Coming from the <strong className="text-white">Lawn Sizer</strong>? It can hand the measured size straight in, so the quote is ready the moment the page opens.</p>
+        <p className="mt-2"><strong className="text-white">Irrigation-by-zone programs:</strong> if an admin has published a program priced by <em>irrigation zones</em> (rather than lawn size), an <strong className="text-white">Irrigation Zones</strong> box appears next to Lawn Size — enter the zone count and those programs price off it. Programs priced by size and by zones can both show at once, each using its own input.</p>
       </Section>
 
       <Section title="Add-ons">
