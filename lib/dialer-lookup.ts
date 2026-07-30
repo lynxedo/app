@@ -334,6 +334,10 @@ export async function lookupByPhone(
       callerIdName = cachedName
     } else if (opts?.fetchCallerId && callerIdEnabled() && !checkedRecently) {
       const fetched = await fetchTwilioCallerId(e164)
+      // Log the billable Twilio dip (charged whether or not a name comes back) so the
+      // Caller ID Look Up usage meter can count it. Fire-and-forget; a dropped log only
+      // ever under-counts (never over-bills), matching the surrounding pattern.
+      void admin.from('billing_caller_id_lookups').insert({ company_id: company, phone: e164 })
       if (fetched?.name) {
         callerIdName = fetched.name
         if (tc?.id) {

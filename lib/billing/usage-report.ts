@@ -36,6 +36,10 @@ const USAGE_RPC: Record<string, string> = {
   call_minutes: 'billing_usage_dialer_minutes',
   ai_minutes: 'billing_usage_ai_minutes',
   text_messages: 'billing_usage_text_count',
+  recording_minutes: 'billing_usage_recording_minutes',
+  transcript_minutes: 'billing_usage_transcript_minutes',
+  ai_summaries: 'billing_usage_ai_summaries',
+  caller_id_lookups: 'billing_usage_caller_id_lookups',
 }
 
 type ReportSummary = {
