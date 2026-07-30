@@ -45,7 +45,11 @@ export type BillingCatalogFeature = {
   // ⚠ Postgres serializes numeric to JS as a STRING — coerce with Number() when reading
   // (typed number here for convenience; use the helpers in lib/billing/money.ts).
   unit_price_cents: number | null
+  // Stripe Billing Meter id, per mode (meters are per-mode; the legacy single
+  // stripe_meter_id column is retained but no longer written).
   stripe_meter_id: string | null
+  stripe_meter_id_test: string | null
+  stripe_meter_id_live: string | null
   stripe_metered_price_id_test: string | null
   stripe_metered_price_id_live: string | null
   sort_order: number
