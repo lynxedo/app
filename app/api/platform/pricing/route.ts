@@ -46,11 +46,21 @@ export async function PATCH(request: Request) {
 }
 
 // A finite non-negative integer cents value, or the fallback when blank/invalid.
+// (Flat prices are whole cents.)
 function toCents(v: unknown, fallback: number | null): number | null {
   if (v == null || v === '') return fallback
   const n = Number(v)
   if (!Number.isFinite(n) || n < 0) return fallback
   return Math.round(n)
+}
+
+// Like toCents but KEEPS fractional cents (rounded to 6 dp), for per-unit usage rates
+// that can be sub-cent (e.g. 0.3 cents = $0.003/min).
+function toCentsPrecise(v: unknown, fallback: number | null): number | null {
+  if (v == null || v === '') return fallback
+  const n = Number(v)
+  if (!Number.isFinite(n) || n < 0) return fallback
+  return Math.round(n * 1e6) / 1e6
 }
 
 // POST — create a new catalog item. Body: { label (required), category, included_in_base,
@@ -80,7 +90,7 @@ export async function POST(request: Request) {
       metered: body.metered === true,
       meter_event_name: typeof body.meter_event_name === 'string' ? body.meter_event_name : null,
       usage_unit: typeof body.usage_unit === 'string' ? body.usage_unit : null,
-      unit_price_cents: toCents(body.unit_price_cents, 0),
+      unit_price_cents: toCentsPrecise(body.unit_price_cents, 0),
     })
     await logPlatformAction(admin, gate.userId, 'create_catalog_feature', null, {
       feature_key: feature.feature_key,

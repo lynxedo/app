@@ -10,6 +10,7 @@
 // policies). The sweep is idempotent and resilient: each feature is wrapped in its own
 // try/catch so one bad row can never abort the rest.
 import type { SupabaseClient } from '@supabase/supabase-js'
+import type Stripe from 'stripe'
 import type { BillingMode } from './types'
 import { getStripe } from './stripe'
 import { getBillingMode } from './catalog'
@@ -171,10 +172,13 @@ export async function syncCatalogToStripe(
         }
 
         // 3b) Ensure a metered Price for the current mode. Create when the mode's stored
-        // metered price id is null OR its unit_amount no longer matches unit_price_cents.
-        const unitPrice = f.unit_price_cents
-        const validUnitPrice =
-          typeof unitPrice === 'number' && Number.isFinite(unitPrice) && unitPrice >= 0
+        // metered price id is null OR its rate no longer matches unit_price_cents.
+        // unit_price_cents is numeric (fractional cents allowed) → Postgres returns it as a
+        // STRING, so coerce with Number() before the type check, else validUnitPrice fails.
+        // Fractional cents are billed via Stripe's `unit_amount_decimal` (a decimal string),
+        // NOT the integer `unit_amount`.
+        const unitPrice = f.unit_price_cents == null ? NaN : Number(f.unit_price_cents)
+        const validUnitPrice = Number.isFinite(unitPrice) && unitPrice >= 0
         if (meterId && validUnitPrice) {
           const meteredCol = METERED_PRICE_COL[mode]
           const existingMeteredId: string | null = f[meteredCol] ?? null
@@ -182,7 +186,11 @@ export async function syncCatalogToStripe(
           if (existingMeteredId) {
             try {
               const existingMetered = await stripe.prices.retrieve(existingMeteredId)
-              if (existingMetered.unit_amount !== unitPrice) needNewMetered = true
+              const existingRate =
+                existingMetered.unit_amount_decimal != null
+                  ? Number(existingMetered.unit_amount_decimal)
+                  : (existingMetered.unit_amount ?? NaN)
+              if (!(Math.abs(existingRate - unitPrice) < 1e-9)) needNewMetered = true
             } catch {
               needNewMetered = true
             }
@@ -192,7 +200,9 @@ export async function syncCatalogToStripe(
             const meteredPrice = await stripe.prices.create({
               product: productId,
               currency: 'usd',
-              unit_amount: unitPrice,
+              // The API wants a decimal cents string; the SDK's branded Decimal type is a
+              // compile-time guard only, so cast the plain string (correct on the wire).
+              unit_amount_decimal: String(unitPrice) as unknown as Stripe.Decimal,
               recurring: { interval: 'month', usage_type: 'metered', meter: meterId },
               metadata: { feature_key: f.feature_key, metered: 'true' },
             })

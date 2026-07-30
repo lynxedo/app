@@ -4,6 +4,7 @@ import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useToast } from '@/components/ui'
 import type { BillingCatalogFeature, BillingMode, TenantSummary, SubscriptionStatus } from '@/lib/billing/types'
 import { WIRED_METER_EVENTS, isWiredMeter } from '@/lib/billing/wired-meters'
+import { centsToDollarsPrecise, dollarsToCentsPrecise } from '@/lib/billing/money'
 
 // ── local response types for the enriched Tenants tab (built against the M4 endpoints) ──
 type TenantDetail = {
@@ -354,7 +355,7 @@ function AddItemForm({
           metered,
           meter_event_name: metered ? meterTrimmed || undefined : undefined,
           usage_unit: metered ? unit.trim() || undefined : undefined,
-          unit_price_cents: metered ? dollarsToCents(unitPrice) ?? 0 : undefined,
+          unit_price_cents: metered ? dollarsToCentsPrecise(unitPrice) ?? 0 : undefined,
         }),
       })
       const j = await res.json().catch(() => ({}))
@@ -478,7 +479,7 @@ function FeatureRow({ feature, onSave }: { feature: BillingCatalogFeature; onSav
   const [label, setLabel] = useState(feature.label)
   const [price, setPrice] = useState(centsToDollars(feature.default_price_cents))
   const [cost, setCost] = useState(centsToDollars(feature.cost_basis_cents))
-  const [unitPrice, setUnitPrice] = useState(centsToDollars(feature.unit_price_cents))
+  const [unitPrice, setUnitPrice] = useState(centsToDollarsPrecise(feature.unit_price_cents))
   const [category, setCategory] = useState(feature.category)
   const [meterEvent, setMeterEvent] = useState(feature.meter_event_name ?? '')
   const [unit, setUnit] = useState(feature.usage_unit ?? '')
@@ -620,8 +621,8 @@ function FeatureRow({ feature, onSave }: { feature: BillingCatalogFeature; onSav
             title="Usage rate billed per unit, in arrears"
             onChange={(v) => {
               setUnitPrice(v)
-              scheduleSave('unitPrice', { unit_price_cents: dollarsToCents(v) }, () =>
-                setUnitPrice(centsToDollars(feature.unit_price_cents)),
+              scheduleSave('unitPrice', { unit_price_cents: dollarsToCentsPrecise(v) }, () =>
+                setUnitPrice(centsToDollarsPrecise(feature.unit_price_cents)),
               )
             }}
           />

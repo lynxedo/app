@@ -9,6 +9,7 @@ import type {
   CompanySubscription,
   SubscriptionStatus,
 } from '@/lib/billing/types'
+import { fmtUnitRate } from '@/lib/billing/money'
 
 // Company-facing plan chooser + subscription status. Reuses the visual language of the
 // platform console (dark cards, sky/emerald/amber accents, the same money + date
@@ -383,7 +384,7 @@ function ModuleRow({
         <span className="text-xs font-normal text-gray-500">/mo</span>
         {feature.metered && feature.unit_price_cents != null && (
           <div className="text-[11px] font-normal text-gray-400">
-            + {fmtMoney(feature.unit_price_cents)} per {feature.usage_unit || 'unit'}
+            + {fmtUnitRate(feature.unit_price_cents)} per {feature.usage_unit || 'unit'}
           </div>
         )}
       </div>
