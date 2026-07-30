@@ -2,7 +2,7 @@ import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requirePlatformAdmin } from '@/lib/platform-auth'
 
-const EDITABLE = ['category', 'service', 'plan', 'monthly', 'usage', 'notes', 'sort_order', 'active']
+const EDITABLE = ['category', 'service', 'plan', 'monthly', 'est_monthly', 'usage', 'notes', 'sort_order', 'active']
 
 // PATCH — edit one service-cost row. Body: any editable field(s).
 export async function PATCH(request: Request, { params }: { params: Promise<{ id: string }> }) {
