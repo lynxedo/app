@@ -3,6 +3,7 @@
 import { Fragment, useEffect, useRef, useState, type ReactNode } from 'react'
 import { useToast } from '@/components/ui'
 import type { BillingCatalogFeature, BillingMode, TenantSummary, SubscriptionStatus } from '@/lib/billing/types'
+import { WIRED_METER_EVENTS, isWiredMeter } from '@/lib/billing/wired-meters'
 
 // ── local response types for the enriched Tenants tab (built against the M4 endpoints) ──
 type TenantDetail = {
@@ -99,6 +100,21 @@ export default function PlatformConsole({
   const [features, setFeatures] = useState<BillingCatalogFeature[]>(initialFeatures)
   const toast = useToast()
   const [syncing, setSyncing] = useState(false)
+  const [showAdd, setShowAdd] = useState(false)
+
+  // Fold a newly-created item into local state (append + keep sort_order/key order stable).
+  const handleCreated = (feature: BillingCatalogFeature) => {
+    setFeatures((prev) =>
+      [...prev, feature].sort(
+        (a, b) => a.sort_order - b.sort_order || a.feature_key.localeCompare(b.feature_key),
+      ),
+    )
+    setShowAdd(false)
+  }
+
+  // Distinct category strings currently in use — powers the datalist so you can pick an
+  // existing category or type a brand-new one.
+  const allCategories = Array.from(new Set(features.map((f) => f.category).filter(Boolean))).sort()
 
   // Push the catalog's prices to Stripe (creates/refreshes the Product + Price per
   // billable feature). Stripe Prices are immutable, so a changed amount mints a new
@@ -179,14 +195,38 @@ export default function PlatformConsole({
               <span className="text-gray-200">Sync to Stripe</span> to push it (a new Stripe price is created and the
               old one archived, since Stripe prices are immutable).
             </p>
-            <button
-              onClick={syncStripe}
-              disabled={syncing}
-              className="shrink-0 rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-medium text-[#fff] transition-colors hover:bg-sky-500 disabled:opacity-50"
-            >
-              {syncing ? 'Syncing…' : 'Sync to Stripe'}
-            </button>
+            <div className="flex shrink-0 items-center gap-2">
+              <button
+                onClick={() => setShowAdd((v) => !v)}
+                className="rounded-lg border border-white/15 px-3 py-2 text-sm font-medium text-gray-200 transition-colors hover:bg-white/5"
+              >
+                {showAdd ? 'Close' : '+ Add item'}
+              </button>
+              <button
+                onClick={syncStripe}
+                disabled={syncing}
+                className="rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-medium text-[#fff] transition-colors hover:bg-sky-500 disabled:opacity-50"
+              >
+                {syncing ? 'Syncing…' : 'Sync to Stripe'}
+              </button>
+            </div>
           </div>
+
+          {/* Shared datalists for the add-form + row detail editors */}
+          <datalist id="catalog-categories">
+            {allCategories.map((c) => (
+              <option key={c} value={c} />
+            ))}
+          </datalist>
+          <datalist id="catalog-meters">
+            {WIRED_METER_EVENTS.map((m) => (
+              <option key={m.event_name} value={m.event_name}>
+                {m.label}
+              </option>
+            ))}
+          </datalist>
+
+          {showAdd && <AddItemForm onCreated={handleCreated} onCancel={() => setShowAdd(false)} />}
 
           {/* Base subscription */}
           <PricingGroup title="Base subscription">
@@ -264,12 +304,185 @@ function EmptyRow({ children }: { children: ReactNode }) {
   return <p className="text-sm text-gray-500">{children}</p>
 }
 
+// Create-a-new-catalog-item form. Posts to POST /api/platform/pricing and hands the
+// created row back via onCreated. feature_key is derived server-side from the name.
+function AddItemForm({
+  onCreated,
+  onCancel,
+}: {
+  onCreated: (f: BillingCatalogFeature) => void
+  onCancel: () => void
+}) {
+  const toast = useToast()
+  const [label, setLabel] = useState('')
+  const [category, setCategory] = useState('')
+  const [includedInBase, setIncludedInBase] = useState(false)
+  const [price, setPrice] = useState('')
+  const [cost, setCost] = useState('')
+  const [metered, setMetered] = useState(false)
+  const [meterEvent, setMeterEvent] = useState('')
+  const [unit, setUnit] = useState('')
+  const [unitPrice, setUnitPrice] = useState('')
+  const [busy, setBusy] = useState(false)
+
+  const meterTrimmed = meterEvent.trim()
+  const newMetric = metered && !isWiredMeter(meterTrimmed) // blank OR unknown = new metric
+
+  // When the typed meter matches a wired one, prefill its unit for convenience.
+  function onMeterChange(v: string) {
+    setMeterEvent(v)
+    const wired = WIRED_METER_EVENTS.find((m) => m.event_name === v.trim())
+    if (wired) setUnit(wired.unit)
+  }
+
+  async function submit() {
+    if (!label.trim()) {
+      toast.error('Give the item a name.')
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await fetch('/api/platform/pricing', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          label: label.trim(),
+          category: category.trim() || undefined,
+          included_in_base: includedInBase,
+          default_price_cents: dollarsToCents(price) ?? 0,
+          cost_basis_cents: dollarsToCents(cost),
+          metered,
+          meter_event_name: metered ? meterTrimmed || undefined : undefined,
+          usage_unit: metered ? unit.trim() || undefined : undefined,
+          unit_price_cents: metered ? dollarsToCents(unitPrice) ?? 0 : undefined,
+        }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(j.error || 'Could not create the item.')
+        return
+      }
+      toast.success(`Added "${j.feature.label}" — click Sync to Stripe to provision its price.`)
+      onCreated(j.feature as BillingCatalogFeature)
+    } catch {
+      toast.error('Could not create the item.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  return (
+    <div className="rounded-xl border border-sky-400/25 bg-sky-500/[0.04] p-4">
+      <h3 className="mb-3 text-sm font-semibold text-gray-100">New item</h3>
+      <div className="flex flex-wrap items-end gap-x-5 gap-y-3">
+        <label className="text-[11px] text-gray-400">
+          Name
+          <input
+            value={label}
+            onChange={(e) => setLabel(e.target.value)}
+            placeholder="e.g. Premium Support"
+            className="mt-1 block w-56 rounded-lg border border-white/10 bg-gray-900 px-2 py-2 text-sm text-white outline-none placeholder:text-gray-600"
+          />
+        </label>
+
+        <label className="text-[11px] text-gray-400">
+          Category
+          <input
+            value={category}
+            onChange={(e) => setCategory(e.target.value)}
+            list="catalog-categories"
+            placeholder="operations"
+            className="mt-1 block w-40 rounded-lg border border-white/10 bg-gray-900 px-2 py-2 text-sm text-white outline-none placeholder:text-gray-600"
+          />
+        </label>
+
+        <label className="text-[11px] text-gray-400">
+          Type
+          <select
+            value={includedInBase ? 'included' : 'addon'}
+            onChange={(e) => setIncludedInBase(e.target.value === 'included')}
+            className="mt-1 block w-40 rounded-lg border border-white/10 bg-gray-900 px-2 py-2 text-sm text-white outline-none"
+          >
+            <option value="addon">Paid add-on</option>
+            <option value="included">Included in base</option>
+          </select>
+        </label>
+
+        <MoneyField label="Price" value={price} onChange={setPrice} placeholder="0.00" />
+        <MoneyField label="Cost basis" value={cost} onChange={setCost} placeholder="—" />
+
+        <label className="flex cursor-pointer items-center gap-2 pb-2 text-xs text-gray-300">
+          <input
+            type="checkbox"
+            checked={metered}
+            onChange={(e) => setMetered(e.target.checked)}
+            className="h-4 w-4 accent-violet-500"
+          />
+          Usage-based
+        </label>
+      </div>
+
+      {metered && (
+        <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-3 rounded-lg border border-violet-400/20 bg-violet-500/[0.04] p-3">
+          <label className="text-[11px] text-gray-400">
+            Meter
+            <input
+              value={meterEvent}
+              onChange={(e) => onMeterChange(e.target.value)}
+              list="catalog-meters"
+              placeholder="pick or type a new metric"
+              className="mt-1 block w-56 rounded-lg border border-white/10 bg-gray-900 px-2 py-2 text-sm text-white outline-none placeholder:text-gray-600"
+            />
+          </label>
+          <label className="text-[11px] text-gray-400">
+            Unit
+            <input
+              value={unit}
+              onChange={(e) => setUnit(e.target.value)}
+              placeholder="minute / message / unit"
+              className="mt-1 block w-36 rounded-lg border border-white/10 bg-gray-900 px-2 py-2 text-sm text-white outline-none placeholder:text-gray-600"
+            />
+          </label>
+          <MoneyField label="Per unit" value={unitPrice} onChange={setUnitPrice} placeholder="0.00" />
+          {newMetric && (
+            <p className="w-full text-[11px] text-amber-300/90">
+              ⚠ New usage metric — it provisions in Stripe but bills <strong>$0 usage</strong> until a counter is
+              wired in code. Pick one of the listed meters for automatic usage billing.
+            </p>
+          )}
+        </div>
+      )}
+
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          onClick={submit}
+          disabled={busy}
+          className="rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-medium text-[#fff] transition-colors hover:bg-sky-500 disabled:opacity-50"
+        >
+          {busy ? 'Adding…' : 'Add item'}
+        </button>
+        <button
+          onClick={onCancel}
+          disabled={busy}
+          className="rounded-lg border border-white/10 px-3 py-2 text-sm font-medium text-gray-300 transition-colors hover:bg-white/5 disabled:opacity-50"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  )
+}
+
 function FeatureRow({ feature, onSave }: { feature: BillingCatalogFeature; onSave: SaveFn }) {
   const toast = useToast()
   const [label, setLabel] = useState(feature.label)
   const [price, setPrice] = useState(centsToDollars(feature.default_price_cents))
   const [cost, setCost] = useState(centsToDollars(feature.cost_basis_cents))
   const [unitPrice, setUnitPrice] = useState(centsToDollars(feature.unit_price_cents))
+  const [category, setCategory] = useState(feature.category)
+  const [meterEvent, setMeterEvent] = useState(feature.meter_event_name ?? '')
+  const [unit, setUnit] = useState(feature.usage_unit ?? '')
+  const [details, setDetails] = useState(false)
   const [status, setStatus] = useState<'idle' | 'saving' | 'saved' | 'error'>('idle')
 
   const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
@@ -417,6 +630,15 @@ function FeatureRow({ feature, onSave }: { feature: BillingCatalogFeature; onSav
         {/* Active */}
         <Toggle label="Active" checked={feature.active} onChange={(v) => runSave({ active: v })} />
 
+        {/* Details expander (category / usage-based) */}
+        <button
+          onClick={() => setDetails((v) => !v)}
+          className="text-[11px] text-gray-400 underline-offset-2 hover:text-gray-200 hover:underline"
+          title="Edit category and usage-based settings"
+        >
+          {details ? 'Hide details' : 'Details'}
+        </button>
+
         {/* Status */}
         <span className="w-14 text-right text-[11px]">
           {status === 'saving' && <span className="text-gray-500">Saving…</span>}
@@ -424,6 +646,78 @@ function FeatureRow({ feature, onSave }: { feature: BillingCatalogFeature; onSav
           {status === 'error' && <span className="text-red-400">Error</span>}
         </span>
       </div>
+
+      {details && (
+        <div className="mt-3 flex flex-wrap items-end gap-x-5 gap-y-3 border-t border-white/10 pt-3">
+          {/* Category (editable; base row keeps its category too) */}
+          <label className="text-[11px] text-gray-400">
+            Category
+            <input
+              value={category}
+              list="catalog-categories"
+              onChange={(e) => {
+                setCategory(e.target.value)
+                scheduleSave('category', { category: e.target.value.trim() || 'operations' }, () =>
+                  setCategory(feature.category),
+                )
+              }}
+              className="mt-1 block w-40 rounded-lg border border-white/10 bg-gray-900 px-2 py-2 text-sm text-white outline-none"
+            />
+          </label>
+
+          {/* Usage-based toggle — the base row is never metered */}
+          {!feature.is_base && (
+            <div className="pb-2">
+              <Toggle
+                label="Usage-based"
+                checked={feature.metered}
+                onChange={(v) => runSave({ metered: v })}
+              />
+            </div>
+          )}
+
+          {/* Meter + unit (only when metered) */}
+          {feature.metered && (
+            <>
+              <label className="text-[11px] text-gray-400">
+                Meter
+                <input
+                  value={meterEvent}
+                  list="catalog-meters"
+                  onChange={(e) => {
+                    setMeterEvent(e.target.value)
+                    scheduleSave(
+                      'meter',
+                      { meter_event_name: e.target.value.trim() || null },
+                      () => setMeterEvent(feature.meter_event_name ?? ''),
+                    )
+                  }}
+                  className="mt-1 block w-56 rounded-lg border border-white/10 bg-gray-900 px-2 py-2 text-sm text-white outline-none"
+                />
+              </label>
+              <label className="text-[11px] text-gray-400">
+                Unit
+                <input
+                  value={unit}
+                  onChange={(e) => {
+                    setUnit(e.target.value)
+                    scheduleSave('unit', { usage_unit: e.target.value.trim() || null }, () =>
+                      setUnit(feature.usage_unit ?? ''),
+                    )
+                  }}
+                  className="mt-1 block w-32 rounded-lg border border-white/10 bg-gray-900 px-2 py-2 text-sm text-white outline-none"
+                />
+              </label>
+              {!isWiredMeter(feature.meter_event_name) && (
+                <p className="w-full text-[11px] text-amber-300/90">
+                  ⚠ This meter has no usage counter wired — it bills <strong>$0 usage</strong> until one is added in
+                  code. The flat price still applies.
+                </p>
+              )}
+            </>
+          )}
+        </div>
+      )}
     </div>
   )
 }
