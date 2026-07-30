@@ -32,6 +32,14 @@ const METERED_PRICE_COL: Record<
   live: 'stripe_metered_price_id_live',
 }
 
+// Which catalog column holds the Stripe Billing Meter id for a given mode. Meters are
+// per-mode in Stripe (a live metered price can't reference a test meter), so the id is
+// stored per-mode — NOT in the legacy single stripe_meter_id column.
+const METER_ID_COL: Record<BillingMode, 'stripe_meter_id_test' | 'stripe_meter_id_live'> = {
+  test: 'stripe_meter_id_test',
+  live: 'stripe_meter_id_live',
+}
+
 /**
  * Sync every active, billable catalog feature into Stripe for the current mode.
  *
@@ -140,13 +148,11 @@ export async function syncCatalogToStripe(
       if (f.metered === true) {
         const eventName: string | null = f.meter_event_name ?? null
 
-        // 3a) Ensure the account-wide Billing Meter (one per event_name).
-        // ⚠ stripe_meter_id is a single (mode-agnostic) column: the first mode to sync
-        // stores its meter id and both modes then reuse it. Meters ARE per-mode in Stripe,
-        // so a live sync inheriting a test meter id would mint a live metered price against
-        // a test meter and fail — acceptable while only test mode is provisioned (M4.5), but
-        // a per-mode stripe_meter_id_{test,live} split is needed before live provisioning.
-        let meterId: string | null = f.stripe_meter_id ?? null
+        // 3a) Ensure the per-mode Billing Meter (one per event_name, per mode). Meters are
+        // per-mode in Stripe, so the id is stored/read in the mode's own column — a live
+        // sync mints a live meter, a test sync a test meter, and neither clobbers the other.
+        const meterCol = METER_ID_COL[mode]
+        let meterId: string | null = f[meterCol] ?? null
         if (!meterId && eventName) {
           try {
             const meter = await stripe.billing.meters.create({
@@ -167,7 +173,7 @@ export async function syncCatalogToStripe(
           }
           await admin
             .from('billing_catalog')
-            .update({ stripe_meter_id: meterId, updated_at: new Date().toISOString() })
+            .update({ [meterCol]: meterId, updated_at: new Date().toISOString() })
             .eq('feature_key', f.feature_key)
         }
 
