@@ -7,7 +7,7 @@ import { getOrCreateStripeCustomer } from '@/lib/billing/subscription'
 
 // Start a Stripe Checkout session for a tenant to subscribe. Company-admin only.
 // The base plan is always included; the caller passes any à-la-carte module keys.
-// A 14-day trial is attached and the resulting subscription is tagged with the
+// No trial — billing starts immediately. The resulting subscription is tagged with the
 // company_id + mode so the webhook can attribute it back.
 //
 // Body: { feature_keys?: string[] }  (billable module keys; base is auto-added)
@@ -88,7 +88,6 @@ export async function POST(request: Request) {
       customer,
       line_items: lineItems,
       subscription_data: {
-        trial_period_days: 14,
         metadata: { company_id: companyId, mode },
       },
       metadata: { company_id: companyId, mode },
