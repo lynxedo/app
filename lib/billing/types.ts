@@ -40,6 +40,10 @@ export type BillingCatalogFeature = {
   metered: boolean
   meter_event_name: string | null
   usage_unit: string | null
+  // Per-unit usage rate in cents. Stored as numeric(12,6) so sub-cent rates (e.g. 0.3
+  // cents = $0.003/min) are preserved and billed via Stripe `unit_amount_decimal`.
+  // ⚠ Postgres serializes numeric to JS as a STRING — coerce with Number() when reading
+  // (typed number here for convenience; use the helpers in lib/billing/money.ts).
   unit_price_cents: number | null
   stripe_meter_id: string | null
   stripe_metered_price_id_test: string | null
