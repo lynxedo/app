@@ -97,7 +97,7 @@ export default function PlatformConsole({
   tenants: TenantSummary[]
   mode: BillingMode
 }) {
-  const [tab, setTab] = useState<'pricing' | 'tenants' | 'invoices'>('pricing')
+  const [tab, setTab] = useState<'pricing' | 'tenants' | 'invoices' | 'costs'>('pricing')
   const [features, setFeatures] = useState<BillingCatalogFeature[]>(initialFeatures)
   const toast = useToast()
   const [syncing, setSyncing] = useState(false)
@@ -188,6 +188,9 @@ export default function PlatformConsole({
         <TabButton active={tab === 'invoices'} onClick={() => setTab('invoices')}>
           Invoices
         </TabButton>
+        <TabButton active={tab === 'costs'} onClick={() => setTab('costs')}>
+          Service Costs
+        </TabButton>
       </div>
 
       {tab === 'pricing' && (
@@ -270,6 +273,8 @@ export default function PlatformConsole({
       {tab === 'tenants' && <TenantsTable tenants={tenants} features={features} />}
 
       {tab === 'invoices' && <InvoicesTab tenants={tenants} mode={mode} />}
+
+      {tab === 'costs' && <ServiceCostsTab />}
     </div>
   )
 }
@@ -565,6 +570,244 @@ function InvoicesTab({ tenants, mode }: { tenants: TenantSummary[]; mode: Billin
           )}
         </div>
       )}
+    </div>
+  )
+}
+
+type ServiceCost = {
+  id: string
+  category: string
+  service: string
+  plan: string | null
+  monthly: string | null
+  usage: string | null
+  notes: string | null
+  sort_order: number
+  active: boolean
+}
+
+// Service Costs: every external service Lynxedo runs on + its monthly/usage cost. Fully
+// editable (inline auto-save), grouped by category, with add/delete.
+function ServiceCostsTab() {
+  const toast = useToast()
+  const [services, setServices] = useState<ServiceCost[] | null>(null)
+  const [loading, setLoading] = useState(true)
+  const [adding, setAdding] = useState(false)
+
+  useEffect(() => {
+    let alive = true
+    ;(async () => {
+      try {
+        const res = await fetch('/api/platform/service-costs')
+        const j = await res.json().catch(() => ({}))
+        if (!res.ok) throw new Error(j.error || 'load failed')
+        if (alive) setServices((j.services || []) as ServiceCost[])
+      } catch {
+        if (alive) toast.error('Could not load service costs.')
+      } finally {
+        if (alive) setLoading(false)
+      }
+    })()
+    return () => {
+      alive = false
+    }
+  }, [toast])
+
+  async function addService() {
+    setAdding(true)
+    try {
+      const res = await fetch('/api/platform/service-costs', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ category: 'Other', service: 'New service', sort_order: 9999 }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(j.error || 'Could not add.')
+        return
+      }
+      setServices((prev) => [...(prev ?? []), j.service as ServiceCost])
+    } catch {
+      toast.error('Could not add.')
+    } finally {
+      setAdding(false)
+    }
+  }
+
+  if (loading) return <p className="text-sm text-gray-500">Loading…</p>
+  if (!services) return null
+
+  const groups: { category: string; rows: ServiceCost[] }[] = []
+  for (const s of services) {
+    let g = groups.find((x) => x.category === s.category)
+    if (!g) {
+      g = { category: s.category, rows: [] }
+      groups.push(g)
+    }
+    g.rows.push(s)
+  }
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-wrap items-start justify-between gap-3">
+        <p className="max-w-2xl text-sm text-gray-400">
+          Every external service Lynxedo runs on, with its monthly fee and/or usage cost. Every field
+          is editable — correct an amount and it auto-saves. Amounts marked “confirm” are list rates or
+          estimates to verify against your actual bill.
+        </p>
+        <button
+          onClick={addService}
+          disabled={adding}
+          className="shrink-0 rounded-lg border border-white/15 px-3 py-2 text-sm font-medium text-gray-200 transition-colors hover:bg-white/5 disabled:opacity-50"
+        >
+          {adding ? 'Adding…' : '+ Add service'}
+        </button>
+      </div>
+
+      {groups.map((g) => (
+        <div key={g.category}>
+          <h2 className="mb-2 text-sm font-semibold text-gray-200">{g.category}</h2>
+          <div className="overflow-x-auto rounded-xl border border-white/10">
+            <div className="min-w-[860px]">
+              <div className="grid grid-cols-[1.4fr_1fr_1.2fr_1.5fr_1.6fr_auto] gap-2 border-b border-white/10 bg-white/[0.02] px-3 py-2 text-[11px] uppercase tracking-wide text-gray-500">
+                <span>Service</span>
+                <span>Plan</span>
+                <span>Monthly</span>
+                <span>Usage</span>
+                <span>Notes</span>
+                <span />
+              </div>
+              {g.rows.map((s) => (
+                <ServiceCostRow
+                  key={s.id}
+                  row={s}
+                  onDeleted={() => setServices((prev) => (prev ?? []).filter((x) => x.id !== s.id))}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      ))}
+    </div>
+  )
+}
+
+function ServiceCostRow({ row, onDeleted }: { row: ServiceCost; onDeleted: () => void }) {
+  const toast = useToast()
+  const [service, setService] = useState(row.service)
+  const [plan, setPlan] = useState(row.plan ?? '')
+  const [monthly, setMonthly] = useState(row.monthly ?? '')
+  const [usage, setUsage] = useState(row.usage ?? '')
+  const [notes, setNotes] = useState(row.notes ?? '')
+  const [confirming, setConfirming] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const timers = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
+
+  useEffect(
+    () => () => {
+      Object.values(timers.current).forEach((t) => clearTimeout(t))
+    },
+    [],
+  )
+
+  function save(field: string, patch: Record<string, unknown>) {
+    if (timers.current[field]) clearTimeout(timers.current[field])
+    timers.current[field] = setTimeout(async () => {
+      try {
+        const res = await fetch(`/api/platform/service-costs/${row.id}`, {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(patch),
+        })
+        if (!res.ok) {
+          const j = await res.json().catch(() => ({}))
+          toast.error(j.error || 'Save failed.')
+        }
+      } catch {
+        toast.error('Save failed.')
+      }
+    }, 600)
+  }
+
+  async function del() {
+    if (!confirming) {
+      setConfirming(true)
+      setTimeout(() => setConfirming(false), 3000)
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await fetch(`/api/platform/service-costs/${row.id}`, { method: 'DELETE' })
+      if (!res.ok) {
+        toast.error('Delete failed.')
+        return
+      }
+      onDeleted()
+    } catch {
+      toast.error('Delete failed.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const cell = 'w-full rounded bg-transparent px-1.5 py-1.5 text-xs text-white outline-none focus:bg-gray-900'
+
+  return (
+    <div className="grid grid-cols-[1.4fr_1fr_1.2fr_1.5fr_1.6fr_auto] items-center gap-2 border-b border-white/5 px-3 py-1 last:border-0">
+      <input
+        value={service}
+        onChange={(e) => {
+          setService(e.target.value)
+          save('service', { service: e.target.value })
+        }}
+        className={`${cell} font-medium text-gray-200`}
+      />
+      <input
+        value={plan}
+        onChange={(e) => {
+          setPlan(e.target.value)
+          save('plan', { plan: e.target.value })
+        }}
+        placeholder="—"
+        className={`${cell} text-gray-400 placeholder:text-gray-600`}
+      />
+      <input
+        value={monthly}
+        onChange={(e) => {
+          setMonthly(e.target.value)
+          save('monthly', { monthly: e.target.value })
+        }}
+        placeholder="—"
+        className={`${cell} placeholder:text-gray-600`}
+      />
+      <input
+        value={usage}
+        onChange={(e) => {
+          setUsage(e.target.value)
+          save('usage', { usage: e.target.value })
+        }}
+        placeholder="—"
+        className={`${cell} placeholder:text-gray-600`}
+      />
+      <input
+        value={notes}
+        onChange={(e) => {
+          setNotes(e.target.value)
+          save('notes', { notes: e.target.value })
+        }}
+        placeholder="—"
+        className={`${cell} text-gray-400 placeholder:text-gray-600`}
+      />
+      <button
+        onClick={del}
+        disabled={busy}
+        title="Delete"
+        className={`rounded px-2 py-1 text-xs transition-colors disabled:opacity-50 ${
+          confirming ? 'bg-red-500/20 text-red-300' : 'text-gray-500 hover:bg-white/5 hover:text-red-300'
+        }`}
+      >
+        {confirming ? 'Sure?' : '🗑'}
+      </button>
     </div>
   )
 }
