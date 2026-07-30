@@ -6,7 +6,7 @@ import { requirePlatformAdmin } from '@/lib/platform-auth'
 // its monthly/usage cost). Service-role admin client — platform_service_costs is RLS
 // service-role only.
 
-const EDITABLE = ['category', 'service', 'plan', 'monthly', 'usage', 'notes', 'sort_order', 'active']
+const EDITABLE = ['category', 'service', 'plan', 'monthly', 'est_monthly', 'usage', 'notes', 'sort_order', 'active']
 
 // GET — the full list.
 export async function GET() {

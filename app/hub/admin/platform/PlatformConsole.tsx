@@ -580,6 +580,9 @@ type ServiceCost = {
   service: string
   plan: string | null
   monthly: string | null
+  // Structured monthly-equivalent estimate that feeds the total. numeric → may arrive as
+  // a string from Postgres, so coerce with Number() when summing.
+  est_monthly: number | string | null
   usage: string | null
   notes: string | null
   sort_order: number
@@ -647,6 +650,8 @@ function ServiceCostsTab() {
     g.rows.push(s)
   }
 
+  const total = services.reduce((s, x) => s + (Number(x.est_monthly) || 0), 0)
+
   return (
     <div className="space-y-6">
       <div className="flex flex-wrap items-start justify-between gap-3">
@@ -664,15 +669,28 @@ function ServiceCostsTab() {
         </button>
       </div>
 
+      <div className="rounded-xl border border-white/10 bg-white/[0.03] p-4">
+        <div className="text-xs uppercase tracking-wide text-gray-500">Estimated fixed monthly</div>
+        <div className="text-2xl font-bold text-white">
+          ≈ ${total.toFixed(2)}
+          <span className="text-sm font-normal text-gray-500">/mo</span>
+        </div>
+        <p className="mt-1 text-[11px] text-gray-500">
+          Sum of the fixed recurring fees (annual costs ÷ 12). Usage-based charges (Twilio, Anthropic,
+          etc.) and one-time fees aren’t included. Edit any “Est $/mo” below to refine the total.
+        </p>
+      </div>
+
       {groups.map((g) => (
         <div key={g.category}>
           <h2 className="mb-2 text-sm font-semibold text-gray-200">{g.category}</h2>
           <div className="overflow-x-auto rounded-xl border border-white/10">
             <div className="min-w-[860px]">
-              <div className="grid grid-cols-[1.4fr_1fr_1.2fr_1.5fr_1.6fr_auto] gap-2 border-b border-white/10 bg-white/[0.02] px-3 py-2 text-[11px] uppercase tracking-wide text-gray-500">
+              <div className="grid grid-cols-[1.3fr_0.9fr_1.2fr_0.7fr_1.4fr_1.5fr_auto] gap-2 border-b border-white/10 bg-white/[0.02] px-3 py-2 text-[11px] uppercase tracking-wide text-gray-500">
                 <span>Service</span>
                 <span>Plan</span>
                 <span>Monthly</span>
+                <span>Est $/mo</span>
                 <span>Usage</span>
                 <span>Notes</span>
                 <span />
@@ -681,6 +699,11 @@ function ServiceCostsTab() {
                 <ServiceCostRow
                   key={s.id}
                   row={s}
+                  onEstChange={(v) =>
+                    setServices((prev) =>
+                      (prev ?? []).map((x) => (x.id === s.id ? { ...x, est_monthly: v } : x)),
+                    )
+                  }
                   onDeleted={() => setServices((prev) => (prev ?? []).filter((x) => x.id !== s.id))}
                 />
               ))}
@@ -692,11 +715,20 @@ function ServiceCostsTab() {
   )
 }
 
-function ServiceCostRow({ row, onDeleted }: { row: ServiceCost; onDeleted: () => void }) {
+function ServiceCostRow({
+  row,
+  onDeleted,
+  onEstChange,
+}: {
+  row: ServiceCost
+  onDeleted: () => void
+  onEstChange: (v: number | null) => void
+}) {
   const toast = useToast()
   const [service, setService] = useState(row.service)
   const [plan, setPlan] = useState(row.plan ?? '')
   const [monthly, setMonthly] = useState(row.monthly ?? '')
+  const [est, setEst] = useState(row.est_monthly == null ? '' : String(row.est_monthly))
   const [usage, setUsage] = useState(row.usage ?? '')
   const [notes, setNotes] = useState(row.notes ?? '')
   const [confirming, setConfirming] = useState(false)
@@ -753,7 +785,7 @@ function ServiceCostRow({ row, onDeleted }: { row: ServiceCost; onDeleted: () =>
   const cell = 'w-full rounded bg-transparent px-1.5 py-1.5 text-xs text-white outline-none focus:bg-gray-900'
 
   return (
-    <div className="grid grid-cols-[1.4fr_1fr_1.2fr_1.5fr_1.6fr_auto] items-center gap-2 border-b border-white/5 px-3 py-1 last:border-0">
+    <div className="grid grid-cols-[1.3fr_0.9fr_1.2fr_0.7fr_1.4fr_1.5fr_auto] items-center gap-2 border-b border-white/5 px-3 py-1 last:border-0">
       <input
         value={service}
         onChange={(e) => {
@@ -780,6 +812,22 @@ function ServiceCostRow({ row, onDeleted }: { row: ServiceCost; onDeleted: () =>
         placeholder="—"
         className={`${cell} placeholder:text-gray-600`}
       />
+      <div className="flex items-center rounded bg-transparent focus-within:bg-gray-900">
+        <span className="pl-1.5 text-xs text-gray-600">$</span>
+        <input
+          value={est}
+          onChange={(e) => {
+            const v = e.target.value
+            setEst(v)
+            const num = v.trim() === '' ? null : Number(v)
+            onEstChange(Number.isFinite(num) ? (num as number) : null)
+            save('est_monthly', { est_monthly: v.trim() === '' ? null : Number(v) })
+          }}
+          inputMode="decimal"
+          placeholder="—"
+          className="w-full bg-transparent px-1 py-1.5 text-xs text-white outline-none placeholder:text-gray-600"
+        />
+      </div>
       <input
         value={usage}
         onChange={(e) => {
