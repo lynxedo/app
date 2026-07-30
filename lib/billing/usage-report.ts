@@ -28,6 +28,10 @@ type Admin = SupabaseClient<any, any, any>
 
 // meter_event_name → the service-role RPC that totals that usage for a (company, window).
 // Each RPC signature is (p_company uuid, p_from timestamptz, p_to timestamptz) → bigint.
+// ⚠ The KEYS here are the only meter_event_names that actually bill usage — keep them in
+// sync with WIRED_METER_EVENTS in lib/billing/wired-meters.ts (the console's safe-dropdown
+// list). A metered catalog item using any OTHER event name bills $0 until a counter is
+// added here (RPC) and there.
 const USAGE_RPC: Record<string, string> = {
   call_minutes: 'billing_usage_dialer_minutes',
   ai_minutes: 'billing_usage_ai_minutes',

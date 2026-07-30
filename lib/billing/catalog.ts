@@ -43,7 +43,85 @@ const CATALOG_EDITABLE = new Set([
   'gate_flags',
   'sort_order',
   'active',
+  // Usage-based dimensions (a platform admin can turn a module into a metered one and set
+  // its meter/unit). The Stripe meter + metered price are then minted by syncCatalogToStripe.
+  'metered',
+  'meter_event_name',
+  'usage_unit',
 ])
+
+// Slugify a label into a machine key (feature_key). Lowercase, non-alphanumerics → '_',
+// trimmed, capped. This becomes the PK + Stripe/gating join key, so it is derived ONCE at
+// creation and never changes afterward.
+function slugifyKey(label: string): string {
+  return (
+    label
+      .toLowerCase()
+      .trim()
+      .replace(/[^a-z0-9]+/g, '_')
+      .replace(/^_+|_+$/g, '')
+      .slice(0, 40) || 'item'
+  )
+}
+
+// Create a new catalog item. Derives a unique feature_key from the label, forces is_base
+// false (there is exactly one seeded base row), and normalizes the usage fields so a
+// non-metered item never carries stray meter data. The row starts active with no Stripe
+// ids — a "Sync to Stripe" run provisions the product/price(s).
+export async function createCatalogFeature(
+  admin: Admin,
+  values: {
+    label: string
+    category?: string | null
+    included_in_base?: boolean
+    default_price_cents?: number
+    cost_basis_cents?: number | null
+    gate_flags?: string[]
+    metered?: boolean
+    meter_event_name?: string | null
+    usage_unit?: string | null
+    unit_price_cents?: number | null
+  },
+): Promise<BillingCatalogFeature> {
+  const label = (values.label ?? '').trim()
+  if (!label) throw new Error('A name is required.')
+
+  // Unique feature_key from the label (append _2, _3… on collision; never '__base__').
+  const { data: existingRows } = await admin.from('billing_catalog').select('feature_key')
+  const taken = new Set(
+    ((existingRows ?? []) as Array<{ feature_key: string }>).map((r) => r.feature_key),
+  )
+  taken.add('__base__')
+  const stem = slugifyKey(label)
+  let key = stem
+  let n = 2
+  while (taken.has(key)) key = `${stem}_${n++}`
+
+  const metered = values.metered === true
+  const row = {
+    feature_key: key,
+    label,
+    description: '',
+    category: (values.category ?? '').trim() || 'operations',
+    is_base: false,
+    included_in_base: values.included_in_base === true,
+    default_price_cents: Math.max(0, Math.round(values.default_price_cents ?? 0)),
+    cost_basis_cents: values.cost_basis_cents ?? null,
+    gate_flags: Array.isArray(values.gate_flags) ? values.gate_flags : [],
+    metered,
+    // A metered item needs a meter_event_name to provision a Stripe meter; default one
+    // off the key when none was supplied so it's never null.
+    meter_event_name: metered ? (values.meter_event_name?.trim() || `${key}_units`) : null,
+    usage_unit: metered ? (values.usage_unit?.trim() || 'unit') : null,
+    unit_price_cents: metered ? (values.unit_price_cents ?? 0) : null,
+    sort_order: 100,
+    active: true,
+  }
+
+  const { data, error } = await admin.from('billing_catalog').insert(row).select('*').single()
+  if (error) throw new Error(error.message)
+  return data as BillingCatalogFeature
+}
 
 // Patch one catalog feature. Applies the EDITABLE allowlist, stamps updated_at, and
 // returns the updated row. Throws if the patch has no editable keys or the DB rejects it.
