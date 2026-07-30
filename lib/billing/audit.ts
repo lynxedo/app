@@ -18,6 +18,7 @@ export type PlatformAction =
   | 'inspect_tenant'
   | 'create_company'
   | 'create_catalog_feature'
+  | 'create_invoice'
 
 // Insert one audit row. Best-effort: any failure (DB error or unexpected throw) is
 // swallowed so the caller's primary action always proceeds. targetCompanyId is null for

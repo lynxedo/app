@@ -97,7 +97,7 @@ export default function PlatformConsole({
   tenants: TenantSummary[]
   mode: BillingMode
 }) {
-  const [tab, setTab] = useState<'pricing' | 'tenants'>('pricing')
+  const [tab, setTab] = useState<'pricing' | 'tenants' | 'invoices'>('pricing')
   const [features, setFeatures] = useState<BillingCatalogFeature[]>(initialFeatures)
   const toast = useToast()
   const [syncing, setSyncing] = useState(false)
@@ -185,9 +185,12 @@ export default function PlatformConsole({
         <TabButton active={tab === 'tenants'} onClick={() => setTab('tenants')}>
           Tenants
         </TabButton>
+        <TabButton active={tab === 'invoices'} onClick={() => setTab('invoices')}>
+          Invoices
+        </TabButton>
       </div>
 
-      {tab === 'pricing' ? (
+      {tab === 'pricing' && (
         <div className="space-y-8">
           <div className="flex flex-wrap items-start justify-between gap-3">
             <p className="max-w-2xl text-sm text-gray-400">
@@ -262,8 +265,305 @@ export default function PlatformConsole({
             </PricingGroup>
           ))}
         </div>
-      ) : (
-        <TenantsTable tenants={tenants} features={features} />
+      )}
+
+      {tab === 'tenants' && <TenantsTable tenants={tenants} features={features} />}
+
+      {tab === 'invoices' && <InvoicesTab tenants={tenants} mode={mode} />}
+    </div>
+  )
+}
+
+type InvoiceLineRow = {
+  id: string
+  feature_key: string
+  label: string
+  kind: 'base' | 'flat' | 'usage'
+  quantity: number | null
+  unit: string | null
+  unit_price_cents: number | null
+  amount_cents: number
+  default_included: boolean
+}
+
+// Manual invoicing: pick a tenant + period → pull usage/fee lines → create a one-off
+// Stripe invoice (draft, or finalize + email the customer).
+function InvoicesTab({ tenants, mode }: { tenants: TenantSummary[]; mode: BillingMode }) {
+  const toast = useToast()
+  const [companyId, setCompanyId] = useState(tenants[0]?.company_id ?? '')
+  const [from, setFrom] = useState('')
+  const [to, setTo] = useState('')
+  const [lines, setLines] = useState<InvoiceLineRow[] | null>(null)
+  const [included, setIncluded] = useState<Set<string>>(new Set())
+  const [recipient, setRecipient] = useState('')
+  const [dueDays, setDueDays] = useState('14')
+  const [memo, setMemo] = useState('')
+  const [loading, setLoading] = useState(false)
+  const [busy, setBusy] = useState(false)
+  const [result, setResult] = useState<{
+    invoiceId: string
+    status: string
+    hostedUrl: string | null
+  } | null>(null)
+
+  // Default the period to the previous calendar month ([1st of last month, 1st of this
+  // month) — the counters are half-open on the end date).
+  useEffect(() => {
+    const now = new Date()
+    const firstThis = new Date(now.getFullYear(), now.getMonth(), 1)
+    const firstLast = new Date(now.getFullYear(), now.getMonth() - 1, 1)
+    const fmt = (d: Date) =>
+      `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+    setFrom(fmt(firstLast))
+    setTo(fmt(firstThis))
+  }, [])
+
+  const total = lines
+    ? lines.filter((l) => included.has(l.id)).reduce((s, l) => s + l.amount_cents, 0)
+    : 0
+
+  async function loadPreview() {
+    if (!companyId || !from || !to) {
+      toast.error('Pick a tenant and a date range.')
+      return
+    }
+    setLoading(true)
+    setResult(null)
+    try {
+      const res = await fetch(
+        `/api/platform/invoice/preview?company=${encodeURIComponent(companyId)}&from=${from}&to=${to}`,
+      )
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(j.error || 'Could not load usage.')
+        return
+      }
+      const ls = (j.lines || []) as InvoiceLineRow[]
+      setLines(ls)
+      setIncluded(new Set(ls.filter((l) => l.default_included).map((l) => l.id)))
+    } catch {
+      toast.error('Could not load usage.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  function toggle(id: string) {
+    setIncluded((prev) => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id)
+      else next.add(id)
+      return next
+    })
+  }
+
+  async function createInvoice(send: boolean) {
+    const ids = Array.from(included)
+    if (ids.length === 0) {
+      toast.error('Select at least one line to bill.')
+      return
+    }
+    if (send && (!recipient || !recipient.includes('@'))) {
+      toast.error('Enter a valid recipient email to send.')
+      return
+    }
+    setBusy(true)
+    try {
+      const res = await fetch('/api/platform/invoice', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          company_id: companyId,
+          from,
+          to,
+          included_line_ids: ids,
+          recipient_email: recipient,
+          due_days: Number(dueDays) || 14,
+          memo,
+          send,
+        }),
+      })
+      const j = await res.json().catch(() => ({}))
+      if (!res.ok) {
+        toast.error(j.error || 'Could not create the invoice.')
+        return
+      }
+      setResult({ invoiceId: j.invoiceId, status: j.status, hostedUrl: j.hostedUrl ?? null })
+      toast.success(send ? 'Invoice created and sent.' : 'Draft invoice created.')
+    } catch {
+      toast.error('Could not create the invoice.')
+    } finally {
+      setBusy(false)
+    }
+  }
+
+  const inputCls =
+    'rounded-lg border border-white/10 bg-gray-900 px-2 py-2 text-sm text-white outline-none'
+
+  return (
+    <div className="space-y-5">
+      <p className="max-w-2xl text-sm text-gray-400">
+        Pull a subscriber&apos;s usage for a period and create a one-off Stripe invoice. Save it as a
+        draft to review in Stripe, or create &amp; send it to email the customer a hosted invoice with
+        a &quot;Pay now&quot; button. {mode === 'test' && 'Test mode — no real charges.'}
+      </p>
+
+      {/* Selectors */}
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-[11px] text-gray-400">
+          Subscriber
+          <select
+            value={companyId}
+            onChange={(e) => {
+              setCompanyId(e.target.value)
+              setLines(null)
+              setResult(null)
+            }}
+            className={`mt-1 block w-64 ${inputCls}`}
+          >
+            {tenants.map((t) => (
+              <option key={t.company_id} value={t.company_id}>
+                {t.name}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label className="text-[11px] text-gray-400">
+          From
+          <input type="date" value={from} onChange={(e) => setFrom(e.target.value)} className={`mt-1 block ${inputCls}`} />
+        </label>
+        <label className="text-[11px] text-gray-400">
+          To (exclusive)
+          <input type="date" value={to} onChange={(e) => setTo(e.target.value)} className={`mt-1 block ${inputCls}`} />
+        </label>
+        <button
+          onClick={loadPreview}
+          disabled={loading}
+          className="rounded-lg bg-sky-500/90 px-3 py-2 text-sm font-medium text-[#fff] transition-colors hover:bg-sky-500 disabled:opacity-50"
+        >
+          {loading ? 'Loading…' : 'Load usage'}
+        </button>
+      </div>
+
+      {/* Lines */}
+      {lines && (
+        <div className="space-y-4">
+          {lines.length === 0 ? (
+            <p className="text-sm text-gray-500">No billable items in the catalog.</p>
+          ) : (
+            <div className="overflow-x-auto rounded-xl border border-white/10">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-white/10 text-left text-[11px] uppercase tracking-wide text-gray-500">
+                    <th className="px-3 py-2 font-medium">Bill</th>
+                    <th className="px-3 py-2 font-medium">Item</th>
+                    <th className="px-3 py-2 font-medium">Detail</th>
+                    <th className="px-3 py-2 text-right font-medium">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {lines.map((l) => (
+                    <tr key={l.id} className="border-b border-white/5 last:border-0">
+                      <td className="px-3 py-2">
+                        <input
+                          type="checkbox"
+                          checked={included.has(l.id)}
+                          onChange={() => toggle(l.id)}
+                          className="h-4 w-4 accent-sky-500"
+                        />
+                      </td>
+                      <td className="px-3 py-2 text-gray-200">
+                        {l.label}
+                        {l.kind === 'usage' && (
+                          <span className="ml-1.5 rounded-full bg-violet-500/15 px-1.5 py-0.5 text-[10px] uppercase tracking-wide text-violet-300">
+                            usage
+                          </span>
+                        )}
+                      </td>
+                      <td className="px-3 py-2 text-gray-400">
+                        {l.kind === 'usage'
+                          ? `${l.quantity ?? 0} ${l.unit ?? 'unit'} × $${centsToDollarsPrecise(l.unit_price_cents)}`
+                          : l.kind === 'base'
+                            ? 'Base fee'
+                            : 'Monthly fee'}
+                      </td>
+                      <td className="px-3 py-2 text-right text-gray-200">${centsToDollars(l.amount_cents)}</td>
+                    </tr>
+                  ))}
+                  <tr className="bg-white/[0.02]">
+                    <td />
+                    <td className="px-3 py-2 font-semibold text-gray-100" colSpan={2}>
+                      Total (selected)
+                    </td>
+                    <td className="px-3 py-2 text-right text-base font-bold text-white">${centsToDollars(total)}</td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
+
+          {/* Send details */}
+          <div className="flex flex-wrap items-end gap-3">
+            <label className="text-[11px] text-gray-400">
+              Recipient email
+              <input
+                type="email"
+                value={recipient}
+                onChange={(e) => setRecipient(e.target.value)}
+                placeholder="billing@customer.com"
+                className={`mt-1 block w-64 ${inputCls} placeholder:text-gray-600`}
+              />
+            </label>
+            <label className="text-[11px] text-gray-400">
+              Due in (days)
+              <input
+                value={dueDays}
+                onChange={(e) => setDueDays(e.target.value)}
+                inputMode="numeric"
+                className={`mt-1 block w-20 ${inputCls}`}
+              />
+            </label>
+            <label className="flex-1 text-[11px] text-gray-400">
+              Memo (optional)
+              <input
+                value={memo}
+                onChange={(e) => setMemo(e.target.value)}
+                placeholder="Shown on the invoice"
+                className={`mt-1 block w-full ${inputCls} placeholder:text-gray-600`}
+              />
+            </label>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => createInvoice(false)}
+              disabled={busy}
+              className="rounded-lg border border-white/15 px-3 py-2 text-sm font-medium text-gray-200 transition-colors hover:bg-white/5 disabled:opacity-50"
+            >
+              {busy ? 'Working…' : 'Save as draft'}
+            </button>
+            <button
+              onClick={() => createInvoice(true)}
+              disabled={busy}
+              className="rounded-lg bg-emerald-500/90 px-3 py-2 text-sm font-medium text-[#fff] transition-colors hover:bg-emerald-500 disabled:opacity-50"
+            >
+              {busy ? 'Working…' : 'Create & send'}
+            </button>
+          </div>
+
+          {result && (
+            <div className="rounded-lg border border-emerald-400/25 bg-emerald-500/[0.06] px-3 py-2 text-sm text-gray-200">
+              Invoice <code className="text-xs text-gray-400">{result.invoiceId}</code> — {result.status}.{' '}
+              {result.hostedUrl ? (
+                <a href={result.hostedUrl} target="_blank" rel="noreferrer" className="text-sky-300 underline">
+                  View / send link
+                </a>
+              ) : (
+                'Draft — review & send it in Stripe.'
+              )}
+            </div>
+          )}
+        </div>
       )}
     </div>
   )
