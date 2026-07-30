@@ -15,6 +15,10 @@ export const WIRED_METER_EVENTS: WiredMeter[] = [
   { event_name: 'call_minutes', label: 'Call minutes (Dialer)', unit: 'minute' },
   { event_name: 'ai_minutes', label: 'AI Receptionist minutes', unit: 'minute' },
   { event_name: 'text_messages', label: 'Text messages sent', unit: 'message' },
+  { event_name: 'recording_minutes', label: 'Call recording minutes', unit: 'minute' },
+  { event_name: 'transcript_minutes', label: 'Transcribed minutes', unit: 'minute' },
+  { event_name: 'ai_summaries', label: 'AI call summaries', unit: 'call' },
+  { event_name: 'caller_id_lookups', label: 'Caller ID lookups', unit: 'lookup' },
 ]
 
 export const WIRED_METER_EVENT_NAMES: string[] = WIRED_METER_EVENTS.map((m) => m.event_name)
