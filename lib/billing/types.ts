@@ -57,6 +57,9 @@ export type CompanyBillingOverride = {
   feature_key: string
   included_in_base_override: boolean | null
   price_cents_override: number | null
+  // Percentage (0..100) discount applied to this module's monthly fee for this tenant.
+  // null = no discount (full price). Applied in Stripe as a per-line-item percent-off coupon.
+  discount_percent: number | null
 }
 
 // A tenant company's subscription, keyed per billing mode (test/live coexist).

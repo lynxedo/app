@@ -42,7 +42,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
 
     const { data: overrideRows } = await admin
       .from('company_billing_overrides')
-      .select('feature_key, included_in_base_override, price_cents_override')
+      .select('feature_key, included_in_base_override, price_cents_override, discount_percent')
       .eq('company_id', id)
 
     // Best-effort audit of the inspection (never blocks the response).
@@ -72,11 +72,13 @@ export async function GET(_request: Request, { params }: { params: Promise<{ id:
           feature_key: string
           included_in_base_override: boolean | null
           price_cents_override: number | null
+          discount_percent: number | null
         }>
       ).map((o) => ({
         feature_key: o.feature_key,
         included_in_base_override: o.included_in_base_override,
         price_cents_override: o.price_cents_override,
+        discount_percent: o.discount_percent,
       })),
     })
   } catch (e) {
