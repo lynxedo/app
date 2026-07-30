@@ -76,6 +76,7 @@ export async function upsertCompanyOverride(
   values: {
     included_in_base_override: boolean | null
     price_cents_override: number | null
+    discount_percent: number | null
   },
 ): Promise<CompanyBillingOverride> {
   const { data, error } = await admin
@@ -86,6 +87,7 @@ export async function upsertCompanyOverride(
         feature_key: featureKey,
         included_in_base_override: values.included_in_base_override ?? null,
         price_cents_override: values.price_cents_override ?? null,
+        discount_percent: values.discount_percent ?? null,
       },
       { onConflict: 'company_id,feature_key' },
     )

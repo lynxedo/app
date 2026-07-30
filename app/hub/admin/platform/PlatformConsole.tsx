@@ -14,7 +14,12 @@ type TenantDetail = {
     cancel_at_period_end: boolean
   } | null
   modules: { feature_key: string; active: boolean }[]
-  overrides: { feature_key: string; included_in_base_override: boolean | null; price_cents_override: number | null }[]
+  overrides: {
+    feature_key: string
+    included_in_base_override: boolean | null
+    price_cents_override: number | null
+    discount_percent: number | null
+  }[]
 }
 
 type AuditEvent = {
@@ -930,7 +935,8 @@ function TenantDetailPanel({
 }
 
 // One compact override row: tri-state "included in base for this tenant" +
-// a price-override field (blank = inherit the catalog default). Save/Clear.
+// a price-override field (blank = inherit the catalog default) + a discount % that
+// takes X% off this module's monthly fee for this tenant. Save/Clear.
 function TenantOverrideRow({
   companyId,
   feature,
@@ -949,7 +955,16 @@ function TenantOverrideRow({
         : 'no',
   )
   const [price, setPrice] = useState(centsToDollars(initial?.price_cents_override))
+  const [discount, setDiscount] = useState(
+    initial?.discount_percent != null ? String(initial.discount_percent) : '',
+  )
   const [busy, setBusy] = useState(false)
+
+  // Effective monthly price = (override price ?? catalog default) minus the discount %.
+  const baseCents = dollarsToCents(price) ?? feature.default_price_cents
+  const discNum = Number(discount)
+  const discValid = discount.trim() !== '' && Number.isFinite(discNum) && discNum > 0 && discNum <= 100
+  const effectiveCents = discValid ? Math.round(baseCents * (1 - discNum / 100)) : baseCents
 
   async function save() {
     setBusy(true)
@@ -961,6 +976,7 @@ function TenantOverrideRow({
           company_id: companyId,
           included_in_base_override: inc === 'inherit' ? null : inc === 'yes',
           price_cents_override: dollarsToCents(price),
+          discount_percent: discount.trim() === '' ? null : Number(discount),
         }),
       })
       const j = await res.json().catch(() => ({}))
@@ -991,6 +1007,7 @@ function TenantOverrideRow({
       }
       setInc('inherit')
       setPrice('')
+      setDiscount('')
       toast.success(`Override cleared for ${feature.label}`)
     } catch {
       toast.error('Could not clear override.')
@@ -1029,6 +1046,24 @@ function TenantOverrideRow({
           />
         </span>
       </label>
+
+      <label className="flex items-center gap-1.5 text-[11px] text-gray-400">
+        Discount
+        <span className="flex items-center rounded-md border border-white/10 bg-gray-900 px-2">
+          <input
+            value={discount}
+            onChange={(e) => setDiscount(e.target.value)}
+            inputMode="decimal"
+            placeholder="0"
+            className="w-12 bg-transparent px-1 py-1 text-xs text-white outline-none placeholder:text-gray-600"
+          />
+          <span className="text-xs text-gray-500">%</span>
+        </span>
+      </label>
+
+      {discValid && (
+        <span className="text-[11px] text-emerald-300/90">= ${centsToDollars(effectiveCents)}/mo</span>
+      )}
 
       <div className="flex items-center gap-1.5">
         <button

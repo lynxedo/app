@@ -10,7 +10,8 @@
 // stored as ISO strings.
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type Stripe from 'stripe'
-import { getStripe } from './stripe'
+import { getStripe, stripeConfigured } from './stripe'
+import { getOrCreatePercentCoupon } from './discounts'
 import type { BillingMode, SubscriptionStatus } from './types'
 
 type Admin = SupabaseClient<any, any, any>
@@ -128,6 +129,18 @@ export async function syncSubscriptionFromStripe(
 
   const items = sub.items?.data ?? []
 
+  // Per-module discount overrides for this tenant (feature_key -> percent, >0 only).
+  const { data: ovrRows } = await admin
+    .from('company_billing_overrides')
+    .select('feature_key, discount_percent')
+    .eq('company_id', companyId)
+  const discountByKey = new Map<string, number>()
+  for (const o of (ovrRows ?? []) as Array<{ feature_key: string; discount_percent: number | null }>) {
+    if (o.discount_percent != null && Number(o.discount_percent) > 0) {
+      discountByKey.set(o.feature_key, Number(o.discount_percent))
+    }
+  }
+
   // current_period_end is per-item in current API versions; take the furthest.
   const periodEnds = items
     .map((it) => it.current_period_end)
@@ -163,6 +176,26 @@ export async function syncSubscriptionFromStripe(
       .maybeSingle()
     const featureKey: string | undefined = feat?.feature_key
     if (!featureKey) continue // a price with no catalog mapping (e.g. legacy) is ignored
+
+    // Reconcile this line item's per-module discount against the tenant's override.
+    // Idempotent via item metadata: we stamp the applied percent, so the follow-on
+    // subscription.updated event this write triggers finds it already-correct and skips
+    // (no loop). Best-effort — a discount failure never blocks the module reconcile.
+    const desiredPct = discountByKey.get(featureKey) ?? 0
+    const currentPct = Number(item.metadata?.lynxedo_discount_pct ?? '') || 0
+    if (desiredPct !== currentPct) {
+      try {
+        const params: Stripe.SubscriptionItemUpdateParams = {
+          metadata: { ...(item.metadata ?? {}), lynxedo_discount_pct: String(desiredPct) },
+          discounts:
+            desiredPct > 0 ? [{ coupon: await getOrCreatePercentCoupon(desiredPct) }] : '',
+        }
+        await getStripe().subscriptionItems.update(item.id, params)
+      } catch (e) {
+        console.error('[billing] discount reconcile failed', featureKey, (e as Error).message)
+      }
+    }
+
     if (feat?.is_base) continue // base is tracked via company_subscription, not as a gated module
 
     activeKeys.add(featureKey)
@@ -196,4 +229,28 @@ export async function syncSubscriptionFromStripe(
         .eq('mode', mode)
     }
   }
+}
+
+/**
+ * Re-pull a company's live Stripe subscription and re-run the sync, so a just-saved
+ * per-module discount override is pushed to Stripe immediately instead of waiting for the
+ * next subscription event. Best-effort + safe: no-ops when Stripe is unconfigured (e.g.
+ * dark on prod) or the company has no subscription for this mode.
+ */
+export async function reapplyCompanySubscriptionDiscounts(
+  admin: Admin,
+  companyId: string,
+  mode: BillingMode,
+): Promise<void> {
+  if (!stripeConfigured()) return
+  const { data: sub } = await admin
+    .from('company_subscription')
+    .select('stripe_subscription_id')
+    .eq('company_id', companyId)
+    .eq('mode', mode)
+    .maybeSingle()
+  const subId = sub?.stripe_subscription_id as string | null | undefined
+  if (!subId) return
+  const stripeSub = await getStripe().subscriptions.retrieve(subId)
+  await syncSubscriptionFromStripe(admin, stripeSub, mode)
 }
