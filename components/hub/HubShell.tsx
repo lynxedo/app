@@ -219,9 +219,17 @@ export default function HubShell({
   const [tabsFeature, setTabsFeature] = useState(false)
   useEffect(() => { setTabsFeature(!!betaFlags['workspace_tabs'] && isDesktopEnvironment()) }, [betaFlags])
   const tabsApi = useWorkspaceTabsState(tabsFeature)
-  const { showRoute: showRouteTab } = tabsApi
-  // A real route navigation always shows the route pane (not a stale tab).
-  useEffect(() => { showRouteTab() }, [pathname, showRouteTab])
+  const { showRoute: showRouteTab, activateByHref: activateTabByHref } = tabsApi
+  // On a real route navigation, if that destination is already open as a
+  // kept-alive tab, activate the TAB instead of also rendering the route.
+  // Otherwise both mount for the same conversation and their MessageFeeds each
+  // subscribe to feed:<id> — the 2nd .on() after subscribe() throws (the
+  // Supabase channel collision that white-screened the whole DM). Falling back
+  // to showRoute() when nothing matches also keeps a stale tab from lingering,
+  // and honors the "go-to-existing" model on any navigation.
+  useEffect(() => {
+    if (!activateTabByHref(pathname)) showRouteTab()
+  }, [pathname, activateTabByHref, showRouteTab])
 
   // Deep link from Settings → My Hub: /hub?customize=1 opens the layout editor.
   // Read on the client to avoid a Suspense requirement from useSearchParams.
