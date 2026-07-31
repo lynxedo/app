@@ -1,11 +1,11 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireDripAccess } from '@/lib/drip-auth'
-import { safeNormalizeDripSteps, isDripTrigger, type CleanDripStep } from '@/lib/drip-steps'
+import { safeNormalizeDripSteps, isDripTrigger, normalizeEnrollWindow, type CleanDripStep } from '@/lib/drip-steps'
 import { validIdentityId, resolveSendIdentity } from '@/lib/email-identities'
 
 const DETAIL_SELECT =
-  'id, name, description, trigger_type, trigger_config, status, last_swept_at, created_at, updated_at'
+  'id, name, description, trigger_type, trigger_config, status, enroll_window, last_swept_at, created_at, updated_at'
 
 // Keep an email step's per-step identity only if it belongs to this company, else
 // drop it so the engine falls back to the company default. Mutates in place.
@@ -50,7 +50,7 @@ export async function GET(_request: Request, ctx: { params: Promise<{ id: string
 
   const { data: steps } = await admin
     .from('drip_steps')
-    .select('step_index, channel, delay, content_ref')
+    .select('step_index, channel, delay, content_ref, ignore_quiet_hours')
     .eq('campaign_id', id)
     .order('step_index', { ascending: true })
 
@@ -85,6 +85,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     update.trigger_type = body.trigger_type
   }
   if (body.trigger_config && typeof body.trigger_config === 'object') update.trigger_config = body.trigger_config
+  if ('enroll_window' in body) update.enroll_window = normalizeEnrollWindow(body.enroll_window)
 
   // Replace steps if provided.
   if (body.steps !== undefined) {

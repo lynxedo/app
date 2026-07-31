@@ -29,6 +29,8 @@ import { renderAndSendEmail } from '@/lib/email-campaigns'
 import { resolveSendIdentity } from '@/lib/email-identities'
 import { normalizeDesign, renderDesignToHtml } from '@/lib/email-blocks'
 import { markdownToHtml } from '@/lib/email-markdown'
+// Log a copy of each sent drip email into the Shared Inbox's Sent view.
+import { mirrorDripEmailToInbox } from '@/lib/drip-inbox-mirror'
 // Ringless voicemail (Phase 4) — the BYO-key VoiceDrop provider layer (dark until consent-gated).
 import { resolveVoiceDropKey, sendVoiceDropDrop, validateVoiceDropNumber } from '@/lib/voicedrop'
 import { getDripAudioAsset } from '@/lib/drip-audio'
@@ -50,11 +52,14 @@ type CampaignRow = {
   trigger_config: any
   status: string
   quiet_hours: any
+  // 'always' | 'business_hours' | 'after_hours' — gates WHEN a lead may enter the
+  // campaign, evaluated against the company's Responder business hours.
+  enroll_window: string
   last_swept_at: string | null
   created_at: string
 }
 
-type StepRow = { channel: string; delay: any; content_ref: any }
+type StepRow = { channel: string; delay: any; content_ref: any; ignore_quiet_hours: boolean }
 
 type QuietHours = { start: number; end: number; tz: string }
 type Settings = {
@@ -73,21 +78,22 @@ const DEFAULT_QUIET: QuietHours = { start: 8, end: 20, tz: 'America/Chicago' }
 export async function runDripEnrollmentSweeps(admin: Admin): Promise<{ enrolled: number }> {
   const { data: campaigns } = await admin
     .from('drip_campaigns')
-    .select('id, company_id, trigger_type, trigger_config, status, quiet_hours, last_swept_at, created_at')
+    .select('id, company_id, trigger_type, trigger_config, status, quiet_hours, enroll_window, last_swept_at, created_at')
     .eq('status', 'active')
 
+  const bizCache = new Map<string, BizHours>()
   let enrolled = 0
   for (const c of (campaigns ?? []) as CampaignRow[]) {
     // Capture the watermark BEFORE the scan; the partial unique index prevents
     // any double-enroll, so this only ever bounds the scan window.
     const sweepStart = new Date().toISOString()
-    if (c.trigger_type === 'new_lead') enrolled += await sweepLeads(admin, c, null)
+    if (c.trigger_type === 'new_lead') enrolled += await sweepLeads(admin, c, null, bizCache)
     else if (c.trigger_type === 'lead_source') {
       const src = typeof c.trigger_config?.lead_source === 'string' ? c.trigger_config.lead_source : null
-      if (src) enrolled += await sweepLeads(admin, c, src)
+      if (src) enrolled += await sweepLeads(admin, c, src, bizCache)
     } else if (c.trigger_type === 'stage_changed') {
       const stage = typeof c.trigger_config?.stage === 'string' ? c.trigger_config.stage : null
-      if (stage) enrolled += await sweepStageChanged(admin, c, stage)
+      if (stage) enrolled += await sweepStageChanged(admin, c, stage, bizCache)
     }
     // 'manual' enrolls via the UI, not a sweep.
     await admin.from('drip_campaigns').update({ last_swept_at: sweepStart }).eq('id', c.id)
@@ -97,12 +103,15 @@ export async function runDripEnrollmentSweeps(admin: Admin): Promise<{ enrolled:
 
 // New `leads` rows (with a phone) created since the last sweep — the watermark is
 // seeded at activation, so activating a campaign does NOT blast the back-catalog.
-async function sweepLeads(admin: Admin, c: CampaignRow, leadSource: string | null): Promise<number> {
+// enroll_window is evaluated per lead at its arrival time (created_at), so an
+// "after hours only" campaign only takes leads that came in while the office was
+// closed — regardless of when the sweep happens to process them.
+async function sweepLeads(admin: Admin, c: CampaignRow, leadSource: string | null, bizCache: Map<string, BizHours>): Promise<number> {
   const cutoff = c.last_swept_at || c.created_at
   const rows = await fetchAllRows<any>(() => {
     let q = admin
       .from('leads')
-      .select('id, company_id, phone, first_name, last_name')
+      .select('id, company_id, phone, first_name, last_name, created_at')
       .eq('company_id', c.company_id)
       .not('phone', 'is', null)
       .gt('created_at', cutoff)
@@ -110,7 +119,8 @@ async function sweepLeads(admin: Admin, c: CampaignRow, leadSource: string | nul
     return q.order('id', { ascending: true })
   })
 
-  return upsertEnrollments(admin, c.company_id, c.id, rows)
+  const eligible = await filterByEnrollWindow(admin, c, rows, bizCache, (r) => r.created_at)
+  return upsertEnrollments(admin, c.company_id, c.id, eligible)
 }
 
 // Shared: turn lead rows into enrollment upserts at step 0 (idempotent via the
@@ -152,18 +162,20 @@ async function upsertEnrollments(
 
 // Leads that ENTERED a stage since the last sweep (stage_changed campaigns).
 // Casts: stage_changed_at is an additive column applied with the deploy migration.
-async function sweepStageChanged(admin: Admin, c: CampaignRow, stageKey: string): Promise<number> {
+// enroll_window is evaluated per lead at the stage-entry time (stage_changed_at).
+async function sweepStageChanged(admin: Admin, c: CampaignRow, stageKey: string, bizCache: Map<string, BizHours>): Promise<number> {
   const cutoff = c.last_swept_at || c.created_at
   const rows = await fetchAllRows<any>(() =>
     (admin.from('leads') as any)
-      .select('id, company_id, phone')
+      .select('id, company_id, phone, stage_changed_at')
       .eq('company_id', c.company_id)
       .eq('stage', stageKey)
       .not('phone', 'is', null)
       .gt('stage_changed_at', cutoff)
       .order('id', { ascending: true }),
   )
-  return upsertEnrollments(admin, c.company_id, c.id, rows)
+  const eligible = await filterByEnrollWindow(admin, c, rows, bizCache, (r) => r.stage_changed_at)
+  return upsertEnrollments(admin, c.company_id, c.id, eligible)
 }
 
 // Inline enroll when a human drags a lead into a stage (so a stage-triggered
@@ -174,7 +186,7 @@ export async function enrollLeadInStageCampaigns(
 ): Promise<{ enrolled: number }> {
   const { data: campaigns } = await admin
     .from('drip_campaigns')
-    .select('id, trigger_config')
+    .select('id, trigger_config, enroll_window')
     .eq('company_id', opts.companyId)
     .eq('status', 'active')
     .eq('trigger_type', 'stage_changed')
@@ -182,8 +194,16 @@ export async function enrollLeadInStageCampaigns(
   if (!matching.length) return { enrolled: 0 }
   const { data: lead } = await (admin.from('leads') as any).select('id, phone').eq('id', opts.leadId).maybeSingle()
   if (!lead) return { enrolled: 0 }
+  // Stage moves are a present-tense action — evaluate the enroll window at "now".
+  const bizCache = new Map<string, BizHours>()
+  const openNow = enrollWindowNeedsHours(matching.map((c: any) => c.enroll_window))
+    ? isOfficeOpenAt(new Date(), await getBusinessHours(admin, opts.companyId, bizCache))
+    : true
   let enrolled = 0
-  for (const c of matching) enrolled += await upsertEnrollments(admin, opts.companyId, (c as any).id as string, [lead])
+  for (const c of matching) {
+    if (!enrollWindowAllows((c as any).enroll_window, openNow)) continue
+    enrolled += await upsertEnrollments(admin, opts.companyId, (c as any).id as string, [lead])
+  }
   return { enrolled }
 }
 
@@ -234,7 +254,7 @@ export async function advanceDripEnrollments(
     if (campaigns.has(id)) return campaigns.get(id)!
     const { data } = await admin
       .from('drip_campaigns')
-      .select('id, company_id, trigger_type, trigger_config, status, quiet_hours, last_swept_at, created_at')
+      .select('id, company_id, trigger_type, trigger_config, status, quiet_hours, enroll_window, last_swept_at, created_at')
       .eq('id', id)
       .maybeSingle()
     campaigns.set(id, (data as CampaignRow) ?? null)
@@ -244,11 +264,14 @@ export async function advanceDripEnrollments(
     if (steps.has(campaignId)) return steps.get(campaignId)!
     const { data } = await admin
       .from('drip_steps')
-      .select('channel, delay, content_ref')
+      .select('channel, delay, content_ref, ignore_quiet_hours')
       .eq('campaign_id', campaignId)
       .eq('active', true)
       .order('step_index', { ascending: true })
-    const arr = (data ?? []) as StepRow[]
+    const arr = ((data ?? []) as any[]).map((r) => ({
+      channel: r.channel, delay: r.delay, content_ref: r.content_ref,
+      ignore_quiet_hours: r.ignore_quiet_hours === true,
+    })) as StepRow[]
     steps.set(campaignId, arr)
     return arr
   }
@@ -330,11 +353,15 @@ export async function advanceDripEnrollments(
       const person = await resolvePerson(admin, e)
 
       // ── Guard: quiet hours (all channels; defer, never drop) ──────────────────
+      // A step flagged ignore_quiet_hours (e.g. the instant speed-to-lead first
+      // touch) sends even inside the quiet window — a 2am lead still gets answered.
       const qh = campaign.quiet_hours ? normalizeQuiet(campaign.quiet_hours) : s.quiet_hours
-      const deferUntil = quietHoursDefer(new Date(), qh)
-      if (deferUntil) {
-        await admin.from('drip_enrollments').update({ next_run_at: deferUntil.toISOString() }).eq('id', e.id)
-        continue
+      if (!step.ignore_quiet_hours) {
+        const deferUntil = quietHoursDefer(new Date(), qh)
+        if (deferUntil) {
+          await admin.from('drip_enrollments').update({ next_run_at: deferUntil.toISOString() }).eq('id', e.id)
+          continue
+        }
       }
 
       // ── Guard: frequency cap (rolling 24h, per person, across campaigns + channels) ──
@@ -472,7 +499,23 @@ export async function advanceDripEnrollments(
         await logSend(admin, e, idx, 'email', emailOk ? 'sent' : 'failed', {
           toEmail: email, subject, providerRef: emailId, error: emailErr,
         })
-        if (emailOk) sent++
+        if (emailOk) {
+          sent++
+          // Log a copy into the Shared Inbox's Sent view (best-effort; real send
+          // went out via Resend). No-op in test mode.
+          if (!DRIP_TEST_MODE) {
+            await mirrorDripEmailToInbox(admin, {
+              companyId: e.company_id,
+              toEmail: email,
+              toName: person?.name ?? null,
+              fromEmail: identity.from_email,
+              fromName: identity.from_name ?? null,
+              subject, bodyHtml,
+              providerRef: emailId,
+              sentByUserId: s.send_as_user_id,
+            })
+          }
+        }
         await advanceStep(admin, e, idx, stepList)
         await sleep(200)
         continue
@@ -757,4 +800,74 @@ function quietHoursDefer(now: Date, qh: QuietHours): Date | null {
   const dayOffset = hour < qh.start ? 0 : 1
   const targetWallAsUTC = Date.UTC(y, m, d + dayOffset, qh.start, 0, 0)
   return new Date(targetWallAsUTC - offset)
+}
+
+// ─── enroll_window: business-hours gate for who enters a campaign ───────────────
+
+type BizHours = { days: number[]; start: string; end: string; tz: string }
+const DEFAULT_BIZ: BizHours = { days: [1, 2, 3, 4, 5], start: '08:00', end: '17:00', tz: 'America/Chicago' }
+
+// Only campaigns with a non-'always' window need the (cached) business-hours lookup.
+function enrollWindowNeedsHours(windows: string[]): boolean {
+  return windows.some((w) => w === 'business_hours' || w === 'after_hours')
+}
+
+// Given the campaign's window and whether the office was open at the relevant time,
+// may the lead enter? 'always' → yes; 'business_hours' → only when open;
+// 'after_hours' → only when closed (nights/weekends/holidays).
+function enrollWindowAllows(window: string, open: boolean): boolean {
+  if (window === 'business_hours') return open
+  if (window === 'after_hours') return !open
+  return true
+}
+
+// Keep only the leads whose arrival time (created_at / stage_changed_at) satisfies
+// the campaign's enroll_window. A missing timestamp falls back to "now".
+async function filterByEnrollWindow(
+  admin: Admin,
+  c: CampaignRow,
+  rows: any[],
+  bizCache: Map<string, BizHours>,
+  at: (r: any) => string | null | undefined,
+): Promise<any[]> {
+  if (!rows.length || !enrollWindowNeedsHours([c.enroll_window])) return rows
+  const biz = await getBusinessHours(admin, c.company_id, bizCache)
+  return rows.filter((r) => {
+    const ts = at(r)
+    const when = ts ? new Date(ts) : new Date()
+    return enrollWindowAllows(c.enroll_window, isOfficeOpenAt(when, biz))
+  })
+}
+
+// The company's business hours from the Auto Responder settings (responder_settings)
+// — the same source Amber / the auto-responder use. Falls back to Mon–Fri 8–5 when
+// the company has no row.
+async function getBusinessHours(admin: Admin, companyId: string, cache: Map<string, BizHours>): Promise<BizHours> {
+  if (cache.has(companyId)) return cache.get(companyId)!
+  const { data } = await (admin.from('responder_settings') as any)
+    .select('business_days, business_hours_start, business_hours_end')
+    .eq('company_id', companyId)
+    .maybeSingle()
+  const b: BizHours = {
+    days: Array.isArray(data?.business_days) && data.business_days.length ? data.business_days : DEFAULT_BIZ.days,
+    start: typeof data?.business_hours_start === 'string' && data.business_hours_start ? data.business_hours_start : DEFAULT_BIZ.start,
+    end: typeof data?.business_hours_end === 'string' && data.business_hours_end ? data.business_hours_end : DEFAULT_BIZ.end,
+    tz: DEFAULT_BIZ.tz,
+  }
+  cache.set(companyId, b)
+  return b
+}
+
+// Was the office open at `at`? Mirrors lib/responder.ts isInBusinessHours but takes
+// an explicit instant so we can evaluate at a lead's arrival time, not just "now".
+function isOfficeOpenAt(at: Date, b: BizHours): boolean {
+  const weekdayStr = at.toLocaleDateString('en-US', { timeZone: b.tz, weekday: 'short' })
+  const dayMap: Record<string, number> = { Sun: 0, Mon: 1, Tue: 2, Wed: 3, Thu: 4, Fri: 5, Sat: 6 }
+  const dayNum = dayMap[weekdayStr] ?? -1
+  const timeStr = at.toLocaleTimeString('en-US', { timeZone: b.tz, hour12: false, hour: '2-digit', minute: '2-digit' })
+  const [h, m] = timeStr.split(':').map(Number)
+  const mins = (h % 24) * 60 + (m || 0)
+  const [sh, sm] = b.start.split(':').map(Number)
+  const [eh, em] = b.end.split(':').map(Number)
+  return b.days.includes(dayNum) && mins >= sh * 60 + (sm || 0) && mins < eh * 60 + (em || 0)
 }

@@ -1,10 +1,10 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireDripAccess } from '@/lib/drip-auth'
-import { safeNormalizeDripSteps, isDripTrigger, type CleanDripStep } from '@/lib/drip-steps'
+import { safeNormalizeDripSteps, isDripTrigger, normalizeEnrollWindow, type CleanDripStep } from '@/lib/drip-steps'
 import { validIdentityId } from '@/lib/email-identities'
 
-const LIST_SELECT = 'id, name, description, trigger_type, trigger_config, status, created_at, updated_at'
+const LIST_SELECT = 'id, name, description, trigger_type, trigger_config, status, enroll_window, created_at, updated_at'
 
 // Re-validate each email step's per-step sending identity: keep it only if it's a
 // real identity owned by this company, else drop it so the engine falls back to the
@@ -93,6 +93,7 @@ export async function POST(request: Request) {
       description,
       trigger_type: triggerType,
       trigger_config: triggerConfig,
+      enroll_window: normalizeEnrollWindow(body.enroll_window),
       status: 'draft',
     })
     .select('id')
