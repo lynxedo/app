@@ -66,6 +66,14 @@ export type WorkspaceTabsApi = {
   /** Open (or jump to) a tab. Go-to-existing unless `newCopy`. No-op when disabled. */
   openTab: (input: OpenTabInput) => void
   activateTab: (id: string) => void
+  /**
+   * If a tab whose `href` matches this path is already open, activate it and
+   * return true; otherwise return false. Called on real navigation so a screen
+   * that's already a kept-alive tab is shown as the TAB rather than ALSO
+   * mounting the route (two twins of the same conversation would each subscribe
+   * to feed:<id> and collide). No-op → false when disabled.
+   */
+  activateByHref: (href: string) => boolean
   closeTab: (id: string) => void
   /** Show the underlying Next route instead of any tab (called on real navigation). */
   showRoute: () => void
@@ -104,6 +112,16 @@ export function useWorkspaceTabsState(enabled: boolean): WorkspaceTabsApi {
     setTabs(next)
     setActiveTabId(id)
   }, [])
+
+  // Read from the ref (not `tabs`) so this stays a stable callback — the pathname
+  // effect that calls it must fire only on navigation, never re-run when `tabs`
+  // changes (that would loop, since activating bumps lastActiveSeq).
+  const activateByHref = useCallback((href: string): boolean => {
+    const match = tabsRef.current.find(t => t.href === href)
+    if (!match) return false
+    activateTab(match.id)
+    return true
+  }, [activateTab])
 
   const openTab = useCallback((input: OpenTabInput) => {
     if (!enabled) return
@@ -197,12 +215,13 @@ export function useWorkspaceTabsState(enabled: boolean): WorkspaceTabsApi {
     activeTab,
     openTab,
     activateTab,
+    activateByHref,
     closeTab,
     showRoute,
     isOpen,
     evictionNotice,
     clearEvictionNotice,
-  }), [enabled, tabs, activeTabId, activeTab, openTab, activateTab, closeTab, showRoute, isOpen, evictionNotice, clearEvictionNotice])
+  }), [enabled, tabs, activeTabId, activeTab, openTab, activateTab, activateByHref, closeTab, showRoute, isOpen, evictionNotice, clearEvictionNotice])
 }
 
 // ── Context distribution ────────────────────────────────────────────────────
@@ -214,6 +233,7 @@ const DISABLED_API: WorkspaceTabsApi = {
   activeTab: null,
   openTab: () => {},
   activateTab: () => {},
+  activateByHref: () => false,
   closeTab: () => {},
   showRoute: () => {},
   isOpen: () => false,
