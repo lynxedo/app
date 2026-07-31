@@ -132,6 +132,21 @@ export type UseTwilioDevice = {
   waitingFrom: string | null
   waitingContactMatch: DialerLookupMatch | null
   dismissWaiting: () => void
+  // Call-waiting actions (web/desktop). `answerWaitingHold` puts the current
+  // caller on hold and answers the waiting one (both stay live — see the second
+  // line below); `answerWaitingEnd` hangs up the current caller and answers the
+  // waiting one. `canHoldAndAnswer` is false when hold-&-answer isn't possible
+  // (no conference room on the current call, or a second line already exists).
+  answerWaitingHold: () => void
+  answerWaitingEnd: () => void
+  canHoldAndAnswer: boolean
+  // Second (held) line + swap. `backgroundWith` is the held caller's number
+  // (null = no second line); `swapCalls` flips which caller is live.
+  backgroundWith: string | null
+  backgroundContactMatch: DialerLookupMatch | null
+  backgroundStartedAt: number | null
+  swapCalls: () => void
+  swapping: boolean
   // Outbound. Optional extras travel through the Twilio Voice JS SDK's
   // `device.connect({ params })` as form fields on the TwiML outbound
   // webhook — used by Session 57 click-to-call to stamp the resulting
@@ -192,6 +207,30 @@ export type UseTwilioDevice = {
   ensureRegistered: () => Promise<void>
 }
 
+// Shared Device constructor options — used for the primary device AND the
+// HIDDEN second device we spin up for call-waiting "Hold & answer". The Twilio
+// Voice JS SDK can't hold two live same-identity calls on ONE Device (the
+// active call must be disconnected before accepting another on the same
+// Device), so the 2nd simultaneous call is forwarded to its own Device via the
+// waiting call's connectToken — see answerWaitingHold. Both devices must be
+// built identically.
+function buildDeviceOptions() {
+  return {
+    logLevel: 1 as const, // 0=trace, 1=debug, 5=silent
+    // Edge selection — let the SDK auto-pick unless region-locked.
+    edge: 'roaming' as const,
+    // Prefer Opus (wideband) over the SDK default [PCMU, Opus] so the web/
+    // desktop softphone doesn't sound thin/hollow. Opus also uses less
+    // bandwidth and handles packet loss better.
+    codecPreferences: ['opus', 'pcmu'] as Call.Codec[],
+    // Nudge Opus toward crisper voice on Chromium (ignored elsewhere).
+    maxAverageBitrate: 32000,
+    // Call waiting: raise `incoming` even when already on a call (default is a
+    // silent busy-reject) so we can present the second caller.
+    allowIncomingWhileBusy: true,
+  }
+}
+
 export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilioDevice {
   const [state, setState] = useState<DialerState>('idle')
   const [errorMessage, setErrorMessage] = useState<string | null>(null)
@@ -241,6 +280,40 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   const waitingCallRef = useRef<Call | null>(null)
   const [waitingFrom, setWaitingFrom] = useState<string | null>(null)
   const [waitingContactMatch, setWaitingContactMatch] = useState<DialerLookupMatch | null>(null)
+
+  // ── Second line (call-waiting: Hold & answer + Swap) ─────────────────────
+  // When the user picks "Hold & answer", caller #1 is held server-side (dropped
+  // from its conference mix + our mic muted on that leg) and becomes the
+  // BACKGROUND line, while the waiting call #2 is connected on a hidden second
+  // Device and becomes the foreground. `bgLineRef` is the synchronous source of
+  // truth; the bg* state below drives the "on hold" chip in the call UI. Only
+  // ONE background line is supported (two calls total). Web/desktop only —
+  // never populated on native (the OS handles call waiting there).
+  type BgLine = {
+    call: Call
+    room: string | null
+    from: string
+    contact: DialerLookupMatch | null
+    startedAt: number
+  }
+  const bgLineRef = useRef<BgLine | null>(null)
+  const [bgWith, setBgWith] = useState<string | null>(null)
+  const [bgContactMatch, setBgContactMatch] = useState<DialerLookupMatch | null>(null)
+  const [bgStartedAt, setBgStartedAt] = useState<number | null>(null)
+  const [swapping, setSwapping] = useState(false)
+  const swappingRef = useRef(false)
+  // The hidden second Device + the Call object living on it (destroyed when
+  // that call ends). secondCallRef is how we know which leg to tear down.
+  const secondDeviceRef = useRef<DeviceType | null>(null)
+  const secondCallRef = useRef<Call | null>(null)
+
+  // Ref mirrors of foreground display state so the call-waiting callbacks can
+  // read current values without stale closures (they're useCallback([], …)).
+  const conferenceRoomRef = useRef<string | null>(null)
+  const inCallWithRef = useRef<string | null>(null)
+  const callStartedAtRef = useRef<number | null>(null)
+  const contactMatchRef = useRef<DialerLookupMatch | null>(null)
+  const waitingFromRef = useRef<string | null>(null)
 
   // Native (Capacitor) call state. The native Twilio Voice SDK drives the call
   // through CallKit/PushKit — there's no JS Call object — so we mirror its
@@ -567,29 +640,7 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       // Dynamic import: keeps the SDK out of the SSR bundle and only loads
       // it when the dialer page mounts.
       const { Device } = await import('@twilio/voice-sdk')
-      const device = new Device(token, {
-        logLevel: 1, // 0=trace, 1=debug, 5=silent
-        // Edge selection — Twilio recommends letting the SDK auto-pick
-        // unless the deployment is region-locked.
-        edge: 'roaming',
-        // Prefer Opus (wideband) over PCMU. The SDK default is [PCMU, Opus],
-        // i.e. narrowband G.711 first — which makes the web/desktop softphone
-        // sound thin, quiet and "hollow/speakerphone" vs the native app (the
-        // native Twilio Voice SDK already defaults to Opus and sounds clear).
-        // Applies to both inbound-accepted and outbound legs. Opus also uses
-        // LESS bandwidth than PCMU and handles packet loss far better.
-        codecPreferences: ['opus', 'pcmu'] as Call.Codec[],
-        // Nudge Opus toward crisper voice on Chrome/Edge (Chromium-only SDP
-        // tweak; ignored elsewhere). 32 kbps is ample for speech and well
-        // within the SDK's 6k–510k bounds.
-        maxAverageBitrate: 32000,
-        // Call waiting: raise `incoming` even when already on a call. The SDK
-        // default is false (a 2nd call is silently rejected as busy). We accept
-        // it so the user gets a SILENT on-screen notice of the second caller —
-        // the ringtone is muted while busy (see the `incoming` handler below).
-        // Web/desktop only; native takes its own branch above and is unaffected.
-        allowIncomingWhileBusy: true,
-      })
+      const device = new Device(token, buildDeviceOptions())
 
       device.on('registered', () => setState('ready'))
       device.on('unregistered', () => setState('idle'))
@@ -648,6 +699,10 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
           fetchActiveConferenceRoomResilient().then((r) => { if (r) setConferenceRoom(r) })
         })
         call.on('disconnect', () => {
+          // Call-waiting: if this call is a held/background line or has already
+          // been superseded, interceptCallEnd handles it (and returns true) so
+          // we don't reset a still-live foreground. Normal single call → false.
+          if (interceptCallEnd(call)) return
           activeCallRef.current = null
           incomingCallRef.current = null
           setInCallWith(null)
@@ -800,6 +855,17 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     return () => { cancelled = true }
   }, [waitingFrom])
 
+  // Keep ref mirrors of foreground display state in sync so the call-waiting
+  // callbacks (answerWaitingHold / answerWaitingEnd / swapCalls) read current
+  // values without stale closures.
+  useEffect(() => { conferenceRoomRef.current = conferenceRoom }, [conferenceRoom])
+  useEffect(() => { inCallWithRef.current = inCallWith }, [inCallWith])
+  useEffect(() => { callStartedAtRef.current = callStartedAt }, [callStartedAt])
+  useEffect(() => { contactMatchRef.current = contactMatch }, [contactMatch])
+  useEffect(() => { waitingFromRef.current = waitingFrom }, [waitingFrom])
+  // Tear down the hidden second Device if the hook unmounts mid two-line call.
+  useEffect(() => () => { try { secondDeviceRef.current?.destroy() } catch { /* ignore */ } }, [])
+
   // ── Web audio device selection (mic + speaker picker) ────────────────────
   // Lists come straight from navigator.enumerateDevices (independent of SDK
   // refresh timing); selection is applied through the Twilio AudioHelper.
@@ -947,6 +1013,292 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     deviceRef.current?.audio?.incoming(!activeCallRef.current)
   }, [])
 
+  // ── Call-waiting: two-line helpers (Hold & answer / End & answer / Swap) ──
+  // All of this is opt-in — nothing here runs on a normal single call. The
+  // BACKGROUND line is always server-side held (its caller dropped from the
+  // conference mix) with our mic muted on that leg; the foreground is the line
+  // we hear. See the big comment on bgLineRef above for the two-Device reason.
+
+  // Server-side conference hold/unhold for a specific room. Best-effort.
+  const holdRoom = useCallback(async (room: string, hold: boolean): Promise<void> => {
+    try {
+      await fetch('/api/dialer/voice/conference/hold', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ room, hold }),
+      })
+    } catch { /* best-effort — the caller stays where they are on failure */ }
+  }, [])
+
+  // Push the current bgLineRef into the display state that drives the on-hold chip.
+  const syncBgDisplay = useCallback(() => {
+    const bg = bgLineRef.current
+    setBgWith(bg?.from ?? null)
+    setBgContactMatch(bg?.contact ?? null)
+    setBgStartedAt(bg?.startedAt ?? null)
+  }, [])
+
+  // Destroy the hidden second Device once the call that lived on it has ended.
+  const cleanupSecondDeviceIfEnded = useCallback((endedCall: Call) => {
+    if (secondCallRef.current && endedCall === secondCallRef.current) {
+      try { secondDeviceRef.current?.destroy() } catch { /* ignore */ }
+      secondDeviceRef.current = null
+      secondCallRef.current = null
+    }
+  }, [])
+
+  // Bring the background caller back as the foreground (used when the current
+  // foreground call ends while a held second line exists).
+  const resumeBackground = useCallback((endedForegroundCall: Call) => {
+    const bg = bgLineRef.current
+    if (!bg) return
+    cleanupSecondDeviceIfEnded(endedForegroundCall)
+    if (bg.room) void holdRoom(bg.room, false)
+    try { bg.call.mute(false) } catch { /* ignore */ }
+    activeCallRef.current = bg.call
+    setInCallWith(bg.from)
+    setConferenceRoom(bg.room)
+    setCallStartedAt(bg.startedAt)
+    setContactMatch(bg.contact)
+    setHeld(false)
+    setMuted(false)
+    setState('in-call')
+    bgLineRef.current = null
+    syncBgDisplay()
+  }, [holdRoom, syncBgDisplay, cleanupSecondDeviceIfEnded])
+
+  // Called at the TOP of every web call's disconnect handler. Returns true when
+  // it has fully handled the end (so the caller skips its normal single-call
+  // reset). Returns false ONLY for the ordinary single-call case, leaving the
+  // existing reset untouched — so normal calls behave exactly as before.
+  const interceptCallEnd = useCallback((endedCall: Call): boolean => {
+    const bg = bgLineRef.current
+    if (!bg) {
+      // We already promoted a different call in this one's place (End & answer)
+      // → don't reset; the new foreground owns the state.
+      if (activeCallRef.current && activeCallRef.current !== endedCall) {
+        cleanupSecondDeviceIfEnded(endedCall)
+        return true
+      }
+      // If this ending call lived on the hidden second device (e.g. it was the
+      // last of a two-line pair to hang up), destroy that device now so it never
+      // leaks. No-op for an ordinary single call (secondCallRef is null).
+      cleanupSecondDeviceIfEnded(endedCall)
+      return false // ordinary single call → run the existing reset
+    }
+    // A second (held) line exists.
+    if (endedCall === bg.call) {
+      // The held caller hung up on their own → just clear the chip.
+      cleanupSecondDeviceIfEnded(endedCall)
+      bgLineRef.current = null
+      syncBgDisplay()
+      return true
+    }
+    if (activeCallRef.current === endedCall) {
+      // The foreground ended → resume the held caller as the new foreground.
+      resumeBackground(endedCall)
+      return true
+    }
+    // Stale/unknown call → ignore, don't disturb the live lines.
+    cleanupSecondDeviceIfEnded(endedCall)
+    return true
+  }, [resumeBackground, syncBgDisplay, cleanupSecondDeviceIfEnded])
+
+  // Apply the chosen mic/speaker + headset constraints to a SPECIFIC device
+  // (used for the hidden second device). Best-effort; mirrors applyAudioForCall.
+  const applyAudioToDevice = useCallback(async (dev: DeviceType) => {
+    const audio = dev.audio
+    if (!audio) return
+    try {
+      const inId = selectedInputIdRef.current
+      if (inId && inId !== 'default') await audio.setInputDevice(inId)
+      const outId = selectedOutputId
+      if (audio.isOutputSelectionSupported && outId && outId !== 'default') {
+        await audio.speakerDevices.set(outId)
+      }
+      if (headsetModeRef.current) await audio.setAudioConstraints({ echoCancellation: false })
+    } catch { /* constraints/devices unsupported — ignore */ }
+  }, [selectedOutputId])
+
+  // Attach lifecycle handlers to a call that has become the foreground via a
+  // call-waiting action (the waiting call had only the silent clearWaiting
+  // handlers). Routes its end through interceptCallEnd so background resume
+  // works, with a defensive full reset fallback.
+  const attachPromotedCallHandlers = useCallback((call: Call) => {
+    call.on('accept', () => {
+      setCallStartedAt(Date.now())
+      setState('in-call')
+    })
+    call.on('disconnect', () => {
+      if (interceptCallEnd(call)) return
+      activeCallRef.current = null
+      setInCallWith(null)
+      setCallStartedAt(null)
+      setMuted(false)
+      setHeld(false)
+      setConferenceRoom(null)
+      setConsulting(false)
+      deviceRef.current?.audio?.unsetInputDevice().catch(() => {})
+      setState('ready')
+    })
+    call.on('error', (e: Error) => { setErrorMessage(e.message) })
+  }, [interceptCallEnd])
+
+  // Hold the current caller and answer the waiting one — BOTH stay live. The
+  // waiting call is forwarded to a hidden second Device (SDK requirement for two
+  // simultaneous same-identity calls). On any failure we restore caller #1 to a
+  // normal live call and send #2 to voicemail, so the agent is never stranded.
+  const answerWaitingHold = useCallback(async () => {
+    const waiting = waitingCallRef.current
+    const fg = activeCallRef.current
+    const fgRoom = conferenceRoomRef.current
+    // Need a live foreground WITH a conference room (to hold it), a waiting
+    // call, and no existing second line (max two lines).
+    if (!waiting || !fg || !fgRoom || bgLineRef.current) return
+    const from2 = waitingFromRef.current || waiting.parameters?.From || 'Unknown'
+    const connectToken = (waiting as unknown as { connectToken?: string }).connectToken
+    try {
+      if (!connectToken) throw new Error('connectToken unavailable (SDK too old)')
+      // 1) Hold caller #1 + mute our mic on that leg.
+      await holdRoom(fgRoom, true)
+      try { fg.mute(true) } catch { /* ignore */ }
+      // 2) Move #1 into the background.
+      bgLineRef.current = {
+        call: fg,
+        room: fgRoom,
+        from: inCallWithRef.current || '',
+        contact: contactMatchRef.current,
+        startedAt: callStartedAtRef.current || Date.now(),
+      }
+      syncBgDisplay()
+      // 3) Connect the waiting call on a hidden second Device via its
+      //    connectToken, so both calls can be live at once.
+      const token = await fetchAndApplyToken()
+      if (!token) throw new Error('no access token')
+      const { Device } = await import('@twilio/voice-sdk')
+      const dev2 = new Device(token, buildDeviceOptions())
+      secondDeviceRef.current = dev2
+      const c2 = await dev2.connect({ connectToken })
+      secondCallRef.current = c2
+      void applyAudioToDevice(dev2)
+      // 4) Promote #2 to the foreground.
+      activeCallRef.current = c2
+      waitingCallRef.current = null
+      setWaitingFrom(null)
+      setWaitingContactMatch(null)
+      setInCallWith(from2)
+      setContactMatch(waitingContactMatch)
+      setMuted(false)
+      setHeld(false)
+      setCallStartedAt(Date.now())
+      // Clear the stale (#1) room first so Hold/Transfer never target the held
+      // leg while #2's room resolves.
+      setConferenceRoom(null)
+      attachPromotedCallHandlers(c2)
+      // Discover #2's conference room (newest). Ignore it if it resolves to
+      // #1's room (a timing quirk) so Hold/Transfer never target the wrong leg.
+      fetchActiveConferenceRoomResilient().then((r) => {
+        if (r && r !== bgLineRef.current?.room) setConferenceRoom(r)
+      })
+      deviceRef.current?.audio?.incoming(false)
+    } catch {
+      // FALLBACK: undo everything, keep caller #1 live, drop #2 to voicemail.
+      try { await holdRoom(fgRoom, false) } catch { /* ignore */ }
+      try { fg.mute(false) } catch { /* ignore */ }
+      activeCallRef.current = fg
+      bgLineRef.current = null
+      syncBgDisplay()
+      setHeld(false)
+      setMuted(false)
+      try { waiting.reject() } catch { /* ignore */ }
+      waitingCallRef.current = null
+      setWaitingFrom(null)
+      setWaitingContactMatch(null)
+      if (secondDeviceRef.current) {
+        try { secondDeviceRef.current.destroy() } catch { /* ignore */ }
+        secondDeviceRef.current = null
+        secondCallRef.current = null
+      }
+      deviceRef.current?.audio?.incoming(false)
+    }
+  }, [holdRoom, syncBgDisplay, applyAudioToDevice, attachPromotedCallHandlers, waitingContactMatch])
+
+  // End the current caller and answer the waiting one. Single-device path: the
+  // active call is disconnected first (SDK requirement), then the waiting call
+  // is accepted on the primary device. No second line involved.
+  const answerWaitingEnd = useCallback(() => {
+    const waiting = waitingCallRef.current
+    const fg = activeCallRef.current
+    if (!waiting || !fg) return
+    const from2 = waitingFromRef.current || waiting.parameters?.From || 'Unknown'
+    // Promote #2 synchronously so #1's disconnect handler sees it's no longer
+    // the foreground and skips its reset (interceptCallEnd).
+    activeCallRef.current = waiting
+    waitingCallRef.current = null
+    setWaitingFrom(null)
+    setWaitingContactMatch(null)
+    setInCallWith(from2)
+    setContactMatch(waitingContactMatch)
+    setMuted(false)
+    setHeld(false)
+    setConferenceRoom(null)
+    setCallStartedAt(null)
+    attachPromotedCallHandlers(waiting)
+    // The SDK can't accept a 2nd call on the same Device while another is still
+    // live, so accept #2 only AFTER #1 has actually torn down. Drive it off #1's
+    // own 'disconnect' event (with a timeout backstop in case it never fires),
+    // guarded to run at most once — avoids the race of accepting during teardown.
+    let accepted = false
+    const acceptWaiting = () => {
+      if (accepted) return
+      accepted = true
+      void applyAudioForCall().finally(() => {
+        try { waiting.accept() } catch { /* ignore */ }
+        fetchActiveConferenceRoomResilient().then((r) => { if (r) setConferenceRoom(r) })
+      })
+    }
+    try { fg.on('disconnect', acceptWaiting) } catch { /* ignore */ }
+    try { fg.disconnect() } catch { /* already gone */ acceptWaiting() }
+    setTimeout(acceptWaiting, 1200)
+  }, [attachPromotedCallHandlers, applyAudioForCall, waitingContactMatch])
+
+  // Flip foreground <-> background (both calls stay live). Holds the current
+  // caller, unholds the held one, and swaps all display state.
+  const swapCalls = useCallback(async () => {
+    const bg = bgLineRef.current
+    const fg = activeCallRef.current
+    if (!bg || !fg || swappingRef.current) return
+    const fgRoom = conferenceRoomRef.current
+    swappingRef.current = true
+    setSwapping(true)
+    try {
+      if (fgRoom) await holdRoom(fgRoom, true)
+      try { fg.mute(true) } catch { /* ignore */ }
+      if (bg.room) await holdRoom(bg.room, false)
+      try { bg.call.mute(false) } catch { /* ignore */ }
+      const oldFg: BgLine = {
+        call: fg,
+        room: fgRoom,
+        from: inCallWithRef.current || '',
+        contact: contactMatchRef.current,
+        startedAt: callStartedAtRef.current || Date.now(),
+      }
+      activeCallRef.current = bg.call
+      setInCallWith(bg.from)
+      setConferenceRoom(bg.room)
+      setCallStartedAt(bg.startedAt)
+      setContactMatch(bg.contact)
+      setHeld(false)
+      setMuted(false)
+      bgLineRef.current = oldFg
+      syncBgDisplay()
+    } catch { /* best-effort — leave the lines as they are on failure */ }
+    finally {
+      swappingRef.current = false
+      setSwapping(false)
+    }
+  }, [holdRoom, syncBgDisplay])
+
   const placeCall = useCallback(async (
     number: string,
     extras?: { conversationId?: string | null; contactId?: string | null; callerId?: string | null }
@@ -1023,6 +1375,9 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
         setState('in-call')
       })
       call.on('disconnect', () => {
+        // Call-waiting: defer to interceptCallEnd (background resume / superseded
+        // call) before the normal single-call reset.
+        if (interceptCallEnd(call)) return
         activeCallRef.current = null
         setInCallWith(null)
         setCallStartedAt(null)
@@ -1141,6 +1496,14 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
     waitingFrom,
     waitingContactMatch,
     dismissWaiting,
+    answerWaitingHold,
+    answerWaitingEnd,
+    canHoldAndAnswer: !!waitingFrom && !!conferenceRoom && !bgWith,
+    backgroundWith: bgWith,
+    backgroundContactMatch: bgContactMatch,
+    backgroundStartedAt: bgStartedAt,
+    swapCalls,
+    swapping,
     placeCall,
     inCallWith,
     callStartedAt,

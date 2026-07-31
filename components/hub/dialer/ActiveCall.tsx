@@ -78,6 +78,10 @@ export default function ActiveCall({
   headsetMode = false,
   onToggleHeadsetMode,
   contact = null,
+  backgroundWith = null,
+  backgroundContactMatch = null,
+  onSwap,
+  swapping = false,
 }: {
   status: 'placing' | 'in-call'
   who: string | null
@@ -121,6 +125,11 @@ export default function ActiveCall({
   // Session 4/6: the matched customer identity for the screen-pop card + the
   // in-call quick actions (text / on-my-way / note / open-in-Jobber).
   contact?: DialerLookupMatch | null
+  // Call-waiting second line: the caller currently on hold (null = none) + Swap.
+  backgroundWith?: string | null
+  backgroundContactMatch?: DialerLookupMatch | null
+  onSwap?: () => void
+  swapping?: boolean
 }) {
   const [now, setNow] = useState(() => Date.now())
   const [showKeypad, setShowKeypad] = useState(false)
@@ -342,6 +351,27 @@ export default function ActiveCall({
       <div className="text-white/50 text-sm mb-2">
         {status === 'in-call' ? formatDurationSec(elapsed) : '—'}
       </div>
+
+      {/* Second line on hold (call waiting: Hold & answer) — tap to swap between
+          the two callers. */}
+      {backgroundWith && onSwap && (
+        <button
+          type="button"
+          onClick={onSwap}
+          disabled={swapping}
+          className="mb-3 mx-auto flex items-center gap-2 px-3 h-8 rounded-full bg-amber-500/15 text-amber-200 hover:bg-amber-500/25 active:scale-95 transition-all disabled:opacity-50 text-xs font-medium"
+          aria-label="Swap to the call on hold"
+        >
+          <svg className="w-3.5 h-3.5 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6M12 3a9 9 0 100 18 9 9 0 000-18z" />
+          </svg>
+          <span className="truncate max-w-[9rem]">On hold: {backgroundContactMatch?.name || formatPhone(backgroundWith)}</span>
+          <svg className="w-3.5 h-3.5 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
+          </svg>
+          <span className="flex-none">{swapping ? 'Swapping…' : 'Swap'}</span>
+        </button>
+      )}
 
       {/* Recording indicator */}
       {recordingEnabled && status === 'in-call' && (
