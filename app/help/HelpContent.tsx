@@ -1459,7 +1459,8 @@ function DialerTab() {
       </Section>
 
       <Section title="Ring groups">
-        <p>Named groups of people that an IVR menu can ring as one action. Configured in <strong className="text-white">Admin → Dialer → Ring groups</strong>.</p>
+        <p>Named groups of people that ring together as one destination. Configured in <strong className="text-white">Admin → Dialer → Ring groups</strong>.</p>
+        <p>A ring group can be reached two ways: as the answer to an auto-attendant (IVR) menu key (&quot;press 2 for sales&quot;), <strong className="text-white">or</strong> as the direct destination for every inbound call — no phone menu required. To ring a group on every call, pick it in <strong className="text-white">Admin → Dialer → Inbound routing → &quot;Ring this person or group&quot;</strong> (see below).</p>
         <p>Two ring modes:</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Simultaneous</strong> — everyone&apos;s phone rings at once. Whoever picks up first connects; the others stop ringing. Good for &quot;ring the whole sales team&quot;.</li>
@@ -1476,7 +1477,7 @@ function DialerTab() {
       </Section>
 
       <Section title="Voicemail (company box + personal boxes)">
-        <p><strong className="text-white">Business calls use the company voicemail.</strong> Anything that comes in on the main line and isn&apos;t answered — the inbound &quot;ring this person&quot; route (auto-attendant off), or an IVR menu&apos;s &quot;ring a person&quot; / &quot;ring a group&quot; that no one picks up — lands in the <strong className="text-white">company voicemail box</strong> and plays the <strong className="text-white">company greeting</strong>.</p>
+        <p><strong className="text-white">Business calls use the company voicemail.</strong> Anything that comes in on the main line and isn&apos;t answered — the inbound &quot;ring this person or group&quot; route (auto-attendant off), or an IVR menu&apos;s &quot;ring a person&quot; / &quot;ring a group&quot; that no one picks up — lands in the <strong className="text-white">company voicemail box</strong> and plays the <strong className="text-white">company greeting</strong>.</p>
         <p><strong className="text-white">Personal voicemail boxes are only for direct extension dials.</strong> When someone dials a person&apos;s <strong className="text-white">extension</strong> — internally from the dialpad, or a caller who enters it at the auto-attendant&apos;s &quot;dial by extension&quot; prompt — and they don&apos;t answer, it lands in <em>that person&apos;s</em> box with their personal greeting. Push notifications for a personal voicemail go only to them; the unheard count on the rail badge reflects what they can see.</p>
         <p>The Voicemail tab has a <strong className="text-white">Mine / All</strong> sub-toggle for managers. <em>Mine</em> shows the general inbox plus voicemails directed at you; <em>All</em> shows every voicemail in the company (manager-only).</p>
         <p>Upload your personal greeting in <strong className="text-white">Settings → Account → Communications</strong>. MP3 or WAV, 2 MB max. Without one, callers hear a spoken default that names you (&quot;You&apos;ve reached Ben…&quot;). Remove the greeting at any time to revert to the spoken default.</p>
@@ -1511,7 +1512,7 @@ function DialerTab() {
 
       <AdminOnly>
         <p>Each user must have the <em>Dialer</em> permission enabled in Admin → People to access <code>/hub/dialer</code> and receive a Twilio Voice access token. Setting <em>Admin → Dialer</em> as a manager grant lets that user see <strong className="text-white">All</strong> calls (not just their own), inject test calls, and configure inbound routing / voicemail at <code>/hub/admin/dialer</code>.</p>
-        <p>Inbound routing, ring timeout (5–120 seconds, default 20), the company voicemail greeting (MP3 or WAV, 2 MB max), and the voicemail recipient list are all configured in <strong className="text-white">Admin → Dialer</strong>. If no inbound routing person is set, every call goes straight to voicemail.</p>
+        <p>Inbound routing, ring timeout (5–120 seconds, default 20), the company voicemail greeting (MP3 or WAV, 2 MB max), and the voicemail recipient list are all configured in <strong className="text-white">Admin → Dialer</strong>. The <strong className="text-white">&quot;Ring this person or group&quot;</strong> setting can point at a single person <em>or</em> a ring group — pick a group to ring several people on every incoming call without building a phone menu (the group&apos;s own order and timing apply; edit those in the Ring Groups tab). If nothing is set, every call goes straight to voicemail.</p>
         <p>Required env vars when going live: <code>TWILIO_ACCOUNT_SID</code>, <code>TWILIO_AUTH_TOKEN</code>, <code>TWILIO_API_KEY_SID</code>, <code>TWILIO_API_KEY_SECRET</code>, <code>TWILIO_TWIML_APP_SID</code>, <code>TWILIO_PHONE_NUMBER</code>. Voice does NOT need A2P 10DLC approval — that&apos;s SMS-only. Dialer can launch before Txt v2.</p>
       </AdminOnly>
     </>
