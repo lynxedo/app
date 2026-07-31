@@ -1,10 +1,11 @@
 'use client'
 
-import { useCallback, useEffect, useRef, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 import { Modal, Button, EmptyState, useToast, useConfirm } from '@/components/ui'
 
 type TriggerType = 'new_lead' | 'lead_source' | 'manual' | 'stage_changed'
-type Channel = 'sms' | 'email' | 'rvm'
+type Channel = 'sms' | 'email'
+type EnrollWindow = 'always' | 'business_hours' | 'after_hours'
 
 type Campaign = {
   id: string
@@ -13,6 +14,7 @@ type Campaign = {
   trigger_type: TriggerType
   trigger_config: any
   status: 'draft' | 'active' | 'paused'
+  enroll_window?: EnrollWindow
   active_enrollments: number
   step_count: number
   channels?: Channel[]
@@ -27,33 +29,23 @@ type UIStep = {
   body: string // sms message OR email markdown body
   subject: string // email
   identityId: string // email "send from" ('' = company default)
-  audioAssetId: string // rvm
+  ignoreQuietHours: boolean // send even inside the quiet-hours window
 }
 
 type DripUser = { id: string; display_name: string }
 type Identity = { id: string; label: string; from_email: string; is_default: boolean }
 type Stage = { key: string; label: string }
-type AudioAsset = {
-  id: string
-  label: string | null
-  provider_voicemail_id: string | null
-  caller_id_number: string | null
-}
 type Settings = {
   quiet_hours: { start: number; end: number; tz: string }
   send_as_user_id: string | null
   frequency_cap: number
   business_display_name: string | null
   default_email_identity_id: string | null
-  rvm_enabled: boolean
-  rvm_consent_confirmed: boolean
-  rvm_caller_id: string | null
   text_autonomy: string
 }
 
 const BASE = '/api/hub/marketing/drip/campaigns'
 const SETTINGS_URL = '/api/hub/marketing/drip/settings'
-const AUDIO_URL = '/api/hub/marketing/drip/audio'
 const STAGES_URL = '/api/tracker/stages'
 
 const TRIGGER_LABEL: Record<TriggerType, string> = {
@@ -62,8 +54,13 @@ const TRIGGER_LABEL: Record<TriggerType, string> = {
   manual: 'Manual',
   stage_changed: 'Stage changed',
 }
-const CHANNEL_LABEL: Record<Channel, string> = { sms: 'Text', email: 'Email', rvm: 'Ringless voicemail' }
-const CHANNEL_WORD: Record<Channel, string> = { sms: 'text', email: 'email', rvm: 'voicemail' }
+const ENROLL_WINDOW_LABEL: Record<EnrollWindow, string> = {
+  always: 'Anytime',
+  business_hours: 'Business hours only',
+  after_hours: 'After hours & weekends only',
+}
+const CHANNEL_LABEL: Record<Channel, string> = { sms: 'Text', email: 'Email' }
+const CHANNEL_WORD: Record<Channel, string> = { sms: 'text', email: 'email' }
 const STATUS_STYLE: Record<Campaign['status'], string> = {
   draft: 'bg-gray-700/40 border-gray-600 text-gray-300',
   active: 'bg-green-500/15 border-green-500/40 text-green-300',
@@ -71,10 +68,14 @@ const STATUS_STYLE: Record<Campaign['status'], string> = {
 }
 
 function newStep(channel: Channel = 'sms'): UIStep {
-  return { channel, unit: 'days', value: 1, body: '', subject: '', identityId: '', audioAssetId: '' }
+  return { channel, unit: 'days', value: 1, body: '', subject: '', identityId: '', ignoreQuietHours: false }
 }
-function assetLabel(a: AudioAsset): string {
-  return a.label?.trim() || `Recording ${a.id.slice(0, 8)}`
+
+// Format an hour (0–24) as a friendly AM/PM clock label for the quiet-hours pickers.
+function hourLabel(h: number): string {
+  if (h === 24 || h === 0) return h === 24 ? 'Midnight (12 AM)' : '12:00 AM (midnight)'
+  if (h === 12) return '12:00 PM (noon)'
+  return h < 12 ? `${h}:00 AM` : `${h - 12}:00 PM`
 }
 
 export default function DripView() {
@@ -141,7 +142,7 @@ export default function DripView() {
           <div>
             <h1 className="text-xl font-semibold text-white">Drip</h1>
             <p className="text-sm text-gray-500 mt-1">
-              Reach new leads the moment they arrive — by text, email, or ringless voicemail — then follow up automatically, and stop the instant they reply.
+              Reach new leads the moment they arrive — by text or email — then follow up automatically, and stop the instant they reply.
             </p>
           </div>
           <div className="flex flex-none gap-2">
@@ -235,13 +236,10 @@ function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
   const [triggerType, setTriggerType] = useState<TriggerType>(campaign?.trigger_type || 'new_lead')
   const [leadSource, setLeadSource] = useState<string>(campaign?.trigger_config?.lead_source || '')
   const [stage, setStage] = useState<string>(campaign?.trigger_config?.stage || '')
+  const [enrollWindow, setEnrollWindow] = useState<EnrollWindow>(campaign?.enroll_window || 'always')
   const [steps, setSteps] = useState<UIStep[]>([])
   const [loadingSteps, setLoadingSteps] = useState(!!campaign)
   const [saving, setSaving] = useState(false)
-
-  // Shared RVM audio assets (uploaded/picked across every voicemail step).
-  const [audioAssets, setAudioAssets] = useState<AudioAsset[]>([])
-  const [uploadingAudio, setUploadingAudio] = useState(false)
 
   useEffect(() => {
     if (!campaign) { setSteps([newStep('sms')]); return }
@@ -255,13 +253,13 @@ function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
             const hours = Number(s?.delay?.hours)
             const unit: 'days' | 'hours' = hours > 0 ? 'hours' : 'days'
             const value = hours > 0 ? hours : days > 0 ? days : 1
-            const channel: Channel = ['sms', 'email', 'rvm'].includes(s?.channel) ? s.channel : 'sms'
+            const channel: Channel = ['sms', 'email'].includes(s?.channel) ? s.channel : 'sms'
             return {
               channel, unit, value,
               body: typeof s?.content_ref?.body === 'string' ? s.content_ref.body : '',
               subject: typeof s?.content_ref?.subject === 'string' ? s.content_ref.subject : '',
               identityId: typeof s?.content_ref?.identity_id === 'string' ? s.content_ref.identity_id : '',
-              audioAssetId: typeof s?.content_ref?.audio_asset_id === 'string' ? s.content_ref.audio_asset_id : '',
+              ignoreQuietHours: s?.ignore_quiet_hours === true,
             }
           })
           setSteps(ui.length ? ui : [newStep('sms')])
@@ -271,15 +269,6 @@ function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
       }
     })()
   }, [campaign])
-
-  // Load the company's RVM recordings once (cheap; the picker needs them ready).
-  useEffect(() => {
-    (async () => {
-      const res = await fetch(AUDIO_URL)
-      const data = await res.json().catch(() => ({}))
-      if (res.ok) setAudioAssets(data.assets || [])
-    })()
-  }, [])
 
   function addStep() { setSteps((p) => [...p, newStep(p[p.length - 1]?.channel || 'sms')]) }
   function move(i: number, dir: -1 | 1) {
@@ -292,27 +281,6 @@ function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
   function removeStep(i: number) { setSteps((p) => p.filter((_, k) => k !== i)) }
   function updateStep(i: number, patch: Partial<UIStep>) { setSteps((p) => p.map((s, k) => (k === i ? { ...s, ...patch } : s))) }
 
-  async function uploadAudio(file: File, stepIndex: number) {
-    setUploadingAudio(true)
-    try {
-      const fd = new FormData()
-      fd.append('file', file)
-      fd.append('label', file.name.replace(/\.[^.]+$/, ''))
-      const res = await fetch(AUDIO_URL, { method: 'POST', body: fd })
-      const data = await res.json().catch(() => ({}))
-      if (!res.ok || !data.asset) { toast.error(data.error || 'Could not upload the recording.'); return }
-      setAudioAssets((p) => [data.asset as AudioAsset, ...p])
-      updateStep(stepIndex, { audioAssetId: data.asset.id })
-      if (data.providerUploaded === false) {
-        toast.info('Recording saved. It becomes sendable once VoiceDrop is connected for your company.')
-      } else {
-        toast.success('Recording uploaded.')
-      }
-    } finally {
-      setUploadingAudio(false)
-    }
-  }
-
   function buildPayload() {
     return {
       name: name.trim(),
@@ -321,17 +289,13 @@ function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
         triggerType === 'lead_source' ? { lead_source: leadSource.trim() }
           : triggerType === 'stage_changed' ? { stage }
             : {},
+      enroll_window: enrollWindow,
       steps: steps.map((s, i) => {
         const delay = i === 0 ? { minutes: 0 } : { [s.unit]: Math.max(1, Math.round(s.value || 1)) }
-        let content_ref: any
-        if (s.channel === 'email') {
-          content_ref = { subject: s.subject.trim(), body: s.body.trim(), ...(s.identityId ? { identity_id: s.identityId } : {}) }
-        } else if (s.channel === 'rvm') {
-          content_ref = { audio_asset_id: s.audioAssetId }
-        } else {
-          content_ref = { body: s.body.trim() }
-        }
-        return { channel: s.channel, delay, content_ref }
+        const content_ref: any = s.channel === 'email'
+          ? { subject: s.subject.trim(), body: s.body.trim(), ...(s.identityId ? { identity_id: s.identityId } : {}) }
+          : { body: s.body.trim() }
+        return { channel: s.channel, delay, content_ref, ignore_quiet_hours: s.ignoreQuietHours }
       }),
     }
   }
@@ -342,7 +306,6 @@ function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
       if (s.channel === 'sms' && !s.body.trim()) return `Step ${i + 1}: write the text message.`
       if (s.channel === 'email' && !s.subject.trim()) return `Step ${i + 1}: add an email subject.`
       if (s.channel === 'email' && !s.body.trim()) return `Step ${i + 1}: write the email message.`
-      if (s.channel === 'rvm' && !s.audioAssetId) return `Step ${i + 1}: choose the voicemail recording.`
     }
     return null
   }
@@ -429,6 +392,21 @@ function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
           )}
         </div>
 
+        {triggerType !== 'manual' && (
+          <div>
+            <label className="block text-xs text-gray-400 mb-1">When can leads enter this campaign?</label>
+            <select value={enrollWindow} onChange={(e) => setEnrollWindow(e.target.value as EnrollWindow)}
+              className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white">
+              <option value="always">Anytime</option>
+              <option value="business_hours">Only during business hours</option>
+              <option value="after_hours">Only after hours &amp; weekends</option>
+            </select>
+            <p className="text-[11px] text-gray-500 mt-1">
+              Uses your business hours from <span className="text-gray-400">Admin → Dialer → Responder</span>. Pick <em>after hours &amp; weekends</em> to auto-nurture leads that arrive when no one’s in the office — e.g. let the office text Google leads manually during the day, and let this run at night.
+            </p>
+          </div>
+        )}
+
         <div>
           <div className="flex items-center justify-between mb-1.5">
             <label className="text-xs text-gray-400">Steps</label>
@@ -470,7 +448,7 @@ function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
 
                   {/* Channel picker */}
                   <div className="flex gap-1">
-                    {(['sms', 'email', 'rvm'] as Channel[]).map((ch) => (
+                    {(['sms', 'email'] as Channel[]).map((ch) => (
                       <button
                         key={ch}
                         onClick={() => updateStep(i, { channel: ch })}
@@ -524,57 +502,27 @@ function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
                     </div>
                   )}
 
-                  {s.channel === 'rvm' && (
-                    <RvmStepEditor
-                      step={s}
-                      assets={audioAssets}
-                      uploading={uploadingAudio}
-                      onSelect={(id) => updateStep(i, { audioAssetId: id })}
-                      onUpload={(file) => uploadAudio(file, i)}
-                    />
-                  )}
+                  {/* Ignore quiet hours — useful for the instant first touch so a 2am lead still gets answered. */}
+                  <label className="flex items-center gap-2 text-[11px] text-gray-400 cursor-pointer select-none">
+                    <input type="checkbox" checked={s.ignoreQuietHours}
+                      onChange={(e) => updateStep(i, { ignoreQuietHours: e.target.checked })}
+                      className="h-3.5 w-3.5" />
+                    Ignore quiet hours{i === 0 ? ' (answer instantly, even overnight)' : ''}
+                  </label>
                 </li>
               ))}
             </ol>
           )}
           <p className="text-[11px] text-gray-500 mt-1.5">
-            Text steps: use <code className="text-gray-400">{'{{first_name}}'}</code> to personalize; the first text goes out within ~2 minutes of the lead landing, and the business name + a “Reply STOP to opt out” line are added automatically. Quiet hours + opt-outs apply to every channel.
+            Text steps: use <code className="text-gray-400">{'{{first_name}}'}</code> to personalize; the first text goes out within ~2 minutes of the lead landing, and the business name + a “Reply STOP to opt out” line are added automatically. Sends normally wait for quiet hours unless a step is set to ignore them.
           </p>
         </div>
 
         <p className="text-xs text-gray-500 rounded-lg border border-gray-800 bg-gray-900 p-3">
-          Saved as a <strong className="text-gray-300">draft</strong>. Activate it from the list when ready — only active campaigns enroll and send. Each channel’s prerequisites (a text sender, a verified email domain, or ringless-voicemail consent) are checked when you activate.
+          Saved as a <strong className="text-gray-300">draft</strong>. Activate it from the list when ready — only active campaigns enroll and send. Each channel’s prerequisites (a text sender, a verified email domain) are checked when you activate.
         </p>
       </div>
     </Modal>
-  )
-}
-
-function RvmStepEditor({ step, assets, uploading, onSelect, onUpload }: {
-  step: UIStep; assets: AudioAsset[]; uploading: boolean; onSelect: (id: string) => void; onUpload: (file: File) => void
-}) {
-  const fileRef = useRef<HTMLInputElement>(null)
-  return (
-    <div className="space-y-2">
-      <div className="flex items-center gap-2">
-        <select value={step.audioAssetId} onChange={(e) => onSelect(e.target.value)}
-          className="flex-1 rounded bg-gray-800 border border-gray-700 px-2 py-1.5 text-sm text-white">
-          <option value="">Choose a recording…</option>
-          {assets.map((a) => (
-            <option key={a.id} value={a.id}>{assetLabel(a)}{!a.provider_voicemail_id ? ' (not yet sendable)' : ''}</option>
-          ))}
-        </select>
-        <input ref={fileRef} type="file" accept="audio/mpeg,audio/mp3,audio/wav,audio/x-wav,audio/wave" className="hidden"
-          onChange={(e) => { const f = e.target.files?.[0]; if (f) onUpload(f); if (fileRef.current) fileRef.current.value = '' }} />
-        <button type="button" onClick={() => fileRef.current?.click()} disabled={uploading}
-          className="flex-none text-xs rounded-lg border border-gray-700 bg-gray-800 px-2.5 py-1.5 text-gray-200 hover:bg-gray-700 disabled:opacity-50">
-          {uploading ? 'Uploading…' : 'Upload'}
-        </button>
-      </div>
-      <p className="text-[11px] text-amber-300/80 rounded-lg border border-amber-500/30 bg-amber-500/10 px-2 py-1.5">
-        Ringless voicemail is <strong>dark until enabled</strong> — turn it on and confirm consent in Settings (legal sign-off required). MP3/WAV, ~30 seconds.
-      </p>
-    </div>
   )
 }
 
@@ -594,7 +542,7 @@ function EnrollmentMonitor({ campaign, onClose }: { campaign: Campaign; onClose:
         const enrData = await enrRes.json().catch(() => ({}))
         const cData = await cRes.json().catch(() => ({}))
         if (enrRes.ok) { setCounts(enrData.counts || {}); setRows(enrData.enrollments || []) }
-        if (cRes.ok) setStepChannels((cData.steps || []).map((s: any) => (['sms', 'email', 'rvm'].includes(s?.channel) ? s.channel : 'sms')))
+        if (cRes.ok) setStepChannels((cData.steps || []).map((s: any) => (['sms', 'email'].includes(s?.channel) ? s.channel : 'sms')))
       } finally {
         setLoading(false)
       }
@@ -647,9 +595,6 @@ function DripSettingsModal({ settings, users, identities, onClose, onSaved }: {
   const [businessName, setBusinessName] = useState<string>(settings?.business_display_name || '')
   const [defaultIdentity, setDefaultIdentity] = useState<string>(settings?.default_email_identity_id || '')
   const [textAutonomy, setTextAutonomy] = useState<string>(settings?.text_autonomy || 'draft')
-  const [rvmEnabled, setRvmEnabled] = useState<boolean>(settings?.rvm_enabled ?? false)
-  const [rvmConsent, setRvmConsent] = useState<boolean>(settings?.rvm_consent_confirmed ?? false)
-  const [rvmCallerId, setRvmCallerId] = useState<string>(settings?.rvm_caller_id || '')
   const [saving, setSaving] = useState(false)
 
   async function save() {
@@ -664,9 +609,6 @@ function DripSettingsModal({ settings, users, identities, onClose, onSaved }: {
           business_display_name: businessName,
           default_email_identity_id: defaultIdentity || null,
           text_autonomy: textAutonomy,
-          rvm_enabled: rvmEnabled,
-          rvm_consent_confirmed: rvmConsent,
-          rvm_caller_id: rvmCallerId,
         }),
       })
       const data = await res.json().catch(() => ({}))
@@ -726,15 +668,19 @@ function DripSettingsModal({ settings, users, identities, onClose, onSaved }: {
         <div>
           <label className="block text-xs text-gray-400 mb-1">Quiet hours (no sends outside this window)</label>
           <div className="flex items-center gap-2 text-sm text-white">
-            <input type="number" min={0} max={23} value={quietStart} onChange={(e) => setQuietStart(Number(e.target.value))}
-              className="w-16 rounded bg-gray-800 border border-gray-700 px-2 py-1.5" />
+            <select value={quietStart} onChange={(e) => setQuietStart(Number(e.target.value))}
+              className="rounded bg-gray-800 border border-gray-700 px-2 py-1.5">
+              {Array.from({ length: 24 }, (_, h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+            </select>
             <span className="text-gray-400">to</span>
-            <input type="number" min={1} max={24} value={quietEnd} onChange={(e) => setQuietEnd(Number(e.target.value))}
-              className="w-16 rounded bg-gray-800 border border-gray-700 px-2 py-1.5" />
+            <select value={quietEnd} onChange={(e) => setQuietEnd(Number(e.target.value))}
+              className="rounded bg-gray-800 border border-gray-700 px-2 py-1.5">
+              {Array.from({ length: 24 }, (_, i) => i + 1).map((h) => <option key={h} value={h}>{hourLabel(h)}</option>)}
+            </select>
             <input value={tz} onChange={(e) => setTz(e.target.value)}
               className="flex-1 rounded bg-gray-800 border border-gray-700 px-2 py-1.5" />
           </div>
-          <p className="text-[11px] text-gray-500 mt-1">24-hour clock. A send due during quiet hours waits until the window opens (TCPA-safe; default 8–20).</p>
+          <p className="text-[11px] text-gray-500 mt-1">A send due during quiet hours waits until the window opens (TCPA-safe; default 8 AM to 8 PM). A step set to “ignore quiet hours” sends anyway.</p>
         </div>
 
         <div>
@@ -747,28 +693,6 @@ function DripSettingsModal({ settings, users, identities, onClose, onSaved }: {
           <label className="block text-xs text-gray-400 mb-1">Business name (shown in texts, optional)</label>
           <input value={businessName} onChange={(e) => setBusinessName(e.target.value)} placeholder="e.g. Heroes Lawn Care"
             className="w-full rounded-lg bg-gray-800 border border-gray-700 px-3 py-2 text-sm text-white" />
-        </div>
-
-        <div className="rounded-lg border border-amber-500/30 bg-amber-500/5 p-3 space-y-2.5">
-          <div className="flex items-center justify-between gap-2">
-            <div>
-              <div className="text-sm text-gray-200 font-medium">Ringless voicemail</div>
-              <div className="text-[11px] text-amber-300/80">Off until legal sign-off. A voicemail drop is legally a call (FCC 22-85) — only enable it for leads who gave calling consent.</div>
-            </div>
-            <label className="flex-none inline-flex items-center gap-2 text-xs text-gray-300">
-              <input type="checkbox" checked={rvmEnabled} onChange={(e) => setRvmEnabled(e.target.checked)} className="h-4 w-4" />
-              Enable
-            </label>
-          </div>
-          <label className="flex items-start gap-2 text-xs text-gray-300">
-            <input type="checkbox" checked={rvmConsent} onChange={(e) => setRvmConsent(e.target.checked)} className="mt-0.5 h-4 w-4" />
-            <span>I confirm we have calling consent for the leads this reaches, and voicemail drops comply with our legal review.</span>
-          </label>
-          <div>
-            <label className="block text-[11px] text-gray-500 mb-1">Caller ID (number shown on the drop)</label>
-            <input value={rvmCallerId} onChange={(e) => setRvmCallerId(e.target.value)} placeholder="+18322208100"
-              className="w-full rounded bg-gray-800 border border-gray-700 px-2 py-1.5 text-sm text-white" />
-          </div>
         </div>
       </div>
     </Modal>

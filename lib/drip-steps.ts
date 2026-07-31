@@ -14,8 +14,8 @@
 // touch (delay forced to {minutes:0} — the engine schedules next_run_at=now on
 // enroll); later steps carry the gap after the previous step ({hours:N} | {days:N}).
 
-export type RawDripStep = { channel?: string; delay?: any; content_ref?: any }
-export type CleanDripStep = { step_index: number; channel: string; delay: any; content_ref: any }
+export type RawDripStep = { channel?: string; delay?: any; content_ref?: any; ignore_quiet_hours?: boolean }
+export type CleanDripStep = { step_index: number; channel: string; delay: any; content_ref: any; ignore_quiet_hours: boolean }
 export type DripStepsResult = { ok: true; steps: CleanDripStep[] } | { ok: false; error: string }
 
 // Triggers the builder + engine understand. new_lead / lead_source enroll via the
@@ -27,6 +27,17 @@ export const DRIP_TRIGGERS = ['new_lead', 'lead_source', 'manual', 'stage_change
 export type DripTrigger = (typeof DRIP_TRIGGERS)[number]
 export function isDripTrigger(t: unknown): t is DripTrigger {
   return typeof t === 'string' && (DRIP_TRIGGERS as readonly string[]).includes(t)
+}
+
+// enroll_window — WHEN a lead may enter a campaign, evaluated against the company's
+// Responder business hours. 'always' = today's behavior; 'business_hours' = only
+// while the office is open; 'after_hours' = only when closed (nights/weekends).
+export const DRIP_ENROLL_WINDOWS = ['always', 'business_hours', 'after_hours'] as const
+export type DripEnrollWindow = (typeof DRIP_ENROLL_WINDOWS)[number]
+export function normalizeEnrollWindow(v: unknown): DripEnrollWindow {
+  return typeof v === 'string' && (DRIP_ENROLL_WINDOWS as readonly string[]).includes(v)
+    ? (v as DripEnrollWindow)
+    : 'always'
 }
 
 const CHANNELS = new Set(['sms', 'email', 'rvm'])
@@ -46,7 +57,9 @@ export function normalizeDripSteps(raw: unknown): DripStepsResult {
     // Step 0 = the instant first touch (delay forced to 0). Later steps carry the gap.
     const delay = i === 0 ? { minutes: 0 } : normDelay(s?.delay)
     const content_ref = normalizeContentRef(channel, s?.content_ref, i)
-    steps.push({ step_index: i, channel, delay, content_ref })
+    // ignore_quiet_hours: this step sends even inside the quiet-hours window.
+    const ignore_quiet_hours = s?.ignore_quiet_hours === true
+    steps.push({ step_index: i, channel, delay, content_ref, ignore_quiet_hours })
   })
   return { ok: true, steps }
 }
