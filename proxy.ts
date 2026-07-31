@@ -54,6 +54,20 @@ export async function proxy(request: NextRequest) {
     }
   )
 
+  // Any response we return MUST carry the auth cookies Supabase staged on
+  // `supabaseResponse` while refreshing the session inside getUser()/the profile fetch.
+  // A bare NextResponse.redirect() does NOT inherit those Set-Cookie headers, so on a
+  // redirect the browser keeps the OLD refresh token the server just rotated away. The
+  // next client-side refresh then fails with `refresh_token_already_used` ("Possible
+  // abuse attempt"), which trips rotation-reuse detection and the per-IP rate limit and
+  // signs the user out — the exact refresh-token storm that broke sign-in. Copy the
+  // cookies onto every redirect. (Supabase SSR: you must return supabaseResponse's cookies.)
+  const redirectWithSession = (url: URL): NextResponse => {
+    const res = NextResponse.redirect(url)
+    supabaseResponse.cookies.getAll().forEach((cookie) => res.cookies.set(cookie))
+    return res
+  }
+
   const user = await withTimeout(
     supabase.auth.getUser().then(({ data }) => data.user),
     AUTH_TIMEOUT_MS,
@@ -68,7 +82,7 @@ export async function proxy(request: NextRequest) {
   if (!user && isProtected) {
     const url = request.nextUrl.clone()
     url.pathname = '/login'
-    return NextResponse.redirect(url)
+    return redirectWithSession(url)
   }
 
   if (user) {
@@ -91,7 +105,7 @@ export async function proxy(request: NextRequest) {
       if (isProtected && pathname !== '/login') {
         const url = request.nextUrl.clone()
         url.pathname = '/login'
-        return NextResponse.redirect(url)
+        return redirectWithSession(url)
       }
       return supabaseResponse
     }
@@ -111,7 +125,7 @@ export async function proxy(request: NextRequest) {
       const url = request.nextUrl.clone()
       url.pathname = '/welcome'
       url.search = ''
-      return NextResponse.redirect(url)
+      return redirectWithSession(url)
     }
 
     // Subdomain tenant routing (Track 2). DARK until NEXT_PUBLIC_SUBDOMAIN_ROUTING_ENABLED=true.
@@ -137,7 +151,7 @@ export async function proxy(request: NextRequest) {
         url.protocol = 'https:'
         url.hostname = tenantHostname(host, mySlug)
         url.port = ''
-        return NextResponse.redirect(url)
+        return redirectWithSession(url)
       }
     }
 
@@ -145,7 +159,7 @@ export async function proxy(request: NextRequest) {
     if (pathname === '/login') {
       const url = request.nextUrl.clone()
       url.pathname = landingPath
-      return NextResponse.redirect(url)
+      return redirectWithSession(url)
     }
 
     // Permission checks for authenticated users on tool + admin routes
@@ -176,7 +190,7 @@ export async function proxy(request: NextRequest) {
         if ((pathname === route || pathname.startsWith(route + '/')) && !profile[permKey]) {
           const url = request.nextUrl.clone()
           url.pathname = route.startsWith('/hub/') ? '/hub' : '/dashboard'
-          return NextResponse.redirect(url)
+          return redirectWithSession(url)
         }
       }
 
@@ -197,7 +211,7 @@ export async function proxy(request: NextRequest) {
         if (!entitled) {
           const url = request.nextUrl.clone()
           url.pathname = '/hub/billing'
-          return NextResponse.redirect(url)
+          return redirectWithSession(url)
         }
       }
 
@@ -211,7 +225,7 @@ export async function proxy(request: NextRequest) {
           if (!profile.is_platform_admin) {
             const url = request.nextUrl.clone()
             url.pathname = '/hub/home'
-            return NextResponse.redirect(url)
+            return redirectWithSession(url)
           }
         }
         const isSuperAdmin = profile.role === 'admin'
@@ -248,7 +262,7 @@ export async function proxy(request: NextRequest) {
         if (!isSuperAdmin && !anyAdminGrant) {
           const url = request.nextUrl.clone()
           url.pathname = '/hub/home'
-          return NextResponse.redirect(url)
+          return redirectWithSession(url)
         }
 
         if (!isSuperAdmin) {
@@ -257,13 +271,13 @@ export async function proxy(request: NextRequest) {
             const url = request.nextUrl.clone()
             const firstGrant = Object.entries(adminFlagMap).find(([, key]) => profile[key])
             url.pathname = firstGrant ? firstGrant[0] : '/hub/home'
-            return NextResponse.redirect(url)
+            return redirectWithSession(url)
           }
           for (const [route, flagKey] of Object.entries(adminFlagMap)) {
             if ((pathname === route || pathname.startsWith(route + '/')) && !profile[flagKey]) {
               const url = request.nextUrl.clone()
               url.pathname = profile.can_admin_people ? '/hub/admin' : '/hub/home'
-              return NextResponse.redirect(url)
+              return redirectWithSession(url)
             }
           }
         }
@@ -276,6 +290,11 @@ export async function proxy(request: NextRequest) {
 
 export const config = {
   matcher: [
+    // Root is matched so a returning user's session is refreshed AND persisted here in
+    // middleware before app/page.tsx's Server Component calls getUser(). A Server
+    // Component can't write cookies, so if IT triggers the refresh the rotated token is
+    // lost and the client is left holding a used refresh token (the sign-in-storm bug).
+    '/',
     '/dashboard/:path*', '/routing/:path*', '/lawn/:path*', '/lawn',
     '/responder/:path*', '/call-log/:path*', '/call-log',
     '/timesheet/:path*', '/timesheet',
