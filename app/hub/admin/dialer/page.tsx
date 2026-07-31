@@ -10,6 +10,7 @@ export const metadata = { title: 'Dialer Admin' }
 
 const DEFAULTS = {
   inbound_route_user_id: null as string | null,
+  inbound_route_ring_group_id: null as string | null,
   ring_timeout_sec: 20,
   voicemail_recipient_user_ids: [] as string[],
   fallback_voicemail_url: null as string | null,

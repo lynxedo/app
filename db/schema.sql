@@ -496,6 +496,7 @@ CREATE TABLE public.dialer_settings (
   after_hours_routing jsonb DEFAULT '{}'::jsonb,
   fallback_voicemail_url text,
   inbound_route_user_id uuid,
+  inbound_route_ring_group_id uuid,
   default_caller_id_number text,
   created_at timestamp with time zone NOT NULL DEFAULT now(),
   updated_at timestamp with time zone NOT NULL DEFAULT now(),
@@ -1998,6 +1999,7 @@ ALTER TABLE dialer_ring_groups ADD CONSTRAINT dialer_ring_groups_ring_timeout_se
 ALTER TABLE dialer_settings ADD CONSTRAINT dialer_settings_pkey PRIMARY KEY (company_id);
 ALTER TABLE dialer_settings ADD CONSTRAINT dialer_settings_company_id_fkey FOREIGN KEY (company_id) REFERENCES companies(id) ON DELETE CASCADE;
 ALTER TABLE dialer_settings ADD CONSTRAINT dialer_settings_inbound_route_user_id_fkey FOREIGN KEY (inbound_route_user_id) REFERENCES hub_users(id) ON DELETE SET NULL;
+ALTER TABLE dialer_settings ADD CONSTRAINT dialer_settings_inbound_route_ring_group_id_fkey FOREIGN KEY (inbound_route_ring_group_id) REFERENCES dialer_ring_groups(id) ON DELETE SET NULL;
 ALTER TABLE dialer_settings ADD CONSTRAINT dialer_settings_ring_timeout_check CHECK (((ring_timeout_sec >= 5) AND (ring_timeout_sec <= 120)));
 ALTER TABLE employees ADD CONSTRAINT employees_gusto_uuid_key UNIQUE (gusto_uuid);
 ALTER TABLE employees ADD CONSTRAINT employees_pkey PRIMARY KEY (id);

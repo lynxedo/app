@@ -31,6 +31,7 @@ const DAY_LABELS: { key: DayKey; label: string }[] = [
 
 type Settings = {
   inbound_route_user_id: string | null
+  inbound_route_ring_group_id: string | null
   ring_timeout_sec: number
   voicemail_recipient_user_ids: string[]
   fallback_voicemail_url: string | null
@@ -89,6 +90,7 @@ export default function DialerAdminPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           inbound_route_user_id: s.inbound_route_user_id,
+          inbound_route_ring_group_id: s.inbound_route_ring_group_id,
           ring_timeout_sec: s.ring_timeout_sec,
           voicemail_recipient_user_ids: s.voicemail_recipient_user_ids,
           fallback_voicemail_tts: s.fallback_voicemail_tts || null,
@@ -278,47 +280,89 @@ export default function DialerAdminPanel({
         <header>
           <h2 className="font-semibold">Inbound routing</h2>
           <p className="text-xs text-white/50 mt-1">
-            Where calls to the Dialer number ring first. If no one is set, every
+            Where calls to the Dialer number ring first. Choose one person, or a
+            ring group to ring several people at once. If nothing is set, every
             call goes straight to voicemail.
           </p>
         </header>
 
         <div>
-          <label className="block text-sm font-medium mb-1">Ring this person</label>
+          <label className="block text-sm font-medium mb-1">Ring this person or group</label>
           <select
-            value={s.inbound_route_user_id ?? ''}
-            onChange={(e) =>
-              setS((prev) => ({ ...prev, inbound_route_user_id: e.target.value || null }))
+            value={
+              s.inbound_route_ring_group_id
+                ? `group:${s.inbound_route_ring_group_id}`
+                : s.inbound_route_user_id
+                ? `user:${s.inbound_route_user_id}`
+                : ''
             }
+            onChange={(e) => {
+              const v = e.target.value
+              if (v.startsWith('group:')) {
+                const id = v.slice('group:'.length)
+                setS((prev) => ({ ...prev, inbound_route_ring_group_id: id, inbound_route_user_id: null }))
+              } else if (v.startsWith('user:')) {
+                const id = v.slice('user:'.length)
+                setS((prev) => ({ ...prev, inbound_route_user_id: id, inbound_route_ring_group_id: null }))
+              } else {
+                setS((prev) => ({ ...prev, inbound_route_user_id: null, inbound_route_ring_group_id: null }))
+              }
+            }}
             className="bg-gray-900 border border-white/15 rounded px-2 py-1.5 text-sm w-full max-w-xs"
           >
             <option value="">— No one (always voicemail) —</option>
-            {hubUsers.map((u) => (
-              <option key={u.id} value={u.id}>{u.display_name}</option>
-            ))}
+            <optgroup label="People">
+              {hubUsers.map((u) => (
+                <option key={u.id} value={`user:${u.id}`}>{u.display_name}</option>
+              ))}
+            </optgroup>
+            {ringGroups.length > 0 && (
+              <optgroup label="Ring groups">
+                {ringGroups.map((g) => (
+                  <option key={g.id} value={`group:${g.id}`}>{g.name} (group)</option>
+                ))}
+              </optgroup>
+            )}
           </select>
+          {ringGroups.length === 0 && (
+            <p className="text-xs text-white/40 mt-1">
+              To ring a group, first create one in the <span className="text-white/60">Ring Groups</span> tab.
+            </p>
+          )}
         </div>
 
-        <div>
-          <label className="block text-sm font-medium mb-1">Ring for</label>
-          <div className="flex items-center gap-2">
-            <input
-              type="number"
-              value={s.ring_timeout_sec}
-              min={5}
-              max={120}
-              onChange={(e) => {
-                const v = parseInt(e.target.value, 10)
-                if (Number.isFinite(v)) {
-                  setS((prev) => ({ ...prev, ring_timeout_sec: v }))
-                }
-              }}
-              className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm w-20"
-            />
-            <span className="text-sm text-white/60">seconds before voicemail</span>
+        {s.inbound_route_ring_group_id ? (
+          <div>
+            <label className="block text-sm font-medium mb-1">Ring timing</label>
+            <p className="text-xs text-white/60">
+              This group rings using its own settings (order, simultaneous vs. one
+              at a time, and per-member timeouts) — edit those in the{' '}
+              <span className="text-white/70">Ring Groups</span> tab. If no one in
+              the group answers, the call goes to voicemail.
+            </p>
           </div>
-          <p className="text-xs text-white/40 mt-1">5–120 seconds. Default 20.</p>
-        </div>
+        ) : (
+          <div>
+            <label className="block text-sm font-medium mb-1">Ring for</label>
+            <div className="flex items-center gap-2">
+              <input
+                type="number"
+                value={s.ring_timeout_sec}
+                min={5}
+                max={120}
+                onChange={(e) => {
+                  const v = parseInt(e.target.value, 10)
+                  if (Number.isFinite(v)) {
+                    setS((prev) => ({ ...prev, ring_timeout_sec: v }))
+                  }
+                }}
+                className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm w-20"
+              />
+              <span className="text-sm text-white/60">seconds before voicemail</span>
+            </div>
+            <p className="text-xs text-white/40 mt-1">5–120 seconds. Default 20.</p>
+          </div>
+        )}
       </section>
       )}
 

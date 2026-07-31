@@ -30,6 +30,7 @@ const ALLOWED_FIELDS = [
   'ring_timeout_sec',
   'voicemail_recipient_user_ids',
   'inbound_route_user_id',
+  'inbound_route_ring_group_id',
   'ivr_enabled',
   'ivr_config',
   'business_hours',
@@ -86,6 +87,9 @@ export async function POST(request: Request) {
       }
       patch[k] = arr
     } else if (k === 'inbound_route_user_id') {
+      const id = sanitizeUuidOrNull(body[k])
+      if (id !== undefined) patch[k] = id
+    } else if (k === 'inbound_route_ring_group_id') {
       const id = sanitizeUuidOrNull(body[k])
       if (id !== undefined) patch[k] = id
     } else if (k === 'ring_timeout_sec') {
@@ -236,6 +240,24 @@ export async function POST(request: Request) {
   }
 
   const admin = createAdminClient()
+
+  // If an inbound ring-group target is being set, confirm the group belongs to
+  // this company before saving — guards against a stale/typo/cross-tenant id.
+  if (typeof patch.inbound_route_ring_group_id === 'string') {
+    const { data: grp } = await admin
+      .from('dialer_ring_groups')
+      .select('id')
+      .eq('id', patch.inbound_route_ring_group_id)
+      .eq('company_id', ctx.companyId)
+      .maybeSingle()
+    if (!grp) {
+      return NextResponse.json(
+        { error: 'inbound_route_ring_group_id not found for this company' },
+        { status: 400 },
+      )
+    }
+  }
+
   const { data, error } = await admin
     .from('dialer_settings')
     .upsert({ company_id: ctx.companyId, ...patch }, { onConflict: 'company_id' })

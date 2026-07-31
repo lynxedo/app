@@ -91,7 +91,7 @@ export async function POST(request: NextRequest) {
   const [{ data: settings }, { data: responder }] = await Promise.all([
     admin
       .from('dialer_settings')
-      .select('inbound_route_user_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays, recording_enabled, recording_consent_notice, recording_consent_enabled, recording_consent_url, fallback_voicemail_url, fallback_voicemail_tts')
+      .select('inbound_route_user_id, inbound_route_ring_group_id, ring_timeout_sec, ivr_enabled, ivr_config, default_caller_id_number, business_hours, holidays, recording_enabled, recording_consent_notice, recording_consent_enabled, recording_consent_url, fallback_voicemail_url, fallback_voicemail_tts')
       .eq('company_id', companyId)
       .single(),
     admin
@@ -102,6 +102,7 @@ export async function POST(request: NextRequest) {
   ])
 
   const routeToUserId = settings?.inbound_route_user_id
+  const routeToRingGroupId = settings?.inbound_route_ring_group_id
   const ringTimeout = settings?.ring_timeout_sec ?? 20
   const recordingEnabled = settings?.recording_enabled === true
   const consentEnabled = settings?.recording_consent_enabled !== false
@@ -305,6 +306,20 @@ export async function POST(request: NextRequest) {
     }
     // IVR enabled but misconfigured (no default tree) — fall through to the
     // legacy ring-Ben-then-voicemail path so calls don't die in dead air.
+  }
+
+  // Ring group as the DIRECT inbound destination (no IVR needed). Mutually
+  // exclusive with the single-user route in the admin UI (picking a group nulls
+  // the user), and it takes precedence if both are somehow set. Hand off to the
+  // ring-group TwiML route — the SAME engine the IVR "Ring a group" action uses
+  // (?group=X&i=0): it owns DND filtering, sequential vs. simultaneous ringing,
+  // and the voicemail fall-through when the group is empty / all-DND / nobody
+  // answers. respond() plays the recording-consent notice first when recording
+  // is enabled, mirroring the single-user path.
+  if (routeToRingGroupId) {
+    return respond(
+      `<?xml version="1.0" encoding="UTF-8"?><Response><Redirect method="POST">${baseUrl}/api/dialer/voice/twiml/ring-group?group=${encodeURIComponent(routeToRingGroupId)}&amp;i=0</Redirect></Response>`
+    )
   }
 
   if (routeToUserId && !(await isAgentDndNow(admin, routeToUserId))) {
