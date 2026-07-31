@@ -55,6 +55,7 @@ type UserProfile = {
   can_access_files: boolean
   can_access_pesticide_records: boolean
   can_access_pricer: boolean
+  can_access_irrigation: boolean
 }
 
 type User = {
@@ -111,6 +112,7 @@ const TOOL_GROUPS: { title: string; items: { key: keyof UserProfile; label: stri
       { key: 'can_access_fleet', label: 'Fleet Tracker' },
       { key: 'can_access_forms', label: 'Forms' },
       { key: 'can_access_pesticide_records', label: 'Products Used' },
+      { key: 'can_access_irrigation', label: 'Irrigation' },
     ],
   },
   {
@@ -247,6 +249,7 @@ function defaultProfile(id: string, overrides: Partial<UserProfile> = {}): UserP
     can_access_files: false,
     can_access_pesticide_records: false,
     can_access_pricer: false,
+    can_access_irrigation: false,
     ...overrides,
   }
 }
