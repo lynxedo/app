@@ -165,6 +165,10 @@ export default function DialerPanel({
             headsetMode={device.headsetMode}
             onToggleHeadsetMode={device.setHeadsetMode}
             contact={device.contactMatch}
+            backgroundWith={device.backgroundWith}
+            backgroundContactMatch={device.backgroundContactMatch}
+            onSwap={device.swapCalls}
+            swapping={device.swapping}
           />
         ) : (
           <div className="flex flex-col items-center gap-3">
@@ -258,6 +262,9 @@ export default function DialerPanel({
         <CallWaiting
           from={device.waitingFrom}
           contact={device.waitingContactMatch}
+          canHoldAndAnswer={device.canHoldAndAnswer}
+          onHoldAnswer={device.answerWaitingHold}
+          onEndAnswer={device.answerWaitingEnd}
           onDismiss={device.dismissWaiting}
         />
       )}

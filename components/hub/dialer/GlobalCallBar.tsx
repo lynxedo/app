@@ -242,6 +242,32 @@ export default function GlobalCallBar() {
         </div>
       </div>
 
+      {/* Second line on hold (call waiting: Hold & answer). A thin strip under
+          the bar with the held caller + a Swap control to flip between the two
+          calls. Only shows when a background line exists. */}
+      {device.backgroundWith && (
+        <div className="w-full flex items-center gap-2 px-3 py-1 text-white text-xs bg-amber-800/95 border-b border-amber-950/50">
+          <svg className="w-3.5 h-3.5 flex-none" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+            <path strokeLinecap="round" strokeLinejoin="round" d="M10 9v6m4-6v6M12 3a9 9 0 100 18 9 9 0 000-18z" />
+          </svg>
+          <span className="truncate flex-1">
+            On hold: <span className="font-medium">{device.backgroundContactMatch?.name || formatPhone(device.backgroundWith)}</span>
+          </span>
+          <button
+            type="button"
+            onClick={device.swapCalls}
+            disabled={device.swapping}
+            className="px-2.5 h-6 rounded-full bg-white/20 hover:bg-white/30 active:scale-95 transition-all flex items-center gap-1 flex-none font-semibold disabled:opacity-50"
+            aria-label="Swap calls"
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.2}>
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8 7h12m0 0l-4-4m4 4l-4 4M16 17H4m0 0l4 4m-4-4l4-4" />
+            </svg>
+            {device.swapping ? 'Swapping…' : 'Swap'}
+          </button>
+        </div>
+      )}
+
       {/* Expanded full in-call dialer — absolute overlay so it never reflows the
           page. Reuses the existing ActiveCall component for keypad / transfer /
           audio-route, so it stays in lockstep with the /hub/dialer experience. */}
