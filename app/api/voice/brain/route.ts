@@ -133,6 +133,7 @@ export async function POST(request: Request) {
             status: 'in-progress',
             answered_at: nowIso,
             call_type: 'ai_receptionist',
+            handled_by_ai: true, // durable marker — grading overwrites call_type, not this
             ...(contactId ? { contact_id: contactId } : {}),
           })
           .eq('twilio_call_sid', callSid)
@@ -148,6 +149,7 @@ export async function POST(request: Request) {
           contact_id: contactId,
           handled_by: null,
           call_type: 'ai_receptionist',
+          handled_by_ai: true, // durable marker — grading overwrites call_type, not this
         })
       }
 

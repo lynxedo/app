@@ -47,7 +47,7 @@ export async function GET(request: NextRequest) {
   let q = admin
     .from('calls')
     .select(
-      'id, direction, from_number, to_number, status, duration_seconds, created_at, answered_at, ended_at, recording_storage_path, recording_duration_seconds, transcription_status, transcript, ai_summary, sentiment, call_type, topics, action_items, coaching_grade, coaching_must_listen, coaching_json, handled_by, initiated_by, transferred_to_user_id, contact:txt_contacts!contact_id(id, name, name_source, phone)'
+      'id, direction, from_number, to_number, status, duration_seconds, created_at, answered_at, ended_at, recording_storage_path, recording_duration_seconds, transcription_status, transcript, ai_summary, sentiment, call_type, topics, action_items, coaching_grade, coaching_must_listen, coaching_json, handled_by, initiated_by, transferred_to_user_id, handled_by_ai, contact:txt_contacts!contact_id(id, name, name_source, phone)'
     )
     .eq('company_id', companyId)
     .order('created_at', { ascending: false })
@@ -116,11 +116,11 @@ export async function GET(request: NextRequest) {
   // AI-receptionist ("Amber") calls are answered by the AI, not the routed human,
   // so attribute them to the configured receptionist persona instead of handled_by
   // (the inbound webhook stamps handled_by with the human route user before the call
-  // is ever handed to Amber). call_type='ai_receptionist' is the durable marker:
-  // ConversationRelay calls are never recorded/transcribed, so the coaching pipeline
-  // never overwrites it. Resolved once — this route is single-company scoped.
+  // is ever handed to Amber). We key off the durable `handled_by_ai` flag — call_type
+  // is NOT durable (the transcription/grading pipeline overwrites it with the content
+  // classification). Resolved once — this route is single-company scoped.
   let receptionistName = ''
-  if ((calls ?? []).some(c => c.call_type === 'ai_receptionist')) {
+  if ((calls ?? []).some(c => c.handled_by_ai)) {
     const { data: vr } = await admin
       .from('voice_receptionist_settings')
       .select('receptionist_name')
@@ -130,8 +130,8 @@ export async function GET(request: NextRequest) {
       (vr as { receptionist_name?: string | null } | null)?.receptionist_name?.trim() ||
       DEFAULT_RECEPTIONIST_NAME
   }
-  const agentName = (c: { direction?: string | null; handled_by?: string | null; initiated_by?: string | null; call_type?: string | null; transferred_to_user_id?: string | null }) => {
-    if (c.call_type === 'ai_receptionist') {
+  const agentName = (c: { direction?: string | null; handled_by?: string | null; initiated_by?: string | null; call_type?: string | null; transferred_to_user_id?: string | null; handled_by_ai?: boolean | null }) => {
+    if (c.handled_by_ai) {
       // Amber handed the call to a live person who actually took it → show them
       // (the "via Amber" tag is added client-side from ai_routed_by).
       if (c.transferred_to_user_id && nameById[c.transferred_to_user_id]) return nameById[c.transferred_to_user_id]
@@ -142,8 +142,8 @@ export async function GET(request: NextRequest) {
   }
   // Non-null only when Amber fielded the call AND a named human took the transfer,
   // so the client can render "{human} · via {receptionist}".
-  const aiRoutedBy = (c: { call_type?: string | null; transferred_to_user_id?: string | null }) =>
-    c.call_type === 'ai_receptionist' && c.transferred_to_user_id && nameById[c.transferred_to_user_id]
+  const aiRoutedBy = (c: { handled_by_ai?: boolean | null; transferred_to_user_id?: string | null }) =>
+    c.handled_by_ai && c.transferred_to_user_id && nameById[c.transferred_to_user_id]
       ? receptionistName || null
       : null
 
