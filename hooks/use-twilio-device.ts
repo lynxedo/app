@@ -1177,6 +1177,17 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
       if (!token) throw new Error('no access token')
       const { Device } = await import('@twilio/voice-sdk')
       const dev2 = new Device(token, buildDeviceOptions())
+      // The hidden second Device registers under the SAME identity as the main
+      // one, so Twilio fans any later inbound call out to BOTH devices. The main
+      // device already mutes its ringtone while busy, but dev2's would ring out
+      // loud (its `incoming` sound is on by default) — the user hears a phone
+      // ringing mid-call even though call waiting is meant to be silent. dev2
+      // exists only to host the one connected leg and must never sound: silence
+      // its incoming ringtone for its whole lifetime. It also silently ignores
+      // any incoming fan-out (no reject — that could cancel the shared call the
+      // MAIN device is presenting as the silent "call waiting" banner).
+      dev2.audio?.incoming(false)
+      dev2.on('incoming', () => { /* never sound/present on the hidden line */ })
       secondDeviceRef.current = dev2
       const c2 = await dev2.connect({ connectToken })
       secondCallRef.current = c2
