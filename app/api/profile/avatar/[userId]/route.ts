@@ -40,7 +40,14 @@ export async function GET(
       const base = process.env.NEXT_PUBLIC_APP_URL || 'https://lynxedo.com'
       return NextResponse.redirect(new URL('/bot-avatar.svg', base))
     }
-    return NextResponse.json({ error: 'No avatar' }, { status: 404 })
+    // Cache the miss. Callers render initials on a 404 (Hub MessageFeed, the
+    // Txt conversation header's owner/member circles), and the Txt header now
+    // asks for up to four avatars per thread — without this, every conversation
+    // switch re-ran an auth.getUser() + a hub_users read per avatar-less person.
+    return NextResponse.json(
+      { error: 'No avatar' },
+      { status: 404, headers: { 'Cache-Control': `private, max-age=${REDIRECT_CACHE}` } }
+    )
   }
   // Legacy Google/OAuth profile picture — redirect directly
   if (key.startsWith('http')) return NextResponse.redirect(key)

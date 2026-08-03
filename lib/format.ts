@@ -25,6 +25,24 @@ export function formatPhone(raw: string | null | undefined): string {
   return raw
 }
 
+/**
+ * Up-to-2-letter initials for an avatar circle: "Mike Castellano" → "MC",
+ * "Kathryn" → "KA", an email → its first letter. Returns '?' for blank input.
+ * Used wherever a teammate is shown as a circle instead of a name (Txt
+ * conversation members, etc.). Null-safe.
+ *
+ * NOTE: `components/hub/email/emailFormat.ts` has an identical local copy that
+ * predates this one — worth folding into this on the next pass through Inbox.
+ */
+export function initials(name: string | null | undefined): string {
+  const n = (name || '').trim()
+  if (!n) return '?'
+  if (n.includes('@')) return n[0].toUpperCase()
+  const parts = n.split(/\s+/).filter(Boolean)
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase()
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase()
+}
+
 type CurrencyOpts = {
   /** Decimal places (default 0). */
   decimals?: number
