@@ -11,7 +11,8 @@ import MediaLightbox, { type LightboxItem } from '@/components/hub/MediaLightbox
 import { createClient } from '@/lib/supabase/client'
 import { renderTemplate, DEFAULT_ON_MY_WAY_TEMPLATE } from '@/lib/txt-templates'
 import { CallMarker, VoicemailMarker, type TimelineCallEvent } from './TimelineMarkers'
-import { formatPhone } from '@/lib/format'
+import { formatPhone, initials } from '@/lib/format'
+import { useOutsideClose } from '@/hooks/use-outside-close'
 import { contactDisplayName, isPlaceholderName, nameIsAiGuessed } from '@/lib/contact-name'
 
 type Message = {
@@ -88,6 +89,64 @@ function unwrap<T>(value: T | T[] | null | undefined): T | null {
   if (!value) return null
   return Array.isArray(value) ? value[0] || null : value
 }
+
+/**
+ * A teammate as a compact circle — their Hub profile photo when they have one,
+ * their initials when they don't. Replaces the old first-name-plus-× text chips
+ * in the conversation header, which cost ~65px each and wrapped the header onto
+ * three rows on a phone.
+ *
+ * The members payload carries no avatar_url, so we optimistically request the
+ * profile-avatar endpoint and fall back to initials on error (same approach as
+ * the Hub MessageFeed avatar). A miss is one cheap 404 the browser then caches.
+ */
+function UserCircle({
+  userId,
+  name,
+  size = 24,
+  ring,
+  title,
+}: {
+  userId: string
+  name: string
+  size?: number
+  /**
+   * REPLACES the default outline (don't append — two Tailwind `ring-*` widths
+   * on one element fight each other). Used to give the owner a green ring.
+   */
+  ring?: string
+  title?: string
+}) {
+  const [imgError, setImgError] = useState(false)
+  const outline = ring || 'ring-1 ring-inset ring-white/15'
+  const common = 'rounded-full flex-none object-cover'
+  const style = { width: size, height: size }
+  if (!imgError) {
+    return (
+      <img
+        src={`/api/profile/avatar/${userId}`}
+        alt=""
+        title={title || name}
+        style={style}
+        className={`${common} ${outline}`}
+        onError={() => setImgError(true)}
+      />
+    )
+  }
+  return (
+    <span
+      title={title || name}
+      style={{ ...style, fontSize: Math.max(9, Math.round(size * 0.38)) }}
+      className={`${common} inline-flex items-center justify-center font-bold text-[#fff] bg-gradient-to-br from-slate-500 to-slate-700 ${outline}`}
+    >
+      {initials(name)}
+    </span>
+  )
+}
+
+/** Shared look for the square icon actions in the conversation header. */
+const HDR_ICON_BTN =
+  'w-9 h-9 sm:w-8 sm:h-8 rounded-lg flex-none inline-flex items-center justify-center text-sm relative'
 
 // Classify an MMS attachment by file extension. The inbound webhook stores R2
 // keys with an extension derived from Twilio's Content-Type (image/jpeg→.jpeg,
@@ -218,6 +277,11 @@ export default function TxtConversationView({
   const [showNotes, setShowNotes] = useState(false)
   const [noteText, setNoteText] = useState('')
   const [assignOpen, setAssignOpen] = useState(false)
+  // Header popovers. `membersOpen` = the manage-members list behind the member
+  // avatar cluster; `moreOpen` = the ⋯ menu holding archive + the one-time and
+  // rarely-changed actions that used to sit in the (wrapping) header row.
+  const [membersOpen, setMembersOpen] = useState(false)
+  const [moreOpen, setMoreOpen] = useState(false)
   const [addMemberOpen, setAddMemberOpen] = useState(false)
   const [editContactOpen, setEditContactOpen] = useState(false)
   const [addContactOpen, setAddContactOpen] = useState(false)
@@ -248,6 +312,11 @@ export default function TxtConversationView({
   const fileInputRef = useRef<HTMLInputElement>(null)
   const scrollContainerRef = useRef<HTMLDivElement>(null)
   const textareaRef = useRef<HTMLTextAreaElement>(null)
+  // Popover containers, for click-outside/Escape dismissal (useOutsideClose).
+  const ownerRef = useRef<HTMLDivElement>(null)
+  const membersRef = useRef<HTMLDivElement>(null)
+  const moreRef = useRef<HTMLDivElement>(null)
+  const aiRef = useRef<HTMLDivElement>(null)
   // Hold the message list hidden until it's pinned to the bottom, so opening a
   // conversation never shows a scroll jump (mirrors the Hub MessageFeed).
   const [feedReady, setFeedReady] = useState(false)
@@ -282,11 +351,29 @@ export default function TxtConversationView({
   const [selectedTemplateId, setSelectedTemplateId] = useState<string | null>(null)
 
   // Suggest Reply (Guardian) — Session 3. Dual-gated by canReply (server-side)
-  // and hasGuardian (prop from page). Header button opens a tone popover;
-  // picking a tone fires /suggest-reply and inserts the response in the
-  // composer, prompting before clobbering an existing draft.
-  const [suggestOpen, setSuggestOpen] = useState(false)
+  // and hasGuardian (prop from page). Picking a tone fires /suggest-reply and
+  // inserts the response in the composer, prompting before clobbering an
+  // existing draft. Now reached from the merged composer ✨ (see `aiOpen`)
+  // rather than its own header button.
   const [suggestLoading, setSuggestLoading] = useState(false)
+  // Open state for the ONE merged AI menu in the composer (write + polish).
+  const [aiOpen, setAiOpen] = useState(false)
+
+  // Dismiss each popover on an outside click or Escape. Opening one while
+  // another is open works for free: the mousedown on the second trigger lands
+  // outside the first, closing it before the second opens.
+  useOutsideClose(ownerRef, assignOpen, () => setAssignOpen(false))
+  useOutsideClose(membersRef, membersOpen, () => setMembersOpen(false))
+  useOutsideClose(moreRef, moreOpen, () => setMoreOpen(false))
+  // The number picker shares the ⋯ container (it's opened from that menu).
+  useOutsideClose(moreRef, numberPickerOpen, () => setNumberPickerOpen(false))
+  useOutsideClose(aiRef, aiOpen, () => setAiOpen(false))
+  // Archiving unmounts the whole composer; without this the AI menu would still
+  // be flagged open and pop straight back up if the thread is reopened.
+  // (Reads conversation.status directly — `isArchived` is derived further down.)
+  useEffect(() => {
+    if (conversation.status === 'archived') setAiOpen(false)
+  }, [conversation.status])
 
   // "Polish draft" (✨) — Unified Inbox Session 5. Refines the user's OWN draft
   // (grammar/tone/clarity) via /refine-draft without replacing their intent.
@@ -314,10 +401,11 @@ export default function TxtConversationView({
   const canComposeHere = canReplyHere
   // Archiving for everyone is owner-level — owner or a Txt manager only
   // (`canAssign` is the manager flag from the page). Mirrors the server gate.
+  // (AI-help gates are derived further down, once `text` and `messages` exist.)
   const canArchive = isOwnerMe || canAssign
 
   async function runSuggestReply(tone: SuggestTone) {
-    setSuggestOpen(false)
+    setAiOpen(false)
     if (suggestLoading) return
     setSuggestLoading(true)
     setSendError('')
@@ -383,7 +471,12 @@ export default function TxtConversationView({
         // Already clean — nothing to undo, no churn.
         return
       }
-      setPolishUndo(text)
+      // Stash the ORIGINAL only once. Undo used to replace the polish button
+      // outright, so a second polish was impossible; now they sit side by side,
+      // and re-stashing here would overwrite what the user actually typed with
+      // the already-polished version — silently losing their words. Keep the
+      // first stash until they Undo or edit (handleTextChange clears it).
+      setPolishUndo((prev) => (prev === null ? text : prev))
       // A polished draft is no longer a verbatim template, so drop the flag.
       setSelectedTemplateId(null)
       setText(refined)
@@ -1175,6 +1268,32 @@ export default function TxtConversationView({
   }
 
   const isArchived = conversation.status === 'archived'
+  // Which halves of the merged composer ✨ apply right now. WRITING needs a
+  // Guardian tier plus something to reply to; POLISHING just needs a draft (and
+  // is open to any Txt user who can send here). Both refuse an opted-out
+  // contact. These are deliberately the same conditions the two separate
+  // buttons used, so no one gains or loses access in the merge.
+  const canSuggestReply =
+    hasGuardian &&
+    canReplyHere &&
+    !isArchived &&
+    messages.length > 0 &&
+    !conversation.contact?.do_not_text
+  const canPolishDraft = !!text.trim() && !conversation.contact?.do_not_text
+  const aiBusy = suggestLoading || polishLoading
+  // Every ⋯ item is conditional, so the trigger has to be conditional too —
+  // otherwise a group thread viewed by a non-owner on a single-number tenant
+  // opens an empty 240px box. (Heroes has 2 numbers, so it wouldn't show up
+  // here; a brand-new tenant with one number is the default case.)
+  const canArchiveOrReopen = isArchived || canArchive
+  const canCatchMeUp =
+    canAccessUnifiedInbox && !isGroup && (messages.length > 0 || callEvents.length > 0)
+  const canPickSendNumber = numbers.length >= 2 && canReplyHere
+  const hasMoreMenuItems =
+    canArchiveOrReopen ||
+    canCatchMeUp ||
+    canPickSendNumber ||
+    (!isGroup && !!conversation.contact)
   const phoneDisplay = conversation.contact ? formatPhone(conversation.contact.phone) : ''
   // A hidden inbound stub (in_directory === false) isn't in the official
   // directory yet. Offer a one-tap "Add to Contacts" that graduates it (POST
@@ -1287,13 +1406,13 @@ export default function TxtConversationView({
       {/* Header */}
       <div
         data-hide-on-keyboard
-        className="px-4 py-3 border-b border-white/10 flex items-center justify-between gap-2 bg-[var(--t-panel-deep)]"
+        className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between gap-2 bg-[var(--t-panel-deep)]"
       >
         {isGroup ? (
-          <div className="min-w-0 text-left">
-            <div className="font-medium truncate flex items-center gap-1.5">
+          <div className="flex-1 min-w-0 text-left">
+            <div className="font-medium flex items-center gap-1.5 min-w-0">
               <span>👥</span>
-              <span>
+              <span className="truncate">
                 {groupContacts.length === 0
                   ? 'Group'
                   : groupContacts
@@ -1315,7 +1434,7 @@ export default function TxtConversationView({
               (contactInDirectory ? setEditContactOpen(true) : setAddContactOpen(true))
             }
             disabled={!conversation.contact}
-            className="min-w-0 text-left -ml-1 px-1 py-0.5 rounded hover:bg-white/5 disabled:cursor-default disabled:hover:bg-transparent"
+            className="flex-1 min-w-0 text-left -ml-1 px-1 py-0.5 rounded hover:bg-white/5 disabled:cursor-default disabled:hover:bg-transparent"
             title={
               conversation.contact
                 ? contactInDirectory
@@ -1324,8 +1443,15 @@ export default function TxtConversationView({
                 : undefined
             }
           >
-            <div className="font-medium truncate flex items-center gap-1.5">
-              {contactDisplayName(conversation.contact?.name, conversation.contact?.phone)}
+            {/* The name lives in its own `truncate` span, NOT directly in the
+                flex row: text-overflow:ellipsis doesn't apply to a flex
+                container's anonymous text child, so a long name was being
+                hard-clipped mid-letter with no "…" — reading as a rendering
+                bug rather than as truncation. */}
+            <div className="font-medium flex items-center gap-1.5 min-w-0">
+              <span className="truncate">
+                {contactDisplayName(conversation.contact?.name, conversation.contact?.phone)}
+              </span>
               {nameIsAiGuessed(conversation.contact?.name_source) && (
                 <span className="w-2 h-2 rounded-full bg-purple-400 flex-none" title="Name suggested by AI — tap to confirm" />
               )}
@@ -1333,10 +1459,318 @@ export default function TxtConversationView({
             <div className="text-xs text-white/50 truncate">{phoneDisplay}</div>
           </button>
         )}
-        <div className="flex items-center gap-1.5 flex-wrap justify-end">
-          {/* Pop this thread out into a floating always-on-top window (Chromium
-              only — hidden elsewhere). Lets the user keep texting while working
-              anywhere else in Hub or another desktop app. */}
+        {/* Actions. NOT flex-wrap any more: the identity block above owns the
+            remaining width, so a long name can no longer be crushed to "Wes
+            Spea…" on a phone. Only the handful of controls used on most threads
+            stay visible; one-time and rare ones live behind ⋯. */}
+        <div className="flex items-center gap-1.5 flex-none">
+          {/* OWNER. Assigned → an avatar with a green ring (the old
+              "Owner: Kathryn" pill cost ~90px). Genuinely UNASSIGNED (a Queue
+              thread) → still a loud labelled pill, because an avatar cannot say
+              "nobody has this yet" and claiming out of the Queue depends on
+              that being obvious. A thread that merely lost its assignee without
+              going back to the Queue gets a NEUTRAL "Unassigned" — it used to
+              read that way, and showing a loud "+ Assign" there would promise
+              an action the assign menu doesn't actually offer for it. */}
+          {(() => {
+            const owner = conversation.assignee
+            const ownerIsMe = owner?.id === currentUserId
+            const ownerName = ownerIsMe ? currentUserName || owner!.display_name : owner?.display_name || ''
+            // Can this person actually change the assignment? Mirrors the old
+            // disabled condition. When they can't, the button still has a job:
+            // it reveals WHO owns the thread (see below).
+            const canChangeAssignment =
+              canAssign || conversation.assigned_to === currentUserId || conversation.status === 'unassigned'
+            const label = isUnassigned
+              ? 'Unassigned — tap to claim or assign'
+              : owner
+              ? `Owner: ${ownerIsMe ? 'You' : owner.display_name}`
+              : 'Unassigned'
+            return (
+              <div ref={ownerRef} className="relative flex-none">
+                <button
+                  onClick={() => {
+                    setMoreOpen(false)
+                    setNumberPickerOpen(false)
+                    // A rep who can't reassign still needs to SEE who owns the
+                    // thread — on a phone there's no hover, so `title` alone
+                    // told them nothing and the old text chip ("Owner: Kathryn")
+                    // is gone. Send them to the members panel, which lists the
+                    // owner by name.
+                    if (!canChangeAssignment) {
+                      setMembersOpen((v) => !v)
+                      return
+                    }
+                    setAssignOpen((v) => !v)
+                    setMembersOpen(false)
+                  }}
+                  className={
+                    isUnassigned
+                      ? 'text-xs px-2 py-1 rounded-md bg-orange-500/20 text-[var(--t-tint-orange)] hover:bg-orange-500/30 whitespace-nowrap'
+                      : owner
+                      ? 'rounded-full p-1 -m-0.5 hover:bg-white/10 transition-colors'
+                      : 'text-xs px-2 py-1 rounded-md bg-white/10 text-white/60 hover:bg-white/20 whitespace-nowrap'
+                  }
+                  title={label}
+                  aria-label={label}
+                >
+                  {isUnassigned ? (
+                    '+ Assign'
+                  ) : owner ? (
+                    <UserCircle
+                      /* Keyed by owner id: this component caches an `imgError`
+                         flag, so without a key a reassignment would reuse the
+                         previous owner's failed-image state and render the new
+                         owner as initials even when they have a photo. */
+                      key={owner.id}
+                      userId={owner.id}
+                      name={ownerName}
+                      size={26}
+                      ring="ring-2 ring-emerald-400/60"
+                      title={label}
+                    />
+                  ) : (
+                    'Unassigned'
+                  )}
+                </button>
+                {assignOpen && (
+                  <>
+                    <div className="absolute left-0 mt-1 w-56 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 max-h-80 overflow-y-auto">
+                      {conversation.status === 'unassigned' && (
+                        <button
+                          onClick={() => assignTo(currentUserId)}
+                          className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
+                        >
+                          Claim it (assign to me)
+                        </button>
+                      )}
+                      {canAssign && (
+                        <>
+                          {hubUsers.map((u) => (
+                            <button
+                              key={u.id}
+                              onClick={() => assignTo(u.id)}
+                              className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
+                            >
+                              {u.display_name}
+                            </button>
+                          ))}
+                          {conversation.assigned_to && (
+                            <button
+                              onClick={() => assignTo(null)}
+                              className="block w-full text-left px-3 py-2 text-sm text-[var(--t-tint-orange)] hover:bg-white/5 border-t border-white/10"
+                            >
+                              Unassign
+                            </button>
+                          )}
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+              </div>
+            )
+          })()}
+
+          {/* MEMBERS — overlapping circles instead of one first-name-plus-×
+              chip each (~66px for three, vs ~132px for two as text). Tapping
+              the cluster opens the manage popover: a 10px × inside a 24px
+              circle is far below a usable tap target, so add/remove/leave all
+              live in there now. */}
+          {(memberRows.length > 0 ||
+            (canManageMembers && memberCandidates.length > 0) ||
+            (isMemberMe && !isOwnerMe)) && (
+            <div ref={membersRef} className="relative flex-none">
+              <button
+                type="button"
+                onClick={() => {
+                  setMembersOpen((v) => !v)
+                  setAssignOpen(false)
+                  setMoreOpen(false)
+                  setNumberPickerOpen(false)
+                }}
+                className="flex items-center pl-0.5 pr-1 py-1 rounded-full hover:bg-white/10"
+                title={
+                  memberRows.length > 0
+                    ? `On this thread: ${memberRows
+                        .map((m) => unwrap(m.user)?.display_name || 'teammate')
+                        .join(', ')}`
+                    : 'Add a teammate to this thread'
+                }
+                aria-label={
+                  canManageMembers && memberCandidates.length > 0
+                    ? 'Thread members — add or remove'
+                    : 'Thread members'
+                }
+              >
+                {memberRows.slice(0, 2).map((m, i) => {
+                  const u = unwrap(m.user)
+                  return (
+                    <span key={m.user_id} className={i > 0 ? '-ml-2' : ''}>
+                      <UserCircle
+                        userId={m.user_id}
+                        name={u?.display_name || 'teammate'}
+                        size={24}
+                        ring="ring-2 ring-[var(--t-panel-deep)]"
+                      />
+                    </span>
+                  )
+                })}
+                {memberRows.length > 2 && (
+                  <span
+                    className="-ml-2 w-6 h-6 rounded-full inline-flex items-center justify-center text-[9px] font-bold bg-white/15 text-white/75 ring-2 ring-[var(--t-panel-deep)]"
+                    title={memberRows
+                      .slice(2)
+                      .map((m) => unwrap(m.user)?.display_name || 'teammate')
+                      .join(', ')}
+                  >
+                    +{memberRows.length - 2}
+                  </span>
+                )}
+                {canManageMembers && memberCandidates.length > 0 && (
+                  /* The dashed "+" is a shortcut, not the only way in — the
+                     popover this button opens has "+ Add teammate" too. So on a
+                     phone we hide it once there's at least one member circle to
+                     tap, buying ~28px back for the contact's name (the whole
+                     point of this header). With NO members there's no circle to
+                     tap, so it has to stay visible as the only affordance. */
+                  <span
+                    aria-hidden
+                    className={`${
+                      memberRows.length > 0 ? 'ml-1 hidden sm:inline-flex' : 'inline-flex'
+                    } w-6 h-6 rounded-full items-center justify-center text-xs border border-dashed border-white/30 text-white/55`}
+                  >
+                    +
+                  </span>
+                )}
+              </button>
+              {membersOpen && (
+                <>
+                  <div className="absolute left-0 mt-1 w-60 max-w-[calc(100vw-2rem)] bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 max-h-80 overflow-y-auto">
+                    <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-white/40 border-b border-white/10">
+                      On this thread
+                    </div>
+                    {/* The OWNER is listed first, by name. The header shows them
+                        as a bare avatar now, and there's no hover on a phone —
+                        this is where anyone (including a rep who can't
+                        reassign) finds out whose thread it is. */}
+                    {conversation.assignee && (
+                      <div className="flex items-center gap-2 px-3 py-2 border-b border-white/10">
+                        <UserCircle
+                          key={conversation.assignee.id}
+                          userId={conversation.assignee.id}
+                          name={conversation.assignee.display_name}
+                          size={22}
+                          ring="ring-2 ring-emerald-400/60"
+                        />
+                        <span className="text-sm truncate flex-1 min-w-0">
+                          {conversation.assignee.display_name}
+                          {conversation.assignee.id === currentUserId && (
+                            <span className="text-white/40"> (you)</span>
+                          )}
+                        </span>
+                        <span className="text-[10px] uppercase tracking-wide text-[var(--t-tint-success)] flex-none">
+                          Owner
+                        </span>
+                      </div>
+                    )}
+                    {memberRows.length === 0 && (
+                      <div className="px-3 py-2.5 text-sm text-white/40">
+                        No one else yet.
+                      </div>
+                    )}
+                    {memberRows.map((m) => {
+                      const u = unwrap(m.user)
+                      const isMe = m.user_id === currentUserId
+                      const canRemoveThis = canManageMembers || isMe
+                      return (
+                        <div key={m.user_id} className="flex items-center gap-2 px-3 py-2">
+                          <UserCircle
+                            userId={m.user_id}
+                            name={u?.display_name || 'teammate'}
+                            size={22}
+                          />
+                          <span className="text-sm truncate flex-1 min-w-0">
+                            {u?.display_name || 'teammate'}
+                            {isMe && <span className="text-white/40"> (you)</span>}
+                          </span>
+                          {canRemoveThis && (
+                            <button
+                              type="button"
+                              onClick={() => {
+                                removeMember(m.user_id)
+                                setMembersOpen(false)
+                              }}
+                              className="text-xs px-2.5 py-1.5 rounded text-[var(--t-tint-orange)] hover:bg-white/10 flex-none"
+                            >
+                              {isMe ? 'Leave' : 'Remove'}
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                    {canManageMembers && memberCandidates.length > 0 && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setAddMemberOpen(true)
+                          setMembersOpen(false)
+                        }}
+                        className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5 border-t border-white/10"
+                      >
+                        + Add teammate
+                      </button>
+                    )}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Call — Session 57. Direct DMs only, contact has a phone, user has
+              Dialer access. Navigates to /hub/dialer with the number pre-filled
+              and conversation_id + contact_id passed through so the resulting
+              calls row links back to this Txt thread. The user still taps the
+              green Call button in the Dialer to actually dial. */}
+          {canAccessDialer && !isGroup && conversation.contact?.phone && (
+            <button
+              onClick={startCall}
+              className={`${HDR_ICON_BTN} bg-emerald-500/15 text-[var(--t-tint-success)] hover:bg-emerald-500/25`}
+              title="Call this contact in the Dialer"
+              aria-label="Call"
+            >
+              📞
+            </button>
+          )}
+
+          {/* Internal notes — stays visible because the count is real signal. */}
+          <button
+            onClick={() => setShowNotes((v) => !v)}
+            className={`${HDR_ICON_BTN} ${
+              showNotes
+                ? 'bg-amber-500/20 text-[var(--t-tint-warning)]'
+                : notes.length > 0
+                ? 'bg-amber-500/10 text-[var(--t-tint-warning)] hover:bg-amber-500/20'
+                : 'bg-white/10 hover:bg-white/20'
+            }`}
+            title={notes.length > 0 ? `${notes.length} internal note${notes.length === 1 ? '' : 's'}` : 'Add internal note'}
+            aria-label="Internal notes"
+          >
+            <span aria-hidden>📝</span>
+            {notes.length > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-amber-600 text-[9px] font-bold text-[#fff] flex items-center justify-center ring-2 ring-[var(--t-panel-deep)]">
+                {notes.length}
+              </span>
+            )}
+          </button>
+
+          {/* Pop out into a floating always-on-top window. Left ungated on
+              purpose: PopoutButton renders NOTHING unless Document
+              Picture-in-Picture is supported, which is Chromium desktop (and
+              the Electron app) only — so it already costs zero width on a
+              phone. Hiding it below a breakpoint would only take the feature
+              away from desktop users running a narrow window, and this header
+              is its one and only entry point for a Txt thread. */}
           <PopoutButton
             target={{
               kind: 'txt',
@@ -1345,118 +1779,128 @@ export default function TxtConversationView({
               companyId,
             }}
           />
-          {/* Not-in-directory → one-tap graduate to the contacts directory */}
-          {!isGroup && conversation.contact && !contactInDirectory && (
+
+          {/* ⋯ — Archive/Reopen plus the one-time and rarely-changed actions.
+              Archive leads the list since it's the most-used of them. */}
+          {hasMoreMenuItems && (
+          <div ref={moreRef} className="relative flex-none">
             <button
               type="button"
-              onClick={() => setAddContactOpen(true)}
-              className="text-xs px-2 py-1 rounded-md bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 whitespace-nowrap"
-              title="Save this number to your contacts directory"
-              aria-label="Add to contacts"
+              onClick={() => {
+                setMoreOpen((v) => !v)
+                setAssignOpen(false)
+                setMembersOpen(false)
+                setNumberPickerOpen(false)
+              }}
+              className={`${HDR_ICON_BTN} bg-white/10 hover:bg-white/20 text-white/75`}
+              title="More actions"
+              aria-label="More actions"
             >
-              {/* Icon-only on mobile (keeps the header to one row); labeled on desktop */}
-              <span aria-hidden className="sm:hidden">+👤</span>
-              <span className="hidden sm:inline">+ Add to Contacts</span>
+              <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
+                <circle cx="5" cy="12" r="1.6" />
+                <circle cx="12" cy="12" r="1.6" />
+                <circle cx="19" cy="12" r="1.6" />
+              </svg>
             </button>
-          )}
-          {/* Add this person to the Lead Tracker. Shows on a 1:1 with a
-              contact; flips to a "In tracker" link after linking. */}
-          {!isGroup && conversation.contact &&
-            (trackerLeadId ? (
-              <a
-                href="/hub/tracker"
-                className="text-xs px-2 py-1 rounded-md bg-emerald-600/20 text-emerald-300 hover:bg-emerald-600/30 whitespace-nowrap"
-                title="View in the Lead Tracker"
-              >
-                <span aria-hidden className="sm:hidden">✓📋</span>
-                <span className="hidden sm:inline">✓ In tracker</span>
-              </a>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setTrackerOpen(true)}
-                className="text-xs px-2 py-1 rounded-md bg-white/10 text-white/80 hover:bg-white/20 whitespace-nowrap"
-                title="Add this person to the Lead Tracker"
-                aria-label="Add to Lead Tracker"
-              >
-                <span aria-hidden className="sm:hidden">+📋</span>
-                <span className="hidden sm:inline">+ Add to Lead Tracker</span>
-              </button>
-            ))}
-          {/* Assignment chip */}
-          <div className="relative">
-            <button
-              onClick={() => setAssignOpen((v) => !v)}
-              disabled={!canAssign && conversation.assigned_to !== currentUserId && conversation.status !== 'unassigned'}
-              className={`text-xs px-2 py-1 rounded-md ${
-                conversation.status === 'unassigned'
-                  ? 'bg-orange-500/20 text-[var(--t-tint-orange)] hover:bg-orange-500/30'
-                  : 'bg-white/10 text-white/80 hover:bg-white/20'
-              } disabled:opacity-50`}
-            >
-              {conversation.status === 'unassigned'
-                ? '+ Assign'
-                : conversation.assignee
-                ? `Owner: ${
-                    conversation.assignee.id === currentUserId
-                      ? 'You'
-                      : conversation.assignee.display_name.split(' ')[0]
-                  }`
-                : 'Unassigned'}
-            </button>
-            {assignOpen && (
-              <div className="absolute right-0 mt-1 w-56 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 max-h-80 overflow-y-auto">
-                {conversation.status === 'unassigned' && (
-                  <button
-                    onClick={() => assignTo(currentUserId)}
-                    className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
-                  >
-                    Claim it (assign to me)
-                  </button>
-                )}
-                {canAssign && (
-                  <>
-                    {hubUsers.map((u) => (
+            {moreOpen && (
+              <>
+                <div className="absolute right-0 mt-1 w-60 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 max-h-96 overflow-y-auto">
+                  {/* Reopen (↺) is available to ANY Txt teammate — a rep must be
+                      able to re-engage an archived customer. Archiving (✓) stays
+                      owner/manager-only. */}
+                  {canArchiveOrReopen && (
+                    <button
+                      onClick={() => {
+                        toggleArchive()
+                        setMoreOpen(false)
+                      }}
+                      className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
+                    >
+                      {isArchived ? '↺ Reopen conversation' : '✓ Archive conversation'}
+                    </button>
+                  )}
+                  {/* Catch me up — read-only AI roll-up of the whole
+                      relationship. Behind can_access_unified_inbox; direct
+                      threads only and only when there's history. */}
+                  {canCatchMeUp && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        runCatchMeUp()
+                        setMoreOpen(false)
+                      }}
+                      disabled={catchLoading}
+                      className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5 disabled:opacity-60"
+                    >
+                      🧭 {catchOpen ? 'Hide recap' : 'Catch me up'}
+                    </button>
+                  )}
+                  {/* Not-in-directory → one-tap graduate to the contacts directory */}
+                  {!isGroup && conversation.contact && !contactInDirectory && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAddContactOpen(true)
+                        setMoreOpen(false)
+                      }}
+                      className="block w-full text-left px-3 py-2 text-sm text-[var(--t-tint-success)] hover:bg-white/5"
+                    >
+                      + Add to Contacts
+                    </button>
+                  )}
+                  {/* Lead Tracker link — flips to a view link once linked. */}
+                  {!isGroup && conversation.contact &&
+                    (trackerLeadId ? (
+                      <a
+                        href="/hub/tracker"
+                        className="block w-full text-left px-3 py-2 text-sm text-[var(--t-tint-success)] hover:bg-white/5"
+                        onClick={() => setMoreOpen(false)}
+                      >
+                        ✓ In tracker — view
+                      </a>
+                    ) : (
                       <button
-                        key={u.id}
-                        onClick={() => assignTo(u.id)}
+                        type="button"
+                        onClick={() => {
+                          setTrackerOpen(true)
+                          setMoreOpen(false)
+                        }}
                         className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
                       >
-                        {u.display_name}
+                        + Add to Lead Tracker
                       </button>
                     ))}
-                    {conversation.assigned_to && (
-                      <button
-                        onClick={() => assignTo(null)}
-                        className="block w-full text-left px-3 py-2 text-sm text-[var(--t-tint-orange)] hover:bg-white/5 border-t border-white/10"
-                      >
-                        Unassign
-                      </button>
-                    )}
-                  </>
-                )}
-              </div>
+                  {/* From-number picker. Only when 2+ numbers exist, so
+                      single-number setups never see it. */}
+                  {canPickSendNumber && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setNumberPickerOpen(true)
+                        setMoreOpen(false)
+                      }}
+                      className="w-full text-left px-3 py-2 text-sm hover:bg-white/5 border-t border-white/10 flex items-center gap-2"
+                    >
+                      <span className="flex-1">Send from…</span>
+                      <span className="text-[11px] text-white/45 truncate max-w-[92px]">
+                        {(() => {
+                          const current = numbers.find((n) => n.id === conversation.phone_number_id)
+                          if (current) return current.label || formatPhone(current.twilio_number)
+                          const def = numbers.find((n) => n.is_default)
+                          return def ? `${def.label || formatPhone(def.twilio_number)} (default)` : '—'
+                        })()}
+                      </span>
+                    </button>
+                  )}
+                </div>
+              </>
             )}
-          </div>
-          {/* From-number chip (Session 54). Only shows when 2+ numbers exist so
-              single-number setups stay clean. Owner / member / manager can change. */}
-          {numbers.length >= 2 && canReplyHere && (
-            <div className="relative">
-              <button
-                type="button"
-                onClick={() => setNumberPickerOpen((v) => !v)}
-                className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 text-white/70"
-                title="Change which number this conversation sends from"
-              >
-                {(() => {
-                  const current = numbers.find((n) => n.id === conversation.phone_number_id)
-                  if (current) return `From: ${current.label || formatPhone(current.twilio_number)}`
-                  const def = numbers.find((n) => n.is_default)
-                  return def ? `From: ${def.label || formatPhone(def.twilio_number)} (default)` : 'From: —'
-                })()}
-              </button>
-              {numberPickerOpen && (
+            {numberPickerOpen && (
+              <>
                 <div className="absolute right-0 mt-1 w-60 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 max-h-72 overflow-y-auto">
+                  <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-white/40 border-b border-white/10">
+                    Send from
+                  </div>
                   <button
                     type="button"
                     onClick={() => setFromNumber(null)}
@@ -1480,168 +1924,9 @@ export default function TxtConversationView({
                     </button>
                   ))}
                 </div>
-              )}
-            </div>
-          )}
-          {/* Member chips — separate from the owner/assignee. Owner can
-              add/remove, managers can too. Members can self-remove. */}
-          {memberRows.map((m) => {
-            const u = unwrap(m.user)
-            const label = u?.display_name?.split(' ')[0] || 'user'
-            const canRemoveThis = canManageMembers || m.user_id === currentUserId
-            return (
-              <span
-                key={m.user_id}
-                className="text-[11px] px-2 py-0.5 rounded-md bg-sky-500/15 text-[var(--t-tint-info)] inline-flex items-center gap-1"
-                title={u?.display_name || 'member'}
-              >
-                {label}
-                {canRemoveThis && (
-                  <button
-                    type="button"
-                    onClick={() => removeMember(m.user_id)}
-                    className="text-[var(--t-tint-info)] hover:text-white"
-                    aria-label={`Remove ${label}`}
-                  >
-                    ×
-                  </button>
-                )}
-              </span>
-            )
-          })}
-          {canManageMembers && memberCandidates.length > 0 && (
-            <button
-              type="button"
-              onClick={() => setAddMemberOpen(true)}
-              className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 text-white/60"
-              title="Add a teammate to this thread"
-            >
-              + member
-            </button>
-          )}
-          {isMemberMe && !isOwnerMe && !canManageMembers && (
-            <button
-              type="button"
-              onClick={() => removeMember(currentUserId)}
-              className="text-[11px] px-2 py-0.5 rounded-md bg-white/5 hover:bg-white/10 text-white/60"
-              title="Leave this thread"
-            >
-              Leave
-            </button>
-          )}
-          {/* Call button — Session 57. Direct DMs only, contact has a phone,
-              user has Dialer access. Navigates to /hub/dialer with the number
-              pre-filled and conversation_id + contact_id passed through so the
-              resulting calls row links back to this Txt thread. User taps the
-              green Call button in the Dialer themselves to actually dial. */}
-          {canAccessDialer && !isGroup && conversation.contact?.phone && (
-            <button
-              onClick={startCall}
-              className="text-xs px-2 py-1 rounded-md bg-emerald-500/15 text-[var(--t-tint-success)] hover:bg-emerald-500/25"
-              title="Call this contact in the Dialer"
-              aria-label="Call"
-            >
-              📞
-            </button>
-          )}
-          {/* Catch me up — Unified Inbox Session 5. Read-only AI roll-up of the
-              whole relationship. Behind can_access_unified_inbox; direct threads
-              only (groups are text-only in v1) and only when there's history. */}
-          {canAccessUnifiedInbox && !isGroup && (messages.length > 0 || callEvents.length > 0) && (
-            <button
-              type="button"
-              onClick={runCatchMeUp}
-              disabled={catchLoading}
-              className={`text-xs px-2 py-1 rounded-md inline-flex items-center gap-1 disabled:opacity-60 text-[var(--t-tint-info)] ${
-                catchOpen
-                  ? 'bg-sky-500/25'
-                  : 'bg-sky-500/15 hover:bg-sky-500/25'
-              }`}
-              title="Catch me up on this customer"
-              aria-label="Catch me up"
-            >
-              {catchLoading ? (
-                <span className="inline-block w-3 h-3 border-2 border-[var(--t-tint-info)] border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <span aria-hidden>🧭</span>
-              )}
-              <span className="hidden sm:inline">Catch me up</span>
-            </button>
-          )}
-          {/* Suggest Reply (Guardian) — Guardian Session 3. Dual-gated:
-              hasGuardian (user has any guardian_tier) AND canReply on this
-              thread AND at least one message exists AND not archived AND not
-              do-not-text. Click → tone popover → /suggest-reply call → insert
-              into composer. */}
-          {hasGuardian &&
-            canReplyHere &&
-            !isArchived &&
-            messages.length > 0 &&
-            !conversation.contact?.do_not_text && (
-              <div className="relative">
-                <button
-                  type="button"
-                  onClick={() => setSuggestOpen((v) => !v)}
-                  disabled={suggestLoading}
-                  className="text-xs px-2 py-1 rounded-md bg-violet-500/15 text-violet-200 hover:bg-violet-500/25 disabled:opacity-60 inline-flex items-center gap-1"
-                  title="Suggest a reply with Guardian"
-                  aria-label="Suggest reply"
-                >
-                  {suggestLoading ? (
-                    <span className="inline-block w-3 h-3 border-2 border-violet-200 border-t-transparent rounded-full animate-spin" />
-                  ) : (
-                    <span>✨</span>
-                  )}
-                  <span className="hidden sm:inline">Suggest</span>
-                </button>
-                {suggestOpen && !suggestLoading && (
-                  <div className="absolute right-0 mt-1 w-44 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30">
-                    <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-white/40 border-b border-white/10">
-                      Tone
-                    </div>
-                    {SUGGEST_TONES.map((t) => (
-                      <button
-                        key={t.value}
-                        type="button"
-                        onClick={() => runSuggestReply(t.value)}
-                        className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
-                      >
-                        {t.label}
-                      </button>
-                    ))}
-                  </div>
-                )}
-              </div>
+              </>
             )}
-          <button
-            onClick={() => setShowNotes((v) => !v)}
-            className={`text-xs px-2 py-1 rounded-md flex items-center gap-1 ${
-              showNotes
-                ? 'bg-amber-500/20 text-[var(--t-tint-warning)]'
-                : notes.length > 0
-                ? 'bg-amber-500/10 text-[var(--t-tint-warning)] hover:bg-amber-500/20'
-                : 'bg-white/10 hover:bg-white/20'
-            }`}
-            title={notes.length > 0 ? `${notes.length} internal note${notes.length === 1 ? '' : 's'}` : 'Add internal note'}
-            aria-label="Internal notes"
-          >
-            <span>📝</span>
-            {notes.length > 0 && (
-              <span className="inline-flex items-center justify-center min-w-[1.25rem] px-1 rounded-full bg-amber-400/30 text-[var(--t-tint-warning)] text-[10px] font-semibold leading-none py-0.5">
-                {notes.length}
-              </span>
-            )}
-          </button>
-          {/* Reopen (↺) is available to ANY Txt teammate — a rep must be able to
-              re-engage an archived customer. Archiving (✓) stays owner/manager-only. */}
-          {(isArchived || canArchive) && (
-            <button
-              onClick={toggleArchive}
-              className="text-xs px-2 py-1 rounded-md bg-white/10 hover:bg-white/20"
-              title={isArchived ? 'Reopen' : 'Archive'}
-            >
-              {isArchived ? '↺' : '✓'}
-            </button>
+          </div>
           )}
         </div>
       </div>
@@ -2282,36 +2567,120 @@ export default function TxtConversationView({
 
             <div className="flex-1" />
 
-            {/* ✨ Polish draft — Unified Inbox Session 5. Refines the user's own
-                draft (never generates one). Active only when there's text and
-                the contact isn't opted out. After polishing, an ↩ Undo restores
-                the original draft until the user edits again. */}
-            {polishUndo !== null ? (
+            {/* ✨ AI help — ONE control for both writing and polishing. These
+                used to be two separate ✨ buttons (Suggest lived up in the
+                header, Polish here) rendering the SAME sparkle emoji, which
+                made them indistinguishable. They're also mutually exclusive in
+                practice: Suggest overwrites your draft so it's only wanted when
+                the box is empty, and Polish is disabled when it is. So the one
+                button reads the draft and offers whichever applies:
+                  empty box  → write a reply (tone picker)
+                  has a draft → polish it, with "write a new one" demoted
+                When only ONE option is available (no Guardian tier ⇒ polish
+                only) it skips the menu and just acts — a tech keeps today's
+                exact one-tap Polish. ↩ Undo now sits BESIDE the button instead
+                of replacing it, so you can still reopen the menu after a
+                polish (previously a dead end until you edited the text). */}
+            {polishUndo !== null && (
               <button
                 type="button"
                 onClick={undoPolish}
-                className="text-[11px] text-white/60 hover:text-white px-1.5 py-1 rounded-md hover:bg-white/10 mr-0.5"
+                className="text-[11px] text-white/60 hover:text-white px-1.5 py-1 rounded-md hover:bg-white/10"
                 title="Undo polish — restore your original draft"
                 aria-label="Undo polish"
               >
                 ↩ Undo
               </button>
-            ) : (
-              <button
-                type="button"
-                onClick={runPolishDraft}
-                disabled={polishLoading || !text.trim() || !!conversation.contact?.do_not_text}
-                className="text-violet-300/80 hover:text-violet-200 disabled:opacity-30 transition-colors p-1.5 rounded-md hover:bg-violet-500/15 mr-0.5"
-                title="Polish my draft — clean up grammar &amp; tone"
-                aria-label="Polish draft"
-              >
-                {polishLoading ? (
-                  <span className="inline-block w-3.5 h-3.5 border-2 border-violet-300 border-t-transparent rounded-full animate-spin align-middle" />
-                ) : (
-                  <span className="text-base leading-none">✨</span>
-                )}
-              </button>
             )}
+            {/* Rendered even when neither half applies, just DISABLED — the old
+                Polish button was always present-but-disabled, so removing it
+                entirely would hide the feature from anyone without Guardian
+                until they typed, and shift the toolbar on their first
+                keystroke. */}
+            <div ref={aiRef} className="relative mr-0.5">
+                <button
+                  type="button"
+                  onClick={() => {
+                    // Close the sibling composer panels — none of them have an
+                    // outside-click of their own, so without this the AI menu
+                    // paints straight over an open On-my-way / Schedule panel.
+                    setOmwOpen(false)
+                    setScheduleOpen(false)
+                    setEmojiOpen(false)
+                    closePicker()
+                    // Nothing to choose between → do the only thing available.
+                    if (canPolishDraft && !canSuggestReply) {
+                      runPolishDraft()
+                      return
+                    }
+                    setAiOpen((v) => !v)
+                  }}
+                  disabled={aiBusy || (!canSuggestReply && !canPolishDraft)}
+                  className={`transition-colors p-1.5 rounded-md disabled:opacity-40 ${
+                    aiOpen
+                      ? 'text-violet-200 bg-violet-500/20'
+                      : 'text-violet-300/80 hover:text-violet-200 hover:bg-violet-500/15'
+                  }`}
+                  title={
+                    !canSuggestReply && !canPolishDraft
+                      ? 'AI help — type a draft to polish it'
+                      : canPolishDraft && !canSuggestReply
+                      ? 'Polish my draft — clean up grammar & tone'
+                      : 'AI help — write or polish this reply'
+                  }
+                  aria-label="AI help"
+                >
+                  {aiBusy ? (
+                    <span className="inline-block w-3.5 h-3.5 border-2 border-violet-300 border-t-transparent rounded-full animate-spin align-middle" />
+                  ) : (
+                    <span className="text-base leading-none">✨</span>
+                  )}
+                </button>
+                {aiOpen && !aiBusy && (
+                  <>
+                    <div className="absolute right-0 bottom-full mb-2 w-56 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30">
+                      {canPolishDraft ? (
+                        <>
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setAiOpen(false)
+                              runPolishDraft()
+                            }}
+                            className="block w-full text-left px-3 py-2 text-sm bg-violet-500/15 text-violet-100 hover:bg-violet-500/25"
+                          >
+                            ✨ Polish my draft
+                          </button>
+                          <div className="px-3 pb-1.5 pt-1 text-[10px] text-white/40">
+                            Fix grammar &amp; tone, keep my meaning
+                          </div>
+                        </>
+                      ) : (
+                        <div className="px-3 py-2 text-[11px] text-white/40 border-b border-white/10">
+                          Type a draft to polish it.
+                        </div>
+                      )}
+                      {canSuggestReply && (
+                        <>
+                          <div className="px-3 py-1.5 text-[10px] uppercase tracking-wide text-white/40 border-t border-white/10">
+                            {canPolishDraft ? 'Or write a new one' : 'Write a reply'}
+                          </div>
+                          {SUGGEST_TONES.map((t) => (
+                            <button
+                              key={t.value}
+                              type="button"
+                              onClick={() => runSuggestReply(t.value)}
+                              className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
+                            >
+                              {t.label}
+                            </button>
+                          ))}
+                        </>
+                      )}
+                    </div>
+                  </>
+                )}
+            </div>
 
             <span className="text-[10px] text-white/40 mr-1">
               {text.length > 0 && `${text.length}`}

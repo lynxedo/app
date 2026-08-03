@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { SidebarHeader } from './SidebarShell'
@@ -13,6 +13,7 @@ import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
 import { formatPhone } from '@/lib/format'
 import { contactDisplayName, isPlaceholderName, nameIsAiGuessed } from '@/lib/contact-name'
 import { useWorkspaceTabs } from '../workspace/WorkspaceTabsContext'
+import { useOutsideClose } from '@/hooks/use-outside-close'
 
 type Conversation = {
   id: string
@@ -44,6 +45,18 @@ type Conversation = {
 
 type Scope = 'mine' | 'all' | 'archived' | 'contacts'
 type ViewFilter = 'all' | 'unread' | 'missed' | 'voicemails'
+
+/** The unified-inbox lens options, shown in the filter menu beside search. */
+const VIEW_FILTERS: [ViewFilter, string][] = [
+  ['all', 'All'],
+  ['unread', 'Unread'],
+  ['missed', 'Missed'],
+  ['voicemails', 'Voicemails'],
+]
+
+/** Shared look for the icon-only secondary actions in the top action row. */
+const SIDEBAR_ICON_BTN =
+  'flex-none w-10 sm:w-9 h-11 sm:h-9 rounded-md bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center text-sm'
 
 // Last-activity-type icon for the rail (one icon per row, not a per-channel
 // badge — PRD §3.2). Matches the marker emoji used in TimelineMarkers.tsx.
@@ -130,6 +143,15 @@ export default function TxtV2Sidebar({
   const confirm = useConfirm()
   const [scope, setScope] = useState<Scope>('all')
   const [viewFilter, setViewFilter] = useState<ViewFilter>('all')
+  const [filterOpen, setFilterOpen] = useState(false)
+  const filterRef = useRef<HTMLDivElement>(null)
+  useOutsideClose(filterRef, filterOpen, () => setFilterOpen(false))
+  // The filter button is hidden on the Contacts tab. Without this, switching to
+  // Contacts with the menu open leaves `filterOpen` true, so it silently
+  // re-appears when you come back to a conversation tab.
+  useEffect(() => {
+    if (scope === 'contacts') setFilterOpen(false)
+  }, [scope])
   const [conversations, setConversations] = useState<Conversation[]>([])
   const [queue, setQueue] = useState<Conversation[]>([])
   const [loading, setLoading] = useState(false)
@@ -504,60 +526,128 @@ export default function TxtV2Sidebar({
       <SidebarHeader title="Txt" onClose={onClose} onDesktopCollapse={onDesktopCollapse} />
 
       <div className="px-3 pt-3 pb-2 space-y-2">
-        <button
-          type="button"
-          onClick={() => setNewOpen(true)}
-          className="w-full px-3 py-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium"
-        >
-          + New conversation
-        </button>
-        <button
-          type="button"
-          onClick={() => setAddContactOpen(true)}
-          className="w-full px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
-        >
-          + Add contact
-        </button>
-        {/* + Group for any Txt user; 📣 Broadcast is manager-only (broadcasts
-            can hit hundreds of customers). Layout adapts to 1 or 2 buttons. */}
-        <div className={`grid ${canManage ? 'grid-cols-2' : 'grid-cols-1'} gap-2`}>
+        {/* Action row — "New" keeps the prominent green button and carries the
+            remaining width; the four secondary actions are icon-only (labels
+            live in title/aria) so all five fit on ONE row instead of four.
+            Taller on mobile to keep a real tap target. */}
+        <div className="flex items-stretch gap-1.5">
+          <button
+            type="button"
+            onClick={() => setNewOpen(true)}
+            className="flex-1 min-w-0 h-11 sm:h-9 px-2 rounded-md bg-emerald-600 hover:bg-emerald-500 text-sm font-medium flex items-center justify-center gap-1.5"
+            title="New conversation"
+          >
+            <span aria-hidden>✏️</span>
+            <span className="truncate">New</span>
+          </button>
+          <button
+            type="button"
+            onClick={() => setAddContactOpen(true)}
+            className={SIDEBAR_ICON_BTN}
+            title="Add contact"
+            aria-label="Add contact"
+          >
+            <span aria-hidden>👤</span>
+          </button>
+          {/* + Group for any Txt user; 📣 Broadcast is manager-only (broadcasts
+              can hit hundreds of customers). */}
           <button
             type="button"
             onClick={() => setGroupOpen(true)}
-            className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
+            className={SIDEBAR_ICON_BTN}
             title="New group conversation"
+            aria-label="New group conversation"
           >
-            + Group
+            <span aria-hidden>👥</span>
           </button>
           {canManage && (
             <button
               type="button"
               onClick={() => setBroadcastOpen(true)}
-              className="px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10"
+              className={SIDEBAR_ICON_BTN}
               title="Send 1-to-many broadcast"
+              aria-label="Send broadcast"
             >
-              📣 Broadcast
+              <span aria-hidden>📣</span>
             </button>
           )}
+          {/* Bulk-archive every thread the user owns (only theirs). Confirms
+              with a count first. On every tab so it's reachable on mobile. */}
+          <button
+            type="button"
+            onClick={archiveAllMine}
+            disabled={archivingAll}
+            className={`${SIDEBAR_ICON_BTN} disabled:opacity-50`}
+            title="Archive every conversation you own"
+            aria-label="Archive all mine"
+          >
+            {archivingAll ? (
+              <span className="inline-block w-3.5 h-3.5 border-2 border-white/60 border-t-transparent rounded-full animate-spin" />
+            ) : (
+              <span aria-hidden>🗄</span>
+            )}
+          </button>
         </div>
-        {/* Bulk-archive every thread the user owns (only theirs). Confirms with a
-            count first. Shown on all tabs so it's easy to reach on mobile. */}
-        <button
-          type="button"
-          onClick={archiveAllMine}
-          disabled={archivingAll}
-          className="w-full px-2 py-1.5 rounded-md bg-white/5 hover:bg-white/10 text-xs font-medium border border-white/10 disabled:opacity-50"
-          title="Archive every conversation you own"
-        >
-          {archivingAll ? 'Archiving…' : '🗄 Archive all mine'}
-        </button>
-        <input
-          type="text"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Search name or phone…"
-          className="w-full px-3 py-1.5 rounded-md bg-white/5 border border-white/10 text-sm placeholder-white/30"
-        />
+
+        {/* Search + the unified-inbox lens. The lens used to be a row of four
+            chips; it's now a filter button beside search that SHOWS its active
+            value as a label, so a non-default filter is never hidden state. */}
+        <div className="flex items-stretch gap-1.5">
+          <input
+            type="text"
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Search name or phone…"
+            className="flex-1 min-w-0 px-3 h-9 sm:h-8 rounded-md bg-white/5 border border-white/10 text-sm placeholder-white/30"
+          />
+          {canAccessUnifiedInbox && scope !== 'contacts' && (
+            <div ref={filterRef} className="relative flex-none">
+              <button
+                type="button"
+                onClick={() => setFilterOpen((v) => !v)}
+                className={`h-9 sm:h-8 px-2 rounded-md border text-[11px] flex items-center gap-1 transition ${
+                  viewFilter === 'all'
+                    ? 'bg-white/5 border-white/10 text-white/50 hover:text-white/80'
+                    : 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200'
+                }`}
+                title="Filter this list"
+                aria-label={`Filter: ${VIEW_FILTERS.find((f) => f[0] === viewFilter)?.[1] || 'All'}`}
+              >
+                {/* Inline SVG, not an emoji — the obvious "filter" glyphs
+                    (⛃ / ⚟) are obscure codepoints that render as a box on some
+                    platforms, and this button has no text label when inactive. */}
+                <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round" strokeLinejoin="round" aria-hidden>
+                  <path d="M3 5h18l-7 8v6l-4-2v-4Z" />
+                </svg>
+                {viewFilter !== 'all' && (
+                  <span>{VIEW_FILTERS.find((f) => f[0] === viewFilter)?.[1]}</span>
+                )}
+              </button>
+              {filterOpen && (
+                <>
+                  <div className="absolute right-0 mt-1 w-40 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 overflow-hidden">
+                    {VIEW_FILTERS.map(([id, label]) => (
+                      <button
+                        key={id}
+                        type="button"
+                        onClick={() => {
+                          setViewFilter(id)
+                          setFilterOpen(false)
+                        }}
+                        className={`block w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${
+                          viewFilter === id ? 'text-[var(--t-tint-success)]' : 'text-white/80'
+                        }`}
+                      >
+                        {label}
+                      </button>
+                    ))}
+                  </div>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+
         <div className="flex flex-wrap gap-1 text-xs">
           {tabs
             .filter((t) => t.show)
@@ -575,32 +665,6 @@ export default function TxtV2Sidebar({
               </button>
             ))}
         </div>
-
-        {/* Unified inbox lens: filter the current list by channel/state. One
-            icon per row already shows the last activity type; these chips
-            narrow to what needs attention. Hidden on the Contacts tab. */}
-        {canAccessUnifiedInbox && scope !== 'contacts' && (
-          <div className="flex flex-wrap gap-1 text-[11px]">
-            {([
-              ['all', 'All'],
-              ['unread', 'Unread'],
-              ['missed', 'Missed'],
-              ['voicemails', 'Voicemails'],
-            ] as [ViewFilter, string][]).map(([id, label]) => (
-              <button
-                key={id}
-                onClick={() => setViewFilter(id)}
-                className={`px-2 py-0.5 rounded-full border transition ${
-                  viewFilter === id
-                    ? 'bg-emerald-500/20 border-emerald-400/40 text-emerald-200'
-                    : 'border-white/10 text-white/50 hover:text-white/80'
-                }`}
-              >
-                {label}
-              </button>
-            ))}
-          </div>
-        )}
       </div>
 
       {scope === 'contacts' ? (
