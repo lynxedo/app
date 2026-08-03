@@ -20,6 +20,7 @@ import {
 import { getRoutingDirectory } from '@/lib/voice-routing'
 import { startCallRecording, isWithinBusinessHours, BusinessHoursSchedule } from '@/lib/twilio-voice'
 import { findOrCreateTxtContact, lookupByPhone } from '@/lib/dialer-lookup'
+import { getAiTextBotUserId } from '@/lib/ai-text-identity'
 import { filterNonDndUserIds } from '@/lib/dialer-conference-connect'
 import { formatPhone } from '@/lib/format'
 
@@ -120,6 +121,19 @@ export async function POST(request: Request) {
       // On UPDATE we deliberately do NOT overwrite from_number/to_number: the
       // inbound row already holds the real values, whereas brain's body copy can
       // be 'unknown' if the relay omitted them.
+      // The receptionist ANSWERED this call, so she owns it: stamp handled_by
+      // with her own Hub user (the same bot user she signs texts as) so every
+      // downstream surface treats her like any other agent — Call Log agent
+      // column, the coaching rubric's "rep on this call", the Call Coaching
+      // scoreboard, per-user "mine" filters. Without this, the 832 inbound
+      // webhook's earlier stamp (dialer_settings.inbound_route_user_id — a
+      // HUMAN, Kathryn at Heroes) survives and every AI call is credited to,
+      // and graded against, a person who was never on it. A human who
+      // confirmedly takes a transfer is recorded separately in
+      // transferred_to_user_id and wins over this for attribution.
+      // Null when the company hasn't configured a bot user → leave handled_by
+      // untouched (prior behavior).
+      const aiUserId = await getAiTextBotUserId(admin, companyId).catch(() => null)
       const nowIso = new Date().toISOString()
       const { data: existingCall } = await admin
         .from('calls')
@@ -134,6 +148,7 @@ export async function POST(request: Request) {
             answered_at: nowIso,
             call_type: 'ai_receptionist',
             handled_by_ai: true, // durable marker — grading overwrites call_type, not this
+            ...(aiUserId ? { handled_by: aiUserId } : {}),
             ...(contactId ? { contact_id: contactId } : {}),
           })
           .eq('twilio_call_sid', callSid)
@@ -147,7 +162,7 @@ export async function POST(request: Request) {
           status: 'in-progress',
           answered_at: nowIso,
           contact_id: contactId,
-          handled_by: null,
+          handled_by: aiUserId,
           call_type: 'ai_receptionist',
           handled_by_ai: true, // durable marker — grading overwrites call_type, not this
         })

@@ -73,6 +73,7 @@ type CallRow = {
   transcription_status: string | null
   handled_by: string | null
   initiated_by: string | null
+  transferred_to_user_id: string | null
 }
 
 // ---------------------------------------------------------------------------
@@ -260,11 +261,24 @@ function flattenDeepgramIntents(dg: DgResponse): string[] {
 // Passed to claudeAnalyze so the coaching attributes the right person — the
 // transcript usually can't establish who the rep is, and the rubric must not
 // assume it's always Kathryn.
+//
+// transferred_to_user_id wins when set: on an AI-receptionist call handled_by is
+// the receptionist herself (see app/api/voice/brain), and this column is only
+// written when a HUMAN confirmedly took her transfer — so that person did the
+// talking and owns the grade. With neither set the rubric is told the rep is the
+// receptionist, which is honest; it was previously told a human name inherited
+// from the inbound route setting, and graded her calls as that person's work.
 export async function resolveRepName(
   admin: SupabaseClient,
-  call: { direction?: string | null; handled_by?: string | null; initiated_by?: string | null }
+  call: {
+    direction?: string | null
+    handled_by?: string | null
+    initiated_by?: string | null
+    transferred_to_user_id?: string | null
+  }
 ): Promise<string | null> {
   const id =
+    call.transferred_to_user_id ||
     (call.direction === 'inbound' ? call.handled_by : call.initiated_by) ||
     call.handled_by ||
     call.initiated_by
@@ -698,7 +712,7 @@ export async function processPendingCall(
   const { data: call } = await admin
     .from('calls')
     .select(
-      'id, company_id, direction, from_number, to_number, recording_storage_path, recording_duration_seconds, duration_seconds, created_at, transcription_status, handled_by, initiated_by'
+      'id, company_id, direction, from_number, to_number, recording_storage_path, recording_duration_seconds, duration_seconds, created_at, transcription_status, handled_by, initiated_by, transferred_to_user_id'
     )
     .eq('id', callId)
     .maybeSingle<CallRow>()

@@ -64,6 +64,7 @@ interface CallRow {
   created_at: string | null
   handled_by: string | null
   initiated_by: string | null
+  transferred_to_user_id: string | null
   coaching_grade?: string | null
   coaching_headline?: string | null
   ai_summary?: string | null
@@ -149,7 +150,7 @@ async function recoachOne(admin: Admin, call: CallRow) {
 }
 
 const CALL_COLS =
-  'id, direction, status, from_number, to_number, recording_duration_seconds, duration_seconds, created_at, handled_by, initiated_by, coaching_grade, coaching_headline, ai_summary'
+  'id, direction, status, from_number, to_number, recording_duration_seconds, duration_seconds, created_at, handled_by, initiated_by, transferred_to_user_id, coaching_grade, coaching_headline, ai_summary'
 
 export async function POST(req: NextRequest) {
   const cronSecret = process.env.CRON_SECRET

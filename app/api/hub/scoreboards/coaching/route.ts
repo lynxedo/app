@@ -63,7 +63,7 @@ export async function GET(request: NextRequest) {
     admin
       .from('calls')
       .select(
-        'id, created_at, direction, from_number, to_number, handled_by, initiated_by, coaching_grade, coaching_must_listen, coaching_headline, coaching_json'
+        'id, created_at, direction, from_number, to_number, handled_by, initiated_by, transferred_to_user_id, coaching_grade, coaching_must_listen, coaching_headline, coaching_json'
       )
       .eq('company_id', companyId)
       .not('coaching_grade', 'is', null)
@@ -91,7 +91,9 @@ export async function GET(request: NextRequest) {
   const unitel = (unitelRes.data ?? []) as any[]
 
   const userIds = Array.from(
-    new Set(dialer.flatMap(c => [c.handled_by, c.initiated_by]).filter(Boolean) as string[])
+    new Set(
+      dialer.flatMap(c => [c.handled_by, c.initiated_by, c.transferred_to_user_id]).filter(Boolean) as string[]
+    )
   )
   const nameById: Record<string, string> = {}
   if (userIds.length) {
@@ -103,7 +105,16 @@ export async function GET(request: NextRequest) {
   for (const c of dialer) {
     const rev = revD[c.id]
     const grade = rev?.override_grade ?? c.coaching_grade
-    const agentId = (c.direction === 'inbound' ? c.handled_by : c.initiated_by) || c.handled_by || c.initiated_by
+    // transferred_to_user_id first: on an AI-receptionist call handled_by is the
+    // receptionist (she answered it), and this column is only written when a
+    // human confirmedly took her transfer — so that person owns the grade. The
+    // AI's own calls land under her name as their own rep, keeping a human's
+    // numbers free of grades earned on calls they were never on.
+    const agentId =
+      c.transferred_to_user_id ||
+      (c.direction === 'inbound' ? c.handled_by : c.initiated_by) ||
+      c.handled_by ||
+      c.initiated_by
     recs.push({
       id: c.id,
       source: 'dialer',
