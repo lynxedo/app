@@ -1281,19 +1281,13 @@ export default function TxtConversationView({
     !conversation.contact?.do_not_text
   const canPolishDraft = !!text.trim() && !conversation.contact?.do_not_text
   const aiBusy = suggestLoading || polishLoading
-  // Every ⋯ item is conditional, so the trigger has to be conditional too —
-  // otherwise a group thread viewed by a non-owner on a single-number tenant
-  // opens an empty 240px box. (Heroes has 2 numbers, so it wouldn't show up
-  // here; a brand-new tenant with one number is the default case.)
+  // Archive/Reopen is a VISIBLE header icon (it's used constantly); the rest of
+  // these gate rows inside the ⋯ menu. The menu itself needs no "is it empty?"
+  // guard because internal notes are ungated, so there's always one item.
   const canArchiveOrReopen = isArchived || canArchive
   const canCatchMeUp =
     canAccessUnifiedInbox && !isGroup && (messages.length > 0 || callEvents.length > 0)
   const canPickSendNumber = numbers.length >= 2 && canReplyHere
-  const hasMoreMenuItems =
-    canArchiveOrReopen ||
-    canCatchMeUp ||
-    canPickSendNumber ||
-    (!isGroup && !!conversation.contact)
   const phoneDisplay = conversation.contact ? formatPhone(conversation.contact.phone) : ''
   // A hidden inbound stub (in_directory === false) isn't in the official
   // directory yet. Offer a one-tap "Add to Contacts" that graduates it (POST
@@ -1404,12 +1398,18 @@ export default function TxtConversationView({
   return (
     <div className="flex-1 flex flex-col min-h-0">
       {/* Header */}
+      {/* On a PHONE the identity block gets its own row and the actions sit
+          underneath, so the contact's full name and number are always readable
+          — no amount of members/owner/actions can squeeze them. On sm+ there's
+          width for everything on one line, so it collapses back to a single
+          row. (Trying to fit both on one row at 375px can't be guaranteed: a
+          long name plus a full action cluster will always overflow eventually.) */}
       <div
         data-hide-on-keyboard
-        className="px-4 py-2.5 border-b border-white/10 flex items-center justify-between gap-2 bg-[var(--t-panel-deep)]"
+        className="px-4 py-2 border-b border-white/10 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1.5 sm:gap-2 bg-[var(--t-panel-deep)]"
       >
         {isGroup ? (
-          <div className="flex-1 min-w-0 text-left">
+          <div className="w-full sm:flex-1 min-w-0 text-left">
             <div className="font-medium flex items-center gap-1.5 min-w-0">
               <span>👥</span>
               <span className="truncate">
@@ -1434,7 +1434,7 @@ export default function TxtConversationView({
               (contactInDirectory ? setEditContactOpen(true) : setAddContactOpen(true))
             }
             disabled={!conversation.contact}
-            className="flex-1 min-w-0 text-left -ml-1 px-1 py-0.5 rounded hover:bg-white/5 disabled:cursor-default disabled:hover:bg-transparent"
+            className="w-full sm:flex-1 min-w-0 text-left -ml-1 px-1 py-0.5 rounded hover:bg-white/5 disabled:cursor-default disabled:hover:bg-transparent"
             title={
               conversation.contact
                 ? contactInDirectory
@@ -1459,11 +1459,12 @@ export default function TxtConversationView({
             <div className="text-xs text-white/50 truncate">{phoneDisplay}</div>
           </button>
         )}
-        {/* Actions. NOT flex-wrap any more: the identity block above owns the
-            remaining width, so a long name can no longer be crushed to "Wes
-            Spea…" on a phone. Only the handful of controls used on most threads
-            stay visible; one-time and rare ones live behind ⋯. */}
-        <div className="flex items-center gap-1.5 flex-none">
+        {/* Actions. On a phone this is its own row under the name: people on
+            the left, actions on the right. On sm+ it's the right-hand end of a
+            single-row header. Only the controls used on most threads stay
+            visible; one-time and rare ones live behind ⋯. */}
+        <div className="flex items-center gap-1.5 flex-none w-full sm:w-auto justify-between sm:justify-end">
+          <div className="flex items-center gap-1.5">
           {/* OWNER. Assigned → an avatar with a green ring (the old
               "Owner: Kathryn" pill cost ~90px). Genuinely UNASSIGNED (a Queue
               thread) → still a loud labelled pill, because an avatar cannot say
@@ -1628,17 +1629,14 @@ export default function TxtConversationView({
                   </span>
                 )}
                 {canManageMembers && memberCandidates.length > 0 && (
-                  /* The dashed "+" is a shortcut, not the only way in — the
-                     popover this button opens has "+ Add teammate" too. So on a
-                     phone we hide it once there's at least one member circle to
-                     tap, buying ~28px back for the contact's name (the whole
-                     point of this header). With NO members there's no circle to
-                     tap, so it has to stay visible as the only affordance. */
+                  /* Always shown now. It used to hide on mobile to buy width for
+                     the contact's name, but the name has its own row there, so
+                     there's nothing left to compete with. */
                   <span
                     aria-hidden
                     className={`${
-                      memberRows.length > 0 ? 'ml-1 hidden sm:inline-flex' : 'inline-flex'
-                    } w-6 h-6 rounded-full items-center justify-center text-xs border border-dashed border-white/30 text-white/55`}
+                      memberRows.length > 0 ? 'ml-1' : ''
+                    } w-6 h-6 rounded-full inline-flex items-center justify-center text-xs border border-dashed border-white/30 text-white/55`}
                   >
                     +
                   </span>
@@ -1727,6 +1725,10 @@ export default function TxtConversationView({
             </div>
           )}
 
+          </div>
+
+          {/* Right-hand group: the actions. */}
+          <div className="flex items-center gap-1.5">
           {/* Call — Session 57. Direct DMs only, contact has a phone, user has
               Dialer access. Navigates to /hub/dialer with the number pre-filled
               and conversation_id + contact_id passed through so the resulting
@@ -1743,26 +1745,21 @@ export default function TxtConversationView({
             </button>
           )}
 
-          {/* Internal notes — stays visible because the count is real signal. */}
-          <button
-            onClick={() => setShowNotes((v) => !v)}
-            className={`${HDR_ICON_BTN} ${
-              showNotes
-                ? 'bg-amber-500/20 text-[var(--t-tint-warning)]'
-                : notes.length > 0
-                ? 'bg-amber-500/10 text-[var(--t-tint-warning)] hover:bg-amber-500/20'
-                : 'bg-white/10 hover:bg-white/20'
-            }`}
-            title={notes.length > 0 ? `${notes.length} internal note${notes.length === 1 ? '' : 's'}` : 'Add internal note'}
-            aria-label="Internal notes"
-          >
-            <span aria-hidden>📝</span>
-            {notes.length > 0 && (
-              <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-amber-600 text-[9px] font-bold text-[#fff] flex items-center justify-center ring-2 ring-[var(--t-panel-deep)]">
-                {notes.length}
-              </span>
-            )}
-          </button>
+          {/* Archive / Reopen — kept VISIBLE (it moved out of the ⋯ menu):
+              closing out a thread is a constant, and burying it cost a tap on
+              the most-used action in the header. Reopen (↺) is available to any
+              Txt teammate — a rep must be able to re-engage an archived
+              customer; archiving (✓) stays owner/manager-only. */}
+          {canArchiveOrReopen && (
+            <button
+              onClick={toggleArchive}
+              className={`${HDR_ICON_BTN} bg-white/10 hover:bg-white/20 text-white/75`}
+              title={isArchived ? 'Reopen conversation' : 'Archive conversation'}
+              aria-label={isArchived ? 'Reopen conversation' : 'Archive conversation'}
+            >
+              <span aria-hidden>{isArchived ? '↺' : '✓'}</span>
+            </button>
+          )}
 
           {/* Pop out into a floating always-on-top window. Left ungated on
               purpose: PopoutButton renders NOTHING unless Document
@@ -1780,9 +1777,8 @@ export default function TxtConversationView({
             }}
           />
 
-          {/* ⋯ — Archive/Reopen plus the one-time and rarely-changed actions.
-              Archive leads the list since it's the most-used of them. */}
-          {hasMoreMenuItems && (
+          {/* ⋯ — internal notes plus the one-time and rarely-changed actions.
+              Always rendered: Notes is ungated, so the menu can never be empty. */}
           <div ref={moreRef} className="relative flex-none">
             <button
               type="button"
@@ -1793,32 +1789,48 @@ export default function TxtConversationView({
                 setNumberPickerOpen(false)
               }}
               className={`${HDR_ICON_BTN} bg-white/10 hover:bg-white/20 text-white/75`}
-              title="More actions"
-              aria-label="More actions"
+              title={
+                notes.length > 0
+                  ? `More actions — ${notes.length} internal note${notes.length === 1 ? '' : 's'}`
+                  : 'More actions'
+              }
+              aria-label={
+                notes.length > 0
+                  ? `More actions, ${notes.length} internal note${notes.length === 1 ? '' : 's'}`
+                  : 'More actions'
+              }
             >
               <svg className="w-4 h-4" viewBox="0 0 24 24" fill="currentColor" aria-hidden>
                 <circle cx="5" cy="12" r="1.6" />
                 <circle cx="12" cy="12" r="1.6" />
                 <circle cx="19" cy="12" r="1.6" />
               </svg>
+              {/* Notes moved into this menu, so surface their count out here —
+                  otherwise "this thread has notes" became invisible. */}
+              {notes.length > 0 && (
+                <span className="absolute -top-1 -right-1 min-w-[15px] h-[15px] px-1 rounded-full bg-amber-600 text-[9px] font-bold text-[#fff] flex items-center justify-center ring-2 ring-[var(--t-panel-deep)]">
+                  {notes.length}
+                </span>
+              )}
             </button>
             {moreOpen && (
               <>
                 <div className="absolute right-0 mt-1 w-60 bg-[var(--t-panel)] border border-white/10 rounded-md shadow-lg z-30 max-h-96 overflow-y-auto">
-                  {/* Reopen (↺) is available to ANY Txt teammate — a rep must be
-                      able to re-engage an archived customer. Archiving (✓) stays
-                      owner/manager-only. */}
-                  {canArchiveOrReopen && (
-                    <button
-                      onClick={() => {
-                        toggleArchive()
-                        setMoreOpen(false)
-                      }}
-                      className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
-                    >
-                      {isArchived ? '↺ Reopen conversation' : '✓ Archive conversation'}
-                    </button>
-                  )}
+                  {/* Internal notes — the panel toggle. Ungated, so this is the
+                      item that guarantees the menu is never empty. */}
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setShowNotes((v) => !v)
+                      setMoreOpen(false)
+                    }}
+                    className={`block w-full text-left px-3 py-2 text-sm hover:bg-white/5 ${
+                      notes.length > 0 ? 'text-[var(--t-tint-warning)]' : ''
+                    }`}
+                  >
+                    📝 {showNotes ? 'Hide notes' : 'Internal notes'}
+                    {notes.length > 0 && ` (${notes.length})`}
+                  </button>
                   {/* Catch me up — read-only AI roll-up of the whole
                       relationship. Behind can_access_unified_inbox; direct
                       threads only and only when there's history. */}
@@ -1927,7 +1939,7 @@ export default function TxtConversationView({
               </>
             )}
           </div>
-          )}
+          </div>
         </div>
       </div>
 
