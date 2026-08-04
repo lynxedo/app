@@ -14,6 +14,7 @@ import { CallMarker, VoicemailMarker, type TimelineCallEvent } from './TimelineM
 import { formatPhone, initials } from '@/lib/format'
 import { useOutsideClose } from '@/hooks/use-outside-close'
 import { contactDisplayName, isPlaceholderName, nameIsAiGuessed } from '@/lib/contact-name'
+import { lsaThreadLabel } from '@/lib/lsa-relay'
 
 type Message = {
   id: string
@@ -63,6 +64,10 @@ type Conversation = {
   contact: Contact | null
   assignee: { id: string; display_name: string } | null
   phone_number_id?: string | null
+  // Google Local Services relay — see lib/lsa-relay.ts.
+  lsa_relay?: boolean | null
+  lsa_location?: string | null
+  lsa_service?: string | null
 }
 
 type PhoneNumberOption = {
@@ -403,6 +408,14 @@ export default function TxtConversationView({
   // (`canAssign` is the manager flag from the page). Mirrors the server gate.
   // (AI-help gates are derived further down, once `text` and `messages` exist.)
   const canArchive = isOwnerMe || canAssign
+
+  // Google Local Services relay threads arrive on Google's per-lead proxy number
+  // with no customer name, so "Unknown" is all we could otherwise show. Label them
+  // by the lead instead (city · service). Null for every normal thread, which
+  // leaves the usual "Unknown" fallback untouched.
+  const lsaFallbackLabel = conversation.lsa_relay
+    ? lsaThreadLabel(conversation.lsa_location ?? null, conversation.lsa_service ?? null)
+    : null
 
   async function runSuggestReply(tone: SuggestTone) {
     setAiOpen(false)
@@ -1450,7 +1463,7 @@ export default function TxtConversationView({
                 bug rather than as truncation. */}
             <div className="font-medium flex items-center gap-1.5 min-w-0">
               <span className="truncate">
-                {contactDisplayName(conversation.contact?.name, conversation.contact?.phone)}
+                {contactDisplayName(conversation.contact?.name, conversation.contact?.phone, lsaFallbackLabel)}
               </span>
               {nameIsAiGuessed(conversation.contact?.name_source) && (
                 <span className="w-2 h-2 rounded-full bg-purple-400 flex-none" title="Name suggested by AI — tap to confirm" />
@@ -1772,7 +1785,7 @@ export default function TxtConversationView({
             target={{
               kind: 'txt',
               id: conversation.id,
-              title: contactDisplayName(conversation.contact?.name, conversation.contact?.phone),
+              title: contactDisplayName(conversation.contact?.name, conversation.contact?.phone, lsaFallbackLabel),
               companyId,
             }}
           />

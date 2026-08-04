@@ -31,12 +31,21 @@ export function isPlaceholderName(
   return nameDigits === phoneDigits || nameDigits === phoneDigits.slice(-10)
 }
 
-/** The label to show for a contact: their real name, else "Unknown". */
+/**
+ * The label to show for a contact: their real name, else "Unknown".
+ *
+ * `unknownLabel` overrides the "Unknown" fallback for a contact we can describe
+ * even without a name — e.g. a Google Local Services relay thread, where the
+ * number belongs to Google's proxy and the useful label is the lead's city and
+ * service (see lib/lsa-relay.ts lsaThreadLabel). A real name always wins.
+ */
 export function contactDisplayName(
   name: string | null | undefined,
   phone: string | null | undefined,
+  unknownLabel?: string | null,
 ): string {
-  return isPlaceholderName(name, phone) ? UNKNOWN_CONTACT_LABEL : (name as string).trim()
+  if (!isPlaceholderName(name, phone)) return (name as string).trim()
+  return unknownLabel?.trim() || UNKNOWN_CONTACT_LABEL
 }
 
 /** Show the AI-guessed indicator (the purple dot) for this contact? */

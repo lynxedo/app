@@ -1,13 +1,22 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getGoogleAccessToken } from '@/lib/google-oauth'
 
-// Google Ads API client — read-only, used to pull Local Services Ads (LSA) leads.
+// Google Ads API client — pulls Local Services Ads (LSA) leads, and sends a
+// reply back into an LSA lead's own Google conversation.
 //
 // LSA lead data lives in the Google Ads API `local_services_lead` resource (the
-// Local Services API is a read-only subset of the Ads API — same OAuth `adwords`
-// scope that lib/google-oauth.ts already obtains). ONE platform developer token
+// Local Services API is a subset of the Ads API — same OAuth `adwords` scope
+// that lib/google-oauth.ts already obtains; that scope covers the reply mutate
+// too, so replying needs no re-consent). ONE platform developer token
 // + MCC serve every subscriber; each subscriber's own account is queried by its
 // customer id, stored per company on google_connections.customer_id.
+//
+// WHY replies go through Google instead of a plain text: Google only scores
+// responsiveness (its top LSA ranking factor) on activity it can see — a call
+// answered on the LSA number or a reply inside the LSA message thread. A text
+// sent from our own Twilio number is invisible to Google, so it earns no credit
+// no matter how fast it goes out. appendLeadConversation puts the reply in
+// Google's system, and Google relays it on to the customer.
 //
 // No new dependency — we call the REST search endpoint directly with fetch.
 //
@@ -21,6 +30,10 @@ type Admin = ReturnType<typeof createAdminClient>
 const API_VERSION = process.env.GOOGLE_ADS_API_VERSION || 'v22'
 const searchEndpoint = (customerId: string) =>
   `https://googleads.googleapis.com/${API_VERSION}/customers/${customerId}/googleAds:search`
+// Verified against the v22 service proto's google.api.http annotation:
+//   post: "/v22/customers/{customer_id=*}/localServices:appendLeadConversation"
+const appendConversationEndpoint = (customerId: string) =>
+  `https://googleads.googleapis.com/${API_VERSION}/customers/${customerId}/localServices:appendLeadConversation`
 
 // Google Ads customer / manager ids are digits only (strip dashes).
 function digits(s: string | null | undefined): string {
@@ -87,12 +100,13 @@ function buildQuery(sinceCursor: string | null): string {
   )
 }
 
-export type LsaFetchResult = { leads: LsaLead[]; cursor: string | null }
+// Everything a Local Services call needs: the subscriber's customer id plus the
+// auth headers. Returns null when Google/LSA isn't usable for this company (no
+// dev token, not connected, no customer id, or LSA switched off) — callers treat
+// null as "skip this company", never as an error.
+type LsaContext = { customerId: string; headers: Record<string, string>; conn: GoogleConn }
 
-// Fetch LSA leads for one company newer than its stored cursor. Returns null
-// when Google/LSA isn't configured for this company (no dev token, not
-// connected, no customer id, or LSA disabled) — the poller just skips it.
-export async function fetchNewLsaLeads(admin: Admin, companyId: string): Promise<LsaFetchResult | null> {
+async function lsaContext(admin: Admin, companyId: string): Promise<LsaContext | null> {
   if (!googleAdsConfigured()) return null
 
   const token = await getGoogleAccessToken(admin, companyId)
@@ -116,6 +130,88 @@ export async function fetchNewLsaLeads(admin: Admin, companyId: string): Promise
   }
   // Present when the queried account is a client under a manager (MCC) account.
   if (loginCustomerId) headers['login-customer-id'] = loginCustomerId
+
+  return { customerId, headers, conn }
+}
+
+export type LsaReplyResult =
+  | { ok: true; conversationName: string | null }
+  | { ok: false; error: string; retryable: boolean }
+
+// Send a reply INTO an LSA lead's Google conversation. Google delivers it to the
+// customer on whichever channel they used (text or email) and — the whole point —
+// logs it as a response inside Google's own system.
+//
+// `googleLeadId` is the bare numeric Google lead id (what leads.external_lead_id
+// stores behind its `glsa_` prefix). Per the v22 proto, a Conversation needs
+// exactly two fields: localServicesLead (resource name) + text, both REQUIRED.
+//
+// Per-conversation failures come back as a partialFailureError INSIDE a 200
+// response, so a 200 alone does not mean the reply landed — the body is checked.
+export async function sendLsaLeadReply(
+  admin: Admin,
+  companyId: string,
+  googleLeadId: string,
+  text: string,
+): Promise<LsaReplyResult> {
+  const leadId = digits(googleLeadId)
+  if (!leadId) return { ok: false, error: 'missing_google_lead_id', retryable: false }
+  if (!text.trim()) return { ok: false, error: 'empty_message', retryable: false }
+
+  const ctx = await lsaContext(admin, companyId)
+  if (!ctx) return { ok: false, error: 'lsa_not_configured', retryable: false }
+
+  let res: Response
+  try {
+    res = await fetch(appendConversationEndpoint(ctx.customerId), {
+      method: 'POST',
+      headers: ctx.headers,
+      body: JSON.stringify({
+        conversations: [
+          {
+            localServicesLead: `customers/${ctx.customerId}/localServicesLeads/${leadId}`,
+            text,
+          },
+        ],
+      }),
+      cache: 'no-store',
+      signal: AbortSignal.timeout(20000),
+    })
+  } catch (e) {
+    // Network/timeout — worth another attempt on the next cron tick.
+    return { ok: false, error: `network: ${e instanceof Error ? e.message : 'unknown'}`, retryable: true }
+  }
+
+  if (!res.ok) {
+    const body = await res.text().catch(() => '')
+    console.error(`[google-ads] LSA reply failed for ${companyId} lead ${leadId}:`, res.status, body.slice(0, 600))
+    // 5xx / 429 are transient; a 4xx means this lead can't be replied to (e.g. a
+    // phone-call lead with no conversation, or one past Google's reply window).
+    return { ok: false, error: `http_${res.status}: ${body.slice(0, 200)}`, retryable: res.status >= 500 || res.status === 429 }
+  }
+
+  const json = (await res.json().catch(() => ({}))) as {
+    responses?: Array<{ localServicesLeadConversation?: string; partialFailureError?: { message?: string } }>
+  }
+  const first = json.responses?.[0]
+  if (first?.partialFailureError) {
+    const msg = first.partialFailureError.message || 'partial_failure'
+    console.error(`[google-ads] LSA reply partial failure for lead ${leadId}:`, msg.slice(0, 400))
+    return { ok: false, error: `partial_failure: ${msg.slice(0, 200)}`, retryable: false }
+  }
+
+  return { ok: true, conversationName: first?.localServicesLeadConversation ?? null }
+}
+
+export type LsaFetchResult = { leads: LsaLead[]; cursor: string | null }
+
+// Fetch LSA leads for one company newer than its stored cursor. Returns null
+// when Google/LSA isn't configured for this company (no dev token, not
+// connected, no customer id, or LSA disabled) — the poller just skips it.
+export async function fetchNewLsaLeads(admin: Admin, companyId: string): Promise<LsaFetchResult | null> {
+  const ctx = await lsaContext(admin, companyId)
+  if (!ctx) return null
+  const { customerId, headers, conn } = ctx
 
   const res = await fetch(searchEndpoint(customerId), {
     method: 'POST',
