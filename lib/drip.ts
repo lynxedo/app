@@ -23,6 +23,10 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendDirectTxtToPhone } from '@/lib/txt-send'
 import { toE164 } from '@/lib/twilio'
+// Google Local Services reply channel — lets a text step answer INSIDE the lead's
+// own Google conversation, which is the only response Google can see and score.
+import { sendLsaLeadReply } from '@/lib/google-ads'
+import type { DripResolveMode, DripSmsTarget } from '@/lib/drip-steps'
 import { fetchAllRows } from '@/lib/email-contacts'
 // Email channel (Phase 2) — reuse the proven Email Marketing send stack.
 import { renderAndSendEmail } from '@/lib/email-campaigns'
@@ -59,7 +63,17 @@ type CampaignRow = {
   created_at: string
 }
 
-type StepRow = { channel: string; delay: any; content_ref: any; ignore_quiet_hours: boolean }
+type StepRow = {
+  channel: string
+  delay: any
+  content_ref: any
+  ignore_quiet_hours: boolean
+  // See lib/drip-steps.ts for what these mean. Defaults ('archive' / 'direct')
+  // reproduce the behavior from before they existed.
+  resolve: DripResolveMode
+  resolve_user_id: string | null
+  sms_target: DripSmsTarget
+}
 
 type QuietHours = { start: number; end: number; tz: string }
 type Settings = {
@@ -264,13 +278,17 @@ export async function advanceDripEnrollments(
     if (steps.has(campaignId)) return steps.get(campaignId)!
     const { data } = await admin
       .from('drip_steps')
-      .select('channel, delay, content_ref, ignore_quiet_hours')
+      .select('channel, delay, content_ref, ignore_quiet_hours, resolve, resolve_user_id, sms_target')
       .eq('campaign_id', campaignId)
       .eq('active', true)
       .order('step_index', { ascending: true })
     const arr = ((data ?? []) as any[]).map((r) => ({
       channel: r.channel, delay: r.delay, content_ref: r.content_ref,
       ignore_quiet_hours: r.ignore_quiet_hours === true,
+      // Coalesce so a row written before these columns existed behaves exactly as it did.
+      resolve: (r.resolve ?? 'archive') as DripResolveMode,
+      resolve_user_id: r.resolve_user_id ?? null,
+      sms_target: (r.sms_target ?? 'direct') as DripSmsTarget,
     })) as StepRow[]
     steps.set(campaignId, arr)
     return arr
@@ -407,6 +425,48 @@ export async function advanceDripEnrollments(
           await advanceStep(admin, e, idx, stepList)
           continue
         }
+        // ── Leg 1: reply inside the lead's Google LSA conversation ──────────────
+        // Only for a lead that actually came from LSA. Google delivers it to the
+        // customer AND — the reason this exists — logs it as a response in its own
+        // system, which is the only thing its responsiveness ranking can see.
+        // Validation guarantees an inline body (never a template) on these steps.
+        const wantsLsa = step.sms_target === 'lsa' || step.sms_target === 'both'
+        const googleLeadId = wantsLsa ? await resolveGoogleLeadId(admin, e) : null
+        let lsaSent = false
+        // NOTE: the LSA leg logs with no to_phone, so it deliberately does NOT count
+        // against the rolling frequency cap (which counts drip_sends by to_phone).
+        // On a 'both' step the Google reply and the direct text are the same message
+        // delivered two ways — counting it twice would silently halve the cap for
+        // every LSA campaign.
+        if (googleLeadId && body) {
+          if (DRIP_TEST_MODE) {
+            await logSend(admin, e, idx, 'lsa', 'sent', { body, providerRef: 'TEST' })
+            lsaSent = true
+          } else {
+            const r = await sendLsaLeadReply(admin, e.company_id, googleLeadId, body)
+            lsaSent = r.ok
+            await logSend(admin, e, idx, 'lsa', r.ok ? 'sent' : 'failed', {
+              body,
+              providerRef: r.ok ? r.conversationName : null,
+              error: r.ok ? null : r.error,
+            })
+            if (r.ok) sent++
+          }
+        }
+
+        // ── Leg 2: the direct text to the customer's own number ────────────────
+        // Sent for 'direct' and 'both'. Also the SAFETY NET for a 'lsa' step: if
+        // the Google reply couldn't be delivered (closed conversation, phone-only
+        // lead, no Google lead id at all) we still text them, because reaching the
+        // customer matters more than the ranking signal.
+        const wantsDirect = step.sms_target !== 'lsa' || !lsaSent
+        if (!wantsDirect) {
+          // LSA-only step, reply delivered — nothing texted directly.
+          await advanceStep(admin, e, idx, stepList, e.contact_id ?? null)
+          await sleep(200)
+          continue
+        }
+
         // DRIP_TEST_MODE (staging sandbox): fake success, nothing is texted.
         let res: Awaited<ReturnType<typeof sendDirectTxtToPhone>>
         if (DRIP_TEST_MODE) {
@@ -421,13 +481,12 @@ export async function advanceDripEnrollments(
           body: body || null, to: e.phone, providerRef: res.twilio_sid ?? null, error: res.ok ? null : res.error ?? null,
         })
         if (res.ok) sent++
-        // Amber sent the drip → archive the thread so it stays out of the active inbox
-        // while nurturing. When the lead replies, sms/inbound reopens it to 'unassigned'
-        // (the manager Queue) so a human picks it up. No-op in DRIP_TEST_MODE (no real
-        // conversation was created) and on a failed send.
+        // Hand the thread off per the step's `resolve` setting (default 'archive' =
+        // the behavior from before the setting existed). No-op in DRIP_TEST_MODE
+        // (no real conversation was created) and on a failed send.
         const convId = (res as any).conversation_id ?? null
         if (res.ok && convId) {
-          await admin.from('txt_conversations').update({ status: 'archived', archived_by: null }).eq('id', convId)
+          await applyStepResolve(admin, convId, step)
         }
         // Stamp the resolved contact so reply-pause can match even a contact this send just created.
         const contactId = (res as any).contact_id ?? e.contact_id ?? null
@@ -616,6 +675,70 @@ type Person = {
   email: string | null
   email_status: string | null
   do_not_call: boolean // per-lead "no calls" preference (gates RVM, which is legally a call)
+}
+
+// The bare numeric Google lead id for an LSA-sourced enrollment, or null.
+// leads.external_lead_id carries a source prefix (`glsa_` for Google Local
+// Services, `angi_` for Angi), so the prefix both identifies the source and
+// keeps ids from different networks from colliding.
+async function resolveGoogleLeadId(admin: Admin, e: EnrollmentRow): Promise<string | null> {
+  if (!e.lead_id) return null
+  const { data } = await (admin.from('leads') as any)
+    .select('external_lead_id')
+    .eq('id', e.lead_id)
+    .maybeSingle()
+  const ext = typeof data?.external_lead_id === 'string' ? data.external_lead_id : ''
+  if (!ext.startsWith('glsa_')) return null
+  const id = ext.slice('glsa_'.length).replace(/\D/g, '')
+  return id || null
+}
+
+// Hand the Txt conversation off after a drip text, per the step's `resolve`.
+// Owner is written as BOTH assigned_to and an 'owner' row in
+// txt_conversation_members — the same pair the Txt assign route maintains, so
+// the thread's member list stays correct.
+//
+// All three branches clear the owner/member state they don't want, which keeps
+// the platform "fresh start on archive" invariant: an archived thread carries no
+// stale owner, so when the lead replies it reopens clean into the Queue.
+async function applyStepResolve(admin: Admin, conversationId: string, step: StepRow): Promise<void> {
+  const dropOwnerRow = () =>
+    admin.from('txt_conversation_members').delete().eq('conversation_id', conversationId).eq('role', 'owner')
+
+  if (step.resolve === 'assign' && step.resolve_user_id) {
+    await admin
+      .from('txt_conversations')
+      .update({ status: 'assigned', assigned_to: step.resolve_user_id, archived_by: null })
+      .eq('id', conversationId)
+    await dropOwnerRow()
+    // Clear any prior seat for this person, then seat them as owner (they may
+    // already have been a plain member).
+    await admin
+      .from('txt_conversation_members')
+      .delete()
+      .match({ conversation_id: conversationId, user_id: step.resolve_user_id })
+    await admin
+      .from('txt_conversation_members')
+      .insert({ conversation_id: conversationId, user_id: step.resolve_user_id, role: 'owner' })
+    return
+  }
+
+  if (step.resolve === 'unassigned') {
+    await admin
+      .from('txt_conversations')
+      .update({ status: 'unassigned', assigned_to: null, archived_by: null })
+      .eq('id', conversationId)
+    await dropOwnerRow()
+    return
+  }
+
+  // 'archive' (default) — out of the active inbox while nurturing. An inbound
+  // reply reopens it to 'unassigned' (see app/api/txt/twilio/sms/inbound).
+  await admin
+    .from('txt_conversations')
+    .update({ status: 'archived', assigned_to: null, archived_by: null })
+    .eq('id', conversationId)
+  await admin.from('txt_conversation_members').delete().eq('conversation_id', conversationId)
 }
 
 // Resolve the contact for opt-out + personalization: existing directory row by

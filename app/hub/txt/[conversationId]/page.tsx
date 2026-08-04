@@ -44,7 +44,7 @@ export default async function TxtConversationPage({
     supabase
       .from('txt_conversations')
       .select(
-        `id, kind, status, assigned_to, last_message_at, last_inbound_at, created_at, phone_number_id,
+        `id, kind, status, assigned_to, last_message_at, last_inbound_at, created_at, phone_number_id, lsa_relay, lsa_location, lsa_service,
          contact:txt_contacts!txt_conversations_contact_id_fkey ( id, name, name_source, name_prompt_dismissed_at, phone, email, do_not_text, jobber_client_id, notes, in_directory ),
          assignee:hub_users!assigned_to ( id, display_name )`
       )

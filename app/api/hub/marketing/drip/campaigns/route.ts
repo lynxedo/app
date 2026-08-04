@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireDripAccess } from '@/lib/drip-auth'
-import { safeNormalizeDripSteps, isDripTrigger, normalizeEnrollWindow, type CleanDripStep } from '@/lib/drip-steps'
+import { safeNormalizeDripSteps, sanitizeStepAssignees, isDripTrigger, normalizeEnrollWindow, type CleanDripStep } from '@/lib/drip-steps'
 import { validIdentityId } from '@/lib/email-identities'
 
 const LIST_SELECT = 'id, name, description, trigger_type, trigger_config, status, enroll_window, created_at, updated_at'
@@ -84,6 +84,7 @@ export async function POST(request: Request) {
 
   const admin = createAdminClient()
   await sanitizeStepIdentities(admin, access.companyId, stepsResult.steps)
+  await sanitizeStepAssignees(admin, access.companyId, stepsResult.steps)
   const { data: campaign, error } = await admin
     .from('drip_campaigns')
     .insert({

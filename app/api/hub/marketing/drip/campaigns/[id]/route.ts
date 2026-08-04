@@ -1,7 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireDripAccess } from '@/lib/drip-auth'
-import { safeNormalizeDripSteps, isDripTrigger, normalizeEnrollWindow, type CleanDripStep } from '@/lib/drip-steps'
+import { safeNormalizeDripSteps, sanitizeStepAssignees, isDripTrigger, normalizeEnrollWindow, type CleanDripStep } from '@/lib/drip-steps'
 import { validIdentityId, resolveSendIdentity } from '@/lib/email-identities'
 
 const DETAIL_SELECT =
@@ -92,6 +92,7 @@ export async function PATCH(request: Request, ctx: { params: Promise<{ id: strin
     const stepsResult = safeNormalizeDripSteps(body.steps)
     if (!stepsResult.ok) return NextResponse.json({ error: stepsResult.error }, { status: 400 })
     await sanitizeStepIdentities(admin, access.companyId, stepsResult.steps)
+  await sanitizeStepAssignees(admin, access.companyId, stepsResult.steps)
     await admin.from('drip_steps').delete().eq('campaign_id', id)
     if (stepsResult.steps.length) {
       const rows = stepsResult.steps.map((s) => ({ campaign_id: id, ...s }))

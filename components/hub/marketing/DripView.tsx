@@ -30,7 +30,15 @@ type UIStep = {
   subject: string // email
   identityId: string // email "send from" ('' = company default)
   ignoreQuietHours: boolean // send even inside the quiet-hours window
+  // Text steps only. resolve = what happens to the Txt thread after this sends.
+  // smsTarget = where it sends for a Google Local Services lead.
+  resolve: ResolveMode
+  resolveUserId: string // '' unless resolve === 'assign'
+  smsTarget: SmsTarget
 }
+
+type ResolveMode = 'archive' | 'unassigned' | 'assign'
+type SmsTarget = 'direct' | 'lsa' | 'both'
 
 type DripUser = { id: string; display_name: string }
 type Identity = { id: string; label: string; from_email: string; is_default: boolean }
@@ -60,6 +68,16 @@ const ENROLL_WINDOW_LABEL: Record<EnrollWindow, string> = {
   after_hours: 'After hours & weekends only',
 }
 const CHANNEL_LABEL: Record<Channel, string> = { sms: 'Text', email: 'Email' }
+const RESOLVE_LABEL: Record<ResolveMode, string> = {
+  archive: 'Archive it (out of the inbox until they reply)',
+  unassigned: 'Leave it in the Queue for anyone to claim',
+  assign: 'Assign it to…',
+}
+const SMS_TARGET_LABEL: Record<SmsTarget, string> = {
+  direct: 'Text their own number',
+  lsa: 'Reply in the Google LSA conversation',
+  both: 'Both — Google reply and a direct text',
+}
 const CHANNEL_WORD: Record<Channel, string> = { sms: 'text', email: 'email' }
 const STATUS_STYLE: Record<Campaign['status'], string> = {
   draft: 'bg-gray-700/40 border-gray-600 text-gray-300',
@@ -68,7 +86,10 @@ const STATUS_STYLE: Record<Campaign['status'], string> = {
 }
 
 function newStep(channel: Channel = 'sms'): UIStep {
-  return { channel, unit: 'days', value: 1, body: '', subject: '', identityId: '', ignoreQuietHours: false }
+  return {
+    channel, unit: 'days', value: 1, body: '', subject: '', identityId: '', ignoreQuietHours: false,
+    resolve: 'archive', resolveUserId: '', smsTarget: 'direct',
+  }
 }
 
 // Format an hour (0–24) as a friendly AM/PM clock label for the quiet-hours pickers.
@@ -210,6 +231,7 @@ export default function DripView() {
           campaign={editing === 'new' ? null : editing}
           identities={identities}
           stages={stages}
+          users={users}
           onClose={() => setEditing(null)}
           onSaved={() => { setEditing(null); setLoading(true); load() }}
         />
@@ -228,8 +250,8 @@ export default function DripView() {
   )
 }
 
-function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
-  campaign: Campaign | null; identities: Identity[]; stages: Stage[]; onClose: () => void; onSaved: () => void
+function CampaignEditor({ campaign, identities, stages, users, onClose, onSaved }: {
+  campaign: Campaign | null; identities: Identity[]; stages: Stage[]; users: DripUser[]; onClose: () => void; onSaved: () => void
 }) {
   const toast = useToast()
   const [name, setName] = useState(campaign?.name || '')
@@ -260,6 +282,9 @@ function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
               subject: typeof s?.content_ref?.subject === 'string' ? s.content_ref.subject : '',
               identityId: typeof s?.content_ref?.identity_id === 'string' ? s.content_ref.identity_id : '',
               ignoreQuietHours: s?.ignore_quiet_hours === true,
+              resolve: (['archive', 'unassigned', 'assign'].includes(s?.resolve) ? s.resolve : 'archive') as ResolveMode,
+              resolveUserId: typeof s?.resolve_user_id === 'string' ? s.resolve_user_id : '',
+              smsTarget: (['direct', 'lsa', 'both'].includes(s?.sms_target) ? s.sms_target : 'direct') as SmsTarget,
             }
           })
           setSteps(ui.length ? ui : [newStep('sms')])
@@ -295,7 +320,13 @@ function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
         const content_ref: any = s.channel === 'email'
           ? { subject: s.subject.trim(), body: s.body.trim(), ...(s.identityId ? { identity_id: s.identityId } : {}) }
           : { body: s.body.trim() }
-        return { channel: s.channel, delay, content_ref, ignore_quiet_hours: s.ignoreQuietHours }
+        return {
+          channel: s.channel, delay, content_ref, ignore_quiet_hours: s.ignoreQuietHours,
+          // Text-only settings; the server ignores them for other channels.
+          resolve: s.resolve,
+          resolve_user_id: s.resolve === 'assign' ? s.resolveUserId : null,
+          sms_target: s.smsTarget,
+        }
       }),
     }
   }
@@ -304,6 +335,8 @@ function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
     for (let i = 0; i < steps.length; i++) {
       const s = steps[i]
       if (s.channel === 'sms' && !s.body.trim()) return `Step ${i + 1}: write the text message.`
+      if (s.channel === 'sms' && s.resolve === 'assign' && !s.resolveUserId)
+        return `Step ${i + 1}: choose who the conversation goes to.`
       if (s.channel === 'email' && !s.subject.trim()) return `Step ${i + 1}: add an email subject.`
       if (s.channel === 'email' && !s.body.trim()) return `Step ${i + 1}: write the email message.`
     }
@@ -466,9 +499,51 @@ function CampaignEditor({ campaign, identities, stages, onClose, onSaved }: {
 
                   {/* Channel-specific content */}
                   {s.channel === 'sms' && (
-                    <textarea value={s.body} onChange={(e) => updateStep(i, { body: e.target.value })} rows={3}
-                      placeholder={i === 0 ? 'Hi {{first_name}}! Thanks for reaching out to us…' : 'Just following up, {{first_name}}…'}
-                      className="w-full rounded bg-gray-800 border border-gray-700 px-2 py-1.5 text-sm text-white resize-y" />
+                    <div className="space-y-2">
+                      <textarea value={s.body} onChange={(e) => updateStep(i, { body: e.target.value })} rows={3}
+                        placeholder={i === 0 ? 'Hi {{first_name}}! Thanks for reaching out to us…' : 'Just following up, {{first_name}}…'}
+                        className="w-full rounded bg-gray-800 border border-gray-700 px-2 py-1.5 text-sm text-white resize-y" />
+
+                      {/* Where the text goes. Only changes anything for a lead that came
+                          from Google Local Services — everyone else gets a direct text. */}
+                      <div>
+                        <label className="block text-[11px] text-gray-500 mb-1">Send to</label>
+                        <select value={s.smsTarget} onChange={(e) => updateStep(i, { smsTarget: e.target.value as SmsTarget })}
+                          className="w-full rounded bg-gray-800 border border-gray-700 px-2 py-1.5 text-sm text-white">
+                          {(['direct', 'lsa', 'both'] as SmsTarget[]).map((t) => (
+                            <option key={t} value={t}>{SMS_TARGET_LABEL[t]}</option>
+                          ))}
+                        </select>
+                        {s.smsTarget !== 'direct' && (
+                          <p className="text-[11px] text-gray-500 mt-1">
+                            Google only counts a response it can see, so replying in their conversation is what earns
+                            credit for responding fast. Applies to Google Local Services leads; anyone else still gets a
+                            normal text. If Google won’t take the reply, we text them directly instead.
+                          </p>
+                        )}
+                      </div>
+
+                      {/* What happens to the Txt thread once this step has sent. */}
+                      <div>
+                        <label className="block text-[11px] text-gray-500 mb-1">Afterwards</label>
+                        <select value={s.resolve} onChange={(e) => updateStep(i, { resolve: e.target.value as ResolveMode })}
+                          className="w-full rounded bg-gray-800 border border-gray-700 px-2 py-1.5 text-sm text-white">
+                          {(['archive', 'unassigned', 'assign'] as ResolveMode[]).map((r) => (
+                            <option key={r} value={r}>{RESOLVE_LABEL[r]}</option>
+                          ))}
+                        </select>
+                        {s.resolve === 'assign' && (
+                          <select value={s.resolveUserId} onChange={(e) => updateStep(i, { resolveUserId: e.target.value })}
+                            className="mt-1.5 w-full rounded bg-gray-800 border border-gray-700 px-2 py-1.5 text-sm text-white">
+                            <option value="">Choose a person…</option>
+                            {users.map((u) => <option key={u.id} value={u.id}>{u.display_name}</option>)}
+                          </select>
+                        )}
+                        <p className="text-[11px] text-gray-500 mt-1">
+                          Either way, a reply from the customer reopens the conversation.
+                        </p>
+                      </div>
+                    </div>
                   )}
 
                   {s.channel === 'email' && (

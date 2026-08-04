@@ -12,6 +12,7 @@ import { buildMessagePreview } from '@/lib/txt-preview'
 import { evaluateEventAutomations } from '@/lib/automations'
 import { enrichTxtContactName } from '@/lib/dialer-lookup'
 import { contactDisplayName, isPlaceholderName } from '@/lib/contact-name'
+import { parseLsaRelay } from '@/lib/lsa-relay'
 import { pauseEnrollmentsForInbound } from '@/lib/drip'
 import { maybeEnqueueAmberTurn } from '@/lib/amber-text'
 import { resolveCompanyByTwilioNumber } from '@/lib/txt-company'
@@ -111,9 +112,16 @@ export async function POST(req: NextRequest) {
 
   const from = toE164(params.From || '')
   const to = params.To || ''
-  const body = params.Body || ''
+  const providerBody = params.Body || ''
   const sid = params.MessageSid || params.SmsSid || ''
   const numMedia = parseInt(params.NumMedia || '0', 10) || 0
+
+  // Google Local Services relay: unwrap Google's boilerplate so the thread reads
+  // like a normal conversation. `body` becomes the customer's actual message and
+  // the untouched original is kept in raw_body. Null for every other text, in
+  // which case body is exactly what Twilio delivered.
+  const relay = parseLsaRelay(providerBody)
+  const body = relay ? relay.text : providerBody
 
   // GROUP MMS guard: a reply to a group text is addressed to multiple
   // recipients, and Twilio marks it with OtherRecipients{N} params. Twilio
@@ -270,6 +278,9 @@ export async function POST(req: NextRequest) {
       contact_id: contactId,
       direction: 'inbound',
       body: body || null,
+      // Only set when we rewrote the body (Google LSA unwrapping), so nothing
+      // Google sent is lost and the change is reversible.
+      raw_body: relay ? providerBody : null,
       media_urls: [],
       twilio_sid: sid,
       status: 'received',
@@ -294,8 +305,30 @@ export async function POST(req: NextRequest) {
     })
     .eq('id', conversationId)
 
-  // STOP / START / HELP compliance handling
-  const compliance = classifyKeyword(body)
+  // Tag the thread as a Google LSA relay so the UI can label it instead of showing
+  // an anonymous "Unknown" on a proxy area code. Written on every relay message
+  // (cheap, and Location/Service can change as Google learns more about the lead).
+  if (relay) {
+    await supabase
+      .from('txt_conversations')
+      .update({ lsa_relay: true, lsa_location: relay.location, lsa_service: relay.service })
+      .eq('id', conversationId)
+  }
+
+  // STOP / START / HELP compliance handling.
+  //
+  // Skipped for a Google LSA relay: the "sender" is Google's proxy number, not the
+  // customer's own line, so a keyword inside their message is not a carrier
+  // opt-out/opt-in for our number and must not flip do_not_text on the proxy
+  // contact. Google runs opt-outs for its own channel.
+  //
+  // This also has to stay skipped BECAUSE the body is now unwrapped: 'YES' is a
+  // START keyword and 'CANCEL'/'END'/'QUIT' are STOP keywords, all of them things
+  // a customer plausibly texts mid-conversation ("Yes" to a scheduling question
+  // appears in the real data). Before unwrapping, the boilerplate prefix meant no
+  // relay text ever matched a keyword — so skipping preserves that exactly rather
+  // than opening a new opt-out path.
+  const compliance: ComplianceKind = relay ? null : classifyKeyword(body)
   if (compliance === 'stop') {
     await supabase
       .from('txt_contacts')

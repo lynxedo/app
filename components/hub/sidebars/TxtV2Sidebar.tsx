@@ -12,6 +12,7 @@ import TxtGroupComposer from '@/components/hub/txt/TxtGroupComposer'
 import TxtBroadcastComposer from '@/components/hub/txt/TxtBroadcastComposer'
 import { formatPhone } from '@/lib/format'
 import { contactDisplayName, isPlaceholderName, nameIsAiGuessed } from '@/lib/contact-name'
+import { lsaThreadLabel } from '@/lib/lsa-relay'
 import { useWorkspaceTabs } from '../workspace/WorkspaceTabsContext'
 import { useOutsideClose } from '@/hooks/use-outside-close'
 
@@ -32,6 +33,12 @@ type Conversation = {
   group_contacts?: Array<{ contact: { id: string; name: string; phone: string } | { id: string; name: string; phone: string }[] | null }>
   phone_number_id?: string | null
   number?: { label: string | null; twilio_number: string } | { label: string | null; twilio_number: string }[] | null
+  // Google Local Services relay thread — the number is Google's per-lead proxy,
+  // not the customer's, and Google never sends a name, so these are labeled by
+  // the lead's city + service instead of showing as "Unknown".
+  lsa_relay?: boolean | null
+  lsa_location?: string | null
+  lsa_service?: string | null
   // Unified Inbox (Session 3) — present only when can_access_unified_inbox.
   last_call_at?: string | null
   last_voicemail_at?: string | null
@@ -82,7 +89,12 @@ function formatRelative(iso: string | null) {
 
 function displayNameFor(c: Conversation) {
   const isGroup = c.kind === 'group'
-  if (!isGroup) return contactDisplayName(c.contact?.name, c.contact?.phone)
+  if (!isGroup) {
+    // A Google LSA relay with no name yet reads as its lead (city · service)
+    // rather than "Unknown". A real name, once we learn one, still wins.
+    const fallback = c.lsa_relay ? lsaThreadLabel(c.lsa_location ?? null, c.lsa_service ?? null) : null
+    return contactDisplayName(c.contact?.name, c.contact?.phone, fallback)
+  }
   const groupNames = (c.group_contacts ?? [])
     .map((gc) => {
       const inner = Array.isArray(gc.contact) ? gc.contact[0] : gc.contact
