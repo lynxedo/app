@@ -3,6 +3,7 @@
 import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
+import { purgeLegacyHostOnlyAuthCookies } from '@/lib/auth-cookie-cleanup'
 
 function LoginForm() {
   const router = useRouter()
@@ -19,12 +20,22 @@ function LoginForm() {
   const [passwordLoading, setPasswordLoading] = useState(false)
   const searchParams = useSearchParams()
 
+  // Pre-Track-2 (July 2026) host-only sb-* cookies shadow the current domain-wide
+  // session cookies and carry long-rotated refresh tokens — presenting one trips
+  // Supabase's token-reuse revocation and force-logs the user out. Anyone landing
+  // on /login is signed out anyway, so clear the fossils before a fresh sign-in.
+  useEffect(() => {
+    purgeLegacyHostOnlyAuthCookies()
+  }, [])
+
   useEffect(() => {
     const err = searchParams.get('error')
     if (err === 'unauthorized') {
       setError('Only Heroes Lawn team members can access Lynxedo. Make sure you\'re signed in with your @heroeslawntx.com Google account.')
     } else if (err === 'auth_failed') {
       setError('Sign-in code expired or already used. Please request a new one.')
+    } else if (err === 'auth_stuck') {
+      setError('Sign-in didn\'t complete, so we reset it. Please sign in again.')
     }
   }, [searchParams])
 
