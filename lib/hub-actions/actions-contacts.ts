@@ -3,8 +3,18 @@
 import { formatCurrency } from '@/lib/format'
 import { ilikeSearchPattern } from '@/lib/search'
 import type { ActionContext, HubAction } from './types'
-import { limitArg, str, uuidArg } from './types'
+import { actorPassesGate, limitArg, str, uuidArg } from './types'
 import { clip, contactLabel, dayLabel, lines, opsYmd, phone, stampLabel } from './format'
+
+// The texts/calls sections below expose exactly what the gated surfaces expose
+// (app/api/txt/timeline requires can_access_unified_inbox/can_access_txt; the Call
+// Log requires its own flags), and search_texts / get_call_activity in this very
+// layer are gated. So this action stays ungated for identity + schedule, and gates
+// those two sections per-actor — otherwise the gates elsewhere are cosmetic.
+const TXT_VIEW_GATE = { anyFlag: ['can_access_txt', 'can_admin_txt', 'can_access_unified_inbox'] }
+const CALL_VIEW_GATE = {
+  anyFlag: ['can_access_call_log', 'can_access_call_log2', 'can_access_dialer', 'can_admin_dialer'],
+}
 
 const CONTACT_COLS =
   'id, name, first_name, last_name, phone, email, do_not_text, do_not_call, ' +
@@ -221,7 +231,8 @@ export const customerOverviewAction: HubAction = {
       out.push('Status: not linked to a Jobber customer record (lead or manually added contact).')
     }
 
-    // Recent text activity.
+    // Recent text activity — only for actors who can see texts in the product.
+    if (actorPassesGate(ctx.actor, TXT_VIEW_GATE)) {
     const { data: msgs } = await ctx.admin
       .from('txt_messages')
       .select('direction, body, created_at')
@@ -237,8 +248,10 @@ export const customerOverviewAction: HubAction = {
         out.push(`  [${who} · ${stampLabel(m.created_at)}] ${clip(m.body || '(no text)', 160)}`)
       }
     }
+    }
 
-    // Recent calls.
+    // Recent calls — same reasoning as texts above.
+    if (actorPassesGate(ctx.actor, CALL_VIEW_GATE)) {
     const { data: callRows } = await ctx.admin
       .from('calls')
       .select('direction, status, duration_seconds, created_at, ai_summary')
@@ -262,6 +275,7 @@ export const customerOverviewAction: HubAction = {
             `${cl.ai_summary ? ` — ${clip(cl.ai_summary, 200)}` : ''}`,
         )
       }
+    }
     }
 
     if (c.notes?.trim()) out.push(`Saved notes: ${clip(c.notes, 600)}`)
@@ -291,6 +305,7 @@ export const addContactNoteAction: HubAction = {
     const note = str(args, 'note')
     if (!contactId) return 'Provide a valid contact_id from find_contact.'
     if (!note) return 'Provide the note text.'
+    if (note.length > 2000) return 'That note is too long — keep it under about 2000 characters.'
 
     const { data: existing } = await ctx.admin
       .from('txt_contacts')

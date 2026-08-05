@@ -9,6 +9,14 @@ export type AssistantSettings = {
   mcpEnabled: boolean
   /** Whether outward actions must be previewed + confirmed. */
   requireConfirmation: boolean
+  /**
+   * Whether customer-facing actions may run over MCP at all. Off by default: the
+   * same-turn confirmation binding can't protect that door (each tools/call is
+   * its own request, so there are no turn boundaries we can see), which leaves
+   * approval resting entirely on the connected Claude client's own per-tool
+   * confirmation UI. That's a call for the company to make deliberately.
+   */
+  allowOutwardOverMcp: boolean
   /** Action names this company has turned off. */
   disabledActions: string[]
 }
@@ -18,6 +26,7 @@ const DEFAULTS: AssistantSettings = {
   enabled: false,
   mcpEnabled: false,
   requireConfirmation: true,
+  allowOutwardOverMcp: false,
   disabledActions: [],
 }
 
@@ -28,7 +37,7 @@ export async function getAssistantSettings(
   try {
     const { data } = await admin
       .from('hub_assistant_settings')
-      .select('enabled, mcp_enabled, require_confirmation, disabled_actions')
+      .select('enabled, mcp_enabled, require_confirmation, allow_outward_over_mcp, disabled_actions')
       .eq('company_id', companyId)
       .maybeSingle()
     if (!data) return { ...DEFAULTS }
@@ -36,6 +45,7 @@ export async function getAssistantSettings(
       enabled?: boolean | null
       mcp_enabled?: boolean | null
       require_confirmation?: boolean | null
+      allow_outward_over_mcp?: boolean | null
       disabled_actions?: string[] | null
     }
     return {
@@ -43,6 +53,7 @@ export async function getAssistantSettings(
       mcpEnabled: d.mcp_enabled === true,
       // Only an explicit false turns confirmation off — a null must not open it.
       requireConfirmation: d.require_confirmation !== false,
+      allowOutwardOverMcp: d.allow_outward_over_mcp === true,
       disabledActions: Array.isArray(d.disabled_actions) ? d.disabled_actions : [],
     }
   } catch {

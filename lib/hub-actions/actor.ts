@@ -46,6 +46,13 @@ export async function resolveHubActor(
   if (!companyId) return null
   if (p.locked_at || p.deactivated_at) return null
 
+  // can_access_hub is THE Hub gate (proxy.ts, app/hub/layout.tsx). Without this
+  // check a timesheet-only or routing-only employee — someone the browser bounces
+  // straight out of /hub — could mint an MCP token and read the whole customer
+  // directory, because the ungated actions have no flag of their own to fail.
+  // Admins are exempt, matching every other gate in the app.
+  if (p.role !== 'admin' && p.can_access_hub !== true) return null
+
   const { data: hubUser } = await admin
     .from('hub_users')
     .select('display_name')

@@ -54,6 +54,7 @@ export const postHubMessageAction: HubAction = {
     const roomName = str(args, 'room_name')
     const teammateName = str(args, 'teammate_name')
     if (!message) return 'Provide the message text.'
+    if (message.length > 4000) return 'That message is too long for a Hub post — keep it under about 4000 characters.'
     if (!roomName && !teammateName) return 'Say whether this goes to a room (room_name) or a teammate (teammate_name).'
     if (roomName && teammateName) return 'Give only one of room_name or teammate_name, not both.'
 

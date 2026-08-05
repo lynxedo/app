@@ -174,6 +174,7 @@ export const createTaskAction: HubAction = {
     const content = str(args, 'content')
     if (!boardName) return 'Which board should this go on? List the boards or ask the user.'
     if (!content) return 'Provide the task text.'
+    if (content.length > 1000) return 'That task text is too long — keep it under about 1000 characters.'
 
     const boards = await visibleBoards(ctx)
     if (boards.length === 0) return 'There are no task boards you can add to.'

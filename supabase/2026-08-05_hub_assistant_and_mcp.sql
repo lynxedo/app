@@ -144,3 +144,29 @@ GRANT EXECUTE ON FUNCTION public.billing_usage_assistant_requests(uuid, timestam
 -- VALUES ('hub_assistant', 'Hub AI Assistant', '…', 'operations', false, false,
 --         0, '{}', true, 'assistant_requests', 'request', 2.000000, 110, true)
 -- ON CONFLICT (feature_key) DO NOTHING;
+
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 9) HARDENING after an adversarial review of the confirmation gate.
+--    APPLIED to the shared DB on 2026-08-05 via Supabase MCP (migration
+--    `hub_assistant_confirm_turn_binding_2026_08_05`).
+--
+--    The gate was defeatable: stageOutwardAction handed the confirmation id back
+--    to the MODEL, and confirm_action required nothing the model couldn't supply.
+--    So a prompt injected into tenant data (a customer's text, a lead form, a
+--    voicemail transcript) that the assistant reads as a TOOL RESULT could drive
+--    send_customer_text in one loop iteration and confirm_action in the next — a
+--    real outbound SMS with attacker-authored content, no human approving.
+--
+--    The row proved a valid preview was CREATED by this actor; it never proved a
+--    human APPROVED it. The fix binds confirmation to something the model cannot
+--    manufacture: a later assistant turn.
+ALTER TABLE public.hub_assistant_pending_actions
+  ADD COLUMN IF NOT EXISTS staged_turn_id text;
+
+--    Over MCP we can't see turn boundaries (each tools/call is its own request),
+--    so the turn binding can't protect that door — approval would rest entirely
+--    on the connected Claude client's own per-tool confirmation UI. Customer-facing
+--    actions are therefore off over MCP unless a company opts in deliberately.
+ALTER TABLE public.hub_assistant_settings
+  ADD COLUMN IF NOT EXISTS allow_outward_over_mcp boolean NOT NULL DEFAULT false;

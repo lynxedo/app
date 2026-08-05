@@ -63,10 +63,27 @@ dispatcher **intercepts the first call**: it resolves the real target, writes a
 Only `confirm_action` executes, and it re-checks company + user + expiry + status
 **and the permission gate** (a staged row is not a capability token).
 
-This is enforced in code, not in the prompt, because a prompt instruction can be
-talked around by content the model reads — a web page, an email, a customer's
-text. A row that must exist, belong to this company and this user, be unexpired,
-and be unconsumed cannot be.
+⚠ **The row alone is not enough, and an earlier version of this got it wrong.**
+The row proves a valid preview was *created by this actor*; it does not prove a
+*human approved it*. Because the model has to be told the id (it must show it to
+the user), the model could originally stage in one loop iteration and confirm in
+the next — which means a prompt injected into tenant data the assistant *reads*
+(a customer's text, a lead form, a voicemail transcript) could send a real SMS
+with nobody approving.
+
+So confirmation is bound to something the model **cannot manufacture: a later
+assistant turn.** `staged_turn_id` records the turn that staged the action, and
+`confirm_action` refuses a row staged in the *current* turn. Guardian only starts
+a turn when a human sends a message, so a confirm necessarily follows a real
+person replying.
+
+Over MCP there are no turn boundaries we can see — every `tools/call` is its own
+request — so the binding can't protect that door. Customer-facing actions are
+therefore **off over MCP** unless the company sets `allow_outward_over_mcp`,
+accepting that approval then rests on their Claude client's own per-tool prompt.
+
+If you add an outward action, do not "simplify" this by returning the id and
+trusting the model to wait.
 
 Consume-then-execute uses `.eq('status','pending')` as a compare-and-set, so two
 overlapping confirms can't both send.

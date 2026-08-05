@@ -12,6 +12,7 @@ type Settings = {
   enabled: boolean
   mcpEnabled: boolean
   requireConfirmation: boolean
+  allowOutwardOverMcp: boolean
   disabledActions: string[]
 }
 
@@ -91,6 +92,7 @@ export default function AssistantPanel() {
           enabled: settings.enabled,
           mcp_enabled: settings.mcpEnabled,
           require_confirmation: settings.requireConfirmation,
+          allow_outward_over_mcp: settings.allowOutwardOverMcp,
           disabled_actions: settings.disabledActions,
         }),
       })
@@ -161,6 +163,19 @@ export default function AssistantPanel() {
             checked={settings.requireConfirmation}
             onChange={(v) => setSettings({ ...settings, requireConfirmation: v })}
           />
+          <Toggle
+            label="Let connected Claude apps text customers"
+            hint="Off by default. In the Hub, a customer text always waits for a person to approve it. Over a connected Claude app we can't guarantee that step, so approval depends on that app asking you first."
+            checked={settings.allowOutwardOverMcp}
+            disabled={!settings.enabled || !settings.mcpEnabled}
+            onChange={(v) => setSettings({ ...settings, allowOutwardOverMcp: v })}
+          />
+          {settings.allowOutwardOverMcp && (
+            <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
+              With this on, a connected Claude app can send a customer text once you approve it in
+              that app. The Hub&apos;s own approval step no longer applies there.
+            </p>
+          )}
           {!settings.requireConfirmation && (
             <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
               With confirmation off, the assistant can text a customer as soon as someone asks it to,

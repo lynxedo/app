@@ -10,8 +10,8 @@ import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { hashSecret } from '@/lib/mcp-auth'
-import { resolveHubActor } from '@/lib/hub-actions'
+import { appOrigin, hashSecret } from '@/lib/mcp-auth'
+import { getAssistantSettings, resolveHubActor } from '@/lib/hub-actions'
 
 /** Codes are single-use and short-lived; 60s is ample for an immediate exchange. */
 const CODE_TTL_MS = 60_000
@@ -27,6 +27,26 @@ function fail(detail: string) {
 }
 
 export async function POST(request: Request) {
+  // CSRF: this endpoint is authenticated only by the session cookie and mints an
+  // authorization code, so a cross-site form post that carried the cookie would be
+  // account takeover. @supabase/ssr sets SameSite=Lax which already blocks that,
+  // but relying on a library default for the only control is too thin — one future
+  // change to sameSite would silently open it. Require a same-origin submission.
+  // (Note: the CSP's `form-action 'self'` is NOT a defense here — it constrains
+  // where OUR pages may submit, not who may submit to US, and it is currently
+  // report-only anyway.)
+  const fetchSite = request.headers.get('sec-fetch-site')
+  if (fetchSite && fetchSite !== 'same-origin') {
+    return fail('That request did not come from Lynxedo.')
+  }
+  if (!fetchSite) {
+    // Older clients omit Sec-Fetch-Site; fall back to an Origin comparison.
+    const origin = request.headers.get('origin')
+    if (origin && origin.replace(/\/$/, '') !== appOrigin()) {
+      return fail('That request did not come from Lynxedo.')
+    }
+  }
+
   let form: FormData
   try {
     form = await request.formData()
@@ -63,6 +83,15 @@ export async function POST(request: Request) {
     return fail("The return address doesn't match one this app registered.")
   }
 
+  // Require a session BEFORE any redirect — including the deny branch. Otherwise
+  // an unauthenticated POST with a registered client is a POST-only open redirect
+  // on our own domain.
+  const supabase = await createClient()
+  const {
+    data: { user },
+  } = await supabase.auth.getUser()
+  if (!user) return fail('Your session expired before the connection finished. Start again.')
+
   // Only now is it safe to build a redirect back to the client.
   const target = new URL(redirectUri)
 
@@ -73,15 +102,19 @@ export async function POST(request: Request) {
     return NextResponse.redirect(target.toString(), 303)
   }
 
-  // The session is the authorization: we mint a code for whoever is signed in.
-  const supabase = await createClient()
-  const {
-    data: { user },
-  } = await supabase.auth.getUser()
-  if (!user) return fail('Your session expired before the connection finished. Start again.')
-
   const actor = await resolveHubActor(admin, user.id, 'mcp')
   if (!actor) return fail("Your Lynxedo account isn't active or isn't attached to a company.")
+
+  // Don't mint a durable 90-day grant for a company that hasn't turned this on.
+  // Otherwise a consent-phishing campaign could harvest tokens across every
+  // tenant that they'd then hold, inert, until an admin flips the feature live.
+  const settings = await getAssistantSettings(admin, actor.companyId)
+  if (!settings.enabled || !settings.mcpEnabled) {
+    return fail(
+      'Connecting Claude apps is not enabled for your company yet, so no connection was made. ' +
+        'An admin can enable it in Admin → AI → Assistant.',
+    )
+  }
 
   const rawCode = randomBytes(32).toString('base64url')
   const { error } = await admin.from('mcp_oauth_codes').insert({

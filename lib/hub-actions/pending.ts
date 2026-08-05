@@ -39,6 +39,7 @@ export async function stageOutwardAction(
   action: string,
   args: Record<string, unknown>,
   preview: string,
+  turnId: string,
 ): Promise<string> {
   const shortId = makeShortId()
   const { error } = await admin.from('hub_assistant_pending_actions').insert({
@@ -50,6 +51,7 @@ export async function stageOutwardAction(
     preview,
     source: actor.source,
     status: 'pending',
+    staged_turn_id: turnId,
     expires_at: new Date(Date.now() + PENDING_TTL_MS).toISOString(),
   })
   if (error) {
@@ -78,6 +80,7 @@ export async function consumePendingAction(
   admin: Admin,
   actor: HubActor,
   shortId: string,
+  turnId: string,
 ): Promise<ConsumedAction> {
   const id = shortId.trim().toUpperCase()
   if (!/^[0-9A-Z]{6}$/.test(id)) {
@@ -86,7 +89,7 @@ export async function consumePendingAction(
 
   const { data: row } = await admin
     .from('hub_assistant_pending_actions')
-    .select('id, action, args, status, expires_at')
+    .select('id, action, args, status, expires_at, staged_turn_id')
     .eq('short_id', id)
     .eq('company_id', actor.companyId)
     .eq('user_id', actor.userId)
@@ -98,7 +101,29 @@ export async function consumePendingAction(
       message: `I couldn't find a pending action with id "${id}" for you. Nothing was sent — build the request again from scratch.`,
     }
   }
-  const r = row as { id: string; action: string; args: Record<string, unknown>; status: string; expires_at: string }
+  const r = row as {
+    id: string
+    action: string
+    args: Record<string, unknown>
+    status: string
+    expires_at: string
+    staged_turn_id: string | null
+  }
+
+  // THE HUMAN-IN-THE-LOOP CHECK. Refusing a confirm from the same turn that staged
+  // it is what makes this more than a prompt rule: the model can read the id (it
+  // has to, to show the user), but it cannot manufacture a new turn — only a
+  // person sending another message does that. Without this, injected text sitting
+  // in tenant data could drive stage-then-confirm inside one loop.
+  if (r.staged_turn_id && r.staged_turn_id === turnId) {
+    return {
+      ok: false,
+      message:
+        'Nothing was sent. This needs the person to actually approve it first: show them the preview, ' +
+        'wait for their reply, and only confirm after they say yes in a new message. You cannot confirm ' +
+        'something you staged a moment ago in this same response.',
+    }
+  }
 
   if (r.status === 'consumed') {
     return { ok: false, message: 'That action was already carried out. It has NOT been repeated.' }

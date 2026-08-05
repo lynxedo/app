@@ -62,6 +62,15 @@ export type ActionKind = 'read' | 'write' | 'outward'
 export type ActionContext = {
   admin: Admin
   actor: HubActor
+  /**
+   * Identifies THIS assistant turn. An outward action staged during a turn cannot
+   * be confirmed during the same turn — that's what forces a human back into the
+   * loop, since Guardian only starts a new turn when a person sends a message.
+   * Without it, a prompt injected into tenant data (a customer's text, a lead
+   * form, a voicemail transcript) that the assistant reads as a TOOL RESULT could
+   * stage a customer text in one loop iteration and confirm it in the next.
+   */
+  turnId: string
 }
 
 /**

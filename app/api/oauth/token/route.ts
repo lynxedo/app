@@ -223,12 +223,16 @@ export async function POST(request: Request) {
 
     if (row.revoked_at) {
       // Reuse of a rotated refresh token — treat the family as compromised.
+      // Scope the family revoke to this client. With a null client_id, revoke ONLY
+      // this row rather than every token the user has — a broad sweep would take
+      // out their unrelated personal access tokens.
       let q = admin
         .from('mcp_tokens')
         .update({ revoked_at: new Date().toISOString() })
-        .eq('user_id', row.user_id)
         .is('revoked_at', null)
-      if (row.client_id) q = q.eq('client_id', row.client_id)
+      q = row.client_id
+        ? q.eq('user_id', row.user_id).eq('client_id', row.client_id)
+        : q.eq('id', row.id)
       await q
       return oauthError(
         'invalid_grant',
