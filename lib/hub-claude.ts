@@ -209,7 +209,7 @@ export async function askClaude({
   // company that owns it (see HEROES_MCP_COMPANY_ID above).
   const legacyMcpAllowed = companyId === HEROES_MCP_COMPANY_ID
 
-  const [mcpTools, system, settings, todayUsedCount] = await Promise.all([
+  const [mcpTools, system, settings, todayUsedCount, assistantSettings] = await Promise.all([
     legacyMcpAllowed ? getHeroesTools() : Promise.resolve([] as Anthropic.Tool[]),
     buildSystemPrompt(systemPrompt, companyId),
     getGuardianSettings(adminClient, companyId).catch(() => ({
@@ -217,6 +217,9 @@ export async function askClaude({
       web_search_daily_cap: 30,
     })),
     getTodayWebSearchCount(adminClient, companyId).catch(() => 0),
+    // Batched with the rest so an assistant-off company pays no extra round trip
+    // on the latency path — someone is waiting on this reply in the Hub.
+    getAssistantSettings(adminClient, companyId),
   ])
 
   const { model, web_search_daily_cap: dailyCap } = settings
@@ -231,7 +234,6 @@ export async function askClaude({
   // Guardian can never do something on someone's behalf that they can't do
   // themselves. Resolving the actor needs a real user id; a call without one
   // (an automated/system Guardian post) gets no actions.
-  const assistantSettings = await getAssistantSettings(adminClient, companyId)
   const actor =
     userId && assistantSettings.enabled
       ? await resolveHubActor(adminClient, userId, 'guardian').catch(() => null)
