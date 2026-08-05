@@ -24,10 +24,34 @@ const nextConfig: NextConfig = {
     { source: '/books', destination: '/hub/books', permanent: true },
     { source: '/books/:path*', destination: '/hub/books/:path*', permanent: true },
   ],
+  // OAuth / MCP discovery documents must live at the well-known paths, but the
+  // Next app router ignores dot-prefixed directories — so `app/.well-known/…`
+  // would never route. The handlers live under app/api/well-known/* and are
+  // surfaced at their canonical paths here.
+  rewrites: async () => [
+    {
+      source: '/.well-known/oauth-protected-resource',
+      destination: '/api/well-known/oauth-protected-resource',
+    },
+    {
+      source: '/.well-known/oauth-authorization-server',
+      destination: '/api/well-known/oauth-authorization-server',
+    },
+    // Some clients probe the resource-metadata path with the resource appended.
+    {
+      source: '/.well-known/oauth-protected-resource/:path*',
+      destination: '/api/well-known/oauth-protected-resource',
+    },
+  ],
   headers: async () => [
     {
       source: '/(books|api/qbo)(.*)',
       headers: [{ key: 'Cache-Control', value: 'no-store, no-cache' }],
+    },
+    // Tokens and MCP responses must never be cached by a proxy or the browser.
+    {
+      source: '/api/(mcp|oauth)(.*)',
+      headers: [{ key: 'Cache-Control', value: 'no-store, no-cache, must-revalidate' }],
     },
     {
       source: '/(.*)',
