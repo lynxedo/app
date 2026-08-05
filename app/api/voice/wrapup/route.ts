@@ -10,6 +10,7 @@ import {
 import { fanoutGuardianNotification, postGuardianToRoom } from '@/lib/guardian-post'
 import { sendHubPush } from '@/lib/hub-push'
 import { formatPhone } from '@/lib/format'
+import { toE164 } from '@/lib/phone'
 import { sendDirectTxtToPhone } from '@/lib/txt-send'
 import { getEffectiveVoiceReceptionistSettings } from '@/lib/voice-receptionist-settings'
 import { getBusinessProfile } from '@/lib/business-profile'
@@ -123,6 +124,25 @@ function renderTranscript(turns: TranscriptTurn[]): string {
     .join('\n')
 }
 
+// A phone number we can actually dial, or null.
+//
+// Amber deliberately reads a callback number back by its LAST FOUR digits only
+// (so the TTS never mangles a full number — see buildCallContextNote in
+// lib/voice-receptionist.ts), which means the transcript usually contains only a
+// masked reference to it: "your number ending in one one eight five". The
+// extractor happily returned that as `callback_phone`, and a truthy partial WON
+// over the real caller ID — so the Lead Tracker filled up with undialable junk
+// ("ending in 1185", "xxxx-xx-9201") and, because the directory sync needs ten
+// digits, those leads never mirrored into Contacts either.
+//
+// Anything that isn't a complete number is discarded here so the caller ID (ANI)
+// wins instead. A caller who gives a DIFFERENT full number still keeps it — they
+// speak it in full, so the extractor has real digits to return.
+function dialablePhoneOrNull(raw: string | null | undefined): string | null {
+  if (!raw) return null
+  return toE164(String(raw))
+}
+
 function splitName(full: string | null): { first: string | null; last: string | null } {
   const parts = (full || '').trim().split(/\s+/).filter(Boolean)
   if (!parts.length) return { first: null, last: null }
@@ -158,6 +178,10 @@ async function extractLead(
     '"summary": string, "wants_callback": boolean, "soft_commitment": boolean, "recap_opt_in": boolean, ' +
     '"call_type": "sales_lead"|"complaint"|"scheduling"|"billing"|"existing_customer"|"other"}. ' +
     'Set a field to null if the caller did not provide it. ' +
+    'callback_phone must be a COMPLETE phone number spoken by the CALLER (all ten digits). ' +
+    'The assistant confirms a number by reading back ONLY its last four digits, so a partial or masked ' +
+    'reference — "ending in one one eight five", "ends in 0536", "xxxx-xx-9201" — is NOT a phone number: ' +
+    'return null for callback_phone in that case. Never pad, guess, or invent digits. ' +
     'call_type classifies WHY they called: "sales_lead" = a new customer, or anyone wanting a quote or to start a service the company actually offers; ' +
     '"complaint" = an unhappy caller complaining about service or a problem; ' +
     '"scheduling" = an existing customer asking about, or wanting to change, their visit schedule; ' +
@@ -201,7 +225,9 @@ async function extractLead(
 
     return {
       name: (parsed.name ?? null) || null,
-      callback_phone: (parsed.callback_phone ?? null) || fallbackPhone,
+      // Sanitized, never raw: a masked readback ("ending in 1185") must never
+      // beat the caller ID we already know is dialable.
+      callback_phone: dialablePhoneOrNull(parsed.callback_phone) || dialablePhoneOrNull(fallbackPhone),
       address_or_area: (parsed.address_or_area ?? null) || null,
       service_wanted: (parsed.service_wanted ?? null) || null,
       timeframe: (parsed.timeframe ?? null) || null,
@@ -244,8 +270,14 @@ export async function POST(request: Request) {
   const extracted = await extractLead(transcriptText, fromNumber)
 
   const { first, last } = splitName(extracted?.name ?? null)
-  const callbackPhone = extracted?.callback_phone || fromNumber
+  // The number that lands on the lead: the caller's stated callback number when
+  // we captured all ten digits, else the caller ID. Both are validated, so the
+  // Lead Tracker gets a dialable number or nothing at all — never a fragment.
+  const callerAni = dialablePhoneOrNull(fromNumber)
+  const callbackPhone = extracted?.callback_phone || callerAni
   const leadPhone = callbackPhone ? formatPhone(callbackPhone) || callbackPhone : null
+  // Worth recording when the caller asked to be reached somewhere else.
+  const altAni = callerAni && callbackPhone && callerAni !== callbackPhone ? callerAni : null
   const service = extracted?.service_wanted || null
   const summary = extracted?.summary || 'After-hours AI receptionist call (no summary extracted).'
   const urgency = extracted?.urgency || 'normal'
@@ -289,6 +321,7 @@ export async function POST(request: Request) {
     facts.push(`Call type: ${callType}`)
     if (extracted?.name) facts.push(`Name: ${extracted.name}`)
     if (callbackPhone) facts.push(`Callback: ${formatPhone(callbackPhone) || callbackPhone}`)
+    if (altAni) facts.push(`Called from: ${formatPhone(altAni) || altAni}`)
     if (extracted?.address_or_area) facts.push(`Address/area: ${extracted.address_or_area}`)
     if (service) facts.push(`Service: ${service}`)
     if (extracted?.timeframe) facts.push(`Timeframe: ${extracted.timeframe}`)
@@ -401,6 +434,7 @@ export async function POST(request: Request) {
   const facts: string[] = []
   if (extracted?.name) facts.push(`Name: ${extracted.name}`)
   if (callbackPhone) facts.push(`Callback: ${formatPhone(callbackPhone) || callbackPhone}`)
+  if (altAni) facts.push(`Called from: ${formatPhone(altAni) || altAni}`)
   if (extracted?.address_or_area) facts.push(`Address/area: ${extracted.address_or_area}`)
   if (service) facts.push(`Service: ${service}`)
   if (extracted?.timeframe) facts.push(`Timeframe: ${extracted.timeframe}`)
