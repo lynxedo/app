@@ -14,6 +14,7 @@ const ITEMS: SettingsNavItem[] = [
   { tab: 'my-hub',        icon: '🎨', label: 'My Hub' },
   { tab: 'notifications', icon: '🔔', label: 'Notifications' },
   { tab: 'extension',     icon: '🧩', label: 'Browser Extension' },
+  { tab: 'claude',        icon: '✨', label: 'Claude Connection' },
   { tab: 'beta',          icon: '🧪', label: 'Beta Features', betaOnly: true },
   { tab: 'account',       icon: '⚙️', label: 'Account' },
 ]

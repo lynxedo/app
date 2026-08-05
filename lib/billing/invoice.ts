@@ -24,6 +24,7 @@ const USAGE_RPC: Record<string, string> = {
   transcript_minutes: 'billing_usage_transcript_minutes',
   ai_summaries: 'billing_usage_ai_summaries',
   caller_id_lookups: 'billing_usage_caller_id_lookups',
+  assistant_requests: 'billing_usage_assistant_requests',
 }
 
 export type InvoiceLine = {

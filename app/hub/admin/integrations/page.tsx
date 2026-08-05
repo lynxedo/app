@@ -27,7 +27,7 @@ export default async function AdminIntegrationsPage() {
   const companyId = profile.company_id
   const admin = createAdminClient()
 
-  const [jobber, qbo, gusto, meta, email, onestep, google, voicedrop] = await Promise.all([
+  const [jobber, qbo, gusto, meta, email, onestep, google, voicedrop, hubAssistant] = await Promise.all([
     admin.from('jobber_tokens').select('id').eq('company_id', companyId).limit(1).maybeSingle(),
     admin.from('qbo_tokens').select('id').eq('company_id', companyId).maybeSingle(), // QBO is now company-scoped (Track 3)
     admin.from('gusto_connections').select('company_id').eq('company_id', companyId).maybeSingle(),
@@ -36,6 +36,9 @@ export default async function AdminIntegrationsPage() {
     admin.from('company_integrations').select('config').eq('company_id', companyId).eq('provider', 'onestepgps').maybeSingle(),
     admin.from('google_connections').select('company_id, google_email, customer_id, lsa_enabled').eq('company_id', companyId).maybeSingle(),
     admin.from('company_integrations').select('config').eq('company_id', companyId).eq('provider', 'voicedrop').maybeSingle(),
+    // Hub Assistant (Claude over MCP). RLS is on with no policies → service-role
+    // only, so this MUST go through the admin client like the rows above.
+    admin.from('hub_assistant_settings').select('enabled, mcp_enabled').eq('company_id', companyId).maybeSingle(),
   ])
 
   const gustoConfigured = !!(process.env.GUSTO_CLIENT_ID && process.env.GUSTO_CLIENT_SECRET)
@@ -62,6 +65,13 @@ export default async function AdminIntegrationsPage() {
   // "connected" signal — the env key is just a resolver fallback (dev), never
   // tied to a hardcoded company. See lib/voicedrop.ts.
   const voiceDropOwnKey = !!((voicedrop.data?.config ?? null) as { api_key?: string } | null)?.api_key
+
+  // Hub Assistant: the assistant can be on for in-Hub use while OUTSIDE Claude
+  // apps (claude.ai / Claude Code / desktop) are still not allowed to connect —
+  // that middle state is the one worth flagging, so it reads action_needed.
+  const hubAssistantRow = hubAssistant.data as { enabled?: boolean | null; mcp_enabled?: boolean | null } | null
+  const hubAssistantEnabled = !!hubAssistantRow?.enabled
+  const hubAssistantMcp = !!hubAssistantRow?.mcp_enabled
 
   // Shared Inbox (Hub Email via Nylas): "connected" iff a shared mailbox row exists for the company.
   const sharedInbox = await admin
@@ -109,6 +119,11 @@ export default async function AdminIntegrationsPage() {
       : !nylasConfigured()
         ? { status: 'action_needed', detail: 'Setup pending — contact Lynxedo' }
         : { status: 'not_connected' },
+    claude_assistant: hubAssistantEnabled
+      ? hubAssistantMcp
+        ? { status: 'connected', detail: 'Claude apps can connect' }
+        : { status: 'action_needed', detail: 'Assistant on; outside Claude apps not allowed yet' }
+      : { status: 'not_connected', detail: 'Not enabled' },
   }
 
   const webhookBase = process.env.NEXT_PUBLIC_APP_URL ?? 'https://lynxedo.com'

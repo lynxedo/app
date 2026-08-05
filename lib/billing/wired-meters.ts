@@ -19,6 +19,7 @@ export const WIRED_METER_EVENTS: WiredMeter[] = [
   { event_name: 'transcript_minutes', label: 'Transcribed minutes', unit: 'minute' },
   { event_name: 'ai_summaries', label: 'AI call summaries', unit: 'call' },
   { event_name: 'caller_id_lookups', label: 'Caller ID lookups', unit: 'lookup' },
+  { event_name: 'assistant_requests', label: 'Hub Assistant requests', unit: 'request' },
 ]
 
 export const WIRED_METER_EVENT_NAMES: string[] = WIRED_METER_EVENTS.map((m) => m.event_name)

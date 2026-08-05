@@ -57,6 +57,7 @@ function AdminOnly({ children }: { children: React.ReactNode }) {
 const TABS = [
   { id: 'hub',          icon: '💬', label: 'Hub' },
   { id: 'feedback',     icon: '🚩', label: 'Report an Issue' },
+  { id: 'hub-assistant', icon: '🤖', label: 'Hub Assistant' },
   { id: 'routing',      icon: '⚡', label: 'Route Optimizer' },
   { id: 'lawn-sizer',   icon: '🌿', label: 'Lawn Sizer' },
   { id: 'zone-sizer',   icon: '💧', label: 'Zone Sizer' },
@@ -94,6 +95,7 @@ type TabId = typeof TABS[number]['id']
 const TAB_BODY: Record<TabId, () => ReactNode> = {
   'hub': HubTab,
   'feedback': FeedbackTab,
+  'hub-assistant': HubAssistantTab,
   'routing': RoutingTab,
   'lawn-sizer': LawnSizerTab,
   'zone-sizer': ZoneSizerTab,
@@ -372,6 +374,7 @@ export default function HelpContent() {
         ) : (
           <>
             {activeTab === 'hub'        && <HubTab />}
+            {activeTab === 'hub-assistant' && <HubAssistantTab />}
             {activeTab === 'routing'    && <RoutingTab />}
             {activeTab === 'lawn-sizer' && <LawnSizerTab />}
             {activeTab === 'zone-sizer' && <ZoneSizerTab />}
@@ -443,6 +446,74 @@ function FeedbackTab() {
         </ul>
         <Note>Tip: send <strong className="text-white">one issue per report</strong> so each can be tracked and fixed on its own.</Note>
       </Section>
+    </>
+  )
+}
+
+// ──────────────────────────────────────────────────────────────────────────
+// HUB ASSISTANT
+// ──────────────────────────────────────────────────────────────────────────
+
+function HubAssistantTab() {
+  return (
+    <>
+      <Section title="What the Hub Assistant Is">
+        <p>The <strong className="text-white">Hub Assistant</strong> is Claude, built right into the Hub. Ask it something in your one-on-one <strong className="text-orange-300">@Guardian</strong> chat — or @mention <strong className="text-orange-300">@Guardian</strong> in a room — and it can look things up for you and take care of a few tasks on your behalf. There&apos;s no separate app to open and nothing new to learn: you just ask, in plain words, the way you&apos;d ask a coworker.</p>
+        <p className="text-gray-400 text-xs">Examples: <em>&ldquo;What&apos;s on the schedule Thursday?&rdquo;</em> · <em>&ldquo;Pull up everything on the Winward account.&rdquo;</em> · <em>&ldquo;Which text threads are waiting on a reply?&rdquo;</em> · <em>&ldquo;Add a task on my board to call them back Monday.&rdquo;</em></p>
+      </Section>
+
+      <Section title="What You Can Ask It">
+        <p><strong className="text-white">Looking things up</strong></p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Find a contact</strong> — by name or phone number.</li>
+          <li><strong className="text-white">Pull up everything about a customer</strong> — their details, their next visit, recent texts and calls, and any notes on file.</li>
+          <li><strong className="text-white">Check the work schedule</strong> — for a single day or a range of days.</li>
+          <li><strong className="text-white">Search text conversations</strong> — including &ldquo;which threads are waiting on a reply?&rdquo;</li>
+          <li><strong className="text-white">Check recent calls</strong> — plus missed calls and voicemails that still need follow-up.</li>
+          <li><strong className="text-white">List sales leads</strong> from the <Link href="/hub/tracker" className="text-sky-400 hover:underline">Lead Tracker</Link>.</li>
+          <li><strong className="text-white">See your open board tasks</strong> — or a teammate&apos;s, when you need to know what&apos;s on their plate.</li>
+        </ul>
+        <p className="mt-3"><strong className="text-white">Getting things done</strong></p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Create a task</strong> on one of your boards.</li>
+          <li><strong className="text-white">Add a note</strong> to a contact.</li>
+          <li><strong className="text-white">Post a message</strong> to a room, or <strong className="text-white">DM a teammate</strong>.</li>
+          <li><strong className="text-white">Text a customer</strong> — always with your confirmation first (see below).</li>
+        </ul>
+      </Section>
+
+      <Section title="It Only Does What You Can Do">
+        <p>The assistant works with <strong className="text-white">your own Lynxedo permissions</strong> — never anyone else&apos;s, and never more than your own. If you don&apos;t have access to a part of the app, the assistant can&apos;t reach it for you either: ask it about calls when you don&apos;t have the <Link href="/hub/dialer" className="text-sky-400 hover:underline">Dialer</Link>, and it will simply tell you it can&apos;t look that up.</p>
+        <Note>This is not a shortcut around permissions. It&apos;s the same access you already have, just reachable by asking instead of clicking. If you need something it says you can&apos;t see, ask an admin to grant you that area in <strong className="text-white">Admin → People</strong> like normal.</Note>
+      </Section>
+
+      <Section title="Texting a Customer Is Always Two Steps">
+        <p>Nothing ever goes out to a customer without you saying yes first.</p>
+        <Step n={1}>Ask it to send the text — e.g. <em>&ldquo;Text the Hamburgers that we&apos;ll be there tomorrow between 9 and 11.&rdquo;</em></Step>
+        <Step n={2}>It shows you <strong className="text-white">exactly who it will text and the exact message</strong>, and stops there. Nothing has been sent yet.</Step>
+        <Step n={3}>Say <strong className="text-white">yes</strong> and it sends. Changed your mind? Just don&apos;t confirm — say no, or simply move on and it never goes out.</Step>
+        <Note>A pending confirmation <strong className="text-white">expires after 15 minutes</strong>. If you come back to it later, just ask again and review the fresh version.</Note>
+        <p className="mt-3"><strong className="text-white">The signature and opt-out wording are added for you.</strong> Customer texts get your company signature and any required &ldquo;reply STOP to opt out&rdquo; line automatically, exactly as they would if you&apos;d sent from <Link href="/hub/txt" className="text-sky-400 hover:underline">Txt</Link> — you never need to type them.</p>
+        <p><strong className="text-white">Opted-out customers stay opted out.</strong> Anyone marked <em>do not text</em> can&apos;t be texted through the assistant, and it will tell you so instead of quietly skipping them.</p>
+      </Section>
+
+      <Section title="Using It From the Claude App Instead">
+        <p>If you already use Claude — on <strong className="text-white">claude.ai</strong>, the <strong className="text-white">desktop Claude app</strong>, or <strong className="text-white">Claude Code</strong> — you can connect it to your Hub and do these same things from there, without opening Lynxedo.</p>
+        <p>Go to <strong className="text-white">Settings → Claude Connection</strong> and follow the steps. You sign in with your normal Lynxedo login and approve the connection; from then on your Claude can look things up and take the same actions listed above, still limited to your own permissions and still asking you to confirm anything customer-facing. You can <strong className="text-white">disconnect any time</strong> from that same screen.</p>
+        <Note>This is optional. Everything works from the Hub itself without connecting anything.</Note>
+      </Section>
+
+      <AdminOnly>
+        <p>The whole feature is turned on in <strong className="text-white">Admin → AI → Assistant</strong>. It&apos;s off until you enable it.</p>
+        <p>From that same screen you can also:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
+          <li><strong className="text-white">Allow or disallow outside Claude apps</strong> — whether people may connect claude.ai, Claude Code, or the desktop Claude app to their Hub (the <em>Claude Connection</em> area in Settings). Turn it off and the assistant only works inside the Hub.</li>
+          <li><strong className="text-white">Require confirmation for customer-facing actions</strong> — on by default, and worth leaving on: it&apos;s what makes every customer text a two-step, show-it-to-you-first send.</li>
+          <li><strong className="text-white">Turn individual actions off</strong> — if you&apos;d rather the assistant not, say, text customers or post to rooms at all, switch just that one off and leave the rest.</li>
+          <li><strong className="text-white">See and cut every connected Claude app</strong> in the company — one list of who has connected what, with a disconnect button beside each.</li>
+        </ul>
+        <p>Remember that the assistant never adds access: each person is still limited to the areas they&apos;re granted in <strong className="text-white">Admin → People</strong>, so enabling it doesn&apos;t widen anyone&apos;s reach.</p>
+      </AdminOnly>
     </>
   )
 }
