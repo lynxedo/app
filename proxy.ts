@@ -300,5 +300,12 @@ export const config = {
     '/timesheet/:path*', '/timesheet',
     '/tracker/:path*', '/tracker',
     '/hub/:path*', '/hub', '/login',
+    // The OAuth consent screen (app/oauth/authorize) is a Server Component that
+    // reads the session with getUser(). Matched here for the SAME reason as '/'
+    // above: a Server Component can't write cookies, so middleware must refresh
+    // AND persist the session first or a rotated refresh token is lost. Note
+    // /oauth is deliberately NOT in protectedPaths — the page does its own
+    // /login?next= bounce so the pending authorize request survives sign-in.
+    '/oauth/:path*',
   ],
 }
