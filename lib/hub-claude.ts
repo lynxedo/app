@@ -12,8 +12,26 @@ import {
   incrementWebSearchUsage,
   writeAuditLog,
 } from '@/lib/guardian-audit'
+import {
+  getAssistantSettings,
+  hubActionTools,
+  isHubActionName,
+  listHubActions,
+  logAssistantEvent,
+  resolveHubActor,
+  runHubAction,
+} from '@/lib/hub-actions'
 
 const MCP_URL = 'https://mcp.lynxedo.com/mcp'
+
+// ⚠ MCP_URL above is the ORIGINAL single-tenant Heroes105 MCP server: it holds
+// Heroes' own Jobber OAuth token and is not company-scoped in any way. Serving
+// its tools to another tenant's Guardian would hand them Heroes' customer data,
+// so the legacy tools are pinned to the company that owns that server. Every
+// other tenant gets the native, tenant-scoped action layer (lib/hub-actions)
+// instead — which is the long-term home for these capabilities.
+const HEROES_MCP_COMPANY_ID =
+  process.env.HEROES_MCP_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 const MAX_TOOL_ITERATIONS = 6
 const TOOLS_CACHE_TTL_MS = 60 * 60 * 1000 // 1 hour
 const WEB_SEARCH_TOOL_TYPE = 'web_search_20250305'
@@ -187,8 +205,12 @@ export async function askClaude({
   const anthropic = getAnthropic({ timeout: 60_000, maxRetries: 2 })
   const adminClient = createAdminClient()
 
+  // The legacy Heroes MCP server is single-tenant — only fetch its tools for the
+  // company that owns it (see HEROES_MCP_COMPANY_ID above).
+  const legacyMcpAllowed = companyId === HEROES_MCP_COMPANY_ID
+
   const [mcpTools, system, settings, todayUsedCount] = await Promise.all([
-    getHeroesTools(),
+    legacyMcpAllowed ? getHeroesTools() : Promise.resolve([] as Anthropic.Tool[]),
     buildSystemPrompt(systemPrompt, companyId),
     getGuardianSettings(adminClient, companyId).catch(() => ({
       model: CLAUDE_MODEL,
@@ -203,9 +225,25 @@ export async function askClaude({
   const toolFilter = getMcpToolFilter(tier)
   const filteredMcpTools = mcpTools.filter(t => toolFilter(t.name))
 
-  // Local tools (read_knowledge_doc) come BEFORE MCP tools so the dispatcher
-  // checks them first. Same name conflicts would resolve in our favor.
-  const baseTools: Anthropic.Tool[] = [READ_KNOWLEDGE_DOC_TOOL, ...filteredMcpTools]
+  // Native, tenant-scoped actions (lib/hub-actions) — the assistant layer that
+  // works for ANY subscriber. Offered only when the company has switched the
+  // assistant on and only for actions this specific user's permissions allow, so
+  // Guardian can never do something on someone's behalf that they can't do
+  // themselves. Resolving the actor needs a real user id; a call without one
+  // (an automated/system Guardian post) gets no actions.
+  const assistantSettings = await getAssistantSettings(adminClient, companyId)
+  const actor =
+    userId && assistantSettings.enabled
+      ? await resolveHubActor(adminClient, userId, 'guardian').catch(() => null)
+      : null
+  // A stale/foreign userId must not borrow another tenant's actions.
+  const activeActor = actor && actor.companyId === companyId ? actor : null
+  const nativeActions = activeActor ? listHubActions(activeActor, assistantSettings) : []
+  const nativeTools = hubActionTools(nativeActions)
+
+  // Local tools (read_knowledge_doc + native actions) come BEFORE MCP tools so
+  // the dispatcher checks them first. Same name conflicts resolve in our favor.
+  const baseTools: Anthropic.Tool[] = [READ_KNOWLEDGE_DOC_TOOL, ...nativeTools, ...filteredMcpTools]
 
   const messages: Anthropic.MessageParam[] = [{ role: 'user', content: userMessage }]
 
@@ -314,6 +352,40 @@ export async function askClaude({
               }
             }
           }
+
+          // Native tenant-scoped actions. Checked before MCP so a name that
+          // exists in both resolves to the permission-gated native version.
+          if (activeActor && isHubActionName(block.name)) {
+            const content = await runHubAction(
+              { admin: adminClient, actor: activeActor },
+              assistantSettings,
+              block.name,
+              block.input,
+            )
+            logAssistantEvent(adminClient, {
+              companyId,
+              userId: activeActor.userId,
+              source: 'guardian',
+              toolName: block.name,
+              toolCalls: 1,
+              model,
+            })
+            return { type: 'tool_result' as const, tool_use_id: block.id, content }
+          }
+
+          // A native action the model tried WITHOUT an eligible actor (assistant
+          // off, or no resolvable user) must not fall through to the legacy MCP
+          // server — say so instead.
+          if (isHubActionName(block.name)) {
+            return {
+              type: 'tool_result' as const,
+              tool_use_id: block.id,
+              content:
+                'That action needs the Hub Assistant to be enabled for this company, and it is not. Tell the user an admin can turn it on in Admin → AI → Assistant.',
+              is_error: true,
+            }
+          }
+
           // Otherwise route through MCP.
           return {
             type: 'tool_result' as const,
