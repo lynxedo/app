@@ -87,9 +87,13 @@ export function actorPassesGate(actor: HubActor, gate: ActionGate): boolean {
   if (gate === null) return true
   if (actor.isAdmin) return true
   if ('anyFlag' in gate && gate.anyFlag) {
+    // [].some() is false, so an empty list correctly denies.
     return gate.anyFlag.some((f) => actor.flags[f] === true)
   }
   if ('allFlags' in gate && gate.allFlags) {
+    // [].every() is TRUE — an empty allFlags would silently allow everyone. A gate
+    // that names no flag is a mistake, so treat it as "deny" rather than "open".
+    if (gate.allFlags.length === 0) return false
     return gate.allFlags.every((f) => actor.flags[f] === true)
   }
   return false

@@ -115,7 +115,11 @@ export const callActivityAction: HubAction = {
     ]
     const nameById = new Map<string, string>()
     if (userIds.length) {
-      const { data: users } = await ctx.admin.from('hub_users').select('id, display_name').in('id', userIds)
+      const { data: users } = await ctx.admin
+        .from('hub_users')
+        .select('id, display_name')
+        .eq('company_id', ctx.actor.companyId)
+        .in('id', userIds)
       for (const u of (users || []) as Array<{ id: string; display_name: string | null }>) {
         nameById.set(u.id, (u.display_name || 'someone').trim())
       }

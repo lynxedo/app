@@ -124,6 +124,7 @@ export const searchTextsAction: HubAction = {
       const { data: owners } = await ctx.admin
         .from('hub_users')
         .select('id, display_name')
+        .eq('company_id', ctx.actor.companyId)
         .in('id', ownerIds)
       for (const o of (owners || []) as Array<{ id: string; display_name: string | null }>) {
         ownerById.set(o.id, (o.display_name || 'someone').trim())
