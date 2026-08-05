@@ -50,7 +50,11 @@ export async function GET() {
   const userIds = [...new Set(live.map((r) => r.user_id))]
   const nameById = new Map<string, string>()
   if (userIds.length) {
-    const { data: users } = await admin.from('hub_users').select('id, display_name').in('id', userIds)
+    const { data: users } = await admin
+      .from('hub_users')
+      .select('id, display_name')
+      .eq('company_id', companyId)
+      .in('id', userIds)
     for (const u of (users || []) as Array<{ id: string; display_name: string | null }>) {
       nameById.set(u.id, (u.display_name || 'Someone').trim())
     }

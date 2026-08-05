@@ -124,8 +124,22 @@ export const postHubMessageAction: HubAction = {
       .map((m) => m.conversation_id)
       .filter((id) => myIds.has(id))
 
+    // Only consider conversations that belong to THIS company. A user who was
+    // moved between companies can still have membership rows pointing at their
+    // old tenant's conversations; posting into one of those would cross tenants.
+    let candidates = shared
+    if (candidates.length) {
+      const { data: owned } = await ctx.admin
+        .from('conversations')
+        .select('id')
+        .eq('company_id', ctx.actor.companyId)
+        .in('id', candidates.slice(0, 100))
+      const ownedIds = new Set(((owned || []) as Array<{ id: string }>).map((c) => c.id))
+      candidates = candidates.filter((id) => ownedIds.has(id))
+    }
+
     let conversationId: string | null = null
-    for (const id of shared) {
+    for (const id of candidates) {
       const { count } = await ctx.admin
         .from('conversation_members')
         .select('user_id', { count: 'exact', head: true })
