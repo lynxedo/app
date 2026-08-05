@@ -3,11 +3,22 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { PutObjectCommand } from '@aws-sdk/client-s3'
 import { getR2Client } from '@/lib/r2'
-import { GUARDIAN_HUB_USER_ID } from '@/lib/guardian-post'
+import {
+  ASSISTANT_NAME_MAX,
+  getAssistantPersona,
+  setAssistantPersonaAvatar,
+  setAssistantPersonaName,
+} from '@/lib/ai-persona'
 
-// Persists the Hub Bot's identity — its display name (JSON POST) and its avatar
-// (multipart POST). Both target the bot's hub_users row via the service-role
-// client (a normal session can't UPDATE the bot row) and are gated to AI admins.
+// Persists the shared AI-assistant identity — its display name (JSON POST) and
+// its avatar (multipart POST). This is the ONE place either is set: both writes
+// go through lib/ai-persona.ts, which fans the name + avatar out to every bot row
+// that wears the persona (the Hub bot AND the phone/text receptionist) and keeps
+// voice_receptionist_settings.receptionist_name in step, so a user only ever sees
+// one assistant. See lib/ai-persona.ts for the source-of-truth rationale.
+//
+// All writes use the service-role client (a normal session can't UPDATE a bot
+// row), are scoped to the caller's own company, and are gated to AI admins.
 // Mirrors app/api/profile/avatar/route.ts for the avatar half.
 
 export const dynamic = 'force-dynamic'
@@ -17,10 +28,11 @@ const MAX_BYTES = 5 * 1024 * 1024
 
 async function requireAiAdmin() {
   const check = await requireAdminArea('ai')
+  // `ok` does not narrow company_id/user — guard them explicitly.
   if (!check.ok || !check.company_id) {
     return { error: NextResponse.json({ error: 'Forbidden' }, { status: 403 }) }
   }
-  return { companyId: check.company_id }
+  return { companyId: check.company_id, userId: check.user?.id ?? null }
 }
 
 export async function POST(request: Request) {
@@ -45,8 +57,18 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'Image must be under 5 MB' }, { status: 400 })
     }
 
+    const persona = await getAssistantPersona(admin, ctx.companyId)
+    if (!persona.botUserIds.length) {
+      return NextResponse.json(
+        { error: 'No assistant bot user exists for this company yet' },
+        { status: 409 }
+      )
+    }
+
     const ext = file.type === 'image/jpeg' ? 'jpg' : file.type.split('/')[1]
-    const key = `avatars/${GUARDIAN_HUB_USER_ID}.${ext}`
+    // One object, shared by every persona row — keyed on the primary (Hub bot)
+    // id so previously-uploaded avatars keep their existing key.
+    const key = `avatars/${persona.primaryBotUserId}.${ext}`
 
     const buffer = Buffer.from(await file.arrayBuffer())
     await getR2Client().send(new PutObjectCommand({
@@ -56,19 +78,16 @@ export async function POST(request: Request) {
       ContentType: file.type,
     }))
 
-    // Store the R2 key — served via /api/profile/avatar/[userId]. Scope by
-    // company so an admin can only edit their own company's bot row.
-    const { error } = await admin
-      .from('hub_users')
-      .update({ avatar_url: key })
-      .eq('id', GUARDIAN_HUB_USER_ID)
-      .eq('company_id', ctx.companyId)
-    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // Store the R2 key on every persona row — served via
+    // /api/profile/avatar/[userId], so the Hub bot and the receptionist resolve
+    // to the same image.
+    const { botUserIds } = await setAssistantPersonaAvatar(admin, ctx.companyId, key)
 
     return NextResponse.json({
       ok: true,
       avatar_url: key,
-      serve_url: `/api/profile/avatar/${GUARDIAN_HUB_USER_ID}`,
+      serve_url: `/api/profile/avatar/${persona.primaryBotUserId}`,
+      bot_user_ids: botUserIds,
     })
   }
 
@@ -82,14 +101,31 @@ export async function POST(request: Request) {
 
   const name = typeof body.display_name === 'string' ? body.display_name.trim() : ''
   if (!name) return NextResponse.json({ error: 'Name must be a non-empty string' }, { status: 400 })
-  if (name.length > 40) return NextResponse.json({ error: 'Name too long (40 max)' }, { status: 400 })
+  if (name.length > ASSISTANT_NAME_MAX) {
+    return NextResponse.json(
+      { error: `Name too long (${ASSISTANT_NAME_MAX} max)` },
+      { status: 400 }
+    )
+  }
 
-  const { error } = await admin
-    .from('hub_users')
-    .update({ display_name: name })
-    .eq('id', GUARDIAN_HUB_USER_ID)
-    .eq('company_id', ctx.companyId)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  let result: { botUserIds: string[]; receptionistSynced: boolean }
+  try {
+    result = await setAssistantPersonaName(admin, ctx.companyId, name, ctx.userId)
+  } catch (e) {
+    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 })
+  }
 
-  return NextResponse.json({ ok: true, display_name: name })
+  if (!result.botUserIds.length && !result.receptionistSynced) {
+    return NextResponse.json(
+      { error: 'No assistant bot user exists for this company yet' },
+      { status: 409 }
+    )
+  }
+
+  return NextResponse.json({
+    ok: true,
+    display_name: name,
+    bot_user_ids: result.botUserIds,
+    receptionist_synced: result.receptionistSynced,
+  })
 }
