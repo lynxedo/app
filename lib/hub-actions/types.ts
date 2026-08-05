@@ -52,12 +52,20 @@ export type ActionGate =
   | { allFlags: string[]; anyFlag?: never }
 
 /**
- * read    — reads tenant data, no side effects
- * write   — creates/updates INTERNAL records (board task, note, Hub message)
- * outward — reaches a customer or an external system. Requires confirmation:
- *           the first call only previews and stages the action.
+ * read         — reads tenant data, no side effects
+ * write        — creates/updates INTERNAL records (board task, note, Hub message)
+ * outward      — reaches a customer or an external system (a customer text)
+ * jobber_write — changes the real Jobber schedule. Doesn't text anyone, but it
+ *                moves actual crews and a wrong one is QUIET — a truck just shows
+ *                up on the wrong day — so it gets its own confirmation switch.
+ *
+ * Both `outward` and `jobber_write` are "consequential": they can be previewed +
+ * confirmed, and they never run over MCP unless a company opts in.
  */
-export type ActionKind = 'read' | 'write' | 'outward'
+export type ActionKind = 'read' | 'write' | 'outward' | 'jobber_write'
+
+/** Which section of the admin allow-list an action appears under. */
+export type ActionGroup = 'hub' | 'jobber'
 
 export type ActionContext = {
   admin: Admin
@@ -86,6 +94,14 @@ export type HubAction = {
   input_schema: Anthropic.Tool['input_schema']
   kind: ActionKind
   gate: ActionGate
+  /** Admin-panel section. Defaults to 'hub' when omitted. */
+  group?: ActionGroup
+  /**
+   * Whether this action is on before an admin touches anything. Defaults to TRUE.
+   * Set false for anything consequential so a new tenant has to opt in
+   * deliberately rather than discover the capability by accident.
+   */
+  defaultOn?: boolean
   /** Short human phrase for the OAuth consent screen, e.g. "text customers". */
   consentLabel: string
   run: (ctx: ActionContext, args: Record<string, unknown>) => Promise<string>
