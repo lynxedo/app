@@ -95,6 +95,9 @@ export function listHubActions(actor: HubActor, settings: AssistantSettings): Hu
   const available = ALL_ACTIONS.filter((a) => {
     if (a.name === CONFIRM_ACTION_NAME) return true
     if (disabled.has(a.name)) return false
+    // Don't advertise a customer-facing action over MCP when this company hasn't
+    // allowed it — offering a tool that always refuses is just noise.
+    if (a.kind === 'outward' && actor.source === 'mcp' && !settings.allowOutwardOverMcp) return false
     return actorPassesGate(actor, a.gate)
   })
 
@@ -143,8 +146,20 @@ export async function runHubAction(
     const denied = denyReason(ctx.actor, settings, action)
     if (denied) return denied
 
-    if (action.kind === 'outward' && settings.requireConfirmation) {
-      return await stagePreview(ctx, action, args)
+    if (action.kind === 'outward') {
+      // Over MCP there are no turn boundaries we can see, so the same-turn
+      // confirmation binding can't protect that door — approval would rest
+      // entirely on the connected client's own UI. Off unless opted into.
+      if (ctx.actor.source === 'mcp' && !settings.allowOutwardOverMcp) {
+        return (
+          `Customer-facing actions are turned off for connected Claude apps in this company, so ` +
+          `"${action.name}" can't run here and nothing was sent. Tell the user they can do it in the Hub ` +
+          `itself, or an admin can allow it in Admin → AI → Assistant.`
+        )
+      }
+      if (settings.requireConfirmation) {
+        return await stagePreview(ctx, action, args)
+      }
     }
 
     return await action.run(ctx, args)
@@ -179,7 +194,7 @@ async function stagePreview(
   }
   const built = await builder(ctx, args)
   if (!built.ok) return built.message
-  return await stageOutwardAction(ctx.admin, ctx.actor, action.name, args, built.preview)
+  return await stageOutwardAction(ctx.admin, ctx.actor, action.name, args, built.preview, ctx.turnId)
 }
 
 /** Consume a pending confirmation and run the real action. */
@@ -191,7 +206,7 @@ async function runConfirm(
   const id = str(args, 'id')
   if (!id) return 'Provide the confirmation id from the preview.'
 
-  const claimed = await consumePendingAction(ctx.admin, ctx.actor, id)
+  const claimed = await consumePendingAction(ctx.admin, ctx.actor, id, ctx.turnId)
   if (!claimed.ok) return claimed.message
 
   const action = BY_NAME.get(claimed.action)

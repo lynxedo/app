@@ -9,7 +9,13 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { allActionMeta, getAssistantSettings } from '@/lib/hub-actions'
 
-const VALID_ACTIONS = new Set(allActionMeta().map((a) => a.name))
+// confirm_action is deliberately excluded: listHubActions short-circuits it before
+// the disabled check, so accepting it here would render a toggle that does nothing.
+const VALID_ACTIONS = new Set(
+  allActionMeta()
+    .map((a) => a.name)
+    .filter((n) => n !== 'confirm_action'),
+)
 
 export async function GET() {
   const gate = await requireAdminArea('ai')
@@ -109,6 +115,7 @@ export async function PUT(request: Request) {
 
   if ('enabled' in body) update.enabled = body.enabled === true
   if ('mcp_enabled' in body) update.mcp_enabled = body.mcp_enabled === true
+  if ('allow_outward_over_mcp' in body) update.allow_outward_over_mcp = body.allow_outward_over_mcp === true
   if ('require_confirmation' in body) update.require_confirmation = body.require_confirmation === true
   if ('disabled_actions' in body) {
     const raw = Array.isArray(body.disabled_actions) ? body.disabled_actions : []

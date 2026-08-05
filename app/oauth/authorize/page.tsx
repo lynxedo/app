@@ -7,9 +7,11 @@
 //
 // Not logged in → bounce to /login?next=<this page> and come straight back.
 //
-// The form POSTs to our own origin (/api/oauth/consent), which keeps it inside
-// the CSP's `form-action 'self'`; that handler is what redirects out to the
-// client's registered redirect_uri.
+// The form POSTs to our own origin (/api/oauth/consent), and that handler is what
+// redirects out to the client's registered redirect_uri. Note `form-action 'self'`
+// is NOT a CSRF control here (it constrains where our pages may submit, not who
+// may submit to us, and it's report-only today) — the handler enforces
+// same-origin itself.
 
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
@@ -140,6 +142,26 @@ export default async function AuthorizePage({
   const capabilities = consentSummary(actor, settings)
   const assistantOff = !settings.enabled || !settings.mcpEnabled
 
+  // WHERE the code will be sent is the single most important fact on this screen.
+  // Registration is open by design, so `client_name` is attacker-controlled — an
+  // impostor can call itself "Claude". The redirect host is the part they can't
+  // fake without owning that domain, so it has to be visible.
+  let redirectHost = redirectUri
+  try {
+    redirectHost = new URL(redirectUri).host
+  } catch {
+    // validated above; fall back to the raw value
+  }
+
+  // Has this person connected this client before? A first-time connection is
+  // where a phishing attempt would land, so say so plainly.
+  const { count: priorGrants } = await admin
+    .from('mcp_tokens')
+    .select('id', { count: 'exact', head: true })
+    .eq('user_id', actor.userId)
+    .eq('client_id', client.id)
+  const firstTime = (priorGrants ?? 0) === 0
+
   return (
     <main className="min-h-screen flex items-center justify-center bg-gray-950 p-6">
       <div className="max-w-lg w-full rounded-xl border border-gray-800 bg-gray-900 p-6">
@@ -152,11 +174,23 @@ export default async function AuthorizePage({
           account already has — nothing more.
         </p>
 
+        <div className="mt-4 rounded-lg border border-gray-700 bg-gray-950/60 p-3 text-sm">
+          <p className="text-white/60">
+            Sign-in codes will be sent to{' '}
+            <strong className="text-[#fff]">{redirectHost}</strong>
+          </p>
+          <p className="mt-1 text-xs text-white/50">
+            {firstTime
+              ? "You haven't connected this app before. If you didn't just start this yourself, or that address doesn't look like the app you expected, press Cancel."
+              : 'You have connected this app before.'}
+          </p>
+        </div>
+
         {assistantOff ? (
           <div className="mt-4 rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-sm text-amber-200">
-            Heads up: the Hub Assistant isn&apos;t switched on for {companyName} yet, so this
-            connection will work but won&apos;t be able to do anything until an admin enables it in
-            Admin → AI → Assistant.
+            The Hub Assistant isn&apos;t switched on for {companyName} yet, so this connection
+            can&apos;t be completed. An admin can enable it in Admin → AI → Assistant, then you can
+            try again.
           </div>
         ) : (
           <div className="mt-4">
@@ -185,14 +219,16 @@ export default async function AuthorizePage({
           <input type="hidden" name="code_challenge" value={codeChallenge} />
           <input type="hidden" name="code_challenge_method" value={codeChallengeMethod} />
           <input type="hidden" name="state" value={state} />
-          <button
-            type="submit"
-            name="decision"
-            value="allow"
-            className="flex-1 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-[#fff] hover:opacity-90"
-          >
-            Allow
-          </button>
+          {!assistantOff && (
+            <button
+              type="submit"
+              name="decision"
+              value="allow"
+              className="flex-1 rounded-lg bg-brand px-4 py-2 text-sm font-medium text-[#fff] hover:opacity-90"
+            >
+              Allow
+            </button>
+          )}
           <button
             type="submit"
             name="decision"

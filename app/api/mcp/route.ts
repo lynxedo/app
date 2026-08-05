@@ -12,6 +12,7 @@
 // WWW-Authenticate header that starts OAuth discovery for claude.ai.
 
 import { after } from 'next/server'
+import { randomUUID } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { enforceRateLimit } from '@/lib/extension-auth'
 import {
@@ -170,7 +171,15 @@ export async function POST(request: Request) {
         })
       }
 
-      const text = await runHubAction({ admin, actor }, settings, name, params.arguments)
+      // A fresh turn id per request. Over MCP this never blocks a confirm (each
+      // tools/call is its own request), which is exactly why outward actions over
+      // MCP are gated on allowOutwardOverMcp instead — see hub-actions/catalog.
+      const text = await runHubAction(
+        { admin, actor, turnId: randomUUID() },
+        settings,
+        name,
+        params.arguments,
+      )
 
       after(() => {
         logAssistantEvent(admin, {

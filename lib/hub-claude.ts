@@ -1,3 +1,4 @@
+import { randomUUID } from 'crypto'
 import Anthropic from '@anthropic-ai/sdk'
 import { getAnthropic, CLAUDE_MODEL } from '@/lib/anthropic'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -243,6 +244,11 @@ export async function askClaude({
   const nativeActions = activeActor ? listHubActions(activeActor, assistantSettings) : []
   const nativeTools = hubActionTools(nativeActions)
 
+  // One id for this whole turn. An outward action staged during this turn cannot
+  // be confirmed during it — Guardian only runs on a human message, so requiring
+  // a later turn requires a real person to have replied. See hub-actions/pending.
+  const turnId = randomUUID()
+
   // Local tools (read_knowledge_doc + native actions) come BEFORE MCP tools so
   // the dispatcher checks them first. Same name conflicts resolve in our favor.
   const baseTools: Anthropic.Tool[] = [READ_KNOWLEDGE_DOC_TOOL, ...nativeTools, ...filteredMcpTools]
@@ -359,7 +365,7 @@ export async function askClaude({
           // exists in both resolves to the permission-gated native version.
           if (activeActor && isHubActionName(block.name)) {
             const content = await runHubAction(
-              { admin: adminClient, actor: activeActor },
+              { admin: adminClient, actor: activeActor, turnId },
               assistantSettings,
               block.name,
               block.input,
