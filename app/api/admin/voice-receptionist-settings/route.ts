@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { toE164 } from '@/lib/phone'
+import { getAssistantPersona } from '@/lib/ai-persona'
 import {
   DEFAULT_RECEPTIONIST_NAME,
   DEFAULT_TITLE_SERVICE_MAP,
@@ -37,6 +38,8 @@ export async function GET() {
   const row = await getVoiceReceptionistSettings(admin, auth.company_id!)
   const planMaxLevel = getPlanMaxReceptionistLevel(auth.company_id!)
   const effective = resolveVoiceReceptionistSettings(row, planMaxLevel)
+  // The shared persona name (read-only on this panel — see lib/ai-persona.ts).
+  const persona = await getAssistantPersona(admin, auth.company_id!)
 
   // Return the stored values for the form (empty string when unset so the
   // textareas show their placeholder), the code/env defaults used as placeholders
@@ -46,7 +49,7 @@ export async function GET() {
     enabled: effective.enabled,
     level: effective.level,
     plan_max_level: planMaxLevel,
-    receptionist_name: row?.receptionist_name ?? '',
+    receptionist_name: persona.name,
     greeting_business_hours: row?.greeting_business_hours ?? '',
     greeting_after_hours: row?.greeting_after_hours ?? row?.greeting ?? '',
     instructions: row?.instructions ?? '',
@@ -98,7 +101,11 @@ export async function PATCH(req: NextRequest) {
     }
     update.level = lvl
   }
-  if ('receptionist_name' in body) update.receptionist_name = normalizeText(body.receptionist_name)
+  // `receptionist_name` is intentionally NOT accepted from the client. The
+  // assistant's name is one shared persona (Hub Bot + receptionist), owned by
+  // lib/ai-persona.ts and edited only via /api/admin/guardian/bot-identity —
+  // accepting it here as well is exactly how the spoken name and the in-Hub name
+  // used to drift apart. It is seeded below when this row has no name yet.
   if ('greeting_business_hours' in body) update.greeting_business_hours = normalizeText(body.greeting_business_hours)
   if ('greeting_after_hours' in body) update.greeting_after_hours = normalizeText(body.greeting_after_hours)
   if ('greeting' in body) update.greeting = normalizeText(body.greeting) // legacy single greeting
@@ -154,6 +161,17 @@ export async function PATCH(req: NextRequest) {
   }
 
   const admin = createAdminClient()
+
+  // Seed the persona name onto this row the first time it's written (this PATCH
+  // upserts, so it may be creating the row). Only when there's no name stored
+  // yet — never an overwrite — so a company that already has a named
+  // receptionist keeps it, and a company setting one up for the first time
+  // inherits the shared persona instead of starting a second identity.
+  const existing = await getVoiceReceptionistSettings(admin, auth.company_id!)
+  if (!existing?.receptionist_name?.trim()) {
+    update.receptionist_name = (await getAssistantPersona(admin, auth.company_id!)).name
+  }
+
   const { data, error } = await admin
     .from('voice_receptionist_settings')
     .upsert(update, { onConflict: 'company_id' })

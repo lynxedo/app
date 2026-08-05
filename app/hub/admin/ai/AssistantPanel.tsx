@@ -173,7 +173,7 @@ export default function AssistantPanel() {
       <section className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">
         <h2 className="text-sm font-semibold text-[#fff]">Hub Assistant</h2>
         <p className="mt-1 text-sm text-white/60">
-          Lets your team ask the Hub Bot to look things up and take actions — find a customer, check
+          Lets your team ask the assistant to look things up and take actions — find a customer, check
           the schedule, add a task, text a customer. Every action runs with that person&apos;s own
           permissions, so nobody gains access they don&apos;t already have.
         </p>
@@ -181,7 +181,7 @@ export default function AssistantPanel() {
         <div className="mt-4 space-y-3">
           <Toggle
             label="Turn the assistant on"
-            hint="Off by default. While off, the Hub Bot answers questions but takes no actions."
+            hint="Off by default. While off, the assistant answers questions but takes no actions."
             checked={settings.enabled}
             onChange={(v) => setSettings({ ...settings, enabled: v })}
           />

@@ -99,12 +99,16 @@ export default function GuardianPanel({
   const [auditError, setAuditError] = useState<string | null>(null)
   const [auditIncludeTest, setAuditIncludeTest] = useState(false)
 
-  // Bot identity (name + avatar). The name is an explicit-save field (renaming
-  // is deliberate); the avatar uploads immediately on file pick.
+  // Assistant identity (name + avatar) — shared by the Hub Bot and the AI
+  // receptionist. The name is an explicit-save field (renaming is deliberate);
+  // the avatar uploads immediately on file pick. `receptionistSynced` reports
+  // whether the last save also reached the receptionist (it can't when the
+  // company hasn't set one up yet); null = nothing saved this session.
   const [botName, setBotName] = useState(initialBotName)
   const [savedBotName, setSavedBotName] = useState(initialBotName)
   const [savingBotName, setSavingBotName] = useState(false)
   const [botNameSaved, setBotNameSaved] = useState(false)
+  const [receptionistSynced, setReceptionistSynced] = useState<boolean | null>(null)
   const [botAvatarUrl, setBotAvatarUrl] = useState<string | null>(initialBotAvatarUrl)
   const [botAvatarBust, setBotAvatarBust] = useState(0)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
@@ -122,12 +126,13 @@ export default function GuardianPanel({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ display_name: name }),
       })
+      const b = await res.json().catch(() => null)
       if (!res.ok) {
-        const b = await res.json().catch(() => null)
         throw new Error(b?.error ?? `Save failed (${res.status})`)
       }
       setSavedBotName(name)
       setBotName(name)
+      setReceptionistSynced(b?.receptionist_synced === true)
       setBotNameSaved(true)
       setTimeout(() => setBotNameSaved(false), 2000)
     } catch (e) {
@@ -268,9 +273,11 @@ export default function GuardianPanel({
         <div className="space-y-4">
           <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
             <div>
-              <h2 className="font-semibold">Bot identity</h2>
+              <h2 className="font-semibold">Assistant identity</h2>
               <p className="text-xs text-white/50 mt-1">
-                The name and avatar your Hub Bot uses in chat, DMs, and notifications.
+                One name and avatar for your whole AI assistant — in Hub chat, DMs,
+                and notifications <em>and</em> the AI receptionist who answers calls and signs
+                automated texts. Set it here and it applies everywhere.
               </p>
             </div>
 
@@ -294,7 +301,10 @@ export default function GuardianPanel({
                 >
                   {uploadingAvatar ? 'Uploading…' : botAvatarUrl ? 'Change avatar' : 'Upload avatar'}
                 </button>
-                <p className="text-xs text-white/40">JPG, PNG, WebP, or GIF · under 5&nbsp;MB.</p>
+                <p className="text-xs text-white/40">
+                  JPG, PNG, WebP, or GIF · under 5&nbsp;MB. Used by the assistant and the AI
+                  receptionist.
+                </p>
                 {avatarErr && <p className="text-xs text-red-300">{avatarErr}</p>}
                 <input
                   ref={botAvatarInputRef}
@@ -329,15 +339,24 @@ export default function GuardianPanel({
                   <span className="text-xs text-amber-300">● Unsaved</span>
                 )}
               </div>
-              <p className="text-xs text-white/40 mt-1">Shown as the sender name in chat and notifications.</p>
+              <p className="text-xs text-white/40 mt-1">
+                Shown as the sender name in chat and notifications, spoken by the AI
+                receptionist on calls, and signed on automated texts.
+              </p>
+              {receptionistSynced === false && !savingBotName && (
+                <p className="text-xs text-amber-300/80 mt-1">
+                  Saved. The AI receptionist will pick this name up as soon as
+                  it&apos;s set up in the AI Receptionist tab.
+                </p>
+              )}
             </div>
           </section>
 
           <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
             <div>
-              <h2 className="font-semibold">Hub Bot model</h2>
+              <h2 className="font-semibold">Assistant model</h2>
               <p className="text-xs text-white/50 mt-1">
-                The Claude model the Hub Bot uses for every reply. List is fetched live from Anthropic.
+                The Claude model the assistant uses for every reply. List is fetched live from Anthropic.
               </p>
             </div>
 
@@ -405,7 +424,7 @@ export default function GuardianPanel({
             <div>
               <h2 className="font-semibold">Tool list cache</h2>
               <p className="text-xs text-white/50 mt-1">
-                The Hub Bot caches the MCP tool list in memory for 1 hour. If you change the MCP server's tools, click here so the next reply picks them up.
+                The assistant caches the MCP tool list in memory for 1 hour. If you change the MCP server's tools, click here so the next reply picks them up.
               </p>
             </div>
             <div className="flex items-center gap-3">
@@ -537,7 +556,7 @@ function PeopleTab({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="font-semibold">Hub Bot tiers by person</h2>
+        <h2 className="font-semibold">Assistant tiers by person</h2>
         <p className="text-xs text-white/50 mt-1">
           <span className="text-white/70">Basic:</span> read-only Jobber/Captivated lookups + knowledge base.{' '}
           <span className="text-white/70">Manager:</span> + scheduling, visit edits, notes.{' '}
