@@ -1,6 +1,6 @@
 'use client'
 
-import { useMemo, useState } from 'react'
+import { useMemo, useState, type FormEvent } from 'react'
 import { useConfirm } from '@/components/ui'
 import RichTextEditor from './RichTextEditor'
 
@@ -131,6 +131,8 @@ export default function KnowledgePanel({
         </button>
       </div>
 
+      <KnowledgeSearch onOpenDoc={openDoc} />
+
       <div className="rounded-lg border border-white/10 bg-white/5">
         {docs.length === 0 ? (
           <p className="px-4 py-6 text-sm text-white/50">
@@ -197,6 +199,186 @@ export default function KnowledgePanel({
           onDeleted={handleDeleteDoc}
           onClose={closeEditor}
         />
+      )}
+    </div>
+  )
+}
+
+// ---------------------------------------------------------------------------
+// KnowledgeSearch — "find every mention" across this company's docs.
+//
+// Read-only. The point is to catch the same business fact living in several
+// docs: when that happens, editing one doc leaves the others still feeding the
+// old wording to the AIs, so the results carry a plain-language warning.
+// ---------------------------------------------------------------------------
+
+type SearchHit = {
+  id: string
+  slug: string
+  title: string
+  audiences: string[]
+  occurrences: number
+  title_match: boolean
+  snippets: string[]
+}
+
+// Which AIs a matched doc is feeding, in words (the list rows show the badges).
+function usedByLabel(hit: SearchHit): string {
+  if (isCore(hit.slug)) return 'Used by: every AI (core doc)'
+  const names = SURFACE_LABELS.filter(s => hit.audiences?.includes(s.key)).map(s => s.label)
+  return names.length > 0 ? `Used by: ${names.join(', ')}` : 'Not automatically used — on-demand only'
+}
+
+// Highlight the matched term inside a snippet so the eye lands on it.
+function highlightTerm(text: string, term: string) {
+  const escaped = term.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+  if (!escaped) return text
+  const parts = text.split(new RegExp(`(${escaped})`, 'gi'))
+  return parts.map((part, i) =>
+    part.toLowerCase() === term.toLowerCase() ? (
+      <mark key={i} className="bg-amber-400/30 text-amber-100 rounded px-0.5">
+        {part}
+      </mark>
+    ) : (
+      <span key={i}>{part}</span>
+    )
+  )
+}
+
+function KnowledgeSearch({ onOpenDoc }: { onOpenDoc: (id: string) => void }) {
+  const [term, setTerm] = useState('')
+  const [searching, setSearching] = useState(false)
+  const [error, setError] = useState<string | null>(null)
+  const [results, setResults] = useState<{ term: string; hits: SearchHit[] } | null>(null)
+
+  async function runSearch(e: FormEvent) {
+    e.preventDefault()
+    const q = term.trim()
+    if (!q) return
+    setError(null)
+    setSearching(true)
+    try {
+      const res = await fetch(`/api/admin/guardian/knowledge/search?q=${encodeURIComponent(q)}`)
+      if (!res.ok) {
+        const b = await res.json().catch(() => null)
+        throw new Error(b?.error ?? `Search failed (${res.status})`)
+      }
+      const body = await res.json()
+      setResults({ term: body.term ?? q, hits: (body.hits ?? []) as SearchHit[] })
+    } catch (err) {
+      setResults(null)
+      setError(err instanceof Error ? err.message : String(err))
+    } finally {
+      setSearching(false)
+    }
+  }
+
+  function clear() {
+    setTerm('')
+    setResults(null)
+    setError(null)
+  }
+
+  const multipleDocs = (results?.hits.length ?? 0) > 1
+
+  return (
+    <div className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-3">
+      <div>
+        <label className="block text-sm font-medium mb-1">Find every mention</label>
+        <p className="text-xs text-white/50 mb-2">
+          Search a name, price, or phrase to see every doc it appears in — so you know all the places
+          you&apos;d need to change it.
+        </p>
+        <form onSubmit={runSearch} className="flex items-center gap-2 flex-wrap">
+          <input
+            value={term}
+            onChange={e => setTerm(e.target.value)}
+            placeholder="e.g. Alert Lawn Care"
+            className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm w-full max-w-md"
+          />
+          <button
+            type="submit"
+            disabled={searching || term.trim().length < 2}
+            className="px-3 py-1.5 rounded bg-brand hover:bg-brand-light disabled:opacity-50 text-sm font-medium"
+          >
+            {searching ? 'Searching…' : 'Search'}
+          </button>
+          {(results || error) && (
+            <button type="button" onClick={clear} className="text-xs text-white/50 hover:text-white">
+              Clear
+            </button>
+          )}
+        </form>
+      </div>
+
+      {error && (
+        <div className="rounded-md border border-red-700 bg-red-900/30 text-red-200 px-3 py-2 text-sm">
+          {error}
+        </div>
+      )}
+
+      {results && (
+        <div className="space-y-3">
+          {results.hits.length === 0 ? (
+            <p className="text-sm text-white/50">
+              No docs mention &ldquo;{results.term}&rdquo;.
+            </p>
+          ) : (
+            <>
+              {multipleDocs && (
+                <div className="rounded-md border border-amber-700/50 bg-amber-900/20 text-amber-200 px-3 py-2 text-xs space-y-1">
+                  <p className="font-medium">
+                    &ldquo;{results.term}&rdquo; is written in {results.hits.length} different docs.
+                  </p>
+                  <p>
+                    The AIs read all of these. If you change it in one doc and not the others, they&apos;ll
+                    keep telling people the old version — and the AI gets two different answers to the same
+                    question.
+                  </p>
+                  <p>
+                    It&apos;s usually best to keep a fact like this in one doc, and have the other docs point
+                    to that one instead of repeating it.
+                  </p>
+                </div>
+              )}
+
+              <p className="text-xs text-white/40">
+                {results.hits.length} {results.hits.length === 1 ? 'doc' : 'docs'} · click one to open it
+              </p>
+
+              <ul className="space-y-2">
+                {results.hits.map(hit => (
+                  <li key={hit.id}>
+                    <button
+                      onClick={() => onOpenDoc(hit.id)}
+                      className="w-full text-left rounded-md border border-white/10 bg-black/20 hover:bg-white/5 px-3 py-2 space-y-1"
+                    >
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <span className="text-sm font-medium">{hit.title}</span>
+                        <span className="text-[11px] text-white/40">
+                          {hit.occurrences === 0
+                            ? 'title only'
+                            : `${hit.occurrences} ${hit.occurrences === 1 ? 'mention' : 'mentions'}`}
+                          {hit.title_match && hit.occurrences > 0 ? ' · also in the title' : ''}
+                        </span>
+                      </div>
+                      <div className="text-[11px] text-white/40">{usedByLabel(hit)}</div>
+                      {hit.snippets.length > 0 && (
+                        <div className="space-y-1 pt-1">
+                          {hit.snippets.map((s, i) => (
+                            <div key={i} className="text-xs text-white/60 leading-relaxed">
+                              {highlightTerm(s, results.term)}
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </button>
+                  </li>
+                ))}
+              </ul>
+            </>
+          )}
+        </div>
       )}
     </div>
   )

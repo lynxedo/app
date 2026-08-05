@@ -11,7 +11,7 @@
 //     enforced here, in code — not by asking the model nicely in a prompt.
 
 import type Anthropic from '@anthropic-ai/sdk'
-import type { ActionContext, HubAction, HubActor } from './types'
+import type { ActionContext, ActionGroup, HubAction, HubActor } from './types'
 import { actorPassesGate, str } from './types'
 import type { AssistantSettings } from './settings'
 import { consumePendingAction, stageOutwardAction } from './pending'
@@ -23,6 +23,7 @@ import { callActivityAction } from './actions-calls'
 import { listLeadsAction } from './actions-tracker'
 import { createTaskAction, listTasksAction } from './actions-boards'
 import { postHubMessageAction } from './actions-hub'
+import { JOBBER_ACTIONS, JOBBER_PREVIEW_BUILDERS } from './actions-jobber'
 
 /**
  * confirm_action carries out something previously previewed. It is defined here
@@ -63,6 +64,7 @@ const ALL_ACTIONS: HubAction[] = [
   addContactNoteAction,
   postHubMessageAction,
   sendCustomerTextAction,
+  ...JOBBER_ACTIONS,
   confirmAction,
 ].sort((a, b) => a.name.localeCompare(b.name))
 
@@ -74,15 +76,61 @@ const PREVIEW_BUILDERS: Record<
   (ctx: ActionContext, args: Record<string, unknown>) => Promise<{ ok: true; preview: string } | { ok: false; message: string }>
 > = {
   [sendCustomerTextAction.name]: previewCustomerText,
+  ...JOBBER_PREVIEW_BUILDERS,
 }
 
 export function isHubActionName(name: string): boolean {
   return BY_NAME.has(name)
 }
 
-/** Every action name, for the admin panel's per-action checklist. */
-export function allActionMeta(): Array<{ name: string; kind: string; consentLabel: string }> {
-  return ALL_ACTIONS.map((a) => ({ name: a.name, kind: a.kind, consentLabel: a.consentLabel }))
+/** Section this action belongs to in the admin allow-list. */
+function groupOf(a: HubAction): ActionGroup {
+  return a.group ?? 'hub'
+}
+
+/**
+ * Is this action switched on for the company? Reads default ON (an admin turns
+ * them off); consequential actions default OFF and must be ticked on. That split
+ * is why there are two arrays instead of one.
+ */
+function isActionAllowedByCompany(a: HubAction, settings: AssistantSettings): boolean {
+  const defaultOn = a.defaultOn !== false
+  return defaultOn
+    ? !settings.disabledActions.includes(a.name)
+    : settings.enabledActions.includes(a.name)
+}
+
+/**
+ * Actions that reach outside the Hub or change the real schedule. These are the
+ * ones that can require confirmation, and the ones never allowed over MCP unless
+ * a company opts in — gated on the KIND, not on whether confirmation happens to be
+ * switched on, so relaxing confirmation can't quietly open the MCP door too.
+ */
+function isConsequential(a: HubAction): boolean {
+  return a.kind === 'outward' || a.kind === 'jobber_write'
+}
+
+function confirmationRequired(a: HubAction, settings: AssistantSettings): boolean {
+  if (a.kind === 'outward') return settings.requireConfirmation
+  if (a.kind === 'jobber_write') return settings.requireJobberConfirmation
+  return false
+}
+
+/** Every action, for the admin panel's per-section checklist. */
+export function allActionMeta(): Array<{
+  name: string
+  kind: string
+  group: ActionGroup
+  defaultOn: boolean
+  consentLabel: string
+}> {
+  return ALL_ACTIONS.map((a) => ({
+    name: a.name,
+    kind: a.kind,
+    group: groupOf(a),
+    defaultOn: a.defaultOn !== false,
+    consentLabel: a.consentLabel,
+  }))
 }
 
 /**
@@ -91,18 +139,18 @@ export function allActionMeta(): Array<{ name: string; kind: string; consentLabe
  * outward action is available — otherwise there is nothing to confirm.
  */
 export function listHubActions(actor: HubActor, settings: AssistantSettings): HubAction[] {
-  const disabled = new Set(settings.disabledActions)
   const available = ALL_ACTIONS.filter((a) => {
     if (a.name === CONFIRM_ACTION_NAME) return true
-    if (disabled.has(a.name)) return false
-    // Don't advertise a customer-facing action over MCP when this company hasn't
+    if (!isActionAllowedByCompany(a, settings)) return false
+    // Don't advertise a consequential action over MCP when this company hasn't
     // allowed it — offering a tool that always refuses is just noise.
-    if (a.kind === 'outward' && actor.source === 'mcp' && !settings.allowOutwardOverMcp) return false
+    if (isConsequential(a) && actor.source === 'mcp' && !settings.allowOutwardOverMcp) return false
     return actorPassesGate(actor, a.gate)
   })
 
-  const hasOutward = available.some((a) => a.kind === 'outward')
-  return hasOutward ? available : available.filter((a) => a.name !== CONFIRM_ACTION_NAME)
+  // confirm_action is only useful when something can actually need confirming.
+  const anyConfirmable = available.some((a) => isConsequential(a) && confirmationRequired(a, settings))
+  return anyConfirmable ? available : available.filter((a) => a.name !== CONFIRM_ACTION_NAME)
 }
 
 /** Anthropic tool definitions for a set of actions. */
@@ -146,18 +194,18 @@ export async function runHubAction(
     const denied = denyReason(ctx.actor, settings, action)
     if (denied) return denied
 
-    if (action.kind === 'outward') {
+    if (isConsequential(action)) {
       // Over MCP there are no turn boundaries we can see, so the same-turn
       // confirmation binding can't protect that door — approval would rest
       // entirely on the connected client's own UI. Off unless opted into.
       if (ctx.actor.source === 'mcp' && !settings.allowOutwardOverMcp) {
         return (
-          `Customer-facing actions are turned off for connected Claude apps in this company, so ` +
-          `"${action.name}" can't run here and nothing was sent. Tell the user they can do it in the Hub ` +
-          `itself, or an admin can allow it in Admin → AI → Assistant.`
+          `Actions that reach customers or change the Jobber schedule are turned off for connected ` +
+          `Claude apps in this company, so "${action.name}" can't run here and nothing happened. Tell the ` +
+          `user they can do it in the Hub itself, or an admin can allow it in Admin → AI → Assistant.`
         )
       }
-      if (settings.requireConfirmation) {
+      if (confirmationRequired(action, settings)) {
         return await stagePreview(ctx, action, args)
       }
     }
@@ -171,8 +219,8 @@ export async function runHubAction(
 
 /** Why this actor can't run this action right now, or null if they can. */
 function denyReason(actor: HubActor, settings: AssistantSettings, action: HubAction): string | null {
-  if (settings.disabledActions.includes(action.name)) {
-    return `The "${action.name}" action is turned off for this company. Tell the user an admin would need to enable it.`
+  if (!isActionAllowedByCompany(action, settings)) {
+    return `The "${action.name}" action isn't switched on for this company. Tell the user an admin can enable it in Admin → AI → Assistant.`
   }
   if (!actorPassesGate(actor, action.gate)) {
     return `You don't have permission to use "${action.name}" in Lynxedo, so I can't do that for you. An admin can grant it in Admin → People.`

@@ -13,10 +13,18 @@ type Settings = {
   mcpEnabled: boolean
   requireConfirmation: boolean
   allowOutwardOverMcp: boolean
+  requireJobberConfirmation: boolean
   disabledActions: string[]
+  enabledActions: string[]
 }
 
-type ActionMeta = { name: string; kind: string; consentLabel: string }
+type ActionMeta = {
+  name: string
+  kind: string
+  group: 'hub' | 'jobber'
+  defaultOn: boolean
+  consentLabel: string
+}
 
 type Connection = {
   id: string
@@ -31,12 +39,24 @@ const KIND_LABEL: Record<string, string> = {
   read: 'Looks things up',
   write: 'Makes internal changes',
   outward: 'Reaches customers',
+  jobber_write: 'Changes the Jobber schedule',
 }
 
 const KIND_STYLE: Record<string, string> = {
   read: 'bg-gray-700/60 text-white/70',
   write: 'bg-blue-500/20 text-blue-200',
   outward: 'bg-amber-500/20 text-amber-200',
+  jobber_write: 'bg-amber-500/20 text-amber-200',
+}
+
+const GROUP_LABEL: Record<string, string> = {
+  hub: 'In the Hub',
+  jobber: 'In Jobber',
+}
+
+const GROUP_BLURB: Record<string, string> = {
+  hub: 'Customers, texts, calls, leads and task boards inside Lynxedo.',
+  jobber: 'Reads come straight from Jobber. Changes move the real schedule your crews work from, so they start switched off.',
 }
 
 export default function AssistantPanel() {
@@ -93,7 +113,9 @@ export default function AssistantPanel() {
           mcp_enabled: settings.mcpEnabled,
           require_confirmation: settings.requireConfirmation,
           allow_outward_over_mcp: settings.allowOutwardOverMcp,
+          require_jobber_confirmation: settings.requireJobberConfirmation,
           disabled_actions: settings.disabledActions,
+          enabled_actions: settings.enabledActions,
         }),
       })
       if (!res.ok) throw new Error()
@@ -118,14 +140,27 @@ export default function AssistantPanel() {
     }
   }
 
-  function toggleAction(name: string, on: boolean) {
+  // Two arrays, because the two halves have opposite defaults: looking things up
+  // is on unless an admin removes it, and anything consequential is off until an
+  // admin adds it. So which list a tick writes to depends on the action.
+  function toggleAction(meta: ActionMeta, on: boolean) {
     setSettings((prev) => {
       if (!prev) return prev
-      const set = new Set(prev.disabledActions)
-      if (on) set.delete(name)
-      else set.add(name)
-      return { ...prev, disabledActions: [...set] }
+      if (meta.defaultOn) {
+        const set = new Set(prev.disabledActions)
+        if (on) set.delete(meta.name)
+        else set.add(meta.name)
+        return { ...prev, disabledActions: [...set] }
+      }
+      const set = new Set(prev.enabledActions)
+      if (on) set.add(meta.name)
+      else set.delete(meta.name)
+      return { ...prev, enabledActions: [...set] }
     })
+  }
+
+  function isActionOn(meta: ActionMeta, s: Settings): boolean {
+    return meta.defaultOn ? !s.disabledActions.includes(meta.name) : s.enabledActions.includes(meta.name)
   }
 
   if (loading) return <p className="text-sm text-white/50">Loading…</p>
@@ -176,6 +211,12 @@ export default function AssistantPanel() {
               that app. The Hub&apos;s own approval step no longer applies there.
             </p>
           )}
+          <Toggle
+            label="Require confirmation before Jobber schedule changes"
+            hint="Recommended. Moving or reassigning a visit shows you the customer and both dates first. A wrong schedule change is quiet — a crew just shows up on the wrong day."
+            checked={settings.requireJobberConfirmation}
+            onChange={(v) => setSettings({ ...settings, requireJobberConfirmation: v })}
+          />
           {!settings.requireConfirmation && (
             <p className="rounded-lg border border-red-500/30 bg-red-500/10 p-3 text-xs text-red-200">
               With confirmation off, the assistant can text a customer as soon as someone asks it to,
@@ -191,33 +232,48 @@ export default function AssistantPanel() {
           Turn individual actions off for the whole company. A person still also needs their own
           permission for each one.
         </p>
-        <ul className="mt-3 space-y-2">
-          {actions
-            .filter((a) => a.name !== 'confirm_action')
-            .map((a) => {
-              const on = !settings.disabledActions.includes(a.name)
-              return (
-                <li key={a.name} className="flex items-start gap-3">
-                  <input
-                    id={`act-${a.name}`}
-                    type="checkbox"
-                    checked={on}
-                    onChange={(e) => toggleAction(a.name, e.target.checked)}
-                    className="mt-1 h-4 w-4"
-                  />
-                  <label htmlFor={`act-${a.name}`} className="flex-1 cursor-pointer">
-                    <span className="text-sm text-white/90">{a.consentLabel}</span>
-                    <span
-                      className={`ml-2 rounded px-1.5 py-0.5 text-[10px] ${KIND_STYLE[a.kind] || KIND_STYLE.read}`}
-                    >
-                      {KIND_LABEL[a.kind] || a.kind}
-                    </span>
-                    <span className="ml-2 font-mono text-[10px] text-white/30">{a.name}</span>
-                  </label>
-                </li>
-              )
-            })}
-        </ul>
+        {(['hub', 'jobber'] as const).map((group) => {
+          const groupActions = actions.filter((a) => a.group === group && a.name !== 'confirm_action')
+          if (groupActions.length === 0) return null
+          return (
+            <div key={group} className="mt-4">
+              <h4 className="text-xs font-semibold uppercase tracking-wide text-white/50">
+                {GROUP_LABEL[group]}
+              </h4>
+              <p className="mt-0.5 text-xs text-white/40">{GROUP_BLURB[group]}</p>
+              <ul className="mt-2 space-y-2">
+                {groupActions.map((a) => {
+                  const on = isActionOn(a, settings)
+                  return (
+                    <li key={a.name} className="flex items-start gap-3">
+                      <input
+                        id={`act-${a.name}`}
+                        type="checkbox"
+                        checked={on}
+                        onChange={(e) => toggleAction(a, e.target.checked)}
+                        className="mt-1 h-4 w-4"
+                      />
+                      <label htmlFor={`act-${a.name}`} className="flex-1 cursor-pointer">
+                        <span className="text-sm text-white/90">{a.consentLabel}</span>
+                        <span
+                          className={`ml-2 rounded px-1.5 py-0.5 text-[10px] ${KIND_STYLE[a.kind] || KIND_STYLE.read}`}
+                        >
+                          {KIND_LABEL[a.kind] || a.kind}
+                        </span>
+                        {!a.defaultOn && (
+                          <span className="ml-2 rounded bg-gray-700/60 px-1.5 py-0.5 text-[10px] text-white/50">
+                            off by default
+                          </span>
+                        )}
+                        <span className="ml-2 font-mono text-[10px] text-white/30">{a.name}</span>
+                      </label>
+                    </li>
+                  )
+                })}
+              </ul>
+            </div>
+          )
+        })}
       </section>
 
       <section className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">

@@ -17,8 +17,12 @@ export type AssistantSettings = {
    * confirmation UI. That's a call for the company to make deliberately.
    */
   allowOutwardOverMcp: boolean
-  /** Action names this company has turned off. */
+  /** Whether Jobber schedule changes must be previewed + confirmed. */
+  requireJobberConfirmation: boolean
+  /** Default-ON actions this company has turned OFF. */
   disabledActions: string[]
+  /** Default-OFF actions this company has turned ON (the opt-in set). */
+  enabledActions: string[]
 }
 
 /** Fail-closed defaults: a company with no row has the assistant OFF. */
@@ -27,7 +31,9 @@ const DEFAULTS: AssistantSettings = {
   mcpEnabled: false,
   requireConfirmation: true,
   allowOutwardOverMcp: false,
+  requireJobberConfirmation: true,
   disabledActions: [],
+  enabledActions: [],
 }
 
 export async function getAssistantSettings(
@@ -37,7 +43,9 @@ export async function getAssistantSettings(
   try {
     const { data } = await admin
       .from('hub_assistant_settings')
-      .select('enabled, mcp_enabled, require_confirmation, allow_outward_over_mcp, disabled_actions')
+      .select(
+        'enabled, mcp_enabled, require_confirmation, allow_outward_over_mcp, require_jobber_confirmation, disabled_actions, enabled_actions',
+      )
       .eq('company_id', companyId)
       .maybeSingle()
     if (!data) return { ...DEFAULTS }
@@ -46,7 +54,9 @@ export async function getAssistantSettings(
       mcp_enabled?: boolean | null
       require_confirmation?: boolean | null
       allow_outward_over_mcp?: boolean | null
+      require_jobber_confirmation?: boolean | null
       disabled_actions?: string[] | null
+      enabled_actions?: string[] | null
     }
     return {
       enabled: d.enabled === true,
@@ -54,7 +64,10 @@ export async function getAssistantSettings(
       // Only an explicit false turns confirmation off — a null must not open it.
       requireConfirmation: d.require_confirmation !== false,
       allowOutwardOverMcp: d.allow_outward_over_mcp === true,
+      // Null must not open it, same reasoning as requireConfirmation above.
+      requireJobberConfirmation: d.require_jobber_confirmation !== false,
       disabledActions: Array.isArray(d.disabled_actions) ? d.disabled_actions : [],
+      enabledActions: Array.isArray(d.enabled_actions) ? d.enabled_actions : [],
     }
   } catch {
     // A settings read failure must never silently ENABLE the assistant.

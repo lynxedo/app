@@ -63,7 +63,10 @@ type VoiceReceptionistInitial = {
   title_service_map_default: { match: string; say: string }[]
 }
 
-type SubTab = 'guardian' | 'assistant' | 'responder' | 'receptionist' | 'knowledge'
+// 'guardian' and 'assistant' were two tabs describing ONE thing — the bot's
+// identity/brain and the same bot's capabilities. Merged into a single Assistant
+// tab so an admin isn't hunting across two places to configure one assistant.
+type SubTab = 'assistant' | 'responder' | 'receptionist' | 'knowledge'
 
 type BotIdentity = {
   id: string
@@ -92,7 +95,7 @@ export default function AiAdminShell({
   initialVoiceReceptionist: VoiceReceptionistInitial
   initialBot: BotIdentity
 }) {
-  const [tab, setTab] = useState<SubTab>('guardian')
+  const [tab, setTab] = useState<SubTab>('assistant')
   // Track the receptionist's selected level so we show only the settings that
   // level uses: Scheduling appears at Level 4+, Call routing at Level 5. Seeded
   // from the saved level; ReceptionistPanel reports changes as the admin picks.
@@ -103,14 +106,12 @@ export default function AiAdminShell({
       <header>
         <h1 className="text-xl font-semibold">AI</h1>
         <p className="text-sm text-white/60 mt-1">
-          The Hub Bot, the auto-text responder, the AI voice receptionist, and the shared knowledge base.
+          Your AI assistant, the auto-text responder, the AI voice receptionist, and the knowledge base
+          they all read from.
         </p>
       </header>
 
       <div className="flex gap-1 border-b border-gray-800 flex-wrap">
-        <SubTabButton active={tab === 'guardian'} onClick={() => setTab('guardian')}>
-          Hub Bot
-        </SubTabButton>
         <SubTabButton active={tab === 'assistant'} onClick={() => setTab('assistant')}>
           Assistant
         </SubTabButton>
@@ -125,18 +126,22 @@ export default function AiAdminShell({
         </SubTabButton>
       </div>
 
-      {tab === 'guardian' && (
-        <GuardianPanel
-          initialSettings={initialSettings}
-          initialPeople={initialPeople}
-          initialRooms={initialRooms}
-          isSuperAdmin={isSuperAdmin}
-          botId={initialBot.id}
-          initialBotName={initialBot.display_name}
-          initialBotAvatarUrl={initialBot.avatar_url}
-        />
+      {tab === 'assistant' && (
+        <div className="space-y-6">
+          {/* Who the assistant IS (name, face, brain) … */}
+          <GuardianPanel
+            initialSettings={initialSettings}
+            initialPeople={initialPeople}
+            initialRooms={initialRooms}
+            isSuperAdmin={isSuperAdmin}
+            botId={initialBot.id}
+            initialBotName={initialBot.display_name}
+            initialBotAvatarUrl={initialBot.avatar_url}
+          />
+          {/* … then what it's allowed to DO. */}
+          <AssistantPanel />
+        </div>
       )}
-      {tab === 'assistant' && <AssistantPanel />}
       {tab === 'responder' && (
         <ResponderPanel
           initialResponder={initialResponder}
