@@ -12,6 +12,7 @@ import InboxPersonalMailbox from './InboxPersonalMailbox'
 import InboxCompanySignature from './InboxCompanySignature'
 import DialerPersonalSettings from './DialerPersonalSettings'
 import ExtensionTokensSection from './ExtensionTokensSection'
+import ClaudeConnectionSection from './ClaudeConnectionSection'
 import BetaFeaturesTab from './BetaFeaturesTab'
 import DndScheduleEditor from '@/components/hub/DndScheduleEditor'
 import type { DndSchedule } from '@/lib/dnd-schedule'
@@ -60,7 +61,7 @@ interface Props {
 }
 
 type SaveState = 'idle' | 'saving' | 'saved' | 'error'
-type Tab = 'profile' | 'my-hub' | 'notifications' | 'extension' | 'beta' | 'account'
+type Tab = 'profile' | 'my-hub' | 'notifications' | 'extension' | 'claude' | 'beta' | 'account'
 
 function getInitials(name: string | null, email: string): string {
   if (name) {
@@ -113,7 +114,7 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
   // section is derived from the URL here (reactive to client-side navigation), so
   // there is no in-page tab bar. ?tab= stays deep-linkable and back-button aware.
   const searchParams = useSearchParams()
-  const ALL_TABS: Tab[] = ['profile', 'my-hub', 'notifications', 'extension', ...(canAccessBeta ? ['beta' as const] : []), 'account']
+  const ALL_TABS: Tab[] = ['profile', 'my-hub', 'notifications', 'extension', 'claude', ...(canAccessBeta ? ['beta' as const] : []), 'account']
   const tabParam = searchParams.get('tab') as Tab | null
   const activeTab: Tab = tabParam && ALL_TABS.includes(tabParam) ? tabParam : 'profile'
 
@@ -997,6 +998,11 @@ export default function SettingsForm({ email, userId, hubProfile, initialTheme, 
       {/* ── BROWSER EXTENSION TAB ───────────────────────────────────────── */}
       {activeTab === 'extension' && (
         <ExtensionTokensSection />
+      )}
+
+      {/* ── CLAUDE CONNECTION TAB ───────────────────────────────────────── */}
+      {activeTab === 'claude' && (
+        <ClaudeConnectionSection />
       )}
 
 

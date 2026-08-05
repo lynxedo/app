@@ -23,7 +23,7 @@ export type ConnectionModel = 'oauth' | 'domain' | 'webhook' | 'apikey' | 'comin
 export type ProviderKey =
   | 'jobber' | 'quickbooks' | 'gusto' | 'onestepgps'
   | 'angi' | 'google' | 'thumbtack' | 'networx' | 'zillow'
-  | 'meta' | 'email' | 'voicedrop' | 'shared_inbox'
+  | 'meta' | 'email' | 'voicedrop' | 'shared_inbox' | 'claude_assistant'
 
 export type IntegrationStatus =
   | 'connected' | 'action_needed' | 'not_connected' | 'error' | 'coming_soon'
@@ -99,6 +99,15 @@ export const INTEGRATION_PROVIDERS: IntegrationProvider[] = [
     blurb: 'Connect the shared team mailbox so your team can triage and reply to customer email inside the Hub.',
     connectHref: '/api/auth/nylas?type=shared', disconnectHref: '/api/auth/nylas/disconnect',
     manageHref: '/hub/email', manageLabel: 'Open the Inbox',
+  },
+  {
+    key: 'claude_assistant', name: 'Claude (AI Assistant)', group: 'business_systems', model: 'oauth',
+    blurb: 'Connect Claude — claude.ai, Claude Code or the desktop app — to this Hub so it can look things up and take actions for you. Each person connects their own Claude, and only ever sees and does what their own permissions already allow.',
+    // 'oauth' with no connectHref (like Facebook & Instagram): the authorization
+    // IS an OAuth handshake, but there is nothing for an ADMIN to click here —
+    // each user connects their own Claude from Settings, and the admin only
+    // turns the feature on. So the card is status + a deep link to the editor.
+    manageHref: '/hub/admin/ai', manageLabel: 'Open AI settings',
   },
 
   // ── Marketing ─────────────────────────────────────────────────────────────

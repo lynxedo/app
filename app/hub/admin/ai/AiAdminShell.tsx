@@ -2,6 +2,7 @@
 
 import { useState } from 'react'
 import GuardianPanel from './GuardianPanel'
+import AssistantPanel from './AssistantPanel'
 import ResponderPanel from './ResponderPanel'
 import ReceptionistPanel from './ReceptionistPanel'
 import SchedulingPanel from './SchedulingPanel'
@@ -62,7 +63,7 @@ type VoiceReceptionistInitial = {
   title_service_map_default: { match: string; say: string }[]
 }
 
-type SubTab = 'guardian' | 'responder' | 'receptionist' | 'knowledge'
+type SubTab = 'guardian' | 'assistant' | 'responder' | 'receptionist' | 'knowledge'
 
 type BotIdentity = {
   id: string
@@ -110,6 +111,9 @@ export default function AiAdminShell({
         <SubTabButton active={tab === 'guardian'} onClick={() => setTab('guardian')}>
           Hub Bot
         </SubTabButton>
+        <SubTabButton active={tab === 'assistant'} onClick={() => setTab('assistant')}>
+          Assistant
+        </SubTabButton>
         <SubTabButton active={tab === 'responder'} onClick={() => setTab('responder')}>
           Auto Responder
         </SubTabButton>
@@ -132,6 +136,7 @@ export default function AiAdminShell({
           initialBotAvatarUrl={initialBot.avatar_url}
         />
       )}
+      {tab === 'assistant' && <AssistantPanel />}
       {tab === 'responder' && (
         <ResponderPanel
           initialResponder={initialResponder}
