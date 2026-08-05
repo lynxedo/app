@@ -482,6 +482,14 @@ function HubAssistantTab() {
         </ul>
       </Section>
 
+      <Section title="It Can Work in Jobber Too">
+        <p>The assistant reaches your Jobber account as well as the Hub, so you don&apos;t have to switch over for everyday questions.</p>
+        <p className="mt-2"><strong className="text-white">Looking things up</strong> — a customer&apos;s live Jobber record and balance, the jobs they have on the books, what visits are scheduled for a day and who&apos;s assigned, plus open quotes and unpaid invoices. Try <em>&ldquo;who owes us money?&rdquo;</em> or <em>&ldquo;what&apos;s on Jobber for tomorrow and who&apos;s on each stop?&rdquo;</em></p>
+        <p className="mt-2"><strong className="text-white">Making changes</strong> — adding a note in Jobber, moving a visit to a different day, changing who&apos;s assigned to a visit, and marking a visit complete.</p>
+        <Note>Changing the Jobber schedule <strong className="text-white">works the same two-step way as texting a customer</strong>: it shows you the customer, the current date and the new one, and waits for you to approve. A wrong schedule change is easy to miss — a crew just turns up on the wrong day — so it always asks first.</Note>
+        <AdminOnly>Every Jobber action is listed in <strong className="text-white">Admin → AI → Assistant</strong> under &ldquo;In Jobber&rdquo;. Looking things up is on by default; <strong className="text-white">anything that changes Jobber starts switched off</strong> and an admin ticks it on. Changes are also limited to managers and admins, and the confirmation step has its own toggle. Requires Jobber to be connected in <Link href="/hub/admin/integrations" className="text-sky-400 hover:underline">Admin → Integrations</Link>.</AdminOnly>
+      </Section>
+
       <Section title="It Only Does What You Can Do">
         <p>The assistant works with <strong className="text-white">your own Lynxedo permissions</strong> — never anyone else&apos;s, and never more than your own. If you don&apos;t have access to a part of the app, the assistant can&apos;t reach it for you either: ask it about calls when you don&apos;t have the <Link href="/hub/dialer" className="text-sky-400 hover:underline">Dialer</Link>, and it will simply tell you it can&apos;t look that up.</p>
         <Note>This is not a shortcut around permissions. It&apos;s the same access you already have, just reachable by asking instead of clicking. If you need something it says you can&apos;t see, ask an admin to grant you that area in <strong className="text-white">Admin → People</strong> like normal.</Note>

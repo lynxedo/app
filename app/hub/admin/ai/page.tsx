@@ -2,7 +2,7 @@ import { redirect } from 'next/navigation'
 import { requireAdminArea } from '@/lib/admin-auth'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getKnowledgeDocs, getGuardianSettings } from '@/lib/guardian-knowledge'
-import { GUARDIAN_HUB_USER_ID } from '@/lib/guardian-post'
+import { getAssistantPersona } from '@/lib/ai-persona'
 import { DEFAULT_RECEPTIONIST_NAME, DEFAULT_TITLE_SERVICE_MAP, buildVoiceReceptionistPrompt, buildWelcomeGreeting } from '@/lib/voice-receptionist'
 import {
   VOICE_RECEPTIONIST_COLUMNS,
@@ -32,7 +32,7 @@ export default async function AdminAiPage() {
     { data: responderRow },
     { data: responderCalls },
     { data: voiceReceptionistRow },
-    { data: botRow },
+    persona,
   ] = await Promise.all([
     getKnowledgeDocs(admin, companyId),
     getGuardianSettings(admin, companyId),
@@ -67,13 +67,9 @@ export default async function AdminAiPage() {
       .select(VOICE_RECEPTIONIST_COLUMNS)
       .eq('company_id', companyId)
       .maybeSingle(),
-    // The Hub Bot's own hub_users row — its editable name + avatar.
-    admin
-      .from('hub_users')
-      .select('display_name, avatar_url')
-      .eq('id', GUARDIAN_HUB_USER_ID)
-      .eq('company_id', companyId)
-      .maybeSingle(),
+    // The shared AI-assistant persona — the one editable name + avatar worn by
+    // BOTH bot rows (Hub bot + phone/text receptionist). See lib/ai-persona.ts.
+    getAssistantPersona(admin, companyId),
   ])
 
   // Pull the guardian_tier values for the same set of users in one batched query.
@@ -108,12 +104,14 @@ export default async function AdminAiPage() {
     guardian_full_access: boolean
   }>
 
-  // Hub Bot identity — editable name + avatar (default name "Guardian").
-  const bot = (botRow as { display_name: string | null; avatar_url: string | null } | null) ?? null
+  // Assistant identity — the shared persona name + avatar. `id` is the row the
+  // avatar is served from; the name is the resolved persona name (see
+  // lib/ai-persona.ts), NOT the raw Hub-bot display_name, so this box always
+  // shows the name customers actually hear and the team actually sees.
   const initialBot = {
-    id: GUARDIAN_HUB_USER_ID,
-    display_name: bot?.display_name ?? 'Guardian',
-    avatar_url: bot?.avatar_url ?? null,
+    id: persona.primaryBotUserId,
+    display_name: persona.name,
+    avatar_url: persona.avatarUrl,
   }
 
   // AI Voice Receptionist — stored values for the form + code/env defaults used
@@ -125,7 +123,10 @@ export default async function AdminAiPage() {
     enabled: vrEffective.enabled,
     level: vrEffective.level,
     plan_max_level: vrPlanMax,
-    receptionist_name: vrRow?.receptionist_name ?? '',
+    // Read-only in the Receptionist panel — the name is edited once, in
+    // Admin → AI → Hub Bot → Assistant identity (lib/ai-persona.ts), so the
+    // spoken name and the in-Hub name can never drift apart.
+    receptionist_name: persona.name,
     greeting_business_hours: vrRow?.greeting_business_hours ?? '',
     greeting_after_hours: vrRow?.greeting_after_hours ?? vrRow?.greeting ?? '',
     instructions: vrRow?.instructions ?? '',
