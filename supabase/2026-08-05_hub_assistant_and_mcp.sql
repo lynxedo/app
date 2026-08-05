@@ -170,3 +170,27 @@ ALTER TABLE public.hub_assistant_pending_actions
 --    actions are therefore off over MCP unless a company opts in deliberately.
 ALTER TABLE public.hub_assistant_settings
   ADD COLUMN IF NOT EXISTS allow_outward_over_mcp boolean NOT NULL DEFAULT false;
+
+-- ─────────────────────────────────────────────────────────────────────────────
+-- 10) JOBBER ACTIONS + opt-IN allow-listing for consequential actions.
+--     APPLIED to the shared DB on 2026-08-05 via Supabase MCP (migration
+--     `hub_assistant_jobber_actions_2026_08_05`).
+--
+--     Ben's ask: list every available action and let the admin tick the ones they
+--     want. That collides with the original opt-OUT model (everything on unless
+--     disabled), which is fine for looking things up and wrong for "reschedule a
+--     visit" — a new tenant shouldn't be able to move crews on day one because
+--     nobody thought to untick it.
+--
+--     So actions now declare their own default in code (`HubAction.defaultOn`):
+--     reads default ON (disabled_actions removes them), writes default OFF
+--     (enabled_actions adds them).
+ALTER TABLE public.hub_assistant_settings
+  ADD COLUMN IF NOT EXISTS enabled_actions text[] NOT NULL DEFAULT '{}'::text[];
+
+--     Jobber schedule changes don't text anybody, but they move real crews and a
+--     wrong one is QUIET — a truck just shows up on the wrong day. Confirmed by
+--     default, with its own switch so it can be relaxed separately from customer
+--     texts.
+ALTER TABLE public.hub_assistant_settings
+  ADD COLUMN IF NOT EXISTS require_jobber_confirmation boolean NOT NULL DEFAULT true;
