@@ -9,8 +9,14 @@
 // fields — we only ever fill blanks and refresh the Jobber link + tags. Tags
 // mirror Jobber EXACTLY for source='jobber' assignments and never touch manual tags.
 import type { SupabaseClient } from '@supabase/supabase-js'
+import { isPlaceholderName } from '@/lib/contact-name'
 
 type Admin = SupabaseClient<any, any, any>
+
+// A single display name from the parts, or '' when there's nothing to build from.
+function fullNameFromParts(first: string | null | undefined, last: string | null | undefined): string {
+  return [first, last].map((p) => (p || '').trim()).filter(Boolean).join(' ')
+}
 
 export type DirectoryClientInput = {
   external_id: string            // Jobber GID — the directory's jobber_client_id convention
@@ -96,7 +102,7 @@ export async function syncClientsToDirectory(
           updated_at: new Date().toISOString(),
         }
         // add 'jobber' to sources
-        const { data: cur } = await admin.from('txt_contacts').select('sources, manually_edited, first_name, last_name, company_name, is_company, email, phone').eq('id', existingId).single()
+        const { data: cur } = await admin.from('txt_contacts').select('name, sources, manually_edited, first_name, last_name, company_name, is_company, email, phone').eq('id', existingId).single()
         const sources = Array.from(new Set([...((cur?.sources as string[]) ?? []), 'jobber']))
         update.sources = sources
         if (!cur?.manually_edited) {
@@ -104,6 +110,17 @@ export async function syncClientsToDirectory(
           if (!cur?.last_name && c.last_name) update.last_name = c.last_name
           if (!cur?.company_name && c.company_name) update.company_name = c.company_name
           if (c.is_company) update.is_company = true
+          // Fill the `name` COLUMN too, not just the parts. This row may have been
+          // created as a blank-name inbound stub (a texter/caller we didn't know),
+          // and every display surface resolves a contact through `name` alone
+          // (lib/contact-name.ts) — so filling only first/last left the contact
+          // reading "Unknown" forever, and left it invisible to name search and
+          // still queued for AI naming. 297 rows had silently accumulated this way.
+          const jobberName = (c.name || '').trim() || fullNameFromParts(c.first_name, c.last_name) || (c.company_name || '').trim()
+          if (jobberName && isPlaceholderName(cur?.name as string | null, (cur?.phone as string | null) ?? e164)) {
+            update.name = jobberName
+            update.name_source = 'jobber'
+          }
         }
         // adopt phone if the row has none and it's free → no texting consent
         if (!cur?.phone && e164) {
@@ -208,7 +225,7 @@ export async function syncLeadToDirectory(
 
     if (existingId) {
       const { data: cur } = await admin.from('txt_contacts')
-        .select('sources, manually_edited, first_name, last_name, email, phone').eq('id', existingId).single()
+        .select('name, sources, manually_edited, first_name, last_name, email, phone').eq('id', existingId).single()
       const update: Record<string, unknown> = {
         sources: Array.from(new Set([...((cur?.sources as string[]) ?? []), 'leads'])),
         // A lead represents fresh texting consent → make this person textable.
@@ -219,6 +236,14 @@ export async function syncLeadToDirectory(
       if (!cur?.manually_edited) {
         if (!cur?.first_name && lead.first_name) update.first_name = lead.first_name
         if (!cur?.last_name && lead.last_name) update.last_name = lead.last_name
+        // Same as the Jobber branch above: fill the `name` column when the row is
+        // still an unnamed stub, or the lead's name never reaches any UI (display,
+        // search and the AI-naming queue all key off `name`). Left name_source
+        // alone to match this path's own insert branch below.
+        const leadName = fullNameFromParts(lead.first_name, lead.last_name)
+        if (leadName && isPlaceholderName(cur?.name as string | null, (cur?.phone as string | null) ?? e164)) {
+          update.name = leadName
+        }
       }
       // adopt phone if the row has none and it's free (lead = consented → textable)
       if (!cur?.phone && e164) {
