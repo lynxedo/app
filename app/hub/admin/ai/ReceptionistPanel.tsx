@@ -58,8 +58,9 @@ export default function ReceptionistPanel({
   // Generic (SaaS-neutral) code/env defaults for each editable box. Editing a box
   // back to exactly its default saves as blank, so the field keeps tracking the
   // built-in default; anything else is saved as a company customization.
+  // (The persona name is NOT in here — it's edited once in the Assistant tab's Assistant
+  // identity and only displayed on this panel.)
   const DEFAULTS = {
-    receptionist_name: initialVoiceReceptionist.receptionist_name_default,
     greeting_business_hours: initialVoiceReceptionist.greeting_business_hours_default,
     greeting_after_hours: initialVoiceReceptionist.greeting_after_hours_default,
     instructions: initialVoiceReceptionist.instructions_default,
@@ -72,7 +73,6 @@ export default function ReceptionistPanel({
     enabled: initialVoiceReceptionist.enabled,
     level: initialVoiceReceptionist.level,
     recap_text_enabled: initialVoiceReceptionist.recap_text_enabled,
-    receptionist_name: initialVoiceReceptionist.receptionist_name || DEFAULTS.receptionist_name,
     greeting_business_hours: initialVoiceReceptionist.greeting_business_hours || DEFAULTS.greeting_business_hours,
     greeting_after_hours: initialVoiceReceptionist.greeting_after_hours || DEFAULTS.greeting_after_hours,
     instructions: initialVoiceReceptionist.instructions || DEFAULTS.instructions,
@@ -104,7 +104,7 @@ export default function ReceptionistPanel({
     onLevelChange?.(vr.level)
   }, [vr.level, onLevelChange])
 
-  type TextField = 'receptionist_name' | 'greeting_business_hours' | 'greeting_after_hours' | 'instructions' | 'voice_id'
+  type TextField = 'greeting_business_hours' | 'greeting_after_hours' | 'instructions' | 'voice_id'
 
   async function saveVr() {
     setVrSaving(true)
@@ -120,7 +120,8 @@ export default function ReceptionistPanel({
           enabled: vr.enabled,
           level: vr.level,
           recap_text_enabled: vr.recap_text_enabled,
-          receptionist_name: asCustom(vr.receptionist_name, DEFAULTS.receptionist_name),
+          // receptionist_name is deliberately NOT sent — the route ignores it and
+          // the persona owns the name (lib/ai-persona.ts).
           greeting_business_hours: asCustom(vr.greeting_business_hours, DEFAULTS.greeting_business_hours),
           greeting_after_hours: asCustom(vr.greeting_after_hours, DEFAULTS.greeting_after_hours),
           instructions: asCustom(vr.instructions, DEFAULTS.instructions),
@@ -270,20 +271,19 @@ export default function ReceptionistPanel({
           </p>
         </div>
 
-        {/* Receptionist name */}
+        {/* Receptionist name — READ-ONLY here on purpose. The assistant has ONE
+            name (and one avatar), shared with the Hub Bot, edited in a single
+            place so the name callers hear can never drift from the name your team
+            sees in Hub. See lib/ai-persona.ts. */}
         <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-xs font-medium text-white/70">Receptionist name</label>
-            {resetLink('receptionist_name')}
-          </div>
-          <input
-            type="text"
-            value={vr.receptionist_name}
-            onChange={e => setVr(p => ({ ...p, receptionist_name: e.target.value.slice(0, 40) }))}
-            className="w-full max-w-md bg-white/5 border border-white/10 rounded px-3 py-1.5 text-sm text-white focus:outline-none focus:ring-1 focus:ring-blue-500"
-          />
+          <label className="text-xs font-medium text-white/70 block mb-1">Receptionist name</label>
+          <p className="w-full max-w-md bg-white/[0.03] border border-white/10 rounded px-3 py-1.5 text-sm text-white/80">
+            {initialVoiceReceptionist.receptionist_name}
+          </p>
           <p className="text-xs text-white/40 mt-1">
             The name the assistant gives callers (used in the greetings and if a caller asks).
+            It&apos;s the same name your Hub Bot uses — change it in{' '}
+            <strong className="text-white/60">Assistant → Assistant identity</strong>.
           </p>
         </div>
 
