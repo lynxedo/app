@@ -59,6 +59,7 @@ function MarkerDetails({
   sentiment,
   transcript,
   aiReplySentAt,
+  assistantName,
   onJumpToReply,
 }: {
   audioSrc: string | null
@@ -66,8 +67,11 @@ function MarkerDetails({
   sentiment: string | null
   transcript: string | null
   aiReplySentAt: string | null
+  /** The company's configured assistant name; '' / null → a neutral fallback. */
+  assistantName?: string | null
   onJumpToReply?: (ts: string) => void
 }) {
+  const aiName = assistantName?.trim() || 'The assistant'
   const [showTranscript, setShowTranscript] = useState(false)
   const tone = sentimentTone(sentiment)
 
@@ -86,10 +90,10 @@ function MarkerDetails({
           type="button"
           onClick={() => onJumpToReply?.(aiReplySentAt)}
           className="inline-flex items-center gap-1.5 px-2 py-1 rounded-full bg-purple-500/15 text-[var(--t-tint-purple)] text-[10px] hover:bg-purple-500/25"
-          title="Guardian auto-replied — tap to jump to that text"
+          title={`${aiName} auto-replied — tap to jump to that text`}
         >
           <span aria-hidden>🛡</span>
-          <span>Guardian auto-replied · {fmtTime(aiReplySentAt)}</span>
+          <span>{aiName} auto-replied · {fmtTime(aiReplySentAt)}</span>
         </button>
       )}
 
@@ -142,10 +146,12 @@ function directionArrow(direction: string | null): string {
 export function CallMarker({
   event,
   actorName,
+  assistantName,
   onJumpToReply,
 }: {
   event: TimelineCallEvent
   actorName?: string | null
+  assistantName?: string | null
   onJumpToReply?: (ts: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -211,6 +217,7 @@ export function CallMarker({
           sentiment={event.sentiment}
           transcript={event.transcript}
           aiReplySentAt={event.ai_reply_sent_at}
+          assistantName={assistantName}
           onJumpToReply={onJumpToReply}
         />
       )}
@@ -222,9 +229,11 @@ export function CallMarker({
 // are folded into their CallMarker above.
 export function VoicemailMarker({
   event,
+  assistantName,
   onJumpToReply,
 }: {
   event: TimelineCallEvent
+  assistantName?: string | null
   onJumpToReply?: (ts: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
@@ -256,6 +265,7 @@ export function VoicemailMarker({
           sentiment={event.sentiment}
           transcript={event.transcript}
           aiReplySentAt={event.ai_reply_sent_at}
+          assistantName={assistantName}
           onJumpToReply={onJumpToReply}
         />
       )}

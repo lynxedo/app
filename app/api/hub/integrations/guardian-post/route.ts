@@ -1,6 +1,7 @@
 import { NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getHubBotUserId } from '@/lib/guardian-post'
+import { getAssistantPersona } from '@/lib/ai-persona'
 import { sendHubPush } from '@/lib/hub-push'
 
 export const dynamic = 'force-dynamic'
@@ -187,7 +188,7 @@ export async function POST(request: Request) {
 
   fireBroadcasts(admin, { messageId: msg.id, roomId: null, conversationId, parentId, senderId: botUserId })
   if (!parentId) {
-    fireDmPush(admin, { conversationId, body, botUserId })
+    fireDmPush(admin, { companyId, conversationId, body, botUserId })
   }
 
   return NextResponse.json({
@@ -299,6 +300,19 @@ function fireBroadcasts(
   })
 }
 
+/**
+ * The assistant's display name for a push title. Falls back rather than
+ * failing: the name is cosmetic, the notification is not, so a persona-lookup
+ * problem must never cost someone the push itself.
+ */
+async function pushTitleName(admin: SupabaseAdmin, companyId: string): Promise<string> {
+  try {
+    return (await getAssistantPersona(admin, companyId)).name || 'Assistant'
+  } catch {
+    return 'Assistant'
+  }
+}
+
 // Room push fan-out — mirrors the room block in /api/hub/messages.
 // sendHubPush filters by each user's notification prefs (muted/mentions/all).
 async function fireRoomPush(
@@ -327,6 +341,11 @@ async function fireRoomPush(
         .neq('user_id', (await getHubBotUserId(admin, args.companyId)) ?? ''),
     ])
 
+    // The push title carries the assistant's name, which an admin can rename —
+    // so resolve it rather than hardcoding the old "Guardian". One lookup for
+    // all three push shapes below.
+    const assistantName = await pushTitleName(admin, args.companyId)
+
     const roomMemberIdSet = new Set(
       (roomMemberRows ?? []).map((m: { user_id: string }) => m.user_id),
     )
@@ -345,7 +364,7 @@ async function fireRoomPush(
       if (matchedIds.length > 0) {
         sendHubPush(
           matchedIds,
-          { title: `Guardian mentioned you`, body: pushBody, url: `/hub/${args.roomId}` },
+          { title: `${assistantName} mentioned you`, body: pushBody, url: `/hub/${args.roomId}` },
           { isMention: true, roomId: args.roomId },
         ).catch(err => console.error('[guardian-post] mention push failed:', err.message))
       }
@@ -358,7 +377,7 @@ async function fireRoomPush(
         sendHubPush(
           ids,
           {
-            title: `📢 @room — #${args.roomName} — Guardian`,
+            title: `📢 @room — #${args.roomName} — ${assistantName}`,
             body: pushBody,
             url: `/hub/${args.roomId}`,
           },
@@ -372,7 +391,7 @@ async function fireRoomPush(
     if (ids.length > 0) {
       sendHubPush(
         ids,
-        { title: `#${args.roomName} — Guardian`, body: pushBody, url: `/hub/${args.roomId}` },
+        { title: `#${args.roomName} — ${assistantName}`, body: pushBody, url: `/hub/${args.roomId}` },
         { roomId: args.roomId },
       ).catch(err => console.error('[guardian-post] room push failed:', err.message))
     }
@@ -385,7 +404,7 @@ async function fireRoomPush(
 // isDm:true bypasses the global "mentions only" filter but respects DND + muted.
 async function fireDmPush(
   admin: SupabaseAdmin,
-  args: { conversationId: string; body: string; botUserId: string },
+  args: { companyId: string; conversationId: string; body: string; botUserId: string },
 ) {
   try {
     const { data: members } = await admin
@@ -400,9 +419,11 @@ async function fireDmPush(
     const previewText = args.body.trim()
     const pushBody = previewText.length > 0 ? previewText.slice(0, 120) : '📎 Sent an attachment'
 
+    const assistantName = await pushTitleName(admin, args.companyId)
+
     sendHubPush(
       recipientIds,
-      { title: 'Guardian', body: pushBody, url: `/hub/pm/${args.conversationId}` },
+      { title: assistantName, body: pushBody, url: `/hub/pm/${args.conversationId}` },
       { isDm: true },
     ).catch(err => console.error('[guardian-post] DM push failed:', err.message))
   } catch (err) {

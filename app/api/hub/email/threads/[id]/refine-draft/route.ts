@@ -97,7 +97,7 @@ export async function POST(
   if (!draft) return NextResponse.json({ error: 'Nothing to polish — type a draft first.' })
 
   const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) return NextResponse.json({ error: 'Guardian not configured' })
+  if (!apiKey) return NextResponse.json({ error: 'AI is not configured' })
 
   const admin = createAdminClient()
 

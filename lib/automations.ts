@@ -1,5 +1,6 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 import { postGuardianToUserDm, postGuardianToRoom } from '@/lib/guardian-post'
+import { getAssistantPersona } from '@/lib/ai-persona'
 import { sendHubPush } from '@/lib/hub-push'
 import { sendSms, toE164 } from '@/lib/twilio'
 import { resolveFromNumber } from '@/lib/txt-numbers'
@@ -252,11 +253,27 @@ export async function deliver(args: {
 
   // Guardian DM/room + phone push
   if (wantGuardian) {
+    // The push title wears the assistant's configured name, not the old
+    // hardcoded "Guardian". Resolved once, outside the per-recipient loop, and
+    // fallback-guarded: the name is cosmetic but `deliver` must still deliver,
+    // so a persona-lookup failure can't abort the automation run.
+    let assistantName = 'Assistant'
+    if (userTargets.length > 0) {
+      try {
+        assistantName = (await getAssistantPersona(admin, companyId)).name || assistantName
+      } catch {
+        // keep the neutral fallback
+      }
+    }
     for (const t of userTargets) {
       await postGuardianToUserDm(companyId, t.userId, t.body, { admin })
       await sendHubPush(
         [t.userId],
-        { title: args.ruleName ? `Guardian · ${args.ruleName}` : 'Guardian', body: t.body.slice(0, 180), url: '/hub' },
+        {
+          title: args.ruleName ? `${assistantName} · ${args.ruleName}` : assistantName,
+          body: t.body.slice(0, 180),
+          url: '/hub',
+        },
         { isDm: true },
       )
     }

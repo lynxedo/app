@@ -2,6 +2,7 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
+import { getAssistantPersona } from '@/lib/ai-persona'
 
 export async function GET(
   req: Request,
@@ -54,7 +55,7 @@ export async function GET(
     })
   }
 
-  const [convResult, messagesResult, notesResult, membersResult, groupContactsResult] =
+  const [convResult, messagesResult, notesResult, membersResult, groupContactsResult, persona] =
     await Promise.all([
       supabase
         .from('txt_conversations')
@@ -80,6 +81,20 @@ export async function GET(
         .from('txt_conversation_contacts')
         .select('contact:txt_contacts!txt_conversation_contacts_contact_id_fkey ( id, name, phone, email, do_not_text )')
         .eq('conversation_id', id),
+      // The assistant's configured name, so the Workspace-tab twin labels
+      // AI-sent texts the same way the full page does. Admin client because the
+      // persona reads voice_receptionist_settings, which an ordinary Txt user
+      // can't; scoped to the caller's own company, returns only a display name.
+      (async () => {
+        const { data: prof } = await supabase
+          .from('user_profiles')
+          .select('company_id')
+          .eq('id', user.id)
+          .maybeSingle()
+        const companyId = (prof as { company_id?: string | null } | null)?.company_id
+        if (!companyId) return null
+        return getAssistantPersona(createAdminClient(), companyId).catch(() => null)
+      })(),
     ])
 
   if (convResult.error || !convResult.data) {
@@ -96,6 +111,7 @@ export async function GET(
     notes: notesResult.data ?? [],
     members: membersResult.data ?? [],
     group_contacts: groupContactsResult.data ?? [],
+    assistant_name: persona?.name ?? null,
   })
 }
 

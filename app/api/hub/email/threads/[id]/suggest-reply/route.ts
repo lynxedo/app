@@ -99,7 +99,7 @@ export async function POST(
     : 'professional'
 
   const apiKey = process.env.ANTHROPIC_API_KEY
-  if (!apiKey) return NextResponse.json({ error: 'Guardian not configured' })
+  if (!apiKey) return NextResponse.json({ error: 'AI is not configured' })
 
   const admin = createAdminClient()
 
