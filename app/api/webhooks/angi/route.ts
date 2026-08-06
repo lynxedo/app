@@ -3,7 +3,7 @@ import crypto from 'node:crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
 import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
-import { GUARDIAN_HUB_USER_ID as GUARDIAN_BOT_ID } from '@/lib/guardian-post'
+import { getHubBotUserId } from '@/lib/guardian-post'
 
 // Angi "Standard Lead API" webhook.
 //
@@ -19,7 +19,8 @@ import { GUARDIAN_HUB_USER_ID as GUARDIAN_BOT_ID } from '@/lib/guardian-post'
 export const runtime = 'nodejs'
 
 const HEROES_COMPANY_ID = '00000000-0000-0000-0000-000000000002'
-// GUARDIAN_BOT_ID (imported above) posts system messages into the Hub "office" room.
+// The company's Hub bot (resolved via getHubBotUserId) posts system messages into
+// the Hub "office" room.
 const OFFICE_ROOM_ID = 'cebac7e5-caf8-400c-a15d-5eb9d81e1967'
 
 function safeEqual(a: string, b: string): boolean {
@@ -196,14 +197,16 @@ export async function POST(request: Request) {
     const leadName = [first, last].filter(Boolean).join(' ') || 'Unknown name'
     const line2 = [svc && `Service: ${svc}`, phone, service_address].filter(Boolean).join(' · ')
     const content = `📥 New Angi lead: ${leadName}${line2 ? `\n${line2}` : ''}\nOpen the Lead Tracker → /hub/tracker`
+    const botUserId = await getHubBotUserId(admin, HEROES_COMPANY_ID)
+    if (!botUserId) throw new Error(`no Hub bot for company ${HEROES_COMPANY_ID}`)
     const { data: alertMsg } = await admin
       .from('messages')
-      .insert({ company_id: HEROES_COMPANY_ID, room_id: OFFICE_ROOM_ID, sender_id: GUARDIAN_BOT_ID, content })
+      .insert({ company_id: HEROES_COMPANY_ID, room_id: OFFICE_ROOM_ID, sender_id: botUserId, content })
       .select('id')
       .single()
     if (alertMsg) {
       after(() => broadcastMessageInserted({
-        messageId: alertMsg.id, roomId: OFFICE_ROOM_ID, conversationId: null, parentId: null, senderId: GUARDIAN_BOT_ID,
+        messageId: alertMsg.id, roomId: OFFICE_ROOM_ID, conversationId: null, parentId: null, senderId: botUserId,
       }))
     }
   } catch (e) {

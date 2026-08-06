@@ -1,9 +1,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
-
-// Guardian bot hub_users id (see app/api/hub/messages/route.ts CLAUDE_BOT_ID).
-const GUARDIAN_BOT_ID = '00000000-0000-0000-0001-000000000001'
+import { getHubBotUserId } from '@/lib/guardian-post'
 
 // Called by VPS cron (every ~15 min) — DOES send real Guardian DMs + pushes:
 //   curl -s -X POST https://lynxedo.com/api/hub/boards/overdue-check \
@@ -13,8 +11,13 @@ const GUARDIAN_BOT_ID = '00000000-0000-0000-0001-000000000001'
 
 type AdminClient = ReturnType<typeof createAdminClient>
 
-// Find-or-create the 1:1 DM conversation between a user and the Guardian bot.
-async function ensureGuardianDm(admin: AdminClient, userId: string, companyId: string): Promise<string | null> {
+// Find-or-create the 1:1 DM conversation between a user and their company's Hub bot.
+async function ensureGuardianDm(
+  admin: AdminClient,
+  userId: string,
+  companyId: string,
+  botUserId: string,
+): Promise<string | null> {
   const { data: mine } = await admin
     .from('conversation_members')
     .select('conversation_id')
@@ -25,7 +28,7 @@ async function ensureGuardianDm(admin: AdminClient, userId: string, companyId: s
     const { data: withGuardian } = await admin
       .from('conversation_members')
       .select('conversation_id')
-      .eq('user_id', GUARDIAN_BOT_ID)
+      .eq('user_id', botUserId)
       .in('conversation_id', myIds)
     const sharedIds = (withGuardian ?? []).map((m: { conversation_id: string }) => m.conversation_id)
     if (sharedIds.length > 0) {
@@ -58,7 +61,7 @@ async function ensureGuardianDm(admin: AdminClient, userId: string, companyId: s
   if (error || !conv) return null
   await admin.from('conversation_members').insert([
     { conversation_id: conv.id, user_id: userId },
-    { conversation_id: conv.id, user_id: GUARDIAN_BOT_ID },
+    { conversation_id: conv.id, user_id: botUserId },
   ])
   return conv.id
 }
@@ -122,9 +125,17 @@ export async function POST(request: Request) {
   }
 
   let notified = 0
+  // Assignees usually share a company, so resolve each company's Hub bot once.
+  const botByCompany = new Map<string, string | null>()
   for (const [userId, userItems] of Object.entries(perUser)) {
     const { data: prof } = await admin.from('user_profiles').select('company_id').eq('id', userId).single()
     if (!prof?.company_id) continue
+
+    const companyId = prof.company_id as string
+    if (!botByCompany.has(companyId)) {
+      botByCompany.set(companyId, await getHubBotUserId(admin, companyId))
+    }
+    const botUserId = botByCompany.get(companyId) ?? null
 
     const lines = userItems.map(it => `• ${it.content}${boardName[it.board_id] ? `  (${boardName[it.board_id]})` : ''}`)
     const intro = userItems.length === 1
@@ -132,12 +143,16 @@ export async function POST(request: Request) {
       : `Heads up — ${userItems.length} of your tasks are overdue:`
     const content = `${intro}\n${lines.join('\n')}`
 
-    const convId = await ensureGuardianDm(admin, userId, prof.company_id)
-    if (convId) {
+    // No bot for this company → skip the DM (the push below still goes out, so
+    // the person is still told; we just don't post as another tenant's bot).
+    const convId = botUserId
+      ? await ensureGuardianDm(admin, userId, companyId, botUserId)
+      : null
+    if (convId && botUserId) {
       await admin.from('messages').insert({
-        company_id: prof.company_id,
+        company_id: companyId,
         conversation_id: convId,
-        sender_id: GUARDIAN_BOT_ID,
+        sender_id: botUserId,
         content,
       })
       await admin

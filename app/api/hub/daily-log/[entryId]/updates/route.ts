@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 import { notifyDailyLogComplete, broadcastDailyLogUpdate } from '@/lib/daily-log-notify'
-import { GUARDIAN_HUB_USER_ID } from '@/lib/guardian-post'
+import { getHubBotUserId } from '@/lib/guardian-post'
 
 export async function POST(
   request: Request,
@@ -90,9 +90,11 @@ export async function POST(
   for (const id of ((settingsResult.data?.update_notify_user_ids ?? []) as string[])) {
     if (id) memberSet.add(id)
   }
-  // Never notify the poster or the bot.
+  // Never notify the poster or the bot. Resolve THIS company's bot — filtering on a
+  // fixed id would leave another tenant's bot in its own recipient list.
   memberSet.delete(user.id)
-  memberSet.delete(GUARDIAN_HUB_USER_ID)
+  const botUserId = await getHubBotUserId(admin, profile.company_id)
+  if (botUserId) memberSet.delete(botUserId)
   const recipientIds = [...memberSet]
 
   const senderName = senderResult.data?.display_name ?? 'Someone'

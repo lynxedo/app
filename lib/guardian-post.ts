@@ -1,8 +1,70 @@
 import { createAdminClient } from '@/lib/supabase/admin'
 
+/**
+ * Heroes' Hub bot row — the original single-tenant constant.
+ *
+ * @deprecated Resolve the posting identity with `getHubBotUserId(admin, companyId)`
+ * instead. This id is Heroes' bot row specifically, NOT "the bot": using it for
+ * another company writes a sender_id that belongs to Heroes, and because the FK is
+ * satisfied the insert succeeds — so another tenant's room shows Heroes' bot
+ * posting. It survives as the seed/fallback for Heroes and for the handful of
+ * places that legitimately need to recognise that specific row.
+ */
 export const GUARDIAN_HUB_USER_ID = '00000000-0000-0000-0001-000000000001'
 
+/** The tenant the legacy constant belongs to (see getHubBotUserId's fallback). */
+const LEGACY_BOT_COMPANY_ID =
+  process.env.HUB_BOT_LEGACY_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
+
 type SupabaseAdmin = ReturnType<typeof createAdminClient>
+
+/**
+ * The hub_users row this company's automated Hub posts are sent as.
+ *
+ * Reads `companies.hub_bot_user_id`, then confirms that row really is a bot of that
+ * company — an id alone is not authorization, and a misconfigured column pointing at
+ * a human (or at another tenant's bot) must not turn into posts under that identity.
+ *
+ * Returns null when the company has no bot configured. Callers must SKIP posting
+ * rather than substituting a default: attributing a post to a bot row from another
+ * company is worse than not posting, because it looks legitimate.
+ *
+ * Falls back to the legacy constant only for the tenant that constant belongs to,
+ * so Heroes is unaffected even if its column is ever cleared.
+ */
+export async function getHubBotUserId(
+  admin: SupabaseAdmin,
+  companyId: string,
+): Promise<string | null> {
+  if (!companyId) return null
+
+  const { data: company } = await admin
+    .from('companies')
+    .select('hub_bot_user_id')
+    .eq('id', companyId)
+    .maybeSingle<{ hub_bot_user_id: string | null }>()
+
+  const configured = company?.hub_bot_user_id ?? null
+  if (configured) {
+    // Verified, not trusted: the column could point at a human or at another
+    // tenant's bot, and either would otherwise become posts under that identity.
+    const { data: bot } = await admin
+      .from('hub_users')
+      .select('id')
+      .eq('id', configured)
+      .eq('company_id', companyId)
+      .eq('is_bot', true)
+      .maybeSingle<{ id: string }>()
+    if (bot) return bot.id
+    console.warn(
+      '[guardian-post] companies.hub_bot_user_id is not a bot of this company, ignoring:',
+      { companyId, configured },
+    )
+  }
+
+  if (companyId === LEGACY_BOT_COMPANY_ID) return GUARDIAN_HUB_USER_ID
+  return null
+}
 
 /**
  * Post a message as @Guardian to a Hub room. Auto-joins Guardian as a room
@@ -33,9 +95,17 @@ export async function postGuardianToRoom(
     return null
   }
 
+  // Resolved from the ROOM's company, so a post always carries that company's own
+  // bot. No bot configured → skip; never fall back to another tenant's identity.
+  const botUserId = await getHubBotUserId(admin, room.company_id)
+  if (!botUserId) {
+    console.warn('[guardian-post] no Hub bot for company, skipping room post:', room.company_id)
+    return null
+  }
+
   await admin
     .from('room_members')
-    .upsert({ room_id: roomId, user_id: GUARDIAN_HUB_USER_ID, role: 'member' }, {
+    .upsert({ room_id: roomId, user_id: botUserId, role: 'member' }, {
       onConflict: 'room_id,user_id',
       ignoreDuplicates: true,
     })
@@ -45,7 +115,7 @@ export async function postGuardianToRoom(
     .insert({
       company_id: room.company_id,
       room_id: roomId,
-      sender_id: GUARDIAN_HUB_USER_ID,
+      sender_id: botUserId,
       content: body,
     })
     .select('id')
@@ -72,9 +142,20 @@ export async function postGuardianToUserDm(
 ): Promise<string | null> {
   const admin = opts?.admin ?? createAdminClient()
 
-  if (recipientHubUserId === GUARDIAN_HUB_USER_ID) return null
+  const botUserId = await getHubBotUserId(admin, companyId)
+  if (!botUserId) {
+    console.warn('[guardian-post] no Hub bot for company, skipping DM:', companyId)
+    return null
+  }
+  // Never DM itself (the recipient list may include the bot).
+  if (recipientHubUserId === botUserId) return null
 
-  const conversationId = await findOrCreateGuardianDm(admin, companyId, recipientHubUserId)
+  const conversationId = await findOrCreateGuardianDm(
+    admin,
+    companyId,
+    recipientHubUserId,
+    botUserId,
+  )
   if (!conversationId) return null
 
   const { data: msg, error: msgErr } = await admin
@@ -82,7 +163,7 @@ export async function postGuardianToUserDm(
     .insert({
       company_id: companyId,
       conversation_id: conversationId,
-      sender_id: GUARDIAN_HUB_USER_ID,
+      sender_id: botUserId,
       content: body,
     })
     .select('id')
@@ -117,8 +198,11 @@ export async function fanoutGuardianNotification(args: {
   let dmsSent = 0
   let roomsPosted = 0
 
+  // Drop this company's own bot from the recipient list so it never DMs itself.
+  // (postGuardianToUserDm re-checks; this also avoids a pointless round trip.)
+  const ownBotUserId = await getHubBotUserId(admin, args.companyId)
   const dedupUserIds = [...new Set(args.userIds)].filter(
-    (id) => id && id !== GUARDIAN_HUB_USER_ID,
+    (id) => id && id !== ownBotUserId,
   )
   for (const userId of dedupUserIds) {
     const id = await postGuardianToUserDm(args.companyId, userId, args.body, { admin })
@@ -138,11 +222,12 @@ async function findOrCreateGuardianDm(
   admin: SupabaseAdmin,
   companyId: string,
   recipientHubUserId: string,
+  botUserId: string,
 ): Promise<string | null> {
   const { data: guardianMemberships } = await admin
     .from('conversation_members')
     .select('conversation_id')
-    .eq('user_id', GUARDIAN_HUB_USER_ID)
+    .eq('user_id', botUserId)
   const guardianConvIds = (guardianMemberships ?? []).map(
     (m: { conversation_id: string }) => m.conversation_id,
   )
@@ -172,7 +257,7 @@ async function findOrCreateGuardianDm(
     return null
   }
   await admin.from('conversation_members').insert([
-    { conversation_id: conv.id, user_id: GUARDIAN_HUB_USER_ID },
+    { conversation_id: conv.id, user_id: botUserId },
     { conversation_id: conv.id, user_id: recipientHubUserId },
   ])
   return conv.id

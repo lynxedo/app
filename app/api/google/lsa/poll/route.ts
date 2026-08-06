@@ -3,7 +3,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { fetchNewLsaLeads, googleAdsConfigured, type LsaLead } from '@/lib/google-ads'
 import { syncLeadToDirectory } from '@/lib/contacts-directory'
 import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
-import { GUARDIAN_HUB_USER_ID as GUARDIAN_BOT_ID } from '@/lib/guardian-post'
+import { getHubBotUserId } from '@/lib/guardian-post'
 
 // Google Local Services Ads (LSA) lead poller.
 //
@@ -151,9 +151,11 @@ export async function POST(req: Request) {
           .filter(Boolean)
           .join(' ')
         const content = `📥 New Google LSA lead: ${leadName}${line2 ? `\n${line2}` : ''}\nOpen the Lead Tracker → /hub/tracker`
+        const botUserId = await getHubBotUserId(admin, companyId)
+        if (!botUserId) throw new Error(`no Hub bot for company ${companyId}`)
         const { data: alertMsg } = await admin
           .from('messages')
-          .insert({ company_id: companyId, room_id: OFFICE_ROOM_ID, sender_id: GUARDIAN_BOT_ID, content })
+          .insert({ company_id: companyId, room_id: OFFICE_ROOM_ID, sender_id: botUserId, content })
           .select('id')
           .single()
         if (alertMsg) {
@@ -163,7 +165,7 @@ export async function POST(req: Request) {
               roomId: OFFICE_ROOM_ID,
               conversationId: null,
               parentId: null,
-              senderId: GUARDIAN_BOT_ID,
+              senderId: botUserId,
             }),
           )
         }

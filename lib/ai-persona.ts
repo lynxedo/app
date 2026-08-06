@@ -4,7 +4,7 @@
 // stamped across attribution history (calls.handled_by, txt_messages.sent_by,
 // drip sends, the Guardian audit log), so merging them would rewrite that
 // history for no visible gain.
-//   • the Hub bot        — GUARDIAN_HUB_USER_ID: answers questions in Hub and is
+//   • the Hub bot        — companies.hub_bot_user_id: answers questions in Hub and is
 //                          the face on the automated system posts in
 //                          lib/guardian-post.ts (LSA leads, overdue tasks, …).
 //   • the receptionist   — voice_receptionist_settings.text_bot_user_id: the AI
@@ -42,7 +42,7 @@
 // named Hub bot), and finally to DEFAULT_RECEPTIONIST_NAME.
 
 import type { SupabaseClient } from '@supabase/supabase-js'
-import { GUARDIAN_HUB_USER_ID } from '@/lib/guardian-post'
+import { getHubBotUserId } from '@/lib/guardian-post'
 import { DEFAULT_RECEPTIONIST_NAME } from '@/lib/voice-receptionist'
 
 /** Max length of the persona name (matches the receptionist_name input cap). */
@@ -61,8 +61,9 @@ export type AssistantPersona = {
   botUserIds: string[]
   /**
    * The id the admin UI renders the avatar from and the avatar object key is
-   * named after — the Hub bot when it exists, else the first persona row, else
-   * the Hub bot id so the UI always has something to ask for.
+   * named after — the company's Hub bot when it exists, else the first persona
+   * row. Empty string when the company has no bot at all (never another tenant's
+   * id); callers should treat '' as "nothing to render / nothing to save".
    */
   primaryBotUserId: string
 }
@@ -80,7 +81,12 @@ type BotRow = { id: string; display_name: string | null; avatar_url: string | nu
 async function loadPersonaRows(
   admin: SupabaseClient,
   companyId: string
-): Promise<{ rows: BotRow[]; storedName: string; hasReceptionistRow: boolean }> {
+): Promise<{
+  rows: BotRow[]
+  storedName: string
+  hasReceptionistRow: boolean
+  hubBotUserId: string | null
+}> {
   const { data: vrs } = await admin
     .from('voice_receptionist_settings')
     .select('receptionist_name, text_bot_user_id')
@@ -88,7 +94,13 @@ async function loadPersonaRows(
     .maybeSingle()
   const settings = (vrs as { receptionist_name?: string | null; text_bot_user_id?: string | null } | null) ?? null
 
-  const candidates = [GUARDIAN_HUB_USER_ID, settings?.text_bot_user_id ?? null].filter(
+  // The Hub bot is resolved per company (companies.hub_bot_user_id) — using the
+  // legacy constant here is what made a second tenant's identity endpoint 409:
+  // that row belongs to Heroes, so it never matched their company filter below
+  // and the persona came back with zero rows to name or give a face to.
+  const hubBotUserId = await getHubBotUserId(admin, companyId)
+
+  const candidates = [hubBotUserId, settings?.text_bot_user_id ?? null].filter(
     (id, i, all): id is string => Boolean(id) && all.indexOf(id) === i
   )
 
@@ -109,18 +121,25 @@ async function loadPersonaRows(
     rows,
     storedName: (settings?.receptionist_name || '').trim(),
     hasReceptionistRow: Boolean(settings),
+    hubBotUserId,
   }
 }
 
-function personaFromRows(rows: BotRow[], storedName: string): AssistantPersona {
-  const hubBot = rows.find((r) => r.id === GUARDIAN_HUB_USER_ID) ?? rows[0] ?? null
+function personaFromRows(
+  rows: BotRow[],
+  storedName: string,
+  hubBotUserId: string | null,
+): AssistantPersona {
+  const hubBot = rows.find((r) => r.id === hubBotUserId) ?? rows[0] ?? null
   const fallbackName = (hubBot?.display_name || '').trim()
   const avatarRow = rows.find((r) => r.avatar_url) ?? null
   return {
     name: storedName || fallbackName || DEFAULT_RECEPTIONIST_NAME,
     avatarUrl: hubBot?.avatar_url ?? avatarRow?.avatar_url ?? null,
     botUserIds: rows.map((r) => r.id),
-    primaryBotUserId: hubBot?.id ?? GUARDIAN_HUB_USER_ID,
+    // Empty when the company has no bot at all — never another tenant's row, which
+    // would make the admin UI request a foreign company's avatar.
+    primaryBotUserId: hubBot?.id ?? hubBotUserId ?? '',
   }
 }
 
@@ -129,8 +148,8 @@ export async function getAssistantPersona(
   admin: SupabaseClient,
   companyId: string
 ): Promise<AssistantPersona> {
-  const { rows, storedName } = await loadPersonaRows(admin, companyId)
-  return personaFromRows(rows, storedName)
+  const { rows, storedName, hubBotUserId } = await loadPersonaRows(admin, companyId)
+  return personaFromRows(rows, storedName, hubBotUserId)
 }
 
 /**
