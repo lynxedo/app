@@ -904,9 +904,24 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   const applyAudioForCall = useCallback(async () => {
     const audio = deviceRef.current?.audio
     if (!audio) return
+    // Re-point the mic at the saved device ONLY if it still exists. If the saved
+    // mic is gone (headset unplugged, Bluetooth dropped, stale OS device id) —
+    // or nothing is saved — unset EXPLICITLY so the SDK acquires the system
+    // default at connect time. Previously a failed set was swallowed silently,
+    // which left the selection in an indeterminate state and gave the customer
+    // no audio with nothing on screen to explain it. Same self-healing shape as
+    // the speaker fallback below.
     const inId = selectedInputIdRef.current
-    if (inId && inId !== 'default') {
-      try { await audio.setInputDevice(inId) } catch { /* fall back to default mic */ }
+    const inTarget =
+      inId && inId !== 'default' && audio.availableInputDevices.has(inId) ? inId : null
+    if (inTarget) {
+      try {
+        await audio.setInputDevice(inTarget)
+      } catch {
+        try { await audio.unsetInputDevice() } catch { /* already unset */ }
+      }
+    } else {
+      try { await audio.unsetInputDevice() } catch { /* already unset */ }
     }
     if (audio.isOutputSelectionSupported) {
       let outId: string | null = null
@@ -1109,15 +1124,19 @@ export function useTwilioDevice(options?: { autoRegister?: boolean }): UseTwilio
   const applyAudioToDevice = useCallback(async (dev: DeviceType) => {
     const audio = dev.audio
     if (!audio) return
-    try {
-      const inId = selectedInputIdRef.current
-      if (inId && inId !== 'default') await audio.setInputDevice(inId)
-      const outId = selectedOutputId
-      if (audio.isOutputSelectionSupported && outId && outId !== 'default') {
-        await audio.speakerDevices.set(outId)
-      }
-      if (headsetModeRef.current) await audio.setAudioConstraints({ echoCancellation: false })
-    } catch { /* constraints/devices unsupported — ignore */ }
+    // Each step is guarded on its own: a missing mic must not abort the speaker
+    // or headset-constraint steps that follow it (they used to share one try).
+    const inId = selectedInputIdRef.current
+    if (inId && inId !== 'default' && audio.availableInputDevices.has(inId)) {
+      try { await audio.setInputDevice(inId) } catch { /* falls back to default */ }
+    }
+    const outId = selectedOutputId
+    if (audio.isOutputSelectionSupported && outId && outId !== 'default') {
+      try { await audio.speakerDevices.set(outId) } catch { /* ignore */ }
+    }
+    if (headsetModeRef.current) {
+      try { await audio.setAudioConstraints({ echoCancellation: false }) } catch { /* unsupported */ }
+    }
   }, [selectedOutputId])
 
   // Attach lifecycle handlers to a call that has become the foreground via a
