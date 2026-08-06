@@ -66,9 +66,16 @@ export async function POST(request: Request) {
     }
 
     const ext = file.type === 'image/jpeg' ? 'jpg' : file.type.split('/')[1]
-    // One object, shared by every persona row — keyed on the primary (Hub bot)
-    // id so previously-uploaded avatars keep their existing key.
-    const key = `avatars/${persona.primaryBotUserId}.${ext}`
+    // One object shared by every persona row, keyed on the primary (Hub bot) id
+    // — but with a per-upload suffix, so replacing the avatar produces a NEW key.
+    //
+    // A stable key meant every upload overwrote the same object at the same URL:
+    // the picture changed while its address didn't, so anything holding a cached
+    // copy kept showing the old face (the admin panel showed the previous avatar
+    // for hours while rooms and DMs showed the new one, purely by luck of which
+    // cache entry was populated when). It also destroyed the previous image.
+    // A fresh key makes every change a new URL, which caches can't shadow.
+    const key = `avatars/${persona.primaryBotUserId}-${Date.now()}.${ext}`
 
     const buffer = Buffer.from(await file.arrayBuffer())
     await getR2Client().send(new PutObjectCommand({
