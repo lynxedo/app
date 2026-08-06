@@ -3,6 +3,7 @@
 import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { purgeAllAuthCookies } from '@/lib/auth-cookie-cleanup'
+import { safeNextPath } from '@/lib/safe-next'
 import type { EmailOtpType } from '@supabase/supabase-js'
 
 // Every auth step is bounded and every failure path resets + retries. The Supabase
@@ -77,10 +78,8 @@ export default function AuthCallbackPage() {
       const code = url.searchParams.get('code')
       const token_hash = url.searchParams.get('token_hash')
       const type = url.searchParams.get('type') as EmailOtpType | null
-      // Same-site paths only (matches /login's ?next= rule) — never an external URL.
-      const nextParam = url.searchParams.get('next')
-      const explicitNext =
-        nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : null
+      // Same-site paths only (shared rule, see lib/safe-next) — never an external URL.
+      const explicitNext = safeNextPath(url.searchParams.get('next'), '') || null
 
       // Invite / email OTP flow — token_hash + type
       if (token_hash && type) {
