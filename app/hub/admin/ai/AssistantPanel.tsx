@@ -199,16 +199,21 @@ export default function AssistantPanel() {
             onChange={(v) => setSettings({ ...settings, requireConfirmation: v })}
           />
           <Toggle
-            label="Let connected Claude apps text customers"
-            hint="Off by default. In the Hub, a customer text always waits for a person to approve it. Over a connected Claude app we can't guarantee that step, so approval depends on that app asking you first."
+            label="Let connected Claude apps text customers and change Jobber visits"
+            hint="Off by default, and only ever affects outside Claude apps — never the Hub itself. It covers four things: texting a customer, and rescheduling, reassigning or completing a visit. Everything else — lookups, the schedule, leads, tasks, Hub messages — works through a connected app either way."
             checked={settings.allowOutwardOverMcp}
             disabled={!settings.enabled || !settings.mcpEnabled}
             onChange={(v) => setSettings({ ...settings, allowOutwardOverMcp: v })}
           />
           {settings.allowOutwardOverMcp && (
             <p className="rounded-lg border border-amber-500/30 bg-amber-500/10 p-3 text-xs text-amber-200">
-              With this on, a connected Claude app can send a customer text once you approve it in
-              that app. The Hub&apos;s own approval step no longer applies there.
+              With this on, a connected Claude app can text a customer or move a visit on your Jobber
+              calendar. <strong className="text-amber-100">The Hub&apos;s own approval step
+              doesn&apos;t apply there</strong> — inside the Hub nothing goes out until a person
+              replies to approve it, but a connected app can&apos;t be held to that, so approval rests
+              on that app asking you first. Two things to weigh: a customer text goes out as the
+              person who asked for it, under their name and signature; and a wrong schedule change is
+              quiet — no customer sees it, a crew just shows up on the wrong day.
             </p>
           )}
           <Toggle
