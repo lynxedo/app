@@ -4,6 +4,7 @@ import { useState, useEffect, Suspense } from 'react'
 import { useRouter, useSearchParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { purgeLegacyHostOnlyAuthCookies } from '@/lib/auth-cookie-cleanup'
+import { safeNextPath } from '@/lib/safe-next'
 
 function LoginForm() {
   const router = useRouter()
@@ -19,6 +20,21 @@ function LoginForm() {
   const [password, setPassword] = useState('')
   const [passwordLoading, setPasswordLoading] = useState(false)
   const searchParams = useSearchParams()
+
+  // A same-site ?next= set by whoever sent the user here — /oauth/authorize for a
+  // claude.ai / MCP connection, /extension/connect for the browser extension.
+  // Empty string when absent or unsafe, in which case sign-in resolves the user's
+  // own landing page as before.
+  const safeNext = safeNextPath(searchParams.get('next'), '')
+
+  // Google and Apple bounce through /api/auth/callback, so `next` has to ride along
+  // on the redirect — otherwise the round trip drops it and a connection started
+  // from claude.ai lands on the Hub home with the OAuth flow silently abandoned.
+  // ⚠ The PATH must stay /api/auth/callback — that's the redirect_uri registered in
+  // Google Cloud and Apple. A query string is fine; a different path is not.
+  const oauthCallbackUrl = () =>
+    `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback` +
+    (safeNext ? `?next=${encodeURIComponent(safeNext)}` : '')
 
   // Pre-Track-2 (July 2026) host-only sb-* cookies shadow the current domain-wide
   // session cookies and carry long-rotated refresh tokens — presenting one trips
@@ -80,7 +96,7 @@ function LoginForm() {
     } else {
       await supabase.auth.signInWithOAuth({
         provider: 'google',
-        options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback` },
+        options: { redirectTo: oauthCallbackUrl() },
       })
     }
   }
@@ -121,7 +137,7 @@ function LoginForm() {
     } else {
       await supabase.auth.signInWithOAuth({
         provider: 'apple',
-        options: { redirectTo: `${process.env.NEXT_PUBLIC_APP_URL}/api/auth/callback` },
+        options: { redirectTo: oauthCallbackUrl() },
       })
     }
   }
@@ -168,10 +184,8 @@ function LoginForm() {
         .single()
       if (profile?.landing_page === 'dashboard') landing = '/dashboard'
     }
-    // Honor a safe internal ?next= (used by the browser-extension sign-in flow,
-    // /extension/connect). Only same-site paths — never an absolute/external URL.
-    const nextParam = searchParams.get('next')
-    const dest = nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : landing
+    // Honor a safe internal ?next= — same-site paths only (see lib/safe-next).
+    const dest = safeNext || landing
     router.push(dest)
   }
 
@@ -202,10 +216,8 @@ function LoginForm() {
         .single()
       if (profile?.landing_page === 'dashboard') landing = '/dashboard'
     }
-    // Honor a safe internal ?next= (used by the browser-extension sign-in flow,
-    // /extension/connect). Only same-site paths — never an absolute/external URL.
-    const nextParam = searchParams.get('next')
-    const dest = nextParam && nextParam.startsWith('/') && !nextParam.startsWith('//') ? nextParam : landing
+    // Honor a safe internal ?next= — same-site paths only (see lib/safe-next).
+    const dest = safeNext || landing
     router.push(dest)
   }
 
