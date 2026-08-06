@@ -1,6 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { GUARDIAN_HUB_USER_ID } from '@/lib/guardian-post'
+import { getHubBotUserId } from '@/lib/guardian-post'
 
 export const dynamic = 'force-dynamic'
 
@@ -40,9 +40,15 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'call_logs room not found' }, { status: 404 })
   }
 
+  // The room's own company decides which bot posts — never a hardcoded id.
+  const botUserId = await getHubBotUserId(admin, room.company_id)
+  if (!botUserId) {
+    return NextResponse.json({ error: 'no Hub bot configured for this company' }, { status: 409 })
+  }
+
   await admin
     .from('room_members')
-    .upsert({ room_id: room.id, user_id: GUARDIAN_HUB_USER_ID, role: 'member' }, {
+    .upsert({ room_id: room.id, user_id: botUserId, role: 'member' }, {
       onConflict: 'room_id,user_id',
       ignoreDuplicates: true,
     })
@@ -52,7 +58,7 @@ export async function POST(request: Request) {
     .insert({
       company_id: room.company_id,
       room_id: room.id,
-      sender_id: GUARDIAN_HUB_USER_ID,
+      sender_id: botUserId,
       content: text,
       parent_id: parentId,
     })

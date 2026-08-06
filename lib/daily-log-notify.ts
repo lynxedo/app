@@ -1,5 +1,5 @@
 import { createAdminClient } from '@/lib/supabase/admin'
-import { GUARDIAN_HUB_USER_ID, fanoutGuardianNotification } from '@/lib/guardian-post'
+import { getHubBotUserId, fanoutGuardianNotification } from '@/lib/guardian-post'
 
 type EntryRow = {
   id: string
@@ -88,8 +88,11 @@ export async function notifyDailyLogComplete(entryId: string): Promise<void> {
       completion_notify_room_ids: string[]
     }>()
 
+  // Exclude THIS company's bot, not a fixed id — otherwise another tenant's bot
+  // stays in its own notify list. (fanoutGuardianNotification re-checks too.)
+  const ownBotUserId = await getHubBotUserId(admin, entry.company_id)
   const recipientUserIds = (settings?.completion_notify_user_ids ?? []).filter(
-    (id) => id !== GUARDIAN_HUB_USER_ID,
+    (id) => id !== ownBotUserId,
   )
   const recipientRoomIds = settings?.completion_notify_room_ids ?? []
   if (recipientUserIds.length === 0 && recipientRoomIds.length === 0) return
@@ -157,8 +160,9 @@ export async function notifyDailyLogStopActivity(opts: {
     .eq('company_id', companyId)
     .single<{ completion_notify_user_ids: string[]; completion_notify_room_ids: string[] }>()
 
+  const ownBotUserId = await getHubBotUserId(admin, companyId)
   const userIds = (settings?.completion_notify_user_ids ?? []).filter(
-    (id) => id !== GUARDIAN_HUB_USER_ID && id !== actorUserId,
+    (id) => id !== ownBotUserId && id !== actorUserId,
   )
   const roomIds = settings?.completion_notify_room_ids ?? []
   if (userIds.length === 0 && roomIds.length === 0) return

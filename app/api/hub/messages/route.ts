@@ -8,7 +8,7 @@ import { markActive } from '@/lib/hub-activity'
 import { bridgeHubMessageToChatSynx } from '@/lib/chat-synx'
 import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
 import { matchMentionedUsers } from '@/lib/hub-mentions'
-import { GUARDIAN_HUB_USER_ID as CLAUDE_BOT_ID } from '@/lib/guardian-post'
+import { getHubBotUserId } from '@/lib/guardian-post'
 
 const CLAUDE_SYSTEM_PROMPT = `You are the Heroes Lawn Care team assistant, built into the company's internal messaging app (Hub).
 Heroes Lawn Care is a lawn care and landscaping company in the Houston/Cypress, TX area.
@@ -282,6 +282,13 @@ export async function POST(request: Request) {
 
   // Check per-room and per-user Claude gates — both must pass
   const adminClient = createAdminClient()
+
+  // This company's Hub bot, resolved at most once per request and only if a branch
+  // below actually needs it (this is the busiest endpoint in the app — don't add a
+  // query to every message send).
+  let botUserIdPromise: Promise<string | null> | null = null
+  const resolveBotUserId = () =>
+    (botUserIdPromise ??= getHubBotUserId(adminClient, profile.company_id))
   let roomClaudeEnabled = false
   let userClaudeAllowed = false
   {
@@ -308,12 +315,17 @@ export async function POST(request: Request) {
       userId: user.id,
     }).catch(() => null))
   } else if (room_id && roomClaudeEnabled && canUseClaude && parent_id && hasContent) {
-    // Thread reply without @guardian — auto-continue if Guardian is already in this thread
-    const { count } = await supabase
-      .from('messages')
-      .select('id', { count: 'exact', head: true })
-      .eq('parent_id', parent_id)
-      .eq('sender_id', CLAUDE_BOT_ID)
+    // Thread reply without @guardian — auto-continue if the assistant is already in
+    // this thread. No bot for this company → nothing could have posted, so skip
+    // (never query a uuid column with a placeholder).
+    const threadBotUserId = await resolveBotUserId()
+    const { count } = threadBotUserId
+      ? await supabase
+          .from('messages')
+          .select('id', { count: 'exact', head: true })
+          .eq('parent_id', parent_id)
+          .eq('sender_id', threadBotUserId)
+      : { count: 0 }
     if ((count ?? 0) > 0) {
       after(() => handleClaudeReply({
         roomId: room_id,
@@ -332,11 +344,14 @@ export async function POST(request: Request) {
   // gate, anyone could type "@guardian" inside a two-person human DM and permanently turn
   // on auto-continue, making Guardian reply to every subsequent message with no off switch.
   if (conversation_id && canUseClaude && hasContent && !parent_id) {
-    const { count: guardianMemberCount } = await adminClient
-      .from('conversation_members')
-      .select('user_id', { count: 'exact', head: true })
-      .eq('conversation_id', conversation_id)
-      .eq('user_id', CLAUDE_BOT_ID)
+    const dmBotUserId = await resolveBotUserId()
+    const { count: guardianMemberCount } = dmBotUserId
+      ? await adminClient
+          .from('conversation_members')
+          .select('user_id', { count: 'exact', head: true })
+          .eq('conversation_id', conversation_id)
+          .eq('user_id', dmBotUserId)
+      : { count: 0 }
     const guardianIsMember = (guardianMemberCount ?? 0) > 0
     if (guardianIsMember) {
       const mentionsClaude = content.toLowerCase().includes('@guardian')
@@ -349,12 +364,14 @@ export async function POST(request: Request) {
         }).catch(() => null))
       } else {
         // Auto-continue: check if Claude has already posted in this DM
-        const { count } = await supabase
-          .from('messages')
-          .select('id', { count: 'exact', head: true })
-          .eq('conversation_id', conversation_id)
-          .eq('sender_id', CLAUDE_BOT_ID)
-          .is('parent_id', null)
+        const { count } = dmBotUserId
+          ? await supabase
+              .from('messages')
+              .select('id', { count: 'exact', head: true })
+              .eq('conversation_id', conversation_id)
+              .eq('sender_id', dmBotUserId)
+              .is('parent_id', null)
+          : { count: 0 }
         if ((count ?? 0) > 0) {
           after(() => handleClaudeReplyDM({
             conversationId: conversation_id,
@@ -368,7 +385,7 @@ export async function POST(request: Request) {
   }
 
   // Automation rules — only for top-level room messages from real users (not bot)
-  if (room_id && !parent_id && hasContent && user.id !== CLAUDE_BOT_ID) {
+  if (room_id && !parent_id && hasContent && user.id !== (await resolveBotUserId())) {
     after(() => fireAutomationRules({
       companyId: profile.company_id,
       roomId: room_id,
@@ -379,7 +396,7 @@ export async function POST(request: Request) {
   }
 
   // Chat Synx bridge — mirror Hub room messages (incl. thread replies) to Slack if a bridge exists
-  if (room_id && (hasContent || hasFiles) && user.id !== CLAUDE_BOT_ID) {
+  if (room_id && (hasContent || hasFiles) && user.id !== (await resolveBotUserId())) {
     after(() => bridgeHubMessageToChatSynx({
       messageId: msg.id,
       roomId: room_id,
@@ -417,6 +434,15 @@ async function fireAutomationRules({
 
   if (!rules || rules.length === 0) return
 
+  // Every action below acts AS this company's Hub bot (posts, board task author,
+  // DM sender). No bot configured → nothing here can run; skip rather than write
+  // another tenant's bot id.
+  const botUserId = await getHubBotUserId(admin, companyId)
+  if (!botUserId) {
+    console.warn('[hub/messages] no Hub bot for company, skipping automations:', companyId)
+    return
+  }
+
   // Fetch room name once for template substitution
   const { data: roomRow } = await admin.from('rooms').select('name').eq('id', roomId).single()
   const roomName = roomRow?.name ?? ''
@@ -437,7 +463,7 @@ async function fireAutomationRules({
       const { data: inserted } = await admin.from('messages').insert({
         company_id: companyId,
         room_id: rule.target_room_id,
-        sender_id: CLAUDE_BOT_ID,
+        sender_id: botUserId,
         content: messageText,
       }).select('id').single()
       if (inserted) {
@@ -446,7 +472,7 @@ async function fireAutomationRules({
           roomId: rule.target_room_id,
           conversationId: null,
           parentId: null,
-          senderId: CLAUDE_BOT_ID,
+          senderId: botUserId,
         })
       }
     } else if (rule.action_type === 'create_board_task' && rule.target_board_id) {
@@ -455,14 +481,14 @@ async function fireAutomationRules({
         company_id: companyId,
         content: messageText,
         priority: 'none',
-        created_by: CLAUDE_BOT_ID,
+        created_by: botUserId,
       })
     } else if (rule.action_type === 'dm_user' && rule.target_user_id) {
       // Find or create a DM conversation between the bot and the target user
       const { data: existing } = await admin
         .from('conversation_members')
         .select('conversation_id')
-        .eq('user_id', CLAUDE_BOT_ID)
+        .eq('user_id', botUserId)
         .limit(50)
 
       let conversationId: string | null = null
@@ -487,7 +513,7 @@ async function fireAutomationRules({
         if (!conv) continue
         conversationId = conv.id
         await admin.from('conversation_members').insert([
-          { conversation_id: conversationId, user_id: CLAUDE_BOT_ID },
+          { conversation_id: conversationId, user_id: botUserId },
           { conversation_id: conversationId, user_id: rule.target_user_id },
         ])
       }
@@ -495,7 +521,7 @@ async function fireAutomationRules({
       const { data: inserted } = await admin.from('messages').insert({
         company_id: companyId,
         conversation_id: conversationId,
-        sender_id: CLAUDE_BOT_ID,
+        sender_id: botUserId,
         content: messageText,
       }).select('id').single()
       if (inserted) {
@@ -504,7 +530,7 @@ async function fireAutomationRules({
           roomId: null,
           conversationId,
           parentId: null,
-          senderId: CLAUDE_BOT_ID,
+          senderId: botUserId,
         })
       }
     }
@@ -523,6 +549,11 @@ async function handleClaudeReplyDM({
   userId: string
 }) {
   const admin = createAdminClient()
+  const botUserId = await getHubBotUserId(admin, companyId)
+  if (!botUserId) {
+    console.warn('[hub/messages] no Hub bot for company, skipping assistant reply:', companyId)
+    return
+  }
 
   type MsgRow = { content: string; sender: { display_name: string } | { display_name: string }[] | null }
 
@@ -558,7 +589,7 @@ async function handleClaudeReplyDM({
   const { data: ackMsg } = await admin.from('messages').insert({
     company_id: companyId,
     conversation_id: conversationId,
-    sender_id: CLAUDE_BOT_ID,
+    sender_id: botUserId,
     content: 'On it! Please stand by…',
   }).select('id').single()
   if (ackMsg) {
@@ -567,7 +598,7 @@ async function handleClaudeReplyDM({
       roomId: null,
       conversationId,
       parentId: null,
-      senderId: CLAUDE_BOT_ID,
+      senderId: botUserId,
     })
   }
 
@@ -592,7 +623,7 @@ async function handleClaudeReplyDM({
   const { data: replyMsg } = await admin.from('messages').insert({
     company_id: companyId,
     conversation_id: conversationId,
-    sender_id: CLAUDE_BOT_ID,
+    sender_id: botUserId,
     content: claudeText.trim(),
   }).select('id').single()
   if (replyMsg) {
@@ -601,7 +632,7 @@ async function handleClaudeReplyDM({
       roomId: null,
       conversationId,
       parentId: null,
-      senderId: CLAUDE_BOT_ID,
+      senderId: botUserId,
     })
   }
 }
@@ -622,6 +653,11 @@ async function handleClaudeReply({
   userId: string
 }) {
   const admin = createAdminClient()
+  const botUserId = await getHubBotUserId(admin, companyId)
+  if (!botUserId) {
+    console.warn('[hub/messages] no Hub bot for company, skipping assistant reply:', companyId)
+    return
+  }
 
   type MsgRow = { content: string; sender: { display_name: string } | { display_name: string }[] | null }
 
@@ -690,7 +726,7 @@ async function handleClaudeReply({
     company_id: companyId,
     room_id: roomId,
     parent_id: parentMessageId,
-    sender_id: CLAUDE_BOT_ID,
+    sender_id: botUserId,
     content: 'On it! Please stand by…',
   }).select('id').single()
   if (ackMsg) {
@@ -699,7 +735,7 @@ async function handleClaudeReply({
       roomId,
       conversationId: null,
       parentId: parentMessageId,
-      senderId: CLAUDE_BOT_ID,
+      senderId: botUserId,
     })
   }
 
@@ -725,7 +761,7 @@ async function handleClaudeReply({
     company_id: companyId,
     room_id: roomId,
     parent_id: parentMessageId,
-    sender_id: CLAUDE_BOT_ID,
+    sender_id: botUserId,
     content: claudeText.trim(),
   }).select('id').single()
   if (replyMsg) {
@@ -734,7 +770,7 @@ async function handleClaudeReply({
       roomId,
       conversationId: null,
       parentId: parentMessageId,
-      senderId: CLAUDE_BOT_ID,
+      senderId: botUserId,
     })
   }
 }

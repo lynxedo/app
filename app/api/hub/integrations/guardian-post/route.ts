@@ -1,6 +1,6 @@
 import { NextResponse, after } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { GUARDIAN_HUB_USER_ID } from '@/lib/guardian-post'
+import { getHubBotUserId } from '@/lib/guardian-post'
 import { sendHubPush } from '@/lib/hub-push'
 
 export const dynamic = 'force-dynamic'
@@ -74,9 +74,16 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'room is archived' }, { status: 409 })
     }
 
+    // The room's company decides who posts — never a fixed id, which would attribute
+    // the post to another tenant's bot (the FK is satisfied, so it would succeed).
+    const botUserId = await getHubBotUserId(admin, room.company_id)
+    if (!botUserId) {
+      return NextResponse.json({ error: 'no Hub bot configured for this company' }, { status: 409 })
+    }
+
     await admin
       .from('room_members')
-      .upsert({ room_id: room.id, user_id: GUARDIAN_HUB_USER_ID, role: 'member' }, {
+      .upsert({ room_id: room.id, user_id: botUserId, role: 'member' }, {
         onConflict: 'room_id,user_id',
         ignoreDuplicates: true,
       })
@@ -86,7 +93,7 @@ export async function POST(request: Request) {
       .insert({
         company_id: room.company_id,
         room_id: room.id,
-        sender_id: GUARDIAN_HUB_USER_ID,
+        sender_id: botUserId,
         content: body,
         parent_id: parentId,
       })
@@ -99,7 +106,7 @@ export async function POST(request: Request) {
       )
     }
 
-    fireBroadcasts(admin, { messageId: msg.id, roomId: room.id, conversationId: null, parentId, senderId: GUARDIAN_HUB_USER_ID })
+    fireBroadcasts(admin, { messageId: msg.id, roomId: room.id, conversationId: null, parentId, senderId: botUserId })
     if (!parentId) {
       fireRoomPush(admin, { companyId: room.company_id, roomId: room.id, roomName: room.name, body })
     }
@@ -111,11 +118,11 @@ export async function POST(request: Request) {
   let conversationId: string
   let createdConv = false
   let companyId: string
+  let botUserId: string | null = null
 
   if (recipientUserId) {
-    if (recipientUserId === GUARDIAN_HUB_USER_ID) {
-      return NextResponse.json({ error: 'cannot DM Guardian itself' }, { status: 400 })
-    }
+    // The recipient's company is looked up FIRST: "is this the bot itself?" can only
+    // be answered once we know which company's bot to compare against.
     const { data: recipient } = await admin
       .from('hub_users')
       .select('id, company_id')
@@ -125,8 +132,15 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'recipient_user_id not found' }, { status: 404 })
     }
     companyId = recipient.company_id
+    botUserId = await getHubBotUserId(admin, companyId)
+    if (botUserId && recipientUserId === botUserId) {
+      return NextResponse.json({ error: 'cannot DM the assistant itself' }, { status: 400 })
+    }
+    if (!botUserId) {
+      return NextResponse.json({ error: 'no Hub bot configured for this company' }, { status: 409 })
+    }
 
-    const resolved = await findOrCreateGuardianDm(admin, companyId, recipientUserId)
+    const resolved = await findOrCreateGuardianDm(admin, companyId, recipientUserId, botUserId)
     if (!resolved) {
       return NextResponse.json({ error: 'conversation create failed' }, { status: 500 })
     }
@@ -143,6 +157,10 @@ export async function POST(request: Request) {
       return NextResponse.json({ error: 'conversation_id not found' }, { status: 404 })
     }
     companyId = conv.company_id
+    botUserId = await getHubBotUserId(admin, companyId)
+    if (!botUserId) {
+      return NextResponse.json({ error: 'no Hub bot configured for this company' }, { status: 409 })
+    }
   }
 
   const { data: msg, error } = await admin
@@ -150,7 +168,7 @@ export async function POST(request: Request) {
     .insert({
       company_id: companyId,
       conversation_id: conversationId,
-      sender_id: GUARDIAN_HUB_USER_ID,
+      sender_id: botUserId,
       content: body,
       parent_id: parentId,
     })
@@ -167,9 +185,9 @@ export async function POST(request: Request) {
     .eq('conversation_id', conversationId)
     .not('archived_at', 'is', null)
 
-  fireBroadcasts(admin, { messageId: msg.id, roomId: null, conversationId, parentId, senderId: GUARDIAN_HUB_USER_ID })
+  fireBroadcasts(admin, { messageId: msg.id, roomId: null, conversationId, parentId, senderId: botUserId })
   if (!parentId) {
-    fireDmPush(admin, { conversationId, body })
+    fireDmPush(admin, { conversationId, body, botUserId })
   }
 
   return NextResponse.json({
@@ -190,11 +208,12 @@ async function findOrCreateGuardianDm(
   admin: SupabaseAdmin,
   companyId: string,
   recipientHubUserId: string,
+  botUserId: string,
 ): Promise<{ conversationId: string; created: boolean } | null> {
   const { data: guardianMemberships } = await admin
     .from('conversation_members')
     .select('conversation_id')
-    .eq('user_id', GUARDIAN_HUB_USER_ID)
+    .eq('user_id', botUserId)
   const guardianConvIds = (guardianMemberships ?? []).map(
     (m: { conversation_id: string }) => m.conversation_id,
   )
@@ -226,7 +245,7 @@ async function findOrCreateGuardianDm(
     return null
   }
   await admin.from('conversation_members').insert([
-    { conversation_id: conv.id, user_id: GUARDIAN_HUB_USER_ID },
+    { conversation_id: conv.id, user_id: botUserId },
     { conversation_id: conv.id, user_id: recipientHubUserId },
   ])
   return { conversationId: conv.id, created: true }
@@ -299,13 +318,13 @@ async function fireRoomPush(
         .from('hub_users')
         .select('id, display_name')
         .eq('company_id', args.companyId)
-        .neq('id', GUARDIAN_HUB_USER_ID)
+        // `is_bot: false` already excludes every bot, so no id filter is needed here.
         .eq('is_bot', false),
       admin
         .from('room_members')
         .select('user_id')
         .eq('room_id', args.roomId)
-        .neq('user_id', GUARDIAN_HUB_USER_ID),
+        .neq('user_id', (await getHubBotUserId(admin, args.companyId)) ?? ''),
     ])
 
     const roomMemberIdSet = new Set(
@@ -366,14 +385,14 @@ async function fireRoomPush(
 // isDm:true bypasses the global "mentions only" filter but respects DND + muted.
 async function fireDmPush(
   admin: SupabaseAdmin,
-  args: { conversationId: string; body: string },
+  args: { conversationId: string; body: string; botUserId: string },
 ) {
   try {
     const { data: members } = await admin
       .from('conversation_members')
       .select('user_id')
       .eq('conversation_id', args.conversationId)
-      .neq('user_id', GUARDIAN_HUB_USER_ID)
+      .neq('user_id', args.botUserId)
 
     const recipientIds = (members ?? []).map((m: { user_id: string }) => m.user_id)
     if (recipientIds.length === 0) return
