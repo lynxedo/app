@@ -21,6 +21,29 @@ import {
   MCP_CORS_HEADERS,
 } from '@/lib/mcp-auth'
 
+// ── Rate limiting ───────────────────────────────────────────────────────────
+// Keyed on the PRINCIPAL — the client id, or the refresh token being presented
+// — and NOT on the caller's IP. claude.ai's token traffic reaches us from a
+// small pool of shared Anthropic egress addresses on behalf of many customers,
+// so an IP cap tight enough to be a real guardrail throttles unrelated tenants'
+// refreshes into an outage the moment the connector sees any adoption. One noisy
+// customer must not be able to spend another's budget.
+//
+// The IP cap survives only as a loose flood ceiling, set far above real traffic:
+// an anonymous caller can invent a fresh client_id per request, so without it the
+// principal-keyed limits below would have nothing to bite on. It is checked
+// before the body is parsed; the principal-keyed ones necessarily come after.
+//
+// ⚠ These counters are per-process and reset on deploy (see lib/rate-limit.ts).
+// That is a thin guarantee for a token endpoint — a DB-backed counter for
+// /api/oauth/* is the tracked follow-up, not something this change delivers.
+const IP_FLOOD_PER_MIN = 600
+const PER_CLIENT_PER_MIN = 60
+// A refresh token is single-use: rotation means a second presentation is already
+// treated as reuse and revokes the family. Anything near this is a loop, not a
+// client behaving normally.
+const PER_REFRESH_TOKEN_PER_MIN = 10
+
 export function OPTIONS() {
   return new Response(null, { status: 204, headers: MCP_CORS_HEADERS })
 }
@@ -34,6 +57,26 @@ function json(body: unknown, status = 200) {
 
 function oauthError(error: string, description: string, status = 400) {
   return json({ error, error_description: description }, status)
+}
+
+/**
+ * 429 with a Retry-After the client can actually act on. Expose-Headers is
+ * widened here because the base MCP list doesn't carry Retry-After, and a
+ * browser-based client can't read it cross-origin otherwise.
+ */
+function tooManyRequests(retryAfter: number) {
+  return NextResponse.json(
+    { error: 'temporarily_unavailable', error_description: 'Too many token requests — slow down.' },
+    {
+      status: 429,
+      headers: {
+        'Cache-Control': 'no-store',
+        ...MCP_CORS_HEADERS,
+        'Access-Control-Expose-Headers': `${MCP_CORS_HEADERS['Access-Control-Expose-Headers']}, Retry-After`,
+        'Retry-After': String(retryAfter),
+      },
+    },
+  )
 }
 
 /** Accept form-encoded (the spec default) or JSON. */
@@ -108,10 +151,8 @@ export async function POST(request: Request) {
     request.headers.get('cf-connecting-ip') ||
     request.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
     'unknown'
-  const limit = rateLimit(`oauth:token:${ip}`, 60, 60_000)
-  if (!limit.ok) {
-    return oauthError('temporarily_unavailable', 'Too many token requests — slow down.', 429)
-  }
+  const flood = rateLimit(`oauth:token:ip:${ip}`, IP_FLOOD_PER_MIN, 60_000)
+  if (!flood.ok) return tooManyRequests(flood.retryAfter)
 
   const params = await readParams(request)
   const grantType = params.grant_type || ''
@@ -129,6 +170,9 @@ export async function POST(request: Request) {
         'code, code_verifier, redirect_uri, and client_id are all required.',
       )
     }
+
+    const perClient = rateLimit(`oauth:token:client:${clientId}`, PER_CLIENT_PER_MIN, 60_000)
+    if (!perClient.ok) return tooManyRequests(perClient.retryAfter)
 
     const { data } = await admin
       .from('mcp_oauth_codes')
@@ -203,10 +247,20 @@ export async function POST(request: Request) {
     const clientId = params.client_id || ''
     if (!refreshToken) return oauthError('invalid_request', 'refresh_token is required.')
 
+    // Key on the token itself — that's the principal here, and client_id is
+    // optional on this grant so it can't be relied on alone.
+    const refreshHash = hashSecret(refreshToken)
+    const perToken = rateLimit(`oauth:token:refresh:${refreshHash}`, PER_REFRESH_TOKEN_PER_MIN, 60_000)
+    if (!perToken.ok) return tooManyRequests(perToken.retryAfter)
+    if (clientId) {
+      const perClient = rateLimit(`oauth:token:client:${clientId}`, PER_CLIENT_PER_MIN, 60_000)
+      if (!perClient.ok) return tooManyRequests(perClient.retryAfter)
+    }
+
     const { data } = await admin
       .from('mcp_tokens')
       .select('id, kind, company_id, user_id, client_id, expires_at, revoked_at')
-      .eq('token_hash', hashSecret(refreshToken))
+      .eq('token_hash', refreshHash)
       .maybeSingle()
 
     if (!data) return oauthError('invalid_grant', 'That refresh token is not valid.')

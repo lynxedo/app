@@ -16,6 +16,15 @@ import { MCP_CORS_HEADERS } from '@/lib/mcp-auth'
 
 const MAX_REDIRECT_URIS = 10
 
+// Registration is genuinely anonymous — there is no principal to key a limit on,
+// so per-IP is all we have. It is set high because claude.ai registers a client
+// per connecting user from a shared pool of Anthropic egress addresses: a cap
+// tuned for one abusive host would instead block real customers registering
+// behind the same egress IP. The cost of the looser cap is junk rows in
+// mcp_oauth_clients, which grant nothing on their own (see the header note) —
+// the cost of the tighter one was blocking legitimate onboarding.
+const REGISTRATIONS_PER_IP_PER_HOUR = 200
+
 export function OPTIONS() {
   return new Response(null, { status: 204, headers: MCP_CORS_HEADERS })
 }
@@ -50,11 +59,22 @@ export async function POST(request: Request) {
     request.headers.get('cf-connecting-ip') ||
     request.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
     'unknown'
-  const limit = rateLimit(`oauth:register:${ip}`, 20, 3_600_000)
+  const limit = rateLimit(`oauth:register:${ip}`, REGISTRATIONS_PER_IP_PER_HOUR, 3_600_000)
   if (!limit.ok) {
-    return json(
-      { error: 'temporarily_unavailable', error_description: 'Too many registrations — try again later.' },
-      429,
+    return new NextResponse(
+      JSON.stringify({
+        error: 'temporarily_unavailable',
+        error_description: 'Too many registrations — try again later.',
+      }),
+      {
+        status: 429,
+        headers: {
+          'Content-Type': 'application/json',
+          ...MCP_CORS_HEADERS,
+          'Access-Control-Expose-Headers': `${MCP_CORS_HEADERS['Access-Control-Expose-Headers']}, Retry-After`,
+          'Retry-After': String(limit.retryAfter),
+        },
+      },
     )
   }
 

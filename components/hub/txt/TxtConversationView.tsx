@@ -231,6 +231,7 @@ export default function TxtConversationView({
   canAccessDialer,
   canAccessUnifiedInbox = false,
   hasGuardian = false,
+  assistantName = null,
 }: {
   initialConversation: Conversation
   initialMessages: Message[]
@@ -246,8 +247,15 @@ export default function TxtConversationView({
   canAccessDialer: boolean
   canAccessUnifiedInbox?: boolean
   hasGuardian?: boolean
+  /**
+   * The company's configured AI assistant name (Admin → AI → Assistant). Used
+   * to label AI-sent texts and the auto-reply markers, so a renamed assistant
+   * doesn't still read "Guardian" in the thread. Null → a neutral fallback.
+   */
+  assistantName?: string | null
 }) {
   const router = useRouter()
+  const aiName = assistantName?.trim() || 'Assistant'
   const [conversation, setConversation] = useState(initialConversation)
   const [messages, setMessages] = useState(initialMessages)
   const [notes, setNotes] = useState(initialNotes)
@@ -2051,21 +2059,28 @@ export default function TxtConversationView({
             if (item.kind === 'event') {
               const e = item.event
               return e.kind === 'voicemail' ? (
-                <VoicemailMarker key={item.id} event={e} onJumpToReply={jumpToGuardianReply} />
+                <VoicemailMarker
+                  key={item.id}
+                  event={e}
+                  assistantName={aiName}
+                  onJumpToReply={jumpToGuardianReply}
+                />
               ) : (
                 <CallMarker
                   key={item.id}
                   event={e}
                   actorName={actorFirstName(e.actor)}
+                  assistantName={aiName}
                   onJumpToReply={jumpToGuardianReply}
                 />
               )
             }
             const m = item.message
             const isOutbound = m.direction === 'outbound'
-            // Who sent this message. Outbound: the user's first name, or
-            // "Guardian" when sent_by is null (responder/AI auto-sends are the
-            // only outbound path without a user). Inbound in a GROUP: the
+            // Who sent this message. Outbound: the user's first name, or the
+            // assistant's name when sent_by is null (responder/AI auto-sends are
+            // the only outbound path without a user — modern ones stamp the bot
+            // user, so this mostly labels pre-July-2026 rows). Inbound in a GROUP: the
             // participant who texted — their contact name (from the group's
             // participant list, falling back to any contact match by id),
             // else their phone number, else "Unknown" — so "who said Blue?"
@@ -2073,7 +2088,7 @@ export default function TxtConversationView({
             let senderLabel: string | null = null
             if (isOutbound) {
               senderLabel =
-                m.sender?.display_name?.trim().split(/\s+/)[0] || (!m.sent_by ? 'Guardian' : null)
+                m.sender?.display_name?.trim().split(/\s+/)[0] || (!m.sent_by ? aiName : null)
             } else if (isGroup) {
               const gc = groupContacts.find((c) => c.id === m.contact_id)
               senderLabel = gc?.name?.trim() || (gc?.phone ? formatPhone(gc.phone) : 'Unknown')

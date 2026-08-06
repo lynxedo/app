@@ -1,5 +1,7 @@
 import { notFound, redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
+import { getAssistantPersona } from '@/lib/ai-persona'
 import TxtConversationView from '@/components/hub/txt/TxtConversationView'
 
 export default async function TxtConversationPage({
@@ -40,6 +42,12 @@ export default async function TxtConversationPage({
     companyResult,
     membersResult,
     groupContactsResult,
+    // The assistant's configured name, so AI-sent texts and auto-reply markers
+    // in the thread read "Amber" (or whatever this company renamed it to)
+    // instead of the old hardcoded "Guardian". Admin client because the persona
+    // reads voice_receptionist_settings, which an ordinary Txt user can't; it's
+    // scoped to this user's own company and returns only a display name.
+    persona,
   ] = await Promise.all([
     supabase
       .from('txt_conversations')
@@ -82,6 +90,7 @@ export default async function TxtConversationPage({
       .from('txt_conversation_contacts')
       .select('contact:txt_contacts!txt_conversation_contacts_contact_id_fkey ( id, name, phone, email, do_not_text )')
       .eq('conversation_id', conversationId),
+    getAssistantPersona(createAdminClient(), profile?.company_id || '').catch(() => null),
   ])
 
   if (convResult.error || !convResult.data) {
@@ -104,6 +113,7 @@ export default async function TxtConversationPage({
       canAccessDialer={canAccessDialer}
       canAccessUnifiedInbox={canAccessUnifiedInbox}
       hasGuardian={hasGuardian}
+      assistantName={persona?.name ?? null}
     />
   )
 }

@@ -129,7 +129,7 @@ export async function POST(
 
   const apiKey = process.env.ANTHROPIC_API_KEY
   if (!apiKey) {
-    return NextResponse.json({ error: 'Guardian not configured' })
+    return NextResponse.json({ error: 'AI is not configured' })
   }
 
   // The dedup'd, company-scoped merged timeline — same RPC the read endpoint uses.

@@ -25,6 +25,7 @@ type TxtThreadData = {
   notes: TxtProps['initialNotes']
   members: TxtProps['initialMembers']
   group_contacts: TxtProps['initialGroupContacts']
+  assistant_name?: string | null
 }
 
 export default function TxtTab({
@@ -81,6 +82,7 @@ export default function TxtTab({
       canAccessDialer={canAccessDialer}
       canAccessUnifiedInbox={canAccessUnifiedInbox}
       hasGuardian={false}
+      assistantName={data.assistant_name ?? null}
     />
   )
 }
