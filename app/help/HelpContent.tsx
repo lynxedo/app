@@ -507,7 +507,8 @@ function HubAssistantTab() {
 
       <Section title="Using It From the Claude App Instead">
         <p>If you already use Claude — on <strong className="text-white">claude.ai</strong>, the <strong className="text-white">desktop Claude app</strong>, or <strong className="text-white">Claude Code</strong> — you can connect it to your Hub and do these same things from there, without opening Lynxedo.</p>
-        <p>Go to <strong className="text-white">Settings → Claude Connection</strong> and follow the steps. You sign in with your normal Lynxedo login and approve the connection; from then on your Claude can look things up and take the same actions listed above, still limited to your own permissions and still asking you to confirm anything customer-facing. You can <strong className="text-white">disconnect any time</strong> from that same screen.</p>
+        <p>Go to <strong className="text-white">Settings → Claude Connection</strong> and follow the steps. You sign in with your normal Lynxedo login and approve the connection; from then on your Claude can look things up and take the same actions listed above, still limited to your own permissions. You can <strong className="text-white">disconnect any time</strong> from that same screen.</p>
+        <Note>One difference worth knowing: <strong className="text-white">texting customers and changing Jobber visits are switched off through a connected Claude app unless your admin turns them on.</strong> Inside the Hub those always wait for you to approve them; a connected app can&apos;t be held to that same step, so it&apos;s off by default. Everything else — looking things up, the schedule, leads, tasks, Hub messages — works the same either way.</Note>
         <Note>This is optional. Everything works from the Hub itself without connecting anything.</Note>
       </Section>
 
@@ -517,6 +518,7 @@ function HubAssistantTab() {
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Allow or disallow outside Claude apps</strong> — whether people may connect claude.ai, Claude Code, or the desktop Claude app to their Hub (the <em>Claude Connection</em> area in Settings). Turn it off and the assistant only works inside the Hub.</li>
           <li><strong className="text-white">Require confirmation for customer-facing actions</strong> — on by default, and worth leaving on: it&apos;s what makes every customer text a two-step, show-it-to-you-first send.</li>
+          <li><strong className="text-white">Let connected Claude apps text customers and change Jobber visits</strong> — <em>off</em> by default, and the one setting to think twice about. Inside the Hub, a text or a visit change waits for a person to reply and approve it. Through an outside Claude app that step can&apos;t be guaranteed, so approval falls to whatever that app shows you. Leave it off unless you specifically want those four actions available from claude.ai or Claude Code.</li>
           <li><strong className="text-white">Turn individual actions off</strong> — if you&apos;d rather the assistant not, say, text customers or post to rooms at all, switch just that one off and leave the rest.</li>
           <li><strong className="text-white">See and cut every connected Claude app</strong> in the company — one list of who has connected what, with a disconnect button beside each.</li>
         </ul>
