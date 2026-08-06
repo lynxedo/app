@@ -109,6 +109,11 @@ export default function GuardianPanel({
   const [savingBotName, setSavingBotName] = useState(false)
   const [botNameSaved, setBotNameSaved] = useState(false)
   const [receptionistSynced, setReceptionistSynced] = useState<boolean | null>(null)
+  // The avatar img URL is versioned by the stored R2 KEY (`?v=`), the same way
+  // HubRail and ProfileSidebar do it — so a page load always reflects what's
+  // stored instead of whatever the browser cached under a fixed URL. `?t=` is
+  // only added right after an upload, to refresh this tab before any cached copy
+  // of the new key could exist.
   const [botAvatarUrl, setBotAvatarUrl] = useState<string | null>(initialBotAvatarUrl)
   const [botAvatarBust, setBotAvatarBust] = useState(0)
   const [uploadingAvatar, setUploadingAvatar] = useState(false)
@@ -287,7 +292,7 @@ export default function GuardianPanel({
                 {/* eslint-disable-next-line @next/next/no-img-element */}
                 <img
                   key={botAvatarBust}
-                  src={botAvatarUrl ? `/api/profile/avatar/${botId}?t=${botAvatarBust}` : '/bot-avatar.svg'}
+                  src={botAvatarUrl ? `/api/profile/avatar/${botId}?v=${encodeURIComponent(botAvatarUrl)}${botAvatarBust ? `&t=${botAvatarBust}` : ''}` : '/bot-avatar.svg'}
                   alt=""
                   className="w-full h-full object-cover"
                 />
