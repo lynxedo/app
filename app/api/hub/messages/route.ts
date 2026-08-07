@@ -9,6 +9,7 @@ import { bridgeHubMessageToChatSynx } from '@/lib/chat-synx'
 import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
 import { matchMentionedUsers } from '@/lib/hub-mentions'
 import { getHubBotUserId } from '@/lib/guardian-post'
+import { getAssistantMentionHandles, contentMentionsAssistant } from '@/lib/ai-persona'
 
 const CLAUDE_SYSTEM_PROMPT = `You are the Heroes Lawn Care team assistant, built into the company's internal messaging app (Hub).
 Heroes Lawn Care is a lawn care and landscaping company in the Houston/Cypress, TX area.
@@ -289,6 +290,20 @@ export async function POST(request: Request) {
   let botUserIdPromise: Promise<string | null> | null = null
   const resolveBotUserId = () =>
     (botUserIdPromise ??= getHubBotUserId(adminClient, profile.company_id))
+
+  // Does this message summon the assistant? Resolved at most once per request,
+  // and — like the bot id above — only when a branch below actually asks. The
+  // handles include the company's configured assistant name, so this needs a
+  // persona lookup; the `content.includes('@')` guard keeps that lookup off the
+  // hot path, since the overwhelming majority of Hub messages contain no '@' at
+  // all and can be rejected without touching the database.
+  let mentionsAssistantPromise: Promise<boolean> | null = null
+  const resolveMentionsAssistant = () =>
+    (mentionsAssistantPromise ??= (async () => {
+      if (!hasContent || !content.includes('@')) return false
+      const handles = await getAssistantMentionHandles(adminClient, profile.company_id)
+      return contentMentionsAssistant(content, handles)
+    })())
   let roomClaudeEnabled = false
   let userClaudeAllowed = false
   {
@@ -304,8 +319,12 @@ export async function POST(request: Request) {
   // For DMs: no room gate — only check the user gate
   const canUseClaude = userClaudeAllowed
 
-  // @Guardian handler — rooms only, top-level and thread replies both supported
-  if (room_id && roomClaudeEnabled && canUseClaude && hasContent && content.toLowerCase().includes('@guardian')) {
+  // Assistant handler — rooms only, top-level and thread replies both supported.
+  // Summoned by the legacy `@guardian` OR the company's configured assistant name
+  // (`@amber`), which is the only name the UI actually shows. The mention check is
+  // last in the chain on purpose: the cheap sync gates short-circuit first, so the
+  // persona lookup never runs for a message that couldn't trigger anyway.
+  if (room_id && roomClaudeEnabled && canUseClaude && hasContent && (await resolveMentionsAssistant())) {
     after(() => handleClaudeReply({
       roomId: room_id,
       parentMessageId: parent_id ?? msg.id,
@@ -341,7 +360,7 @@ export async function POST(request: Request) {
   // @Guardian in DMs — user must be allowed AND Guardian must be an actual member of
   // this conversation. Guardian only participates in DMs/groups he was deliberately part
   // of (a real 1:1 Guardian chat, or a group created with him included). Without this
-  // gate, anyone could type "@guardian" inside a two-person human DM and permanently turn
+  // gate, anyone could summon the assistant inside a two-person human DM and permanently turn
   // on auto-continue, making Guardian reply to every subsequent message with no off switch.
   if (conversation_id && canUseClaude && hasContent && !parent_id) {
     const dmBotUserId = await resolveBotUserId()
@@ -354,7 +373,7 @@ export async function POST(request: Request) {
       : { count: 0 }
     const guardianIsMember = (guardianMemberCount ?? 0) > 0
     if (guardianIsMember) {
-      const mentionsClaude = content.toLowerCase().includes('@guardian')
+      const mentionsClaude = await resolveMentionsAssistant()
       if (mentionsClaude) {
         after(() => handleClaudeReplyDM({
           conversationId: conversation_id,
