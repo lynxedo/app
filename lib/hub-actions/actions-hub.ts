@@ -1,10 +1,27 @@
 // Internal Hub messaging action: post_hub_message.
 //
-// Posts as the ACTOR, not as the bot — a teammate reading the room sees who
-// actually asked for it. Membership is verified before posting, so the assistant
-// can't be used to reach a private room the user isn't in.
+// Posts as the ASSISTANT, with a trailing line naming who asked for it.
+//
+// It used to post as the actor, on the reasoning that a teammate reading the
+// room should see who wanted the message sent. The problem is what the assistant
+// reads: customer SMS, lead-form submissions, contact notes and voicemail
+// transcripts all reach it as tool results, and all are written by people
+// outside the company. Text shaped like an instruction inside any of them could
+// produce a Hub message under a real colleague's name that they never wrote —
+// the name honestly theirs, the words not. Posting as the bot turns the worst
+// case from "a named colleague announces new bank details" into "the assistant
+// says something odd", which reads as a nuisance rather than a convincing
+// internal phish. The attribution line keeps the honest case honest.
+//
+// Membership is still verified before posting, so the assistant can't be used to
+// reach a private room the user isn't in.
+//
+// ⚠ The company's Hub bot is required. A company with no bot row gets a refusal
+// rather than a fall back to posting as the actor — falling back would reinstate
+// exactly the gap above, silently, for the tenants least likely to notice.
 
 import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
+import { getHubBotUserId, postGuardianToRoom, postGuardianToUserDm } from '@/lib/guardian-post'
 import type { ActionContext, HubAction } from './types'
 import { str } from './types'
 import { clip, lines } from './format'
@@ -31,12 +48,40 @@ async function actorRooms(ctx: ActionContext): Promise<Array<{ id: string; name:
     .map((r) => ({ id: r.id, name: (r.name || 'unnamed').trim(), isPrivate: r.is_private === true }))
 }
 
+/**
+ * The message body plus one short attribution line. Deliberately a suffix rather
+ * than a wrapper ("Ben asked me to post this: …") — a wrapper reads as clumsy
+ * around every message, and buries the content one clause deep.
+ */
+function withAttribution(message: string, actorName: string, verb: 'posted' | 'sent'): string {
+  const who = (actorName || '').trim() || 'a teammate'
+  return `${message}\n\n— ${verb} at ${who}'s request`
+}
+
+/** Realtime fan-out for a message the guardian-post helpers inserted. */
+async function broadcastPostedMessage(ctx: ActionContext, messageId: string, senderId: string) {
+  const { data } = await ctx.admin
+    .from('messages')
+    .select('room_id, conversation_id')
+    .eq('id', messageId)
+    .maybeSingle()
+  const row = (data || {}) as { room_id: string | null; conversation_id: string | null }
+  void broadcastMessageInserted({
+    messageId,
+    roomId: row.room_id ?? null,
+    conversationId: row.conversation_id ?? null,
+    parentId: null,
+    senderId,
+  }).catch(() => {})
+}
+
 export const postHubMessageAction: HubAction = {
   name: 'post_hub_message',
   description:
     'Post a message inside the Hub — either to a room (by name) or as a direct message to one teammate ' +
     '(by name). This is INTERNAL only: it reaches coworkers, never customers. The message is posted ' +
-    'under your own name. Give exactly one of room_name or teammate_name.',
+    'under the assistant\'s own name, with a line noting it was posted at your request. ' +
+    'Give exactly one of room_name or teammate_name.',
   input_schema: {
     type: 'object',
     properties: {
@@ -58,6 +103,16 @@ export const postHubMessageAction: HubAction = {
     if (!roomName && !teammateName) return 'Say whether this goes to a room (room_name) or a teammate (teammate_name).'
     if (roomName && teammateName) return 'Give only one of room_name or teammate_name, not both.'
 
+    // Resolved once, up front: without a bot identity for this company there is
+    // no safe sender, and every path below needs the id for the realtime event.
+    const botUserId = await getHubBotUserId(ctx.admin, ctx.actor.companyId)
+    if (!botUserId) {
+      return (
+        'This company has no assistant account set up in the Hub yet, so I can\'t post as myself. ' +
+        'An admin can set one up in Admin → AI → Assistant.'
+      )
+    }
+
     if (roomName) {
       const rooms = await actorRooms(ctx)
       const needle = roomName.toLowerCase().replace(/^#/, '')
@@ -71,30 +126,22 @@ export const postHubMessageAction: HubAction = {
       }
       const room = matches[0]
 
-      const { data: inserted, error } = await ctx.admin
-        .from('messages')
-        .insert({
-          company_id: ctx.actor.companyId,
-          room_id: room.id,
-          sender_id: ctx.actor.userId,
-          content: message,
-        })
-        .select('id')
-        .maybeSingle()
-      if (error || !inserted) return "I couldn't post that message just now."
+      const messageId = await postGuardianToRoom(
+        room.id,
+        withAttribution(message, ctx.actor.displayName, 'posted'),
+        { admin: ctx.admin },
+      )
+      if (!messageId) return "I couldn't post that message just now."
 
-      void broadcastMessageInserted({
-        messageId: (inserted as { id: string }).id,
-        roomId: room.id,
-        conversationId: null,
-        parentId: null,
-        senderId: ctx.actor.userId,
-      }).catch(() => {})
+      await broadcastPostedMessage(ctx, messageId, botUserId)
 
-      return `Posted in #${room.name} as you: "${clip(message, 120)}"`
+      return `Posted in #${room.name}, from me and noted as at your request: "${clip(message, 120)}"`
     }
 
-    // DM path — resolve the teammate, then find or create the 1:1 conversation.
+    // DM path — resolve the teammate, then send from the assistant's own DM with
+    // them. Note this is the assistant↔recipient conversation, not the actor's:
+    // a bot message dropped into someone else's 1:1 thread would be a third
+    // party appearing in a two-person conversation.
     const { data: people } = await ctx.admin
       .from('hub_users')
       .select('id, display_name, is_bot')
@@ -102,7 +149,10 @@ export const postHubMessageAction: HubAction = {
       .ilike('display_name', `%${teammateName.replace(/[%_]/g, '')}%`)
       .limit(5)
     const rows = ((people || []) as Array<{ id: string; display_name: string | null; is_bot: boolean | null }>).filter(
-      (p) => p.id !== ctx.actor.userId,
+      // Bots excluded as well as the actor: "DM Amber" would otherwise match the
+      // assistant itself, and postGuardianToUserDm refuses to DM the bot — the
+      // user would get a generic failure instead of being told no such teammate.
+      (p) => p.id !== ctx.actor.userId && p.is_bot !== true,
     )
     if (rows.length === 0) return `No teammate named "${teammateName}" in this company.`
     if (rows.length > 1) {
@@ -110,84 +160,18 @@ export const postHubMessageAction: HubAction = {
     }
     const recipient = rows[0]
 
-    // Find an existing 1:1 by intersecting both users' conversations and
-    // requiring exactly two members — the same rule lib/guardian-post uses.
-    const { data: mine } = await ctx.admin
-      .from('conversation_members')
-      .select('conversation_id')
-      .eq('user_id', ctx.actor.userId)
-    const myIds = new Set(((mine || []) as Array<{ conversation_id: string }>).map((m) => m.conversation_id))
-    const { data: theirs } = await ctx.admin
-      .from('conversation_members')
-      .select('conversation_id')
-      .eq('user_id', recipient.id)
-    const shared = ((theirs || []) as Array<{ conversation_id: string }>)
-      .map((m) => m.conversation_id)
-      .filter((id) => myIds.has(id))
+    const messageId = await postGuardianToUserDm(
+      ctx.actor.companyId,
+      recipient.id,
+      withAttribution(message, ctx.actor.displayName, 'sent'),
+      { admin: ctx.admin },
+    )
+    if (!messageId) return "I couldn't send that direct message just now."
 
-    // Only consider conversations that belong to THIS company. A user who was
-    // moved between companies can still have membership rows pointing at their
-    // old tenant's conversations; posting into one of those would cross tenants.
-    let candidates = shared
-    if (candidates.length) {
-      const { data: owned } = await ctx.admin
-        .from('conversations')
-        .select('id')
-        .eq('company_id', ctx.actor.companyId)
-        .in('id', candidates.slice(0, 100))
-      const ownedIds = new Set(((owned || []) as Array<{ id: string }>).map((c) => c.id))
-      candidates = candidates.filter((id) => ownedIds.has(id))
-    }
-
-    let conversationId: string | null = null
-    for (const id of candidates) {
-      const { count } = await ctx.admin
-        .from('conversation_members')
-        .select('user_id', { count: 'exact', head: true })
-        .eq('conversation_id', id)
-      if (count === 2) {
-        conversationId = id
-        break
-      }
-    }
-
-    if (!conversationId) {
-      const { data: conv, error: convErr } = await ctx.admin
-        .from('conversations')
-        .insert({ company_id: ctx.actor.companyId })
-        .select('id')
-        .maybeSingle()
-      if (convErr || !conv) return "I couldn't start that direct message."
-      conversationId = (conv as { id: string }).id
-      const { error: memberErr } = await ctx.admin.from('conversation_members').insert([
-        { conversation_id: conversationId, user_id: ctx.actor.userId },
-        { conversation_id: conversationId, user_id: recipient.id },
-      ])
-      if (memberErr) return "I couldn't set up that direct message."
-    }
-
-    const { data: inserted, error } = await ctx.admin
-      .from('messages')
-      .insert({
-        company_id: ctx.actor.companyId,
-        conversation_id: conversationId,
-        sender_id: ctx.actor.userId,
-        content: message,
-      })
-      .select('id')
-      .maybeSingle()
-    if (error || !inserted) return "I couldn't send that direct message just now."
-
-    void broadcastMessageInserted({
-      messageId: (inserted as { id: string }).id,
-      roomId: null,
-      conversationId,
-      parentId: null,
-      senderId: ctx.actor.userId,
-    }).catch(() => {})
+    await broadcastPostedMessage(ctx, messageId, botUserId)
 
     return lines(
-      `Sent a direct message to ${(recipient.display_name || 'them').trim()} as you:`,
+      `Sent ${(recipient.display_name || 'them').trim()} a direct message from me, noted as at your request:`,
       `"${clip(message, 160)}"`,
     )
   },
