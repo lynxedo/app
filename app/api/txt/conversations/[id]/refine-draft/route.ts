@@ -6,7 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
 import { buildGuardianSystem } from '@/lib/guardian-persona'
-import { resolveGuardianTier, type GuardianTier } from '@/lib/guardian-permissions'
+import { capabilityFromRole } from '@/lib/guardian-permissions'
 import { writeAuditLog } from '@/lib/guardian-audit'
 
 // "Polish draft" (Whisper Flow) — Unified Inbox Session 5. Sibling to
@@ -91,7 +91,7 @@ export async function POST(
     getTxtConvPermissions(supabase, conversationId, user.id),
     supabase
       .from('user_profiles')
-      .select('guardian_tier, company_id')
+      .select('role, company_id')
       .eq('id', user.id)
       .maybeSingle(),
   ])
@@ -101,7 +101,7 @@ export async function POST(
   }
 
   const profile = profileRes.data as {
-    guardian_tier: GuardianTier | null
+    role: string | null
     company_id: string | null
   } | null
   if (!profile || !profile.company_id) {
@@ -125,7 +125,7 @@ export async function POST(
 
   const adminClient = createAdminClient()
 
-  const [messagesRes, model, tier] = await Promise.all([
+  const [messagesRes, model] = await Promise.all([
     supabase
       .from('txt_messages')
       .select(
@@ -135,9 +135,6 @@ export async function POST(
       .order('created_at', { ascending: false })
       .limit(MAX_HISTORY_MESSAGES),
     getGuardianModel(adminClient, companyId).catch(() => CLAUDE_MODEL),
-    resolveGuardianTier(supabase, user.id, { conversationId }).catch<GuardianTier>(
-      () => 'basic'
-    ),
   ])
 
   const messages = ((messagesRes.data || []) as MessageRow[]).reverse() // chronological
@@ -198,7 +195,7 @@ export async function POST(
     inputTokens,
     outputTokens,
     isTest: false,
-    guardianTier: tier,
+    guardianTier: capabilityFromRole(profile.role),
     roomId: null,
     conversationId,
   })

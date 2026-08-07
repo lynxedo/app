@@ -134,8 +134,6 @@ export default function HubAdminPanel({
   const [members, setMembers] = useState<{ user_id: string; display_name: string; role: string }[]>([])
   const [loadingMembers, setLoadingMembers] = useState(false)
   const [addUserId, setAddUserId] = useState('')
-  // Filter box for the Guardian Access per-user list (Members tab).
-  const [guardianUserSearch, setGuardianUserSearch] = useState('')
 
   // Announcement composer
   const [annType, setAnnType] = useState<AnnType>('announcement')
@@ -276,17 +274,6 @@ export default function HubAdminPanel({
       method: 'PATCH',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ claude_enabled: enabled }),
-    })
-  }
-
-  const [hubUsersList, setHubUsersList] = useState<HubUser[]>(hubUsers)
-
-  async function toggleClaudeAllowed(userId: string, allowed: boolean) {
-    setHubUsersList(prev => prev.map(u => u.id === userId ? { ...u, claude_allowed: allowed } : u))
-    await fetch(`/api/hub/users/${userId}`, {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ claude_allowed: allowed }),
     })
   }
 
@@ -622,9 +609,6 @@ export default function HubAdminPanel({
   const selectedRoom = membersRoomId ? rooms.find(r => r.id === membersRoomId) : null
   const publicRooms = activeRooms.filter(r => !r.is_private)
   const privateRooms = activeRooms.filter(r => r.is_private)
-  const filteredGuardianUsers = hubUsersList.filter(u =>
-    u.display_name.toLowerCase().includes(guardianUserSearch.trim().toLowerCase())
-  )
 
   // One active-room row — shared by the Public and Private groups.
   const roomRow = (room: Room) => (
@@ -655,7 +639,7 @@ export default function HubAdminPanel({
             {/* Claude enabled toggle */}
             <button
               onClick={() => toggleClaudeEnabled(room.id, !room.claude_enabled)}
-              title={room.claude_enabled ? 'Hub Bot ON — click to disable' : 'Hub Bot OFF — click to enable'}
+              title={room.claude_enabled ? 'Assistant ON — click to disable' : 'Assistant OFF — click to enable'}
               className={`flex items-center gap-1 text-xs px-2 py-1 rounded transition-colors ${
                 room.claude_enabled
                   ? 'bg-brand/20 text-[#6FB3E8] hover:bg-brand/30'
@@ -663,7 +647,7 @@ export default function HubAdminPanel({
               }`}
             >
               <span>✦</span>
-              <span>{room.claude_enabled ? 'Hub Bot ON' : 'Hub Bot OFF'}</span>
+              <span>{room.claude_enabled ? 'Assistant ON' : 'Assistant OFF'}</span>
             </button>
             <button
               onClick={() => { setRenamingId(room.id); setRenameVal(room.name) }}
@@ -876,42 +860,19 @@ export default function HubAdminPanel({
             )}
           </div>
 
-          {/* Guardian Access per user */}
+          {/* Per-user assistant access moved to Admin → AI → Assistant →
+              Permissions — it was configured in two places, which is exactly
+              the duplication that page consolidates. Pointer kept so anyone
+              who learned it here still finds it. */}
           <div className="bg-gray-900 border border-gray-800 rounded-2xl p-6">
-            <h2 className="font-semibold text-white mb-1">Hub Bot Access — Per User</h2>
-            <p className="text-xs text-gray-500 mb-4">Controls who can use the hub bot in rooms and DMs. The room must also have the hub bot enabled.</p>
-            {hubUsersList.length > 8 && (
-              <input
-                value={guardianUserSearch}
-                onChange={e => setGuardianUserSearch(e.target.value)}
-                placeholder="Search people…"
-                className="w-full bg-gray-800 border border-gray-700 rounded-xl px-4 py-2 text-sm text-white placeholder-gray-500 outline-none focus:border-brand mb-3"
-              />
-            )}
-            <div className="space-y-2">
-              {filteredGuardianUsers.map(u => (
-                <div key={u.id} className="flex items-center justify-between bg-gray-800 rounded-xl px-4 py-2.5">
-                  <div className="flex items-center gap-2.5">
-                    <div className="w-7 h-7 rounded-full bg-gray-600 flex items-center justify-center text-xs font-bold text-white flex-none">
-                      {u.display_name.slice(0, 1).toUpperCase()}
-                    </div>
-                    <span className="text-sm text-white">{u.display_name}</span>
-                  </div>
-                  <button
-                    onClick={() => toggleClaudeAllowed(u.id, !u.claude_allowed)}
-                    className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors ${
-                      u.claude_allowed
-                        ? 'bg-brand/20 text-[#6FB3E8] hover:bg-brand/30'
-                        : 'bg-gray-700 text-gray-500 hover:bg-gray-600 hover:text-gray-300'
-                    }`}
-                  >
-                    <span>✦</span>
-                    <span>{u.claude_allowed ? 'Allowed' : 'Blocked'}</span>
-                  </button>
-                </div>
-              ))}
-              {filteredGuardianUsers.length === 0 && <p className="text-sm text-gray-500 px-1">No people match your search.</p>}
-            </div>
+            <h2 className="font-semibold text-white mb-1">Assistant Access — Per User</h2>
+            <p className="text-sm text-gray-500">
+              Who can use the assistant now lives with the rest of the assistant&apos;s settings:{' '}
+              <a href="/hub/admin/ai" className="text-[#6FB3E8] hover:underline">
+                Admin → AI → Assistant → Permissions
+              </a>
+              .
+            </p>
           </div>
         </div>
       )}

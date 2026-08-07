@@ -6,7 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getTxtConvPermissions } from '@/lib/txt-permissions'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
 import { buildGuardianSystem } from '@/lib/guardian-persona'
-import { resolveGuardianTier, type GuardianTier } from '@/lib/guardian-permissions'
+import { capabilityFromRole } from '@/lib/guardian-permissions'
 import { writeAuditLog } from '@/lib/guardian-audit'
 import { callHeroesTool } from '@/lib/hub-claude'
 
@@ -106,12 +106,13 @@ export async function POST(
 
   const { id: conversationId } = await params
 
-  // ---- Dual gate: canReply AND any guardian_tier ----
+  // ---- Gate: canReply. (An old second gate read guardian_tier, but every
+  // tier passed it — the tier ladder is retired; capability is role-derived.) ----
   const [permissions, profileRes] = await Promise.all([
     getTxtConvPermissions(supabase, conversationId, user.id),
     supabase
       .from('user_profiles')
-      .select('guardian_tier, company_id')
+      .select('role, company_id')
       .eq('id', user.id)
       .maybeSingle(),
   ])
@@ -121,12 +122,11 @@ export async function POST(
   }
 
   const profile = profileRes.data as {
-    guardian_tier: GuardianTier | null
+    role: string | null
     company_id: string | null
   } | null
 
-  // Spec: "if null/missing treat as 'basic' which still passes" — but if the
-  // user has no profile row at all we can't audit-log anyway, so 403.
+  // No profile row at all → we can't company-scope or audit-log, so 403.
   if (!profile || !profile.company_id) {
     return NextResponse.json({ error: 'forbidden' }, { status: 403 })
   }
@@ -148,7 +148,7 @@ export async function POST(
   // ---- Smart context: conversation history + contact + customer_service doc + Jobber ----
   const adminClient = createAdminClient()
 
-  const [messagesRes, convRes, model, tier] = await Promise.all([
+  const [messagesRes, convRes, model] = await Promise.all([
     supabase
       .from('txt_messages')
       .select(
@@ -165,9 +165,6 @@ export async function POST(
       .eq('id', conversationId)
       .maybeSingle(),
     getGuardianModel(adminClient, companyId).catch(() => CLAUDE_MODEL),
-    resolveGuardianTier(supabase, user.id, { conversationId }).catch<GuardianTier>(
-      () => 'basic'
-    ),
   ])
 
   const messages = ((messagesRes.data || []) as MessageRow[]).reverse() // chronological
@@ -240,7 +237,7 @@ export async function POST(
     inputTokens,
     outputTokens,
     isTest: false,
-    guardianTier: tier,
+    guardianTier: capabilityFromRole(profile.role),
     roomId: null,
     conversationId,
   })

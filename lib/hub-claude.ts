@@ -7,7 +7,7 @@ import {
   resolveReadKnowledgeDoc,
 } from '@/lib/guardian-knowledge'
 import { buildGuardianSystem } from '@/lib/guardian-persona'
-import { getMcpToolFilter, type GuardianTier } from '@/lib/guardian-permissions'
+import { getMcpToolFilter, type AssistantCapability } from '@/lib/guardian-permissions'
 import {
   getTodayWebSearchCount,
   incrementWebSearchUsage,
@@ -189,7 +189,7 @@ export async function askClaude({
   userMessage,
   companyId,
   userId,
-  tier,
+  capability,
   roomId,
   conversationId,
   isTest,
@@ -198,7 +198,8 @@ export async function askClaude({
   userMessage: string
   companyId: string
   userId?: string | null
-  tier: GuardianTier
+  /** 'manage' (managers/admins: all tools + web search) or 'read' (lookups only). */
+  capability: AssistantCapability
   roomId?: string | null
   conversationId?: string | null
   isTest?: boolean
@@ -225,8 +226,9 @@ export async function askClaude({
 
   const { model, web_search_daily_cap: dailyCap } = settings
 
-  // Filter MCP tools by tier. Basic users see only read-only tools; full users see all.
-  const toolFilter = getMcpToolFilter(tier)
+  // Filter legacy MCP tools by capability: read-capability users see only
+  // read-only tools; managers/admins see all.
+  const toolFilter = getMcpToolFilter(capability)
   const filteredMcpTools = mcpTools.filter(t => toolFilter(t.name))
 
   // Native, tenant-scoped actions (lib/hub-actions) — the assistant layer that
@@ -274,7 +276,7 @@ export async function askClaude({
       const questionRemaining = PER_QUESTION_SEARCH_BUDGET - searchesUsed
       const dailyRemaining = dailyCap - todayUsedCount - searchesUsed
       const iterationSearchBudget = Math.max(0, Math.min(questionRemaining, dailyRemaining))
-      const includeWebSearch = tier === 'full' && iterationSearchBudget > 0
+      const includeWebSearch = capability === 'manage' && iterationSearchBudget > 0
 
       // Build the per-iteration tool array. We loosen the type with `unknown[]`
       // because Anthropic's web_search server tool has a different shape than
@@ -422,7 +424,9 @@ export async function askClaude({
       inputTokens: lastUsage?.input_tokens ?? null,
       outputTokens: lastUsage?.output_tokens ?? null,
       isTest: isTest ?? false,
-      guardianTier: tier,
+      // Audit column predates the capability model; it stores 'manage'/'read'
+      // now (older rows keep their basic/manager/full values).
+      guardianTier: capability,
       roomId: roomId ?? null,
       conversationId: conversationId ?? null,
     })

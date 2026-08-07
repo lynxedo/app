@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import GuardianPanel from './GuardianPanel'
-import AssistantPanel from './AssistantPanel'
 import ResponderPanel from './ResponderPanel'
 import ReceptionistPanel from './ReceptionistPanel'
 import SchedulingPanel from './SchedulingPanel'
@@ -18,14 +17,14 @@ type Settings = {
 type Person = {
   id: string
   display_name: string
-  guardian_tier: string
+  claude_allowed: boolean
 }
 
 type Room = {
   id: string
   name: string
   is_private: boolean
-  guardian_full_access: boolean
+  claude_enabled: boolean
 }
 
 type Doc = {
@@ -127,20 +126,20 @@ export default function AiAdminShell({
       </div>
 
       {tab === 'assistant' && (
-        <div className="space-y-6">
-          {/* Who the assistant IS (name, face, brain) … */}
-          <GuardianPanel
-            initialSettings={initialSettings}
-            initialPeople={initialPeople}
-            initialRooms={initialRooms}
-            isSuperAdmin={isSuperAdmin}
-            botId={initialBot.id}
-            initialBotName={initialBot.display_name}
-            initialBotAvatarUrl={initialBot.avatar_url}
-          />
-          {/* … then what it's allowed to DO. */}
-          <AssistantPanel />
-        </div>
+        /* ONE panel, four inner tabs: Settings (identity + switches + model +
+           connected apps), Permissions (who can use it + what it may do),
+           Rooms, Audit. AssistantPanel's sections render inside those tabs —
+           this used to be two stacked panels configuring the same assistant
+           twice. */
+        <GuardianPanel
+          initialSettings={initialSettings}
+          initialPeople={initialPeople}
+          initialRooms={initialRooms}
+          isSuperAdmin={isSuperAdmin}
+          botId={initialBot.id}
+          initialBotName={initialBot.display_name}
+          initialBotAvatarUrl={initialBot.avatar_url}
+        />
       )}
       {tab === 'responder' && (
         <ResponderPanel

@@ -272,7 +272,7 @@ export default function ReceptionistPanel({
         </div>
 
         {/* Receptionist name — READ-ONLY here on purpose. The assistant has ONE
-            name (and one avatar), shared with the Hub Bot, edited in a single
+            name (and one avatar), shared with the Hub assistant, edited in a single
             place so the name callers hear can never drift from the name your team
             sees in Hub. See lib/ai-persona.ts. */}
         <div>
@@ -282,7 +282,7 @@ export default function ReceptionistPanel({
           </p>
           <p className="text-xs text-white/40 mt-1">
             The name the assistant gives callers (used in the greetings and if a caller asks).
-            It&apos;s the same name your Hub Bot uses — change it in{' '}
+            It&apos;s the same name your Hub assistant uses — change it in{' '}
             <strong className="text-white/60">Assistant → Assistant identity</strong>.
           </p>
         </div>

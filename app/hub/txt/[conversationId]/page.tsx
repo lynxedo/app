@@ -17,7 +17,7 @@ export default async function TxtConversationPage({
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_txt, can_assign_txt_threads, can_access_dialer, can_access_txt, can_access_unified_inbox, guardian_tier, company_id')
+    .select('role, can_admin_txt, can_assign_txt_threads, can_access_dialer, can_access_txt, can_access_unified_inbox, company_id')
     .eq('id', user.id)
     .single()
 
@@ -31,7 +31,11 @@ export default async function TxtConversationPage({
 
   const canAccessDialer = profile?.can_access_dialer === true
   const canAccessUnifiedInbox = profile?.role === 'admin' || profile?.can_access_unified_inbox === true
-  const hasGuardian = !!profile?.guardian_tier
+  // The AI composer helpers are open to anyone who can reply (the routes
+  // enforce canReply server-side). This used to check guardian_tier, but every
+  // profile has one (default 'basic'), so the check always passed — the tier
+  // ladder is retired and the vacuous gate is now an honest constant.
+  const hasGuardian = true
 
   const [
     convResult,

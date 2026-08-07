@@ -6,6 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getGuardianModel } from '@/lib/guardian-knowledge'
 import { buildGuardianSystem } from '@/lib/guardian-persona'
 import { writeAuditLog } from '@/lib/guardian-audit'
+import { capabilityFromRole } from '@/lib/guardian-permissions'
 
 // "Catch me up" — Unified Inbox Session 5. A 2–3 sentence roll-up of the whole
 // relationship with one contact, built from data we ALREADY have stored: the
@@ -102,7 +103,7 @@ export async function POST(
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, company_id, can_access_unified_inbox, guardian_tier')
+    .select('role, company_id, can_access_unified_inbox')
     .eq('id', user.id)
     .single()
 
@@ -198,7 +199,7 @@ export async function POST(
     inputTokens,
     outputTokens,
     isTest: false,
-    guardianTier: profile.guardian_tier ?? 'basic',
+    guardianTier: capabilityFromRole(profile.role),
     roomId: null,
     conversationId,
   })

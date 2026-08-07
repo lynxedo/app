@@ -1,12 +1,40 @@
-import type { SupabaseClient } from '@supabase/supabase-js'
+// What the in-Hub assistant may do for a given person — ONE rule, shared with
+// the native action layer (lib/hub-actions):
+//
+//   Anyone allowed to use the assistant can LOOK THINGS UP.
+//   Managers and admins can also make CHANGES (Jobber schedule, notes) and use
+//   live web search.
+//
+// This replaced the per-person guardian_tier ladder (basic/manager/full) in
+// August 2026. The ladder predated the action layer and had become a second,
+// parallel permission model for the same assistant: an admin configured tiers in
+// one card and action toggles in another, and the two could disagree. At
+// retirement the ladder was provably redundant — the only people who could talk
+// to the assistant at all (hub_users.claude_allowed) were a manager and an
+// admin, both hand-set to 'full', so deriving capability from role changed
+// nobody's effective behavior. The guardian_tier column and
+// rooms.guardian_full_access still exist in the DB but nothing reads them.
+//
+// Access itself (may this person use the assistant at all?) is a separate
+// switch: hub_users.claude_allowed, checked by the messages route before any of
+// this comes into play.
 
-export type GuardianTier = 'basic' | 'manager' | 'full'
+export type AssistantCapability = 'manage' | 'read'
 
-const DEFAULT_TIER: GuardianTier = 'basic'
+/**
+ * Capability from the person's role — managers and admins manage, everyone
+ * else reads. Matches the native action layer's posture, where Jobber writes
+ * are gated behind manager-flag/admin checks (see JOBBER_WRITE_GATE in
+ * lib/hub-actions/actions-jobber.ts).
+ */
+export function capabilityFromRole(role: string | null | undefined): AssistantCapability {
+  return role === 'admin' || role === 'manager' ? 'manage' : 'read'
+}
 
-// Tools available to basic-tier users — read-only Jobber/Captivated lookups + Hub directory.
-// Maintain this list as the MCP server adds tools. Anything not here is invisible to basic users.
-const BASIC_ALLOWED_TOOLS = new Set<string>([
+// Legacy Heroes MCP-server tools visible to read-capability users — read-only
+// Jobber/Captivated lookups + Hub directory. Maintain as that server adds
+// tools; anything not listed is invisible to non-managers.
+const READ_ONLY_TOOLS = new Set<string>([
   // Jobber read
   'search_clients',
   'get_client_details',
@@ -27,74 +55,11 @@ const BASIC_ALLOWED_TOOLS = new Set<string>([
   'test_connection',
 ])
 
-// Manager tier adds scheduling + note creation but still no broadcast/messaging.
-const MANAGER_ADDITIONAL_TOOLS = new Set<string>([
-  'schedule_visit',
-  'edit_visit',
-  'update_visit_schedule',
-  'update_visit_assigned_users',
-  'update_future_visits',
-  'update_job_schedule',
-  'mark_visit_complete',
-  'uncomplete_visit',
-  'delete_visit',
-  'delete_visit_line_items',
-  'create_job_note',
-  'create_client_note',
-  'set_job_custom_field',
-])
-
-const MANAGER_ALLOWED_TOOLS: Set<string> = new Set([
-  ...BASIC_ALLOWED_TOOLS,
-  ...MANAGER_ADDITIONAL_TOOLS,
-])
-
 /**
- * Returns a predicate that decides whether an MCP tool is visible to the given tier.
- * full → always true (no filter)
- * manager → BASIC + scheduling/notes
- * basic → BASIC only
+ * Predicate deciding whether a legacy MCP tool is visible to the capability.
+ * manage → everything; read → the read-only set.
  */
-export function getMcpToolFilter(tier: GuardianTier): (toolName: string) => boolean {
-  if (tier === 'full') return () => true
-  const allowed = tier === 'manager' ? MANAGER_ALLOWED_TOOLS : BASIC_ALLOWED_TOOLS
-  return (name: string) => allowed.has(name)
-}
-
-/**
- * Resolves the Guardian tier for a user in a specific message context.
- *
- * Resolution order (highest wins):
- *   1. role = 'admin' → 'full'
- *   2. room has guardian_full_access = true → 'full'
- *   3. user_profiles.guardian_tier
- *
- * Pass either the user-session or admin client — both can SELECT user_profiles
- * for the calling user, and rooms.guardian_full_access has no RLS restriction.
- */
-export async function resolveGuardianTier(
-  supabase: SupabaseClient,
-  userId: string,
-  context: { roomId?: string | null; conversationId?: string | null }
-): Promise<GuardianTier> {
-  const { data: profile } = await supabase
-    .from('user_profiles')
-    .select('role, guardian_tier')
-    .eq('id', userId)
-    .maybeSingle()
-
-  if (profile?.role === 'admin') return 'full'
-
-  if (context.roomId) {
-    const { data: room } = await supabase
-      .from('rooms')
-      .select('guardian_full_access')
-      .eq('id', context.roomId)
-      .maybeSingle()
-    if (room?.guardian_full_access === true) return 'full'
-  }
-
-  const tier = (profile?.guardian_tier as GuardianTier | null) ?? DEFAULT_TIER
-  if (tier === 'basic' || tier === 'manager' || tier === 'full') return tier
-  return DEFAULT_TIER
+export function getMcpToolFilter(capability: AssistantCapability): (toolName: string) => boolean {
+  if (capability === 'manage') return () => true
+  return (name: string) => READ_ONLY_TOOLS.has(name)
 }
