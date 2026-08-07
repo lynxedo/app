@@ -153,6 +153,72 @@ export async function getAssistantPersona(
 }
 
 /**
+ * The legacy handle. Kept working forever, independent of the persona name:
+ * it's what `app/help/HelpContent.tsx` documents, what long-time users have
+ * muscle memory for, and what every pre-rename thread in Hub already contains.
+ * Renaming the assistant must never break the way people already summon it.
+ */
+export const LEGACY_ASSISTANT_HANDLE = 'guardian'
+
+/**
+ * The handles that summon the assistant in Hub text — lowercased, no leading '@'.
+ *
+ * Always includes {@link LEGACY_ASSISTANT_HANDLE}, plus the company's CONFIGURED
+ * assistant name. Without the latter a renamed assistant is unreachable by the
+ * only name the UI ever shows: Heroes renamed theirs to "Amber", and until this
+ * existed `@amber` did nothing while `@guardian` — a word appearing nowhere in
+ * the product — was the sole trigger.
+ *
+ * First name only, matching how human @mentions already resolve elsewhere in
+ * Hub. ⚠ So if a company names its assistant after a real employee's first name,
+ * that token becomes ambiguous and will wake the assistant too. That is noisy
+ * rather than harmful (it only ever replies in a Claude-enabled room, and the
+ * human still gets their mention push), it is visible the first time it happens,
+ * and the fix is to rename one of the two — which is cheaper than paying for a
+ * company-wide first-name lookup on the busiest endpoint in the app.
+ */
+export async function getAssistantMentionHandles(
+  admin: SupabaseClient,
+  companyId: string
+): Promise<string[]> {
+  const handles = [LEGACY_ASSISTANT_HANDLE]
+  try {
+    const { name } = await getAssistantPersona(admin, companyId)
+    const first = name.trim().split(/\s+/)[0]?.toLowerCase() ?? ''
+    // 2-char floor: a 1-character handle would match far too much text.
+    if (first.length >= 2 && !handles.includes(first)) handles.push(first)
+  } catch {
+    // Non-fatal: the legacy handle still works, so the assistant stays reachable.
+  }
+  return handles
+}
+
+/**
+ * Does this message summon the assistant?
+ *
+ * Bounded on BOTH sides of the handle, which a plain substring test is not:
+ *  - trailing `\b` so a handle is a whole word — `@amber` fires, `@ambergris` doesn't;
+ *  - leading non-word so the '@' actually starts a mention. ⚠ Without this,
+ *    **an ordinary email address summons the assistant**: `bob@amber.com`
+ *    contains "@amber" followed by a '.', which any trailing-boundary-only test
+ *    happily matches. A real mention's '@' is never preceded by a word character.
+ *
+ * This also tightens the legacy handle, which used a bare
+ * `includes('@guardian')` — `@guardianfoo` and `sales@guardian.co` no longer
+ * match. Neither is something a person types to summon the assistant.
+ *
+ * Deliberately NOT a lookbehind, so the helper stays safe to bundle anywhere.
+ */
+export function contentMentionsAssistant(content: string, handles: string[]): boolean {
+  if (!content.includes('@')) return false
+  return handles.some((h) => {
+    // The persona name is admin-supplied, so it can contain regex metacharacters.
+    const escaped = h.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')
+    return new RegExp(`(^|[^\\w])@${escaped}\\b`, 'i').test(content)
+  })
+}
+
+/**
  * Rename the assistant everywhere: `display_name` on every persona bot row
  * (Hub chat, DMs, notifications, the outbound-text signature rendered by
  * lib/ai-text-identity) plus a write-through to `receptionist_name` (what the

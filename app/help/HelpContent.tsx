@@ -458,7 +458,8 @@ function HubAssistantTab() {
   return (
     <>
       <Section title="What the Hub Assistant Is">
-        <p>The <strong className="text-white">Hub Assistant</strong> is Claude, built right into the Hub. Ask it something in your one-on-one <strong className="text-orange-300">@Guardian</strong> chat — or @mention <strong className="text-orange-300">@Guardian</strong> in a room — and it can look things up for you and take care of a few tasks on your behalf. There&apos;s no separate app to open and nothing new to learn: you just ask, in plain words, the way you&apos;d ask a coworker.</p>
+        <p>The <strong className="text-white">Hub Assistant</strong> is Claude, built right into the Hub. Ask it something in your one-on-one chat with it — or @mention it in a room — and it can look things up for you and take care of a few tasks on your behalf. There&apos;s no separate app to open and nothing new to learn: you just ask, in plain words, the way you&apos;d ask a coworker.</p>
+        <Note><strong className="text-white">What do I call it?</strong> Whatever your company named it — if the assistant shows up as &ldquo;Amber&rdquo;, then <strong className="text-orange-300">@Amber</strong> summons it. An admin sets that name in <em>Admin → AI → Assistant</em>. <strong className="text-orange-300">@Guardian</strong> always works too, whatever the name — it&apos;s the original handle and it never stops working.</Note>
         <p className="text-gray-400 text-xs">Examples: <em>&ldquo;What&apos;s on the schedule Thursday?&rdquo;</em> · <em>&ldquo;Pull up everything on the Winward account.&rdquo;</em> · <em>&ldquo;Which text threads are waiting on a reply?&rdquo;</em> · <em>&ldquo;Add a task on my board to call them back Monday.&rdquo;</em></p>
       </Section>
 
@@ -817,10 +818,10 @@ function HubTab() {
         </AdminOnly>
       </Section>
 
-      <Section title="@Guardian Bot">
-        <p>Guardian is an AI helper that lives in Hub. @mention <strong className="text-orange-300">@Guardian</strong> in any room, or in your one-on-one Guardian chat, and ask it questions about Lynxedo or the business — it has context on your data and replies in-thread.</p>
+      <Section title="The Assistant Bot">
+        <p>The assistant is an AI helper that lives in Hub. @mention it <strong className="text-white">by whatever name your company gave it</strong> (set in <em>Admin → AI → Assistant</em> — if it shows as &ldquo;Amber&rdquo;, type <strong className="text-orange-300">@Amber</strong>) in any room, or talk to it in your one-on-one chat with it, and ask questions about Lynxedo or the business — it has context on your data and replies in-thread. <strong className="text-orange-300">@Guardian</strong> also works everywhere, regardless of the name you chose.</p>
         <p className="text-gray-400 text-xs">Guardian only takes part in chats it&apos;s actually a member of — a room where it&apos;s enabled, or your own one-on-one Guardian chat. It won&apos;t reply inside a regular direct message between two people, so @mentioning it there does nothing.</p>
-        <p className="text-gray-400 text-xs">Examples: <em>&ldquo;@Guardian how many visits do we have tomorrow?&rdquo;</em> · <em>&ldquo;@Guardian who&apos;s clocked in right now?&rdquo;</em></p>
+        <p className="text-gray-400 text-xs">Examples (using &ldquo;Amber&rdquo; as the assistant&apos;s name): <em>&ldquo;@Amber how many visits do we have tomorrow?&rdquo;</em> · <em>&ldquo;@Amber who&apos;s clocked in right now?&rdquo;</em></p>
         <p><strong className="text-white">What Guardian can do depends on your tier:</strong></p>
         <ul className="list-disc pl-5 space-y-1">
           <li><strong className="text-white">Basic</strong> (default) — read-only Jobber/Captivated lookups (clients, jobs, visits, quotes, invoices) and questions about the company knowledge base. Most office staff and field techs are here.</li>
