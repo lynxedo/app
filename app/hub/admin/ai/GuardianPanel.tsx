@@ -2,6 +2,7 @@
 
 import { useEffect, useRef, useState } from 'react'
 import { useAutoSave } from '@/components/admin'
+import AssistantPanel from './AssistantPanel'
 
 type Settings = {
   model: string
@@ -19,14 +20,16 @@ type ModelOption = {
 type Person = {
   id: string
   display_name: string
-  guardian_tier: string
+  /** hub_users.claude_allowed — may this person use the assistant at all? */
+  claude_allowed: boolean
 }
 
 type Room = {
   id: string
   name: string
   is_private: boolean
-  guardian_full_access: boolean
+  /** rooms.claude_enabled — does the assistant answer in this room? */
+  claude_enabled: boolean
 }
 
 type AuditRow = {
@@ -47,9 +50,12 @@ type AuditRow = {
   conversation_id: string | null
 }
 
-type Tab = 'settings' | 'people' | 'rooms' | 'audit'
-
-const TIERS = ['basic', 'manager', 'full'] as const
+// One inner tab bar for the whole Assistant: Settings (identity + switches +
+// model + web search + connected apps), Permissions (who may use it + what it
+// may do), Rooms (where it answers), Audit. This is where the old two-panel
+// stack — the tier ladder in one card, the action list in another — became one
+// permission model.
+type Tab = 'settings' | 'permissions' | 'rooms' | 'audit'
 
 function formatTimestamp(iso: string): string {
   try {
@@ -99,7 +105,7 @@ export default function GuardianPanel({
   const [auditError, setAuditError] = useState<string | null>(null)
   const [auditIncludeTest, setAuditIncludeTest] = useState(false)
 
-  // Assistant identity (name + avatar) — shared by the Hub Bot and the AI
+  // Assistant identity (name + avatar) — shared by the Hub assistant and the AI
   // receptionist. The name is an explicit-save field (renaming is deliberate);
   // the avatar uploads immediately on file pick. `receptionistSynced` reports
   // whether the last save also reached the receptionist (it can't when the
@@ -257,8 +263,8 @@ export default function GuardianPanel({
         <TabButton active={tab === 'settings'} onClick={() => setTab('settings')}>
           Settings
         </TabButton>
-        <TabButton active={tab === 'people'} onClick={() => setTab('people')}>
-          People
+        <TabButton active={tab === 'permissions'} onClick={() => setTab('permissions')}>
+          Permissions
         </TabButton>
         <TabButton active={tab === 'rooms'} onClick={() => setTab('rooms')}>
           Rooms
@@ -276,6 +282,9 @@ export default function GuardianPanel({
 
       {tab === 'settings' && (
         <div className="space-y-4">
+          {/* On/off + connection switches (hub_assistant_settings) — self-fetching. */}
+          <AssistantPanel sections={['switches']} />
+
           <section className="rounded-lg border border-white/10 bg-white/5 p-4 space-y-4">
             <div>
               <h2 className="font-semibold">Assistant identity</h2>
@@ -404,8 +413,8 @@ export default function GuardianPanel({
             <div>
               <h2 className="font-semibold">Web search</h2>
               <p className="text-xs text-white/50 mt-1">
-                Daily company-wide cap on live web searches. Web search runs only when the asker's
-                effective tier is <span className="text-emerald-300">full</span>. 0 disables web
+                Daily company-wide cap on live web searches. Web search runs only for{' '}
+                <span className="text-emerald-300">managers and admins</span>. 0 disables web
                 search entirely. Each search is ~$0.01.
               </p>
             </div>
@@ -459,21 +468,28 @@ export default function GuardianPanel({
             )}
           </div>
 
+          {/* Connected outside Claude apps (claude.ai, Claude Code) — read + revoke. */}
+          <AssistantPanel sections={['apps']} />
         </div>
       )}
 
-      {tab === 'people' && (
-        <PeopleTab
-          people={people}
-          setPeople={setPeople}
-          isSuperAdmin={isSuperAdmin}
-        />
+      {tab === 'permissions' && (
+        <div className="space-y-6">
+          <PeopleTab
+            people={people}
+            setPeople={setPeople}
+            isSuperAdmin={isSuperAdmin}
+          />
+          {/* Company-wide per-action toggles (hub_assistant_settings) — self-fetching. */}
+          <AssistantPanel sections={['actions']} />
+        </div>
       )}
 
       {tab === 'rooms' && (
         <RoomsTab
           rooms={rooms}
           setRooms={setRooms}
+          isSuperAdmin={isSuperAdmin}
         />
       )}
 
@@ -528,30 +544,30 @@ function PeopleTab({
 }) {
   const [savingId, setSavingId] = useState<string | null>(null)
   const [errorId, setErrorId] = useState<{ id: string; msg: string } | null>(null)
-  const [savedId, setSavedId] = useState<string | null>(null)
 
-  async function setTier(userId: string, tier: string) {
+  // hub_users.claude_allowed — the ONE per-person assistant switch. What an
+  // allowed person can then DO is not per-person configuration: lookups for
+  // everyone, changes + web search for managers/admins, each action further
+  // gated by that person's own can_* permissions and the company toggles below.
+  // (This replaced the basic/manager/full tier dropdowns — capability now
+  // follows role, so there is nothing per-person left to rank.)
+  async function setAllowed(userId: string, allowed: boolean) {
     setSavingId(userId)
     setErrorId(null)
-    setSavedId(null)
-    const prevTier = people.find(p => p.id === userId)?.guardian_tier
-    // Optimistic update
-    setPeople(prev => prev.map(p => p.id === userId ? { ...p, guardian_tier: tier } : p))
+    const prev = people.find(p => p.id === userId)?.claude_allowed ?? false
+    setPeople(list => list.map(p => p.id === userId ? { ...p, claude_allowed: allowed } : p))
     try {
-      const res = await fetch(`/api/admin/guardian/users/${userId}`, {
+      const res = await fetch(`/api/hub/users/${userId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ guardian_tier: tier }),
+        body: JSON.stringify({ claude_allowed: allowed }),
       })
       if (!res.ok) {
         const b = await res.json().catch(() => null)
         throw new Error(b?.error ?? `Save failed (${res.status})`)
       }
-      setSavedId(userId)
-      setTimeout(() => setSavedId(s => s === userId ? null : s), 2000)
     } catch (e) {
-      // Revert
-      setPeople(prev => prev.map(p => p.id === userId ? { ...p, guardian_tier: prevTier ?? 'basic' } : p))
+      setPeople(list => list.map(p => p.id === userId ? { ...p, claude_allowed: prev } : p))
       setErrorId({ id: userId, msg: e instanceof Error ? e.message : String(e) })
     } finally {
       setSavingId(null)
@@ -561,18 +577,16 @@ function PeopleTab({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="font-semibold">Assistant tiers by person</h2>
+        <h2 className="font-semibold">Who can use the assistant</h2>
         <p className="text-xs text-white/50 mt-1">
-          <span className="text-white/70">Basic:</span> read-only Jobber/Captivated lookups + knowledge base.{' '}
-          <span className="text-white/70">Manager:</span> + scheduling, visit edits, notes.{' '}
-          <span className="text-white/70">Full:</span> + live web search.
-        </p>
-        <p className="text-xs text-white/50 mt-1">
-          Tier resolution order: admin role &gt; room full-access &gt; user tier.
+          One switch per person. Everyone allowed can ask it to look things up;{' '}
+          <span className="text-white/70">managers and admins</span> can also have it make changes
+          (Jobber schedule, notes) and use live web search. Each action additionally follows the
+          person&apos;s own Hub permissions and the company-wide toggles below.
         </p>
         {!isSuperAdmin && (
           <p className="text-xs text-amber-300 mt-2">
-            Only full admins can change tiers. You can view current assignments here.
+            Only full admins can change who&apos;s allowed. You can view the current list here.
           </p>
         )}
       </div>
@@ -585,22 +599,18 @@ function PeopleTab({
             {people.map(p => (
               <li key={p.id} className="px-4 py-3 flex items-center gap-3">
                 <span className="flex-1 text-sm">{p.display_name}</span>
-                <select
-                  value={p.guardian_tier}
-                  onChange={e => setTier(p.id, e.target.value)}
+                <button
+                  onClick={() => setAllowed(p.id, !p.claude_allowed)}
                   disabled={!isSuperAdmin || savingId === p.id}
-                  className="bg-gray-900 border border-white/15 rounded px-2 py-1 text-sm disabled:opacity-60"
+                  className={`flex items-center gap-1.5 text-xs px-3 py-1.5 rounded-lg transition-colors disabled:opacity-60 ${
+                    p.claude_allowed
+                      ? 'bg-brand/20 text-[#6FB3E8] hover:bg-brand/30'
+                      : 'bg-gray-700 text-gray-400 hover:bg-gray-600'
+                  }`}
                 >
-                  {TIERS.map(t => (
-                    <option key={t} value={t}>
-                      {t}
-                    </option>
-                  ))}
-                </select>
-                <span className="w-16 text-xs text-right">
-                  {savingId === p.id && <span className="text-white/50">Saving…</span>}
-                  {savedId === p.id && <span className="text-emerald-300">Saved ✓</span>}
-                </span>
+                  <span>✦</span>
+                  <span>{p.claude_allowed ? 'Allowed' : 'Blocked'}</span>
+                </button>
               </li>
             ))}
           </ul>
@@ -623,30 +633,37 @@ function PeopleTab({
 function RoomsTab({
   rooms,
   setRooms,
+  isSuperAdmin,
 }: {
   rooms: Room[]
   setRooms: (next: Room[] | ((prev: Room[]) => Room[])) => void
+  isSuperAdmin: boolean
 }) {
   const [savingId, setSavingId] = useState<string | null>(null)
   const [errorMsg, setErrorMsg] = useState<string | null>(null)
 
+  // rooms.claude_enabled — does the assistant answer in this room at all? The
+  // old toggle here was per-room "Full access" (a tier elevation); with the
+  // tier ladder retired, capability follows the ASKER's role everywhere, so the
+  // per-room question left is simply on/off. Same column the Admin → Hub room
+  // list toggles.
   async function toggle(roomId: string, next: boolean) {
     setSavingId(roomId)
     setErrorMsg(null)
-    const prev = rooms.find(r => r.id === roomId)?.guardian_full_access ?? false
-    setRooms(rs => rs.map(r => r.id === roomId ? { ...r, guardian_full_access: next } : r))
+    const prev = rooms.find(r => r.id === roomId)?.claude_enabled ?? false
+    setRooms(rs => rs.map(r => r.id === roomId ? { ...r, claude_enabled: next } : r))
     try {
-      const res = await fetch(`/api/admin/guardian/rooms/${roomId}`, {
+      const res = await fetch(`/api/hub/rooms/${roomId}`, {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ guardian_full_access: next }),
+        body: JSON.stringify({ claude_enabled: next }),
       })
       if (!res.ok) {
         const b = await res.json().catch(() => null)
         throw new Error(b?.error ?? `Save failed (${res.status})`)
       }
     } catch (e) {
-      setRooms(rs => rs.map(r => r.id === roomId ? { ...r, guardian_full_access: prev } : r))
+      setRooms(rs => rs.map(r => r.id === roomId ? { ...r, claude_enabled: prev } : r))
       setErrorMsg(e instanceof Error ? e.message : String(e))
     } finally {
       setSavingId(null)
@@ -656,12 +673,17 @@ function RoomsTab({
   return (
     <div className="space-y-4">
       <div>
-        <h2 className="font-semibold">Per-room Hub Bot access</h2>
+        <h2 className="font-semibold">Where the assistant answers</h2>
         <p className="text-xs text-white/50 mt-1">
-          Turn on <span className="text-emerald-300">Full access</span> for a room and the Hub Bot
-          gets full-tier capabilities for anyone asking inside that room — regardless of their
-          personal tier. Useful for an &ldquo;office&rdquo; or &ldquo;leadership&rdquo; room.
+          Turn the assistant on per room. In a room that&apos;s on, anyone allowed to use the
+          assistant can @mention it; what it will do for them still follows their own role and
+          permissions.
         </p>
+        {!isSuperAdmin && (
+          <p className="text-xs text-amber-300 mt-2">
+            Only full admins can change rooms. You can view the current list here.
+          </p>
+        )}
       </div>
 
       <div className="rounded-lg border border-white/10 bg-white/5 overflow-hidden">
@@ -678,12 +700,12 @@ function RoomsTab({
                 <label className="flex items-center gap-2 text-sm">
                   <input
                     type="checkbox"
-                    checked={r.guardian_full_access}
+                    checked={r.claude_enabled}
                     onChange={e => toggle(r.id, e.target.checked)}
-                    disabled={savingId === r.id}
+                    disabled={!isSuperAdmin || savingId === r.id}
                     className="accent-emerald-500"
                   />
-                  <span className="text-white/70">Full access</span>
+                  <span className="text-white/70">Assistant on</span>
                 </label>
               </li>
             ))}
@@ -725,7 +747,7 @@ function AuditTab({
         <div>
           <h2 className="font-semibold">Audit log</h2>
           <p className="text-xs text-white/50 mt-1">
-            Last 100 Hub Bot replies. Click a row to expand and see the full question + answer.
+            Last 100 assistant replies. Click a row to expand and see the full question + answer.
           </p>
         </div>
         <label className="flex items-center gap-2 text-sm">
@@ -766,8 +788,10 @@ function AuditTab({
                       <span className="text-xs text-white/60 w-20 shrink-0 hidden md:inline truncate">
                         {r.user_display_name ?? '—'}
                       </span>
+                      {/* Capability chip. New rows log 'manage'/'read'; rows from
+                          before Aug 2026 carry the old tier names and render as-is. */}
                       <span className={`text-xs px-1.5 py-0.5 rounded shrink-0 ${
-                        r.guardian_tier === 'full'
+                        r.guardian_tier === 'manage' || r.guardian_tier === 'full'
                           ? 'bg-emerald-900/40 text-emerald-300'
                           : r.guardian_tier === 'manager'
                           ? 'bg-amber-900/40 text-amber-300'

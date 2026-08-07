@@ -1,12 +1,23 @@
 'use client'
 
-// Admin → AI → Assistant.
+// Admin → AI → Assistant — the action-layer settings (hub_assistant_settings).
 //
-// Self-fetching panel (the SchedulingPanel pattern): takes no props, loads on
-// mount, tracks a snapshot for dirty detection, saves with an explicit button —
-// consistent with the rest of the AI admin area.
+// Self-fetching panel (the SchedulingPanel pattern): loads on mount, tracks a
+// snapshot for dirty detection, saves with an explicit button — consistent with
+// the rest of the AI admin area.
+//
+// `sections` picks which pieces render, so the Assistant tab can place them
+// where they belong instead of stacking everything in one column: the on/off
+// switches + connected apps live under Settings, the action allow-list under
+// Permissions. Each instance fetches the whole settings row on mount and saves
+// the whole row. Two instances can be mounted at once (Settings mounts
+// 'switches' and 'apps' separately), but at most ONE mounted instance is ever
+// editable ('apps' has no Save), and tab switches unmount + refetch — so a save
+// can never write another instance's stale state.
 
 import { useCallback, useEffect, useState } from 'react'
+
+export type AssistantSection = 'switches' | 'actions' | 'apps'
 
 type Settings = {
   enabled: boolean
@@ -59,7 +70,11 @@ const GROUP_BLURB: Record<string, string> = {
   jobber: 'Reads come straight from Jobber. Changes move the real schedule your crews work from, so they start switched off.',
 }
 
-export default function AssistantPanel() {
+export default function AssistantPanel({
+  sections = ['switches', 'actions', 'apps'],
+}: {
+  sections?: AssistantSection[]
+}) {
   const [settings, setSettings] = useState<Settings | null>(null)
   const [snapshot, setSnapshot] = useState('')
   const [actions, setActions] = useState<ActionMeta[]>([])
@@ -170,6 +185,7 @@ export default function AssistantPanel() {
 
   return (
     <div className="space-y-6">
+      {sections.includes('switches') && (
       <section className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">
         <h2 className="text-sm font-semibold text-[#fff]">Hub Assistant</h2>
         <p className="mt-1 text-sm text-white/60">
@@ -230,12 +246,15 @@ export default function AssistantPanel() {
           )}
         </div>
       </section>
+      )}
 
+      {sections.includes('actions') && (
       <section className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">
         <h3 className="text-sm font-semibold text-[#fff]">What it&apos;s allowed to do</h3>
         <p className="mt-1 text-sm text-white/60">
           Turn individual actions off for the whole company. A person still also needs their own
-          permission for each one.
+          permission for each one — and changing things (the Jobber schedule, notes) plus live web
+          search are for managers and admins only, no matter what&apos;s ticked here.
         </p>
         {(['hub', 'jobber'] as const).map((group) => {
           const groupActions = actions.filter((a) => a.group === group && a.name !== 'confirm_action')
@@ -280,7 +299,9 @@ export default function AssistantPanel() {
           )
         })}
       </section>
+      )}
 
+      {sections.includes('apps') && (
       <section className="rounded-xl border border-gray-800 bg-gray-900/50 p-4">
         <h3 className="text-sm font-semibold text-[#fff]">Connected Claude apps</h3>
         {connections.length === 0 ? (
@@ -309,19 +330,23 @@ export default function AssistantPanel() {
           </ul>
         )}
       </section>
+      )}
 
       {error && <p className="text-sm text-red-300">{error}</p>}
 
-      <div className="flex items-center gap-3">
-        <button
-          onClick={save}
-          disabled={!dirty || saving}
-          className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-[#fff] disabled:opacity-40"
-        >
-          {saving ? 'Saving…' : 'Save changes'}
-        </button>
-        {dirty && !saving && <span className="text-xs text-amber-300">Unsaved changes</span>}
-      </div>
+      {/* Only editable sections get a Save button — 'apps' alone has nothing to save. */}
+      {(sections.includes('switches') || sections.includes('actions')) && (
+        <div className="flex items-center gap-3">
+          <button
+            onClick={save}
+            disabled={!dirty || saving}
+            className="rounded-lg bg-brand px-4 py-2 text-sm font-medium text-[#fff] disabled:opacity-40"
+          >
+            {saving ? 'Saving…' : 'Save changes'}
+          </button>
+          {dirty && !saving && <span className="text-xs text-amber-300">Unsaved changes</span>}
+        </div>
+      )}
     </div>
   )
 }

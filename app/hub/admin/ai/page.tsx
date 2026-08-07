@@ -36,18 +36,18 @@ export default async function AdminAiPage() {
   ] = await Promise.all([
     getKnowledgeDocs(admin, companyId),
     getGuardianSettings(admin, companyId),
-    // People — hub_users + user_profiles join. Exclude bots (the @Guardian
-    // bot itself is in hub_users with is_bot=true).
+    // People — who may use the assistant (hub_users.claude_allowed). Exclude
+    // bots (the assistant bot itself is in hub_users with is_bot=true).
     admin
       .from('hub_users')
-      .select('id, display_name, is_bot')
+      .select('id, display_name, is_bot, claude_allowed')
       .eq('company_id', companyId)
       .order('display_name', { ascending: true }),
-    // Rooms — all rooms in the company. Sort: public first, then private,
-    // alphabetical within each group.
+    // Rooms — where the assistant answers (rooms.claude_enabled). Sort: public
+    // first, then private, alphabetical within each group.
     admin
       .from('rooms')
-      .select('id, name, is_private, guardian_full_access')
+      .select('id, name, is_private, claude_enabled')
       .eq('company_id', companyId)
       .order('is_private', { ascending: true })
       .order('name', { ascending: true }),
@@ -72,36 +72,19 @@ export default async function AdminAiPage() {
     getAssistantPersona(admin, companyId),
   ])
 
-  // Pull the guardian_tier values for the same set of users in one batched query.
-  const userIds = (peopleResult.data ?? [])
-    .filter((u: { is_bot: boolean | null }) => !u.is_bot)
-    .map((u: { id: string }) => u.id)
-
-  const { data: profiles } = userIds.length > 0
-    ? await admin
-        .from('user_profiles')
-        .select('id, guardian_tier')
-        .in('id', userIds)
-    : { data: [] }
-
-  const tierByUser: Record<string, string> = {}
-  for (const p of (profiles ?? []) as Array<{ id: string; guardian_tier: string }>) {
-    tierByUser[p.id] = p.guardian_tier
-  }
-
   const people = (peopleResult.data ?? [])
     .filter((u: { is_bot: boolean | null }) => !u.is_bot)
-    .map((u: { id: string; display_name: string | null }) => ({
+    .map((u: { id: string; display_name: string | null; claude_allowed: boolean | null }) => ({
       id: u.id,
       display_name: u.display_name ?? '(no name)',
-      guardian_tier: tierByUser[u.id] ?? 'basic',
+      claude_allowed: u.claude_allowed === true,
     }))
 
   const rooms = (roomsResult.data ?? []) as Array<{
     id: string
     name: string
     is_private: boolean
-    guardian_full_access: boolean
+    claude_enabled: boolean
   }>
 
   // Assistant identity — the shared persona name + avatar. `id` is the row the
@@ -124,7 +107,7 @@ export default async function AdminAiPage() {
     level: vrEffective.level,
     plan_max_level: vrPlanMax,
     // Read-only in the Receptionist panel — the name is edited once, in
-    // Admin → AI → Hub Bot → Assistant identity (lib/ai-persona.ts), so the
+    // Admin → AI → Assistant → Assistant identity (lib/ai-persona.ts), so the
     // spoken name and the in-Hub name can never drift apart.
     receptionist_name: persona.name,
     greeting_business_hours: vrRow?.greeting_business_hours ?? '',

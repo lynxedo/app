@@ -23,7 +23,6 @@ const RESTRICTED_FIELDS = new Set([
   'can_admin_email',
   'can_admin_forms',
   'can_admin_products',
-  'guardian_tier',
 ])
 
 // Editable-field allowlist for PATCH. The body must never be spread raw into
@@ -33,7 +32,10 @@ const RESTRICTED_FIELDS = new Set([
 // toggles keep working automatically; everything else editable is named
 // explicitly. display_name/full_name are handled separately below.
 const EDITABLE_PATTERN = /^can_[a-z0-9_]+$/
-const EDITABLE_EXACT = new Set(['role', 'guardian_tier'])
+// guardian_tier was removed when the tier ladder retired (Aug 2026) — assistant
+// capability now derives from role, so a second writer here would be a no-op
+// that only looked meaningful.
+const EDITABLE_EXACT = new Set(['role'])
 
 export async function PATCH(
   request: Request,

@@ -3,7 +3,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { sendHubPush } from '@/lib/hub-push'
 import { askClaude } from '@/lib/hub-claude'
-import { resolveGuardianTier } from '@/lib/guardian-permissions'
+import { capabilityFromRole, type AssistantCapability } from '@/lib/guardian-permissions'
 import { markActive } from '@/lib/hub-activity'
 import { bridgeHubMessageToChatSynx } from '@/lib/chat-synx'
 import { broadcastMessageInserted } from '@/lib/hub-message-broadcast'
@@ -556,6 +556,23 @@ async function fireAutomationRules({
   }
 }
 
+// What the assistant may do for this asker — managers/admins get everything
+// (incl. web search), everyone else read-only lookups. Replaced the old
+// per-person guardian_tier ladder + per-room full-access override (see
+// lib/guardian-permissions.ts); one role read instead of the ladder's
+// profile+room queries. Runs in the detached reply handlers, off the send path.
+async function resolveCapability(
+  admin: ReturnType<typeof createAdminClient>,
+  userId: string,
+): Promise<AssistantCapability> {
+  const { data } = await admin
+    .from('user_profiles')
+    .select('role')
+    .eq('id', userId)
+    .maybeSingle()
+  return capabilityFromRole((data as { role?: string | null } | null)?.role)
+}
+
 async function handleClaudeReplyDM({
   conversationId,
   companyId,
@@ -621,7 +638,7 @@ async function handleClaudeReplyDM({
     })
   }
 
-  const tier = await resolveGuardianTier(admin, userId, { conversationId })
+  const capability = await resolveCapability(admin, userId)
 
   let claudeText = ''
   try {
@@ -630,7 +647,7 @@ async function handleClaudeReplyDM({
       userMessage: `[${senderName}]: ${triggeringContent}`,
       companyId,
       userId,
-      tier,
+      capability,
       conversationId,
     })
   } catch {
@@ -758,7 +775,7 @@ async function handleClaudeReply({
     })
   }
 
-  const tier = await resolveGuardianTier(admin, userId, { roomId })
+  const capability = await resolveCapability(admin, userId)
 
   let claudeText = ''
   try {
@@ -767,7 +784,7 @@ async function handleClaudeReply({
       userMessage: `[${senderName}]: ${triggeringContent}`,
       companyId,
       userId,
-      tier,
+      capability,
       roomId,
     })
   } catch {
