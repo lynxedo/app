@@ -181,6 +181,14 @@ export async function POST(request: Request) {
         params.arguments,
       )
 
+      // One row per inbound request, the same unit the Guardian door meters (see
+      // the per-turn note in lib/hub-claude.ts). Here that already means one per
+      // tools/call, because claude.ai makes a separate request per tool.
+      //
+      // ⚠ Same unit, very different cost: this door runs no model of ours —
+      // claude.ai pays for the tokens and we only execute the tool — whereas a
+      // Guardian turn spends real Anthropic tokens. Worth remembering before
+      // pricing both at one flat rate.
       after(() => {
         logAssistantEvent(admin, {
           companyId: actor.companyId,

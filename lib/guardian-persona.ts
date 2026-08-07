@@ -27,12 +27,29 @@ import { createAdminClient } from '@/lib/supabase/admin'
 // cache_control, so we only attach it to prefixes large enough to actually cache.
 const PROMPT_CACHE_MIN_TOKENS = 1024
 
+// One hour rather than the default five minutes.
+//
+// ⚠ This is a real trade-off, not a free win: a 1h cache WRITE costs 2× base
+// input where a 5m write costs 1.25×, so it is more expensive per write and only
+// pays off if a second request lands inside the window. The deciding factor is
+// how this is actually used, and the answer is in guardian_audit: turns arrive in
+// clusters minutes apart, separated by gaps of an hour or less — e.g. six turns
+// inside 25 minutes on Aug 6, then further turns 18 and 52 minutes later. Under
+// 5m almost every one of those paid a fresh write of the whole ~10k prefix;
+// under 1h most are reads at a tenth of base.
+//
+// Costed against that real day: ~$0.27 at 5m vs ~$0.20 at 1h, and the gap widens
+// as usage grows. It would invert for a company that asks the assistant one
+// question every few hours and never two in a row — if the audit log ever starts
+// looking like that, this should go back to the default.
+const PROMPT_CACHE_TTL = '1h' as const
+
 // The Anthropic `system` param accepts either a plain string or an array of
 // content blocks (so we can attach cache_control to the stable prefix). Both the
 // agentic path (lib/hub-claude.ts) and the direct-call routes pass this shape.
 export type SystemBlock =
   | string
-  | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
+  | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral'; ttl?: '5m' | '1h' } }>
 
 // ---------------------------------------------------------------------------
 // GUARDIAN_CORE — the universal rules that apply on EVERY surface, including a
@@ -153,7 +170,7 @@ export async function buildGuardianSystem(opts: {
   // No Jobber suffix → a single block (string when too small to cache).
   if (!jobber) {
     return cacheable
-      ? [{ type: 'text', text: stablePrefix, cache_control: { type: 'ephemeral' } }]
+      ? [{ type: 'text', text: stablePrefix, cache_control: { type: 'ephemeral', ttl: PROMPT_CACHE_TTL } }]
       : stablePrefix
   }
 
@@ -161,7 +178,7 @@ export async function buildGuardianSystem(opts: {
   // never busts the shared persona/knowledge cache.
   return [
     cacheable
-      ? { type: 'text', text: stablePrefix, cache_control: { type: 'ephemeral' } }
+      ? { type: 'text', text: stablePrefix, cache_control: { type: 'ephemeral', ttl: PROMPT_CACHE_TTL } }
       : { type: 'text', text: stablePrefix },
     { type: 'text', text: jobber },
   ]
