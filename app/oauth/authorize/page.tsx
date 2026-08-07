@@ -16,6 +16,7 @@
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { canonicalResource, resourceIsAcceptable } from '@/lib/mcp-auth'
 import { consentSummary, getAssistantSettings, resolveHubActor } from '@/lib/hub-actions'
 
 type SearchParams = Record<string, string | string[] | undefined>
@@ -52,6 +53,8 @@ export default async function AuthorizePage({
   const codeChallenge = one(params, 'code_challenge')
   const codeChallengeMethod = one(params, 'code_challenge_method') || 'S256'
   const responseType = one(params, 'response_type') || 'code'
+  const resource = one(params, 'resource')
+  const scope = one(params, 'scope')
 
   // Validate the request BEFORE showing a session-bearing page.
   if (!clientId || !redirectUri || !codeChallenge) {
@@ -70,6 +73,16 @@ export default async function AuthorizePage({
       <ErrorCard
         title="Unsupported security method"
         detail="This server requires PKCE with S256. Update the client and try again."
+      />
+    )
+  }
+  // RFC 8707. Catch a wrong target here rather than letting the user sign in,
+  // approve, and only then have the token exchange refuse the code.
+  if (!resourceIsAcceptable(resource)) {
+    return (
+      <ErrorCard
+        title="Wrong server"
+        detail={`That app asked for access to a different service than this one (${canonicalResource()}). Check the address you entered in the app and try again.`}
       />
     )
   }
@@ -110,6 +123,9 @@ export default async function AuthorizePage({
   } = await supabase.auth.getUser()
 
   if (!user) {
+    // Every parameter the client sent has to survive the round trip through
+    // login — this URL is what the user comes back to, and anything left out
+    // here is silently lost for exactly the people who weren't signed in yet.
     const self = `/oauth/authorize?${new URLSearchParams({
       client_id: clientId,
       redirect_uri: redirectUri,
@@ -117,6 +133,8 @@ export default async function AuthorizePage({
       code_challenge_method: codeChallengeMethod,
       response_type: responseType,
       ...(state ? { state } : {}),
+      ...(resource ? { resource } : {}),
+      ...(scope ? { scope } : {}),
     }).toString()}`
     redirect(`/login?next=${encodeURIComponent(self)}`)
   }
@@ -219,6 +237,7 @@ export default async function AuthorizePage({
           <input type="hidden" name="code_challenge" value={codeChallenge} />
           <input type="hidden" name="code_challenge_method" value={codeChallengeMethod} />
           <input type="hidden" name="state" value={state} />
+          <input type="hidden" name="resource" value={resource} />
           {!assistantOff && (
             <button
               type="submit"

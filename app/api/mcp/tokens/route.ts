@@ -8,7 +8,7 @@
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { requireCompany } from '@/lib/company-auth'
-import { appOrigin, mintMcpToken } from '@/lib/mcp-auth'
+import { canonicalResource, mintMcpToken } from '@/lib/mcp-auth'
 import { getAssistantSettings } from '@/lib/hub-actions'
 
 const MAX_TOKENS_PER_USER = 10
@@ -53,7 +53,7 @@ export async function GET() {
   }
 
   return NextResponse.json({
-    mcp_url: `${appOrigin()}/api/mcp`,
+    mcp_url: canonicalResource(),
     enabled: settings.enabled && settings.mcpEnabled,
     assistant_enabled: settings.enabled,
     tokens: rows.map((r) => ({
@@ -124,7 +124,7 @@ export async function POST(request: Request) {
     id: (data as { id: string }).id,
     token: minted.raw,
     label,
-    mcp_url: `${appOrigin()}/api/mcp`,
+    mcp_url: canonicalResource(),
   })
 }
 

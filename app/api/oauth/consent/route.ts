@@ -10,7 +10,7 @@ import { NextResponse } from 'next/server'
 import { randomBytes } from 'crypto'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { appOrigin, hashSecret } from '@/lib/mcp-auth'
+import { appOrigin, hashSecret, resourceIsAcceptable } from '@/lib/mcp-auth'
 import { getAssistantSettings, resolveHubActor } from '@/lib/hub-actions'
 
 /** Codes are single-use and short-lived; 60s is ample for an immediate exchange. */
@@ -35,6 +35,13 @@ export async function POST(request: Request) {
   // (Note: the CSP's `form-action 'self'` is NOT a defense here — it constrains
   // where OUR pages may submit, not who may submit to US, and it is currently
   // report-only anyway.)
+  //
+  // ⚠ That report-only directive is a landmine for THIS flow specifically.
+  // Chrome applies form-action across redirects, so promoting the report-only
+  // CSP in next.config.ts to an enforced header would block the 303 below —
+  // the consent page submits to us, and we redirect to the client's own origin.
+  // Whoever enforces that CSP must relax form-action (or exclude this route)
+  // first, or every Claude connection breaks at the last step.
   const fetchSite = request.headers.get('sec-fetch-site')
   if (fetchSite && fetchSite !== 'same-origin') {
     return fail('That request did not come from Lynxedo.')
@@ -60,12 +67,18 @@ export async function POST(request: Request) {
   const codeChallenge = String(form.get('code_challenge') || '')
   const codeChallengeMethod = String(form.get('code_challenge_method') || 'S256')
   const state = String(form.get('state') || '')
+  const resource = String(form.get('resource') || '')
 
   if (!clientId || !redirectUri || !codeChallenge) {
     return fail('That request was missing required information.')
   }
   if (codeChallengeMethod !== 'S256') {
     return fail('This server requires PKCE with S256.')
+  }
+  // Re-checked here for the same reason every other field is: these are form
+  // fields, so the consent page having validated them proves nothing.
+  if (!resourceIsAcceptable(resource)) {
+    return fail('That app asked for access to a different service than this one.')
   }
 
   const admin = createAdminClient()
@@ -94,6 +107,13 @@ export async function POST(request: Request) {
 
   // Only now is it safe to build a redirect back to the client.
   const target = new URL(redirectUri)
+
+  // RFC 9207 — name the issuer on every authorization response, success or not,
+  // so a client juggling several authorization servers can't be tricked into
+  // handing our code to a different one. The AS metadata advertises support for
+  // this, which means a conforming client will REJECT a response without it:
+  // every redirect below has to carry it, including the deny branch.
+  target.searchParams.set('iss', appOrigin())
 
   if (decision !== 'allow') {
     target.searchParams.set('error', 'access_denied')

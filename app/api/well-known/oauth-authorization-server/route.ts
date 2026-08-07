@@ -26,6 +26,10 @@ export function GET() {
       grant_types_supported: ['authorization_code', 'refresh_token'],
       token_endpoint_auth_methods_supported: ['none'],
       code_challenge_methods_supported: ['S256'],
+      // RFC 9207. Advertising this obliges us to put `iss` on every
+      // authorization response — a conforming client rejects one without it.
+      // Both redirects in app/api/oauth/consent/route.ts set it.
+      authorization_response_iss_parameter_supported: true,
       service_documentation: `${origin}/help?tab=hub-assistant`,
     }),
     {
