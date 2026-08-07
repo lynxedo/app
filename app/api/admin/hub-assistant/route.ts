@@ -117,11 +117,26 @@ export async function PUT(request: Request) {
   if ('mcp_enabled' in body) update.mcp_enabled = body.mcp_enabled === true
   if ('allow_outward_over_mcp' in body) update.allow_outward_over_mcp = body.allow_outward_over_mcp === true
   if ('require_confirmation' in body) update.require_confirmation = body.require_confirmation === true
+  if ('require_jobber_confirmation' in body) {
+    update.require_jobber_confirmation = body.require_jobber_confirmation === true
+  }
   if ('disabled_actions' in body) {
     const raw = Array.isArray(body.disabled_actions) ? body.disabled_actions : []
     // Only known action names — an unknown string here would silently do nothing
     // and look like a working toggle.
     update.disabled_actions = [
+      ...new Set(raw.filter((a): a is string => typeof a === 'string' && VALID_ACTIONS.has(a))),
+    ]
+  }
+  // Off-by-default actions (the Jobber writes, send_customer_text) live in
+  // enabled_actions — ticking one adds it here. This field was MISSING from the
+  // handler at ship: the client always sent it, the server silently dropped it,
+  // and the checkbox snapped back unchecked when the panel reset to the PUT
+  // response. Nobody hit it until the first person tried to turn a Jobber
+  // write on. Same VALID_ACTIONS filter as disabled_actions, same reason.
+  if ('enabled_actions' in body) {
+    const raw = Array.isArray(body.enabled_actions) ? body.enabled_actions : []
+    update.enabled_actions = [
       ...new Set(raw.filter((a): a is string => typeof a === 'string' && VALID_ACTIONS.has(a))),
     ]
   }
