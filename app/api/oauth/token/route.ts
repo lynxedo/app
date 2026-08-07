@@ -18,6 +18,7 @@ import {
   REFRESH_TOKEN_TTL_SEC,
   hashSecret,
   mintMcpToken,
+  resourceIsAcceptable,
   MCP_CORS_HEADERS,
 } from '@/lib/mcp-auth'
 
@@ -156,6 +157,19 @@ export async function POST(request: Request) {
 
   const params = await readParams(request)
   const grantType = params.grant_type || ''
+
+  // RFC 8707, on both grants. Nothing is stored against the issued token: this
+  // server protects exactly one resource, so a token that passed this check can
+  // only ever be for that one — checking equality IS the binding. If a second
+  // protected resource is ever added, that stops being true and the granted
+  // resource has to be recorded on the code and the token instead.
+  if (!resourceIsAcceptable(params.resource)) {
+    return oauthError(
+      'invalid_target',
+      'The requested resource is not one this server issues tokens for.',
+    )
+  }
+
   const admin = createAdminClient()
 
   if (grantType === 'authorization_code') {

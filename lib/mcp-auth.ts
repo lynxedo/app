@@ -126,6 +126,55 @@ export function appOrigin(): string {
 }
 
 /**
+ * The one resource this authorization server protects, as advertised in the
+ * RFC 9728 metadata. MCP 2025-06-18 — the protocol version /api/mcp speaks —
+ * requires clients to name the resource they want a token for (RFC 8707), so a
+ * token minted here cannot be replayed against somebody else's MCP server.
+ */
+export function canonicalResource(): string {
+  return `${appOrigin()}/api/mcp`
+}
+
+/**
+ * Decide whether a client-supplied `resource` is one we can issue a token for.
+ *
+ * ABSENT is accepted. The spec tells clients to send it, but refusing a client
+ * that doesn't buys no security: we host exactly one resource, so an omitted
+ * value is unambiguous, and rejecting would lock out anything built against an
+ * earlier revision. A value that is PRESENT and points elsewhere is refused —
+ * that is the case that matters, because it means the client thinks it is
+ * talking to a different server than it is.
+ *
+ * Matching ignores host case and a trailing slash (identical URIs after RFC
+ * 3986 normalization). A fragment is refused outright — RFC 8707 forbids one.
+ *
+ * The bare origin is also accepted, deliberately: some clients identify the
+ * server rather than the endpoint. Being generous here cannot enable
+ * cross-resource replay while /api/mcp is the only protected resource on this
+ * origin — revisit that if a second one is ever mounted alongside it.
+ */
+export function resourceIsAcceptable(raw: string | null | undefined): boolean {
+  if (!raw) return true
+
+  let asked: URL
+  let ours: URL
+  try {
+    asked = new URL(raw)
+    ours = new URL(canonicalResource())
+  } catch {
+    return false
+  }
+
+  if (asked.hash || asked.search) return false
+  if (asked.protocol !== ours.protocol) return false
+  if (asked.host.toLowerCase() !== ours.host.toLowerCase()) return false
+
+  const trim = (p: string) => (p.length > 1 && p.endsWith('/') ? p.slice(0, -1) : p)
+  const path = trim(asked.pathname)
+  return path === trim(ours.pathname) || path === '/'
+}
+
+/**
  * MCP clients are browser-based (claude.ai) or native, send an Authorization
  * header, and never rely on cookies — so a wildcard origin is safe here for the
  * same reason it is on the extension endpoints. Mcp-Session-Id and
