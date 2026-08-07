@@ -11,7 +11,7 @@
 
 import { NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { rateLimit } from '@/lib/rate-limit'
+import { rateLimitDb } from '@/lib/rate-limit-db'
 import { MCP_CORS_HEADERS } from '@/lib/mcp-auth'
 
 const MAX_REDIRECT_URIS = 10
@@ -59,7 +59,9 @@ export async function POST(request: Request) {
     request.headers.get('cf-connecting-ip') ||
     request.headers.get('x-forwarded-for')?.split(',')[0].trim() ||
     'unknown'
-  const limit = rateLimit(`oauth:register:${ip}`, REGISTRATIONS_PER_IP_PER_HOUR, 3_600_000)
+  // Counted in Postgres, not in a per-process Map: an hour-long window that a
+  // deploy resets is barely a window at all.
+  const limit = await rateLimitDb(`oauth:register:${ip}`, REGISTRATIONS_PER_IP_PER_HOUR, 3_600)
   if (!limit.ok) {
     return new NextResponse(
       JSON.stringify({

@@ -226,11 +226,6 @@ export async function askClaude({
 
   const { model, web_search_daily_cap: dailyCap } = settings
 
-  // Filter legacy MCP tools by capability: read-capability users see only
-  // read-only tools; managers/admins see all.
-  const toolFilter = getMcpToolFilter(capability)
-  const filteredMcpTools = mcpTools.filter(t => toolFilter(t.name))
-
   // Native, tenant-scoped actions (lib/hub-actions) — the assistant layer that
   // works for ANY subscriber. Offered only when the company has switched the
   // assistant on and only for actions this specific user's permissions allow, so
@@ -245,6 +240,17 @@ export async function askClaude({
   const activeActor = actor && actor.companyId === companyId ? actor : null
   const nativeActions = activeActor ? listHubActions(activeActor, assistantSettings) : []
   const nativeTools = hubActionTools(nativeActions)
+
+  // Filter legacy MCP tools by capability (read-capability users see only
+  // read-only tools; managers/admins see all) AND withhold any that duplicate a
+  // capability the native action layer owns — otherwise the model can reach the
+  // ungated copy of an action an admin has switched off. Computed here rather
+  // than earlier because the shadow only applies once we know the action layer
+  // is actually engaged for this caller.
+  const toolFilter = getMcpToolFilter(capability, {
+    nativeActionsActive: activeActor !== null,
+  })
+  const filteredMcpTools = mcpTools.filter(t => toolFilter(t.name))
 
   // One id for this whole turn. An outward action staged during this turn cannot
   // be confirmed during it — Guardian only runs on a human message, so requiring

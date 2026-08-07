@@ -13,10 +13,11 @@
 // may submit to us, and it's report-only today) — the handler enforces
 // same-origin itself.
 
+import { randomBytes } from 'crypto'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { canonicalResource, resourceIsAcceptable } from '@/lib/mcp-auth'
+import { canonicalResource, hashSecret, resourceIsAcceptable } from '@/lib/mcp-auth'
 import { consentSummary, getAssistantSettings, resolveHubActor } from '@/lib/hub-actions'
 
 type SearchParams = Record<string, string | string[] | undefined>
@@ -180,6 +181,51 @@ export default async function AuthorizePage({
     .eq('client_id', client.id)
   const firstTime = (priorGrants ?? 0) === 0
 
+  // Persist the request and carry only a one-time nonce through the form.
+  //
+  // Two things at once. It is the CSRF token the consent POST was missing — a
+  // cross-site form post can't produce a nonce that exists, is unconsumed, and
+  // is bound to this user's session. And because the handler now reads the
+  // client, redirect_uri and code_challenge from THIS row rather than from the
+  // submitted fields, the PKCE challenge that lands on the authorization code
+  // is provably the one the client sent to /oauth/authorize, not whatever the
+  // form happened to carry. The old handler re-validated every field, so this
+  // closes a shape of bug rather than a live hole — but "re-validated" and
+  // "the same value" are different guarantees, and only the second one is
+  // structural.
+  // One row is written per consent screen rendered, so sweep the dead ones
+  // occasionally rather than letting them accumulate forever. Cheap (indexed on
+  // expires_at) and only ever touches rows that can no longer be redeemed.
+  if (Math.random() < 0.1) {
+    await admin
+      .from('mcp_oauth_requests')
+      .delete()
+      .lt('expires_at', new Date(Date.now() - 24 * 3_600_000).toISOString())
+  }
+
+  const nonce = randomBytes(32).toString('base64url')
+  const { error: reqErr } = await admin.from('mcp_oauth_requests').insert({
+    nonce_hash: hashSecret(nonce),
+    client_id: client.id,
+    user_id: actor.userId,
+    redirect_uri: redirectUri,
+    code_challenge: codeChallenge,
+    code_challenge_method: codeChallengeMethod,
+    state: state || null,
+    resource: resource || null,
+    // Long enough that a user who reads the screen, checks the redirect host,
+    // or steps away for a coffee doesn't come back to a dead form.
+    expires_at: new Date(Date.now() + 30 * 60_000).toISOString(),
+  })
+  if (reqErr) {
+    return (
+      <ErrorCard
+        title="Could not start the connection"
+        detail="Something went wrong preparing this connection. Try starting it again from Claude."
+      />
+    )
+  }
+
   return (
     <main className="min-h-screen flex items-center justify-center bg-gray-950 p-6">
       <div className="max-w-lg w-full rounded-xl border border-gray-800 bg-gray-900 p-6">
@@ -232,12 +278,9 @@ export default async function AuthorizePage({
         </p>
 
         <form method="POST" action="/api/oauth/consent" className="mt-6 flex gap-3">
-          <input type="hidden" name="client_id" value={clientId} />
-          <input type="hidden" name="redirect_uri" value={redirectUri} />
-          <input type="hidden" name="code_challenge" value={codeChallenge} />
-          <input type="hidden" name="code_challenge_method" value={codeChallengeMethod} />
-          <input type="hidden" name="state" value={state} />
-          <input type="hidden" name="resource" value={resource} />
+          {/* The only field the handler trusts. Everything else about this
+              request is read back from mcp_oauth_requests. */}
+          <input type="hidden" name="request_nonce" value={nonce} />
           {!assistantOff && (
             <button
               type="submit"

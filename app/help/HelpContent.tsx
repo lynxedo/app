@@ -478,7 +478,7 @@ function HubAssistantTab() {
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2">
           <li><strong className="text-white">Create a task</strong> on one of your boards.</li>
           <li><strong className="text-white">Add a note</strong> to a contact.</li>
-          <li><strong className="text-white">Post a message</strong> to a room, or <strong className="text-white">DM a teammate</strong>.</li>
+          <li><strong className="text-white">Post a message</strong> to a room, or <strong className="text-white">DM a teammate</strong> — the message comes from the assistant, not from you, and ends with a short line saying it was posted at your request. It can only post in rooms you can already post in.</li>
           <li><strong className="text-white">Text a customer</strong> — always with your confirmation first (see below).</li>
         </ul>
       </Section>

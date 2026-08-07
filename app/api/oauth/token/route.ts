@@ -13,6 +13,7 @@ import { NextResponse } from 'next/server'
 import { createHash } from 'crypto'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { rateLimit } from '@/lib/rate-limit'
+import { rateLimitDb } from '@/lib/rate-limit-db'
 import {
   ACCESS_TOKEN_TTL_SEC,
   REFRESH_TOKEN_TTL_SEC,
@@ -35,9 +36,11 @@ import {
 // principal-keyed limits below would have nothing to bite on. It is checked
 // before the body is parsed; the principal-keyed ones necessarily come after.
 //
-// ⚠ These counters are per-process and reset on deploy (see lib/rate-limit.ts).
-// That is a thin guarantee for a token endpoint — a DB-backed counter for
-// /api/oauth/* is the tracked follow-up, not something this change delivers.
+// The principal-keyed limits count in Postgres (lib/rate-limit-db.ts) so they
+// survive a deploy — an in-process Map would hand an attacker a free reset every
+// time we ship. The IP ceiling deliberately stays in-process: it runs before the
+// body is even parsed, so its whole job is to be cheap, and it is the one layer
+// that must not put a DB round trip in front of a flood.
 const IP_FLOOD_PER_MIN = 600
 const PER_CLIENT_PER_MIN = 60
 // A refresh token is single-use: rotation means a second presentation is already
@@ -185,7 +188,7 @@ export async function POST(request: Request) {
       )
     }
 
-    const perClient = rateLimit(`oauth:token:client:${clientId}`, PER_CLIENT_PER_MIN, 60_000)
+    const perClient = await rateLimitDb(`oauth:token:client:${clientId}`, PER_CLIENT_PER_MIN, 60)
     if (!perClient.ok) return tooManyRequests(perClient.retryAfter)
 
     const { data } = await admin
@@ -264,10 +267,14 @@ export async function POST(request: Request) {
     // Key on the token itself — that's the principal here, and client_id is
     // optional on this grant so it can't be relied on alone.
     const refreshHash = hashSecret(refreshToken)
-    const perToken = rateLimit(`oauth:token:refresh:${refreshHash}`, PER_REFRESH_TOKEN_PER_MIN, 60_000)
+    const perToken = await rateLimitDb(
+      `oauth:token:refresh:${refreshHash}`,
+      PER_REFRESH_TOKEN_PER_MIN,
+      60,
+    )
     if (!perToken.ok) return tooManyRequests(perToken.retryAfter)
     if (clientId) {
-      const perClient = rateLimit(`oauth:token:client:${clientId}`, PER_CLIENT_PER_MIN, 60_000)
+      const perClient = await rateLimitDb(`oauth:token:client:${clientId}`, PER_CLIENT_PER_MIN, 60)
       if (!perClient.ok) return tooManyRequests(perClient.retryAfter)
     }
 
@@ -312,6 +319,38 @@ export async function POST(request: Request) {
     }
     if (clientId && row.client_id && row.client_id !== clientId) {
       return oauthError('invalid_grant', 'That refresh token belongs to a different client.')
+    }
+
+    // Don't hand a locked or deactivated person a fresh 90-day rotation. The
+    // access token this would mint is already dead on arrival — resolveHubActor
+    // rejects both states on every action — so this is tidiness rather than a
+    // hole. Worth doing anyway: without it an offboarded employee's connector
+    // keeps refreshing indefinitely, which reads as a live grant in the token
+    // table and gives no signal that access ended.
+    const { data: profile, error: profileErr } = await admin
+      .from('user_profiles')
+      .select('locked_at, deactivated_at')
+      .eq('id', row.user_id)
+      .maybeSingle()
+    const p = profile as { locked_at: string | null; deactivated_at: string | null } | null
+
+    // A read failure is not evidence of anything. Refuse the rotation (the
+    // presented token is still valid and can be retried) but do NOT revoke —
+    // destroying a live grant on a transient DB blip is the worse error.
+    if (profileErr) return oauthError('temporarily_unavailable', 'Try that again in a moment.')
+
+    if (!p || p.locked_at || p.deactivated_at) {
+      // Confirmed inactive: revoke the family rather than only refusing, so the
+      // grant stops showing as live and the connector is forced to reconnect.
+      let q = admin
+        .from('mcp_tokens')
+        .update({ revoked_at: new Date().toISOString() })
+        .is('revoked_at', null)
+      q = row.client_id
+        ? q.eq('user_id', row.user_id).eq('client_id', row.client_id)
+        : q.eq('id', row.id)
+      await q
+      return oauthError('invalid_grant', 'That account is no longer active.')
     }
 
     // Rotate: revoke this one (guarded) before issuing the replacement.
