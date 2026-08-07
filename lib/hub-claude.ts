@@ -160,7 +160,7 @@ function isLocalToolName(name: string): boolean {
 
 type SystemBlock =
   | string
-  | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral' } }>
+  | Array<{ type: 'text'; text: string; cache_control?: { type: 'ephemeral'; ttl?: '5m' | '1h' } }>
 
 /**
  * Build the system prompt for a Guardian call. Delegates to the shared
@@ -378,14 +378,8 @@ export async function askClaude({
               block.name,
               block.input,
             )
-            logAssistantEvent(adminClient, {
-              companyId,
-              userId: activeActor.userId,
-              source: 'guardian',
-              toolName: block.name,
-              toolCalls: 1,
-              model,
-            })
+            // Deliberately NOT metered here — see the per-turn logAssistantEvent
+            // in the finally block below.
             return { type: 'tool_result' as const, tool_use_id: block.id, content }
           }
 
@@ -417,6 +411,40 @@ export async function askClaude({
     finalAnswer = "I wasn't able to complete that request."
     return finalAnswer
   } finally {
+    // Billing meter — ONE row per assistant turn, not one per tool call.
+    //
+    // It used to log inside the tool-dispatch loop, which billed the customer for
+    // the assistant's own internal choices: a question answered from context
+    // billed nothing at all, while a request that happened to need six lookups
+    // billed six times. Neither matches what the person did — they asked once.
+    // Worse, a turn that used a legacy MCP tool logged nothing, so the meter
+    // quietly under-counted (fixed separately, but the unit was wrong either way).
+    //
+    // Now: one row per inbound request on each door — a Guardian turn here, a
+    // tools/call over MCP (where claude.ai genuinely does make one request per
+    // tool, so per-request already IS per-turn there).
+    //
+    // Skipped when the assistant is switched off for the company (Guardian still
+    // answers via the legacy path for the MCP-owning tenant, and billing someone
+    // for a feature they haven't enabled would be wrong) and for test calls.
+    if (assistantSettings.enabled && !isTest) {
+      logAssistantEvent(adminClient, {
+        companyId,
+        userId: activeActor?.userId ?? userId ?? null,
+        source: 'guardian',
+        // The tool names for this turn, for cost analysis — the meter itself
+        // counts rows, so this is diagnostics, not the billable quantity.
+        toolName: allToolCalls.length ? allToolCalls.join(',').slice(0, 200) : null,
+        toolCalls: allToolCalls.length,
+        // Populated for the first time here. These columns existed but were
+        // always null, which is why the real per-turn cost had to be
+        // reconstructed from guardian_audit instead of read off the meter.
+        inputTokens: lastUsage?.input_tokens ?? null,
+        outputTokens: lastUsage?.output_tokens ?? null,
+        model,
+      })
+    }
+
     // Audit log — fire-and-forget. Runs whether the call succeeded, hit the
     // iteration cap, or threw. Never blocks the response.
     writeAuditLog(adminClient, {
