@@ -2365,6 +2365,23 @@ function ScoreboardsTab() {
         <p className="mt-2">Scoreboards are at <strong className="text-white">/hub/scoreboards</strong> — tap a board in the left sidebar to open it.</p>
       </Section>
 
+      <Section title="Choosing What a Board Shows">
+        <p>The <strong className="text-white">Lead Sources</strong> board is built from <strong className="text-white">cards</strong> you can rearrange. Other boards are being converted the same way, one at a time — until a board is converted it looks and works exactly as it always has.</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Pick a date range</strong> at the top of the board — year to date, this month, last month, this quarter, last 12 months, or last year. Every card on the board follows it.</li>
+          <li><strong className="text-white">Admins and managers</strong> see an <strong className="text-white">Edit board</strong> button. Everyone else sees the board as saved.</li>
+        </ul>
+        <p className="mt-2">While editing:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Drag a card</strong> to move it. The board rearranges as you drag.</li>
+          <li><strong className="text-white">Drag a card&apos;s right edge</strong> to resize it. Four cards fit a row at Quarter width, three at Third. On a phone every card goes full width automatically.</li>
+          <li><strong className="text-white">⚙ on a card</strong> changes what it shows — how many sources to list, which cost types to include, how to sort a table. Each card offers only the settings that apply to it.</li>
+          <li><strong className="text-white">＋ Add a widget</strong> opens the library, grouped by area. A card that needs something you haven&apos;t connected yet says so instead of showing zeros.</li>
+          <li><strong className="text-white">Save for everyone</strong> applies your arrangement to everybody who can see that board — it is the company&apos;s board, not a personal copy. <strong className="text-white">Discard</strong> throws your changes away and puts the saved version back.</li>
+        </ul>
+        <p className="mt-2 text-gray-400">Editing a board changes which cards appear and how they&apos;re laid out. It never changes the underlying numbers, and it can&apos;t delete any data.</p>
+      </Section>
+
       <Section title="Retention &amp; Lead Sources — How to Read Them">
         <p>Both boards look at <strong className="text-white">this year&apos;s recurring book</strong>: every active recurring service plus the ones cancelled this year. Last year&apos;s cancellations don&apos;t count against the current year.</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">

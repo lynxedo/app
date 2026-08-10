@@ -12,12 +12,20 @@ import Scoreboard6View from './Scoreboard6View'
 import Scoreboard7View from './Scoreboard7View'
 import Scoreboard8View from './Scoreboard8View'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { hasPreset } from '@/lib/scoreboards/widgets/layouts'
+import WidgetBoardView from '@/components/hub/scoreboards/widgets/WidgetBoardView'
 
 export const metadata = { title: 'Scoreboard' }
 export const dynamic = 'force-dynamic'
 
-export default async function ScoreboardPage({ params }: { params: Promise<{ slug: string }> }) {
+export default async function ScoreboardPage({
+  params, searchParams,
+}: {
+  params: Promise<{ slug: string }>
+  searchParams: Promise<{ classic?: string }>
+}) {
   const { slug } = await params
+  const { classic } = await searchParams
   const board = getScoreboard(slug)
   if (!board) notFound()
 
@@ -46,6 +54,20 @@ export default async function ScoreboardPage({ params }: { params: Promise<{ slu
   if (!canSeeBoard(perms, board.slug)) redirect('/hub')
 
   const { businessName } = await getBusinessProfile(admin, profile?.company_id ?? null)
+
+  // Boards that have been migrated to widgets render from a saved layout. The
+  // hardcoded view stays reachable at ?classic=1 for as long as the migration is
+  // in progress — the point is to be able to put the two side by side and confirm
+  // the numbers agree before anyone trusts the new one.
+  if (hasPreset(board.slug) && classic !== '1') {
+    return (
+      <WidgetBoardView
+        meta={board}
+        businessName={businessName}
+        classicHref={`/hub/scoreboards/${board.slug}?classic=1`}
+      />
+    )
+  }
 
   switch (board.slug) {
     case '1':
