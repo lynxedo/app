@@ -220,6 +220,9 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessDailyLogV2 = profileResult.data?.can_access_daily_log_v2 ?? false
   const canAccessPricer = isAdmin || (profileResult.data?.can_access_pricer ?? false)
   const rawCanAccessScoreboards = profileResult.data?.can_access_scoreboards ?? false
+  // Reports section gate (PRD §12). Admins bypass, matching every other section and
+  // preserving what the old hardcoded `role === 'admin'` check allowed.
+  const canAccessReports = isAdmin || (profileResult.data?.can_access_reports ?? false)
   const companyId = profileResult.data?.company_id ?? ''
   // A signed-in account with no company never auto-joined one (its email domain
   // didn't match a registered company in handle_new_user). Send it to a clean
@@ -293,6 +296,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
     canAccessScoreboards: !!canAccessScoreboards,
+    canAccessReports: canAccessReports && moduleOn('reports'),
     canAccessFiles: !!canAccessFiles,
     canAccessPesticideRecords: !!canAccessPesticideRecords,
     canAccessPricer: !!canAccessPricer,

@@ -7,14 +7,19 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getWidgetDef, BOARD_8_PRESET, WIDGET_BOARD_SLUGS } from './registry'
+import { getWidgetDef, BOARD_8_PRESET, WIDGET_BOARD_SLUGS, REPORT_PRESETS } from './registry'
 import { clampSpan, sanitizeConfig, type BoardLayout, type WidgetInstance } from './types'
 
 type Admin = ReturnType<typeof createAdminClient>
 
-/** Presets we ship, keyed by board slug. A slug absent here has no widget layout. */
+/**
+ * Presets we ship, keyed by layout slug. A slug absent here has no widget layout.
+ * Boards use bare slugs ('8'); Reports use `report:<slug>`, so the two share these
+ * tables without any chance of collision.
+ */
 const PRESETS: Record<string, { title: string; widgets: typeof BOARD_8_PRESET }> = {
   '8': { title: 'Lead Sources', widgets: BOARD_8_PRESET },
+  ...REPORT_PRESETS,
 }
 
 // The client-safe slug list in ./registry drives which boards RENDER as widgets;

@@ -31,6 +31,7 @@ export type WindowSpec = {
 export type SourceKey =
   | 'source_scorecard'
   | 'leads_decided'
+  | 'churn_summary'
 
 export type SourceParams = Record<string, string | number | boolean | null>
 

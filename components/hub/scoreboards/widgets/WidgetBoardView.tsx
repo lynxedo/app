@@ -38,16 +38,32 @@ type ApiResponse = {
 let tempSeq = 0
 const tempId = () => `new-${++tempSeq}`
 
+/** Which surface this is rendering. The two have different endpoints and different
+ *  permission models, so it's explicit rather than a guessed default. */
+export type WidgetSurface =
+  | { kind: 'board'; slug: string }
+  | { kind: 'report'; slug: string }
+
+const ENDPOINT: Record<WidgetSurface['kind'], { path: string; idParam: string }> = {
+  board: { path: '/api/hub/scoreboards/widgets', idParam: 'board' },
+  report: { path: '/api/hub/reports/widgets', idParam: 'report' },
+}
+
 export default function WidgetBoardView({
-  meta, businessName, classicHref,
+  meta, businessName, classicHref, surface,
 }: {
-  meta: ScoreboardMeta
+  meta: Pick<ScoreboardMeta, 'slug' | 'title'> & { badge?: string }
   /** Omitted by the Workspace-Tabs twin, which has no server context to read it
    *  from. Renders just the board name rather than inventing a company name. */
   businessName?: string
   /** Link back to the hardcoded board, for comparing numbers during migration. */
   classicHref?: string
+  /** Defaults to a scoreboard, which is what every existing caller is. */
+  surface?: WidgetSurface
 }) {
+  const surf: WidgetSurface = surface ?? { kind: 'board', slug: meta.slug }
+  const api = ENDPOINT[surf.kind]
+  const isReport = surf.kind === 'report'
   const [range, setRange] = useState('ytd')
   // Custom range. Both dates must be set before it's applied — a half-filled
   // range would otherwise reload the board with a nonsense window on every
@@ -74,9 +90,9 @@ export default function WidgetBoardView({
     setError(null)
     setRes(null)
     try {
-      const qs = new URLSearchParams({ board: meta.slug, range: r })
+      const qs = new URLSearchParams({ [api.idParam]: surf.slug, range: r })
       if (r === 'custom' && from && to) { qs.set('start', from); qs.set('end', to) }
-      const resp = await fetch(`/api/hub/scoreboards/widgets?${qs.toString()}`)
+      const resp = await fetch(`${api.path}?${qs.toString()}`)
       const body = (await resp.json()) as ApiResponse
       if (!resp.ok) throw new Error(body.error || `HTTP ${resp.status}`)
       setRes(body)
@@ -85,7 +101,7 @@ export default function WidgetBoardView({
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e))
     }
-  }, [meta.slug])
+  }, [api.path, api.idParam, surf.slug])
 
   // For a custom range, wait until both ends are filled in.
   useEffect(() => {
@@ -278,10 +294,12 @@ export default function WidgetBoardView({
       `}</style>
 
       <header className="flex items-center gap-3.5 border-b border-sky-400/15 bg-gradient-to-br from-[var(--t-panel)] to-[var(--t-sidebar)] px-5 py-4 max-md:pl-14">
-        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-400 text-lg">🧭</div>
+        <div className="flex h-8 w-8 items-center justify-center rounded-lg bg-gradient-to-br from-sky-500 to-sky-400 text-lg">
+          {isReport ? '📊' : '🧭'}
+        </div>
         <div>
           <div className="flex items-baseline gap-2.5">
-            <h1 className="text-xl font-bold tracking-tight text-sky-50">Scoreboards</h1>
+            <h1 className="text-xl font-bold tracking-tight text-sky-50">{isReport ? 'Reports' : 'Scoreboards'}</h1>
             {meta.badge ? <span className="rounded-full bg-sky-400/15 px-2 py-0.5 text-[11px] font-semibold text-sky-400">{meta.badge}</span> : null}
           </div>
           <div className="text-[13px] text-sky-300">
@@ -451,7 +469,7 @@ export default function WidgetBoardView({
                 </span>
               ) : null}
               <span>
-                {meta.title} · updated {res.asOf ? new Date(res.asOf).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'}
+                {meta.title}{isReport ? ' · preset report' : ''} · updated {res.asOf ? new Date(res.asOf).toLocaleString('en-US', { timeZone: 'America/Chicago', month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '—'}
               </span>
             </div>
           </>

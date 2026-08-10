@@ -109,6 +109,7 @@ export default function HubShell({
   canAccessForms,
   canAccessDailyLogV2,
   canAccessScoreboards,
+  canAccessReports,
   canAccessFiles,
   canAccessPesticideRecords,
   canAccessPricer,
@@ -182,6 +183,7 @@ export default function HubShell({
   canAccessForms?: boolean
   canAccessDailyLogV2?: boolean
   canAccessScoreboards?: boolean
+  canAccessReports?: boolean
   canAccessFiles?: boolean
   canAccessPesticideRecords?: boolean
   canAccessPricer?: boolean
@@ -791,6 +793,7 @@ export default function HubShell({
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
     canAccessScoreboards: !!canAccessScoreboards,
+    canAccessReports: !!canAccessReports,
     canAccessFiles: !!canAccessFiles,
     canAccessPesticideRecords: !!canAccessPesticideRecords,
     canAccessPricer: !!canAccessPricer,

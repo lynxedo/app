@@ -47,6 +47,27 @@ export type DecidedLeadRow = {
   stage: string | null
 }
 
+/** One row per year — the whole retention picture for that year's book. */
+export type ChurnSummaryRow = {
+  year: number
+  book_size: number
+  active_now: number
+  new_in_year: number
+  churned_gross: number
+  churned_controllable: number
+  churned_company_initiated: number
+  churned_uncontrollable: number
+  churned_review: number
+  churned_annual_value: number
+  active_annual_value: number
+  retention_pct: number | null
+  gross_churn_pct: number | null
+  controllable_churn_pct: number | null
+  by_reason: { reason: string; churn_type: string; count: number; annual_value: number }[]
+  by_type: { churn_type: string; count: number; annual_value: number }[]
+  monthly: { month: string; gross: number; controllable: number }[]
+}
+
 /* ── Executors ──────────────────────────────────────────────────────────── */
 
 const SOURCES: Record<SourceKey, SourceExecutor> = {
@@ -79,6 +100,28 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
    * Cohort basis (created-in-window, not decided-in-window) matches how the
    * Office board already reports close rate, so the two agree.
    */
+  /**
+   * Retention and churn for ONE calendar year's book.
+   *
+   * ⚠ Deliberately year-based, not widened to a date range like the scorecard was.
+   * Retention here means "of every recurring service on the books during year Y,
+   * the share kept" — the full-year-book method adopted in the July rework. A
+   * two-week slice of that isn't a smaller version of the same number, it's a
+   * different (and misleading) one: almost nothing cancels in two weeks, so it
+   * would read ~100%. Every retention widget names the year it is showing instead.
+   *
+   * The RPC returns a single composite row, not a set, so it is wrapped to keep the
+   * "sources return rows" contract.
+   */
+  churn_summary: async (ctx, params) => {
+    const { data, error } = await ctx.supabase.rpc('scoreboard_churn_summary', {
+      p_company_id: ctx.companyId,
+      p_year: Number(params.year),
+    })
+    if (error) throw new Error(`churn_summary: ${error.message}`)
+    return data ? [data as ChurnSummaryRow] : []
+  },
+
   leads_decided: async (ctx, params) => {
     const { data, error } = await ctx.supabase
       .from('leads')

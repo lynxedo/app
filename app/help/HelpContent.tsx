@@ -2372,6 +2372,26 @@ function ScoreboardsTab() {
         <p className="mt-2">Scoreboards are at <strong className="text-white">/hub/scoreboards</strong> — tap a board in the left sidebar to open it.</p>
       </Section>
 
+      <Section title="Reports vs Scoreboards">
+        <p>Two related places, and the difference is who decides what&apos;s on them:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Reports</strong> (<strong className="text-white">/hub/reports</strong>) are ready-made. Open one and the standard numbers are already laid out — no setup, and the layout doesn&apos;t change. Start here.</li>
+          <li><strong className="text-white">Scoreboards</strong> (<strong className="text-white">/hub/scoreboards</strong>) are the same building blocks, arranged how your company wants them. Admins and managers can change what shows.</li>
+        </ul>
+        <p className="mt-2">Both draw from one library of cards, so a number means the same thing wherever you see it.</p>
+        <p className="mt-2"><strong className="text-white">Retention &amp; Churn</strong> is the first ready-made report: how much of the recurring book you keep, why customers leave, which cancellations were preventable, and what the losses are worth. Reports arriving later include revenue and invoicing, clients, sales, crew productivity and job profitability.</p>
+        <p className="mt-2 text-gray-400">Access is granted with the <strong className="text-white">Reports</strong> toggle in <strong className="text-white">Admin → People</strong> (admins always have it). The two older operational tables — Visit Report and Customer Report — still live at the bottom of the Reports page.</p>
+      </Section>
+
+      <Section title="Reading Retention Numbers">
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Retention</strong> is measured per <em>year</em>, not per date range — of every recurring service on the books during a year, the share you kept. Each card says which year it&apos;s showing. Picking a narrow date range doesn&apos;t shrink this number, because a two-week slice of a yearly figure would just read near 100%.</li>
+          <li>The current year <strong className="text-white">starts high and drifts down</strong> as more cancellations land — it&apos;s only part-way through. That&apos;s why the finished year sits beside it for comparison.</li>
+          <li><strong className="text-white">Controllable churn</strong> is the number to manage against. Moves, deaths, and accounts you ended yourself are reported separately, so they&apos;re never blamed on service.</li>
+          <li>A cancellation with a blank or unrecognized reason shows as <strong className="text-white">Review</strong> — fill in the reason on the Recurring Services board and it moves to the right bucket.</li>
+        </ul>
+      </Section>
+
       <Section title="Choosing What a Board Shows">
         <p>The <strong className="text-white">Lead Sources</strong> board is built from <strong className="text-white">cards</strong> you can rearrange. Other boards are being converted the same way, one at a time — until a board is converted it looks and works exactly as it always has.</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">

@@ -20,7 +20,7 @@ export default async function SettingsPage() {
       .maybeSingle(),
     supabase
       .from('user_profiles')
-      .select('role, company_id, phone, full_name, rail_config, txt_signature, email_signature, dialer_global_ring, hub_theme, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_call_log2, can_access_timesheet, can_access_dialer, can_access_txt, can_access_marketing, can_access_email, can_access_shared_inbox, can_manage_shared_inbox, can_manage_drip, can_access_forms, can_access_daily_log_v2, can_access_scoreboards, can_access_files, can_access_pesticide_records, can_access_pricer, can_access_hub, can_access_beta, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, txt_dnd_enabled, txt_dnd_schedule, inbox_dnd_enabled, inbox_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule')
+      .select('role, company_id, phone, full_name, rail_config, txt_signature, email_signature, dialer_global_ring, hub_theme, can_access_tracker, can_access_routing, can_access_fleet, can_access_books, can_access_lawn, can_access_zone_sizer, can_access_call_log, can_access_call_log2, can_access_timesheet, can_access_dialer, can_access_txt, can_access_marketing, can_access_email, can_access_shared_inbox, can_manage_shared_inbox, can_manage_drip, can_access_forms, can_access_daily_log_v2, can_access_scoreboards, can_access_reports, can_access_files, can_access_pesticide_records, can_access_pricer, can_access_hub, can_access_beta, master_dnd_enabled, master_dnd_schedule, hub_dnd_enabled, hub_dnd_schedule, txt_dnd_enabled, txt_dnd_schedule, inbox_dnd_enabled, inbox_dnd_schedule, dialer_dnd_enabled, dialer_dnd_schedule')
       .eq('id', user.id)
       .maybeSingle(),
     supabase
@@ -72,6 +72,7 @@ export default async function SettingsPage() {
     canAccessForms: !!profileResult.data?.can_access_forms,
     canAccessDailyLogV2: !!profileResult.data?.can_access_daily_log_v2,
     canAccessScoreboards: effectiveCanAccessScoreboards,
+    canAccessReports: profileResult.data?.role === 'admin' || !!profileResult.data?.can_access_reports,
     canAccessFiles: !!profileResult.data?.can_access_files,
     canAccessPesticideRecords: !!profileResult.data?.can_access_pesticide_records,
     canAccessPricer: !!profileResult.data?.can_access_pricer,

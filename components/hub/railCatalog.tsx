@@ -82,6 +82,7 @@ export type RailPermissions = {
   canAccessForms: boolean
   canAccessDailyLogV2: boolean
   canAccessScoreboards: boolean
+  canAccessReports: boolean
   canAccessFiles: boolean
   canAccessPesticideRecords: boolean
   canAccessPricer: boolean
@@ -273,7 +274,7 @@ export const CATALOG: Omit<CatalogEntry, 'icon'>[] = [
   { id: 'drip',      label: 'Drip',      href: '/hub/marketing/drip', prefixMatch: true, pickable: true, requires: 'canManageDrip' },
   { id: 'pesticide-records', label: 'Products Used', href: '/hub/pesticide-records', prefixMatch: true, pickable: true, requires: 'canAccessPesticideRecords' },
   { id: 'forms',     label: 'Forms',     href: '/hub/forms', prefixMatch: true, pickable: true, requires: 'canAccessForms' },
-  { id: 'reports',   label: 'Reports',   href: '/hub/reports', prefixMatch: true, pickable: true, requires: 'isAdmin' },
+  { id: 'reports',   label: 'Reports',   href: '/hub/reports', prefixMatch: true, pickable: true, requires: 'canAccessReports' },
   { id: 'scoreboards', label: 'Scoreboards', href: '/hub/scoreboards', prefixMatch: true, pickable: true, requires: 'canAccessScoreboards', tabbable: true },
   { id: 'pricer',      label: 'Pricer',      href: '/hub/pricer', prefixMatch: true, pickable: true, requires: 'canAccessPricer', tabbable: true },
   { id: 'mix-sheet',   label: 'Mix Sheet',   href: '/hub/mix-sheet', prefixMatch: true, pickable: true },

@@ -12,6 +12,7 @@
 
 import type { ScorecardRow, DecidedLeadRow } from './sources'
 import type { SourceBag, WidgetConfig, WidgetDef, WindowSpec } from './types'
+import { RETENTION_WIDGETS, RETENTION_REPORT_PRESET } from './retention'
 import type { Tone, WidgetPayload } from './payloads'
 
 const UNKNOWN_SOURCE = 'Other / Unknown'
@@ -425,14 +426,25 @@ const WIDGETS: WidgetDef<WidgetPayload>[] = [
   },
 ]
 
-const BY_TYPE = new Map(WIDGETS.map(w => [w.type, w]))
+/** Every widget in the library. One array per subject area, concatenated here. */
+const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS]
+
+const BY_TYPE = new Map(ALL_WIDGETS.map(w => [w.type, w]))
+
+// A duplicate type would make one widget silently unreachable, and the layout rows
+// that point at it would render the wrong card. Cheaper to fail at import.
+if (BY_TYPE.size !== ALL_WIDGETS.length) {
+  const seen = new Set<string>()
+  const dupes = ALL_WIDGETS.map(w => w.type).filter(t => seen.size === seen.add(t).size)
+  throw new Error(`Duplicate widget type(s) in the registry: ${[...new Set(dupes)].join(', ')}`)
+}
 
 export function getWidgetDef(type: string): WidgetDef<WidgetPayload> | null {
   return BY_TYPE.get(type) ?? null
 }
 
 export function allWidgetDefs(): WidgetDef<WidgetPayload>[] {
-  return WIDGETS
+  return ALL_WIDGETS
 }
 
 /** Picker metadata — no metric/source functions, safe to send to the browser. */
@@ -447,7 +459,7 @@ export type WidgetCatalogEntry = {
 }
 
 export function widgetCatalog(): WidgetCatalogEntry[] {
-  return WIDGETS.map(w => ({
+  return ALL_WIDGETS.map(w => ({
     type: w.type,
     group: w.group,
     title: w.title,
@@ -472,6 +484,23 @@ export const WIDGET_BOARD_SLUGS: readonly string[] = ['8']
 
 export function hasWidgetLayout(slug: string): boolean {
   return WIDGET_BOARD_SLUGS.includes(slug)
+}
+
+/**
+ * Preset REPORTS — locked arrangements we ship (§0.1: a Report is preset, a
+ * Scoreboard is customizable). Keyed by the layout slug, namespaced `report:` so a
+ * report can never collide with a board slug ('1'…'8') in scoreboard_layouts.
+ */
+export const REPORT_PRESETS: Record<string, { title: string; widgets: { type: string; span: number; config?: WidgetConfig }[] }> = {
+  'report:retention': { title: 'Retention & Churn', widgets: RETENTION_REPORT_PRESET },
+}
+
+export function reportLayoutSlug(reportSlug: string): string {
+  return `report:${reportSlug}`
+}
+
+export function hasReportLayout(reportSlug: string): boolean {
+  return reportLayoutSlug(reportSlug) in REPORT_PRESETS
 }
 
 /** The preset arrangement Board 8 ships with — the board as it looks today. */

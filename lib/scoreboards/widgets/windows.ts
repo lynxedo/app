@@ -140,3 +140,9 @@ export function resolveWindow(
 export function windowYear(win: WindowSpec): number {
   return Number(win.end.slice(0, 4))
 }
+
+/** This year on the business's clock. Year-based metrics need it to say whether a
+ *  year is finished ("2025 full year") or still running ("2026 to date"). */
+export function currentBusinessYear(): number {
+  return todayInBusinessTz().y
+}
