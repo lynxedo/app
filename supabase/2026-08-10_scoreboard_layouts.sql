@@ -72,3 +72,18 @@ alter table public.scoreboard_layout_widgets enable row level security;
 
 revoke all on public.scoreboard_layouts        from anon, authenticated;
 revoke all on public.scoreboard_layout_widgets from anon, authenticated;
+
+-- Added same day, after the seed path failed in the browser.
+-- One widget per position in a layout: semantically true (position IS the reading
+-- order), and seeding relies on it — if two requests open a fresh board at once
+-- and both see zero widgets, the second insert fails as a duplicate instead of
+-- doubling every card. saveLayoutWidgets deletes the list and reinserts
+-- sequential positions, so this never fights a normal save.
+create unique index if not exists scoreboard_layout_widgets_layout_position_key
+  on public.scoreboard_layout_widgets (layout_id, position);
+
+-- ⚠ NOTE for anyone touching the seed path: the two unique indexes above are
+-- PARTIAL, and Postgres will not accept a partial index as an ON CONFLICT
+-- arbiter. Do not "simplify" seedPresetLayout() back into an .upsert() with
+-- onConflict: 'company_id,slug' — it fails with "there is no unique or exclusion
+-- constraint matching the ON CONFLICT specification". Insert and handle 23505.

@@ -97,31 +97,53 @@ export async function seedPresetLayout(companyId: string, slug: string): Promise
   if (!preset) return null
   const admin = createAdminClient()
 
-  const { data: inserted, error } = await admin
-    .from('scoreboard_layouts')
-    .upsert(
-      { company_id: companyId, slug, owner_user_id: null, title: preset.title, is_preset: true },
-      { onConflict: 'company_id,slug', ignoreDuplicates: true },
-    )
-    .select('id, slug, title, owner_user_id, is_preset')
-    .maybeSingle()
-  if (error) throw new Error(`seed layout: ${error.message}`)
-
-  // ignoreDuplicates returns nothing when the row already existed — another
-  // request seeded it first, which is fine; read it back.
-  let row = inserted as LayoutRow | null
-  if (!row) {
+  const readShared = async (): Promise<LayoutRow | null> => {
     const { data } = await admin
       .from('scoreboard_layouts')
       .select('id, slug, title, owner_user_id, is_preset')
       .eq('company_id', companyId).eq('slug', slug).is('owner_user_id', null)
       .maybeSingle()
-    row = data as LayoutRow | null
-    if (!row) return null
-    const existing = await loadWidgets(admin, row.id)
-    if (existing.length) return toLayout(row, existing)
+    return (data ?? null) as LayoutRow | null
   }
 
+  /* ⚠ NOT an upsert. The shared-slug uniqueness is a PARTIAL index
+   * (`... (company_id, slug) WHERE owner_user_id IS NULL`), and Postgres will not
+   * accept a partial index as an ON CONFLICT arbiter — `onConflict:
+   * 'company_id,slug'` fails outright with "there is no unique or exclusion
+   * constraint matching the ON CONFLICT specification". The partial index is
+   * right: a plain unique on (company_id, slug) would stop anyone having a
+   * personal board on the same slug as the shared one, since NULLs don't collide.
+   *
+   * So: insert, and treat a unique violation as "someone else got here first".
+   * See memory lesson_postgrest_upsert_partial_index. */
+  let row = await readShared()
+
+  if (!row) {
+    const { data: inserted, error } = await admin
+      .from('scoreboard_layouts')
+      .insert({ company_id: companyId, slug, owner_user_id: null, title: preset.title, is_preset: true })
+      .select('id, slug, title, owner_user_id, is_preset')
+      .maybeSingle()
+
+    if (error) {
+      // 23505 = unique violation: a concurrent request created it. Anything else
+      // is a real failure worth surfacing.
+      if (error.code !== '23505') throw new Error(`seed layout: ${error.message}`)
+      row = await readShared()
+    } else {
+      row = (inserted ?? null) as LayoutRow | null
+    }
+  }
+  if (!row) return null
+
+  const existing = await loadWidgets(admin, row.id)
+  if (existing.length) return toLayout(row, existing)
+
+  // Seed the preset. Two requests opening the board at once could both reach here
+  // with zero widgets, so correctness rests on the unique index on
+  // (layout_id, position): the second insert fails as a duplicate instead of
+  // doubling every card, and that failure is swallowed because the winner's rows
+  // are exactly what we wanted.
   const widgets = preset.widgets.map((w, i) => {
     const def = getWidgetDef(w.type)
     return {
@@ -133,9 +155,9 @@ export async function seedPresetLayout(companyId: string, slug: string): Promise
     }
   })
   const { error: wErr } = await admin.from('scoreboard_layout_widgets').insert(widgets)
-  if (wErr) throw new Error(`seed widgets: ${wErr.message}`)
+  if (wErr && wErr.code !== '23505') throw new Error(`seed widgets: ${wErr.message}`)
 
-  return toLayout(row!, await loadWidgets(admin, row!.id))
+  return toLayout(row, await loadWidgets(admin, row.id))
 }
 
 /** Load, seeding the preset if this company hasn't got one yet. */
