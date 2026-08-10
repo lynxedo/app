@@ -69,10 +69,10 @@ export function jobberClientNumber(encodedId: string): string | null {
  * is associated with an app"), so creating one is effectively permanent for that
  * subscriber. That has to be a deliberate onboarding step, not a side effect.
  */
-async function linkFieldId(
+async function linkConfig(
   admin: ReturnType<typeof createAdminClient>,
   companyId: string,
-): Promise<string | null> {
+): Promise<{ fieldId: string | null; baseUrl: string | null }> {
   const { data } = await admin
     .from('company_integrations')
     .select('config')
@@ -80,8 +80,11 @@ async function linkFieldId(
     .eq('provider', 'jobber')
     .maybeSingle()
   const cfg = (data?.config ?? {}) as Record<string, unknown>
-  const id = cfg.customer_link_field_id
-  return typeof id === 'string' && id ? id : null
+  const str = (v: unknown) => (typeof v === 'string' && v ? v : null)
+  return {
+    fieldId: str(cfg.customer_link_field_id),
+    baseUrl: str(cfg.customer_link_base_url),
+  }
 }
 
 /**
@@ -92,16 +95,22 @@ async function linkFieldId(
  */
 export async function sweepCustomerLinks(
   companyId: string,
-  { limit = 250, budgetMs = DEFAULT_BUDGET_MS, baseUrl = process.env.NEXT_PUBLIC_APP_URL || '' } = {},
+  { limit = 250, budgetMs = DEFAULT_BUDGET_MS, baseUrl }: { limit?: number; budgetMs?: number; baseUrl?: string } = {},
 ): Promise<SweepResult> {
   const admin = createAdminClient()
   const started = Date.now()
 
-  const origin = baseUrl.replace(/\/$/, '')
-  if (!origin) return { companyId, written: 0, failed: 0, remaining: 0, skipped: 'no_base_url' }
-
-  const fieldId = await linkFieldId(admin, companyId)
+  const { fieldId, baseUrl: configuredBase } = await linkConfig(admin, companyId)
   if (!fieldId) return { companyId, written: 0, failed: 0, remaining: 0, skipped: 'no_link_field_configured' }
+
+  // The base URL must be CONFIGURED, never inferred from the environment. These
+  // URLs are written into Jobber and outlive whichever box wrote them: defaulting
+  // to NEXT_PUBLIC_APP_URL meant a sweep run on staging stamped
+  // https://staging.lynxedo.com/j/c/... onto live customer records — caught on the
+  // first one-record test run, before it reached the other 1,625. Refuse rather
+  // than guess.
+  const origin = (baseUrl ?? configuredBase ?? '').replace(/\/$/, '')
+  if (!origin) return { companyId, written: 0, failed: 0, remaining: 0, skipped: 'no_customer_link_base_url_configured' }
 
   const jobberUserId = await companyJobberUserId(companyId, '')
   if (!jobberUserId) return { companyId, written: 0, failed: 0, remaining: 0, skipped: 'jobber_not_connected' }
@@ -170,7 +179,12 @@ export async function companiesWithLinkField(): Promise<string[]> {
   return (data ?? [])
     .filter((r) => {
       const cfg = (r.config ?? {}) as Record<string, unknown>
-      return typeof cfg.customer_link_field_id === 'string' && cfg.customer_link_field_id
+      // Both halves required — a company with a field but no base URL would be
+      // picked up every run only to be skipped, so don't call it configured.
+      return (
+        typeof cfg.customer_link_field_id === 'string' && cfg.customer_link_field_id &&
+        typeof cfg.customer_link_base_url === 'string' && cfg.customer_link_base_url
+      )
     })
     .map((r) => r.company_id as string)
 }
