@@ -221,20 +221,148 @@ export async function companyJobberUserId(
   companyId: string,
   preferUserId: string,
 ): Promise<string | null> {
+  return resolveJobberUserId(companyId, preferUserId || undefined)
+}
+
+/** Don't re-alert about the same broken connection more than once per window. */
+const CONNECTION_ALERT_THROTTLE_HOURS = 6
+
+/**
+ * Tell the company's admins that no Jobber token resolves any more.
+ *
+ * Until now this state was completely silent on the interactive paths: Amber
+ * would tell a caller she couldn't look their visit up, a Daily Log completion
+ * would fail to reach Jobber, and nobody was told the connection was the reason.
+ * (The webhook path gets its own dead-letter alert from the queue.)
+ *
+ * Throttled through `sync_log` rather than an in-process timer: this runs in two
+ * clustered Node processes and restarts on every deploy, so an in-memory guard
+ * would let the same outage alert repeatedly. Best-effort throughout — a failure
+ * to alert must never turn into a failure of the caller's actual request.
+ */
+async function alertJobberConnectionBroken(companyId: string, tokenCount: number): Promise<void> {
+  try {
+    const admin = createAdminClient()
+    const since = new Date(Date.now() - CONNECTION_ALERT_THROTTLE_HOURS * 60 * 60 * 1000).toISOString()
+
+    const { data: recent } = await admin
+      .from('sync_log')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('source', 'jobber')
+      .eq('sync_type', 'token_alert')
+      .gte('started_at', since)
+      .limit(1)
+    if (recent?.length) return
+
+    // Claim the window BEFORE sending, so two processes racing here can't both DM.
+    const { error: claimErr } = await admin.from('sync_log').insert({
+      company_id: companyId,
+      source: 'jobber',
+      sync_type: 'token_alert',
+      status: 'completed',
+      started_at: new Date().toISOString(),
+      completed_at: new Date().toISOString(),
+      error_message: `No usable Jobber token (${tokenCount} connection${tokenCount === 1 ? '' : 's'} tried)`,
+    })
+    if (claimErr) return
+
+    const { data: admins } = await admin
+      .from('user_profiles')
+      .select('id')
+      .eq('company_id', companyId)
+      .eq('role', 'admin')
+    if (!admins?.length) return
+
+    const body =
+      `⚠️ Jobber is disconnected.\n\n` +
+      `None of the ${tokenCount} connected Jobber account${tokenCount === 1 ? '' : 's'} can be refreshed, so anything that reads or writes Jobber is affected — ` +
+      `Amber's visit lookups, Daily Log completions, dialer notes and the schedule will be stale or fail.\n\n` +
+      `Fix: Admin → Integrations → Jobber → Reconnect.`
+
+    const { postGuardianToUserDm } = await import('@/lib/guardian-post')
+    for (const a of admins) {
+      await postGuardianToUserDm(companyId, a.id, body).catch(err =>
+        console.error('[jobber] connection alert DM failed for', a.id, err))
+    }
+    console.error(`[jobber] ALERT: no usable Jobber token for company ${companyId}`)
+  } catch (e) {
+    console.error('[jobber] alertJobberConnectionBroken error:', e)
+  }
+}
+
+/**
+ * The one place a Jobber-connected user is chosen for a company.
+ *
+ * Previously this existed twice with different levels of care, and the careless
+ * copy caused real failures. It picked a user by checking only that a token ROW
+ * EXISTED — never that the token worked — and returned
+ * `[...new Set(rows)][0]`, i.e. the first element of an unordered query result.
+ * With one live token and one dead one in the same company, callers got an
+ * arbitrary pick between them; a signed-in user with a dead token got their own
+ * every time. That silently broke Jobber writes on seven code paths (dialer
+ * notes, Daily Log v2 completion, Amber's lookup/availability/booking, and the
+ * Hub Assistant's Jobber actions) with "user needs to reconnect".
+ *
+ * Rules now, in order:
+ *   1. `preferUserId` — but only if THEIR token actually resolves.
+ *   2. Admins, newest token first.
+ *   3. Anyone else with a token, newest first — so a manager who connected
+ *      Jobber is a genuine fallback when the admin's connection dies, instead of
+ *      being ignored by role.
+ * A candidate whose token cannot be refreshed is skipped, never returned.
+ *
+ * Ordering is deterministic, so two calls a second apart cannot disagree.
+ */
+export async function resolveJobberUserId(
+  companyId: string,
+  preferUserId?: string,
+): Promise<string | null> {
   const admin = createAdminClient()
+
   const { data: profs } = await admin
     .from('user_profiles')
-    .select('id')
+    .select('id, role')
     .eq('company_id', companyId)
-  const ids = (profs ?? []).map((p) => p.id as string)
-  if (ids.length === 0) return null
+  const roleById = new Map((profs ?? []).map(p => [p.id as string, p.role as string]))
+  if (roleById.size === 0) return null
+
   const { data: toks } = await admin
     .from('jobber_tokens')
-    .select('user_id')
-    .in('user_id', ids)
-  const tokenUsers = new Set((toks ?? []).map((t) => t.user_id as string))
-  if (tokenUsers.has(preferUserId)) return preferUserId
-  return tokenUsers.size ? [...tokenUsers][0] : null
+    .select('user_id, updated_at')
+    .in('user_id', [...roleById.keys()])
+    .order('updated_at', { ascending: false })
+  if (!toks?.length) return null
+
+  const ranked = (toks as { user_id: string; updated_at: string }[])
+    .map(t => t.user_id)
+    // Stable partition: admins ahead of everyone else, each group already in
+    // newest-token order from the query above.
+    .sort((a, b) => {
+      const aAdmin = roleById.get(a) === 'admin' ? 0 : 1
+      const bAdmin = roleById.get(b) === 'admin' ? 0 : 1
+      return aAdmin - bAdmin
+    })
+
+  const candidates = preferUserId && ranked.includes(preferUserId)
+    ? [preferUserId, ...ranked.filter(id => id !== preferUserId)]
+    : ranked
+
+  for (const userId of candidates) {
+    try {
+      // Resolves — and refreshes if near expiry — so a dead connection is
+      // discovered here rather than as a confusing failure further downstream.
+      if (await getJobberTokenAdmin(userId)) return userId
+    } catch {
+      // A single unusable connection must not stop us finding a working one.
+    }
+    console.warn(`[jobber] token for user ${userId} did not resolve, trying next candidate`)
+  }
+
+  // Rows exist but none work: the company's Jobber connection is broken, and
+  // every Jobber-backed feature is degraded until someone reconnects.
+  await alertJobberConnectionBroken(companyId, candidates.length)
+  return null
 }
 
 async function jobberGraphQLWith<T = unknown>(
