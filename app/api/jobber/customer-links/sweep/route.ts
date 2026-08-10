@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { companiesWithLinkField, sweepCustomerLinks } from '@/lib/jobber-customer-link'
+import { companiesWithLinkField, recordSweepRun, sweepCustomerLinks } from '@/lib/jobber-customer-link'
 
 // Writes the Jobber "Lynxedo Customer File" link onto clients that don't have it.
 // Called by the VPS cron, daily:
@@ -30,7 +30,11 @@ export async function POST(request: Request) {
   const companies = only ? [only] : await companiesWithLinkField()
   const results = []
   for (const companyId of companies) {
-    results.push(await sweepCustomerLinks(companyId, { limit }))
+    const result = await sweepCustomerLinks(companyId, { limit })
+    // Stamps the outcome and raises a DM if the sweep is running but not working.
+    // The "not running at all" case is caught by the daily Jobber sync instead.
+    await recordSweepRun(companyId, result)
+    results.push(result)
   }
 
   return NextResponse.json({ ok: true, companies: companies.length, results })
