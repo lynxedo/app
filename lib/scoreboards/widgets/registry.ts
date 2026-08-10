@@ -43,11 +43,33 @@ function retentionTone(pct: number | null): Tone {
   return pct >= 90 ? 'good' : pct >= 80 ? 'warn' : 'bad'
 }
 
+/**
+ * Share of the recurring book whose lead source is actually known.
+ *
+ * ⚠ This CORRECTS the hardcoded board, which counted only customers whose source
+ * resolved to NULL (`unresolved_count`) and ignored everyone explicitly filed
+ * under "Other / Unknown". For Heroes on 2026-08-10 the old formula read 98.7%
+ * while 99 of 373 recurring customers sat in that bucket — the card claimed
+ * near-total attribution of a book that is roughly three-quarters attributed.
+ * Correct figure: 73.5%. So the migrated Board 8 shows a LOWER coverage number
+ * than ?classic=1, and that is the intended difference; nothing else moved.
+ *
+ * The two counts overlap — every NULL-source customer is itself bucketed into
+ * "Other / Unknown", so naively subtracting both double-counts them (which is how
+ * a first pass at this produced a wrong 72.1%). Count the bucket, then add only
+ * unresolved customers attributed OUTSIDE it.
+ */
 function coveragePct(rows: ScorecardRow[]): number {
   const total = rows.reduce((s, r) => s + r.total_customers, 0)
-  const unresolved = rows.reduce((s, r) => s + r.unresolved_count, 0)
   if (total <= 0) return 0
-  return Math.round((1000 * (total - unresolved)) / total) / 10
+  const unknownBucket = rows
+    .filter(r => r.source === UNKNOWN_SOURCE)
+    .reduce((s, r) => s + r.total_customers, 0)
+  const strayUnresolved = rows
+    .filter(r => r.source !== UNKNOWN_SOURCE)
+    .reduce((s, r) => s + r.unresolved_count, 0)
+  const known = Math.max(0, total - unknownBucket - strayUnresolved)
+  return Math.round((1000 * known) / total) / 10
 }
 
 /** Sources with a big enough sample to rank honestly, Unknown excluded. */
@@ -138,20 +160,9 @@ const WIDGETS: WidgetDef<WidgetPayload>[] = [
 
   {
     /**
-     * ⚠ KNOWN OVERSTATEMENT, reproduced deliberately for the migration.
-     *
-     * `unresolved_count` counts only customers whose source resolved to NULL. It
-     * does NOT count the ones explicitly filed under "Other / Unknown", so the
-     * number reads far better than attribution actually is: for Heroes on
-     * 2026-08-10 this shows 98.7% while 99 of 373 recurring customers sit in the
-     * Other/Unknown bucket — a truthful figure is 72.1%. The sub-line ("share
-     * with a known lead source") and the insight line ("the rest read
-     * Other/Unknown") both describe the truthful figure, not this one.
-     *
-     * Kept identical to the hardcoded board on purpose: changing a number during
-     * a cutover makes it impossible to tell a migration bug from a fix. Fixing it
-     * is a one-line change (subtract the Other/Unknown bucket too) and is Ben's
-     * call — see REPORTS_PRD.md §9.1.8.
+     * ⚠ The ONE number that deliberately differs from the hardcoded board — it is
+     * a fix, not a migration artefact. See coveragePct() above for why 98.7%
+     * became 73.5%, and REPORTS_PRD.md §9.1.8.
      */
     type: 'kpi_source_coverage',
     group: 'Marketing',
@@ -403,7 +414,12 @@ const WIDGETS: WidgetDef<WidgetPayload>[] = [
       // order. An extra insight here would make the migrated board visibly differ
       // from the one it replaces and invite doubt about the numbers; new lines can
       // come after the migration is trusted.
-      items.push(`Lead source is known for ${coveragePct(rows)}% of the book — the rest read Other/Unknown.`)
+      const unknownCount = rows
+        .filter(r => r.source === UNKNOWN_SOURCE)
+        .reduce((s, r) => s + r.total_customers, 0)
+      items.push(
+        `Lead source is known for ${coveragePct(rows)}% of the book — ${unknownCount.toLocaleString()} customers read Other/Unknown.`,
+      )
 
       return { kind: 'list', title: 'What the Numbers Say', sub: `Read of ${win.label}`, items, empty: 'Nothing to report yet' }
     },
