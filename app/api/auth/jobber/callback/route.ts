@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createAdminClient } from '@/lib/supabase/admin'
 import { cookies } from 'next/headers'
 import { jobberGraphQL } from '@/lib/jobber'
 import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
@@ -75,18 +76,36 @@ export async function GET(request: Request) {
     .eq('id', user.id)
     .single()
 
-  // Store tokens in Supabase (upsert so reconnect works)
+  // A Jobber connection belongs to the COMPANY, not the person who clicked
+  // Connect — one row per company, enforced by UNIQUE (company_id). So the
+  // company is required rather than optional: without it there is no key to
+  // upsert on, and the column is NOT NULL regardless.
+  const companyId = connectingProfile?.company_id
+  if (!companyId) {
+    console.error('Jobber callback: connecting user has no company_id, refusing to store token')
+    return NextResponse.redirect(`${APP_URL}/hub/admin/integrations?error=no_company`)
+  }
+
+  // Store tokens in Supabase (upsert on company so a reconnect by ANYONE updates
+  // the single row instead of adding a second one).
   const tokenRow: Record<string, unknown> = {
-    user_id: user.id,
+    company_id: companyId,
+    user_id: user.id, // who connected it last — metadata, not ownership
     access_token: tokens.access_token,
     refresh_token: tokens.refresh_token,
     expires_at: expiresAt,
     updated_at: new Date().toISOString(),
   }
-  if (connectingProfile?.company_id) tokenRow.company_id = connectingProfile.company_id
-  const { error: dbError } = await supabase
+
+  // ⚠ Service-role client, deliberately. RLS on jobber_tokens is own-row
+  // (auth.uid() = user_id), so upserting onto the COMPANY's row would be blocked
+  // for anyone who is not the person that last connected — i.e. every reconnect
+  // by a second admin would silently fail. Connecting is a system-level write
+  // about company state, the same reasoning the token refresh already uses.
+  const admin = createAdminClient()
+  const { error: dbError } = await admin
     .from('jobber_tokens')
-    .upsert(tokenRow, { onConflict: 'user_id' })
+    .upsert(tokenRow, { onConflict: 'company_id' })
 
   if (dbError) {
     console.error('Failed to store Jobber tokens:', dbError)
@@ -108,10 +127,10 @@ export async function GET(request: Request) {
     )
     const accountId = acct?.data?.account?.id
     if (accountId) {
-      const { error: acctErr } = await supabase
+      const { error: acctErr } = await admin
         .from('jobber_tokens')
         .update({ account_id: accountId })
-        .eq('user_id', user.id)
+        .eq('company_id', companyId)
       if (acctErr) console.error('Jobber callback: failed to store account_id:', acctErr)
     } else {
       console.warn('Jobber callback: GraphQL returned no account id, skipping account_id capture')

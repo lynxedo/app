@@ -316,53 +316,50 @@ async function alertJobberConnectionBroken(companyId: string, tokenCount: number
  */
 export async function resolveJobberUserId(
   companyId: string,
-  preferUserId?: string,
+  _preferUserId?: string,
+  opts?: { alertIfBroken?: boolean },
 ): Promise<string | null> {
   const admin = createAdminClient()
 
-  const { data: profs } = await admin
-    .from('user_profiles')
-    .select('id, role')
-    .eq('company_id', companyId)
-  const roleById = new Map((profs ?? []).map(p => [p.id as string, p.role as string]))
-  if (roleById.size === 0) return null
-
-  const { data: toks } = await admin
+  // Exactly one row per company, enforced by UNIQUE (company_id). `user_id` is
+  // who connected it last, not an ownership claim — the connection is
+  // company-wide, which is why `preferUserId` is now ignored: there is nothing
+  // left to choose between. It stays in the signature so the seven call sites
+  // that pass a signed-in user need no change.
+  const { data: row } = await admin
     .from('jobber_tokens')
-    .select('user_id, updated_at')
-    .in('user_id', [...roleById.keys()])
-    .order('updated_at', { ascending: false })
-  if (!toks?.length) return null
+    .select('user_id')
+    .eq('company_id', companyId)
+    .maybeSingle()
 
-  const ranked = (toks as { user_id: string; updated_at: string }[])
-    .map(t => t.user_id)
-    // Stable partition: admins ahead of everyone else, each group already in
-    // newest-token order from the query above.
-    .sort((a, b) => {
-      const aAdmin = roleById.get(a) === 'admin' ? 0 : 1
-      const bAdmin = roleById.get(b) === 'admin' ? 0 : 1
-      return aAdmin - bAdmin
-    })
+  if (!row?.user_id) return null
 
-  const candidates = preferUserId && ranked.includes(preferUserId)
-    ? [preferUserId, ...ranked.filter(id => id !== preferUserId)]
-    : ranked
-
-  for (const userId of candidates) {
-    try {
-      // Resolves — and refreshes if near expiry — so a dead connection is
-      // discovered here rather than as a confusing failure further downstream.
-      if (await getJobberTokenAdmin(userId)) return userId
-    } catch {
-      // A single unusable connection must not stop us finding a working one.
-    }
-    console.warn(`[jobber] token for user ${userId} did not resolve, trying next candidate`)
+  try {
+    // Resolves — and refreshes if near expiry — so a dead connection surfaces
+    // here rather than as a confusing failure further downstream.
+    if (await getJobberTokenAdmin(row.user_id)) return row.user_id
+  } catch {
+    // Fall through to the alert below.
   }
 
-  // Rows exist but none work: the company's Jobber connection is broken, and
+  // The company has a connection on file but it can no longer be refreshed, so
   // every Jobber-backed feature is degraded until someone reconnects.
-  await alertJobberConnectionBroken(companyId, candidates.length)
+  if (opts?.alertIfBroken !== false) await alertJobberConnectionBroken(companyId, 1)
   return null
+}
+
+/**
+ * Whether this company's Jobber connection is usable — for UI badges.
+ *
+ * Company-scoped on purpose. `getJobberToken` reads through RLS
+ * (`auth.uid() = user_id`), so it answers "did *I* connect Jobber", which for
+ * everyone except the one person who did returns null — the Routing page told
+ * every other employee Jobber was disconnected when it was working fine.
+ *
+ * Never alerts: a page render is a passive check and must not DM anyone.
+ */
+export async function isJobberConnectedForCompany(companyId: string): Promise<boolean> {
+  return (await resolveJobberUserId(companyId, undefined, { alertIfBroken: false })) !== null
 }
 
 async function jobberGraphQLWith<T = unknown>(
