@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { requireAdminArea } from '@/lib/admin-auth'
 import { cookies } from 'next/headers'
 import { randomBytes } from 'crypto'
 import { CROSS_SUBDOMAIN_COOKIE_DOMAIN } from '@/lib/tenant-host'
@@ -14,6 +15,17 @@ export async function GET() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) {
     return NextResponse.redirect(`${APP_URL}/login`)
+  }
+
+  // ⚠ Connecting Jobber now REPLACES the company's single connection, so it has
+  // to be an admin action. Before the per-company change this route was gated on
+  // "logged in" alone, which was survivable only because a stray connect merely
+  // added another row. Now an employee authorizing their own Jobber account would
+  // repoint the whole company — including account_id, which webhook routing keys
+  // off. Matches the gate already on disconnect.
+  const { ok } = await requireAdminArea('integrations')
+  if (!ok) {
+    return NextResponse.redirect(`${APP_URL}/hub?error=jobber_connect_forbidden`)
   }
 
   // Generate CSRF state token

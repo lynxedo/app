@@ -1,0 +1,37 @@
+-- Jobber tokens: one row per COMPANY — August 10, 2026
+--
+-- WHY. Jobber was the last integration storing its credential per USER. Every
+-- other one is per company: google_connections, gusto_connections, qbo_tokens,
+-- company_integrations. (QBO was itself migrated to company scope during
+-- multi-tenant Track 3.)
+--
+-- A Jobber connection has always been company-wide in practice — one admin
+-- connects and nobody else needs to — but UNIQUE (user_id) let Heroes accumulate
+-- two rows: Ben's (live) and Kathryn's (expired Aug 8, never refreshed). An
+-- unvalidated resolver then chose between them by taking the first element of an
+-- unordered query, so Jobber writes on seven unrelated code paths (dialer notes,
+-- Daily Log v2 completion, Amber's lookup/availability/booking, Hub Assistant
+-- Jobber actions) failed at random with "user needs to reconnect".
+--
+-- WHAT. company_id already existed (NOT NULL, FK to companies) and both rows
+-- carried the right company, so the fix is one constraint plus a code change to
+-- upsert on company_id instead of user_id.
+--
+-- `user_id` is deliberately KEPT, not renamed to connected_by_user_id: renaming a
+-- column on a live table breaks the running code between migration and deploy.
+-- It now means "who connected this last" — metadata, not ownership. A rename can
+-- happen later in its own pass.
+--
+-- UNIQUE (user_id) is also deliberately kept: harmless, and dropping a constraint
+-- on live credential data buys nothing.
+--
+-- APPLIED to the shared DB on 2026-08-10, in this order:
+--   1. metadata of the expired duplicate snapshotted to
+--      _backfill_jobber_token_removed_2026_08_10 (id/user/company/expiry/timestamps
+--      only — no credentials; its refresh token was already dead, so the sole
+--      recovery path was and remains a reconnect)
+--   2. that row deleted (Ben's live row untouched)
+--   3. the constraint below added — after which a second row per company is
+--      impossible by construction
+alter table jobber_tokens
+  add constraint jobber_tokens_company_id_key unique (company_id);
