@@ -24,8 +24,22 @@ import { companyJobberUserId, jobberGraphQLAdmin } from '@/lib/jobber'
 /** Yield after this long so a slice always finishes and persists its progress. */
 const DEFAULT_BUDGET_MS = 60_000
 
-/** Stop early if Jobber keeps refusing — almost always throttling or a dead token. */
+/** Stop early if Jobber keeps refusing for a reason waiting won't fix. */
 const MAX_CONSECUTIVE_FAILURES = 5
+
+/**
+ * Jobber's rate limit is a refilling bucket (10k points, 500/s), and it is shared
+ * with everything else that talks to Jobber — the webhook drain, the delta sync, a
+ * backfill. When it empties, the right response is to wait, not to give up: the
+ * first full run of this sweep drained the bucket, tripped the failure breaker on
+ * five throttles in a row, and then every later slice re-tripped it instantly
+ * because 5s between slices wasn't enough to refill. Retrying with a pause drained
+ * the same backlog cleanly.
+ */
+const MAX_THROTTLE_RETRIES = 4
+const THROTTLE_BACKOFF_MS = 3_000
+
+const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** What the tech sees as the link text in Jobber. */
 const LINK_TEXT = 'Open customer file'
@@ -43,7 +57,11 @@ type SweepResult = {
   written: number
   failed: number
   remaining: number
+  /** How many times a write was paused and retried because Jobber's bucket was empty. */
+  throttles: number
   skipped?: string
+  /** Last error seen this slice, so a stalled run explains itself. */
+  lastError?: string
 }
 
 /**
@@ -101,7 +119,7 @@ export async function sweepCustomerLinks(
   const started = Date.now()
 
   const { fieldId, baseUrl: configuredBase } = await linkConfig(admin, companyId)
-  if (!fieldId) return { companyId, written: 0, failed: 0, remaining: 0, skipped: 'no_link_field_configured' }
+  if (!fieldId) return { companyId, written: 0, failed: 0, remaining: 0, throttles: 0, skipped: 'no_link_field_configured' }
 
   // The base URL must be CONFIGURED, never inferred from the environment. These
   // URLs are written into Jobber and outlive whichever box wrote them: defaulting
@@ -110,10 +128,10 @@ export async function sweepCustomerLinks(
   // first one-record test run, before it reached the other 1,625. Refuse rather
   // than guess.
   const origin = (baseUrl ?? configuredBase ?? '').replace(/\/$/, '')
-  if (!origin) return { companyId, written: 0, failed: 0, remaining: 0, skipped: 'no_customer_link_base_url_configured' }
+  if (!origin) return { companyId, written: 0, failed: 0, remaining: 0, throttles: 0, skipped: 'no_customer_link_base_url_configured' }
 
   const jobberUserId = await companyJobberUserId(companyId, '')
-  if (!jobberUserId) return { companyId, written: 0, failed: 0, remaining: 0, skipped: 'jobber_not_connected' }
+  if (!jobberUserId) return { companyId, written: 0, failed: 0, remaining: 0, throttles: 0, skipped: 'jobber_not_connected' }
 
   const { data: rows } = await admin
     .from('txt_contacts')
@@ -126,7 +144,9 @@ export async function sweepCustomerLinks(
 
   let written = 0
   let failed = 0
+  let throttles = 0
   let consecutiveFailures = 0
+  let lastError: string | undefined
 
   for (const row of rows ?? []) {
     if (Date.now() - started > budgetMs) break
@@ -140,22 +160,41 @@ export async function sweepCustomerLinks(
       continue
     }
 
-    try {
-      const res = await jobberGraphQLAdmin<{ clientEdit?: { userErrors?: { message: string }[] } }>(
-        jobberUserId,
-        SET_LINK,
-        { clientId: row.jobber_client_id, fieldId, text: LINK_TEXT, url: `${origin}/j/c/${number}` },
-      )
-      const errs = res?.clientEdit?.userErrors ?? []
-      if (errs.length) throw new Error(errs.map((e) => e.message).join('; '))
+    for (let attempt = 0; ; attempt++) {
+      try {
+        const res = await jobberGraphQLAdmin<{ clientEdit?: { userErrors?: { message: string }[] } }>(
+          jobberUserId,
+          SET_LINK,
+          { clientId: row.jobber_client_id, fieldId, text: LINK_TEXT, url: `${origin}/j/c/${number}` },
+        )
+        const errs = res?.clientEdit?.userErrors ?? []
+        if (errs.length) throw new Error(errs.map((e) => e.message).join('; '))
 
-      await admin.from('txt_contacts').update({ jobber_link_set_at: new Date().toISOString() }).eq('id', row.id)
-      written++
-      consecutiveFailures = 0
-    } catch {
-      // Leave the marker null so the next slice retries this contact.
-      failed++
-      consecutiveFailures++
+        await admin.from('txt_contacts').update({ jobber_link_set_at: new Date().toISOString() }).eq('id', row.id)
+        written++
+        consecutiveFailures = 0
+        break
+      } catch (e) {
+        const msg = e instanceof Error ? e.message : String(e)
+        // Reported back to the caller. Swallowing this made a stalled run
+        // impossible to diagnose from the outside — every slice just said
+        // "failed: 5" with no reason.
+        lastError = msg
+
+        const throttled = /throttl/i.test(msg)
+        const timeLeft = budgetMs - (Date.now() - started)
+        const backoff = THROTTLE_BACKOFF_MS * (attempt + 1)
+        if (throttled && attempt < MAX_THROTTLE_RETRIES && timeLeft > backoff) {
+          throttles++
+          await sleep(backoff)
+          continue
+        }
+
+        // Leave the marker null so a later slice retries this contact.
+        failed++
+        consecutiveFailures++
+        break
+      }
     }
   }
 
@@ -166,7 +205,7 @@ export async function sweepCustomerLinks(
     .not('jobber_client_id', 'is', null)
     .is('jobber_link_set_at', null)
 
-  return { companyId, written, failed, remaining: count ?? 0 }
+  return { companyId, written, failed, throttles, remaining: count ?? 0, ...(lastError ? { lastError } : {}) }
 }
 
 /** Every company that has the link field configured — the cron's work list. */
