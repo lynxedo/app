@@ -15,7 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { jobberGraphQLAdmin, getJobberTokenAdmin } from '@/lib/jobber'
+import { jobberGraphQLAdmin, resolveJobberUserId } from '@/lib/jobber'
 import { postGuardianToUserDm } from '@/lib/guardian-post'
 import { createPesticideRecordFromJobberVisit } from '@/lib/pesticide'
 import { syncClientsToDirectory, type DirectoryClientInput } from '@/lib/contacts-directory'
@@ -97,39 +97,24 @@ async function throttleSleep(resp: unknown): Promise<void> {
   }
 }
 
+/**
+ * Delegates to the shared resolver in lib/jobber.ts. This used to be its own
+ * careful implementation while `companyJobberUserId` was a careless one — the
+ * divergence is what let a dead token reach seven other code paths, so there is
+ * now exactly one implementation and both callers share it.
+ *
+ * Two behavior notes vs the previous version here:
+ *  - Non-admins are now eligible, but only AFTER every admin token has been
+ *    tried and failed. In the normal case the admin's token is still chosen, so
+ *    nothing changes; when it dies, a manager who connected Jobber keeps sync
+ *    alive instead of being skipped for their role.
+ *  - Sync still throws rather than returning null, because every caller here
+ *    treats a missing token as fatal for the run.
+ */
 async function getJobberUserId(companyId: string): Promise<string> {
-  const admin = createAdminClient()
-  const { data: profiles } = await admin
-    .from('user_profiles')
-    .select('id')
-    .eq('company_id', companyId)
-    .eq('role', 'admin')
-
-  if (!profiles?.length) throw new Error('No admin users found for company')
-
-  const userIds = profiles.map(p => p.id)
-  // Don't trust the first token row blindly. If multiple admins have connected
-  // Jobber and one's token can't be refreshed, picking it makes the whole sync
-  // (nightly cron AND every webhook) fail with "needs to reconnect" — silently,
-  // with no retry. Return the first user whose token actually resolves (refreshing
-  // if needed), so one broken connection can't poison sync. Newest token first.
-  const { data: tokenRows } = await admin
-    .from('jobber_tokens')
-    .select('user_id, updated_at')
-    .in('user_id', userIds)
-    .order('updated_at', { ascending: false })
-
-  if (!tokenRows?.length) throw new Error('No Jobber token found — an admin must connect Jobber first')
-
-  for (const row of tokenRows) {
-    try {
-      const tok = await getJobberTokenAdmin(row.user_id)
-      if (tok) return row.user_id
-    } catch {
-      // Try the next candidate — a single unrefreshable token shouldn't abort sync.
-    }
-  }
-  throw new Error('No usable Jobber token — an admin must reconnect Jobber')
+  const userId = await resolveJobberUserId(companyId)
+  if (!userId) throw new Error('No usable Jobber token — an admin must reconnect Jobber')
+  return userId
 }
 
 // ── Custom field parser ───────────────────────────────────────────────────────
