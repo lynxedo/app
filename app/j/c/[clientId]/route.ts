@@ -42,9 +42,19 @@ export async function GET(
   // A Jobber record id is digits. Anything else is a probe, not a mistyped link.
   if (!/^\d{1,20}$/.test(clientId)) return to('/hub/contacts')
 
+  // Forward the one parameter the customer page acts on, so a Jobber link can aim
+  // at a blank inspection rather than just the account. Allowlisted rather than
+  // passing the query through, so a Jobber custom field can never be edited into
+  // something that smuggles arbitrary parameters onto an internal page.
+  const wantsNewInspection =
+    new URL(request.url).searchParams.get('irrigation') === 'new'
+  const suffix = wantsNewInspection ? '?irrigation=new' : ''
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return to(`/login?next=${encodeURIComponent(`/j/c/${clientId}`)}`)
+  // Carry the suffix through login too — otherwise signing in drops a tech onto
+  // the account page and they have to start the inspection by hand.
+  if (!user) return to(`/login?next=${encodeURIComponent(`/j/c/${clientId}${suffix}`)}`)
 
   // RLS scopes this to the caller's own company, so a Jobber id belonging to
   // another tenant simply doesn't resolve here.
@@ -55,6 +65,7 @@ export async function GET(
     .maybeSingle()
 
   // Roughly 3% of Jobber clients have no directory record yet. Land those on the
-  // directory rather than a dead end — the tech can search from there.
-  return to(data?.id ? `/hub/contacts/${data.id}` : '/hub/contacts')
+  // directory rather than a dead end — the tech can search from there. No suffix
+  // on that branch: there is no account to open an inspection against.
+  return to(data?.id ? `/hub/contacts/${data.id}${suffix}` : '/hub/contacts')
 }
