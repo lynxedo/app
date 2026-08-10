@@ -30,7 +30,14 @@ export async function GET(
   { params }: { params: Promise<{ clientId: string }> },
 ) {
   const { clientId } = await params
-  const to = (path: string) => NextResponse.redirect(new URL(path, request.url))
+
+  // A RELATIVE Location, deliberately. Behind the Cloudflare tunnel `request.url`
+  // is the internal origin, so NextResponse.redirect(new URL(path, request.url))
+  // sends the browser to localhost:3000. A relative reference (RFC 7231 7.1.2) is
+  // resolved by the browser against the address it actually asked for, which also
+  // keeps a tenant on its own subdomain — hardcoding NEXT_PUBLIC_APP_URL would
+  // bounce heroes105.lynxedo.com users to the apex mid-flow.
+  const to = (path: string) => new NextResponse(null, { status: 307, headers: { Location: path } })
 
   // A Jobber record id is digits. Anything else is a probe, not a mistyped link.
   if (!/^\d{1,20}$/.test(clientId)) return to('/hub/contacts')
