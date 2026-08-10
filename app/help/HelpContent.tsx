@@ -1664,6 +1664,13 @@ function ContactsTab() {
         <p className="mt-3"><strong className="text-white">Merging duplicates.</strong> Same person on two records — say one has their texts and the other has their email history? Open one and tap <strong className="text-white">⧉ Merge</strong> in the top-right, search for the record it should join, and confirm. Everything from the record you&apos;re on — texts, calls, voicemails, emails, tags, and notes — moves onto the one you pick, and any blanks on the surviving record are filled in from this one (existing values are kept, and a &ldquo;do not text&rdquo; flag on either side stays on). The merged-away record is then removed from the directory. This can&apos;t be undone from the app, so double-check you&apos;ve picked the right person.</p>
       </Section>
 
+      <Section title="Jumping here from Jobber">
+        <p>You don&apos;t have to come through the Hub to reach a customer. In Jobber — on the client, and on any of their jobs — there&apos;s a <strong className="text-white">Lynxedo Customer File</strong> field with an <strong className="text-white">Open customer file</strong> link. Tap it and you land on that customer&apos;s page here, with their history, property details, and irrigation system already in front of you.</p>
+        <p>It works the same on your phone in the Jobber app as it does on a computer, so a tech standing in the yard can pull up the file without searching for anyone.</p>
+        <Note>If you aren&apos;t signed in to Lynxedo yet, you&apos;ll be asked to sign in first and then taken straight to the right customer — you won&apos;t lose your place.</Note>
+        <Note>The link is filled in automatically and can&apos;t be edited from Jobber. It appears on a brand-new customer within seconds of them being created in Jobber.</Note>
+      </Section>
+
       <Section title="Irrigation system">
         <p>The <strong className="text-white">Irrigation system</strong> card on a customer&apos;s page is a full inventory of their sprinkler system — zones, controller, backflow, shutoffs, a yard sketch, and photos — captured once so every future visit is faster. It keeps a <strong className="text-white">separate dated record for each visit</strong>, so you can see how a system has changed over time.</p>
         <Step n={1}>Open a customer and find the <strong className="text-white">Irrigation system</strong> card. If an inspection is on file, the latest one shows here; older ones are listed under <strong className="text-white">Visit history</strong> (tap a date to view that visit).</Step>

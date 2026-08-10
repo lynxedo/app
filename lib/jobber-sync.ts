@@ -15,6 +15,7 @@
 
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { writeCustomerLinkForClient } from '@/lib/jobber-customer-link'
 import { jobberGraphQLAdmin, resolveJobberUserId } from '@/lib/jobber'
 import { postGuardianToUserDm } from '@/lib/guardian-post'
 import { createPesticideRecordFromJobberVisit } from '@/lib/pesticide'
@@ -1610,8 +1611,22 @@ export async function processJobberWebhookEvent(
   try {
     switch (topic) {
       case 'CLIENT_CREATE':
-      case 'CLIENT_UPDATE':
-        await syncClients(userId, companyId, since); break
+      case 'CLIENT_UPDATE': {
+        await syncClients(userId, companyId, since)
+        // Put the "Lynxedo Customer File" link on the client as soon as Jobber
+        // tells us it exists, so a tech opening a job today has it — the daily
+        // sweep would leave a new customer without one until tomorrow. No-ops
+        // when the link is already set, so CLIENT_UPDATE costs nothing and
+        // doubles as self-healing for anything the sweep missed.
+        try {
+          const outcome = await writeCustomerLinkForClient(companyId, itemId)
+          if (outcome !== 'already_set') console.log(`[jobber-webhook] customer link ${itemId}: ${outcome}`)
+        } catch (e) {
+          // Cosmetic next to the sync itself — never let it fail the event.
+          console.error('[jobber-webhook] customer link failed for', itemId, e)
+        }
+        break
+      }
       case 'INVOICE_CREATE':
       case 'INVOICE_UPDATE':
         await syncInvoices(userId, companyId, since); break
