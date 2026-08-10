@@ -12,9 +12,19 @@ export const dynamic = 'force-dynamic'
 // report owns its own Jobber link custom field, so a job carrying both irrigation
 // and weed-feed work shows both links.
 
+// Jobber caps a page at 100 no matter what `first` asks for — requesting 200
+// silently returns 100. Heroes has 162 products and 62 of the irrigation ones sat
+// on page two, invisible in the picker, which made this tool useless for the exact
+// job it exists to do. Page until Jobber says there is no more.
 const PRODUCTS = `
-  query { productOrServices(first: 200) { nodes { id name } } }
+  query Products($after: String) {
+    productOrServices(first: 100, after: $after) {
+      nodes { id name }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
 `
+const MAX_PAGES = 20
 
 export async function GET() {
   const check = await requireAdminArea('integrations')
@@ -33,8 +43,17 @@ export async function GET() {
   try {
     const userId = await companyJobberUserId(check.company_id, check.user?.id ?? '')
     if (userId) {
-      const res = await jobberGraphQLAdmin<{ productOrServices?: { nodes?: { id: string; name: string }[] } }>(userId, PRODUCTS)
-      catalog = (res?.productOrServices?.nodes ?? []).filter((n) => n?.name)
+      let after: string | null = null
+      for (let page = 0; page < MAX_PAGES; page++) {
+        const res: { productOrServices?: { nodes?: { id: string; name: string }[]; pageInfo?: { hasNextPage?: boolean; endCursor?: string } } } =
+          await jobberGraphQLAdmin(userId, PRODUCTS, { after })
+        const conn = res?.productOrServices
+        catalog.push(...(conn?.nodes ?? []).filter((n) => n?.name))
+        if (!conn?.pageInfo?.hasNextPage) break
+        after = conn.pageInfo.endCursor ?? null
+        if (!after) break
+      }
+      catalog.sort((a, b) => a.name.localeCompare(b.name))
     }
   } catch (e) {
     console.error('[report-links] catalog fetch failed:', e instanceof Error ? e.message : e)

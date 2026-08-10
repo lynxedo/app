@@ -22,6 +22,8 @@ export default function JobberReportLinks() {
   const [catalog, setCatalog] = useState<{ id: string; name: string }[]>([])
   const [saving, setSaving] = useState<string | null>(null)
   const [toast, setToast] = useState('')
+  // 162 checkboxes is not a list anyone reads. Filter per report.
+  const [filter, setFilter] = useState<Record<string, string>>({})
 
   const load = useCallback(async () => {
     try {
@@ -65,8 +67,8 @@ export default function JobberReportLinks() {
 
       {catalog.length === 0 && (
         <p className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
-          Couldn&apos;t load line items from Jobber. Check the Jobber connection above — without
-          the list there&apos;s nothing to choose from.
+          Couldn&apos;t load your line items from Jobber just now, so there&apos;s nothing to pick from.
+          Reload in a minute — Jobber rate-limits bursts of requests and recovers on its own.
         </p>
       )}
 
@@ -81,8 +83,22 @@ export default function JobberReportLinks() {
                   {r.line_items.length === 0 ? 'No line items — link is off' : `${r.line_items.length} selected`}
                 </div>
               </div>
+              <input
+                type="search"
+                value={filter[r.report_key] ?? ''}
+                onChange={(e) => setFilter((f) => ({ ...f, [r.report_key]: e.target.value }))}
+                placeholder={`Search ${catalog.length} line items…`}
+                className="mt-2 w-full rounded-lg border border-white/10 bg-white/5 px-3 py-1.5 text-xs text-white placeholder:text-white/30"
+              />
               <div className="mt-2 max-h-56 overflow-y-auto rounded-lg border border-white/10 p-2">
-                {catalog.map((item) => {
+                {catalog
+                  .filter((item) => {
+                    const q = (filter[r.report_key] ?? '').trim().toLowerCase()
+                    // A selected item always stays visible, so filtering can never
+                    // hide something that is switched on.
+                    return !q || item.name.toLowerCase().includes(q) || selected.has(item.name.toLowerCase())
+                  })
+                  .map((item) => {
                   const on = selected.has(item.name.toLowerCase())
                   return (
                     <label key={item.id} className="flex cursor-pointer items-center gap-2 px-1 py-1 text-xs text-white/80 hover:bg-white/5">
