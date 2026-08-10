@@ -39,6 +39,23 @@ const MAX_CONSECUTIVE_FAILURES = 5
 const MAX_THROTTLE_RETRIES = 4
 const THROTTLE_BACKOFF_MS = 3_000
 
+/**
+ * Jobber enforces TWO limits and they need opposite responses.
+ *
+ * The documented one is the point bucket above — brief, refills in seconds, worth
+ * retrying in place. The undocumented one is an abuse filter that answers HTTP 429
+ * "blocked due to unusual activity ... try again in 30 minutes", and it is not
+ * something to retry: the backfill tripped it four times in an afternoon by writing
+ * ~2/sec, and it blocks the whole Jobber credential — the delta sync, the webhook
+ * drain, Route Optimizer, Amber's visit lookups. So a slice that sees it stops
+ * immediately and waits for the next cron rather than pushing on.
+ */
+const isAbuseBlock = (m: string) => /\b429\b|unusual activity|too many requests/i.test(m)
+const isPointThrottle = (m: string) => /throttl/i.test(m) && !isAbuseBlock(m)
+
+/** Deliberate gap between writes. Cheap insurance against tripping the filter. */
+const WRITE_SPACING_MS = 250
+
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms))
 
 /** What the tech sees as the link text in Jobber. */
@@ -62,6 +79,8 @@ type SweepResult = {
   skipped?: string
   /** Last error seen this slice, so a stalled run explains itself. */
   lastError?: string
+  /** True when Jobber's abuse filter stopped us — the slice bailed on purpose. */
+  blocked?: boolean
 }
 
 /**
@@ -147,10 +166,13 @@ export async function sweepCustomerLinks(
   let throttles = 0
   let consecutiveFailures = 0
   let lastError: string | undefined
+  let blocked = false
 
   for (const row of rows ?? []) {
+    if (blocked) break
     if (Date.now() - started > budgetMs) break
     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) break
+    if (written > 0) await sleep(WRITE_SPACING_MS)
 
     const number = jobberClientNumber(row.jobber_client_id as string)
     if (!number) {
@@ -181,10 +203,16 @@ export async function sweepCustomerLinks(
         // "failed: 5" with no reason.
         lastError = msg
 
-        const throttled = /throttl/i.test(msg)
+        // Abuse filter: stop the whole slice. Retrying is what makes it worse.
+        if (isAbuseBlock(msg)) {
+          blocked = true
+          failed++
+          break
+        }
+
         const timeLeft = budgetMs - (Date.now() - started)
         const backoff = THROTTLE_BACKOFF_MS * (attempt + 1)
-        if (throttled && attempt < MAX_THROTTLE_RETRIES && timeLeft > backoff) {
+        if (isPointThrottle(msg) && attempt < MAX_THROTTLE_RETRIES && timeLeft > backoff) {
           throttles++
           await sleep(backoff)
           continue
@@ -205,7 +233,7 @@ export async function sweepCustomerLinks(
     .not('jobber_client_id', 'is', null)
     .is('jobber_link_set_at', null)
 
-  return { companyId, written, failed, throttles, remaining: count ?? 0, ...(lastError ? { lastError } : {}) }
+  return { companyId, written, failed, throttles, remaining: count ?? 0, ...(blocked ? { blocked } : {}), ...(lastError ? { lastError } : {}) }
 }
 
 /** Every company that has the link field configured — the cron's work list. */
@@ -226,4 +254,66 @@ export async function companiesWithLinkField(): Promise<string[]> {
       )
     })
     .map((r) => r.company_id as string)
+}
+
+/**
+ * Write the link for ONE client, right after Jobber tells us it exists.
+ *
+ * The sweep alone means a customer created this morning has no link until tomorrow's
+ * cron, which reads as broken to the tech standing in their yard. CLIENT_CREATE is
+ * already a subscribed webhook, so the link can land seconds after the client does.
+ *
+ * Best-effort by design: returns a reason instead of throwing, so it can never fail
+ * the webhook that called it. The sweep remains the backstop for anything missed —
+ * a dropped event, or a client created while Jobber was blocking our writes.
+ */
+export async function writeCustomerLinkForClient(
+  companyId: string,
+  jobberClientId: string,
+): Promise<'written' | 'already_set' | 'not_in_directory' | 'not_configured' | 'failed'> {
+  const admin = createAdminClient()
+
+  const { fieldId, baseUrl } = await linkConfig(admin, companyId)
+  if (!fieldId || !baseUrl) return 'not_configured'
+
+  const number = jobberClientNumber(jobberClientId)
+  if (!number) return 'failed'
+
+  const { data: contact } = await admin
+    .from('txt_contacts')
+    .select('id, jobber_link_set_at')
+    .eq('company_id', companyId)
+    .eq('jobber_client_id', jobberClientId)
+    .maybeSingle()
+  // The client sync runs before this, so a miss means the mirror hasn't caught up.
+  // Leave it: the sweep will pick the contact up once it exists.
+  if (!contact) return 'not_in_directory'
+  if (contact.jobber_link_set_at) return 'already_set'
+
+  const jobberUserId = await companyJobberUserId(companyId, '')
+  if (!jobberUserId) return 'not_configured'
+
+  try {
+    const res = await jobberGraphQLAdmin<{ clientEdit?: { userErrors?: { message: string }[] } }>(
+      jobberUserId,
+      SET_LINK,
+      {
+        clientId: jobberClientId,
+        fieldId,
+        text: LINK_TEXT,
+        url: `${baseUrl.replace(/\/$/, '')}/j/c/${number}`,
+      },
+    )
+    const errs = res?.clientEdit?.userErrors ?? []
+    if (errs.length) throw new Error(errs.map((e) => e.message).join('; '))
+
+    await admin
+      .from('txt_contacts')
+      .update({ jobber_link_set_at: new Date().toISOString() })
+      .eq('id', contact.id)
+    return 'written'
+  } catch (e) {
+    console.error('[customer-link] write failed for', jobberClientId, e instanceof Error ? e.message : e)
+    return 'failed'
+  }
 }
