@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse, after } from 'next/server'
 import crypto from 'crypto'
-import { processJobberWebhookEvent, resolveCompanyByJobberAccountId } from '@/lib/jobber-sync'
+import { resolveCompanyByJobberAccountId } from '@/lib/jobber-sync'
+import { drainJobberWebhookQueue, enqueueJobberWebhookEvent } from '@/lib/jobber-webhook-queue'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -81,15 +82,31 @@ export async function POST(req: NextRequest) {
   // `occuredAt` is the legacy spelling on apps created before 2023-12-08.
   const occurredAt = evt.occurredAt ?? evt.occuredAt ?? null
 
-  // Acknowledge fast (Jobber wants 200 within seconds); process post-response
-  // via after() — a bare detached promise is NOT guaranteed to run once the
-  // handler returns, which could silently drop the event. (Consts because the
-  // guard above doesn't narrow evt's properties inside the closure.)
+  // Record the event durably BEFORE acking. This is the whole point: a 200 tells
+  // Jobber "we own this now" and it will never redeliver, so the ack must not be
+  // sent until the event survives a crash. Processing then happens off the queue
+  // with retry + dead-lettering (lib/jobber-webhook-queue.ts).
+  //
+  // Before this, processing ran post-ack via after() and a failure lost the event
+  // permanently — 242 were dropped on prod that way. (Consts because the guard
+  // above doesn't narrow evt's properties inside the closure.)
   const topic = evt.topic
   const itemId = evt.itemId
+
+  const queued = await enqueueJobberWebhookEvent({ topic, itemId, companyId, occurredAt })
+  if (!queued) {
+    // Nothing durable was written, so do NOT ack — a 500 makes Jobber retry,
+    // which is exactly the behavior we want when our own storage is unavailable.
+    return new NextResponse('queue unavailable', { status: 500 })
+  }
+
+  // Drain immediately after the ack so the mirror still updates within seconds.
+  // Unlike before, this is an optimization rather than the delivery mechanism:
+  // if it never runs, the cron picks the event up.
   after(() =>
-    processJobberWebhookEvent({ topic, itemId, companyId, occurredAt })
-      .catch(err => console.error('[jobber-webhook]', topic, itemId, err))
+    drainJobberWebhookQueue().catch(err =>
+      console.error('[jobber-webhook] post-ack drain failed:', err)
+    )
   )
 
   return new NextResponse('ok', { status: 200 })

@@ -37,7 +37,62 @@ export async function getJobberToken(userId: string): Promise<string | null> {
 
 // ── Token refresh ────────────────────────────────────────────────────────────
 
-async function refreshJobberToken(
+/**
+ * In-flight refreshes, keyed by user id — the fix for a REAL production bug.
+ *
+ * Jobber has refresh-token ROTATION on: a successful refresh returns a new
+ * refresh_token and invalidates the old one immediately. Refresh is triggered
+ * lazily by whoever happens to read the token inside the 5-minute pre-expiry
+ * window, and webhooks arrive in bursts (one invoice fires ~4 events back to
+ * back). Without coordination every caller in that window read the SAME
+ * refresh_token and raced: the first won, and every other one got a 401 —
+ * dropping its webhook event permanently, because the route has already acked
+ * 200 to Jobber and Jobber therefore never retries.
+ *
+ * Measured on prod before this fix: 293 × "refresh failed: 401" and 242 webhook
+ * events lost, in ~40 small clusters spread across the log — one per hour-ish,
+ * matching the 60-minute token lifetime rather than any outage.
+ *
+ * Callers within one process now share a single refresh. Cross-process races
+ * (⚠ staging and prod share this DB and these token rows) are handled by the
+ * re-read fallback in `performRefresh`, not by this map.
+ */
+const inFlightRefreshes = new Map<string, Promise<string | null>>()
+
+function refreshJobberToken(userId: string, refreshToken: string): Promise<string | null> {
+  const existing = inFlightRefreshes.get(userId)
+  if (existing) return existing
+
+  const p = performRefresh(userId, refreshToken).finally(() => {
+    inFlightRefreshes.delete(userId)
+  })
+  inFlightRefreshes.set(userId, p)
+  return p
+}
+
+/**
+ * Read back the stored token when our own refresh was rejected. A 401 on refresh
+ * usually means SOMEONE ELSE already rotated it successfully (another process —
+ * see the note above), in which case a valid access_token is now sitting in the
+ * row and failing would be wrong. Short delay first so a refresh that is still
+ * in flight elsewhere has a chance to land.
+ */
+async function reReadRotatedToken(userId: string): Promise<string | null> {
+  await new Promise(r => setTimeout(r, 750))
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('jobber_tokens')
+    .select('access_token, expires_at')
+    .eq('user_id', userId)
+    .single()
+  if (!data?.access_token) return null
+  // Only trust it if it is genuinely usable — not merely present.
+  if (new Date(data.expires_at).getTime() <= Date.now()) return null
+  console.log('[jobber] refresh 401 but a newer token was already stored — using it')
+  return data.access_token
+}
+
+async function performRefresh(
   userId: string,
   refreshToken: string
 ): Promise<string | null> {
@@ -55,6 +110,10 @@ async function refreshJobberToken(
 
   if (!res.ok) {
     console.error('Jobber token refresh failed:', res.status, await res.text())
+    // 400/401 here is the rotation race: our refresh_token was already spent by
+    // another refresh that succeeded. Check the row before giving up — returning
+    // null would drop a webhook event for no reason.
+    if (res.status === 401 || res.status === 400) return reReadRotatedToken(userId)
     return null
   }
 
@@ -68,7 +127,9 @@ async function refreshJobberToken(
   // on every visit. Mirror the same guards the auth callback already uses.
   if (!tokens.access_token) {
     console.error('Jobber refresh: 200 OK but no access_token:', JSON.stringify(tokens))
-    return null
+    // Same rotation race as the non-2xx branch above — a spent refresh_token can
+    // come back this way too, so check the row before giving up.
+    return reReadRotatedToken(userId)
   }
   const expiresIn = typeof tokens.expires_in === 'number' ? tokens.expires_in : 3600
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString()
