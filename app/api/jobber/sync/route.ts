@@ -3,37 +3,46 @@ import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { runInitialJobberSync, runDeltaJobberSync } from '@/lib/jobber-sync'
 
-// Admin-triggered / nightly-cron sync for a single tenant. Env-overridable but
-// defaults to Heroes Lawn Care so the single-tenant path stays unchanged.
-const COMPANY_ID = process.env.JOBBER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
+// Fallback company for a cron call that names none — keeps the existing nightly
+// delta cron working untouched. ⚠ It is a FALLBACK, not a pin: a signed-in admin
+// now always syncs their OWN company (see below), so a second tenant is no longer
+// locked out of triggering a sync the way the old env-pinned version locked them out.
+const FALLBACK_COMPANY_ID = process.env.JOBBER_COMPANY_ID || '00000000-0000-0000-0000-000000000002'
 
-async function isAuthorized(req: NextRequest): Promise<boolean> {
-  // Cron secret auth (nightly delta cron, Session 68). Accept both the
-  // x-cron-secret header used by every other cron on the VPS and the legacy
-  // Authorization: Bearer form.
+/**
+ * Resolve WHICH company this sync is for, alongside whether the caller may run it.
+ *
+ * Previously the company came from an env var, so only one tenant could ever be
+ * synced — a hard blocker for onboarding a second subscriber. A signed-in admin now
+ * syncs their own company, taken from their profile and never from the request, so
+ * this route can't be aimed at another tenant. Cron keeps the env fallback so the
+ * existing nightly delta cron is untouched.
+ */
+async function resolveSyncTarget(req: NextRequest): Promise<string | null> {
   const cronSecret = process.env.CRON_SECRET
   if (cronSecret) {
-    if (req.headers.get('x-cron-secret') === cronSecret) return true
-    if (req.headers.get('Authorization') === `Bearer ${cronSecret}`) return true
+    if (req.headers.get('x-cron-secret') === cronSecret) return FALLBACK_COMPANY_ID
+    if (req.headers.get('Authorization') === `Bearer ${cronSecret}`) return FALLBACK_COMPANY_ID
   }
 
-  // Admin session auth
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
-  if (!user) return false
+  if (!user) return null
 
   const admin = createAdminClient()
   const { data: profile } = await admin
     .from('user_profiles')
-    .select('role')
+    .select('role, company_id')
     .eq('id', user.id)
     .single()
 
-  return profile?.role === 'admin'
+  if (profile?.role !== 'admin') return null
+  return profile.company_id ?? null
 }
 
 export async function POST(req: NextRequest) {
-  if (!await isAuthorized(req)) {
+  const companyId = await resolveSyncTarget(req)
+  if (!companyId) {
     return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
   }
 
@@ -43,15 +52,20 @@ export async function POST(req: NextRequest) {
   // Kick off post-response via after() — still not awaited before the response
   // (initial pull takes 10–20 min), but guaranteed to run to completion, unlike
   // a bare detached promise.
+  //
+  // ⚠ For a NEW subscriber prefer POST /api/jobber/backfill, not this route: the
+  // initial pull here has to finish inside one process, so a multi-hour first pull
+  // dies with any timeout or deploy and starts over. The backfill route persists a
+  // cursor after every page and resumes.
   if (type === 'initial') {
-    after(() => runInitialJobberSync(COMPANY_ID).catch(err =>
+    after(() => runInitialJobberSync(companyId).catch(err =>
       console.error('[jobber-sync] Unhandled error in initial sync:', err)
     ))
   } else {
-    after(() => runDeltaJobberSync(COMPANY_ID).catch(err =>
+    after(() => runDeltaJobberSync(companyId).catch(err =>
       console.error('[jobber-sync] Unhandled error in delta sync:', err)
     ))
   }
 
-  return NextResponse.json({ status: 'started', type })
+  return NextResponse.json({ status: 'started', type, companyId })
 }
