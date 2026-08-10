@@ -12,7 +12,7 @@ import Scoreboard6View from './Scoreboard6View'
 import Scoreboard7View from './Scoreboard7View'
 import Scoreboard8View from './Scoreboard8View'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { hasPreset } from '@/lib/scoreboards/widgets/layouts'
+import { hasWidgetLayout } from '@/lib/scoreboards/widgets/registry'
 import WidgetBoardView from '@/components/hub/scoreboards/widgets/WidgetBoardView'
 
 export const metadata = { title: 'Scoreboard' }
@@ -59,7 +59,7 @@ export default async function ScoreboardPage({
   // hardcoded view stays reachable at ?classic=1 for as long as the migration is
   // in progress — the point is to be able to put the two side by side and confirm
   // the numbers agree before anyone trusts the new one.
-  if (hasPreset(board.slug) && classic !== '1') {
+  if (hasWidgetLayout(board.slug) && classic !== '1') {
     return (
       <WidgetBoardView
         meta={board}

@@ -459,6 +459,22 @@ export function widgetCatalog(): WidgetCatalogEntry[] {
   }))
 }
 
+/**
+ * Boards that render from a widget layout instead of a hardcoded view.
+ *
+ * ⚠ Lives HERE, not in ./layouts.ts, because two entry points need to agree and
+ * one of them is a client component: the route (app/hub/scoreboards/[slug]) and
+ * the Workspace-Tabs twin (components/hub/workspace/ScoreboardsTab). layouts.ts
+ * imports the service-role Supabase client, so a client component can't ask it.
+ * Getting this wrong is invisible in the route and shows up only in a tab — which
+ * is exactly how the first attempt shipped a board that still looked old.
+ */
+export const WIDGET_BOARD_SLUGS: readonly string[] = ['8']
+
+export function hasWidgetLayout(slug: string): boolean {
+  return WIDGET_BOARD_SLUGS.includes(slug)
+}
+
 /** The preset arrangement Board 8 ships with — the board as it looks today. */
 export const BOARD_8_PRESET: { type: string; span: number; config?: WidgetConfig }[] = [
   { type: 'kpi_new_customers', span: 3 },

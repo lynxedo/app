@@ -39,9 +39,11 @@ let tempSeq = 0
 const tempId = () => `new-${++tempSeq}`
 
 export default function WidgetBoardView({
-  meta, businessName = 'Lynxedo', classicHref,
+  meta, businessName, classicHref,
 }: {
   meta: ScoreboardMeta
+  /** Omitted by the Workspace-Tabs twin, which has no server context to read it
+   *  from. Renders just the board name rather than inventing a company name. */
   businessName?: string
   /** Link back to the hardcoded board, for comparing numbers during migration. */
   classicHref?: string
@@ -267,7 +269,9 @@ export default function WidgetBoardView({
             <h1 className="text-xl font-bold tracking-tight text-sky-50">Scoreboards</h1>
             {meta.badge ? <span className="rounded-full bg-sky-400/15 px-2 py-0.5 text-[11px] font-semibold text-sky-400">{meta.badge}</span> : null}
           </div>
-          <div className="text-[13px] text-sky-300">{businessName} · {res?.layout?.title ?? meta.title}</div>
+          <div className="text-[13px] text-sky-300">
+            {businessName ? `${businessName} · ` : ''}{res?.layout?.title ?? meta.title}
+          </div>
         </div>
       </header>
 

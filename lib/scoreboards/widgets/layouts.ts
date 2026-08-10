@@ -7,7 +7,7 @@
  */
 
 import { createAdminClient } from '@/lib/supabase/admin'
-import { getWidgetDef, BOARD_8_PRESET } from './registry'
+import { getWidgetDef, BOARD_8_PRESET, WIDGET_BOARD_SLUGS } from './registry'
 import { clampSpan, sanitizeConfig, type BoardLayout, type WidgetInstance } from './types'
 
 type Admin = ReturnType<typeof createAdminClient>
@@ -17,6 +17,15 @@ const PRESETS: Record<string, { title: string; widgets: typeof BOARD_8_PRESET }>
   '8': { title: 'Lead Sources', widgets: BOARD_8_PRESET },
 }
 
+// The client-safe slug list in ./registry drives which boards RENDER as widgets;
+// this map holds what they're seeded WITH. If they ever disagree, a board renders
+// the widget shell and then finds no layout to seed — so fail loudly at import.
+const presetMismatch = WIDGET_BOARD_SLUGS.filter(s => !(s in PRESETS))
+if (presetMismatch.length) {
+  throw new Error(`Widget board(s) ${presetMismatch.join(', ')} have no preset defined`)
+}
+
+/** @deprecated prefer hasWidgetLayout from ./registry — it works on the client too. */
 export function hasPreset(slug: string): boolean {
   return slug in PRESETS
 }
