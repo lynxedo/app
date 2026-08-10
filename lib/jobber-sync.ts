@@ -16,6 +16,7 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { writeCustomerLinkForClient } from '@/lib/jobber-customer-link'
+import { writeReportLinksForJob } from '@/lib/jobber-report-links'
 import { jobberGraphQLAdmin, resolveJobberUserId } from '@/lib/jobber'
 import { postGuardianToUserDm } from '@/lib/guardian-post'
 import { createPesticideRecordFromJobberVisit } from '@/lib/pesticide'
@@ -1638,6 +1639,14 @@ export async function processJobberWebhookEvent(
         // install's visit stays ACTIVE and its line-item edits stay stale, dropping
         // its revenue from completed-visit scoreboards. Re-sync the job's visits too.
         await syncVisitsForJob(userId, companyId, itemId)
+        // Put any configured report links (irrigation, and later WF) on the job.
+        // Runs after the line-item sync above, because that's what it matches on.
+        try {
+          const r = await writeReportLinksForJob(companyId, itemId)
+          if (r.written.length) console.log(`[jobber-webhook] report links ${itemId}: ${r.written.join(', ')}`)
+        } catch (e) {
+          console.error('[jobber-webhook] report links failed for', itemId, e)
+        }
         break
       case 'VISIT_CREATE':
       case 'VISIT_UPDATE':

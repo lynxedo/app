@@ -2,6 +2,7 @@ import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import IntegrationsAdminPanel from './IntegrationsAdminPanel'
+import JobberReportLinks from './JobberReportLinks'
 import type { ProviderKey, IntegrationStatus } from '@/lib/integrations-catalog'
 import { nylasConfigured } from '@/lib/inbox/config'
 
@@ -129,11 +130,18 @@ export default async function AdminIntegrationsPage() {
   const webhookBase = process.env.NEXT_PUBLIC_APP_URL ?? 'https://lynxedo.com'
 
   return (
-    <IntegrationsAdminPanel
-      statuses={statuses}
-      webhookBase={webhookBase}
-      ownKeys={{ onestepgps: oneStepOwnKey, voicedrop: voiceDropOwnKey }}
-      googleLsa={googleLsa}
-    />
+    <>
+      <IntegrationsAdminPanel
+        statuses={statuses}
+        webhookBase={webhookBase}
+        ownKeys={{ onestepgps: oneStepOwnKey, voicedrop: voiceDropOwnKey }}
+        googleLsa={googleLsa}
+      />
+      {/* Renders nothing until a report is configured, so tenants without one see
+          no change. Kept out of IntegrationsAdminPanel because it self-fetches. */}
+      <div className="mx-auto max-w-5xl px-4 pb-10">
+        <JobberReportLinks />
+      </div>
+    </>
   )
 }
