@@ -85,6 +85,40 @@ export async function enqueueJobberWebhookEvent(event: {
   return true
 }
 
+/** How long a successfully-processed event is kept before pruning. */
+const DONE_RETENTION_DAYS = 14
+
+/**
+ * Prune old successfully-processed events.
+ *
+ * Every inbound webhook now leaves a row behind, and Heroes alone produces on the
+ * order of 15k events between log rotations — without pruning this table grows
+ * forever. Only 'done' rows are removed: 'failed' rows are the dead-letter record
+ * and are kept indefinitely, since their whole purpose is to still be there when
+ * someone finally asks what went missing.
+ *
+ * Called from the drain only when there was no real work to do, so it never adds
+ * latency to event processing.
+ */
+export async function pruneProcessedJobberWebhookEvents(): Promise<number> {
+  const cutoff = new Date(Date.now() - DONE_RETENTION_DAYS * 24 * 60 * 60 * 1000).toISOString()
+  const admin = createAdminClient()
+  const { data, error } = await admin
+    .from('jobber_webhook_events')
+    .delete()
+    .eq('status', 'done')
+    .lt('updated_at', cutoff)
+    .select('id')
+
+  if (error) {
+    console.error('[jobber-queue] prune failed:', error.message)
+    return 0
+  }
+  const removed = data?.length ?? 0
+  if (removed) console.log(`[jobber-queue] pruned ${removed} processed events older than ${DONE_RETENTION_DAYS}d`)
+  return removed
+}
+
 type DrainResult = { claimed: number; processed: number; coalesced: number; retried: number; deadLettered: number }
 
 /**

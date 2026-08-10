@@ -1,7 +1,11 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { DRAIN_BATCH_SIZE, drainJobberWebhookQueue } from '@/lib/jobber-webhook-queue'
+import {
+  DRAIN_BATCH_SIZE,
+  drainJobberWebhookQueue,
+  pruneProcessedJobberWebhookEvents,
+} from '@/lib/jobber-webhook-queue'
 
 export const dynamic = 'force-dynamic'
 export const runtime = 'nodejs'
@@ -51,7 +55,15 @@ export async function POST(req: NextRequest) {
   // Awaited, not detached: the caller is a cron that wants the outcome, and the
   // batch is bounded so it cannot outlive the request.
   const result = await drainJobberWebhookQueue(limit)
-  return NextResponse.json({ ok: true, ...result })
+
+  // Housekeeping only on an idle pass, so pruning never delays real events. The
+  // queue is idle the overwhelming majority of minutes, so this still runs often.
+  let pruned = 0
+  if (result.claimed === 0) {
+    pruned = await pruneProcessedJobberWebhookEvents().catch(() => 0)
+  }
+
+  return NextResponse.json({ ok: true, ...result, pruned })
 }
 
 /** Queue health — depth by status, and the newest dead-letter reasons. */
