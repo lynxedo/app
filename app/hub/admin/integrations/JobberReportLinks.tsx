@@ -20,6 +20,7 @@ type Report = {
 export default function JobberReportLinks() {
   const [reports, setReports] = useState<Report[] | null>(null)
   const [catalog, setCatalog] = useState<{ id: string; name: string }[]>([])
+  const [source, setSource] = useState<'jobber' | 'history' | 'none'>('jobber')
   const [saving, setSaving] = useState<string | null>(null)
   const [toast, setToast] = useState('')
   // 162 checkboxes is not a list anyone reads. Filter per report.
@@ -32,6 +33,7 @@ export default function JobberReportLinks() {
       const j = await res.json()
       setReports(j.reports ?? [])
       setCatalog(j.catalog ?? [])
+      setSource(j.source ?? 'jobber')
     } catch { setReports([]) }
   }, [])
 
@@ -65,10 +67,17 @@ export default function JobberReportLinks() {
         customer. Jobs already in Jobber pick the link up as they&apos;re created or edited.
       </p>
 
-      {catalog.length === 0 && (
+      {source === 'none' && (
         <p className="mt-3 rounded-lg border border-amber-400/30 bg-amber-400/10 px-3 py-2 text-xs text-amber-200">
           Couldn&apos;t load your line items from Jobber just now, so there&apos;s nothing to pick from.
-          Reload in a minute — Jobber rate-limits bursts of requests and recovers on its own.
+          Reload in a minute — Jobber limits bursts of requests and recovers on its own.
+        </p>
+      )}
+      {source === 'history' && (
+        <p className="mt-3 rounded-lg border border-white/10 bg-white/5 px-3 py-2 text-xs text-white/60">
+          Jobber didn&apos;t answer just now, so this is the list of line items already used on your
+          jobs rather than your full catalogue. Everything here is pickable and will match
+          correctly; reload later to see the complete list.
         </p>
       )}
 

@@ -26,6 +26,13 @@ const PRODUCTS = `
 `
 const MAX_PAGES = 20
 
+type ProductsPage = {
+  productOrServices?: {
+    nodes?: { id: string; name: string }[]
+    pageInfo?: { hasNextPage?: boolean; endCursor?: string | null }
+  }
+}
+
 export async function GET() {
   const check = await requireAdminArea('integrations')
   if (!check.ok || !check.company_id) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
@@ -40,15 +47,29 @@ export async function GET() {
   // The pickable catalog comes from Jobber itself, so the names always match what
   // a job actually carries. A dead connection just means an empty picker, not a 500.
   let catalog: { id: string; name: string }[] = []
+  let source: 'jobber' | 'history' | 'none' = 'jobber'
   try {
     const userId = await companyJobberUserId(check.company_id, check.user?.id ?? '')
     if (userId) {
       let after: string | null = null
       for (let page = 0; page < MAX_PAGES; page++) {
-        const res: { productOrServices?: { nodes?: { id: string; name: string }[]; pageInfo?: { hasNextPage?: boolean; endCursor?: string } } } =
-          await jobberGraphQLAdmin(userId, PRODUCTS, { after })
-        const conn = res?.productOrServices
-        catalog.push(...(conn?.nodes ?? []).filter((n) => n?.name))
+        // Jobber's bucket is shared with the sync, which can be mid-run and
+        // pacing itself. A single refused request used to empty the whole picker
+        // and show "check your connection" — alarming, and wrong.
+        let res: ProductsPage | null = null
+        for (let attempt = 0; attempt < 3; attempt++) {
+          try {
+            res = await jobberGraphQLAdmin<ProductsPage>(userId, PRODUCTS, { after })
+            break
+          } catch (err) {
+            const msg = err instanceof Error ? err.message : String(err)
+            if (!/throttl/i.test(msg) || attempt === 2) throw err
+            await new Promise((r) => setTimeout(r, 1500 * (attempt + 1)))
+          }
+        }
+        if (!res) break
+        const conn: ProductsPage['productOrServices'] = res.productOrServices
+        catalog.push(...(conn?.nodes ?? []).filter((n: { id: string; name: string }) => !!n?.name))
         if (!conn?.pageInfo?.hasNextPage) break
         after = conn.pageInfo.endCursor ?? null
         if (!after) break
@@ -59,7 +80,25 @@ export async function GET() {
     console.error('[report-links] catalog fetch failed:', e instanceof Error ? e.message : e)
   }
 
-  return NextResponse.json({ reports: reports ?? [], catalog })
+  // Jobber unavailable — fall back to the line-item names already on this
+  // company's jobs. Narrower than the full catalog (only what's been used), but
+  // it is exactly the set that can actually match a job, so the picker stays
+  // usable instead of going blank whenever a sync is mid-run.
+  if (!catalog.length) {
+    const { data: seen } = await admin
+      .from('line_items')
+      .select('name')
+      .eq('company_id', check.company_id)
+      .eq('parent_type', 'job')
+      .is('deleted_at', null)
+      .not('name', 'is', null)
+      .limit(5000)
+    const names = [...new Set((seen ?? []).map((r) => String(r.name).trim()).filter(Boolean))].sort()
+    catalog = names.map((n) => ({ id: `history:${n}`, name: n }))
+    source = catalog.length ? 'history' : 'none'
+  }
+
+  return NextResponse.json({ reports: reports ?? [], catalog, source })
 }
 
 export async function PUT(request: Request) {
