@@ -1320,6 +1320,10 @@ function TxtTab() {
         <p>When you&apos;re texting a number that isn&apos;t in your <Link href="/hub/contacts" className="text-sky-400 hover:underline">Contacts</Link> directory yet — someone who just texted in, for example — <strong className="text-white">+ Add to Contacts</strong> appears in the conversation header&apos;s <strong className="text-white">⋯</strong> menu. Tap it to save them (name pre-filled where we have it); the whole conversation history stays attached to that contact. Once saved, the entry disappears and tapping the name opens the usual <strong className="text-white">Edit contact</strong> panel.</p>
       </Section>
 
+      <Section title="Open the customer file">
+        <p>Need the whole account — property details, programs and services, balance, past visits — while you&apos;re mid-conversation? Open the header&apos;s <strong className="text-white">⋯</strong> menu and tap <strong className="text-white">👤 Customer file</strong>. It opens that person&apos;s full page in <Link href="/hub/contacts" className="text-sky-400 hover:underline">Contacts</Link>. (Tapping the name at the top of the thread still opens <strong className="text-white">Edit contact</strong> for quick fixes to the name, phone, or email — the customer file is the full record.)</p>
+      </Section>
+
       <Section title="Add to Lead Tracker">
         <p>Talking to a prospect who should be tracked as a lead? The conversation header has a <strong className="text-white">+ Add to Lead Tracker</strong> button. Tap it and a quick form opens with the name, phone, and email already filled in, plus a first note summarizing what the conversation has been about (written for you from the messages) — tweak anything and save. It lands in the <Link href="/hub/tracker" className="text-sky-400 hover:underline">Lead Tracker</Link> under the stage you pick, and the person is added to Contacts. Lead Source is left blank on purpose — set it in the tracker if you know it. Once added the button reads <strong className="text-white">✓ In tracker</strong>; tapping it again just opens the lead rather than making a duplicate.</p>
       </Section>
@@ -1341,7 +1345,7 @@ function TxtTab() {
 
       <Section title="The conversation header">
         <p>On a phone the customer&apos;s <strong className="text-white">name and number get their own line</strong> at the top — always fully readable — with the people and buttons on a second line underneath. On a wider screen it&apos;s all one line.</p>
-        <p className="mt-2">Always within reach: <strong className="text-white">📞</strong> call, <strong className="text-white">✓</strong> archive (or <strong className="text-white">↺</strong> reopen), and <strong className="text-white">⋯</strong> for everything else — internal notes, Catch me up, Add to Contacts, Add to Lead Tracker, and which number you&apos;re sending from.</p>
+        <p className="mt-2">Always within reach: <strong className="text-white">📞</strong> call, <strong className="text-white">✓</strong> archive (or <strong className="text-white">↺</strong> reopen), and <strong className="text-white">⋯</strong> for everything else — internal notes, Catch me up, Customer file, Add to Contacts, Add to Lead Tracker, and which number you&apos;re sending from.</p>
       </Section>
 
       <Section title="Assigning &amp; collaborating">
@@ -1447,6 +1451,7 @@ function InboxTab() {
         <Step n={3}>When it&apos;s handled, tap <strong className="text-white">Close</strong>. If the customer writes back, it reopens automatically.</Step>
         <p className="mt-3"><strong className="text-white">AI help:</strong> <strong className="text-white">Suggest Reply</strong> drafts a response from the conversation; <strong className="text-white">✨ Polish</strong> cleans up wording in a draft you&apos;ve started.</p>
         <p className="mt-3"><strong className="text-white">Internal notes</strong> (managers) leave context on a thread the customer never sees.</p>
+        <p className="mt-3"><strong className="text-white">👤 Customer file.</strong> When the person you&apos;re emailing is in your <Link href="/hub/contacts" className="text-sky-400 hover:underline">Contacts</Link> directory, a <strong className="text-white">👤 Customer file</strong> link appears under the subject line — one tap opens their full account page (property, programs, balance, history) so you can answer without leaving the thread and coming back. It only shows when we can match the address to a contact, so vendor and newsletter mail simply won&apos;t have one.</p>
       </Section>
 
       <Section title="Drafts — nothing gets lost">

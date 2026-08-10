@@ -244,12 +244,22 @@ export type ThreadPermissions = {
   isFullAccess: boolean
 }
 
+/** The directory contact a thread is with, when one could be resolved. Drives
+ *  the "Customer file" link on the thread header. */
+export type ThreadCustomer = {
+  contactId: string
+  name: string | null
+  email: string | null
+}
+
 export type ThreadDetail = {
   thread: EmailThread
   messages: EmailMessage[]
   members: ThreadMember[]
   notes: ThreadNote[]
   permissions: ThreadPermissions
+  /** Null for the vendor/newsletter traffic that isn't about a customer. */
+  customer?: ThreadCustomer | null
   /** The caller's in-progress reply draft for this thread, if any (resume support). */
   myDraft?: EmailDraft | null
 }
