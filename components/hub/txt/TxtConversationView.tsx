@@ -1868,6 +1868,26 @@ export default function TxtConversationView({
                       🧭 {catchOpen ? 'Hide recap' : 'Catch me up'}
                     </button>
                   )}
+                  {/* Customer file — the full CRM account page for this
+                      contact. It lives here rather than on the header name,
+                      which already owns edit-contact. Shown for any contact,
+                      in-directory or not: the page reads the same txt_contacts
+                      row either way. */}
+                  {!isGroup && conversation.contact && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setMoreOpen(false)
+                        // router.push, not an <a>: the Contacts list opens this
+                        // same page the same way, and a hard href would tear
+                        // down and re-bootstrap the whole Hub shell.
+                        router.push(`/hub/contacts/${conversation.contact!.id}`)
+                      }}
+                      className="block w-full text-left px-3 py-2 text-sm hover:bg-white/5"
+                    >
+                      👤 Customer file
+                    </button>
+                  )}
                   {/* Not-in-directory → one-tap graduate to the contacts directory */}
                   {!isGroup && conversation.contact && !contactInDirectory && (
                     <button

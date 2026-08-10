@@ -4,6 +4,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 import { getInboxThreadPermissions } from '@/lib/inbox/permissions'
 import { getMyThreadDraft } from '@/lib/inbox/drafts'
 import { hydrateThreadMessages } from '@/lib/inbox/sync'
+import { resolveThreadCustomer } from '@/lib/inbox/customer-link'
 
 export const dynamic = 'force-dynamic'
 
@@ -126,8 +127,18 @@ export async function GET(
   // The caller's own in-progress reply draft for this thread (resume support).
   const myDraft = await getMyThreadDraft(admin, id, user.id)
 
+  // The customer this thread is with, for the "Customer file" link. Best-effort:
+  // a lookup hiccup must never cost the reader the thread itself.
+  let customer = null
+  try {
+    customer = await resolveThreadCustomer(admin, thread.company_id, thread)
+  } catch (e) {
+    console.warn('[inbox] customer link resolve failed:', e instanceof Error ? e.message : e)
+  }
+
   return NextResponse.json({
     thread: { ...thread, assignee_name: thread.assigned_to_user_id ? names[thread.assigned_to_user_id] || null : null },
+    customer,
     messages,
     myDraft,
     members: members.map((m) => ({ ...m, display_name: names[m.user_id] || null })),

@@ -40,6 +40,9 @@ function detailSignature(d: ThreadDetail): string {
     d.messages.map((m) => m.id).join(','),
     d.notes.length,
     d.members.length,
+    // So the Customer file link appears on the next quiet sweep once the
+    // counterpart is added to the directory, without a manual reload.
+    d.customer?.contactId || '',
   ].join('|')
 }
 
@@ -544,7 +547,7 @@ export default function EmailThreadView({
     )
   }
 
-  const { thread, messages, members, notes, permissions } = detail
+  const { thread, messages, members, notes, permissions, customer } = detail
   const isClosed = thread.status === 'closed'
   const subject = thread.subject || '(no subject)'
   const memberIds = members.map((m) => m.user_id)
@@ -627,6 +630,25 @@ export default function EmailThreadView({
               {participantName(thread.from_name, thread.from_email)}
               {thread.from_email && thread.from_name ? ` · ${thread.from_email}` : ''}
             </div>
+            {/* Customer file — the same jump the Txt thread offers, so a reply
+                can be written with the account's history in reach. Rendered only
+                when the counterpart resolves to a directory contact, which is a
+                minority of shared-mailbox traffic (vendors, newsletters and
+                internal mail have no customer to point at). */}
+            {customer && (
+              <Link
+                href={`/hub/contacts/${customer.contactId}`}
+                className="inline-flex items-center gap-1 mt-1 text-xs text-indigo-700 hover:text-indigo-900 hover:underline"
+                title={`Open the customer file for ${customer.name?.trim() || customer.email || 'this contact'}`}
+              >
+                👤 Customer file
+                {customer.name?.trim() ? (
+                  <span className="text-gray-500 font-normal truncate max-w-[180px]">
+                    · {customer.name.trim()}
+                  </span>
+                ) : null}
+              </Link>
+            )}
           </div>
           {statusChip}
         </div>
