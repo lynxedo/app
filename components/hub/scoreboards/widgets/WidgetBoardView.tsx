@@ -49,6 +49,11 @@ export default function WidgetBoardView({
   classicHref?: string
 }) {
   const [range, setRange] = useState('ytd')
+  // Custom range. Both dates must be set before it's applied — a half-filled
+  // range would otherwise reload the board with a nonsense window on every
+  // keystroke, so the server treats an incomplete one as year-to-date.
+  const [customStart, setCustomStart] = useState('')
+  const [customEnd, setCustomEnd] = useState('')
   const [res, setRes] = useState<ApiResponse | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [widgets, setWidgets] = useState<WidgetInstance[]>([])
@@ -65,11 +70,13 @@ export default function WidgetBoardView({
     window.setTimeout(() => setToast(t => (t === msg ? null : t)), 2200)
   }, [])
 
-  const load = useCallback(async (r: string) => {
+  const load = useCallback(async (r: string, from?: string, to?: string) => {
     setError(null)
     setRes(null)
     try {
-      const resp = await fetch(`/api/hub/scoreboards/widgets?board=${meta.slug}&range=${r}`)
+      const qs = new URLSearchParams({ board: meta.slug, range: r })
+      if (r === 'custom' && from && to) { qs.set('start', from); qs.set('end', to) }
+      const resp = await fetch(`/api/hub/scoreboards/widgets?${qs.toString()}`)
       const body = (await resp.json()) as ApiResponse
       if (!resp.ok) throw new Error(body.error || `HTTP ${resp.status}`)
       setRes(body)
@@ -80,7 +87,11 @@ export default function WidgetBoardView({
     }
   }, [meta.slug])
 
-  useEffect(() => { void load(range) }, [load, range])
+  // For a custom range, wait until both ends are filled in.
+  useEffect(() => {
+    if (range === 'custom' && !(customStart && customEnd)) return
+    void load(range, customStart, customEnd)
+  }, [load, range, customStart, customEnd])
 
   /* ── edit actions ─────────────────────────────────────────────────────── */
 
@@ -128,7 +139,11 @@ export default function WidgetBoardView({
   const save = async () => {
     setSaving(true)
     try {
-      const resp = await fetch(`/api/hub/scoreboards/widgets?range=${range}`, {
+      const saveQs = new URLSearchParams({ range })
+      if (range === 'custom' && customStart && customEnd) {
+        saveQs.set('start', customStart); saveQs.set('end', customEnd)
+      }
+      const resp = await fetch(`/api/hub/scoreboards/widgets?${saveQs.toString()}`, {
         method: 'PUT',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -278,7 +293,16 @@ export default function WidgetBoardView({
       <div className="flex flex-wrap items-center gap-2.5 border-b border-sky-400/15 bg-white/[0.014] px-5 py-2.5">
         <select
           value={range}
-          onChange={e => setRange(e.target.value)}
+          onChange={e => {
+            const next = e.target.value
+            // Seed a custom range from whatever is on screen, so switching to it
+            // starts from the current window instead of two empty boxes.
+            if (next === 'custom' && !(customStart && customEnd) && win) {
+              setCustomStart(win.start)
+              setCustomEnd(win.end)
+            }
+            setRange(next)
+          }}
           aria-label="Date range"
           className="rounded-lg border border-sky-400/15 bg-white/[0.02] px-2.5 py-1.5 text-[12px] text-sky-200"
         >
@@ -286,9 +310,28 @@ export default function WidgetBoardView({
             <option key={o.key} value={o.key}>{o.label}</option>
           ))}
         </select>
-        {win ? <span className="rounded-lg border border-sky-400/15 px-2.5 py-1.5 text-[12px] text-gray-400">{win.label}</span> : null}
+        {range === 'custom' ? (
+          <span className="flex flex-wrap items-center gap-1.5">
+            <input
+              type="date" aria-label="Range start" value={customStart} max={customEnd || undefined}
+              onChange={e => setCustomStart(e.target.value)}
+              className="rounded-lg border border-sky-400/15 bg-[#020c16]/60 px-2 py-1.5 text-[12px] text-sky-200"
+            />
+            <span className="text-[12px] text-gray-500">to</span>
+            <input
+              type="date" aria-label="Range end" value={customEnd} min={customStart || undefined}
+              onChange={e => setCustomEnd(e.target.value)}
+              className="rounded-lg border border-sky-400/15 bg-[#020c16]/60 px-2 py-1.5 text-[12px] text-sky-200"
+            />
+            {!(customStart && customEnd) ? (
+              <span className="text-[11px] text-amber-400">pick both dates</span>
+            ) : null}
+          </span>
+        ) : win ? (
+          <span className="rounded-lg border border-sky-400/15 px-2.5 py-1.5 text-[12px] text-gray-400">{win.label}</span>
+        ) : null}
         <button
-          onClick={() => void load(range)}
+          onClick={() => void load(range, customStart, customEnd)}
           className="rounded-lg border border-sky-400/15 px-2.5 py-1.5 text-[12px] text-gray-400 hover:border-sky-400/40 hover:text-sky-200"
         >
           ↻ Refresh

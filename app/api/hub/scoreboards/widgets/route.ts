@@ -90,7 +90,7 @@ export async function GET(request: Request) {
     return NextResponse.json({ migrated: false }, { status: 200 })
   }
 
-  const win = resolveWindow(sp.get('range'))
+  const win = resolveWindow(sp.get('range'), sp.get('start'), sp.get('end'))
 
   let layout
   try {
@@ -106,6 +106,9 @@ export async function GET(request: Request) {
   const res = NextResponse.json({
     migrated: true,
     asOf: new Date().toISOString(),
+    // Echo the RESOLVED start/end back, so the picker shows what the server
+    // actually used rather than what the browser asked for — an incomplete or
+    // invalid custom range silently resolves to year-to-date.
     window: { ...win, range: sp.get('range') ?? 'ytd', options: RANGE_OPTIONS },
     layout,
     catalog: widgetCatalog(),
@@ -156,7 +159,8 @@ export async function PUT(request: Request) {
     return NextResponse.json({ error: err instanceof Error ? err.message : 'Could not save' }, { status: 500 })
   }
 
-  const win = resolveWindow(new URL(request.url).searchParams.get('range'))
+  const putParams = new URL(request.url).searchParams
+  const win = resolveWindow(putParams.get('range'), putParams.get('start'), putParams.get('end'))
   const fresh = await loadOrSeedBoardLayout(caller.companyId, slug, caller.userId)
   const supabase = await createClient()
   const resolvedBoard = fresh

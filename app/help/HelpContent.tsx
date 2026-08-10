@@ -2375,7 +2375,7 @@ function ScoreboardsTab() {
       <Section title="Choosing What a Board Shows">
         <p>The <strong className="text-white">Lead Sources</strong> board is built from <strong className="text-white">cards</strong> you can rearrange. Other boards are being converted the same way, one at a time — until a board is converted it looks and works exactly as it always has.</p>
         <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
-          <li><strong className="text-white">Pick a date range</strong> at the top of the board — year to date, this month, last month, this quarter, last 12 months, or last year. Every card on the board follows it.</li>
+          <li><strong className="text-white">Pick a date range</strong> at the top of the board — year to date, this month, last month, this quarter, last 12 months, last year, or <strong className="text-white">Custom range…</strong> for any two dates you choose. Every card on the board follows it. A custom range starts from whatever period you were already looking at, so you can nudge it rather than start blank.</li>
           <li><strong className="text-white">Admins and managers</strong> see an <strong className="text-white">Edit board</strong> button. Everyone else sees the board as saved.</li>
         </ul>
         <p className="mt-2">While editing:</p>

@@ -12,7 +12,6 @@
 
 import type { ScorecardRow, DecidedLeadRow } from './sources'
 import type { SourceBag, WidgetConfig, WidgetDef, WindowSpec } from './types'
-import { windowYear } from './windows'
 import type { Tone, WidgetPayload } from './payloads'
 
 const UNKNOWN_SOURCE = 'Other / Unknown'
@@ -21,7 +20,7 @@ const UNKNOWN_SOURCE = 'Other / Unknown'
 
 const scorecardReq = (win: WindowSpec) => ({
   source: 'source_scorecard' as const,
-  params: { year: windowYear(win) },
+  params: { start: win.start, end: win.end },
 })
 
 function scorecard(bag: SourceBag, win: WindowSpec): ScorecardRow[] {

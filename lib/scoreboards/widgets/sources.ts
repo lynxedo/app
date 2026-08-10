@@ -32,6 +32,8 @@ export type ScorecardRow = {
   active_count: number
   churned_count: number
   retention_pct: number | null
+  /** ⚠ Named for the year-based original; means "new within the window". Both
+   *  RPCs return the same shape deliberately, so they share this one type. */
   new_in_year: number
   active_annual_value: number
   avg_annual_value: number | null
@@ -50,18 +52,23 @@ export type DecidedLeadRow = {
 const SOURCES: Record<SourceKey, SourceExecutor> = {
   /**
    * Lead-source scorecard: per-source volume, value and loyalty over the
-   * recurring book.
+   * recurring book, for an arbitrary window.
    *
-   * ⚠ This RPC takes a YEAR, not a date range (`p_year`), so an arbitrary window
-   * is narrowed to the year it ends in. Widening it to (p_start, p_end) is
-   * tracked in REPORTS_PRD.md §9.1.4a — it is also the RPC that hit an 8.5s
-   * statement timeout in July before its functional indexes landed, so re-check
-   * timing on wide ranges when that widening happens.
+   * Uses `scoreboard_source_scorecard_range`, added Aug 10 2026 so the board's
+   * date-range control means something here. The original `scoreboard_source_
+   * scorecard(company, year)` still exists and still backs the hardcoded Board 8
+   * and the weekly snapshot cron — verified byte-identical output for a
+   * Jan 1 → today window, so migrating between them changed no number.
+   *
+   * ⚠ This is the RPC that hit an 8.5s statement timeout in July before its
+   * functional indexes landed. Wide windows are the risk case; if a very wide
+   * range ever gets slow, that's where to look first.
    */
   source_scorecard: async (ctx, params) => {
-    const { data, error } = await ctx.supabase.rpc('scoreboard_source_scorecard', {
+    const { data, error } = await ctx.supabase.rpc('scoreboard_source_scorecard_range', {
       p_company_id: ctx.companyId,
-      p_year: Number(params.year),
+      p_start: String(params.start),
+      p_end: String(params.end),
     })
     if (error) throw new Error(`source_scorecard: ${error.message}`)
     return (data ?? []) as ScorecardRow[]

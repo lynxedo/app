@@ -14,7 +14,8 @@ import type { WindowSpec } from './types'
 const TZ = 'America/Chicago'
 const MONTH_ABBR = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-export type RangeKey = 'ytd' | 'this_month' | 'last_month' | 'this_quarter' | 'last_12' | 'last_year'
+export type RangeKey =
+  | 'ytd' | 'this_month' | 'last_month' | 'this_quarter' | 'last_12' | 'last_year' | 'custom'
 
 export const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
   { key: 'ytd', label: 'Year to date' },
@@ -23,7 +24,22 @@ export const RANGE_OPTIONS: { key: RangeKey; label: string }[] = [
   { key: 'this_quarter', label: 'This quarter' },
   { key: 'last_12', label: 'Last 12 months' },
   { key: 'last_year', label: 'Last year' },
+  { key: 'custom', label: 'Custom range…' },
 ]
+
+/** Earliest date worth accepting — the recurring book starts in 2025. */
+const FLOOR = '2015-01-01'
+
+const DATE_RE = /^\d{4}-\d{2}-\d{2}$/
+
+/** A real calendar date in YYYY-MM-DD, or null. Rejects 2026-02-31 and friends. */
+function parseDate(v: string | null | undefined): string | null {
+  if (!v || !DATE_RE.test(v)) return null
+  const [y, m, d] = v.split('-').map(Number)
+  if (m < 1 || m > 12) return null
+  if (d < 1 || d > lastDayOfMonth(y, m)) return null
+  return v
+}
 
 function todayInBusinessTz(): { y: number; m: number; d: number } {
   const parts = new Intl.DateTimeFormat('en-CA', {
@@ -49,16 +65,41 @@ function pretty(start: string, end: string): string {
   const left = `${MONTH_ABBR[sm - 1]} ${sd}`
   const right = `${MONTH_ABBR[em - 1]} ${ed}`
   if (sy === ey) {
+    if (start === end) return `${left}, ${ey}`                       // a single day
     if (sm === em && sd === 1 && ed === lastDayOfMonth(ey, em)) return `${MONTH_ABBR[em - 1]} ${ey}`
     return `${left} – ${right}, ${ey}`
   }
   return `${left}, ${sy} – ${right}, ${ey}`
 }
 
-/** Resolve a named range against the business clock. Unknown keys fall back to YTD. */
-export function resolveWindow(range: string | null | undefined): WindowSpec {
+/**
+ * Resolve a named range against the business clock. Unknown keys fall back to YTD.
+ *
+ * `custom` needs both dates and takes them verbatim; anything invalid falls back
+ * to YTD rather than erroring, because a bad date in a URL should show a sensible
+ * board, not a broken one. Reversed dates are swapped rather than rejected — the
+ * user's intent is obvious and refusing it would be pedantic.
+ */
+export function resolveWindow(
+  range: string | null | undefined,
+  customStart?: string | null,
+  customEnd?: string | null,
+): WindowSpec {
   const t = todayInBusinessTz()
   const today = ymd(t.y, t.m, t.d)
+
+  if (range === 'custom') {
+    let a = parseDate(customStart)
+    let b = parseDate(customEnd)
+    if (a && b) {
+      if (a > b) [a, b] = [b, a]
+      if (a < FLOOR) a = FLOOR
+      // Allow an end date in the future (a range through year-end is a fair ask);
+      // it simply has no data past today.
+      return { start: a, end: b, label: pretty(a, b), phrase: `${pretty(a, b)}` }
+    }
+    // Incomplete custom range — behave as YTD until both dates are set.
+  }
 
   switch (range) {
     case 'this_month': {
