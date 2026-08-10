@@ -424,13 +424,48 @@ const CLIENTS_QUERY = `
   }
 `
 
+/**
+ * Options shared by the five entity pulls, so a full backfill can be sized,
+ * paused and resumed instead of having to complete inside one request.
+ *
+ * `startDate` replaces what used to be a hardcoded 'after: 2026-01-01' literal in
+ * three of these functions — a per-company history floor, so a new subscriber can
+ * bring in as much or as little history as they actually have.
+ */
+/**
+ * The history floor for a full pull. Defaults to 2026-01-01 — the value that used
+ * to be hardcoded in three places — so Heroes' behavior is byte-identical until a
+ * company sets its own `sync_start_date`.
+ */
+function fullPullFloor(opts?: PullOpts): string {
+  const d = opts?.startDate
+  if (!d) return '2026-01-01T00:00:00Z'
+  // Accept a bare date ('2019-04-01') or a full timestamp.
+  return d.includes('T') ? d : `${d}T00:00:00Z`
+}
+
+export type PullOpts = {
+  /** History floor for a FULL pull. Ignored when `updatedSince` is set (a delta). */
+  startDate?: string
+  /** Resume from this cursor rather than the first page. */
+  startCursor?: string | null
+  /**
+   * Called after each page is written. Return false to stop early — the caller has
+   * run out of time budget and will resume from the cursor it was just handed.
+   * The cursor is persisted BEFORE we decide to continue, so a crash costs one
+   * page rather than the whole run.
+   */
+  onPage?: (cursor: string | null, added: number, hasMore: boolean) => Promise<boolean>
+}
+
 async function syncClients(
   userId: string,
   companyId: string,
-  updatedSince?: Date
+  updatedSince?: Date,
+  opts?: PullOpts
 ): Promise<number> {
   const admin = createAdminClient()
-  let cursor: string | null = null
+  let cursor: string | null = opts?.startCursor ?? null
   let total = 0
 
   while (true) {
@@ -643,6 +678,18 @@ async function syncClients(
     total += nodes.length
     console.log(`[jobber-sync] clients: synced ${total} so far`)
 
+    // Report progress and let a resumable backfill stop here. The cursor is
+    // handed over BEFORE we decide whether to continue, so an interrupted run
+    // resumes from this page rather than from the beginning.
+    if (opts?.onPage) {
+      const keepGoing = await opts.onPage(
+        pageInfo.hasNextPage ? pageInfo.endCursor : null,
+        nodes.length,
+        pageInfo.hasNextPage,
+      )
+      if (!keepGoing) break
+    }
+
     if (!pageInfo.hasNextPage) break
     cursor = pageInfo.endCursor
     await throttleSleep(resp)
@@ -676,10 +723,11 @@ const PROPERTIES_QUERY = `
 async function syncProperties(
   userId: string,
   companyId: string,
-  _updatedSince?: Date
+  _updatedSince?: Date,
+  opts?: PullOpts
 ): Promise<number> {
   const admin = createAdminClient()
-  let cursor: string | null = null
+  let cursor: string | null = opts?.startCursor ?? null
   let total = 0
 
   while (true) {
@@ -750,6 +798,18 @@ async function syncProperties(
     total += nodes.length
     console.log(`[jobber-sync] properties: synced ${total} so far`)
 
+    // Report progress and let a resumable backfill stop here. The cursor is
+    // handed over BEFORE we decide whether to continue, so an interrupted run
+    // resumes from this page rather than from the beginning.
+    if (opts?.onPage) {
+      const keepGoing = await opts.onPage(
+        pageInfo.hasNextPage ? pageInfo.endCursor : null,
+        nodes.length,
+        pageInfo.hasNextPage,
+      )
+      if (!keepGoing) break
+    }
+
     if (!pageInfo.hasNextPage) break
     cursor = pageInfo.endCursor
     await throttleSleep(resp)
@@ -805,10 +865,11 @@ async function syncJobs(
   userId: string,
   companyId: string,
   updatedSince?: Date,
-  ids?: string[]
+  ids?: string[],
+  opts?: PullOpts
 ): Promise<number> {
   const admin = createAdminClient()
-  let cursor: string | null = null
+  let cursor: string | null = opts?.startCursor ?? null
   let total = 0
 
   while (true) {
@@ -824,7 +885,7 @@ async function syncJobs(
       filter.createdAt = { after: updatedSince.toISOString() }
     } else {
       filter.visitsScheduledBetween = {
-        after: '2026-01-01T00:00:00Z',
+        after: fullPullFloor(opts),
         before: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
       }
     }
@@ -940,6 +1001,18 @@ async function syncJobs(
     total += nodes.length
     console.log(`[jobber-sync] jobs: synced ${total} so far`)
 
+    // Report progress and let a resumable backfill stop here. The cursor is
+    // handed over BEFORE we decide whether to continue, so an interrupted run
+    // resumes from this page rather than from the beginning.
+    if (opts?.onPage) {
+      const keepGoing = await opts.onPage(
+        pageInfo.hasNextPage ? pageInfo.endCursor : null,
+        nodes.length,
+        pageInfo.hasNextPage,
+      )
+      if (!keepGoing) break
+    }
+
     if (!pageInfo.hasNextPage) break
     cursor = pageInfo.endCursor
     await throttleSleep(resp)
@@ -992,10 +1065,11 @@ async function syncVisits(
   userId: string,
   companyId: string,
   updatedSince?: Date,
-  ids?: string[]
+  ids?: string[],
+  opts?: PullOpts
 ): Promise<number> {
   const admin = createAdminClient()
-  let cursor: string | null = null
+  let cursor: string | null = opts?.startCursor ?? null
   let total = 0
 
   while (true) {
@@ -1012,7 +1086,7 @@ async function syncVisits(
       filter.startAt = { after: updatedSince.toISOString() }
     } else {
       filter.startAt = {
-        after: '2026-01-01T00:00:00Z',
+        after: fullPullFloor(opts),
         before: new Date(Date.now() + 365 * 24 * 60 * 60 * 1000).toISOString(),
       }
     }
@@ -1109,6 +1183,18 @@ async function syncVisits(
     total += nodes.length
     console.log(`[jobber-sync] visits: synced ${total} so far`)
 
+    // Report progress and let a resumable backfill stop here. The cursor is
+    // handed over BEFORE we decide whether to continue, so an interrupted run
+    // resumes from this page rather than from the beginning.
+    if (opts?.onPage) {
+      const keepGoing = await opts.onPage(
+        pageInfo.hasNextPage ? pageInfo.endCursor : null,
+        nodes.length,
+        pageInfo.hasNextPage,
+      )
+      if (!keepGoing) break
+    }
+
     if (!pageInfo.hasNextPage) break
     cursor = pageInfo.endCursor
     await throttleSleep(resp)
@@ -1169,10 +1255,11 @@ const INVOICES_QUERY = `
 async function syncInvoices(
   userId: string,
   companyId: string,
-  updatedSince?: Date
+  updatedSince?: Date,
+  opts?: PullOpts
 ): Promise<number> {
   const admin = createAdminClient()
-  let cursor: string | null = null
+  let cursor: string | null = opts?.startCursor ?? null
   let total = 0
 
   while (true) {
@@ -1180,7 +1267,7 @@ async function syncInvoices(
     if (updatedSince) {
       filter.updatedAt = { after: updatedSince.toISOString() }
     } else {
-      filter.issuedDate = { after: '2026-01-01T00:00:00Z' }
+      filter.issuedDate = { after: fullPullFloor(opts) }
     }
 
     const resp = await withRateLimit(() =>
@@ -1285,6 +1372,18 @@ async function syncInvoices(
     total += nodes.length
     console.log(`[jobber-sync] invoices: synced ${total} so far`)
 
+    // Report progress and let a resumable backfill stop here. The cursor is
+    // handed over BEFORE we decide whether to continue, so an interrupted run
+    // resumes from this page rather than from the beginning.
+    if (opts?.onPage) {
+      const keepGoing = await opts.onPage(
+        pageInfo.hasNextPage ? pageInfo.endCursor : null,
+        nodes.length,
+        pageInfo.hasNextPage,
+      )
+      if (!keepGoing) break
+    }
+
     if (!pageInfo.hasNextPage) break
     cursor = pageInfo.endCursor
     await throttleSleep(resp)
@@ -1294,6 +1393,61 @@ async function syncInvoices(
 }
 
 // ── Public API ────────────────────────────────────────────────────────────────
+
+/** The five entity pulls a full backfill walks through, in dependency order. */
+export const PULL_ENTITIES = ['clients', 'properties', 'jobs', 'visits', 'invoices'] as const
+export type PullEntity = (typeof PULL_ENTITIES)[number]
+
+/**
+ * How far back a company's full pull should reach.
+ *
+ * Was a hardcoded 'after: 2026-01-01' in three separate filters, which meant a new
+ * subscriber could never bring in history older than 2026 and the window silently
+ * widened every January. Now per-company, stored where every other integration
+ * setting lives (`company_integrations.config`, provider 'jobber').
+ *
+ * Defaults to 2026-01-01 so Heroes and any company that hasn't set one behave
+ * exactly as before.
+ */
+export async function getJobberSyncStartDate(companyId: string): Promise<string> {
+  try {
+    const { data } = await createAdminClient()
+      .from('company_integrations')
+      .select('config')
+      .eq('company_id', companyId)
+      .eq('provider', 'jobber')
+      .maybeSingle()
+    const cfg = (data?.config ?? null) as { sync_start_date?: string } | null
+    const d = cfg?.sync_start_date
+    // Accept YYYY-MM-DD or a full timestamp; ignore anything unparseable rather
+    // than pulling from the epoch by accident.
+    if (d && /^\d{4}-\d{2}-\d{2}/.test(d) && !Number.isNaN(Date.parse(d))) return d
+  } catch {
+    // fall through to the default
+  }
+  return '2026-01-01'
+}
+
+/**
+ * Run one entity pull. A thin dispatcher so the backfill orchestrator can drive
+ * the entities generically without each of them being exported separately.
+ * Returns how many records this run wrote.
+ */
+export async function pullJobberEntity(
+  entity: PullEntity,
+  userId: string,
+  companyId: string,
+  opts: PullOpts,
+): Promise<number> {
+  switch (entity) {
+    case 'clients':    return syncClients(userId, companyId, undefined, opts)
+    case 'properties': return syncProperties(userId, companyId, undefined, opts)
+    case 'jobs':       return syncJobs(userId, companyId, undefined, undefined, opts)
+    case 'visits':     return syncVisits(userId, companyId, undefined, undefined, opts)
+    case 'invoices':   return syncInvoices(userId, companyId, undefined, opts)
+  }
+}
+
 
 export interface SyncSummary {
   clients: number
