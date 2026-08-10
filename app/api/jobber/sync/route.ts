@@ -2,6 +2,7 @@ import { NextRequest, NextResponse, after } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { runInitialJobberSync, runDeltaJobberSync } from '@/lib/jobber-sync'
+import { checkCustomerLinkHealth } from '@/lib/jobber-customer-link'
 
 // Fallback company for a cron call that names none — keeps the existing nightly
 // delta cron working untouched. ⚠ It is a FALLBACK, not a pin: a signed-in admin
@@ -66,6 +67,14 @@ export async function POST(req: NextRequest) {
       console.error('[jobber-sync] Unhandled error in delta sync:', err)
     ))
   }
+
+  // Watch the customer-link sweep from here, because a job cannot report its own
+  // death: if that cron stops firing, nothing inside it runs. This is a different
+  // cron line, so it notices and DMs the admins. No-ops when the feature isn't set
+  // up, when nothing is queued, or when the sweep ran recently.
+  after(() => checkCustomerLinkHealth(companyId).catch(err =>
+    console.error('[jobber-sync] customer-link health check failed:', err)
+  ))
 
   return NextResponse.json({ status: 'started', type, companyId })
 }

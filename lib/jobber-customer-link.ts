@@ -317,3 +317,138 @@ export async function writeCustomerLinkForClient(
     return 'failed'
   }
 }
+
+// ── Health ───────────────────────────────────────────────────────────────────
+//
+// A sweep cannot report its own death: if the cron stops firing, nothing inside it
+// runs. So there are two independent signals.
+//
+//  1. recordSweepRun — every run stamps its outcome on the Jobber integration row.
+//     A run that is failing while still running says so here.
+//  2. checkCustomerLinkHealth — called from the DAILY JOBBER SYNC, a different cron
+//     line. If the sweep hasn't succeeded in over two days while work is still
+//     queued, that cron raises the alarm on its behalf.
+//
+// Both funnel into a Guardian DM to company admins, throttled so a persistent
+// problem nags once a day rather than every run.
+
+const SWEEP_STALE_HOURS = 48
+const ALERT_THROTTLE_HOURS = 24
+
+type SweepRunRecord = {
+  at: string
+  written: number
+  failed: number
+  remaining: number
+  blocked?: boolean
+  lastError?: string
+  alertedAt?: string
+}
+
+export async function recordSweepRun(companyId: string, result: SweepResult): Promise<void> {
+  try {
+    const admin = createAdminClient()
+    const { data } = await admin
+      .from('company_integrations')
+      .select('config')
+      .eq('company_id', companyId)
+      .eq('provider', 'jobber')
+      .maybeSingle()
+    const cfg = (data?.config ?? {}) as Record<string, unknown>
+    const prev = (cfg.customer_link_last_run ?? {}) as SweepRunRecord
+
+    const run: SweepRunRecord = {
+      at: new Date().toISOString(),
+      written: result.written,
+      failed: result.failed,
+      remaining: result.remaining,
+      ...(result.blocked ? { blocked: true } : {}),
+      ...(result.lastError ? { lastError: result.lastError } : {}),
+      // Carry the alert stamp forward so throttling survives across runs.
+      ...(prev.alertedAt ? { alertedAt: prev.alertedAt } : {}),
+    }
+
+    await admin
+      .from('company_integrations')
+      .update({ config: { ...cfg, customer_link_last_run: run }, updated_at: new Date().toISOString() })
+      .eq('company_id', companyId)
+      .eq('provider', 'jobber')
+
+    // A run that wrote nothing while work remains is the "running but broken" case.
+    if ((result.blocked || result.failed > 0) && result.written === 0 && result.remaining > 0) {
+      await alertAdmins(
+        companyId,
+        result.blocked
+          ? `Jobber blocked our writes, so customer-file links didn't update. ${result.remaining} customers still need one. This usually clears itself; if it's still here tomorrow the Jobber connection needs a look.`
+          : `The customer-file link sweep couldn't write to Jobber. ${result.remaining} customers still need a link.\n\n${result.lastError ?? ''}`,
+      )
+    }
+  } catch (e) {
+    console.error('[customer-link] recordSweepRun failed:', e)
+  }
+}
+
+/** Called from the daily Jobber sync — the cron that isn't the sweep. */
+export async function checkCustomerLinkHealth(companyId: string): Promise<void> {
+  try {
+    const admin = createAdminClient()
+    const { data } = await admin
+      .from('company_integrations')
+      .select('config')
+      .eq('company_id', companyId)
+      .eq('provider', 'jobber')
+      .maybeSingle()
+    const cfg = (data?.config ?? {}) as Record<string, unknown>
+    if (!cfg.customer_link_field_id) return // feature not set up here
+
+    const run = (cfg.customer_link_last_run ?? null) as SweepRunRecord | null
+    // Nothing queued means nothing to worry about, even if the sweep is idle.
+    if (run && run.remaining === 0) return
+
+    const lastAt = run?.at ? Date.parse(run.at) : 0
+    const hours = (Date.now() - lastAt) / 3_600_000
+    if (hours < SWEEP_STALE_HOURS) return
+
+    await alertAdmins(
+      companyId,
+      run
+        ? `The customer-file link sweep hasn't run since ${new Date(lastAt).toLocaleString('en-US', { timeZone: 'America/Chicago' })}. ${run.remaining} customers are waiting for a link, and new ones may be missing theirs. The daily job may have stopped.`
+        : `The customer-file link sweep has never run. New customers won't get a Jobber link until it does.`,
+    )
+  } catch (e) {
+    console.error('[customer-link] health check failed:', e)
+  }
+}
+
+async function alertAdmins(companyId: string, body: string): Promise<void> {
+  const admin = createAdminClient()
+  const { data } = await admin
+    .from('company_integrations')
+    .select('config')
+    .eq('company_id', companyId)
+    .eq('provider', 'jobber')
+    .maybeSingle()
+  const cfg = (data?.config ?? {}) as Record<string, unknown>
+  const run = (cfg.customer_link_last_run ?? {}) as SweepRunRecord
+  const alertedAt = run.alertedAt ? Date.parse(run.alertedAt) : 0
+  if ((Date.now() - alertedAt) / 3_600_000 < ALERT_THROTTLE_HOURS) return
+
+  const { data: admins } = await admin
+    .from('user_profiles')
+    .select('id')
+    .eq('company_id', companyId)
+    .eq('role', 'admin')
+  if (!admins?.length) return
+
+  const { postGuardianToUserDm } = await import('@/lib/guardian-post')
+  for (const a of admins) {
+    await postGuardianToUserDm(companyId, a.id, `⚠️ ${body}`).catch((err) =>
+      console.error('[customer-link] alert DM failed for', a.id, err))
+  }
+
+  await admin
+    .from('company_integrations')
+    .update({ config: { ...cfg, customer_link_last_run: { ...run, alertedAt: new Date().toISOString() } } })
+    .eq('company_id', companyId)
+    .eq('provider', 'jobber')
+}
