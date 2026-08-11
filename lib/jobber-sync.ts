@@ -1555,6 +1555,81 @@ async function reconcileOpenInvoices(userId: string, companyId: string): Promise
   return refreshed
 }
 
+/** How many job ids we hand Jobber's `filter.ids` per round trip. */
+const OPEN_JOB_BATCH = 40
+/** Refuse to run if the live book is implausibly large (see reconcileOpenInvoices). */
+const OPEN_JOB_CEILING = 5000
+
+/**
+ * Re-read every job that is not archived, ignoring `createdAt`.
+ *
+ * ⚠⚠ THE DELTA PULL CANNOT SEE A JOB STATUS CHANGE AT ALL. JobFilterAttributes has
+ * no `updatedAt` field, so syncJobs' delta filters on `createdAt` — it only ever
+ * picks up NEWLY CREATED jobs. The standing comment there says edits are "caught in
+ * real time by the Jobber webhook, so nothing is missed"; that assumption is what
+ * failed. Invoicing a job flips its status as a SIDE EFFECT of the invoice, and
+ * Jobber fires INVOICE_CREATE for that, not JOB_UPDATE — and the invoice branch of
+ * the webhook dispatch never touched the job. So an invoiced job kept
+ * `requires_invoicing` forever.
+ *
+ * Measured on the live book 2026-08-11: the mirror held 100 jobs in
+ * requires_invoicing worth $24,562.45; Jobber's own Jobs screen showed exactly ONE,
+ * for $459.90. Ben caught it by opening Jobber and counting.
+ *
+ * Re-reading by id rather than by status is the point: a status we no longer believe
+ * is precisely the thing we cannot filter on. Non-archived is the live book (~600
+ * rows, ~16 requests), and a job archived in Jobber flips on its next read, so the
+ * set drains itself.
+ */
+async function reconcileOpenJobs(userId: string, companyId: string): Promise<number> {
+  const admin = createAdminClient()
+
+  const { data: openRows, error: readErr } = await admin
+    .from('jobs')
+    .select('external_id')
+    .eq('company_id', companyId)
+    .eq('source', 'jobber')
+    .is('deleted_at', null)
+    .not('job_status', 'eq', 'archived')
+    .limit(OPEN_JOB_CEILING + 1)
+  if (readErr) throw new Error(`open job read: ${readErr.message}`)
+
+  const ids = (openRows ?? []).map(r => r.external_id).filter(Boolean) as string[]
+  if (!ids.length) return 0
+
+  if (ids.length > OPEN_JOB_CEILING) {
+    console.warn(
+      `[jobber-sync] job reconcile skipped: ${ids.length} live jobs exceeds ceiling ${OPEN_JOB_CEILING}`
+    )
+    return 0
+  }
+
+  let refreshed = 0
+  for (let i = 0; i < ids.length; i += OPEN_JOB_BATCH) {
+    // syncJobs already supports `filter.ids` and owns the row mapping, line items
+    // and pacing — this only decides WHICH jobs get re-read.
+    refreshed += await syncJobs(userId, companyId, undefined, ids.slice(i, i + OPEN_JOB_BATCH))
+  }
+
+  console.log(`[jobber-sync] job reconcile: re-read ${refreshed} live job(s)`)
+  return refreshed
+}
+
+/** reconcileOpenJobs, but a failure is recorded rather than failing the sync. */
+async function reconcileOpenJobsSafe(
+  userId: string,
+  companyId: string,
+  summary: SyncSummary,
+): Promise<void> {
+  try {
+    await reconcileOpenJobs(userId, companyId)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[jobber-sync] job reconcile failed (continuing):', msg)
+    summary.errors.push(`job reconcile: ${msg}`)
+  }
+}
+
 /** reconcileOpenInvoices, but a failure is recorded rather than failing the sync. */
 async function reconcileOpenInvoicesSafe(
   userId: string,
@@ -1824,6 +1899,10 @@ export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary
     // failure here leaves AR stale, which is strictly better than discarding an
     // otherwise good sync.
     await reconcileOpenInvoicesSafe(userId, companyId, summary)
+    // Must follow the job pull for the same reason: the delta filters jobs on
+    // createdAt, so this is the ONLY step that ever moves an existing job off a
+    // stale status.
+    await reconcileOpenJobsSafe(userId, companyId, summary)
 
     console.log('[jobber-sync] Delta pull complete:', summary)
     await completeSyncLog(logId, Object.values(summary).filter(v => typeof v === 'number').reduce((a, b) => a + (b as number), 0))
@@ -1935,8 +2014,31 @@ export async function processJobberWebhookEvent(
         break
       }
       case 'INVOICE_CREATE':
-      case 'INVOICE_UPDATE':
-        await syncInvoices(userId, companyId, since); break
+      case 'INVOICE_UPDATE': {
+        await syncInvoices(userId, companyId, since)
+        // ⚠ Invoicing a job changes the JOB too — it leaves `requires_invoicing` —
+        // but Jobber reports that as an INVOICE event, never JOB_UPDATE. Without
+        // this the job keeps a status it no longer has: the mirror read 100 jobs
+        // awaiting invoicing where Jobber had 1. The nightly reconcile is the
+        // backstop; this keeps it right within seconds.
+        try {
+          const admin = createAdminClient()
+          const { data: inv } = await admin
+            .from('invoices')
+            .select('job_external_id')
+            .eq('company_id', companyId)
+            .eq('external_id', itemId)
+            .maybeSingle()
+          if (inv?.job_external_id) {
+            await syncJobs(userId, companyId, undefined, [inv.job_external_id])
+          }
+        } catch (e) {
+          // The invoice itself is already saved; a stale job status is the lesser
+          // harm and the nightly reconcile will clear it.
+          console.error('[jobber-webhook] job refresh after invoice failed for', itemId, e)
+        }
+        break
+      }
       case 'JOB_CREATE':
       case 'JOB_UPDATE':
         await syncJobs(userId, companyId, undefined, [itemId])
