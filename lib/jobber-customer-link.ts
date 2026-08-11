@@ -402,8 +402,26 @@ export async function checkCustomerLinkHealth(companyId: string): Promise<void> 
     if (!cfg.customer_link_field_id) return // feature not set up here
 
     const run = (cfg.customer_link_last_run ?? null) as SweepRunRecord | null
+
+    // No record is not the same as never ran. The first time this looked, the sweep
+    // had already been running for hours — the code that RECORDS runs shipped after
+    // the sweep itself did — and it announced "the sweep has never run", which was
+    // both alarming and false. Start the clock instead: if the sweep genuinely never
+    // runs, the staleness check below catches it two days from now, correctly.
+    if (!run) {
+      await admin
+        .from('company_integrations')
+        .update({
+          config: { ...cfg, customer_link_last_run: { at: new Date().toISOString(), written: 0, failed: 0, remaining: -1 } },
+          updated_at: new Date().toISOString(),
+        })
+        .eq('company_id', companyId)
+        .eq('provider', 'jobber')
+      return
+    }
+
     // Nothing queued means nothing to worry about, even if the sweep is idle.
-    if (run && run.remaining === 0) return
+    if (run.remaining === 0) return
 
     const lastAt = run?.at ? Date.parse(run.at) : 0
     const hours = (Date.now() - lastAt) / 3_600_000
@@ -411,9 +429,9 @@ export async function checkCustomerLinkHealth(companyId: string): Promise<void> 
 
     await alertAdmins(
       companyId,
-      run
-        ? `The customer-file link sweep hasn't run since ${new Date(lastAt).toLocaleString('en-US', { timeZone: 'America/Chicago' })}. ${run.remaining} customers are waiting for a link, and new ones may be missing theirs. The daily job may have stopped.`
-        : `The customer-file link sweep has never run. New customers won't get a Jobber link until it does.`,
+      `The customer-file link sweep hasn't run since ${new Date(lastAt).toLocaleString('en-US', { timeZone: 'America/Chicago' })}. ` +
+        (run.remaining > 0 ? `${run.remaining} customers are waiting for a link, and new ones may be missing theirs. ` : '') +
+        `The daily job may have stopped.`,
     )
   } catch (e) {
     console.error('[customer-link] health check failed:', e)
