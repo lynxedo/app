@@ -161,6 +161,41 @@ export type CrewLaborRow = {
   by_department: { department: string; hours: number; labor_cost: number; people: number }[]
 }
 
+/** Dialer + Txt responsiveness for a window. */
+export type CommsRow = {
+  coverage: {
+    /** Earliest call/text we hold, so a widget can flag a window reaching further back. */
+    first_call: string | null
+    first_text: string | null
+    requested_start: string
+    requested_end: string
+  }
+  inbound_calls: number
+  outbound_calls: number
+  answered_human: number
+  /** Amber. Counts as answered — she is the receptionist, not a failure mode. */
+  answered_ai: number
+  missed: number
+  missed_pct: number | null
+  missed_with_voicemail: number
+  missed_no_message: number
+  /** Under 5 seconds — nobody could have reached the phone. */
+  missed_quick_hangup: number
+  median_answer_sec: number | null
+  avg_answer_sec: number | null
+  answer_sample: number
+  texts_in: number
+  texts_out: number
+  texts_failed: number
+  median_reply_sec: number | null
+  p90_reply_sec: number | null
+  reply_sample: number
+  voicemails: number
+  voicemails_unheard: number
+  by_hour: { hour: number; inbound: number; missed: number }[]
+  by_weekday: { dow: number; label: string; inbound: number; missed: number }[]
+}
+
 /* ── Executors ──────────────────────────────────────────────────────────── */
 
 const SOURCES: Record<SourceKey, SourceExecutor> = {
@@ -278,6 +313,27 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
     })
     if (error) throw new Error(`crew_labor: ${error.message}`)
     return data ? [data as CrewLaborRow] : []
+  },
+
+  /**
+   * Dialer + Txt responsiveness (Report §8.10).
+   *
+   * ⚠ "Missed" is derived from `answered_at`, NOT `status`: 955 inbound calls read
+   * status='completed' while only 605 were ever answered — completed means the call
+   * ended. Amber-handled calls count as answered.
+   *
+   * ⚠ No window clamping here, unlike crew_labor: every ratio divides calls by calls
+   * or texts by texts, so a window predating the data is internally consistent, just
+   * emptier. The earliest dates come back so a widget can say so.
+   */
+  communications: async (ctx, params) => {
+    const { data, error } = await ctx.supabase.rpc('scoreboard_communications', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+    })
+    if (error) throw new Error(`communications: ${error.message}`)
+    return data ? [data as CommsRow] : []
   },
 
   leads_decided: async (ctx, params) => {

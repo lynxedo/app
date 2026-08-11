@@ -33,6 +33,14 @@ export const REPORTS: ReportMeta[] = [
     prd: '§8.3',
   },
   {
+    slug: 'communications',
+    title: 'Communications',
+    subtitle: 'Are you answering the phone and following up? Missed calls are missed revenue',
+    section: 'Operations',
+    icon: '📞',
+    prd: '§8.10',
+  },
+  {
     slug: 'crew',
     title: 'Crew & Labor Efficiency',
     subtitle: 'What every clocked hour brings in — revenue against the timeclock, per person',

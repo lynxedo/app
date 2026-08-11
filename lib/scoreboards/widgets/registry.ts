@@ -15,6 +15,7 @@ import type { SourceBag, WidgetConfig, WidgetDef, WindowSpec } from './types'
 import { RETENTION_WIDGETS, RETENTION_REPORT_PRESET } from './retention'
 import { REVENUE_WIDGETS, REVENUE_REPORT_PRESET } from './revenue'
 import { CREW_WIDGETS, CREW_REPORT_PRESET } from './crew'
+import { COMMS_WIDGETS, COMMS_REPORT_PRESET } from './comms'
 import type { Tone, WidgetPayload } from './payloads'
 
 const UNKNOWN_SOURCE = 'Other / Unknown'
@@ -429,7 +430,7 @@ const WIDGETS: WidgetDef<WidgetPayload>[] = [
 ]
 
 /** Every widget in the library. One array per subject area, concatenated here. */
-const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS]
+const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS, ...COMMS_WIDGETS]
 
 const BY_TYPE = new Map(ALL_WIDGETS.map(w => [w.type, w]))
 
@@ -497,6 +498,7 @@ export const REPORT_PRESETS: Record<string, { title: string; widgets: { type: st
   'report:retention': { title: 'Retention & Churn', widgets: RETENTION_REPORT_PRESET },
   'report:revenue': { title: 'Revenue & Invoicing', widgets: REVENUE_REPORT_PRESET },
   'report:crew': { title: 'Crew & Labor Efficiency', widgets: CREW_REPORT_PRESET },
+  'report:communications': { title: 'Communications', widgets: COMMS_REPORT_PRESET },
 }
 
 export function reportLayoutSlug(reportSlug: string): string {
