@@ -25,6 +25,14 @@ export type ReportMeta = {
 
 export const REPORTS: ReportMeta[] = [
   {
+    slug: 'revenue',
+    title: 'Revenue & Invoicing',
+    subtitle: 'What you billed, what came in, and exactly who still owes you money',
+    section: 'Money',
+    icon: '💵',
+    prd: '§8.3',
+  },
+  {
     slug: 'retention',
     title: 'Retention & Churn',
     subtitle: 'What share of the recurring book you keep, why customers leave, and how much it costs',

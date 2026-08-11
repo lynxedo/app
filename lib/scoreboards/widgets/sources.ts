@@ -68,6 +68,55 @@ export type ChurnSummaryRow = {
   monthly: { month: string; gross: number; controllable: number }[]
 }
 
+/** Billed-and-collected for one window. One composite row, like churn_summary. */
+export type InvoiceWindowRow = {
+  invoiced: number
+  collected: number
+  still_owed: number
+  invoice_count: number
+  avg_invoice: number | null
+  subtotal: number
+  tax: number
+  tips: number
+  discounts: number
+  median_days_to_pay: number | null
+  avg_days_to_pay: number | null
+  paid_count: number
+  draft_count: number
+  draft_value: number
+  /** Oldest invoice the mirror holds — lets a widget say "we don't have data that far back". */
+  earliest_invoice: string | null
+  monthly: { month: string; invoiced: number; collected: number; count: number }[]
+  mix: { kind: string; count: number; invoiced: number }[]
+}
+
+/** What is owed right now. No window — receivables are point-in-time. */
+export type InvoiceArRow = {
+  as_of: string
+  total_ar: number
+  open_count: number
+  overdue_total: number
+  overdue_count: number
+  /** Invoices Jobber marks paid that still carry a balance. Real money, easily hidden. */
+  paid_status_still_owing_count: number
+  paid_status_still_owing_value: number
+  draft_count: number
+  draft_value: number
+  credit_count: number
+  credit_balance: number
+  buckets: { bucket: string; sort: number; count: number; balance: number }[]
+  invoices: {
+    id: string
+    invoice_number: string | null
+    client_id: string | null
+    client_name: string
+    balance: number
+    days_past_due: number
+    issued_date: string | null
+    status: string
+  }[]
+}
+
 /* ── Executors ──────────────────────────────────────────────────────────── */
 
 const SOURCES: Record<SourceKey, SourceExecutor> = {
@@ -120,6 +169,49 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
     })
     if (error) throw new Error(`churn_summary: ${error.message}`)
     return data ? [data as ChurnSummaryRow] : []
+  },
+
+  /**
+   * What was billed and collected in a window (Report §8.3).
+   *
+   * Aggregated in Postgres rather than pulled as rows: a year of Heroes invoices is
+   * ~2,500 records, which PostgREST would hand back 1,000 at a time and then be
+   * summed in Node for no benefit. One composite row instead — and it can't hit the
+   * row cap as history grows.
+   *
+   * ⚠ Collected is derived from `outstanding_balance`, NOT `payments_total`: 177 of
+   * 2,492 invoices Jobber calls paid carry payments_total = 0, so that column
+   * understates collections by ~$21.7k on the same book. Full reasoning is in the
+   * migration header (supabase/2026-08-11_scoreboard_invoice_reports.sql).
+   */
+  invoice_window: async (ctx, params) => {
+    const { data, error } = await ctx.supabase.rpc('scoreboard_invoice_window', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+    })
+    if (error) throw new Error(`invoice_window: ${error.message}`)
+    return data ? [data as InvoiceWindowRow] : []
+  },
+
+  /**
+   * What is owed right now (Report §8.3).
+   *
+   * ⚠ Takes NO date range, deliberately. Accounts receivable is a point-in-time
+   * fact: an invoice issued in March and still unpaid belongs in today's AR, and
+   * would disappear from a June–August window — hiding most of the debt the page
+   * exists to chase. The widgets built on this say "as of today" on the card rather
+   * than letting the board's date picker imply something this number never obeyed.
+   *
+   * ⚠ "Open" means outstanding_balance > 0, never invoice_status: 14 invoices marked
+   * paid still owe $3,044 between them, one of them 118 days late.
+   */
+  invoice_ar: async ctx => {
+    const { data, error } = await ctx.supabase.rpc('scoreboard_invoice_ar', {
+      p_company_id: ctx.companyId,
+    })
+    if (error) throw new Error(`invoice_ar: ${error.message}`)
+    return data ? [data as InvoiceArRow] : []
   },
 
   leads_decided: async (ctx, params) => {

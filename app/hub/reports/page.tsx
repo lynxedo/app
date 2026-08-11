@@ -103,10 +103,10 @@ export default async function ReportsIndexPage() {
           ))}
         </div>
 
-        {REPORTS.length === 1 ? (
+        {REPORTS.length < 6 ? (
           <p className="mt-8 text-[12px] leading-relaxed text-gray-500">
-            More reports are on the way — revenue and invoicing, clients, sales, crew productivity and job
-            profitability. Each one arrives as a ready-made view you can open without any setup.
+            More reports are on the way — clients, sales, crew productivity and job profitability. Each one
+            arrives as a ready-made view you can open without any setup.
           </p>
         ) : null}
       </div>

@@ -2379,7 +2379,13 @@ function ScoreboardsTab() {
           <li><strong className="text-white">Scoreboards</strong> (<strong className="text-white">/hub/scoreboards</strong>) are the same building blocks, arranged how your company wants them. Admins and managers can change what shows.</li>
         </ul>
         <p className="mt-2">Both draw from one library of cards, so a number means the same thing wherever you see it.</p>
-        <p className="mt-2"><strong className="text-white">Retention &amp; Churn</strong> is the first ready-made report: how much of the recurring book you keep, why customers leave, which cancellations were preventable, and what the losses are worth. Reports arriving later include revenue and invoicing, clients, sales, crew productivity and job profitability.</p>
+        <p className="mt-2">Two ready-made reports exist today:</p>
+        <ul className="list-disc list-inside text-gray-400 space-y-1 ml-2 mt-2">
+          <li><strong className="text-white">Revenue &amp; Invoicing</strong> — what you billed, how much of it came in, and exactly who still owes you. Includes an aging breakdown of unpaid money and a &ldquo;who to chase&rdquo; list ordered by balance.</li>
+          <li><strong className="text-white">Retention &amp; Churn</strong> — how much of the recurring book you keep, why customers leave, which cancellations were preventable, and what the losses are worth.</li>
+        </ul>
+        <p className="mt-2">Reports arriving later include clients, sales, crew productivity and job profitability.</p>
+        <p className="mt-2 text-gray-400">Two things on Revenue &amp; Invoicing are worth knowing. <strong className="text-white">The money-owed cards ignore the date range on purpose</strong> — an unpaid invoice from March is still owed today, so hiding it because you narrowed the dates would understate what you are chasing. Those cards say &ldquo;as of today&rdquo;. And the collections list is built from what each invoice <em>still owes</em> rather than the status Jobber shows, because an invoice can be marked paid and still carry a balance; the report flags those rather than quietly leaving them out.</p>
         <p className="mt-2 text-gray-400">Access is granted with the <strong className="text-white">Reports</strong> toggle in <strong className="text-white">Admin → People</strong> (admins always have it). The two older operational tables — Visit Report and Customer Report — still live at the bottom of the Reports page.</p>
       </Section>
 

@@ -32,6 +32,8 @@ export type SourceKey =
   | 'source_scorecard'
   | 'leads_decided'
   | 'churn_summary'
+  | 'invoice_window'
+  | 'invoice_ar'
 
 export type SourceParams = Record<string, string | number | boolean | null>
 
