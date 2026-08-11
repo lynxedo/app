@@ -1615,34 +1615,39 @@ async function reconcileOpenJobs(userId: string, companyId: string): Promise<num
   return refreshed
 }
 
-/** reconcileOpenJobs, but a failure is recorded rather than failing the sync. */
-async function reconcileOpenJobsSafe(
-  userId: string,
+/**
+ * Repair pass: re-read what we believe is still open, for a company.
+ *
+ * ⚠ DELIBERATELY NOT WIRED INTO THE NIGHTLY DELTA. Webhooks are the mechanism —
+ * measured 2026-08-11, every one of the 63 invoices that received a webhook since
+ * the durable queue went live was refreshed correctly, and 34 of the 36 phantom
+ * balances predate that queue. This is a repair tool for backlog and for whatever
+ * a dropped event leaves behind, not a scheduled crutch. Run it after an initial
+ * backfill, or when a figure is doubted.
+ */
+export async function reconcileJobberOpenRecords(
   companyId: string,
-  summary: SyncSummary,
-): Promise<void> {
-  try {
-    await reconcileOpenJobs(userId, companyId)
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    console.error('[jobber-sync] job reconcile failed (continuing):', msg)
-    summary.errors.push(`job reconcile: ${msg}`)
-  }
-}
+): Promise<{ invoices: number; jobs: number; errors: string[] }> {
+  const userId = await resolveJobberUserId(companyId)
+  if (!userId) return { invoices: 0, jobs: 0, errors: ['no Jobber connection for this company'] }
 
-/** reconcileOpenInvoices, but a failure is recorded rather than failing the sync. */
-async function reconcileOpenInvoicesSafe(
-  userId: string,
-  companyId: string,
-  summary: SyncSummary,
-): Promise<void> {
+  const errors: string[] = []
+  let invoices = 0
+  let jobs = 0
+
+  // Independent halves — one failing should not cost the other's repair.
   try {
-    await reconcileOpenInvoices(userId, companyId)
+    invoices = await reconcileOpenInvoices(userId, companyId)
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e)
-    console.error('[jobber-sync] invoice reconcile failed (continuing):', msg)
-    summary.errors.push(`invoice reconcile: ${msg}`)
+    errors.push(`invoices: ${e instanceof Error ? e.message : String(e)}`)
   }
+  try {
+    jobs = await reconcileOpenJobs(userId, companyId)
+  } catch (e) {
+    errors.push(`jobs: ${e instanceof Error ? e.message : String(e)}`)
+  }
+
+  return { invoices, jobs, errors }
 }
 
 async function syncInvoices(
@@ -1894,15 +1899,6 @@ export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary
     const visitsSince = new Date(Date.now() - VISIT_BACKFILL_DAYS * 24 * 60 * 60 * 1000)
     summary.visits     = await syncVisits(userId, companyId, visitsSince)
     summary.invoices   = await syncInvoices(userId, companyId, updatedSince)
-    // Must follow the delta pull: a payment does not move `updatedAt`, so this is
-    // the ONLY step that ever clears a settled invoice's balance. Non-fatal — a
-    // failure here leaves AR stale, which is strictly better than discarding an
-    // otherwise good sync.
-    await reconcileOpenInvoicesSafe(userId, companyId, summary)
-    // Must follow the job pull for the same reason: the delta filters jobs on
-    // createdAt, so this is the ONLY step that ever moves an existing job off a
-    // stale status.
-    await reconcileOpenJobsSafe(userId, companyId, summary)
 
     console.log('[jobber-sync] Delta pull complete:', summary)
     await completeSyncLog(logId, Object.values(summary).filter(v => typeof v === 'number').reduce((a, b) => a + (b as number), 0))
