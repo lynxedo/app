@@ -90,10 +90,70 @@ async function geocodeViaCensus(address: string): Promise<LatLng | null> {
   }
 }
 
-// Mapbox forward geocoding, restricted to address-level results. We only accept
-// a match that carries a house number (the `address` field) at high relevance —
-// so a vague or mistyped input can never snap a stop to a city/street centroid
-// (it stays "unmappable" instead, which the Route Optimizer surfaces for a fix).
+// Mapbox `relevance` is a fuzzy text-match score, not a precision score, so a
+// bare floor on it decides the wrong question. Measured against the live API:
+//
+//   27707 Misty Creek Ln, Spring TX 77386  → 0.7976  (real, correctly placed)
+//   27707 Misty Creek Ln, DALLAS TX 75201  → 0.6878  (wrong city, snapped to Spring)
+//   27707 Oak Street,     Spring TX 77386  → 0.6806  (real street, wrong ZIP 77373)
+//
+// A single 0.8 floor rejected the first (a real Census-less exurb address the
+// fallback exists to catch) while sitting only 0.11 above a match that silently
+// relocates a stop 250 miles. So verify precision directly instead: a result
+// must always carry a house number, and to be accepted below the strict floor
+// its house number AND postcode must both match what we asked for. That admits
+// the real address and refuses every wrong-city / wrong-street case above.
+const MAPBOX_STRICT_RELEVANCE = 0.8   // trusted on its own
+const MAPBOX_VERIFIED_FLOOR = 0.7     // backstop under number+postcode agreement
+
+// Leading house number of the address we asked for ("27707 Misty Creek Ln" → "27707").
+function askedHouseNumber(address: string): string | null {
+  return address.match(/^\s*(\d+)/)?.[1] ?? null
+}
+
+// Trailing 5-digit ZIP of the address we asked for. The Route Optimizer builds
+// "street, city, province postalCode", so the ZIP is last.
+function askedPostcode(address: string): string | null {
+  return address.match(/\b(\d{5})(?:-\d{4})?\s*$/)?.[1] ?? null
+}
+
+// ZIP Mapbox actually placed the result in, from its context chain.
+function featurePostcode(f: { context?: unknown }): string | null {
+  const ctx = Array.isArray(f.context) ? f.context : []
+  for (const c of ctx) {
+    const entry = c as { id?: unknown; text?: unknown }
+    if (typeof entry.id === 'string' && entry.id.startsWith('postcode') && typeof entry.text === 'string') {
+      return entry.text.slice(0, 5)
+    }
+  }
+  return null
+}
+
+/**
+ * Decide whether a Mapbox feature is precise enough to route a crew to.
+ * Exported so the rule can be exercised against real API payloads.
+ */
+export function mapboxFeatureIsPrecise(
+  address: string,
+  f: { address?: unknown; relevance?: unknown; context?: unknown },
+): boolean {
+  // A result with no house number is a street or city centroid — never a stop.
+  if (typeof f.address !== 'string' || !f.address.trim()) return false
+  if (typeof f.relevance !== 'number') return false
+  if (f.relevance >= MAPBOX_STRICT_RELEVANCE) return true
+  if (f.relevance < MAPBOX_VERIFIED_FLOOR) return false
+
+  // Below the strict floor: accept only on independent agreement.
+  const num = askedHouseNumber(address)
+  const zip = askedPostcode(address)
+  const featureZip = featurePostcode(f)
+  if (!num || !zip || !featureZip) return false
+  return f.address.trim() === num && featureZip === zip
+}
+
+// Mapbox forward geocoding, restricted to address-level results — see the
+// precision rule above. A stop we can't place stays "unmappable", which the
+// Route Optimizer surfaces for a fix, rather than being quietly mis-placed.
 async function geocodeViaMapbox(address: string): Promise<LatLng | null> {
   const token = process.env.NEXT_PUBLIC_MAPBOX_TOKEN
   if (!token) return null
@@ -113,8 +173,7 @@ async function geocodeViaMapbox(address: string): Promise<LatLng | null> {
     const data = await res.json()
     const f = data?.features?.[0]
     if (!f) return null
-    // Precision guard: require a house number + a confident match.
-    if (!f.address || typeof f.relevance !== 'number' || f.relevance < 0.8) return null
+    if (!mapboxFeatureIsPrecise(address, f)) return null
     const center = f.center // [lng, lat]
     if (!Array.isArray(center) || typeof center[0] !== 'number' || typeof center[1] !== 'number') return null
     return { lat: center[1], lng: center[0] }
