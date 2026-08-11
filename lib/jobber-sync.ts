@@ -2012,27 +2012,8 @@ export async function processJobberWebhookEvent(
       case 'INVOICE_CREATE':
       case 'INVOICE_UPDATE': {
         await syncInvoices(userId, companyId, since)
-        // ⚠ Invoicing a job changes the JOB too — it leaves `requires_invoicing` —
-        // but Jobber reports that as an INVOICE event, never JOB_UPDATE. Without
-        // this the job keeps a status it no longer has: the mirror read 100 jobs
-        // awaiting invoicing where Jobber had 1. The nightly reconcile is the
-        // backstop; this keeps it right within seconds.
-        try {
-          const admin = createAdminClient()
-          const { data: inv } = await admin
-            .from('invoices')
-            .select('job_external_id')
-            .eq('company_id', companyId)
-            .eq('external_id', itemId)
-            .maybeSingle()
-          if (inv?.job_external_id) {
-            await syncJobs(userId, companyId, undefined, [inv.job_external_id])
-          }
-        } catch (e) {
-          // The invoice itself is already saved; a stale job status is the lesser
-          // harm and the nightly reconcile will clear it.
-          console.error('[jobber-webhook] job refresh after invoice failed for', itemId, e)
-        }
+        // Invoicing a job moves it OUT of requires_invoicing.
+        await refreshJobBehind(userId, companyId, 'invoices', itemId)
         break
       }
       case 'JOB_CREATE':
@@ -2057,6 +2038,11 @@ export async function processJobberWebhookEvent(
         await syncVisits(userId, companyId, undefined, [itemId]); break
       case 'VISIT_COMPLETE': {
         await syncVisits(userId, companyId, undefined, [itemId])
+        // Completing the last visit moves the job INTO requires_invoicing — the
+        // mirror image of the invoice case, and the reason the mirror drifted in
+        // both directions at once (it read 60 jobs action-required where Jobber
+        // had 69, while reading 100 requires-invoicing where Jobber had 1).
+        await refreshJobBehind(userId, companyId, 'visits', itemId)
         // Session 9 — auto pesticide record on completion. Best-effort, deduped
         // on (company_id, jobber_visit_id); never clobbers a Daily Log V2 record.
         try {
@@ -2077,6 +2063,44 @@ export async function processJobberWebhookEvent(
   } catch (e) {
     const msg = e instanceof Error ? e.message : String(e)
     console.error(`[jobber-webhook] ${topic} ${itemId} failed:`, msg)
+  }
+}
+
+/**
+ * Re-read the job that an invoice or visit belongs to.
+ *
+ * ⚠⚠ THE RULE THIS ENCODES: Jobber fires a webhook for the record you TOUCHED, not
+ * for records whose state changed as a consequence. A job's status is derived from
+ * its visits and its invoice, so it moves without ever emitting JOB_UPDATE —
+ * invoicing pushes it out of `requires_invoicing`, completing the last visit pushes
+ * it in. Neither was handled, and the mirror drifted both ways at once.
+ *
+ * Any future "webhooks keep X current" claim has to answer the same question: is X
+ * derived from something else? If so, the event names that other thing.
+ *
+ * Best-effort by design — the record the webhook was actually about is already
+ * saved, and a stale job status is the lesser harm. POST /api/jobber/reconcile
+ * clears whatever this misses.
+ */
+async function refreshJobBehind(
+  userId: string,
+  companyId: string,
+  table: 'invoices' | 'visits',
+  externalId: string,
+): Promise<void> {
+  try {
+    const admin = createAdminClient()
+    const { data: row } = await admin
+      .from(table)
+      .select('job_external_id')
+      .eq('company_id', companyId)
+      .eq('external_id', externalId)
+      .maybeSingle()
+    if (row?.job_external_id) {
+      await syncJobs(userId, companyId, undefined, [row.job_external_id])
+    }
+  } catch (e) {
+    console.error(`[jobber-webhook] job refresh behind ${table} ${externalId} failed:`, e)
   }
 }
 
