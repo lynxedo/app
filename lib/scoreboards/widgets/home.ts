@@ -97,7 +97,7 @@ function delta(
   prior: number,
   prev: WindowSpec,
   floor: string | null,
-  opts: { unit?: 'currency' } = {},
+  opts: { unit?: 'currency' | 'percent' } = {},
 ): Delta | undefined {
   if (floor && prev.start < floor) {
     return { pct: null, text: `No comparison — records start ${prettyDate(floor)}`, tone: 'neutral' }
@@ -111,7 +111,11 @@ function delta(
   const pct = Math.round(((current - prior) / prior) * 1000) / 10
   const flat = Math.abs(pct) < 0.5
   const arrow = flat ? '→' : pct > 0 ? '▲' : '▼'
-  const shown = opts.unit === 'currency' ? formatCurrency(prior) : prior.toLocaleString()
+  // The prior value must carry its unit. "vs 62.5" on a close-rate tile reads as a
+  // count of something; "vs 62.5%" reads as the rate it is.
+  const shown = opts.unit === 'currency' ? formatCurrency(prior)
+    : opts.unit === 'percent' ? `${prior}%`
+    : prior.toLocaleString()
   // ⚠ Names the prior window's actual DATES rather than calling it "last month".
   // The comparison is always the preceding window of equal length, which for an
   // 11-day month-to-date is Jul 21–31 — describing that as "last month" would be
@@ -271,8 +275,11 @@ export const HOME_WIDGETS: WidgetDef<WidgetPayload>[] = [
         sub: rate == null
           ? `Only ${decided} decided ${decided === 1 ? 'lead' : 'leads'} — too few to rate fairly`
           : `${num(now?.won)} won of ${decided} decided · ${win.label}`,
+        // ⚠ The rate floor doubles as this tile's data-floor guard: a prior window
+        // with too few decided leads (including none at all) fails `priorOk`, so a
+        // period predating the Lead Tracker can't produce a comparison either.
         delta: rate != null && priorOk && then?.close_rate != null
-          ? delta(rate, then.close_rate, prev, null)
+          ? delta(rate, then.close_rate, prev, null, { unit: 'percent' })
           : rate != null
             ? { pct: null, text: `No comparison — under ${floor} decided leads before this`, tone: 'neutral' }
             : undefined,
