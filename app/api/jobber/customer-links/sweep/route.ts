@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { companiesWithLinkField, recordSweepRun, sweepCustomerLinks } from '@/lib/jobber-customer-link'
+import { backfillJobReportLinks } from '@/lib/jobber-report-links'
 
 // Writes the Jobber "Lynxedo Customer File" link onto clients that don't have it.
 // Called by the VPS cron, daily:
@@ -27,7 +28,20 @@ export async function POST(request: Request) {
   const limit = Number.isFinite(limitParam) && limitParam > 0 ? Math.min(limitParam, 1000) : 250
   const only = url.searchParams.get('companyId')
 
+  // ?mode=jobs runs the one-off backfill of report links onto jobs that already
+  // exist. New and edited jobs are handled by the JOB_CREATE / JOB_UPDATE webhook,
+  // so this is not on a schedule — it's run by hand until it reports nothing left.
+  const mode = url.searchParams.get('mode')
+
   const companies = only ? [only] : await companiesWithLinkField()
+
+  if (mode === 'jobs') {
+    const jobResults = []
+    for (const companyId of companies) {
+      jobResults.push({ companyId, ...(await backfillJobReportLinks(companyId, { limit })) })
+    }
+    return NextResponse.json({ ok: true, mode: 'jobs', results: jobResults })
+  }
   const results = []
   for (const companyId of companies) {
     const result = await sweepCustomerLinks(companyId, { limit })

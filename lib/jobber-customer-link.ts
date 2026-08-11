@@ -50,7 +50,7 @@ const THROTTLE_BACKOFF_MS = 3_000
  * drain, Route Optimizer, Amber's visit lookups. So a slice that sees it stops
  * immediately and waits for the next cron rather than pushing on.
  */
-const isAbuseBlock = (m: string) => /\b429\b|unusual activity|too many requests/i.test(m)
+export const isAbuseBlock = (m: string) => /\b429\b|unusual activity|too many requests/i.test(m)
 const isPointThrottle = (m: string) => /throttl/i.test(m) && !isAbuseBlock(m)
 
 /** Deliberate gap between writes. Cheap insurance against tripping the filter. */

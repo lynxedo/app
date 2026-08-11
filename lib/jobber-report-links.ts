@@ -15,7 +15,8 @@
 
 import { createAdminClient } from '@/lib/supabase/admin'
 import { companyJobberUserId, jobberGraphQLAdmin } from '@/lib/jobber'
-import { jobberClientNumber } from '@/lib/jobber-customer-link'
+import { isAbuseBlock, jobberClientNumber } from '@/lib/jobber-customer-link'
+import { fetchAllRows } from '@/lib/email-contacts'
 
 const SET_JOB_LINK = `
   mutation SetJobReportLink($jobId: EncodedId!, $fieldId: EncodedId!, $text: String!, $url: String!) {
@@ -55,7 +56,7 @@ export async function getReportLinks(companyId: string): Promise<ReportLink[]> {
 export async function writeReportLinksForJob(
   companyId: string,
   jobberJobId: string,
-): Promise<{ written: string[]; skipped: string }> {
+): Promise<{ written: string[]; skipped: string; blocked?: boolean }> {
   const admin = createAdminClient()
 
   const links = await getReportLinks(companyId)
@@ -110,6 +111,7 @@ export async function writeReportLinksForJob(
   if (!jobberUserId) return { written: [], skipped: 'jobber_not_connected' }
 
   const written: string[] = []
+  let blocked = false
   for (const link of links) {
     const matches = link.line_items.some((n) => present.has(n.trim().toLowerCase()))
     if (!matches) continue
@@ -134,9 +136,89 @@ export async function writeReportLinksForJob(
       )
       written.push(link.report_key)
     } catch (e) {
-      console.error('[report-link]', link.report_key, jobberJobId, e instanceof Error ? e.message : e)
+      const msg = e instanceof Error ? e.message : String(e)
+      console.error('[report-link]', link.report_key, jobberJobId, msg)
+      // Jobber's abuse filter blocks the whole credential. Stop, don't grind on.
+      if (isAbuseBlock(msg)) { blocked = true; break }
     }
   }
 
-  return { written, skipped: '' }
+  return { written, skipped: '', ...(blocked ? { blocked } : {}) }
+}
+
+/**
+ * One-off backfill: put report links on jobs that already exist.
+ *
+ * JOB_CREATE / JOB_UPDATE covers everything from here on, but jobs already in
+ * Jobber have no event coming. Only a small slice of them matter: of ~2,700 jobs,
+ * 686 carry irrigation line items and just 233 of those are still open. A tech
+ * never taps a link on archived or already-invoiced work, so completed jobs are
+ * skipped — that alone drops 60% of the writes for zero lost value.
+ *
+ * `completed_at is null` rather than a date window: an old unscheduled job still
+ * deserves a link, and a job finished last week does not.
+ */
+export async function backfillJobReportLinks(
+  companyId: string,
+  { limit = 400, budgetMs = 120_000 } = {},
+): Promise<{ scanned: number; written: number; blocked: boolean; remaining: number }> {
+  const admin = createAdminClient()
+  const started = Date.now()
+
+  const links = await getReportLinks(companyId)
+  const wanted = new Set(
+    links.flatMap((l) => l.line_items.map((n) => n.trim().toLowerCase())).filter(Boolean),
+  )
+  // No line items mapped yet — nothing qualifies, so this is a no-op rather than
+  // a scan of every job.
+  if (!wanted.size) return { scanned: 0, written: 0, blocked: false, remaining: 0 }
+
+  // Paged: this comfortably exceeds PostgREST's 1000-row default cap, and a silent
+  // truncation here would look like "those jobs just don't qualify".
+  const rows = await fetchAllRows<{ parent_id: string; name: string }>(() =>
+    admin
+      .from('line_items')
+      .select('parent_id, name')
+      .eq('company_id', companyId)
+      .eq('parent_type', 'job')
+      .is('deleted_at', null),
+  )
+
+  const candidateJobIds = [...new Set(
+    rows.filter((r) => wanted.has(String(r.name ?? '').trim().toLowerCase())).map((r) => r.parent_id),
+  )]
+  if (!candidateJobIds.length) return { scanned: 0, written: 0, blocked: false, remaining: 0 }
+
+  // Open jobs only, oldest first so a partial run makes steady forward progress.
+  const open: { id: string; external_id: string }[] = []
+  for (let i = 0; i < candidateJobIds.length; i += 200) {
+    const { data } = await admin
+      .from('jobs')
+      .select('id, external_id')
+      .eq('company_id', companyId)
+      .is('completed_at', null)
+      .in('id', candidateJobIds.slice(i, i + 200))
+    open.push(...((data ?? []) as { id: string; external_id: string }[]))
+  }
+
+  // Skip anything already written, so re-running is cheap and safe.
+  const done = new Set(
+    (await fetchAllRows<{ jobber_job_id: string }>(() =>
+      admin.from('jobber_job_link_writes').select('jobber_job_id').eq('company_id', companyId),
+    )).map((r) => r.jobber_job_id),
+  )
+  const todo = open.filter((j) => j.external_id && !done.has(j.external_id))
+
+  let written = 0
+  let blocked = false
+  let scanned = 0
+  for (const job of todo.slice(0, limit)) {
+    if (Date.now() - started > budgetMs) break
+    scanned++
+    const res = await writeReportLinksForJob(companyId, job.external_id)
+    written += res.written.length
+    if (res.blocked) { blocked = true; break }
+  }
+
+  return { scanned, written, blocked, remaining: Math.max(0, todo.length - scanned) }
 }
