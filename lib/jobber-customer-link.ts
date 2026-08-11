@@ -184,12 +184,12 @@ export async function sweepCustomerLinks(
 
     for (let attempt = 0; ; attempt++) {
       try {
-        const res = await jobberGraphQLAdmin<{ clientEdit?: { userErrors?: { message: string }[] } }>(
+        const res = await jobberGraphQLAdmin<{ data?: { clientEdit?: { userErrors?: { message: string }[] } } }>(
           jobberUserId,
           SET_LINK,
           { clientId: row.jobber_client_id, fieldId, text: LINK_TEXT, url: `${origin}/j/c/${number}` },
         )
-        const errs = res?.clientEdit?.userErrors ?? []
+        const errs = res?.data?.clientEdit?.userErrors ?? []
         if (errs.length) throw new Error(errs.map((e) => e.message).join('; '))
 
         await admin.from('txt_contacts').update({ jobber_link_set_at: new Date().toISOString() }).eq('id', row.id)
@@ -294,7 +294,7 @@ export async function writeCustomerLinkForClient(
   if (!jobberUserId) return 'not_configured'
 
   try {
-    const res = await jobberGraphQLAdmin<{ clientEdit?: { userErrors?: { message: string }[] } }>(
+    const res = await jobberGraphQLAdmin<{ data?: { clientEdit?: { userErrors?: { message: string }[] } } }>(
       jobberUserId,
       SET_LINK,
       {
@@ -304,7 +304,7 @@ export async function writeCustomerLinkForClient(
         url: `${baseUrl.replace(/\/$/, '')}/j/c/${number}`,
       },
     )
-    const errs = res?.clientEdit?.userErrors ?? []
+    const errs = res?.data?.clientEdit?.userErrors ?? []
     if (errs.length) throw new Error(errs.map((e) => e.message).join('; '))
 
     await admin

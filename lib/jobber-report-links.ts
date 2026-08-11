@@ -122,12 +122,12 @@ export async function writeReportLinksForJob(
     if (done.get(link.report_key) === url) continue
 
     try {
-      const res = await jobberGraphQLAdmin<{ jobEdit?: { userErrors?: { message: string }[] } }>(
+      const res = await jobberGraphQLAdmin<{ data?: { jobEdit?: { userErrors?: { message: string }[] } } }>(
         jobberUserId,
         SET_JOB_LINK,
         { jobId: jobberJobId, fieldId: link.jobber_field_id, text: link.link_text, url },
       )
-      const errs = res?.jobEdit?.userErrors ?? []
+      const errs = res?.data?.jobEdit?.userErrors ?? []
       if (errs.length) throw new Error(errs.map((e) => e.message).join('; '))
 
       await admin.from('jobber_job_link_writes').upsert(
