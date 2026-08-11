@@ -17,13 +17,31 @@ export type ReportMeta = {
   title: string
   subtitle: string
   /** Groups the index page. */
-  section: 'Money' | 'Customers' | 'Sales' | 'Operations' | 'People'
+  section: 'Overview' | 'Money' | 'Customers' | 'Sales' | 'Operations' | 'People'
   icon: string
   /** PRD section this page implements, so the doc and the code stay findable. */
   prd: string
+  /**
+   * Window this report opens on. Defaults to year-to-date like every board.
+   *
+   * ⚠ Home overrides it to `this_month`, and the reason is a real trap rather than
+   * a preference: Home's tiles compare against the immediately preceding window,
+   * and year-to-date's predecessor reaches back past the invoice mirror's floor —
+   * so every delta on the page would correctly, but uselessly, say "no comparison".
+   */
+  defaultRange?: 'ytd' | 'this_month' | 'last_month' | 'this_quarter' | 'last_12' | 'last_year'
 }
 
 export const REPORTS: ReportMeta[] = [
+  {
+    slug: 'home',
+    title: 'Home',
+    subtitle: 'The ten-second read on the whole business, and what needs doing today',
+    section: 'Overview',
+    icon: '🏡',
+    prd: '§8.1',
+    defaultRange: 'this_month',
+  },
   {
     slug: 'revenue',
     title: 'Revenue & Invoicing',
@@ -110,4 +128,4 @@ export function reportsForUser(perms: ReportPerms): ReportMeta[] {
 }
 
 /** Index-page grouping, in a deliberate reading order rather than alphabetical. */
-export const SECTION_ORDER: ReportMeta['section'][] = ['Money', 'Customers', 'Sales', 'Operations', 'People']
+export const SECTION_ORDER: ReportMeta['section'][] = ['Overview', 'Money', 'Customers', 'Sales', 'Operations', 'People']

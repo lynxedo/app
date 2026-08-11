@@ -1,7 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
-import { REPORTS, SECTION_ORDER, canSeeReports, reportsForUser } from '@/lib/reports/registry'
+import { SECTION_ORDER, canSeeReports, reportsForUser } from '@/lib/reports/registry'
 
 export const metadata = { title: 'Reports' }
 export const dynamic = 'force-dynamic'
@@ -102,13 +102,6 @@ export default async function ReportsIndexPage() {
             </Link>
           ))}
         </div>
-
-        {REPORTS.length < 6 ? (
-          <p className="mt-8 text-[12px] leading-relaxed text-gray-500">
-            More reports are on the way — clients, sales, crew productivity and job profitability. Each one
-            arrives as a ready-made view you can open without any setup.
-          </p>
-        ) : null}
       </div>
     </div>
   )

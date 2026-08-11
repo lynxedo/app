@@ -136,6 +136,31 @@ export function resolveWindow(
   }
 }
 
+/**
+ * The window of the same length immediately before this one — what "vs last"
+ * compares against on the Home tiles.
+ *
+ * Equal-length rather than "the previous calendar month", so a custom range gets a
+ * fair comparison too: an 11-day window is compared with the 11 days before it.
+ *
+ * ⚠ This says nothing about whether the prior window has DATA. A comparison
+ * reaching back before the invoice mirror's floor reads as a collapse rather than
+ * an absence, so every caller checks the floor and drops the delta instead of
+ * printing a −100%.
+ */
+export function priorWindow(win: WindowSpec): WindowSpec {
+  const startMs = Date.parse(`${win.start}T00:00:00Z`)
+  const endMs = Date.parse(`${win.end}T00:00:00Z`)
+  const DAY = 86_400_000
+  const lenDays = Math.max(1, Math.round((endMs - startMs) / DAY) + 1)
+  const prevEnd = new Date(startMs - DAY)
+  const prevStart = new Date(startMs - lenDays * DAY)
+  const iso = (d: Date) => d.toISOString().slice(0, 10)
+  const start = iso(prevStart)
+  const end = iso(prevEnd)
+  return { start, end, label: pretty(start, end), phrase: pretty(start, end) }
+}
+
 /** The calendar year a window belongs to — its END year, so a Q1 window reads as this year. */
 export function windowYear(win: WindowSpec): number {
   return Number(win.end.slice(0, 4))

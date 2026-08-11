@@ -1,8 +1,10 @@
 'use client'
 
 import { useMemo, useState } from 'react'
+import Link from 'next/link'
 import type {
-  BarsPayload, DonutPayload, KpiPayload, ListPayload, StackedPayload, TablePayload, WidgetPayload,
+  AttentionPayload, BarsPayload, DonutPayload, KpiPayload, ListPayload, StackedPayload, TablePayload,
+  WidgetPayload,
 } from '@/lib/scoreboards/widgets/payloads'
 import { formatValue, toneColor } from './tone'
 
@@ -38,6 +40,24 @@ function Legend({ items }: { items: { label: string; tone: Parameters<typeof ton
   )
 }
 
+/** Trend shape only — no axes, no numbers. It says "rising" or "lumpy", nothing more. */
+function Spark({ values, tone }: { values: number[]; tone: string }) {
+  if (values.length < 2) return null
+  const W = 100, H = 22
+  const min = Math.min(...values), max = Math.max(...values)
+  const range = max - min || 1
+  const pts = values.map((v, i) => {
+    const x = (i / (values.length - 1)) * W
+    const y = H - ((v - min) / range) * (H - 3) - 1.5
+    return `${x.toFixed(1)},${y.toFixed(1)}`
+  })
+  return (
+    <svg viewBox={`0 0 ${W} ${H}`} width="100%" height={H} preserveAspectRatio="none" className="mt-2 block" aria-hidden="true">
+      <polyline points={pts.join(' ')} fill="none" stroke={tone} strokeWidth={1.5} strokeLinejoin="round" opacity={0.7} vectorEffect="non-scaling-stroke" />
+    </svg>
+  )
+}
+
 function Kpi({ p }: { p: KpiPayload }) {
   const long = p.value.length > 12
   return (
@@ -49,7 +69,42 @@ function Kpi({ p }: { p: KpiPayload }) {
       >
         {p.value}
       </div>
+      {p.delta ? (
+        <div className="mt-1 text-[11px] font-medium" style={{ color: toneColor(p.delta.tone) }}>
+          {p.delta.text}
+        </div>
+      ) : null}
       {p.sub ? <div className="mt-1.5 text-[11px] text-gray-500">{p.sub}</div> : null}
+      {p.spark ? <Spark values={p.spark} tone={toneColor(p.delta?.tone ?? p.tone ?? 'neutral')} /> : null}
+    </>
+  )
+}
+
+/* Chips, not a chart. Each is a thing to do; the ones with somewhere to go are
+ * links, and the ones without are plain — a fake link that goes nowhere is worse
+ * than no link. */
+function Attention({ p }: { p: AttentionPayload }) {
+  return (
+    <>
+      <Head title={p.title} sub={p.sub} />
+      <div className="grid gap-2.5 [grid-template-columns:repeat(auto-fit,minmax(190px,1fr))]">
+        {p.chips.map(c => {
+          const color = toneColor(c.tone)
+          const body = (
+            <>
+              <div className="text-[11px] font-medium text-gray-400">{c.label}</div>
+              <div className="mt-1 text-[19px] font-bold leading-none tabular-nums" style={{ color }}>{c.value}</div>
+              {c.detail ? <div className="mt-1.5 text-[10.5px] leading-snug text-gray-500">{c.detail}</div> : null}
+            </>
+          )
+          const cls = 'rounded-xl border p-3 transition-colors'
+          const style = { borderColor: `${color}33`, background: `${color}0d` }
+          return c.href
+            ? <Link key={c.key} href={c.href} className={`${cls} hover:border-[var(--t-accent)]/60`} style={style}>{body}</Link>
+            : <div key={c.key} className={cls} style={style}>{body}</div>
+        })}
+      </div>
+      {p.foot ? <div className="mt-3 text-[10.5px] leading-snug text-gray-600">{p.foot}</div> : null}
     </>
   )
 }
@@ -251,5 +306,6 @@ export function WidgetRenderer({ payload }: { payload: WidgetPayload }) {
     case 'donut': return <Donut p={payload} />
     case 'table': return <Table p={payload} />
     case 'list': return <List p={payload} />
+    case 'attention': return <Attention p={payload} />
   }
 }

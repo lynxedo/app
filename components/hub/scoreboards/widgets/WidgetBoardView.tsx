@@ -50,7 +50,7 @@ const ENDPOINT: Record<WidgetSurface['kind'], { path: string; idParam: string }>
 }
 
 export default function WidgetBoardView({
-  meta, businessName, classicHref, surface,
+  meta, businessName, classicHref, surface, defaultRange,
 }: {
   meta: Pick<ScoreboardMeta, 'slug' | 'title'> & { badge?: string }
   /** Omitted by the Workspace-Tabs twin, which has no server context to read it
@@ -60,11 +60,15 @@ export default function WidgetBoardView({
   classicHref?: string
   /** Defaults to a scoreboard, which is what every existing caller is. */
   surface?: WidgetSurface
+  /** Opening window. Home wants "this month" — its tiles compare against the
+   *  previous period, and year-to-date's comparison reaches back before the
+   *  invoice records begin, so the deltas would all read "no comparison". */
+  defaultRange?: string
 }) {
   const surf: WidgetSurface = surface ?? { kind: 'board', slug: meta.slug }
   const api = ENDPOINT[surf.kind]
   const isReport = surf.kind === 'report'
-  const [range, setRange] = useState('ytd')
+  const [range, setRange] = useState(defaultRange ?? 'ytd')
   // Custom range. Both dates must be set before it's applied — a half-filled
   // range would otherwise reload the board with a nonsense window on every
   // keystroke, so the server treats an incomplete one as year-to-date.

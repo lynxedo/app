@@ -46,6 +46,7 @@ export default async function ReportPage({ params }: { params: Promise<{ slug: s
       meta={{ slug: report.slug, title: report.title, badge: report.section }}
       businessName={businessName}
       surface={{ kind: 'report', slug: report.slug }}
+      defaultRange={report.defaultRange}
     />
   )
 }

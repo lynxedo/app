@@ -294,6 +294,33 @@ export type SalesRow = {
   open_by_stage: { stage: string; count: number }[]
 }
 
+/** What needs doing right now, plus the work already on the calendar. No window. */
+export type HomePulseRow = {
+  as_of: string
+  attention: {
+    requires_invoicing_count: number
+    requires_invoicing_value: number
+    action_required: number
+    unscheduled_jobs: number
+    late_visits: number
+    oldest_late_visit: string | null
+    at_risk_clients: number
+    /** Recurring services that could not be matched to a client can never appear
+     *  in the at-risk list — the count states its own blind spot. */
+    at_risk_services_total: number
+    at_risk_services_matched: number
+  }
+  booked: {
+    months: { month: string; recurring: number; oneoff: number; total: number; visits: number; unpriced: number }[]
+    total: number
+    visits: number
+    /** Scheduled recurring visits carrying no line item — real work this can't price. */
+    unpriced_visits: number
+    horizon_months: number
+    first_month_partial: boolean
+  }
+}
+
 /* ── Executors ──────────────────────────────────────────────────────────── */
 
 const SOURCES: Record<SourceKey, SourceExecutor> = {
@@ -502,6 +529,33 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
     })
     if (error) throw new Error(`sales_pipeline: ${error.message}`)
     return data ? [data as SalesRow] : []
+  },
+
+  /**
+   * Home's point-in-time half (Report §8.1): what needs doing, and what is booked.
+   *
+   * ⚠ Takes NO date window, for the same reason invoice_ar doesn't. "Work sitting
+   * unbilled" and "visits that never happened" are facts about today; a date picker
+   * above them would imply a filter they never obeyed.
+   *
+   * ⚠ "Late" is derived from the FACT (scheduled in the past, never completed), not
+   * from visit_status — Jobber's own label disagrees with itself here, marking two
+   * future-dated visits LATE while leaving June visits UPCOMING.
+   *
+   * ⚠ The at-risk count keys off `cancelled_status = 'Active'`, not the sold status
+   * alone: 153 of the 474 leads reading "Sold" are CANCELLED, and filtering on Sold
+   * alone inflated this from 22 customers to 128.
+   *
+   * ⚠ Booked work is scheduled-and-priced work, NOT a churn-adjusted forecast, and
+   * it is a floor: 250 of 1,910 scheduled visits carry no line item to price.
+   */
+  home_pulse: async (ctx, params) => {
+    const { data, error } = await ctx.supabase.rpc('scoreboard_home_pulse', {
+      p_company_id: ctx.companyId,
+      p_months: Number(params.months) || 6,
+    })
+    if (error) throw new Error(`home_pulse: ${error.message}`)
+    return data ? [data as HomePulseRow] : []
   },
 
   leads_decided: async (ctx, params) => {

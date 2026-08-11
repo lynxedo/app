@@ -19,6 +19,39 @@ export type KpiPayload = {
   value: string
   sub?: string
   tone?: Tone
+  /**
+   * Change against the immediately-preceding window of the same length.
+   *
+   * Optional, and OMITTED rather than zeroed when there is nothing honest to
+   * compare against — a prior window that predates the data floor would read as a
+   * collapse instead of an absence. `text` carries the reason in that case.
+   */
+  delta?: { pct: number | null; text: string; tone: Tone }
+  /** Small trend shape. Values only; the renderer scales them. */
+  spark?: number[]
+}
+
+/**
+ * The Needs Attention band — the actionable half of Home.
+ *
+ * Chips, not a chart: each one is a count or an amount that someone should do
+ * something about today, and `href` takes them where the doing happens. A chip
+ * with nothing to report still renders (at zero, in a calm tone) so "nothing is
+ * late" is visibly true rather than indistinguishable from a broken widget.
+ */
+export type AttentionPayload = {
+  kind: 'attention'
+  title: string
+  sub: string
+  chips: {
+    key: string
+    label: string
+    value: string
+    detail?: string
+    tone: Tone
+    href?: string
+  }[]
+  foot?: string
 }
 
 export type BarsPayload = {
@@ -87,3 +120,4 @@ export type ListPayload = {
 
 export type WidgetPayload =
   | KpiPayload | BarsPayload | StackedPayload | DonutPayload | TablePayload | ListPayload
+  | AttentionPayload
