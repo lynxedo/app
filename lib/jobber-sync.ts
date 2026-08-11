@@ -1344,52 +1344,231 @@ async function syncUsersSafe(userId: string, companyId: string, summary: SyncSum
   }
 }
 
-const INVOICES_QUERY = `
-  query SyncInvoices($cursor: String, $filter: InvoiceFilterAttributes) {
-    invoices(first: 40, after: $cursor, filter: $filter) {
+/**
+ * The invoice shape, in one place. Both the paged pull and reconcileOpenInvoices()
+ * select through this — if they diverged, the same invoice would mean different
+ * things depending on which path last touched it.
+ */
+const INVOICE_FIELDS_FRAGMENT = `
+  fragment InvoiceFields on Invoice {
+    id
+    invoiceNumber
+    invoiceStatus
+    invoiceNet
+    subject
+    jobberWebUri
+    amounts {
+      subtotal
+      total
+      invoiceBalance
+      taxAmount
+      discountAmount
+      paymentsTotal
+      depositAmount
+      tipsTotal
+    }
+    issuedDate
+    dueDate
+    receivedDate
+    createdAt
+    updatedAt
+    client { id }
+    salesperson { id }
+    jobs(first: 1) { nodes { id } }
+    customFields {
+      ${CUSTOM_FIELDS_FRAGMENT}
+    }
+    lineItems(first: 25) {
       nodes {
         id
-        invoiceNumber
-        invoiceStatus
-        invoiceNet
-        subject
-        jobberWebUri
-        amounts {
-          subtotal
-          total
-          invoiceBalance
-          taxAmount
-          discountAmount
-          paymentsTotal
-          depositAmount
-          tipsTotal
-        }
-        issuedDate
-        dueDate
-        receivedDate
-        createdAt
-        updatedAt
-        client { id }
-        salesperson { id }
-        jobs(first: 1) { nodes { id } }
-        customFields {
-          ${CUSTOM_FIELDS_FRAGMENT}
-        }
-        lineItems(first: 25) {
-          nodes {
-            id
-            name
-            description
-            quantity
-            unitPrice
-            totalPrice
-          }
-        }
+        name
+        description
+        quantity
+        unitPrice
+        totalPrice
       }
-      pageInfo { hasNextPage endCursor }
     }
   }
 `
+
+const INVOICES_QUERY = `
+  query SyncInvoices($cursor: String, $filter: InvoiceFilterAttributes) {
+    invoices(first: 40, after: $cursor, filter: $filter) {
+      nodes { ...InvoiceFields }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+  ${INVOICE_FIELDS_FRAGMENT}
+`
+
+/**
+ * One invoice node -> one mirror row. Shared by the paged pull and the open-balance
+ * reconcile below so a dollar written by either path means exactly the same thing.
+ */
+function mapInvoiceRow(
+  inv: InvoiceNode,
+  companyId: string,
+  invClientIds: Map<string, string>,
+  invJobIds: Map<string, string>,
+  nowIso: string,
+) {
+  const jobExternalId = inv.jobs?.nodes?.[0]?.id ?? null
+  const { raw: cfRaw } = parseCustomFields((inv.customFields ?? []) as RawCustomField[], null)
+  return {
+    company_id: companyId,
+    source: 'jobber',
+    external_id: inv.id,
+    client_id: invClientIds.get(inv.client?.id ?? '') ?? null,
+    client_external_id: inv.client?.id ?? null,
+    job_id: invJobIds.get(jobExternalId ?? '') ?? null,
+    job_external_id: jobExternalId,
+    invoice_number: inv.invoiceNumber ?? null,
+    subject: inv.subject ?? null,
+    jobber_web_uri: inv.jobberWebUri ?? null,
+    subtotal: inv.amounts?.subtotal ?? null,
+    total: inv.amounts?.total ?? null,
+    outstanding_balance: inv.amounts?.invoiceBalance ?? null,
+    tax_amount: inv.amounts?.taxAmount ?? null,
+    discount_amount: inv.amounts?.discountAmount ?? null,
+    payments_total: inv.amounts?.paymentsTotal ?? null,
+    deposit_amount: inv.amounts?.depositAmount ?? null,
+    tips_total: inv.amounts?.tipsTotal ?? null,
+    invoice_net_days: inv.invoiceNet ?? null,
+    salesperson_external_id: inv.salesperson?.id ?? null,
+    invoice_status: inv.invoiceStatus ?? null,
+    issued_date: inv.issuedDate ?? null,
+    due_date: inv.dueDate ?? null,
+    paid_at: inv.receivedDate ?? null,
+    custom_fields: Object.keys(cfRaw).length > 0 ? cfRaw : null,
+    last_synced_at: nowIso,
+    external_created_at: inv.createdAt ?? null,
+    updated_at: nowIso,
+    deleted_at: null,
+  }
+}
+
+/** How many invoices we re-read per GraphQL round trip in the reconcile below. */
+const OPEN_INVOICE_BATCH = 20
+/** Refuse to run if the believed-open set is implausibly large (see below). */
+const OPEN_INVOICE_CEILING = 500
+
+/**
+ * Re-read every invoice we still believe is UNPAID, ignoring `updatedAt`.
+ *
+ * ⚠⚠ THIS EXISTS BECAUSE A JOBBER PAYMENT DOES NOT BUMP `invoice.updatedAt`.
+ * The delta pull filters on `updatedAt: { after: … }`, so the moment an invoice is
+ * paid it stops matching that filter and the mirror keeps its last-known balance
+ * FOREVER. Measured on the live book 2026-08-11: 23 of the 36 invoices showing any
+ * balance had not been re-read in 14+ days, carrying $13,146.49 of receivable that
+ * was already collected — reported AR read $11,441.56 past due where Jobber's own
+ * books said $2,399.80, a ~4x overstatement. One $3,600 row had been paid since June.
+ *
+ * Keyed off `invoice(id:)` rather than inferring: an invoice that drops out of
+ * Jobber's unpaid list could equally have been paid, voided or written off as bad
+ * debt, and guessing "paid" would write a collection that never happened. We ask
+ * for the row and take what Jobber says.
+ *
+ * Self-limiting by construction: the query only asks about invoices we think are
+ * open, and every settled one it finds leaves the set on the next run.
+ */
+async function reconcileOpenInvoices(userId: string, companyId: string): Promise<number> {
+  const admin = createAdminClient()
+
+  // Believed-open = anything carrying a balance, or parked in a pre-payment status.
+  // Both halves matter: the stale rows split between "awaiting_payment with a live
+  // balance" and "status says paid but the amounts never zeroed".
+  const { data: openRows, error: readErr } = await admin
+    .from('invoices')
+    .select('external_id')
+    .eq('company_id', companyId)
+    .eq('source', 'jobber')
+    .is('deleted_at', null)
+    .or('outstanding_balance.gt.0,invoice_status.in.(draft,awaiting_payment,past_due)')
+    .limit(OPEN_INVOICE_CEILING + 1)
+  if (readErr) throw new Error(`open invoice read: ${readErr.message}`)
+
+  const ids = (openRows ?? []).map(r => r.external_id).filter(Boolean) as string[]
+  if (!ids.length) return 0
+
+  // A set this large means something upstream is wrong (a failed backfill, a fresh
+  // tenant mid-import). Re-reading thousands of invoices every delta run would spend
+  // the Jobber budget the rest of the sync needs, so bail loudly instead.
+  if (ids.length > OPEN_INVOICE_CEILING) {
+    console.warn(
+      `[jobber-sync] invoice reconcile skipped: ${ids.length} open invoices exceeds ceiling ${OPEN_INVOICE_CEILING}`
+    )
+    return 0
+  }
+
+  let refreshed = 0
+
+  for (let i = 0; i < ids.length; i += OPEN_INVOICE_BATCH) {
+    const batch = ids.slice(i, i + OPEN_INVOICE_BATCH)
+
+    // Aliased single-invoice lookups. Ids travel as GraphQL VARIABLES, never
+    // interpolated into the document.
+    const varDecls = batch.map((_, n) => `$id${n}: EncodedId!`).join(', ')
+    const selections = batch
+      .map((_, n) => `i${n}: invoice(id: $id${n}) { ...InvoiceFields }`)
+      .join('\n      ')
+    const query = `
+      query ReconcileOpenInvoices(${varDecls}) {
+        ${selections}
+      }
+      ${INVOICE_FIELDS_FRAGMENT}
+    `
+    const vars: Record<string, string> = {}
+    batch.forEach((id, n) => { vars[`id${n}`] = id })
+
+    const resp = await withRateLimit(() =>
+      jobberGraphQLAdmin<{ data: Record<string, InvoiceNode | null> }>(userId, query, vars)
+    )
+
+    // ⚠ jobberGraphQLAdmin returns the FULL body — the payload is under .data.
+    const nodes = Object.values(resp.data ?? {}).filter((n): n is InvoiceNode => !!n?.id)
+    if (!nodes.length) continue
+
+    const nowIso = new Date().toISOString()
+    const [invClientIds, invJobIds] = await Promise.all([
+      fetchIdMap(admin, 'clients', nodes.map(inv => inv.client?.id)),
+      fetchIdMap(admin, 'jobs', nodes.map(inv => inv.jobs?.nodes?.[0]?.id)),
+    ])
+
+    const rows = nodes.map(inv => mapInvoiceRow(inv, companyId, invClientIds, invJobIds, nowIso))
+    const { error } = await admin
+      .from('invoices')
+      .upsert(rows, { onConflict: 'external_id,source' })
+    if (error) throw new Error(`invoice reconcile upsert: ${error.message}`)
+
+    refreshed += rows.length
+
+    // An id Jobber no longer answers for is deliberately LEFT ALONE. It is one
+    // ambiguous read away from deleting a real receivable, and a stale row is the
+    // lesser harm; the count is logged so it stays visible.
+    const missing = batch.length - nodes.length
+    if (missing > 0) {
+      console.warn(`[jobber-sync] invoice reconcile: ${missing} of ${batch.length} not returned by Jobber (left untouched)`)
+    }
+  }
+
+  console.log(`[jobber-sync] invoice reconcile: re-read ${refreshed} open invoice(s)`)
+  return refreshed
+}
+
+/** reconcileOpenInvoices, but a failure is recorded rather than failing the sync. */
+async function reconcileOpenInvoicesSafe(
+  userId: string,
+  companyId: string,
+  summary: SyncSummary,
+): Promise<void> {
+  try {
+    await reconcileOpenInvoices(userId, companyId)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[jobber-sync] invoice reconcile failed (continuing):', msg)
+    summary.errors.push(`invoice reconcile: ${msg}`)
+  }
+}
 
 async function syncInvoices(
   userId: string,
@@ -1424,41 +1603,9 @@ async function syncInvoices(
       fetchIdMap(admin, 'jobs', nodes.map(inv => inv.jobs?.nodes?.[0]?.id)),
     ])
 
-    const invoiceRows = nodes.map(inv => {
-      const jobExternalId = inv.jobs?.nodes?.[0]?.id ?? null
-      const { raw: cfRaw } = parseCustomFields((inv.customFields ?? []) as RawCustomField[], null)
-      return {
-        company_id: companyId,
-        source: 'jobber',
-        external_id: inv.id,
-        client_id: invClientIds.get(inv.client?.id ?? '') ?? null,
-        client_external_id: inv.client?.id ?? null,
-        job_id: invJobIds.get(jobExternalId ?? '') ?? null,
-        job_external_id: jobExternalId,
-        invoice_number: inv.invoiceNumber ?? null,
-        subject: inv.subject ?? null,
-        jobber_web_uri: inv.jobberWebUri ?? null,
-        subtotal: inv.amounts?.subtotal ?? null,
-        total: inv.amounts?.total ?? null,
-        outstanding_balance: inv.amounts?.invoiceBalance ?? null,
-        tax_amount: inv.amounts?.taxAmount ?? null,
-        discount_amount: inv.amounts?.discountAmount ?? null,
-        payments_total: inv.amounts?.paymentsTotal ?? null,
-        deposit_amount: inv.amounts?.depositAmount ?? null,
-        tips_total: inv.amounts?.tipsTotal ?? null,
-        invoice_net_days: inv.invoiceNet ?? null,
-        salesperson_external_id: inv.salesperson?.id ?? null,
-        invoice_status: inv.invoiceStatus ?? null,
-        issued_date: inv.issuedDate ?? null,
-        due_date: inv.dueDate ?? null,
-        paid_at: inv.receivedDate ?? null,
-        custom_fields: Object.keys(cfRaw).length > 0 ? cfRaw : null,
-        last_synced_at: nowIso,
-        external_created_at: inv.createdAt ?? null,
-        updated_at: nowIso,
-        deleted_at: null,
-      }
-    })
+    const invoiceRows = nodes.map(inv =>
+      mapInvoiceRow(inv, companyId, invClientIds, invJobIds, nowIso)
+    )
 
     // Upsert all invoices and read their ids back in the same round-trip.
     const invoiceIdByExternal = new Map<string, string>()
@@ -1672,6 +1819,11 @@ export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary
     const visitsSince = new Date(Date.now() - VISIT_BACKFILL_DAYS * 24 * 60 * 60 * 1000)
     summary.visits     = await syncVisits(userId, companyId, visitsSince)
     summary.invoices   = await syncInvoices(userId, companyId, updatedSince)
+    // Must follow the delta pull: a payment does not move `updatedAt`, so this is
+    // the ONLY step that ever clears a settled invoice's balance. Non-fatal — a
+    // failure here leaves AR stale, which is strictly better than discarding an
+    // otherwise good sync.
+    await reconcileOpenInvoicesSafe(userId, companyId, summary)
 
     console.log('[jobber-sync] Delta pull complete:', summary)
     await completeSyncLog(logId, Object.values(summary).filter(v => typeof v === 'number').reduce((a, b) => a + (b as number), 0))

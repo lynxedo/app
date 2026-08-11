@@ -47,7 +47,7 @@ const LINE_NAMES: Record<string, string> = {
   WF: 'Weed & Feed',
   IR: 'Irrigation',
   PW: 'Pet Waste',
-  MO: 'Mowing',
+  MO: 'Mosquito',
   LD: 'Landscaping',
   Other: 'Other / Unclassified',
 }
