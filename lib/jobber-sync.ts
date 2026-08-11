@@ -1207,6 +1207,143 @@ async function syncVisits(
 
 // ── Invoices ──────────────────────────────────────────────────────────────────
 
+/* Team members. Unlike every other entity here there is no date filter and no
+ * meaningful pagination pressure — an account has tens of users, not thousands —
+ * so this pulls the whole list on every run. That is deliberate: the table it
+ * feeds had NO sync at all before (see syncUsers), and "refresh everything" is
+ * both cheap and impossible to leave stale. */
+const USERS_QUERY = `
+  query SyncUsers($cursor: String) {
+    users(first: 50, after: $cursor) {
+      nodes {
+        id
+        name { first last }
+        email { raw }
+        status
+      }
+      pageInfo { hasNextPage endCursor }
+    }
+  }
+`
+
+type UserNode = {
+  id: string
+  name?: { first?: string | null; last?: string | null } | null
+  email?: { raw?: string | null } | null
+  status?: string | null
+}
+
+/**
+ * Whether a Jobber user status counts as active.
+ *
+ * ⚠ Written to FAIL ACTIVE. `UserStatusEnum`'s values aren't exposed by
+ * introspection, so rather than guess a single winning value ('ACTIVE' vs
+ * 'ACTIVATED') and silently deactivate the whole team on a mismatch, this only
+ * treats explicitly deactivation-shaped statuses as inactive. Worst case a
+ * departed user lingers as active — cosmetic, and visible — instead of every
+ * technician vanishing from the boards at once.
+ */
+function jobberUserIsActive(status: string | null | undefined): boolean {
+  if (!status) return true
+  return !/DEACTIV|DISABL|ARCHIV|SUSPEND|INACTIVE|REMOVED/i.test(status)
+}
+
+/**
+ * Mirror the account's team members into `jobber_users`.
+ *
+ * ⚠⚠ This table previously had NO sync whatsoever. It was written once (Heroes:
+ * 2026-06-04) and never again — a full-repo grep found it referenced only in
+ * schema and RLS files. Because `scoreboard_board_technicians` name-matches
+ * `employees` against it, EVERY Jobber user created after that date was invisible
+ * to every technician board and to the Crew & Labor report. It surfaced when a
+ * technician hired in July showed 183.7 clocked hours with no attributable work;
+ * he was in Jobber all along, just not in the mirror.
+ *
+ * Runs on both the initial pull and the nightly delta, ignoring `updatedSince`:
+ * the list is tiny, and a stale roster is exactly the failure being fixed.
+ */
+async function syncUsers(userId: string, companyId: string): Promise<number> {
+  const admin = createAdminClient()
+  let cursor: string | null = null
+  let total = 0
+  const seen = new Set<string>()
+
+  while (true) {
+    const resp = await withRateLimit(() =>
+      jobberGraphQLAdmin<{ data: { users: { nodes: UserNode[]; pageInfo: { hasNextPage: boolean; endCursor: string } } } }>(
+        userId, USERS_QUERY, { cursor }
+      )
+    )
+
+    const { nodes, pageInfo } = resp.data.users
+    const nowIso = new Date().toISOString()
+
+    const rows = nodes.map(u => {
+      const full = `${u.name?.first ?? ''} ${u.name?.last ?? ''}`.trim()
+      seen.add(u.id)
+      return {
+        company_id: companyId,
+        source: 'jobber',
+        external_id: u.id,
+        // `name` is NOT NULL, and the name match downstream keys off it, so a
+        // nameless user gets a visible placeholder rather than breaking the insert.
+        name: full || '(unnamed user)',
+        email: u.email?.raw ?? null,
+        is_active: jobberUserIsActive(u.status),
+        last_synced_at: nowIso,
+        updated_at: nowIso,
+      }
+    })
+
+    if (rows.length) {
+      const { error } = await admin
+        .from('jobber_users')
+        .upsert(rows, { onConflict: 'external_id,company_id' })
+      if (error) throw new Error(`syncUsers upsert: ${error.message}`)
+      total += rows.length
+    }
+
+    if (!pageInfo.hasNextPage) break
+    cursor = pageInfo.endCursor
+    await throttleSleep(resp)
+  }
+
+  /* Deactivate anyone Jobber no longer returns — but ONLY after every page came
+   * back, so a mid-run failure can't wipe the roster. Deactivation rather than
+   * deletion: visits still reference these ids, and the name match uses is_active
+   * only as an ordering tiebreak, so a stale row demotes rather than disappears. */
+  if (seen.size > 0) {
+    const { error } = await admin
+      .from('jobber_users')
+      .update({ is_active: false, updated_at: new Date().toISOString() })
+      .eq('company_id', companyId)
+      .eq('is_active', true)
+      .not('external_id', 'in', `(${[...seen].map(id => `"${id}"`).join(',')})`)
+    if (error) console.error('[jobber-sync] user deactivate sweep failed:', error.message)
+  }
+
+  return total
+}
+
+/**
+ * syncUsers, but unable to take the pipeline down with it.
+ *
+ * ⚠ The roster runs FIRST in both pulls, so an unguarded throw here would abort
+ * clients, jobs, visits and invoices — trading a stale team list for a total sync
+ * outage. It is by far the least critical entity: a missing user costs attribution
+ * on a report, a missing invoice costs money. So a failure is recorded and the run
+ * continues.
+ */
+async function syncUsersSafe(userId: string, companyId: string, summary: SyncSummary): Promise<void> {
+  try {
+    summary.users = await syncUsers(userId, companyId)
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e)
+    console.error('[jobber-sync] user sync failed (continuing):', msg)
+    summary.errors.push(`users: ${msg}`)
+  }
+}
+
 const INVOICES_QUERY = `
   query SyncInvoices($cursor: String, $filter: InvoiceFilterAttributes) {
     invoices(first: 40, after: $cursor, filter: $filter) {
@@ -1396,8 +1533,10 @@ async function syncInvoices(
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
-/** The five entity pulls a full backfill walks through, in dependency order. */
-export const PULL_ENTITIES = ['clients', 'properties', 'jobs', 'visits', 'invoices'] as const
+/** The entity pulls a full backfill walks through, in dependency order.
+ *  Users come first: nothing depends on them, they're a single cheap page, and a
+ *  new tenant wants its roster present before visits start referencing tech ids. */
+export const PULL_ENTITIES = ['users', 'clients', 'properties', 'jobs', 'visits', 'invoices'] as const
 export type PullEntity = (typeof PULL_ENTITIES)[number]
 
 /**
@@ -1442,6 +1581,15 @@ export async function pullJobberEntity(
   opts: PullOpts,
 ): Promise<number> {
   switch (entity) {
+    // Users ignore `opts`: there is no date floor to honour and one page covers
+    // any real account, so there is nothing to resume from. Swallowed on failure
+    // for the same reason as syncUsersSafe — and here it also stops a backfill
+    // stalling forever on its first, least important entity.
+    case 'users':
+      return syncUsers(userId, companyId).catch(e => {
+        console.error('[jobber-sync] user pull failed (continuing):', e instanceof Error ? e.message : String(e))
+        return 0
+      })
     case 'clients':    return syncClients(userId, companyId, undefined, opts)
     case 'properties': return syncProperties(userId, companyId, undefined, opts)
     case 'jobs':       return syncJobs(userId, companyId, undefined, undefined, opts)
@@ -1452,6 +1600,7 @@ export async function pullJobberEntity(
 
 
 export interface SyncSummary {
+  users: number
   clients: number
   properties: number
   jobs: number
@@ -1462,12 +1611,13 @@ export interface SyncSummary {
 
 export async function runInitialJobberSync(companyId: string): Promise<SyncSummary> {
   const logId = await startSyncLog(companyId, 'initial_pull', null)
-  const summary: SyncSummary = { clients: 0, properties: 0, jobs: 0, visits: 0, invoices: 0, errors: [] }
+  const summary: SyncSummary = { users: 0, clients: 0, properties: 0, jobs: 0, visits: 0, invoices: 0, errors: [] }
 
   try {
     const userId = await getJobberUserId(companyId)
     console.log('[jobber-sync] Starting initial YTD pull...')
 
+    await syncUsersSafe(userId, companyId, summary)
     summary.clients    = await syncClients(userId, companyId)
     summary.properties = await syncProperties(userId, companyId)
     summary.jobs       = await syncJobs(userId, companyId)
@@ -1490,7 +1640,7 @@ export async function runInitialJobberSync(companyId: string): Promise<SyncSumma
 export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary> {
   const admin = createAdminClient()
   const logId = await startSyncLog(companyId, 'daily_delta', null)
-  const summary: SyncSummary = { clients: 0, properties: 0, jobs: 0, visits: 0, invoices: 0, errors: [] }
+  const summary: SyncSummary = { users: 0, clients: 0, properties: 0, jobs: 0, visits: 0, invoices: 0, errors: [] }
 
   try {
     const { data: lastSync } = await admin
@@ -1509,6 +1659,10 @@ export async function runDeltaJobberSync(companyId: string): Promise<SyncSummary
     console.log('[jobber-sync] Delta pull since:', updatedSince.toISOString())
 
     const userId = await getJobberUserId(companyId)
+    // ⚠ Deliberately NOT filtered by `updatedSince`. The roster is a few dozen
+    // rows and this table is the one that went two months stale; refreshing it
+    // whole every night is cheaper than reasoning about when a user changed.
+    await syncUsersSafe(userId, companyId, summary)
     summary.clients    = await syncClients(userId, companyId, updatedSince)
     summary.properties = await syncProperties(userId, companyId, updatedSince)
     summary.jobs       = await syncJobs(userId, companyId, updatedSince)
