@@ -197,6 +197,10 @@ export async function backfillJobReportLinks(
       .select('id, external_id')
       .eq('company_id', companyId)
       .is('completed_at', null)
+      // Tombstoned jobs are gone from Jobber, so a write to one fails with "Job
+      // does not exist". Omitting this filter pulled in 13 jobs deleted months ago
+      // and made a working sync look broken — the failures were mine, not its.
+      .is('deleted_at', null)
       .in('id', candidateJobIds.slice(i, i + 200))
     open.push(...((data ?? []) as { id: string; external_id: string }[]))
   }
