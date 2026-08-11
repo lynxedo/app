@@ -36,6 +36,7 @@ export type SourceKey =
   | 'invoice_ar'
   | 'crew_labor'
   | 'communications'
+  | 'clients_overview'
 
 export type SourceParams = Record<string, string | number | boolean | null>
 

@@ -33,6 +33,14 @@ export const REPORTS: ReportMeta[] = [
     prd: '§8.3',
   },
   {
+    slug: 'clients',
+    title: 'Clients',
+    subtitle: 'Is the customer base growing, who spends the most, and where they are',
+    section: 'Customers',
+    icon: '🏠',
+    prd: '§8.4',
+  },
+  {
     slug: 'communications',
     title: 'Communications',
     subtitle: 'Are you answering the phone and following up? Missed calls are missed revenue',

@@ -196,6 +196,41 @@ export type CommsRow = {
   by_weekday: { dow: number; label: string; inbound: number; missed: number }[]
 }
 
+/** Client base size, growth, geography and spend. */
+export type ClientsRow = {
+  coverage: {
+    first_client: string | null
+    /** ⚠ The billing floor. Per-client spend starts here, so it is NOT lifetime value. */
+    first_invoice: string | null
+    requested_start: string
+    requested_end: string
+  }
+  /** Excludes rows Jobber still flags as leads — they have never bought anything. */
+  clients_total: number
+  clients_active: number
+  clients_archived: number
+  leads_open: number
+  new_in_window: number
+  new_30d: number
+  billed_clients: number
+  billed_total: number
+  billed_avg: number | null
+  recurring_services: number
+  recurring_annual_value: number
+  new_by_month: { month: string; count: number }[]
+  by_city: { city: string; clients: number }[]
+  top_clients: {
+    client_id: string
+    name: string
+    billed: number
+    invoices: number
+    first_billed: string | null
+    last_billed: string | null
+    days_since_last: number
+    archived: boolean
+  }[]
+}
+
 /* ── Executors ──────────────────────────────────────────────────────────── */
 
 const SOURCES: Record<SourceKey, SourceExecutor> = {
@@ -334,6 +369,29 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
     })
     if (error) throw new Error(`communications: ${error.message}`)
     return data ? [data as CommsRow] : []
+  },
+
+  /**
+   * Client base overview (Report §8.4).
+   *
+   * ⚠ Per-client spend is billed-since-the-invoice-floor, NEVER lifetime value:
+   * clients date back to Jan 2025 while the invoice mirror starts at the Jobber
+   * backfill floor (2026-01-02 for Heroes). The floor comes back in `coverage` so
+   * every widget can name it instead of implying a complete history.
+   *
+   * ⚠ Leads are excluded from client counts, and there is deliberately no
+   * residential/commercial split — `is_company` is set on 15 of 1,663 rows and is
+   * false on known commercial accounts, so a chart built on it would be confidently
+   * wrong.
+   */
+  clients_overview: async (ctx, params) => {
+    const { data, error } = await ctx.supabase.rpc('scoreboard_clients', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+    })
+    if (error) throw new Error(`clients_overview: ${error.message}`)
+    return data ? [data as ClientsRow] : []
   },
 
   leads_decided: async (ctx, params) => {
