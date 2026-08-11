@@ -1050,7 +1050,8 @@ function RoutingTab() {
 
       <Section title="The Preview Map">
         <p>The Route Preview map is fully interactive — pinch/scroll to zoom, drag to pan, and click the full-screen button (top-right) for a bigger view. Pins are numbered in route order; the depot shows as a green <strong className="text-white">D</strong>.</p>
-        <p className="mt-2">After optimizing, the blue line follows <strong className="text-white">actual driving roads</strong> via Mapbox Directions — not straight lines. When you drag a stop to reorder, the line updates automatically after a brief pause. If the road path can&apos;t be fetched, a yellow note appears in the corner and the map falls back to straight lines.</p>
+        <p className="mt-2">After optimizing, the blue line follows <strong className="text-white">actual driving roads</strong> via Mapbox Directions — not straight lines. This works at <strong className="text-white">any route length</strong>: Mapbox only accepts 25 points per request, so longer routes are fetched in pieces and joined into one continuous line. When you drag a stop to reorder, the line updates automatically after a brief pause. If the road path can&apos;t be fetched at all, a yellow note appears in the corner and the map falls back to straight lines; if only one stretch fails, the note says so and just that stretch draws straight.</p>
+        <p className="mt-2">Note this is separate from the <strong className="text-white">drive times</strong>. Past 24 stops the map still draws real roads, but the <em>times</em> fall back to straight-line estimates — see the 🗺 badge below.</p>
       </Section>
 
       <Section title="Sending the Route">
@@ -1167,7 +1168,7 @@ function RoutingTab() {
           </div>
           <div>
             <p className="text-white font-medium mb-1">Drive times look like estimates, not real road times</p>
-            <p>The 🗺 badge means real Mapbox road times were used. If it&apos;s missing, the route has more than 25 stops — Mapbox&apos;s Matrix API caps at 25 locations (depot + 24 stops). Above that, straight-line distances are used as a fallback.</p>
+            <p>The 🗺 badge means real Mapbox road times were used. If it&apos;s missing, the route has more than 24 stops — Mapbox&apos;s Matrix API caps at 25 locations (depot + 24 stops). Above that, straight-line <em>distances</em> are used as a fallback for the times. The blue line on the map still follows real roads at any length — only the drive-time numbers fall back.</p>
           </div>
           <div>
             <p className="text-white font-medium mb-1">Duration formula isn&apos;t calculating a stop</p>

@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import 'mapbox-gl/dist/mapbox-gl.css'
 import type { Map as MapboxMap, Marker as MapboxMarker, Popup as MapboxPopup, GeoJSONSource } from 'mapbox-gl'
+import { fetchDrivingPath, lineStringFeature } from '@/lib/mapbox-directions'
 
 const MAPBOX_TOKEN = process.env.NEXT_PUBLIC_MAPBOX_TOKEN ?? ''
 
@@ -46,42 +47,6 @@ interface AdvancedRouteMapProps {
   /** Current selection size — drives the Clear button visibility/label. */
   selectedCount: number
   height?: number
-}
-
-// In-process cache: ordered coord-string → driving LineString. Mirrors the
-// Basic preview map so repeated optimizes of the same set are free.
-const directionsCache = new Map<string, GeoJSON.Feature<GeoJSON.LineString>>()
-
-function coordsKey(pts: Array<{ lat: number; lng: number }>): string {
-  return pts.map(p => `${p.lng.toFixed(6)},${p.lat.toFixed(6)}`).join(';')
-}
-
-async function fetchDirections(
-  pts: Array<{ lat: number; lng: number }>,
-  token: string,
-  signal?: AbortSignal,
-): Promise<GeoJSON.Feature<GeoJSON.LineString> | null> {
-  if (pts.length < 2 || pts.length > 25) return null
-  const key = coordsKey(pts)
-  const cached = directionsCache.get(key)
-  if (cached) return cached
-  const coordStr = pts.map(p => `${p.lng},${p.lat}`).join(';')
-  const url =
-    `https://api.mapbox.com/directions/v5/mapbox/driving/${coordStr}` +
-    `?geometries=geojson&overview=full&access_token=${token}`
-  try {
-    const res = await fetch(url, { signal })
-    if (!res.ok) return null
-    const data = await res.json() as { code: string; routes?: Array<{ geometry: GeoJSON.LineString }> }
-    if (data.code !== 'Ok' || !data.routes?.[0]?.geometry) return null
-    const feature: GeoJSON.Feature<GeoJSON.LineString> = {
-      type: 'Feature', properties: {}, geometry: data.routes[0].geometry,
-    }
-    directionsCache.set(key, feature)
-    return feature
-  } catch {
-    return null
-  }
 }
 
 function straightLineFeature(pts: Array<{ lat: number; lng: number }>): GeoJSON.Feature<GeoJSON.LineString> {
@@ -235,7 +200,9 @@ export default function AdvancedRouteMap({
   const markersRef = useRef<MapboxMarker[]>([])
   const popupRef = useRef<MapboxPopup | null>(null)
   const [mapReady, setMapReady] = useState(false)
-  const [pathFallback, setPathFallback] = useState(false)
+  // false = real road path drawn · 'all' = nothing could be fetched ·
+  // 'partial' = one stitched leg fell back, the rest follows roads.
+  const [pathFallback, setPathFallback] = useState<false | 'all' | 'partial'>(false)
   const [loadError, setLoadError] = useState<string | null>(null)
 
   // Lasso state. Points are in container-pixel space (overlay covers the map
@@ -397,12 +364,20 @@ export default function AdvancedRouteMap({
 
     const ctrl = new AbortController()
     const timer = window.setTimeout(async () => {
-      const feature = await fetchDirections(orderedPathCoords, MAPBOX_TOKEN, ctrl.signal)
+      const path = await fetchDrivingPath(orderedPathCoords, MAPBOX_TOKEN, {
+        overview: 'full',
+        signal: ctrl.signal,
+      })
       if (ctrl.signal.aborted) return
       const live = mapRef.current?.getSource('route-path') as GeoJSONSource | undefined
       if (!live) return
-      if (feature) { live.setData(feature); setPathFallback(false) }
-      else { live.setData(straight); setPathFallback(true) }
+      if (path) {
+        live.setData(lineStringFeature(path.coordinates))
+        setPathFallback(path.partial ? 'partial' : false)
+      } else {
+        live.setData(straight)
+        setPathFallback('all')
+      }
     }, 400)
 
     return () => { ctrl.abort(); window.clearTimeout(timer) }
@@ -561,7 +536,9 @@ export default function AdvancedRouteMap({
       )}
       {orderedPathCoords && pathFallback && !loadError && (
         <div className="absolute bottom-2 left-2 text-[11px] bg-black/60 text-yellow-300 px-2 py-1 rounded">
-          Showing straight-line route — couldn&apos;t fetch road path
+          {pathFallback === 'partial'
+            ? 'Part of the route couldn’t be fetched — that stretch is a straight line'
+            : 'Showing straight-line route — couldn’t fetch road path'}
         </div>
       )}
     </div>
