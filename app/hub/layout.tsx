@@ -416,6 +416,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
         canAccessForms={canAccessForms}
         canAccessDailyLogV2={canAccessDailyLogV2 && moduleOn('daily_log')}
         canAccessScoreboards={canAccessScoreboards && moduleOn('scoreboards')}
+        canAccessReports={canAccessReports && moduleOn('reports')}
         canAccessFiles={canAccessFiles}
         canAccessPesticideRecords={canAccessPesticideRecords && moduleOn('pricer')}
         canAccessPricer={canAccessPricer && moduleOn('pricer')}
