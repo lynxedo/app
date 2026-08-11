@@ -268,6 +268,32 @@ export type ServiceLinesRow = {
   lines: ServiceLine[]
 }
 
+/** Lead-Tracker funnel for a cohort of leads created in the window. */
+export type SalesRow = {
+  leads: number
+  won: number
+  lost: number
+  decided: number
+  open: number
+  /** Bad Lead / Unreachable / Duplicate — excluded from close rate, reported anyway. */
+  excluded_junk: number
+  close_rate: number | null
+  won_value: number
+  avg_deal: number | null
+  median_days_to_close: number | null
+  avg_days_to_close: number | null
+  close_time_sample: number
+  attempts_leads: number
+  attempts_total: number
+  /** Minimum decided leads before a rate is shown at all. */
+  rate_min_sample: number
+  by_month: { month: string; leads: number; won: number; decided: number; close_rate: number | null }[]
+  by_source: { source: string; leads: number; won: number; decided: number; close_rate: number | null; value: number }[]
+  by_salesperson: { name: string; leads: number; won: number; decided: number; close_rate: number | null; value: number }[]
+  lost_reasons: { reason: string; count: number }[]
+  open_by_stage: { stage: string; count: number }[]
+}
+
 /* ── Executors ──────────────────────────────────────────────────────────── */
 
 const SOURCES: Record<SourceKey, SourceExecutor> = {
@@ -455,6 +481,27 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
     })
     if (error) throw new Error(`service_lines: ${error.message}`)
     return data ? [data as ServiceLinesRow] : []
+  },
+
+  /**
+   * Sales & Pipeline from the Lead Tracker (Report §8.2, migrating the Office board).
+   *
+   * ⚠ Cohort = leads CREATED in the window, matching the Office board and the Board 8
+   * close-rate widget so one question gets one answer everywhere.
+   *
+   * ⚠ Close rate counts only closed_won + closed_lost; closed_other is junk (Bad
+   * Lead / Unreachable / Duplicate) and would treat wrong numbers as sales failures.
+   * ⚠ Rates are withheld below 10 decided — four reps read a flawless 100% off 3–11
+   * decisions before that floor went in.
+   */
+  sales_pipeline: async (ctx, params) => {
+    const { data, error } = await ctx.supabase.rpc('scoreboard_sales', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+    })
+    if (error) throw new Error(`sales_pipeline: ${error.message}`)
+    return data ? [data as SalesRow] : []
   },
 
   leads_decided: async (ctx, params) => {

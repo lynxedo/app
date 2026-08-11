@@ -49,6 +49,14 @@ export const REPORTS: ReportMeta[] = [
     prd: '§8.10',
   },
   {
+    slug: 'sales',
+    title: 'Sales & Pipeline',
+    subtitle: 'Are you winning work, and where is the funnel leaking?',
+    section: 'Sales',
+    icon: '🎯',
+    prd: '§8.2',
+  },
+  {
     slug: 'service-lines',
     title: 'Service Line Profitability',
     subtitle: 'Which parts of the business pay for the crew time they take',

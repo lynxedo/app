@@ -18,6 +18,7 @@ import { CREW_WIDGETS, CREW_REPORT_PRESET } from './crew'
 import { COMMS_WIDGETS, COMMS_REPORT_PRESET } from './comms'
 import { CLIENTS_WIDGETS, CLIENTS_REPORT_PRESET } from './clients'
 import { SERVICE_LINE_WIDGETS, SERVICE_LINE_REPORT_PRESET } from './servicelines'
+import { SALES_WIDGETS, SALES_REPORT_PRESET } from './sales'
 import type { Tone, WidgetPayload } from './payloads'
 
 const UNKNOWN_SOURCE = 'Other / Unknown'
@@ -432,7 +433,7 @@ const WIDGETS: WidgetDef<WidgetPayload>[] = [
 ]
 
 /** Every widget in the library. One array per subject area, concatenated here. */
-const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS, ...COMMS_WIDGETS, ...CLIENTS_WIDGETS, ...SERVICE_LINE_WIDGETS]
+const ALL_WIDGETS: WidgetDef<WidgetPayload>[] = [...WIDGETS, ...RETENTION_WIDGETS, ...REVENUE_WIDGETS, ...CREW_WIDGETS, ...COMMS_WIDGETS, ...CLIENTS_WIDGETS, ...SERVICE_LINE_WIDGETS, ...SALES_WIDGETS]
 
 const BY_TYPE = new Map(ALL_WIDGETS.map(w => [w.type, w]))
 
@@ -503,6 +504,7 @@ export const REPORT_PRESETS: Record<string, { title: string; widgets: { type: st
   'report:communications': { title: 'Communications', widgets: COMMS_REPORT_PRESET },
   'report:clients': { title: 'Clients', widgets: CLIENTS_REPORT_PRESET },
   'report:service-lines': { title: 'Service Line Profitability', widgets: SERVICE_LINE_REPORT_PRESET },
+  'report:sales': { title: 'Sales & Pipeline', widgets: SALES_REPORT_PRESET },
 }
 
 export function reportLayoutSlug(reportSlug: string): string {

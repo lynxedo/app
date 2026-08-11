@@ -38,6 +38,7 @@ export type SourceKey =
   | 'communications'
   | 'clients_overview'
   | 'service_lines'
+  | 'sales_pipeline'
 
 export type SourceParams = Record<string, string | number | boolean | null>
 
