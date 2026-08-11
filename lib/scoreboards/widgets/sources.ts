@@ -117,6 +117,50 @@ export type InvoiceArRow = {
   }[]
 }
 
+/** One person's clocked time and the work credited to them. */
+export type CrewPerson = {
+  employee_id: string
+  name: string
+  department: string
+  is_active: boolean
+  pay_type: string
+  hours: number
+  labor_cost: number | null
+  /** False when nobody in Jobber matches them, so no work can be credited. */
+  attributable: boolean
+  /** False for salaried staff and anyone under an hour — no $/hour is shown. */
+  rankable: boolean
+  revenue: number | null
+  rev_per_hour: number | null
+}
+
+export type CrewLaborRow = {
+  /** What the source actually measured, which may be narrower than the request. */
+  coverage: {
+    timeclock_first: string | null
+    timeclock_last: string | null
+    effective_start: string | null
+    effective_end: string | null
+    requested_start: string
+    requested_end: string
+    clamped: boolean
+    has_data: boolean
+  }
+  hours: number
+  labor_cost: number
+  revenue: number
+  visits: number
+  rev_per_hour: number | null
+  rev_per_visit: number | null
+  labor_pct: number | null
+  unattributed_count: number
+  unattributed_hours: number
+  unattributed_names: string[]
+  salaried_note: number
+  people: CrewPerson[]
+  by_department: { department: string; hours: number; labor_cost: number; people: number }[]
+}
+
 /* ── Executors ──────────────────────────────────────────────────────────── */
 
 const SOURCES: Record<SourceKey, SourceExecutor> = {
@@ -212,6 +256,28 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
     })
     if (error) throw new Error(`invoice_ar: ${error.message}`)
     return data ? [data as InvoiceArRow] : []
+  },
+
+  /**
+   * Crew productivity — revenue ÷ real clocked hours (Report §8.6).
+   *
+   * ⚠ The RPC CLAMPS the window to where timeclock data exists and reports what it
+   * clamped to. Heroes' clock starts 2026-05-29 while invoices go back to January,
+   * so an unclamped year-to-date reads ~$270/labor-hour against a true ~$78. The
+   * widgets print the effective period rather than the requested one — a ratio must
+   * never quietly change its own denominator.
+   *
+   * Revenue definitions match scoreboard_techs_revenue exactly so a number means
+   * the same thing here as on the technician boards.
+   */
+  crew_labor: async (ctx, params) => {
+    const { data, error } = await ctx.supabase.rpc('scoreboard_crew_labor', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+    })
+    if (error) throw new Error(`crew_labor: ${error.message}`)
+    return data ? [data as CrewLaborRow] : []
   },
 
   leads_decided: async (ctx, params) => {

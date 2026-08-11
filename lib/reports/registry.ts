@@ -33,6 +33,14 @@ export const REPORTS: ReportMeta[] = [
     prd: '§8.3',
   },
   {
+    slug: 'crew',
+    title: 'Crew & Labor Efficiency',
+    subtitle: 'What every clocked hour brings in — revenue against the timeclock, per person',
+    section: 'Operations',
+    icon: '👷',
+    prd: '§8.6',
+  },
+  {
     slug: 'retention',
     title: 'Retention & Churn',
     subtitle: 'What share of the recurring book you keep, why customers leave, and how much it costs',

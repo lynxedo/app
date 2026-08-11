@@ -34,6 +34,7 @@ export type SourceKey =
   | 'churn_summary'
   | 'invoice_window'
   | 'invoice_ar'
+  | 'crew_labor'
 
 export type SourceParams = Record<string, string | number | boolean | null>
 
