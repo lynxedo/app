@@ -231,6 +231,43 @@ export type ClientsRow = {
   }[]
 }
 
+/** One service line's revenue, allocated labor and what survives wages. */
+export type ServiceLine = {
+  dept: string
+  revenue: number
+  revenue_recurring: number
+  revenue_oneoff: number
+  visits: number
+  hours: number
+  labor_cost: number
+  after_labor: number
+  after_labor_pct: number | null
+  rev_per_hour: number | null
+}
+
+export type ServiceLinesRow = {
+  coverage: {
+    timeclock_first: string | null
+    timeclock_last: string | null
+    effective_start: string | null
+    effective_end: string | null
+    requested_start: string
+    requested_end: string
+    clamped: boolean
+    has_data: boolean
+  }
+  revenue_total: number
+  /** Total payroll = allocated + unassigned. The two always reconcile. */
+  labor_total: number
+  labor_allocated: number
+  hours_total: number
+  /** Paid hours on days with no completed visit — 28% of Heroes' wage bill. */
+  unassigned_hours: number
+  unassigned_cost: number
+  material_mapping_line_items: number
+  lines: ServiceLine[]
+}
+
 /* ── Executors ──────────────────────────────────────────────────────────── */
 
 const SOURCES: Record<SourceKey, SourceExecutor> = {
@@ -392,6 +429,32 @@ const SOURCES: Record<SourceKey, SourceExecutor> = {
     })
     if (error) throw new Error(`clients_overview: ${error.message}`)
     return data ? [data as ClientsRow] : []
+  },
+
+  /**
+   * Service line profitability (Report §8.8, rescoped from per-job).
+   *
+   * ⚠ Per-JOB margin isn't buildable: the timeclock has no job link, and visits are
+   * all-day "Anytime" windows so they can't proxy time on site. Labor is instead
+   * allocated by the visits each tech actually completed each day — not by their
+   * department field, which is stale for at least one technician.
+   *
+   * ⚠ Days with no completed visits (28% of the wage bill) come back as their own
+   * unassigned bucket rather than being spread or dropped, so allocated + unassigned
+   * reconciles to payroll exactly.
+   *
+   * ⚠ Materials excluded — only a minority of line items are mapped, so charging
+   * them to the mapped lines only would be an artefact. This is revenue after
+   * LABOUR, not margin.
+   */
+  service_lines: async (ctx, params) => {
+    const { data, error } = await ctx.supabase.rpc('scoreboard_service_lines', {
+      p_company_id: ctx.companyId,
+      p_start: String(params.start),
+      p_end: String(params.end),
+    })
+    if (error) throw new Error(`service_lines: ${error.message}`)
+    return data ? [data as ServiceLinesRow] : []
   },
 
   leads_decided: async (ctx, params) => {

@@ -37,6 +37,7 @@ export type SourceKey =
   | 'crew_labor'
   | 'communications'
   | 'clients_overview'
+  | 'service_lines'
 
 export type SourceParams = Record<string, string | number | boolean | null>
 

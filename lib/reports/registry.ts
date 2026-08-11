@@ -49,6 +49,14 @@ export const REPORTS: ReportMeta[] = [
     prd: '§8.10',
   },
   {
+    slug: 'service-lines',
+    title: 'Service Line Profitability',
+    subtitle: 'Which parts of the business pay for the crew time they take',
+    section: 'Money',
+    icon: '📐',
+    prd: '§8.8',
+  },
+  {
     slug: 'crew',
     title: 'Crew & Labor Efficiency',
     subtitle: 'What every clocked hour brings in — revenue against the timeclock, per person',
