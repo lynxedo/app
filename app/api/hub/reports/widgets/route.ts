@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getGrantedReportSlugs } from '@/lib/reports/access'
 import { canSeeReport, getReport } from '@/lib/reports/registry'
 import { loadReportLayoutInSync } from '@/lib/scoreboards/widgets/layouts'
 import { hasReportLayout, reportLayoutSlug, widgetCatalog } from '@/lib/scoreboards/widgets/registry'
@@ -34,11 +35,21 @@ export async function GET(request: Request) {
     .single()
   if (!profile?.company_id) return NextResponse.json({ error: 'Profile not found' }, { status: 404 })
 
-  const perms = { isAdmin: profile.role === 'admin', canAccessReports: profile.can_access_reports === true }
+  const isAdmin = profile.role === 'admin'
+  // Skipped for admins, who bypass grants anyway — this is the data route, so it
+  // runs on every report load and shouldn't buy a query it cannot act on.
+  const perms = {
+    isAdmin,
+    canAccessReports: profile.can_access_reports === true,
+    allowedReportSlugs: isAdmin ? [] : await getGrantedReportSlugs(supabase, user.id),
+  }
 
   const sp = new URL(request.url).searchParams
   const slug = sp.get('report') ?? ''
   const report = getReport(slug)
+  // The real gate. The index page and the rail also filter, but those only decide
+  // what is OFFERED — this decides what is SERVED, and it is the only one of the
+  // three a hand-typed URL cannot walk past.
   if (!report || !canSeeReport(perms, slug)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }

@@ -2,6 +2,7 @@ import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
 import { getBusinessProfile } from '@/lib/business-profile'
+import { getGrantedReportSlugs } from '@/lib/reports/access'
 import { canSeeReport, getReport } from '@/lib/reports/registry'
 import { hasReportLayout } from '@/lib/scoreboards/widgets/registry'
 import WidgetBoardView from '@/components/hub/scoreboards/widgets/WidgetBoardView'
@@ -31,10 +32,15 @@ export default async function ReportPage({ params }: { params: Promise<{ slug: s
     .eq('id', user.id)
     .single()
 
+  const isAdmin = profile?.role === 'admin'
   const perms = {
-    isAdmin: profile?.role === 'admin',
+    isAdmin,
     canAccessReports: profile?.can_access_reports === true,
+    allowedReportSlugs: isAdmin ? [] : await getGrantedReportSlugs(supabase, user.id),
   }
+  // Redirect rather than 404: an ungranted report is a real page they simply
+  // aren't cleared for, and the data route returns 403 regardless, so nothing
+  // here is the last line of defence.
   if (!canSeeReport(perms, slug)) redirect('/hub')
   if (!hasReportLayout(slug)) notFound()
 
