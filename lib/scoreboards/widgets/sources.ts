@@ -145,6 +145,10 @@ export type CrewLaborRow = {
     requested_end: string
     clamped: boolean
     has_data: boolean
+    /** True when months before the timeclock are covered by the payroll backfill. */
+    backfilled?: boolean
+    /** Last day the payroll backfill covers; the timeclock takes over the next day. */
+    backfill_until?: string | null
   }
   hours: number
   labor_cost: number

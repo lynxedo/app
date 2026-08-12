@@ -56,6 +56,12 @@ function periodPhrase(r: CrewLaborRow | null, win: WindowSpec): string {
   if (!r || !r.coverage.has_data) return win.phrase
   const { effective_start, effective_end, clamped } = r.coverage
   const span = `${pretty(effective_start)} – ${pretty(effective_end)}`
+  // The Hub timeclock only starts 2026-06-01. Where the months before it are
+  // covered by payroll, say so rather than implying one source measured it all —
+  // they are the same definition of an hour, but not the same record.
+  if (r.coverage.backfilled && r.coverage.backfill_until) {
+    return `${span} (payroll through ${pretty(r.coverage.backfill_until)}, timeclock after)`
+  }
   return clamped ? `${span} (where clock data exists)` : span
 }
 
