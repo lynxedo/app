@@ -222,6 +222,7 @@ export const RETENTION_WIDGETS: WidgetDef<WidgetPayload>[] = [
         }))
       return {
         kind: 'bars',
+        drill: drillTo('retention', 'cancellations', win, 'See who cancelled and why'),
         title: 'Why Customers Left',
         sub: `${yearPhrase(win, year)} · coloured by whether we could influence it`,
         format: 'number',
@@ -253,6 +254,7 @@ export const RETENTION_WIDGETS: WidgetDef<WidgetPayload>[] = [
         .map(t => ({ label: t.churn_type, value: t.count, tone: churnTypeTone(t.churn_type) }))
       return {
         kind: 'donut',
+        drill: drillTo('retention', 'cancellations', win, 'See who cancelled and why'),
         title: 'Controllable vs Not',
         sub: `${yearPhrase(win, year)} · ${s?.churned_gross ?? 0} cancellations`,
         parts,
@@ -285,6 +287,7 @@ export const RETENTION_WIDGETS: WidgetDef<WidgetPayload>[] = [
       }))
       return {
         kind: 'stacked',
+        drill: drillTo('retention', 'cancellations', win, 'See who cancelled and why'),
         title: 'Cancellations by Month',
         sub: `${yearPhrase(win, year)} · total per month, controllable share in red`,
         rows,

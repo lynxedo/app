@@ -65,6 +65,8 @@ export type BarsPayload = {
   /** Shown instead of the chart when there is nothing to draw. */
   empty?: string
   legend?: { label: string; tone: Tone }[]
+  /** Opens the full row list behind this chart (see lib/reports/drilldowns.ts). */
+  drill?: DrillLink
 }
 
 export type StackedPayload = {
@@ -74,6 +76,8 @@ export type StackedPayload = {
   rows: { label: string; caption: string; parts: { value: number; tone: Tone; label: string }[] }[]
   legend: { label: string; tone: Tone }[]
   empty?: string
+  /** Opens the full row list behind this chart (see lib/reports/drilldowns.ts). */
+  drill?: DrillLink
 }
 
 export type DonutPayload = {
@@ -83,6 +87,8 @@ export type DonutPayload = {
   parts: { label: string; value: number; tone: Tone }[]
   note?: string
   empty?: string
+  /** Opens the full row list behind this chart (see lib/reports/drilldowns.ts). */
+  drill?: DrillLink
 }
 
 export type TableColumn = {
@@ -133,6 +139,8 @@ export type ListPayload = {
   sub: string
   items: string[]
   empty?: string
+  /** Opens the full row list behind this chart (see lib/reports/drilldowns.ts). */
+  drill?: DrillLink
 }
 
 export type WidgetPayload =

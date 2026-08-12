@@ -44,7 +44,7 @@ function num(v: number | string | null | undefined): number {
 
 /** Heroes' internal codes, spelled out. Unknown codes pass through unchanged. */
 const LINE_NAMES: Record<string, string> = {
-  WF: 'Weed & Feed',
+  WF: 'Weed Fert',
   IR: 'Irrigation',
   PW: 'Pet Waste',
   MO: 'Mosquito',
@@ -206,10 +206,17 @@ export const SERVICE_LINE_WIDGETS: WidgetDef<WidgetPayload>[] = [
             ? { text: 'Mostly recurring — repeats without re-selling', tone: 'good' as Tone }
             : undefined,
       }))
+      const unclassified = (r?.lines ?? []).find(l => l.dept === 'Other')
       return {
         kind: 'table',
         title: 'Service Line Profitability',
         sub: periodPhrase(r, win),
+        drill: unclassified && num(unclassified.visits) > 0
+          ? {
+              href: `/hub/reports/service-lines/unclassified-work?start=${win.start}&end=${win.end}`,
+              label: `See the ${num(unclassified.visits)} visit${num(unclassified.visits) === 1 ? '' : 's'} with no service line`,
+            }
+          : undefined,
         columns: [
           { key: 'line', label: 'Service line', align: 'left' },
           { key: 'revenue', label: 'Revenue', align: 'right', format: 'currency', sortable: true },

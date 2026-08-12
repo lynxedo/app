@@ -29,6 +29,15 @@ import { fetchAllRows } from '@/lib/email-contacts'
  * correct. Doing these properly means having the RPC return its own rows, which is
  * a bigger change than adding a spec here. Better absent than wrong.
  *
+ * ⚠ ONE EXCEPTION, and it is the exception that proves the rule: `unclassified-work`
+ * on Service Lines. It does NOT try to reproduce revenue or labour attribution —
+ * it answers only "which visits fell into the Other bucket", which is decided by a
+ * three-step precedence (visit line item, then job, then a title prefix). That is
+ * reproducible EXACTLY, and it is reproduced by calling a dedicated RPC whose window,
+ * visit filter and precedence are copied verbatim from scoreboard_service_lines,
+ * rather than by re-deriving any of it here. The list totals $440 against the tile's
+ * $440. This is also the list that lets someone FIX the mis-titled jobs feeding it.
+ *
  * ⚠ Queries run through the CALLER'S supabase client, never the service-role one.
  * invoices / jobs / visits / recurring_services all carry RLS scoping SELECT to
  * `company_id = get_my_company_id()`, so tenant isolation is enforced by the
@@ -640,6 +649,34 @@ const DRILLDOWNS: DrillSpec[] = [
         when: (r.created_at as string | null)?.slice(0, 10) ?? null,
         status: (r.status as string | null) ?? '—',
       }))
+    },
+  },
+  {
+    key: 'unclassified-work',
+    title: 'Work with no service line',
+    description:
+      'Completed visits that Service Line Profitability could not file under a service line, ' +
+      'so their revenue and labour sit in "Other / Unclassified". A visit lands here when no ' +
+      'line item on it carries a department prefix, the job has none either, and the job title ' +
+      'does not start with one. Usually a title typo or a line item named differently from the ' +
+      'catalogue — each row shows the job title and the line items so it can be corrected at ' +
+      'source. Clamped to the period where timeclock data exists, exactly like the report.',
+    reports: ['service-lines'],
+    columns: [
+      { key: 'client', label: 'Customer' },
+      { key: 'job_title', label: 'Job title' },
+      { key: 'items', label: 'Line items on the visit' },
+      { key: 'completed', label: 'Completed', format: 'date' },
+      { key: 'revenue', label: 'Revenue', format: 'currency' },
+    ],
+    // Mirrors scoreboard_service_lines' "Other" bucket. The RPC exists precisely so
+    // the precedence is not re-implemented here and cannot drift from the tile.
+    run: async ({ supabase, companyId, win }) => {
+      const { data, error } = await supabase.rpc('scoreboard_service_lines_unclassified', {
+        p_company_id: companyId, p_start: win.start, p_end: win.end,
+      })
+      if (error) throw new Error(`unclassified-work: ${error.message}`)
+      return (data ?? []) as DrillRow[]
     },
   },
 ]

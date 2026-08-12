@@ -3,7 +3,7 @@
 import { useMemo, useState } from 'react'
 import Link from 'next/link'
 import type {
-  AttentionPayload, BarsPayload, DonutPayload, KpiPayload, ListPayload, StackedPayload, TablePayload,
+  AttentionPayload, BarsPayload, DonutPayload, DrillLink, KpiPayload, ListPayload, StackedPayload, TablePayload,
   WidgetPayload,
 } from '@/lib/scoreboards/widgets/payloads'
 import { formatValue, toneColor } from './tone'
@@ -58,6 +58,27 @@ function Spark({ values, tone }: { values: number[]; tone: string }) {
   )
 }
 
+/* The link from a figure to the rows behind it.
+ *
+ * Deliberately an explicit link rather than a card-wide hit area: these cards
+ * carry sub-lines and footnotes worth reading, and a whole-card click fires when
+ * someone meant to select text. Every payload kind can carry one — a chart is
+ * often the thing a person points at first, so restricting drill-downs to KPI
+ * tiles and tables put the link somewhere other than where they clicked. */
+function DrillFooter({ drill, className = 'mt-2' }: { drill?: DrillLink; className?: string }) {
+  if (!drill) return null
+  return (
+    <div className={className}>
+      <Link
+        href={drill.href}
+        className="text-[11px] font-semibold text-[var(--t-accent)] hover:underline"
+      >
+        {drill.label ?? 'See the rows'} →
+      </Link>
+    </div>
+  )
+}
+
 function Kpi({ p }: { p: KpiPayload }) {
   const long = p.value.length > 12
   return (
@@ -76,19 +97,7 @@ function Kpi({ p }: { p: KpiPayload }) {
       ) : null}
       {p.sub ? <div className="mt-1.5 text-[11px] text-gray-500">{p.sub}</div> : null}
       {p.spark ? <Spark values={p.spark} tone={toneColor(p.delta?.tone ?? p.tone ?? 'neutral')} /> : null}
-      {/* An explicit link rather than making the whole tile clickable: a KPI card
-        * carries a delta and a sub-line that are worth reading, and a card-wide
-        * hit area invites a click when someone meant to select the text. */}
-      {p.drill ? (
-        <div className="mt-2">
-          <Link
-            href={p.drill.href}
-            className="text-[11px] font-semibold text-[var(--t-accent)] hover:underline"
-          >
-            {p.drill.label ?? 'See the rows'} →
-          </Link>
-        </div>
-      ) : null}
+      <DrillFooter drill={p.drill} />
     </>
   )
 }
@@ -146,6 +155,7 @@ function Bars({ p }: { p: BarsPayload }) {
           </div>
         )}
       {p.legend ? <Legend items={p.legend} /> : null}
+      <DrillFooter drill={p.drill} className="mt-3" />
     </>
   )
 }
@@ -179,6 +189,7 @@ function Stacked({ p }: { p: StackedPayload }) {
           </div>
         )}
       <Legend items={p.legend} />
+      <DrillFooter drill={p.drill} className="mt-3" />
     </>
   )
 }
@@ -217,6 +228,7 @@ function Donut({ p }: { p: DonutPayload }) {
         <Head title={p.title} sub={p.sub} />
         <Legend items={p.parts.map(x => ({ label: `${x.label} (${x.value})`, tone: x.tone }))} />
         {p.note ? <div className="mt-3 text-[12px] leading-snug text-gray-400">{p.note}</div> : null}
+        <DrillFooter drill={p.drill} className="mt-3" />
       </div>
     </div>
   )
@@ -289,16 +301,7 @@ function Table({ p }: { p: TablePayload }) {
         )}
       {p.foot ? <div className="mt-3 text-[10.5px] leading-snug text-gray-600">{p.foot}</div> : null}
       {/* A table card usually shows a top-N slice; this opens the whole list. */}
-      {p.drill ? (
-        <div className="mt-3">
-          <Link
-            href={p.drill.href}
-            className="text-[11px] font-semibold text-[var(--t-accent)] hover:underline"
-          >
-            {p.drill.label ?? 'See the rows'} →
-          </Link>
-        </div>
-      ) : null}
+      <DrillFooter drill={p.drill} className="mt-3" />
     </>
   )
 }
@@ -318,6 +321,7 @@ function List({ p }: { p: ListPayload }) {
             ))}
           </ul>
         )}
+      <DrillFooter drill={p.drill} className="mt-3" />
     </>
   )
 }
