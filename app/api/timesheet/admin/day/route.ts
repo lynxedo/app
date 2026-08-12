@@ -78,6 +78,8 @@ export async function PATCH(req: NextRequest) {
     await admin.from('time_punches').insert({
       employee_id, punch_type: 'in', punched_at: clock_in,
       edit_reason: edit_reason.trim(), edited_by: user.id,
+      // Safe: the target employee was verified above to be in this company.
+      company_id: profile.company_id,
     })
   }
 
@@ -93,6 +95,7 @@ export async function PATCH(req: NextRequest) {
     await admin.from('time_punches').insert({
       employee_id, punch_type: 'out', punched_at: clock_out,
       edit_reason: edit_reason.trim(), edited_by: user.id,
+      company_id: profile.company_id,
     })
   }
 

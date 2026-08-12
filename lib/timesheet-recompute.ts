@@ -47,7 +47,7 @@ export async function recomputeDayEntry(
   const { startIso, endIso } = centralDayRangeUtc(date)
   const { data: dayPunches } = await admin
     .from('time_punches')
-    .select('punch_type, punched_at')
+    .select('punch_type, punched_at, company_id')
     .eq('employee_id', employeeId)
     .gte('punched_at', startIso)
     .lt('punched_at', endIso)
@@ -82,6 +82,10 @@ export async function recomputeDayEntry(
 
   const { error } = await admin.from('time_entries').upsert({
     employee_id: employeeId,
+    // Inherited from the punch this entry is derived from, rather than the column
+    // default (one tenant's id, being removed). The punch is the right source: the
+    // rollup belongs to whoever the punch belonged to.
+    company_id: (ins[0] as { company_id?: string } | undefined)?.company_id,
     date,
     clock_in: clockIn.toISOString(),
     clock_out: clockOut.toISOString(),

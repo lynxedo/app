@@ -72,7 +72,13 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'default_drive_mph must be 10–70' }, { status: 400 })
   }
 
-  const patch: Record<string, unknown> = { user_id: user.id }
+  // Set explicitly rather than leaning on the column default, which is one tenant's
+  // id and is being removed. Own-row write, so the caller's own company is correct.
+  const { data: me } = await supabase
+    .from('user_profiles').select('company_id').eq('id', user.id).single()
+  if (!me?.company_id) return NextResponse.json({ error: 'No company on your profile' }, { status: 400 })
+
+  const patch: Record<string, unknown> = { user_id: user.id, company_id: me.company_id }
   if ('display_name' in body)            patch.display_name            = body.display_name?.trim() || null
   if ('default_service_minutes' in body) patch.default_service_minutes = body.default_service_minutes
   if ('default_drive_mph' in body)       patch.default_drive_mph       = body.default_drive_mph

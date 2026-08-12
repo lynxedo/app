@@ -66,6 +66,18 @@ export async function POST(req: NextRequest) {
     if (!emp) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
+  // The punch belongs to the EMPLOYEE, so the company comes from their record —
+  // not from the actor, who may be an admin punching on their behalf. Set explicitly
+  // because the column default (one tenant's id) is being removed.
+  const { data: punchEmp } = await supabase
+    .from('employees')
+    .select('company_id')
+    .eq('id', employee_id)
+    .single()
+  if (!punchEmp?.company_id) {
+    return NextResponse.json({ error: 'That employee has no company on file' }, { status: 400 })
+  }
+
   // Check current status
   const { data: lastPunch } = await supabase
     .from('time_punches')
@@ -96,6 +108,7 @@ export async function POST(req: NextRequest) {
       note: note || null,
       lat: lat || null,
       lng: lng || null,
+      company_id: punchEmp.company_id,
     })
     .select()
     .single()

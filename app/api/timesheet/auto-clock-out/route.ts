@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
   for (const employeeId of employeeIds) {
     const { data: latest } = await admin
       .from('time_punches')
-      .select('id, punch_type, punched_at')
+      .select('id, punch_type, punched_at, company_id')
       .eq('employee_id', employeeId)
       .order('punched_at', { ascending: false })
       .limit(1)
@@ -72,6 +72,8 @@ export async function POST(req: NextRequest) {
       employee_id: employeeId,
       punch_type: 'out',
       punched_at: outIso,
+      // Inherited from the IN punch being closed — the cron needs no company context.
+      company_id: latest.company_id,
       note: `Auto clock-out after ${MAX_SHIFT_HOURS}h — please verify`,
     })
     if (insErr) {
