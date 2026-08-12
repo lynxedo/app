@@ -1,0 +1,43 @@
+-- Crew & Labor extended back through a Gusto payroll backfill. Applied 2026-08-12.
+--
+-- WHY: the Hub timeclock starts 2026-06-01, so however wide a range you picked this
+-- report could only measure ~10 weeks — a summer-only slice of a seasonal business.
+-- New table `payroll_periods` holds 22 weekly Gusto payrolls (2025-12-29 → 2026-05-31),
+-- imported by hand because Gusto exposes hours ONLY inside individual payroll records
+-- (list_time_records returns source:'none'; the earnings summary carries no hours).
+--
+-- One-off by design, not a snapshot that rots: the gap it fills is closed. From
+-- 2026-06-01 the timeclock is authoritative and already running, and the two agree
+-- EXACTLY where they overlap (week of Jun 15–21: Bonnie 32.59, Lucas 30.91, Mike
+-- 29.48, Wilson 25.32, Angel 22.51 — identical to the hundredth).
+--
+-- ⚠⚠ SAFETY PROPERTY: the window extends back ONLY IF the payroll weeks form an
+-- UNBROKEN RUN reaching the timeclock era. A half-finished import changes nothing.
+-- Verified mid-import at 12 of 22 weeks: backfilled=false and every figure byte-
+-- identical to before. Coverage is derived from what is loaded, never intended.
+--
+-- ⚠ EXEMPT weeks excluded — Gusto posts salaried staff at a flat 40.000 hours, a
+-- payroll convention (Ben shows 40.000 in weeks the timeclock has 0.02 for him).
+-- ⚠ PTO stored but excluded from worked hours, matching the timeclock, which never
+-- recorded it either.
+-- ⚠ Partial weeks at the window edge are PRO-RATED by days of overlap — weekly
+-- payroll cannot say which day an hour fell on. Only ever affects the end weeks.
+--
+-- ⚠⚠ A BUG THIS CAUGHT, worth remembering: the first version priced the payroll half
+-- using `employees.pay_type`, i.e. TODAY's status. Kathryn moved from hourly to salary
+-- in March, so her 281 backfilled hours counted in the denominator while her $4,636.82
+-- was dropped from the numerator — a denominator carrying what the numerator does not.
+-- Hours and cost now share one rule: the per-week flsa_status, which already decided
+-- that week was field labour. Reconciled after: total − payroll half = $32,523.05,
+-- matching the timeclock-only run's $32,523.06 to the cent.
+--
+-- RESULT, year-to-date: was 1,753.9 hrs / $78.18 per labor hour over May 29–Aug 11.
+-- Now 5,104.2 hrs / $95,916.74 / $425,372.83 revenue / $83.34 per labor hour /
+-- 22.5% labor, over the full Jan 1–Aug 11.
+--
+-- ⚠ Service Line Profitability is NOT extended: weekly payroll cannot attribute an
+-- hour to a service line. That report stays timeclock-only and says so.
+--
+-- Full bodies as applied are in the migration history
+-- (payroll_periods_2026_08_12, crew_labor_splice_payroll_backfill_2026_08_12, and the
+-- pay_type fix above). ACL re-verified after each CREATE OR REPLACE: anon=false.

@@ -1,0 +1,38 @@
+-- Service Line Profitability (REPORTS_PRD.md §8.8, rescoped). APPLIED 2026-08-11.
+--
+-- §8.8 asks for per-JOB margin. Not honestly buildable: the timeclock records who
+-- and when but never WHICH JOB, and visits are scheduled as all-day "Anytime"
+-- windows (avg 958 minutes) so they cannot stand in for time on site. Ben's call:
+-- do SERVICE LINE profitability instead, which the data does support.
+--
+-- LABOR IS ALLOCATED BY WHAT PEOPLE ACTUALLY DID, not by their department field.
+-- One tech sits in department "01 - Fert Tech" with job title "Lead Technician -
+-- IR", so the label would file irrigation labor under weed-and-feed. Each tech-day's
+-- hours are split across the lines they completed visits in that day.
+--
+-- ⚠ NOTHING IS DROPPED. 65 of 204 clocked days have no completed visits — 482.5
+-- hours, 28.3% of the wage bill (shop, drive, rain). Spreading only the other 72%
+-- would make every line look ~a quarter more profitable than it is, the direction
+-- of error that makes you underprice. Returned as an UNASSIGNED bucket, so
+-- allocated + unassigned reconciles to payroll exactly ($22,730.34 + $8,846.19 =
+-- $31,576.53, matching scoreboard_crew_labor to the cent).
+--
+-- ⚠ REVENUE MUST INCLUDE ONE-OFF WORK. Recurring line items alone show irrigation
+-- earning $4,042 against $10,621 of labor — a line apparently losing money badly.
+-- Its real revenue is $67,492, because irrigation is mostly one-off repair calls.
+-- Recurring-only would have libelled that crew.
+--
+-- ⚠ MATERIALS DELIBERATELY EXCLUDED, so this is "revenue after LABOUR", not margin.
+-- Only 4 of 87 line items have an active product mapping (38% of revenue) and the
+-- mapped ones cluster in weed-and-feed; charging materials to the one line that has
+-- them recorded would make it look worse than lines whose materials simply are not
+-- mapped yet. An artefact, not a fact. When Service Mapping is complete this can
+-- become true margin.
+--
+-- Window CLAMPED to timeclock coverage, like scoreboard_crew_labor: this divides
+-- revenue by labor, two sources whose history starts on different dates.
+--
+-- Objects: function public.scoreboard_service_lines(uuid, date, date) returns jsonb
+--   SECURITY DEFINER, search_path = public, pg_temp, guarded by
+--   scoreboard_reports_allowed(); REVOKE from public/anon; GRANT to
+--   authenticated + service_role. Full body as applied is in the migration history.

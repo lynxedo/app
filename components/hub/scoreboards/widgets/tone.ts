@@ -1,0 +1,34 @@
+import { formatCurrency } from '@/lib/format'
+import type { Tone, ValueFormat } from '@/lib/scoreboards/widgets/payloads'
+
+/* The one place a semantic tone becomes a colour.
+ *
+ * Metrics emit tone NAMES so this map is the only thing to change for a theme or
+ * a colour-blind-safe palette — not every widget. Values match today's boards so
+ * a migrated board looks identical to the one it replaces.
+ */
+export const TONE_COLOR: Record<Tone, string> = {
+  good: '#22c55e',
+  warn: '#f59e0b',
+  bad: '#f87171',
+  neutral: '#64748b',
+  paid: '#f87171',
+  free: '#22c55e',
+  mixed: '#8b5cf6',
+  unknown: '#94a3b8',
+}
+
+export function toneColor(tone: Tone | undefined): string {
+  return TONE_COLOR[tone ?? 'neutral']
+}
+
+export function formatValue(v: number | string | null, format: ValueFormat | undefined): string {
+  if (v === null || v === undefined || v === '') return '—'
+  if (typeof v === 'string') return v
+  switch (format) {
+    case 'percent': return `${v}%`
+    case 'currency': return formatCurrency(v)
+    case 'months': return `${v} mo`
+    default: return v.toLocaleString()
+  }
+}

@@ -54,7 +54,7 @@ export default async function AdminPage() {
     can_access_shared_inbox: boolean; can_manage_shared_inbox: boolean; can_compose_shared_email: boolean;
     can_access_forms: boolean; can_admin_forms: boolean; can_admin_products: boolean;
     can_access_daily_log_v2: boolean;
-    can_access_call_log2: boolean; can_access_scoreboards: boolean;
+    can_access_call_log2: boolean; can_access_scoreboards: boolean; can_access_reports: boolean;
     can_access_files: boolean; can_access_pesticide_records: boolean;
     can_access_pricer: boolean; can_access_coaching: boolean; can_access_beta: boolean;
     can_access_irrigation: boolean;
@@ -118,6 +118,7 @@ export default async function AdminPage() {
       can_access_daily_log_v2: r.can_access_daily_log_v2,
       can_access_call_log2: r.can_access_call_log2,
       can_access_scoreboards: r.can_access_scoreboards,
+      can_access_reports: r.can_access_reports,
       can_access_files: r.can_access_files,
       can_access_pesticide_records: r.can_access_pesticide_records,
       can_access_pricer: r.can_access_pricer,

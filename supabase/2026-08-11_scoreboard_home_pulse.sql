@@ -1,0 +1,52 @@
+-- Home / Command Center (REPORTS_PRD.md §8.1) — the point-in-time half. Applied 2026-08-11.
+--
+-- Home is mostly an ASSEMBLY of the seven reports built before it, so most of the
+-- page needs no new query: the KPI tiles request an existing source twice (current
+-- window and prior window) and the resolver batches both. This function supplies
+-- only what no other report answers.
+--
+-- ⚠ TAKES NO DATE WINDOW, deliberately — same reasoning as scoreboard_invoice_ar.
+-- "Work sitting unbilled" and "visits that never happened" are facts about RIGHT
+-- NOW. A date picker above them would imply a filter they never obeyed, and the
+-- widgets say "as of today" on the card.
+--
+-- ⚠ "LATE" IS THE FACT, NOT THE LABEL: scheduled in the past and never completed.
+-- Jobber's own visit_status disagrees with itself here — two visits read LATE while
+-- carrying a FUTURE date, while others sit UPCOMING with a June date and no
+-- completion. Same lesson as the invoices marked "paid" that still owed money:
+-- in the Jobber mirror a status is a label, reconcile against the underlying fact.
+--
+-- ⚠⚠ AT-RISK KEYS OFF cancelled_status = 'Active', NOT the sold status alone. Of the
+-- 474 recurring services reading "Sold", 153 are CANCELLED and 17 Upgraded; only 304
+-- are live. Filtering on Sold alone reported 128 customers as at risk when the true
+-- figure is 22 — a nearly sixfold overstatement, and every one of those extra names
+-- would have been a cancelled customer somebody then chased.
+--
+-- ⚠ THE AT-RISK COUNT STATES ITS OWN BLIND SPOT. Recurring services join to Jobber
+-- clients by email; 23 of 304 active services have no match and therefore can never
+-- appear in the list. The matched/total counts come back so the card can say so,
+-- rather than implying it looked at everyone.
+--
+-- ⚠ BOOKED WORK IS NOT A FORECAST. The PRD asks for a six-month revenue forecast;
+-- what the data supports is the sum of work already SCHEDULED and already PRICED.
+-- A forecast implies a model for cancellations, reschedules and unsold work, and
+-- there is none. It is also a FLOOR: 250 of 1,910 scheduled visits carry no line
+-- item, so their revenue is missing entirely. Both facts are returned and printed.
+--
+-- Pricing rules are lifted VERBATIM from scoreboard_techs_revenue so a dollar means
+-- the same thing forwards as backwards: recurring work is priced per visit from
+-- visit-level line items (excluding "Service Plan" rows), one-off work carries its
+-- price on the job and is divided across that job's visits. Archived jobs and
+-- BILLING-titled visits are excluded from both.
+--
+-- Verified against the live book on 2026-08-11: $23,532.55 of finished work not yet
+-- invoiced across 97 jobs, 3 visits never completed (oldest 2026-06-24), 22 at-risk
+-- recurring customers, $172,085.62 of scheduled work over six months / 1,910 visits.
+--
+-- Objects: function public.scoreboard_home_pulse(uuid, int) returns jsonb,
+--   SECURITY DEFINER, search_path = public/pg_temp, guarded by
+--   scoreboard_reports_allowed(); REVOKE public/anon; GRANT authenticated +
+--   service_role. Plus index idx_visits_company_scheduled on visits
+--   (company_id, scheduled_date) where deleted_at is null.
+--   Cross-tenant denial re-proven with a real second-tenant user: Heroes -> null,
+--   own company -> rows. Full body as applied is in the migration history.

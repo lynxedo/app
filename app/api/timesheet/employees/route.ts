@@ -61,10 +61,11 @@ export async function POST(req: NextRequest) {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_admin_timesheet')
+    .select('role, can_admin_timesheet, company_id')
     .eq('id', user.id)
     .single()
   if (profile?.role !== 'admin' && !profile?.can_admin_timesheet) return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
+  if (!profile?.company_id) return NextResponse.json({ error: 'No company on your profile' }, { status: 400 })
 
   const body = await req.json()
   const { first_name, last_name, preferred_name, email, phone, job_title, department, pay_type, hourly_rate } = body
@@ -86,6 +87,9 @@ export async function POST(req: NextRequest) {
       flsa_status: pay_type === 'salary' ? 'Exempt' : 'Nonexempt',
       hourly_rate: pay_type === 'hourly' && hourly_rate ? parseFloat(hourly_rate) : null,
       is_active: true,
+      // Set explicitly rather than leaning on the column default, which is one
+      // tenant's id and is being removed.
+      company_id: profile.company_id,
     })
     .select()
     .single()

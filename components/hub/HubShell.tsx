@@ -19,6 +19,7 @@ import TxtV2Sidebar from './sidebars/TxtV2Sidebar'
 import EmailInboxSidebar from './sidebars/EmailInboxSidebar'
 import DialerSidebar from './sidebars/DialerSidebar'
 import ScoreboardsSidebar from './sidebars/ScoreboardsSidebar'
+import ReportsSidebar from './sidebars/ReportsSidebar'
 import TrackerSidebar from './sidebars/TrackerSidebar'
 import MarketingSidebar from './sidebars/MarketingSidebar'
 import AnnouncementTicker, { type Announcement } from './AnnouncementTicker'
@@ -109,6 +110,7 @@ export default function HubShell({
   canAccessForms,
   canAccessDailyLogV2,
   canAccessScoreboards,
+  canAccessReports,
   canAccessFiles,
   canAccessPesticideRecords,
   canAccessPricer,
@@ -182,6 +184,22 @@ export default function HubShell({
   canAccessForms?: boolean
   canAccessDailyLogV2?: boolean
   canAccessScoreboards?: boolean
+  /**
+   * ⚠ REQUIRED, unlike its neighbours, and deliberately so.
+   *
+   * This prop was optional and the layout never passed it, so `!!undefined` made
+   * it false for everyone and the Reports icon was filtered out of the rail and
+   * the app drawer — for admins too — even with the flag granted, the page live
+   * and `'reports'` already saved in the user's layout. Nothing failed; the icon
+   * simply wasn't there, which is indistinguishable from "not shipped".
+   *
+   * An optional boolean permission prop cannot be forgotten loudly: the default
+   * is the locked state. Making this one required means the compiler catches the
+   * omission. The rest of these should follow (ideally by passing the
+   * RailPermissions object the layout already builds), but that is a wider change
+   * than the bug in front of it.
+   */
+  canAccessReports: boolean
   canAccessFiles?: boolean
   canAccessPesticideRecords?: boolean
   canAccessPricer?: boolean
@@ -791,6 +809,7 @@ export default function HubShell({
     canAccessForms: !!canAccessForms,
     canAccessDailyLogV2: !!canAccessDailyLogV2,
     canAccessScoreboards: !!canAccessScoreboards,
+    canAccessReports: !!canAccessReports,
     canAccessFiles: !!canAccessFiles,
     canAccessPesticideRecords: !!canAccessPesticideRecords,
     canAccessPricer: !!canAccessPricer,
@@ -864,6 +883,8 @@ export default function HubShell({
         )
       case 'scoreboards':
         return <ScoreboardsSidebar isAdmin={!!isAdmin} allowedSlugs={scoreboardSlugs} onClose={closeMobileDrawer} {...collapseProps} />
+      case 'reports':
+        return <ReportsSidebar onClose={closeMobileDrawer} {...collapseProps} />
       case 'tracker':
         return <TrackerSidebar isAdmin={!!isAdmin} onClose={closeMobileDrawer} {...collapseProps} />
       case 'marketing':

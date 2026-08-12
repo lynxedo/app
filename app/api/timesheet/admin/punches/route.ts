@@ -73,7 +73,9 @@ export async function POST(req: NextRequest) {
 
   const { data, error } = await admin
     .from('time_punches')
-    .insert({ employee_id, punch_type, punched_at, note: note || null, edited_by: user.id })
+    .insert({ employee_id, punch_type, punched_at, note: note || null, edited_by: user.id,
+              // Safe: the target employee was verified above to be in this company.
+              company_id: profile.company_id })
     .select()
     .single()
 

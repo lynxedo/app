@@ -1,0 +1,34 @@
+-- Sales & Pipeline (REPORTS_PRD.md §8.2), from the Lead Tracker. Applied 2026-08-11.
+-- Migrates what the hardcoded Office board (board 5) reported.
+--
+-- COHORT BASIS: leads CREATED in the window, not decided in it — matching the
+-- Office board and the Board 8 close-rate widget, so the same question gets the
+-- same answer wherever it is asked.
+--
+-- ⚠ CLOSE RATE COUNTS ONLY closed_won + closed_lost. closed_other is junk, not a
+-- loss: Bad Lead (53), Unreachable (43), Duplicate (1). Including it would treat
+-- wrong numbers as sales failures. The excluded count is returned so the exclusion
+-- is visible rather than hidden.
+--
+-- ⚠ RATES NEED A REAL DENOMINATOR (floor = 10 decided). At a floor of 3, four reps
+-- showed a flawless 100% off 3–11 decisions — noise dressed as excellence, the same
+-- class of error as the competitor's 4050% close rates that this PRD calls out.
+-- `decided` is always returned so a widget can say "too few to rate" instead of
+-- dropping the person from the table.
+--
+-- ⚠ SALESPERSON NAMES ARE CASE-NORMALISED: "Kathryn" and "kathryn" came back as two
+-- different people, splitting one rep's record in two.
+--
+-- ⚠ LOST REASONS ARE DASH-NORMALISED: "Not Sold- Other" (95) and "Not Sold — Other"
+-- (45) are the same reason typed with a hyphen and an em dash; grouping raw would
+-- split the largest loss reason into two smaller ones and bury it.
+--
+-- ⚠ TIME TO CLOSE guards sold_date >= lead_creation_date: 45 of 404 won leads carry
+-- a sold date BEFORE their creation date (migrated rows), which ungarded would
+-- produce negative durations.
+--
+-- Objects: function public.scoreboard_sales(uuid, date, date) returns jsonb,
+--   SECURITY DEFINER, search_path = public/pg_temp, guarded by
+--   scoreboard_reports_allowed(); REVOKE public/anon; GRANT authenticated +
+--   service_role. Plus index idx_leads_company_created on leads (company_id,
+--   lead_creation_date). Full body as applied is in the migration history.

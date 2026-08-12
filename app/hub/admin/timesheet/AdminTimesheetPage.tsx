@@ -20,6 +20,7 @@ type Employee = {
   gusto_synced_at: string | null
   user_id: string | null
   is_active: boolean | null
+  is_field_labor: boolean | null
 }
 
 type LynxedoUser = { id: string; email: string }
@@ -312,6 +313,7 @@ export default function AdminTimesheetPage() {
   const [editEmp, setEditEmp] = useState<Employee | null>(null)
   const [editForm, setEditForm] = useState(BLANK_ADD_FORM)
   const [editActive, setEditActive] = useState(true)
+  const [editFieldLabor, setEditFieldLabor] = useState(true)
   const [editSaving, setEditSaving] = useState(false)
   const [editError, setEditError] = useState('')
   const [linkingEmployee, setLinkingEmployee] = useState<Employee | null>(null)
@@ -792,6 +794,7 @@ export default function AdminTimesheetPage() {
       hourly_rate: emp.hourly_rate != null ? String(emp.hourly_rate) : '',
     })
     setEditActive(emp.is_active !== false)
+    setEditFieldLabor(emp.is_field_labor !== false)
     setEditError('')
   }
 
@@ -813,6 +816,7 @@ export default function AdminTimesheetPage() {
         pay_type: editForm.pay_type,
         hourly_rate: editForm.pay_type === 'hourly' && editForm.hourly_rate ? parseFloat(editForm.hourly_rate) : null,
         is_active: editActive,
+        is_field_labor: editFieldLabor,
       }),
     })
     const data = await res.json()
@@ -2001,6 +2005,28 @@ export default function AdminTimesheetPage() {
                   className={`relative w-10 h-5 rounded-full transition-colors ${editActive ? 'bg-emerald-500' : 'bg-gray-700'}`}
                 >
                   <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${editActive ? 'right-0.5' : 'left-0.5'}`} />
+                </button>
+              </div>
+              {/* Whether this person's hours count as FIELD labour in Crew & Labor and
+                * Service Lines. Separate from pay type on purpose: a salaried office
+                * manager can still have earlier NONEXEMPT payroll weeks, and those
+                * weeks would otherwise land in the $/labour-hour denominator. */}
+              <div className="flex items-start justify-between gap-3 pt-1">
+                <div className="min-w-0">
+                  <span className="text-sm text-gray-300">Counts as field labor</span>
+                  <p className="mt-0.5 text-[11px] leading-snug text-gray-500">
+                    {editFieldLabor
+                      ? 'Their hours and wages are included in revenue per labor-hour.'
+                      : 'Excluded from revenue per labor-hour — use this for office and management staff.'}
+                  </p>
+                </div>
+                <button
+                  role="switch"
+                  aria-checked={editFieldLabor}
+                  onClick={() => setEditFieldLabor(v => !v)}
+                  className={`relative mt-0.5 w-10 h-5 shrink-0 rounded-full transition-colors ${editFieldLabor ? 'bg-emerald-500' : 'bg-gray-700'}`}
+                >
+                  <span className={`absolute top-0.5 w-4 h-4 rounded-full bg-white transition-all ${editFieldLabor ? 'right-0.5' : 'left-0.5'}`} />
                 </button>
               </div>
               {editError && <p className="text-red-400 text-xs">{editError}</p>}

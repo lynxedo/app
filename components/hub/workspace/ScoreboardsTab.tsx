@@ -4,8 +4,14 @@
  * Workspace-tab twins for Scoreboards. A Scoreboards tab is per-instance:
  *  - no instanceKey → the INDEX grid (ScoreboardsIndexTab); its cards open
  *    individual boards as their own slug-keyed tabs.
- *  - instanceKey = slug → one board (ScoreboardBoardTab), rendering the same
- *    Scoreboard{N}View the real /hub/scoreboards/[slug] route renders.
+ *  - instanceKey = slug → one board (ScoreboardBoardTab), rendering whatever the
+ *    real /hub/scoreboards/[slug] route renders: WidgetBoardView for a board
+ *    migrated to widgets, otherwise its hardcoded Scoreboard{N}View.
+ *
+ * ⚠ This twin is a SECOND entry point that never touches the route's page.tsx, so
+ * any board-level dispatch has to be mirrored in both. The widget migration was
+ * shipped without it once and Board 8 kept showing its old view for anyone with
+ * Workspace Tabs on — the route was right and the tab was stale.
  *
  * The board views already self-fetch their KPI payload (useScoreboardData), and
  * the registry (`getScoreboard`) is pure/client-safe, so a twin only needs the
@@ -14,6 +20,8 @@
  */
 
 import { SCOREBOARDS, getScoreboard } from '@/lib/scoreboards/registry'
+import { hasWidgetLayout } from '@/lib/scoreboards/widgets/registry'
+import WidgetBoardView from '@/components/hub/scoreboards/widgets/WidgetBoardView'
 import { useWorkspaceTabs } from './WorkspaceTabsContext'
 import Scoreboard1View from '@/app/hub/scoreboards/[slug]/Scoreboard1View'
 import Scoreboard2View from '@/app/hub/scoreboards/[slug]/Scoreboard2View'
@@ -60,6 +68,15 @@ export function ScoreboardsIndexTab({ allowedSlugs, isAdmin }: { allowedSlugs: s
 export function ScoreboardBoardTab({ slug }: { slug: string }) {
   const meta = getScoreboard(slug)
   if (!meta) return <div className="p-6 text-sm text-white/60">Unknown scoreboard.</div>
+
+  // A board migrated to widgets renders from its saved layout HERE TOO. This twin
+  // bypasses app/hub/scoreboards/[slug]/page.tsx entirely, so a board added to the
+  // widget list without this line keeps showing its old hardcoded view for anyone
+  // using Workspace Tabs — and looks like the migration simply didn't ship.
+  if (hasWidgetLayout(slug)) {
+    return <WidgetBoardView meta={meta} classicHref={`/hub/scoreboards/${slug}?classic=1`} />
+  }
+
   // Same slug→view dispatch as app/hub/scoreboards/[slug]/page.tsx. Board 6
   // (coaching) takes only `meta`; the rest accept an optional `businessName`.
   switch (slug) {

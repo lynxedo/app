@@ -1,0 +1,34 @@
+-- Drill-down source for Service Lines' "Other / Unclassified" bucket.
+-- APPLIED 2026-08-12 to the shared DB.
+--
+-- Service Line Profitability and Crew & Labor otherwise have NO drill-down on
+-- purpose (see the header of lib/reports/drilldowns.ts): revenue is clamped to
+-- timeclock coverage and priced by two different rules at once, and labour is
+-- attributed by which visits a person completed, so a plain row query missed the
+-- card by 4.4x and then by 30x.
+--
+-- This is the one safe exception, and it is safe for a specific reason: it does
+-- not reproduce revenue or labour attribution. It answers only "which visits fell
+-- into the Other bucket", which is decided by a three-step precedence — visit line
+-- item prefix, then job prefix, then a job-title prefix. The window, the visit
+-- filter and that precedence are COPIED VERBATIM from scoreboard_service_lines,
+-- so the list agrees with the tile by construction. Diff the two whenever either
+-- changes. Verified on Heroes: 2 visits totalling $440 against a tile reading $440.
+--
+-- This is also the list that lets someone FIX the cause. Both Heroes rows are
+-- naming problems, not data problems:
+--   "Pet Waste Station Replacement"            -> no PW prefix, should be PW
+--   "PROMISED IR Install assessment WoodlandsE" -> starts with PROMISED, so the
+--                                                  ^(WF|IR|PW|MO|LD) match misses
+--
+-- ⚠ Inherits the same Heroes-specific assumption as its parent: the hardcoded
+-- WF/IR/PW/MO/LD prefix list and the America/Chicago timezone. When the
+-- per-subscriber line-item -> service-line mapping lands (REPORTS_PRD §7), this
+-- function changes with it — the drill-down itself stays, becoming "line items
+-- with no mapping", which is exactly what a new subscriber needs on day one.
+--
+-- Objects: function public.scoreboard_service_lines_unclassified(uuid, date, date)
+--   returns jsonb, SECURITY DEFINER, search_path = public, pg_temp, guarded by
+--   scoreboard_reports_allowed(). REVOKEd from public/anon, GRANTed to
+--   authenticated + service_role — verified anon=false, authenticated=true.
+--   Full body as applied is in the migration history.
