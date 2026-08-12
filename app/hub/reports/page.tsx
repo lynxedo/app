@@ -2,7 +2,7 @@ import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
 import { getGrantedReportSlugs } from '@/lib/reports/access'
-import { SECTION_ORDER, canSeeReports, reportsForUser } from '@/lib/reports/registry'
+import { SECTION_ORDER, canOpenReportsSection, reportsForUser } from '@/lib/reports/registry'
 
 export const metadata = { title: 'Reports' }
 export const dynamic = 'force-dynamic'
@@ -38,7 +38,7 @@ export default async function ReportsIndexPage() {
 
   const { data: profile } = await supabase
     .from('user_profiles')
-    .select('role, can_access_reports')
+    .select('role, can_access_reports, can_access_coaching')
     .eq('id', user.id)
     .single()
 
@@ -46,9 +46,14 @@ export default async function ReportsIndexPage() {
   const perms = {
     isAdmin,
     canAccessReports: profile?.can_access_reports === true,
+    canAccessCoaching: profile?.can_access_coaching === true,
     allowedReportSlugs: isAdmin ? [] : await getGrantedReportSlugs(supabase, user.id),
   }
-  if (!canSeeReports(perms)) redirect('/hub')
+  // Not `canSeeReports`: Call Coaching carries its own flag, so someone can have
+  // exactly one report to read without holding the section flag. Bouncing them off
+  // the index they have a row on would be the "absent looks like never-shipped"
+  // failure again, just one level up.
+  if (!canOpenReportsSection(perms)) redirect('/hub')
 
   const mine = reportsForUser(perms)
   const sections = SECTION_ORDER

@@ -8,7 +8,6 @@ import Scoreboard2View from './Scoreboard2View'
 import Scoreboard3View from './Scoreboard3View'
 import Scoreboard4View from './Scoreboard4View'
 import Scoreboard5View from './Scoreboard5View'
-import Scoreboard6View from './Scoreboard6View'
 import Scoreboard7View from './Scoreboard7View'
 import Scoreboard8View from './Scoreboard8View'
 import { createAdminClient } from '@/lib/supabase/admin'
@@ -26,6 +25,12 @@ export default async function ScoreboardPage({
 }) {
   const { slug } = await params
   const { classic } = await searchParams
+
+  // Call Coaching moved to Reports. Redirect rather than 404 so saved links, open
+  // Workspace tabs and muscle memory all land somewhere useful. The destination
+  // re-checks can_access_coaching, so this leaks nothing to someone without it.
+  if (slug === '6') redirect('/hub/reports/coaching')
+
   const board = getScoreboard(slug)
   if (!board) notFound()
 
@@ -41,16 +46,13 @@ export default async function ScoreboardPage({
 
   const isAdmin = profile?.role === 'admin'
   const admin = createAdminClient()
-  const { data: coach } = await admin
-    .from('user_profiles').select('can_access_coaching').eq('id', user.id).single()
   const perms = {
     isAdmin,
     canAccessScoreboards: !!profile?.can_access_scoreboards,
-    canAccessCoaching: coach?.can_access_coaching === true,
     allowedBoardSlugs: isAdmin ? [] : await getGrantedBoardSlugs(supabase, user.id),
   }
-  // Section gate + per-board view grant (Admin -> Scoreboards). Admins see all,
-  // EXCEPT the coaching board, which is gated on can_access_coaching alone.
+  // Section gate + per-board view grant (Admin -> Scoreboards). Admins see all.
+  // The coaching exception that used to live here left with the board itself.
   if (!canSeeBoard(perms, board.slug)) redirect('/hub')
 
   const { businessName } = await getBusinessProfile(admin, profile?.company_id ?? null)
@@ -80,8 +82,6 @@ export default async function ScoreboardPage({
       return <Scoreboard4View meta={board} businessName={businessName} />
     case '5':
       return <Scoreboard5View meta={board} businessName={businessName} />
-    case '6':
-      return <Scoreboard6View meta={board} />
     case '7':
       return <Scoreboard7View meta={board} businessName={businessName} />
     case '8':

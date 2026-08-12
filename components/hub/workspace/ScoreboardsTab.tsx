@@ -28,7 +28,6 @@ import Scoreboard2View from '@/app/hub/scoreboards/[slug]/Scoreboard2View'
 import Scoreboard3View from '@/app/hub/scoreboards/[slug]/Scoreboard3View'
 import Scoreboard4View from '@/app/hub/scoreboards/[slug]/Scoreboard4View'
 import Scoreboard5View from '@/app/hub/scoreboards/[slug]/Scoreboard5View'
-import Scoreboard6View from '@/app/hub/scoreboards/[slug]/Scoreboard6View'
 import Scoreboard7View from '@/app/hub/scoreboards/[slug]/Scoreboard7View'
 import Scoreboard8View from '@/app/hub/scoreboards/[slug]/Scoreboard8View'
 
@@ -77,15 +76,16 @@ export function ScoreboardBoardTab({ slug }: { slug: string }) {
     return <WidgetBoardView meta={meta} classicHref={`/hub/scoreboards/${slug}?classic=1`} />
   }
 
-  // Same slug→view dispatch as app/hub/scoreboards/[slug]/page.tsx. Board 6
-  // (coaching) takes only `meta`; the rest accept an optional `businessName`.
+  // Same slug→view dispatch as app/hub/scoreboards/[slug]/page.tsx. ⚠ This is a
+  // SECOND entry point: a change to the dispatch there must land here too, and
+  // tsc cannot catch a stale one because both components stay valid. Board 6
+  // (Call Coaching) moved to /hub/reports/coaching and is deliberately absent.
   switch (slug) {
     case '1': return <Scoreboard1View meta={meta} />
     case '2': return <Scoreboard2View meta={meta} />
     case '3': return <Scoreboard3View meta={meta} />
     case '4': return <Scoreboard4View meta={meta} />
     case '5': return <Scoreboard5View meta={meta} />
-    case '6': return <Scoreboard6View meta={meta} />
     case '7': return <Scoreboard7View meta={meta} />
     case '8': return <Scoreboard8View meta={meta} />
     default:  return <div className="p-6 text-sm text-white/60">Unknown scoreboard.</div>

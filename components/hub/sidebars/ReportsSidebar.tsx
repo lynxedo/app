@@ -47,20 +47,34 @@ function ReportRow({
 export default function ReportsSidebar({
   onClose,
   onDesktopCollapse,
+  visibleSlugs,
 }: {
   onClose?: () => void
   onDesktopCollapse?: () => void
+  /**
+   * The reports this user may actually open, resolved server-side in the layout.
+   *
+   * ⚠ REQUIRED, not optional. Listing every report here regardless of grants was a
+   * real bug the moment per-report gating shipped: the sidebar offered pages that
+   * bounce you to /hub on click. Making the prop required means a caller that
+   * forgets it fails the type-check instead of silently over-listing — the same
+   * fix as the Aug-11 rail prop, applied to the opposite failure direction.
+   */
+  visibleSlugs: string[]
 }) {
   const pathname = usePathname() ?? ''
 
+  const allowed = new Set(visibleSlugs)
+  const visible = REPORTS.filter(r => allowed.has(r.slug))
+
   const sections = SECTION_ORDER
-    .map(name => ({ name, reports: REPORTS.filter(r => r.section === name) }))
+    .map(name => ({ name, reports: visible.filter(r => r.section === name) }))
     .filter(s => s.reports.length > 0)
 
   // Anything whose section isn't in SECTION_ORDER still gets a home rather than
   // vanishing — a new section name should look unstyled, not missing.
   const listed = new Set(SECTION_ORDER as string[])
-  const orphans = REPORTS.filter(r => !listed.has(r.section))
+  const orphans = visible.filter(r => !listed.has(r.section))
 
   return (
     <SidebarShell title="Reports" onClose={onClose} onDesktopCollapse={onDesktopCollapse}>
