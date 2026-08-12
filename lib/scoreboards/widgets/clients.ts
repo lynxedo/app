@@ -25,6 +25,16 @@ import type { ClientsRow } from './sources'
 import type { SourceBag, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
 
+/**
+ * Link from a figure to the rows behind it, carrying the CURRENT window so the
+ * list is the same slice the number was read in. Point-in-time drill-downs
+ * ignore the dates and say so on their own page.
+ */
+function drillTo(report: string, key: string, win: WindowSpec, label?: string) {
+  return { href: `/hub/reports/${report}/${key}?start=${win.start}&end=${win.end}`, label }
+}
+
+
 const clientsReq = (win: WindowSpec) => ({
   source: 'clients_overview' as const,
   params: { start: win.start, end: win.end },
@@ -131,6 +141,7 @@ export const CLIENTS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         sub: r
           ? `${formatCurrency(num(r.recurring_annual_value))} a year on the books`
           : 'No recurring services',
+        drill: { href: '/hub/reports/clients/recurring-customers', label: 'See the recurring book' },
       }
     },
   },
@@ -240,6 +251,8 @@ export const CLIENTS_WIDGETS: WidgetDef<WidgetPayload>[] = [
           ? `Billed totals cover invoices from ${longDate(r.coverage.first_invoice)} onward — that is as far back as the invoice records go, so a customer who joined earlier has paid more than this shows. It is not a lifetime figure.`
           : 'Billed totals cover the invoices on record.',
         empty: 'Nobody has been invoiced yet',
+        // The card shows the top slice; this is every customer billed in the window.
+        drill: drillTo('clients', 'customers-billed', win, 'See every customer billed'),
       }
     },
   },

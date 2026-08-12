@@ -22,6 +22,16 @@ import type { SalesRow } from './sources'
 import type { SourceBag, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
 
+/**
+ * Link from a figure to the rows behind it, carrying the CURRENT window so the
+ * list is the same slice the number was read in. Point-in-time drill-downs
+ * ignore the dates and say so on their own page.
+ */
+function drillTo(report: string, key: string, win: WindowSpec, label?: string) {
+  return { href: `/hub/reports/${report}/${key}?start=${win.start}&end=${win.end}`, label }
+}
+
+
 const salesReq = (win: WindowSpec) => ({
   source: 'sales_pipeline' as const,
   params: { start: win.start, end: win.end },
@@ -64,6 +74,7 @@ export const SALES_WIDGETS: WidgetDef<WidgetPayload>[] = [
         sub: r
           ? `${win.phrase} · ${num(r.open).toLocaleString()} still open`
           : 'No leads in this period',
+        drill: drillTo('sales', 'leads', win, 'See every lead'),
       }
     },
   },

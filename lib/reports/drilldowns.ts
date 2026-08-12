@@ -18,6 +18,17 @@ import { fetchAllRows } from '@/lib/email-contacts'
  * computed by an RPC, the notes on each dataset below say which one, so the two
  * can be diffed when either changes.
  *
+ * ⚠⚠ SERVICE LINE PROFITABILITY AND CREW & LABOR HAVE NO DRILL-DOWN, DELIBERATELY.
+ * Both are assembled by rules a row list cannot reproduce without duplicating the
+ * whole RPC: revenue is clamped to the period where timeclock data exists, and it
+ * comes from TWO pricing rules at once (recurring work priced per visit from visit
+ * line items, one-off work priced on the job and divided across its visits), with
+ * labour attributed by which visits a person actually completed. Two attempts at a
+ * straightforward row query missed the card by 4.4x and then by 30x — a list that
+ * far from the number above it would destroy confidence in a page that is finally
+ * correct. Doing these properly means having the RPC return its own rows, which is
+ * a bigger change than adding a spec here. Better absent than wrong.
+ *
  * ⚠ Queries run through the CALLER'S supabase client, never the service-role one.
  * invoices / jobs / visits / recurring_services all carry RLS scoping SELECT to
  * `company_id = get_my_company_id()`, so tenant isolation is enforced by the
@@ -337,6 +348,298 @@ const DRILLDOWNS: DrillSpec[] = [
         })
       }
       return rows.sort((a, b) => num(b.annual_value) - num(a.annual_value))
+    },
+  },
+  {
+    key: 'invoices-issued',
+    title: 'Invoices issued',
+    description:
+      'Every invoice raised in the selected period, with what has been collected against it. ' +
+      'Drafts are excluded — they have not been sent, so they are not billed revenue. ' +
+      '"Collected" is derived from the balance rather than the payments column, which is not ' +
+      'populated on a meaningful number of older invoices.',
+    reports: ['revenue'],
+    // Mirrors scoreboard_invoice_window: issued_date within range, drafts excluded.
+    columns: [
+      { key: 'client', label: 'Customer' },
+      { key: 'invoice_number', label: 'Invoice #' },
+      { key: 'issued_date', label: 'Issued', format: 'date' },
+      { key: 'total', label: 'Invoiced', format: 'currency' },
+      { key: 'collected', label: 'Collected', format: 'currency' },
+      { key: 'balance', label: 'Still owed', format: 'currency' },
+      { key: 'status', label: 'Status' },
+    ],
+    run: async ({ supabase, companyId, win }) => {
+      const rows = await fetchAllRows<Record<string, unknown>>(() => supabase
+        .from('invoices')
+        .select('invoice_number, issued_date, total, outstanding_balance, invoice_status, clients(name)')
+        .eq('company_id', companyId)
+        .is('deleted_at', null)
+        .neq('invoice_status', 'draft')
+        .gte('issued_date', win.start)
+        .lte('issued_date', win.end)
+        .order('issued_date', { ascending: false }))
+      return rows.map(r => {
+        const total = num(r.total)
+        const bal = num(r.outstanding_balance)
+        return {
+          client: (r.clients as { name?: string } | null)?.name ?? 'Unknown customer',
+          invoice_number: (r.invoice_number as string | null) ?? '—',
+          issued_date: (r.issued_date as string | null),
+          total,
+          // Never negative: a credit balance would otherwise read as over-collection.
+          collected: Math.max(0, total - bal),
+          balance: bal,
+          status: (r.invoice_status as string | null) ?? '—',
+        }
+      })
+    },
+  },
+
+  {
+    key: 'draft-invoices',
+    title: 'Draft invoices',
+    description:
+      'Invoices started but never sent. Counted company-wide rather than by date, because a ' +
+      'draft often has no issue date at all — filtering by the date range would hide exactly ' +
+      'the ones that have been sitting longest.',
+    reports: ['revenue'],
+    pointInTime: true,
+    columns: [
+      { key: 'client', label: 'Customer' },
+      { key: 'invoice_number', label: 'Invoice #' },
+      { key: 'total', label: 'Value', format: 'currency' },
+      { key: 'issued_date', label: 'Issue date', format: 'date' },
+    ],
+    run: async ({ supabase, companyId }) => {
+      const { data, error } = await supabase
+        .from('invoices')
+        .select('invoice_number, total, issued_date, clients(name)')
+        .eq('company_id', companyId)
+        .is('deleted_at', null)
+        .eq('invoice_status', 'draft')
+        .order('total', { ascending: false, nullsFirst: false })
+      if (error) throw new Error(error.message)
+      return (data ?? []).map(r => ({
+        client: (r.clients as { name?: string } | null)?.name ?? 'Unknown customer',
+        invoice_number: (r.invoice_number as string | null) ?? '—',
+        total: num(r.total),
+        issued_date: (r.issued_date as string | null),
+      }))
+    },
+  },
+
+  {
+    key: 'customers-billed',
+    title: 'What each customer was billed',
+    description:
+      'Every customer invoiced in the selected period, biggest first. This is what they were ' +
+      'BILLED in that window — not a lifetime total. Customer records go back further than the ' +
+      'invoice records do, so anyone who joined earlier has paid more than this shows.',
+    reports: ['clients'],
+    columns: [
+      { key: 'client', label: 'Customer' },
+      { key: 'invoices', label: 'Invoices', format: 'number' },
+      { key: 'billed', label: 'Billed', format: 'currency' },
+      { key: 'collected', label: 'Collected', format: 'currency' },
+      { key: 'owed', label: 'Still owed', format: 'currency' },
+      { key: 'last_invoice', label: 'Last invoiced', format: 'date' },
+    ],
+    run: async ({ supabase, companyId, win }) => {
+      const rows = await fetchAllRows<Record<string, unknown>>(() => supabase
+        .from('invoices')
+        .select('total, outstanding_balance, issued_date, client_id, clients(name)')
+        .eq('company_id', companyId)
+        .is('deleted_at', null)
+        .neq('invoice_status', 'draft')
+        .gte('issued_date', win.start)
+        .lte('issued_date', win.end)
+        .order('id', { ascending: true }))
+
+      // Grouped here rather than in SQL: PostgREST cannot GROUP BY, and a dedicated
+      // RPC for a list this size would be a migration for no gain.
+      const byClient = new Map<string, DrillRow>()
+      for (const r of rows) {
+        const id = (r.client_id as string | null) ?? 'unknown'
+        const name = (r.clients as { name?: string } | null)?.name ?? 'Unknown customer'
+        const cur = byClient.get(id) ?? {
+          client: name, invoices: 0, billed: 0, collected: 0, owed: 0, last_invoice: null,
+        }
+        const total = num(r.total)
+        const bal = num(r.outstanding_balance)
+        cur.invoices = num(cur.invoices) + 1
+        cur.billed = num(cur.billed) + total
+        cur.collected = num(cur.collected) + Math.max(0, total - bal)
+        cur.owed = num(cur.owed) + bal
+        const d = r.issued_date as string | null
+        if (d && (!cur.last_invoice || d > String(cur.last_invoice))) cur.last_invoice = d
+        byClient.set(id, cur)
+      }
+      return [...byClient.values()].sort((a, b) => num(b.billed) - num(a.billed))
+    },
+  },
+
+  {
+    key: 'recurring-customers',
+    title: 'Recurring customers',
+    description:
+      'The live recurring book — customers on a sold recurring service that has not been ' +
+      'cancelled. Point-in-time: this is who is on the book today, not who was on it during ' +
+      'the selected range.',
+    reports: ['clients', 'retention'],
+    pointInTime: true,
+    columns: [
+      { key: 'name', label: 'Customer' },
+      { key: 'service', label: 'Service' },
+      { key: 'annual_value', label: 'Annual value', format: 'currency' },
+      { key: 'salesperson', label: 'Sold by' },
+      { key: 'sold_date', label: 'Sold', format: 'date' },
+      { key: 'source', label: 'Lead source' },
+    ],
+    run: async ({ supabase, companyId }) => {
+      const rows = await fetchAllRows<Record<string, unknown>>(() => supabase
+        .from('recurring_services')
+        .select('name, service, annual_value, salesperson, sold_date, lead_source')
+        .eq('company_id', companyId)
+        .eq('cancelled_status', 'Active')
+        .ilike('status', 'Sold%')
+        .order('id', { ascending: true }))
+      return rows.map(r => ({
+        name: (r.name as string | null) ?? '—',
+        service: Array.isArray(r.service) ? (r.service as string[]).join(', ') : ((r.service as string | null) ?? '—'),
+        annual_value: num(r.annual_value),
+        salesperson: (r.salesperson as string | null) ?? '—',
+        sold_date: (r.sold_date as string | null),
+        source: (r.lead_source as string | null) ?? 'Other / Unknown',
+      })).sort((a, b) => num(b.annual_value) - num(a.annual_value))
+    },
+  },
+
+  {
+    key: 'cancellations',
+    title: 'Cancelled recurring customers',
+    description:
+      'Recurring customers who cancelled in the selected period, with the reason recorded. ' +
+      'Rows with no cancellation date cannot be placed in a period and are left out — the ' +
+      'count of those is worth knowing separately if this list looks short.',
+    reports: ['retention'],
+    columns: [
+      { key: 'name', label: 'Customer' },
+      { key: 'service', label: 'Service' },
+      { key: 'annual_value', label: 'Annual value lost', format: 'currency' },
+      { key: 'reason', label: 'Reason' },
+      { key: 'cancel_date', label: 'Cancelled', format: 'date' },
+      { key: 'source', label: 'Lead source' },
+    ],
+    run: async ({ supabase, companyId, win }) => {
+      const rows = await fetchAllRows<Record<string, unknown>>(() => supabase
+        .from('recurring_services')
+        .select('name, service, annual_value, cancellation_reason, cancel_date, lead_source, cancelled_status')
+        .eq('company_id', companyId)
+        .neq('cancelled_status', 'Active')
+        .gte('cancel_date', win.start)
+        .lte('cancel_date', win.end)
+        .order('cancel_date', { ascending: false }))
+      return rows.map(r => ({
+        name: (r.name as string | null) ?? '—',
+        service: Array.isArray(r.service) ? (r.service as string[]).join(', ') : ((r.service as string | null) ?? '—'),
+        annual_value: num(r.annual_value),
+        reason: (r.cancellation_reason as string | null) ?? 'Not recorded',
+        cancel_date: (r.cancel_date as string | null),
+        source: (r.lead_source as string | null) ?? 'Other / Unknown',
+      }))
+    },
+  },
+
+  {
+    key: 'leads',
+    title: 'Leads',
+    description:
+      'Every lead created in the selected period — the same cohort the close rate is worked ' +
+      'out from, so the two always agree. Leads marked bad, unreachable or duplicate are ' +
+      'included here and labelled, because they are real rows worth seeing even though they ' +
+      'are excluded from the close rate.',
+    reports: ['sales'],
+    columns: [
+      { key: 'name', label: 'Lead' },
+      { key: 'service', label: 'Service' },
+      { key: 'source', label: 'Source' },
+      { key: 'salesperson', label: 'Salesperson' },
+      { key: 'status', label: 'Status' },
+      { key: 'annual_value', label: 'Annual value', format: 'currency' },
+      { key: 'created', label: 'Created', format: 'date' },
+      { key: 'sold_date', label: 'Sold', format: 'date' },
+    ],
+    run: async ({ supabase, companyId, win }) => {
+      const rows = await fetchAllRows<Record<string, unknown>>(() => supabase
+        .from('leads')
+        .select('first_name, last_name, service, lead_source, salesperson, status, annual_value, lead_creation_date, sold_date')
+        .eq('company_id', companyId)
+        .gte('lead_creation_date', win.start)
+        .lte('lead_creation_date', win.end)
+        .order('lead_creation_date', { ascending: false }))
+      return rows.map(r => ({
+        name: [r.first_name, r.last_name].filter(Boolean).join(' ').trim() || '—',
+        service: (r.service as string | null) ?? '—',
+        source: (r.lead_source as string | null) ?? 'Other / Unknown',
+        // Unassigned is called out rather than blank: leads with no salesperson
+        // close far worse, and that is the point of looking at this list.
+        salesperson: (r.salesperson as string | null)?.trim() || '⚠ Unassigned',
+        status: (r.status as string | null) ?? '—',
+        annual_value: num(r.annual_value),
+        created: (r.lead_creation_date as string | null),
+        sold_date: (r.sold_date as string | null),
+      }))
+    },
+  },
+
+  {
+    key: 'missed-calls',
+    title: 'Missed calls',
+    description:
+      'Inbound calls in the selected period that nobody answered — worked out from whether the ' +
+      'call was actually picked up, not from the status the phone system recorded, because a ' +
+      'call can read "completed" while meaning only that it ended. Calls the AI receptionist ' +
+      'answered count as answered and are not here.',
+    reports: ['communications'],
+    columns: [
+      { key: 'from_number', label: 'From' },
+      { key: 'contact', label: 'Contact' },
+      { key: 'when', label: 'When', format: 'date' },
+      { key: 'status', label: 'Outcome' },
+    ],
+    run: async ({ supabase, companyId, win }) => {
+      const rows = await fetchAllRows<Record<string, unknown>>(() => supabase
+        .from('calls')
+        .select('from_number, created_at, status, contact_id')
+        .eq('company_id', companyId)
+        .eq('direction', 'inbound')
+        .is('answered_at', null)
+        .gte('created_at', `${win.start}T00:00:00`)
+        .lte('created_at', `${win.end}T23:59:59`)
+        .order('created_at', { ascending: false }))
+
+      const ids = [...new Set(rows.map(r => r.contact_id as string | null).filter((v): v is string => !!v))]
+      const nameById = new Map<string, string>()
+      for (let i = 0; i < ids.length; i += 100) {
+        const { data: cs } = await supabase
+          .from('txt_contacts')
+          .select('id, name')
+          .in('id', ids.slice(i, i + 100))
+        for (const c of cs ?? []) {
+          const n = (c.name as string | null)?.trim()
+          if (n) nameById.set(c.id as string, n)
+        }
+      }
+
+      return rows.map(r => ({
+        from_number: (r.from_number as string | null) ?? '—',
+        // Blank rather than "Unknown": an unnamed caller is a known gap in the
+        // directory, not a fact about the call.
+        contact: nameById.get((r.contact_id as string) ?? '') ?? '—',
+        when: (r.created_at as string | null)?.slice(0, 10) ?? null,
+        status: (r.status as string | null) ?? '—',
+      }))
     },
   },
 ]

@@ -223,7 +223,7 @@ export const SERVICE_LINE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         rows,
         /* Two disclosures that stop this being read as margin. */
         foot: r
-          ? `This is revenue after WAGES only — materials, fuel, vehicles and overhead are not deducted, so it is not margin. A further ${num(r.unassigned_hours).toLocaleString()} paid hours (${formatCurrency(num(r.unassigned_cost))}) fell on days with no completed visit and belong to no line, so the per-line wages above add up to less than payroll.`
+          ? `Wages come from the Hub timeclock — hours each person actually clocked, priced at their hourly rate on the Employee Roster. Salaried staff and anyone who does not clock in are NOT included, so this is field labour, not payroll. Hours are charged to a line by the visits that person completed that day rather than by the department on their record, because those labels drift. This is revenue after WAGES only — materials, fuel, vehicles and overhead are not deducted, so it is not margin. A further ${num(r.unassigned_hours).toLocaleString()} paid hours (${formatCurrency(num(r.unassigned_cost))}) fell on days with no completed visit and belong to no line, so the per-line wages above add up to less than payroll.`
           : undefined,
         empty: 'No completed work in this period',
       }

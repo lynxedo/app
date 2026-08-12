@@ -29,6 +29,8 @@ export type KpiPayload = {
   delta?: { pct: number | null; text: string; tone: Tone }
   /** Small trend shape. Values only; the renderer scales them. */
   spark?: number[]
+  /** Opens the full row list behind this figure (see lib/reports/drilldowns.ts). */
+  drill?: DrillLink
 }
 
 /**

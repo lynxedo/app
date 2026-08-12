@@ -24,6 +24,16 @@ import type { InvoiceArRow, InvoiceWindowRow } from './sources'
 import type { SourceBag, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
 
+/**
+ * Link from a figure to the rows behind it, carrying the CURRENT window so the
+ * list is the same slice the number was read in. Point-in-time drill-downs
+ * ignore the dates and say so on their own page.
+ */
+function drillTo(key: string, win: WindowSpec, label?: string) {
+  return { href: `/hub/reports/revenue/${key}?start=${win.start}&end=${win.end}`, label }
+}
+
+
 const windowReq = (win: WindowSpec) => ({
   source: 'invoice_window' as const,
   params: { start: win.start, end: win.end },
@@ -87,6 +97,7 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         sub: r
           ? `${win.phrase} · ${n.toLocaleString()} invoice${n === 1 ? '' : 's'} sent`
           : 'No invoices in this period',
+        drill: drillTo('invoices-issued', win, 'See every invoice'),
       }
     },
   },
@@ -112,6 +123,7 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         sub: r && rate != null
           ? `${rate}% of what was invoiced ${win.phrase}`
           : 'Nothing invoiced yet',
+        drill: drillTo('invoices-issued', win, 'See what was collected'),
       }
     },
   },
@@ -136,6 +148,7 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         sub: r
           ? `${num(r.open_count)} unpaid · ${formatCurrency(overdue)} past due · as of today, not the date range`
           : 'Nothing outstanding',
+        drill: { href: '/hub/reports/revenue/open-invoices', label: 'See who owes what' },
       }
     },
   },
@@ -155,6 +168,7 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Average Invoice',
         value: r && r.avg_invoice != null ? formatCurrency(num(r.avg_invoice)) : '—',
         sub: r ? `Across ${num(r.invoice_count).toLocaleString()} invoices ${win.phrase}` : 'No invoices yet',
+        drill: drillTo('invoices-issued', win, 'See every invoice'),
       }
     },
   },
@@ -209,6 +223,7 @@ export const REVENUE_WIDGETS: WidgetDef<WidgetPayload>[] = [
         sub: n > 0
           ? `${n} invoice${n === 1 ? '' : 's'} never sent — nobody has been asked to pay this`
           : 'Nothing sitting in drafts',
+        drill: { href: '/hub/reports/revenue/draft-invoices', label: 'See the drafts' },
       }
     },
   },

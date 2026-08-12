@@ -28,6 +28,16 @@ import type { CommsRow } from './sources'
 import type { SourceBag, WidgetDef, WindowSpec } from './types'
 import type { Tone, WidgetPayload } from './payloads'
 
+/**
+ * Link from a figure to the rows behind it, carrying the CURRENT window so the
+ * list is the same slice the number was read in. Point-in-time drill-downs
+ * ignore the dates and say so on their own page.
+ */
+function drillTo(report: string, key: string, win: WindowSpec, label?: string) {
+  return { href: `/hub/reports/${report}/${key}?start=${win.start}&end=${win.end}`, label }
+}
+
+
 const commsReq = (win: WindowSpec) => ({
   source: 'communications' as const,
   params: { start: win.start, end: win.end },
@@ -96,6 +106,7 @@ export const COMMS_WIDGETS: WidgetDef<WidgetPayload>[] = [
         sub: r
           ? `${num(r.missed).toLocaleString()} of ${num(r.inbound_calls).toLocaleString()} · ${num(r.missed_with_voicemail)} left a voicemail`
           : 'No calls in this period',
+        drill: drillTo('communications', 'missed-calls', win, 'See the missed calls'),
       }
     },
   },

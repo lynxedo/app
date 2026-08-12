@@ -19,6 +19,16 @@ import type { SourceBag, WidgetDef, WidgetConfig, WindowSpec } from './types'
 import { windowYear, currentBusinessYear } from './windows'
 import type { Tone, WidgetPayload } from './payloads'
 
+/**
+ * Link from a figure to the rows behind it, carrying the CURRENT window so the
+ * list is the same slice the number was read in. Point-in-time drill-downs
+ * ignore the dates and say so on their own page.
+ */
+function drillTo(report: string, key: string, win: WindowSpec, label?: string) {
+  return { href: `/hub/reports/${report}/${key}?start=${win.start}&end=${win.end}`, label }
+}
+
+
 const yearReq = (year: number) => ({ source: 'churn_summary' as const, params: { year } })
 
 function summary(bag: SourceBag, year: number): ChurnSummaryRow | null {
@@ -118,6 +128,7 @@ export const RETENTION_WIDGETS: WidgetDef<WidgetPayload>[] = [
         label: 'Active Recurring Services',
         value: s ? s.active_now.toLocaleString() : '—',
         sub: s ? `${formatCurrency(s.active_annual_value)}/yr · ${s.new_in_year} sold this year` : 'No recurring book',
+        drill: { href: '/hub/reports/retention/recurring-customers', label: 'See the recurring book' },
       }
     },
   },
@@ -139,6 +150,7 @@ export const RETENTION_WIDGETS: WidgetDef<WidgetPayload>[] = [
         value: s ? formatCurrency(s.churned_annual_value) : '—',
         tone: (s?.churned_annual_value ?? 0) > 0 ? 'bad' : 'neutral',
         sub: s ? `${s.churned_gross} cancellations in ${yearPhrase(win, year)}` : 'Nothing cancelled',
+        drill: drillTo('retention', 'cancellations', win, 'See who cancelled'),
       }
     },
   },

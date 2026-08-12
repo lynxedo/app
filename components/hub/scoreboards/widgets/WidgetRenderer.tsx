@@ -76,6 +76,19 @@ function Kpi({ p }: { p: KpiPayload }) {
       ) : null}
       {p.sub ? <div className="mt-1.5 text-[11px] text-gray-500">{p.sub}</div> : null}
       {p.spark ? <Spark values={p.spark} tone={toneColor(p.delta?.tone ?? p.tone ?? 'neutral')} /> : null}
+      {/* An explicit link rather than making the whole tile clickable: a KPI card
+        * carries a delta and a sub-line that are worth reading, and a card-wide
+        * hit area invites a click when someone meant to select the text. */}
+      {p.drill ? (
+        <div className="mt-2">
+          <Link
+            href={p.drill.href}
+            className="text-[11px] font-semibold text-[var(--t-accent)] hover:underline"
+          >
+            {p.drill.label ?? 'See the rows'} →
+          </Link>
+        </div>
+      ) : null}
     </>
   )
 }
