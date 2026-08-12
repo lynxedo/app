@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { getGrantedReportSlugs } from '@/lib/reports/access'
 import { SECTION_ORDER, canSeeReports, reportsForUser } from '@/lib/reports/registry'
 
 export const metadata = { title: 'Reports' }
@@ -41,9 +42,11 @@ export default async function ReportsIndexPage() {
     .eq('id', user.id)
     .single()
 
+  const isAdmin = profile?.role === 'admin'
   const perms = {
-    isAdmin: profile?.role === 'admin',
+    isAdmin,
     canAccessReports: profile?.can_access_reports === true,
+    allowedReportSlugs: isAdmin ? [] : await getGrantedReportSlugs(supabase, user.id),
   }
   if (!canSeeReports(perms)) redirect('/hub')
 
@@ -87,21 +90,44 @@ export default async function ReportsIndexPage() {
           </section>
         ))}
 
-        <div className="mb-3 mt-8 text-[11px] font-semibold uppercase tracking-[1.2px] text-gray-500">
-          Operational tables
-        </div>
-        <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
-          {LEGACY.map(r => (
-            <Link
-              key={r.href}
-              href={r.href}
-              className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 transition-colors hover:border-white/25 hover:bg-white/[0.06]"
-            >
-              <div className="mb-1 font-semibold text-gray-100">{r.title}</div>
-              <div className="text-[13px] leading-snug text-gray-400">{r.desc}</div>
-            </Link>
-          ))}
-        </div>
+        {sections.length === 0 && (
+          /* Reachable state, not a theoretical one: `can_access_reports` opens the
+           * section, but per-report grants decide the contents, so someone can
+           * legitimately arrive here with nothing. Say which of the two it is —
+           * an empty page with no explanation is indistinguishable from a broken
+           * one, which is how a shipped feature gets reported as missing. */
+          <div className="mt-6 rounded-2xl border border-white/10 bg-white/[0.03] p-6 text-center">
+            <div className="mb-1 font-semibold text-gray-100">No reports have been shared with you yet</div>
+            <div className="text-[13px] leading-snug text-gray-400">
+              You have access to the Reports section, but you haven&apos;t been given any individual reports to
+              view yet. An admin can grant them in Admin → Reports.
+            </div>
+          </div>
+        )}
+
+        {/* Admin-only: both legacy pages redirect a non-admin straight back to
+          * /hub, so showing these cards to anyone else offers a door that closes
+          * in their face. They are gated more tightly than the preset reports
+          * because they predate the grant model, and they are on the way out. */}
+        {perms.isAdmin && (
+          <>
+            <div className="mb-3 mt-8 text-[11px] font-semibold uppercase tracking-[1.2px] text-gray-500">
+              Operational tables
+            </div>
+            <div className="grid gap-3 [grid-template-columns:repeat(auto-fill,minmax(280px,1fr))]">
+              {LEGACY.map(r => (
+                <Link
+                  key={r.href}
+                  href={r.href}
+                  className="rounded-2xl border border-white/10 bg-white/[0.03] p-4 transition-colors hover:border-white/25 hover:bg-white/[0.06]"
+                >
+                  <div className="mb-1 font-semibold text-gray-100">{r.title}</div>
+                  <div className="text-[13px] leading-snug text-gray-400">{r.desc}</div>
+                </Link>
+              ))}
+            </div>
+          </>
+        )}
       </div>
     </div>
   )

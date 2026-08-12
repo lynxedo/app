@@ -1,5 +1,6 @@
 import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getGrantedReportSlugs } from '@/lib/reports/access'
 import { canSeeReport, getReport } from '@/lib/reports/registry'
 import { getDrilldown } from '@/lib/reports/drilldowns'
 import { toCsv, csvFilename } from '@/lib/reports/drilldown-csv'
@@ -34,7 +35,15 @@ export async function GET(request: Request) {
   const drillKey = sp.get('drill') ?? ''
 
   const report = getReport(reportSlug)
-  const perms = { isAdmin: profile.role === 'admin', canAccessReports: profile.can_access_reports === true }
+  const isAdmin = profile.role === 'admin'
+  const perms = {
+    isAdmin,
+    canAccessReports: profile.can_access_reports === true,
+    allowedReportSlugs: isAdmin ? [] : await getGrantedReportSlugs(supabase, user.id),
+  }
+  // Per-report grants apply to the EXPORT too. A download is the same data in a
+  // file, so gating the page and not the file would leave the whole point of the
+  // gate one URL away — and this is the route that hands over wage rows in bulk.
   if (!report || !canSeeReport(perms, reportSlug)) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }

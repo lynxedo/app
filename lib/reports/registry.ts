@@ -5,10 +5,17 @@
  * arrangement the user assembles from the same library (REPORTS_PRD.md §0.1).
  * One widget library, two consumers.
  *
- * Access is the two-layer model from §12: `can_access_reports` opens the section,
- * and per-report grants decide which pages inside it. ⚠ The per-report grant layer
- * is NOT built yet — today the section flag (plus admin) is the whole gate, which
- * is deliberately no looser than the `role = 'admin'` check it replaces.
+ * Access is the two-layer model from §12, and BOTH layers now exist:
+ *   1. `can_access_reports` (Admin → People) opens the section at all.
+ *   2. `report_access` rows (Admin → Reports) decide which reports inside it.
+ * Default is nothing-until-granted: the section flag alone shows an empty index.
+ * Admins (role = 'admin') see every report regardless of grants.
+ *
+ * ⚠ Why layer 2 was worth building rather than leaving the section flag to do both
+ * jobs: the reports are not equally sensitive. Crew & Labor shows what individual
+ * people earn per hour, and Service Line Profitability shows wage totals — so
+ * "can open Reports" was granting the payroll-shaped pages to anyone who needed
+ * Revenue. §12 always said these are separately gated; until now they weren't.
  */
 
 export type ReportMeta = {
@@ -107,6 +114,20 @@ export function getReport(slug: string): ReportMeta | null {
 export type ReportPerms = {
   isAdmin: boolean
   canAccessReports: boolean
+  /**
+   * Report slugs this user is explicitly granted (`report_access`). Ignored for
+   * admins, who see everything.
+   *
+   * ⚠ OPTIONAL, and that is a deliberate risk accepted with a mitigation rather
+   * than an oversight. An omitted permission field defaults to the LOCKED state
+   * here (undefined → no grants → no reports), which fails CLOSED. That is the
+   * safe direction, and the opposite of the Aug-11 rail bug where an optional
+   * `canAccessReports` prop defaulted to false and silently hid a shipped
+   * feature — absent looked exactly like never-shipped. Here a forgotten wire-up
+   * costs a user their reports, which they will report immediately, instead of
+   * quietly handing them wage data.
+   */
+  allowedReportSlugs?: string[]
 }
 
 /** Whether the Reports section is visible at all. */
@@ -115,12 +136,16 @@ export function canSeeReports(perms: ReportPerms): boolean {
 }
 
 /**
- * Whether one report is visible. Per-report grants land here when they're built;
- * until then this is the section gate, so adding the layer later can only ever
- * narrow access, never widen it by surprise.
+ * Whether ONE report is visible — layer 2 of §12.
+ *
+ * Order matters: the section gate is checked first, so a grant row can never let
+ * someone into Reports who lacks `can_access_reports`. A stale grant left behind
+ * after the section flag is revoked therefore grants nothing.
  */
-export function canSeeReport(perms: ReportPerms, _slug: string): boolean {
-  return canSeeReports(perms)
+export function canSeeReport(perms: ReportPerms, slug: string): boolean {
+  if (!canSeeReports(perms)) return false
+  if (perms.isAdmin) return true
+  return (perms.allowedReportSlugs ?? []).includes(slug)
 }
 
 export function reportsForUser(perms: ReportPerms): ReportMeta[] {

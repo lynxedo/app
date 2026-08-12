@@ -1,6 +1,7 @@
 import Link from 'next/link'
 import { redirect, notFound } from 'next/navigation'
 import { createClient } from '@/lib/supabase/server'
+import { getGrantedReportSlugs } from '@/lib/reports/access'
 import { canSeeReport, getReport } from '@/lib/reports/registry'
 import { getDrilldown, type DrillColumn, type DrillRow } from '@/lib/reports/drilldowns'
 import { resolveWindow } from '@/lib/scoreboards/widgets/windows'
@@ -75,12 +76,16 @@ export default async function ReportDetailPage({
     .eq('id', user.id)
     .single()
 
+  const isAdmin = profile?.role === 'admin'
   const perms = {
-    isAdmin: profile?.role === 'admin',
+    isAdmin,
     canAccessReports: profile?.can_access_reports === true,
+    allowedReportSlugs: isAdmin ? [] : await getGrantedReportSlugs(supabase, user.id),
   }
   // Same gate as the report itself — a drill-down must never be a side door into
-  // data the report it belongs to is closed to.
+  // data the report it belongs to is closed to. That now includes the per-report
+  // grant, not just the section flag: the drill-downs behind Crew & Labor are the
+  // individual wage rows themselves.
   if (!canSeeReport(perms, slug)) redirect('/hub')
   if (!profile?.company_id) notFound()
 

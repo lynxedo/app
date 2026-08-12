@@ -20,6 +20,7 @@ import { broadcastPresenceForUser } from '@/lib/hub-presence-broadcast'
 import { resolveLayout, reconcileSeededApps } from '@/lib/hub-layout'
 import { getBetaFlags } from '@/lib/beta-flags'
 import type { RailPermissions } from '@/components/hub/railCatalog'
+import { REPORTS } from '@/lib/reports/registry'
 import { SCOREBOARDS } from '@/lib/scoreboards/registry'
 
 export const metadata: Metadata = {
@@ -220,9 +221,7 @@ export default async function HubLayout({ children }: { children: React.ReactNod
   const canAccessDailyLogV2 = profileResult.data?.can_access_daily_log_v2 ?? false
   const canAccessPricer = isAdmin || (profileResult.data?.can_access_pricer ?? false)
   const rawCanAccessScoreboards = profileResult.data?.can_access_scoreboards ?? false
-  // Reports section gate (PRD §12). Admins bypass, matching every other section and
-  // preserving what the old hardcoded `role === 'admin'` check allowed.
-  const canAccessReports = isAdmin || (profileResult.data?.can_access_reports ?? false)
+  const rawCanAccessReports = profileResult.data?.can_access_reports ?? false
   const companyId = profileResult.data?.company_id ?? ''
   // A signed-in account with no company never auto-joined one (its email domain
   // didn't match a registered company in handle_new_user). Send it to a clean
@@ -253,6 +252,17 @@ export default async function HubLayout({ children }: { children: React.ReactNod
           .map(r => r.board_slug as string)
       : []
   const canAccessScoreboards = isAdmin || (rawCanAccessScoreboards && scoreboardSlugs.length > 0)
+  // Per-report view access (Admin -> Reports), the same shape as the boards above:
+  // admins see all, non-admins see only what they're granted, and the rail icon is
+  // hidden entirely when they have none — an icon that opens an empty page is worse
+  // than no icon. The query only runs for a non-admin who holds the section flag.
+  const reportSlugs: string[] = isAdmin
+    ? REPORTS.map(r => r.slug)
+    : rawCanAccessReports
+      ? ((await admin.from('report_access').select('report_slug').eq('user_id', user.id)).data ?? [])
+          .map(r => r.report_slug as string)
+      : []
+  const canAccessReports = isAdmin || (rawCanAccessReports && reportSlugs.length > 0)
   // Track 5 (M3) — company-level module entitlements, applied in FRONT of the per-user
   // flags below when passing them to the shell. FAILS OPEN: a company with no gating-active
   // subscription (every existing tenant, incl. Heroes) yields entitled === null, so
