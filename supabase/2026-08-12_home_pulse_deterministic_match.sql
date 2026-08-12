@@ -1,0 +1,21 @@
+-- At-risk customer matching must be DETERMINISTIC. Applied 2026-08-12.
+--
+-- ⚠ The lateral mapping a recurring service to a Jobber client used `limit 1` with
+-- NO `order by`. Three of Heroes' active-service emails match TWO client rows each
+-- (a duplicate Adrian Cadena, "(OLD)Klein Cain High School" vs "Klein ISD", and two
+-- Lowders sharing an address), and those rows disagree about whether a future visit
+-- exists. Postgres gives no guarantee which row an unordered `limit 1` returns, so
+-- the at-risk count could read 22 on one run and 21 on the next — and the new
+-- drill-down list could never be made to agree, because there was nothing stable to
+-- agree WITH. Found by building that list and diffing it against the tile.
+--
+-- `order by cl.id` makes the pick stable. It does NOT make it correct — matching
+-- customers by email is inherently ambiguous when an email is shared — but a stable
+-- answer can be checked and a shifting one cannot. Heroes reads 21 after this.
+--
+-- Full body as applied is in the migration history
+-- (home_pulse_deterministic_client_match_2026_08_12); only the rs_client CTE
+-- changed, plus the ACL restore below.
+--
+-- ⚠ CREATE OR REPLACE re-grants EXECUTE to PUBLIC by Supabase default — the July
+-- anon-leak trap. Verified after: anon=false, authenticated=true.

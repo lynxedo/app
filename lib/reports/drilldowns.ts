@@ -1,5 +1,9 @@
 import type { SupabaseClient } from '@supabase/supabase-js'
 import type { WindowSpec } from '@/lib/scoreboards/widgets/types'
+// Generic PostgREST paging helper. It lives in the email module for historical
+// reasons rather than domain ones — reused here instead of writing a fourth copy
+// of the same 1,000-row loop. That file imports only types, so this costs nothing.
+import { fetchAllRows } from '@/lib/email-contacts'
 
 /* Drill-downs: the rows behind a number.
  *
@@ -197,7 +201,9 @@ const DRILLDOWNS: DrillSpec[] = [
       '"Live" means the service is sold AND not cancelled — filtering on the sold status alone ' +
       'counts cancelled customers as at risk and overstates this list roughly sixfold. ' +
       'Recurring services match to customers by email, so any without a matching customer ' +
-      'record cannot appear here; the count of those is shown beneath the table.',
+      'record cannot appear here. Where two customer records share one email address — a ' +
+      'duplicate, a renamed account, or two people at the same address — the oldest record ' +
+      'is used, consistently, so this list and the count on Home always agree.',
     reports: ['home'],
     pointInTime: true,
     // Mirrors scoreboard_home_pulse -> attention.at_risk_clients. The email join and
@@ -218,27 +224,35 @@ const DRILLDOWNS: DrillSpec[] = [
         .ilike('status', 'Sold%')
       if (sErr) throw new Error(sErr.message)
 
-      const emails = [...new Set((services ?? [])
+      const emails = new Set((services ?? [])
         .map(s => (s.email as string | null)?.trim().toLowerCase())
-        .filter((e): e is string => !!e))]
-      if (!emails.length) return []
+        .filter((e): e is string => !!e))
+      if (!emails.size) return []
 
-      // Chunked: a long .in() list blows the PostgREST URL length limit.
-      const clientByEmail = new Map<string, { id: string; name: string }>()
-      for (let i = 0; i < emails.length; i += 100) {
-        const { data: cs, error: cErr } = await supabase
+      // ⚠⚠ THE MATCH MUST BE CASE-INSENSITIVE ON BOTH SIDES. The RPC this mirrors
+      // joins `lower(cl.email) = lower(ars.email)`; 157 of Heroes' client emails
+      // carry uppercase. Lowercasing only the service side and handing the result
+      // to `.in('email', …)` is a case-SENSITIVE comparison in Postgres, so those
+      // customers silently drop out and the list comes up short against its own
+      // tile — the precise failure this file exists to avoid.
+      //
+      // Paged rather than filtered: there is no case-insensitive `.in()` in
+      // PostgREST, and building an .or() of ilike terms from stored email text is
+      // both fragile and injection-shaped. The client list is ~1,600 rows.
+      const allClients = await fetchAllRows<{ id: string; name: string | null; email: string | null }>(
+        () => supabase
           .from('clients')
           .select('id, name, email')
           .eq('company_id', companyId)
           .is('deleted_at', null)
-          .in('email', emails.slice(i, i + 100))
-        if (cErr) throw new Error(cErr.message)
-        for (const c of cs ?? []) {
-          const key = (c.email as string | null)?.trim().toLowerCase()
-          if (key && !clientByEmail.has(key)) {
-            clientByEmail.set(key, { id: c.id as string, name: (c.name as string) ?? 'Unknown customer' })
-          }
-        }
+          .order('id', { ascending: true }),
+      )
+
+      const clientByEmail = new Map<string, { id: string; name: string }>()
+      for (const c of allClients) {
+        const key = c.email?.trim().toLowerCase()
+        if (!key || !emails.has(key) || clientByEmail.has(key)) continue
+        clientByEmail.set(key, { id: c.id, name: c.name ?? 'Unknown customer' })
       }
 
       const clientIds = [...new Set([...clientByEmail.values()].map(c => c.id))]
